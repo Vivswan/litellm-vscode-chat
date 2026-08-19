@@ -938,6 +938,42 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`document.activeElement === [...document.querySelectorAll(".matcher-editor .rows input.key")].at(-1)`,
 	},
 	{
+		// The same typing claim with a directive mark deliberately stranded: a
+		// wrong-record-type key mounts the "ignored" badge in the row's flag cell
+		// and its sentence in the reserved status line, and neither may move the
+		// value cell, the grid, or the footer. The pair above adds a fresh row
+		// precisely to AVOID this state; this one exists to create it.
+		name: "record-overlay-key-wrong-type",
+		fixture: "record-overlay.ts",
+		setup: [
+			`(() => {
+				const add = [...document.querySelectorAll(".matcher-editor button")]
+					.find((b) => b.textContent.trim() === "Add parameter");
+				if (add === undefined) { throw new Error(${marker("SETUP", ": no Add parameter action in the overlay")}); }
+				add.click();
+			})()`,
+		],
+		targets: [".matcher-editor .rows", ".matcher-editor .rows > .row .cell.value", ".matcher-editor .editor-footer"],
+		siblingOf: ".matcher-editor .rows",
+		toggle: [
+			`(() => {
+				const inputs = [...document.querySelectorAll(".matcher-editor .rows input.key")];
+				const input = inputs[inputs.length - 1];
+				if (input === undefined) { throw new Error(${marker("SETUP", ": no key input in the overlay grid")}); }
+				const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+				input.focus({ preventScroll: true });
+				setter.call(input, "_openrouter_model");
+				input.dispatchEvent(new Event("input", { bubbles: true }));
+			})()`,
+		],
+		restVerify:
+			`[...document.querySelectorAll(".matcher-editor .rows input.key")].at(-1)?.value === "" && ` +
+			`document.querySelector(".matcher-editor .chip-flag-ignored") === null`,
+		verify:
+			`[...document.querySelectorAll(".matcher-editor .rows input.key")].at(-1)?.value === "_openrouter_model" && ` +
+			`document.querySelector(".matcher-editor .row .chip-flag-ignored") !== null`,
+	},
+	{
 		// The server form commit bar's trailing facts share one wrap-proof line
 		// (dashboard.css .commit-status): the unsaved count speaking must move
 		// neither the bar, the slot, nor the page - the count is the slot's

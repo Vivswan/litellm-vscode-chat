@@ -636,6 +636,136 @@ test("a hinted chip carries the hinted class the forced-colors width rule keys o
 	expect(chipFor(section(), "temperature").getAttribute("aria-describedby")).toBeNull();
 });
 
+// === The wrong-record-type "ignored" badge ===
+
+test("a capability directive in a parameters record badges its chip ignored, sentence as tooltip and description", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: settingsWithParams({
+					"gpt-5*": { temperature: 0.3, _openrouter_model: "openai/gpt-5", _fallback: ["context_length"] },
+				}),
+			})
+		)
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+	for (const key of ["_openrouter_model", "_fallback"]) {
+		const badge = chipFor(section(), key).querySelector(".chip-flag-ignored");
+		expect(badge?.textContent).toBe("ignored");
+		// The warn text tier, not the accent the user-set flags wear: the tone
+		// is the approved constraint and nothing else pins it.
+		expect(badge?.className).toContain("text-warn");
+		const sentence = `"${key}" belongs to capability records and is ignored here`;
+		expect(badge?.getAttribute("title")).toBe(sentence);
+		expect(accessibleDescriptionOf(chipFor(section(), key))).toContain(sentence);
+	}
+});
+
+test("a parameters directive in a capability record badges ignored; the home-record directives never do", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: makeSettings({
+					modelParameters: {
+						editScope: "global",
+						value: { "gpt-4": { temperature: 0.2, _force: ["temperature"] } },
+						otherScopes: [],
+						effective: { "gpt-4": { temperature: 0.2, _force: ["temperature"] } },
+					},
+					modelCapabilities: {
+						editScope: "global",
+						value: {
+							"gpt-4": {
+								context_length: 128000,
+								_force: ["temperature"],
+								_fallback: ["context_length"],
+								_openrouter_model: "openai/gpt-4o",
+							},
+						},
+						otherScopes: [],
+						effective: {
+							"gpt-4": {
+								context_length: 128000,
+								_force: ["temperature"],
+								_fallback: ["context_length"],
+								_openrouter_model: "openai/gpt-4o",
+							},
+						},
+					},
+				}),
+			})
+		)
+	);
+	const caps = () => sectionByHeading(root, "Model capabilities");
+	const badge = chipFor(caps(), "_force").querySelector(".chip-flag-ignored");
+	expect(badge?.textContent).toBe("ignored");
+	expect(badge?.getAttribute("title")).toBe('"_force" belongs to parameters records and is ignored here');
+	// The home-record directives stay unbadged: `_fallback` absorbs into its
+	// field's badge, the catalog chip is `_openrouter_model` at home, and the
+	// parameters record's own `_force` absorbs likewise.
+	expect(caps().querySelectorAll(".chip-flag-ignored")).toHaveLength(1);
+	const params = () => sectionByHeading(root, "Model parameters");
+	expect(params().querySelector(".chip-flag-ignored")).toBeNull();
+	// The user-set marks keep the accent label tier - two registers, one size.
+	const forceBadge = chipFor(params(), "temperature").querySelector(".chip-flag");
+	expect(forceBadge?.textContent).toBe("force");
+	expect(forceBadge?.className).toContain("text-accent-text");
+});
+
+test("the matcher editor mounts the ignored badge in its flag cell and wires the sentence to the key input", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: settingsWithParams({ "gpt-5*": { temperature: 0.3, _openrouter_model: "openai/gpt-5" } }),
+			})
+		)
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+	const editor = openEditorFor(section(), "gpt-5*");
+	const badge = editor.querySelector(".row .directive-flag .chip-flag-ignored");
+	const sentence = '"_openrouter_model" belongs to capability records and is ignored here';
+	expect(badge?.textContent).toBe("ignored");
+	expect(badge?.getAttribute("title")).toBe(sentence);
+	// The overlay's aria-describedby story: the key input that carries the
+	// stranded directive is described by the sentence, not just bordered.
+	const keyInput = Array.from(editor.querySelectorAll<HTMLInputElement>(".rows input.key")).find(
+		(input) => input.value === "_openrouter_model"
+	) as HTMLInputElement;
+	expect(accessibleDescriptionOf(keyInput)).toBe(sentence);
+	// The plain parameter row keeps its checkbox cell and gains no description.
+	const plainKey = Array.from(editor.querySelectorAll<HTMLInputElement>(".rows input.key")).find(
+		(input) => input.value === "temperature"
+	) as HTMLInputElement;
+	expect(plainKey.getAttribute("aria-describedby")).toBeNull();
+	expect(editor.querySelector(`input[aria-label='Force "temperature"']`)).not.toBeNull();
+});
+
+test("the capability matcher editor badges a parameters directive the same way", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: settingsWithCaps({ "gpt-4": { context_length: 128000, _force: ["temperature"] } }),
+			})
+		)
+	);
+	const section = () => sectionByHeading(root, "Model capabilities");
+	const editor = openEditorFor(section(), "gpt-4");
+	const badge = editor.querySelector(".row .directive-flag .chip-flag-ignored");
+	const sentence = '"_force" belongs to parameters records and is ignored here';
+	expect(badge?.textContent).toBe("ignored");
+	expect(badge?.getAttribute("title")).toBe(sentence);
+	const keyInput = Array.from(editor.querySelectorAll<HTMLInputElement>(".rows input.key")).find(
+		(input) => input.value === "_force"
+	) as HTMLInputElement;
+	expect(accessibleDescriptionOf(keyInput)).toBe(sentence);
+	// The capability row keeps its fallback checkbox cell, badge-free.
+	expect(editor.querySelector(`input[aria-label='Fall back for "context_length"']`)).not.toBeNull();
+});
+
 test("the popover's force toggle writes the _force list without a raw chip, and unmarking removes it", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));

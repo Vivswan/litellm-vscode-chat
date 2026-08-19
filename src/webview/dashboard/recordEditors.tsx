@@ -30,6 +30,7 @@ import {
 	toCapabilityGroups,
 	toGroups,
 	toggleDirectiveField,
+	wrongRecordTypeHint,
 } from "../../dashboard/recordDraft";
 import type { DashboardModel, ScopedRecordSetting, SettingScope } from "../../dashboard/viewModels";
 import { CONSUMED_CAPABILITY_FIELDS } from "../../shared/config/capabilityResolution";
@@ -535,6 +536,8 @@ function ParamGroupsFields({
 	// The group's `_force` marks, derived once per render from the same
 	// rows the checkboxes rewrite, so box state and row text cannot drift.
 	const forcedFields = directiveMarkedFields(group, FORCE_DIRECTIVE);
+	// The wrong-record-type rows' description ids, one namespace per editor.
+	const wrongTypeIdBase = useId();
 	// The control-backed directive rows the grid absorbs: the Inherits
 	// select and the per-row checkboxes are their single representation.
 	// A row those controls cannot fully display - an unreadable value, a
@@ -606,6 +609,10 @@ function ParamGroupsFields({
 							param.key.trim().length > 0 ? l10n.t('Remove "{0}"', param.key.trim()) : l10n.t("Remove");
 						const rowProblem = problems?.params[paramIndex]?.message;
 						const rowHint = hints?.params[paramIndex];
+						// The wrong-record-type badge in the row's flag cell, its sentence
+						// wired to the key input: the same fact the table's chips badge.
+						const wrongType = wrongRecordTypeHint("params", param.key.trim());
+						const wrongTypeId = wrongType === undefined ? undefined : `${wrongTypeIdBase}-${param.id}`;
 						return (
 							<div className="row" key={param.id} {...focusHold.rowFocusProps(param.id)}>
 								{/* The stacked tier's per-cell labels (dashboard.css .cell-label): once the rows stack
@@ -623,6 +630,7 @@ function ParamGroupsFields({
 										invalid={problems?.params[paramIndex]?.field === "name"}
 										placeholder={l10n.t("Parameter, e.g. temperature")}
 										ariaLabel={l10n.t("Parameter")}
+										describedBy={wrongTypeId}
 										disabled={inert}
 										onValue={(next) =>
 											patchGroup({
@@ -657,8 +665,13 @@ function ParamGroupsFields({
 								</span>
 								{/* The per-row force/inheritable marks in their own fixed column so the boxes align.
 								    Directive rows carry no flag checkboxes (a directive cannot be forced or inherited);
-								    unforceable keys keep the box visible but disabled, the help naming why. */}
-								{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? null : (
+								    unforceable keys keep the box visible but disabled, the help naming why. A sibling
+								    record type's directive fills the cell with the "ignored" badge instead. */}
+								{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? (
+									wrongType === undefined || wrongTypeId === undefined ? null : (
+										<WrongTypeFlagCell note={wrongType} id={wrongTypeId} />
+									)
+								) : (
 									<span className="cell directive-flag">
 										<label>
 											<Checkbox
@@ -759,6 +772,7 @@ function SuggestInput({
 	invalid,
 	placeholder,
 	ariaLabel,
+	describedBy,
 	disabled,
 	onValue,
 	onEnter,
@@ -771,6 +785,8 @@ function SuggestInput({
 	placeholder?: string | undefined;
 	/** The input's accessible name where the visible label is a column head, not a wired <label>. */
 	ariaLabel?: string | undefined;
+	/** An aria-describedby target (the wrong-record-type sentence beside a directive key). */
+	describedBy?: string | undefined;
 	disabled?: boolean | undefined;
 	onValue: (next: string) => void;
 	/** Enter with no highlighted suggestion; the editors apply the draft when it parses clean. */
@@ -854,6 +870,7 @@ function SuggestInput({
 					className={inputClass}
 					aria-invalid={invalid}
 					aria-label={ariaLabel}
+					aria-describedby={describedBy}
 					placeholder={placeholder}
 					value={value}
 					disabled={disabled}
@@ -871,6 +888,7 @@ function SuggestInput({
 				role="combobox"
 				aria-invalid={invalid}
 				aria-label={ariaLabel}
+				aria-describedby={describedBy}
 				aria-expanded={expanded}
 				aria-controls={listId}
 				aria-autocomplete="list"
@@ -1145,6 +1163,8 @@ function CapabilityGroupsFields({
 	// The group's `_fallback` marks, derived once per render from the
 	// rows the checkboxes rewrite.
 	const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
+	// The wrong-record-type rows' description ids, one namespace per editor.
+	const wrongTypeIdBase = useId();
 	// The control-backed directive rows the grid absorbs, with this editor's flag set. What
 	// keeps a directive row visible is structural (directiveRowAbsorbed's eligible-row
 	// check); the hint clause is only a backstop, so no row's visibility rides on a hint
@@ -1217,6 +1237,10 @@ function CapabilityGroupsFields({
 						const kind = capabilityControlKind(key, param.valueText);
 						const numberProps = kind === "number" || kind === "cost" ? numberInputProps(kind) : undefined;
 						const removeLabel = key.length > 0 ? l10n.t('Remove "{0}"', key) : l10n.t("Remove");
+						// The wrong-record-type badge in the row's flag cell, its sentence
+						// wired to the key input: the same fact the table's chips badge.
+						const wrongType = wrongRecordTypeHint("caps", key);
+						const wrongTypeId = wrongType === undefined ? undefined : `${wrongTypeIdBase}-${param.id}`;
 						const patchRow = (patch: Partial<{ key: string; valueText: string }>) =>
 							patchGroup({
 								params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)),
@@ -1238,6 +1262,7 @@ function CapabilityGroupsFields({
 										invalid={issue?.problem?.field === "name"}
 										placeholder={l10n.t("Capability, e.g. context_length")}
 										ariaLabel={l10n.t("Capability")}
+										describedBy={wrongTypeId}
 										disabled={inert}
 										onValue={(nextKey) => {
 											// A row just switched onto a support flag means "turn it
@@ -1289,7 +1314,8 @@ function CapabilityGroupsFields({
 								)}
 								{/* The per-row fallback/inheritable marks in the shared flag column. The vocabulary is
 								    open, so every non-directive field carries the fallback box - the resolver's
-								    `_fallback` accepts any field the record sets. */}
+								    `_fallback` accepts any field the record sets. A sibling record type's directive
+								    fills the cell with the "ignored" badge instead. */}
 								{directiveEligible(FALLBACK_DIRECTIVE, key) ? (
 									<span className="cell directive-flag">
 										<label>
@@ -1311,6 +1337,8 @@ function CapabilityGroupsFields({
 										<Help text={helpFallbackFlag()} />
 										<InheritableFlag group={group} fieldKey={key} disabled={inert} onChange={onChange} />
 									</span>
+								) : wrongType !== undefined && wrongTypeId !== undefined ? (
+									<WrongTypeFlagCell note={wrongType} id={wrongTypeId} />
 								) : null}
 								<Button
 									variant="danger"
@@ -1637,17 +1665,73 @@ function inheritableWord(): string {
 	});
 }
 
+/** The wrong-record-type badge's word; the full sentence rides the badge as its tooltip and description. */
+function ignoredWord(): string {
+	return l10n.t({
+		message: "ignored",
+		comment: ["Badge word on a record field whose directive key belongs to the other record type."],
+	});
+}
+
+/** One flag badge on a field chip: a stable id for React keys, the localized word, and the full sentence where the word alone is not the story. */
+interface ChipFlag {
+	/** Locale-independent identity; translated words could collide as list keys. */
+	readonly id: "force" | "fallback" | "inheritable" | "ignored";
+	readonly word: string;
+	/** The wrong-record-type sentence; its presence is also what selects the warn tier. */
+	readonly note?: string | undefined;
+}
+
+/**
+ * One directive mark word, on a chip or in a row's flag cell. The user-set
+ * marks wear the accent's readable label tier - a permanent word at 11px on
+ * the chip fill, where the raw hue measures 2.83:1. The wrong-record-type
+ * "ignored" badge wears the warn text tier instead and carries its sentence as
+ * the tooltip; the chip's dashed border stays the tone's mark, so the word
+ * only names it.
+ */
+function ChipFlagWord({ flag }: { flag: ChipFlag }) {
+	return flag.note === undefined ? (
+		<span className="chip-flag text-[11px] text-accent-text">{flag.word}</span>
+	) : (
+		<span className="chip-flag chip-flag-ignored text-[11px] text-warn" title={flag.note}>
+			{flag.word}
+		</span>
+	);
+}
+
+/**
+ * The overlay flag cell's wrong-record-type badge, one embodiment for both
+ * editors: the visible word plus the hidden sentence the row's key input
+ * names through aria-describedby - stable whichever tenant the worst-first
+ * status line is showing.
+ */
+function WrongTypeFlagCell({ note, id }: { note: string; id: string }) {
+	return (
+		<span className="cell directive-flag">
+			<ChipFlagWord flag={{ id: "ignored", word: ignoredWord(), note }} />
+			<span id={id} className="visually-hidden">
+				{note}
+			</span>
+		</span>
+	);
+}
+
 /** The flag badges one field chip carries, derived from the same rows the toggles rewrite. */
-function chipFlags(kind: RecordEditorKind, group: PrefixGroup, key: string): string[] {
-	const flags: string[] = [];
+function chipFlags(kind: RecordEditorKind, group: PrefixGroup, key: string): ChipFlag[] {
+	const flags: ChipFlag[] = [];
 	if (kind === "params" && directiveMarkedFields(group, FORCE_DIRECTIVE).has(key)) {
-		flags.push(forceWord());
+		flags.push({ id: "force", word: forceWord() });
 	}
 	if (kind === "caps" && directiveMarkedFields(group, FALLBACK_DIRECTIVE).has(key)) {
-		flags.push(fallbackWord());
+		flags.push({ id: "fallback", word: fallbackWord() });
 	}
 	if (directiveMarkedFields(group, INHERITABLE_DIRECTIVE).has(key)) {
-		flags.push(inheritableWord());
+		flags.push({ id: "inheritable", word: inheritableWord() });
+	}
+	const note = wrongRecordTypeHint(kind, key);
+	if (note !== undefined) {
+		flags.push({ id: "ignored", word: ignoredWord(), note });
 	}
 	return flags;
 }
@@ -2422,12 +2506,7 @@ export function RecordMatcherTable({
 										)}
 										<span className="chip-value max-w-[14em] truncate text-foreground">{row.valueText}</span>
 										{chipFlags(kind, group, key).map((flag) => (
-											// The accent's readable label tier: a directive mark is
-											// a permanent word at 11px on the chip fill, where the
-											// raw hue measures 2.83:1.
-											<span className="chip-flag text-[11px] text-accent-text" key={flag}>
-												{flag}
-											</span>
+											<ChipFlagWord flag={flag} key={flag.id} />
 										))}
 									</>
 								);

@@ -113,6 +113,23 @@ export function toGroups(value: Readonly<Record<string, Readonly<Record<string, 
 const PARAMETER_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("parameters"));
 const CAPABILITY_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("capabilities"));
 
+/**
+ * The wrong-record-type sentence for a trimmed row key, or undefined where the
+ * key belongs. One reading of the sibling-directive sets, shared by the row
+ * hints here and the editors' "ignored" badges, so the badge and the hint
+ * classify keys identically.
+ */
+export function wrongRecordTypeHint(kind: "params" | "caps", key: string): string | undefined {
+	if (kind === "params") {
+		return PARAMETER_WRONG_TYPE_DIRECTIVES.has(key)
+			? l10n.t('"{0}" belongs to capability records and is ignored here', key)
+			: undefined;
+	}
+	return CAPABILITY_WRONG_TYPE_DIRECTIVES.has(key)
+		? l10n.t('"{0}" belongs to parameters records and is ignored here', key)
+		: undefined;
+}
+
 function duplicates(values: readonly string[]): Set<string> {
 	const seen = new Set<string>();
 	const dupes = new Set<string>();
@@ -353,8 +370,9 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 			// resolver diagnoses it wrong-record-type, so the editor hints here too.
 			// Keyed BEFORE the value parse - fixing the value would not make the
 			// key any less ignored, so the hint rides beside a value problem.
-			if (PARAMETER_WRONG_TYPE_DIRECTIVES.has(param.key.trim())) {
-				paramHints[index] = l10n.t('"{0}" belongs to capability records and is ignored here', param.key.trim());
+			const wrongType = wrongRecordTypeHint("params", param.key.trim());
+			if (wrongType !== undefined) {
+				paramHints[index] = wrongType;
 			}
 			const parsed = parseJsonValue(param.valueText);
 			if (!parsed.ok) {
@@ -749,9 +767,7 @@ export function parseCapabilityGroups(
 			// wrong-record-type: minted from the key BEFORE the value parse -
 			// fixing the value would not make the key any less ignored, so the
 			// hint rides beside a value problem.
-			const wrongTypeHint = CAPABILITY_WRONG_TYPE_DIRECTIVES.has(key)
-				? l10n.t('"{0}" belongs to parameters records and is ignored here', key)
-				: undefined;
+			const wrongTypeHint = wrongRecordTypeHint("caps", key);
 			const parsed = parseJsonValue(param.valueText);
 			if (!parsed.ok) {
 				rowIssues[index] = { problem: { field: "value", message: parsed.error }, hint: wrongTypeHint };

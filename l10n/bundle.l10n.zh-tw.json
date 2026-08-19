@@ -994,6 +994,7 @@
  "fallback/Checkbox label on a capability row; applies the value only where the server reports none.": "後備",
  "force/Checkbox label on a parameter row; marks the value as forced over runtime options.": "強制",
  "h/Abbreviation for hours in durations like '1 h 30 min'.": "小時",
+ "ignored/Badge word on a record field whose directive key belongs to the other record type.": "已忽略",
  "inheritable fields (default)": "可繼承欄位 (預設)",
  "inheritable/Checkbox label on a record row; marks the field as inheritable by more specific records.": "可繼承",
  "inheritance stops here": "繼承到此為止",

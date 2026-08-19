@@ -1139,6 +1139,12 @@
 			"Abbreviation for hours in durations like '1 h 30 min'."
 		]
 	},
+	"ignored/Badge word on a record field whose directive key belongs to the other record type.": {
+		"message": "ignored",
+		"comment": [
+			"Badge word on a record field whose directive key belongs to the other record type."
+		]
+	},
 	"inheritable fields (default)": "inheritable fields (default)",
 	"inheritable/Checkbox label on a record row; marks the field as inheritable by more specific records.": {
 		"message": "inheritable",
