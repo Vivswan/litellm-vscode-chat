@@ -19,8 +19,8 @@
  * The copy sweep scans every l10n bundle's and package.nls file's keys and
  * translated values for directive-shaped tokens, so localized copy cannot
  * keep teaching a name the registry dropped. The docs sweep holds every
- * markdown file under docs/ (translations included) and the README files
- * (the Marketplace landing page) to the same token grammar.
+ * markdown file under docs/ (translations included), the README files
+ * (the Marketplace landing page), and AGENTS.md to the same token grammar.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -236,7 +236,7 @@ describe("shared/config record-type directive registry", () => {
 		assert.ok(found.has(INHERITABLE_DIRECTIVE), "the copy sweep no longer sees _inheritable's spelling");
 	});
 
-	test("every directive-shaped token in the docs and README files is a registered directive", () => {
+	test("every directive-shaped token in the docs, README, and AGENTS.md files is a registered directive", () => {
 		// The docs teach the record grammar in prose and code fences, so
 		// registered spellings are expected and pass; the sweep detects renames,
 		// where a dropped registry name would leave the docs teaching it.
@@ -253,7 +253,11 @@ describe("shared/config record-type directive registry", () => {
 		const readmeFiles: ReadonlySet<string> = new Set(
 			fs.readdirSync(REPO_ROOT).filter((name) => name.startsWith("README") && name.endsWith(".md"))
 		);
-		const sweptFiles = [...docFiles, ...readmeFiles].sort();
+		// AGENTS.md joins by name, never a root *.md glob: CLAUDE.md and the two
+		// .github agent files are symlinks to it (a glob would sweep the same
+		// bytes repeatedly), and CHANGELOG.md must stay excluded as above.
+		const AGENTS_FILE = "AGENTS.md";
+		const sweptFiles = [...docFiles, ...readmeFiles, AGENTS_FILE].sort();
 		// Non-directive tokens the docs legitimately spell, each pinned below so
 		// a dropped mention retires its entry. DECLARE_DIRECTIVE is the retired
 		// name the migration docs teach, imported from the migration's own
@@ -265,9 +269,10 @@ describe("shared/config record-type directive registry", () => {
 		// original claim (documented in docs/, not merely mentioned in a README).
 		const docsFound = new Set<string>();
 		const readmeFound = new Set<string>();
+		const agentsFound = new Set<string>();
 		const failures: string[] = [];
 		for (const file of sweptFiles) {
-			const legFound = readmeFiles.has(file) ? readmeFound : docsFound;
+			const legFound = readmeFiles.has(file) ? readmeFound : file === AGENTS_FILE ? agentsFound : docsFound;
 			const text = fs.readFileSync(path.join(REPO_ROOT, file), "utf8");
 			for (const token of new Set(text.match(DIRECTIVE_TOKEN_PATTERN) ?? [])) {
 				legFound.add(token);
@@ -297,6 +302,7 @@ describe("shared/config record-type directive registry", () => {
 		);
 		for (const name of REGISTERED_DIRECTIVES) {
 			assert.ok(docsFound.has(name), `${name} is spelled nowhere in docs/: document it, or the walk narrowed`);
+			assert.ok(agentsFound.has(name), `${name} is spelled nowhere in AGENTS.md: teach it there, or the walk narrowed`);
 		}
 		for (const token of allowedTokens) {
 			assert.ok(!REGISTERED_DIRECTIVES.has(token), `${token} is registered now: retire its allowlist entry`);
