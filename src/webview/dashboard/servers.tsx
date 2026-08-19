@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
 import { Fragment, useEffect, useId, useState } from "react";
-import { latestCheckedMs } from "../../dashboard/presenters";
+import { latestCheckedMs, servedModelsBreakdown } from "../../dashboard/presenters";
 import { parseCapabilityGroups, parseGroups, toGroups } from "../../dashboard/recordDraft";
 import { sectionFailureText, serverFormFieldLabel } from "../../dashboard/serverForm";
 import {
@@ -403,19 +403,31 @@ function serverDiagnostics(
 			// Quiet tier: the entry declared this failure and something still serves
 			// through it - its declared models, or the stale window's last known
 			// list. The server's own words ride the detail lines, not the headline
-			// (colon chaining).
-			const declared = server.declaredModelCount ?? 0;
+			// (colon chaining). The count vocabulary is the shared breakdown the
+			// English outcome line renders too, so the headline always states the
+			// served total the row's own count shows.
+			const breakdown = servedModelsBreakdown(server.servedModelCount, server.declaredModelCount ?? 0);
 			found.push({
 				key: "expected-serving",
 				severity: "advisory",
 				headline:
-					declared === 1
-						? l10n.t("{0} serves 1 declared model; discovery fails only where this entry expects it to.", server.label)
-						: declared > 1
+					breakdown.kind === "declared"
+						? breakdown.declared === 1
 							? l10n.t(
+									"{0} serves 1 declared model; discovery fails only where this entry expects it to.",
+									server.label
+								)
+							: l10n.t(
 									"{0} serves {1} declared models; discovery fails only where this entry expects it to.",
 									server.label,
-									declared
+									breakdown.declared
+								)
+						: breakdown.kind === "mixed"
+							? l10n.t(
+									"{0} serves {1} models, {2} declared; discovery fails only where this entry expects it to.",
+									server.label,
+									breakdown.served,
+									breakdown.declared
 								)
 							: l10n.t(
 									"{0} serves its last known models; discovery fails only where this entry expects it to.",
@@ -796,6 +808,17 @@ type ServerHealthVerdict =
 	| "expected"
 	/** The expected category hit, and nothing is declared to serve through it. */
 	| "expected-blocking";
+
+/**
+ * A row's stable identity: origin plus opaque handle or setting-unique label.
+ * The list key AND every per-row armed/pending state compare by this, never by
+ * the label alone - a declared entry and an external group can wear the same
+ * label (labels join only together with the URL), and a label-keyed armed
+ * Remove would arm both rows at once.
+ */
+function serverRowKey(server: DashboardServer): string {
+	return `${server.origin}:${server.adoptHandle ?? server.label}`;
+}
 
 function serverHealth(server: DashboardServer): ServerHealthVerdict {
 	if (server.origin === "misconfigured") {
@@ -1907,11 +1930,12 @@ export function ServersSection({
 	const unhideIntent = useIntentOutcome("unhideServer");
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
 	// The row whose Retry is in flight, and the request that will answer it. The id is held,
-	// not just the label: useIntentOutcome reports the METHOD's latest envelope whoever
-	// posted it, and the rail's Sync button posts the same method.
-	const [retrying, setRetrying] = useState<{ readonly label: string; readonly requestId: string } | undefined>(
-		undefined
-	);
+	// not just the row: useIntentOutcome reports the METHOD's latest envelope whoever
+	// posted it, and the rail's Sync button posts the same method. Keyed by row identity
+	// (label rides along only for the aria-live text), like the armed Remove.
+	const [retrying, setRetrying] = useState<
+		{ readonly rowKey: string; readonly label: string; readonly requestId: string } | undefined
+	>(undefined);
 	// Whether the fleet has ever been checked at all: the live region below needs it so a
 	// first-run page does not announce a clean bill of health it never took.
 	const newestCheck = latestCheckedMs(servers) ?? 0;
@@ -1926,7 +1950,7 @@ export function ServersSection({
 	// the answer to THIS request may clear it - either answer, a failed declare is finished.
 	const declareIntent = useIntentOutcome("declareExpectedFailure");
 	const [pendingDeclare, setPendingDeclare] = useState<
-		{ readonly label: string; readonly requestId: string } | undefined
+		{ readonly rowKey: string; readonly label: string; readonly requestId: string } | undefined
 	>(undefined);
 	const declareOutcome = declareIntent.outcome;
 	useEffect(() => {
@@ -2221,48 +2245,52 @@ export function ServersSection({
 							.join("; ")}
 					</p>
 					<ul className="server-list">
-						{servers.map((server) => (
+						{servers.map((server) => {
 							// Keyed identity (origin plus opaque handle or setting-unique label) so an
 							// async push cannot re-associate another server's row with the user's focus.
-							<ServerRow
-								key={`${server.origin}:${server.adoptHandle ?? server.label}`}
-								server={server}
-								usage={usageFor(server)}
-								spend={spend}
-								now={now}
-								armed={armedRemove === server.label}
-								onEdit={() => {
-									// The one place the destination's purpose is decided: a declared row
-									// edits, an external row adopts; the misconfigured guard (no Edit
-									// renders) keeps the narrowing honest.
-									if (server.origin === "misconfigured") {
-										return;
-									}
-									if (server.origin === "declared") {
-										onEditServer(server.label);
-										return;
-									}
-									onAdoptServer(server.adoptHandle);
-								}}
-								onArmRemove={(armed) => setArmedRemove(armed ? server.label : undefined)}
-								onHideExternal={hideExternal}
-								onShowModels={onShowModels}
-								retrying={retrying?.label === server.label}
-								syncBusy={retrying !== undefined}
-								onRetry={() => {
-									setRetrying({ label: server.label, requestId: syncIntent.send(null) });
-								}}
-								onDeclareExpected={(category) => {
-									setPendingDeclare({
-										label: server.label,
-										requestId: declareIntent.send({ label: server.label, category }),
-									});
-								}}
-								declaring={pendingDeclare?.label === server.label}
-								refreshing={usage?.refreshing === true}
-								refreshingExplicitly={usage?.refreshingExplicitly === true}
-							/>
-						))}
+							const rowKey = serverRowKey(server);
+							return (
+								<ServerRow
+									key={rowKey}
+									server={server}
+									usage={usageFor(server)}
+									spend={spend}
+									now={now}
+									armed={armedRemove === rowKey}
+									onEdit={() => {
+										// The one place the destination's purpose is decided: a declared row
+										// edits, an external row adopts; the misconfigured guard (no Edit
+										// renders) keeps the narrowing honest.
+										if (server.origin === "misconfigured") {
+											return;
+										}
+										if (server.origin === "declared") {
+											onEditServer(server.label);
+											return;
+										}
+										onAdoptServer(server.adoptHandle);
+									}}
+									onArmRemove={(armed) => setArmedRemove(armed ? rowKey : undefined)}
+									onHideExternal={hideExternal}
+									onShowModels={onShowModels}
+									retrying={retrying?.rowKey === rowKey}
+									syncBusy={retrying !== undefined}
+									onRetry={() => {
+										setRetrying({ rowKey, label: server.label, requestId: syncIntent.send(null) });
+									}}
+									onDeclareExpected={(category) => {
+										setPendingDeclare({
+											rowKey,
+											label: server.label,
+											requestId: declareIntent.send({ label: server.label, category }),
+										});
+									}}
+									declaring={pendingDeclare?.rowKey === rowKey}
+									refreshing={usage?.refreshing === true}
+									refreshingExplicitly={usage?.refreshingExplicitly === true}
+								/>
+							);
+						})}
 					</ul>
 				</>
 			)}

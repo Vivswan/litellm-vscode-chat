@@ -4,6 +4,7 @@ import {
 	classifyOverall,
 	latestCheckedMs,
 	overallStatusText,
+	servedModelsBreakdown,
 	serverOutcomeParts,
 	serverOutcomeText,
 	unitBehavior,
@@ -269,6 +270,20 @@ describe("dashboard/presenters renderers", () => {
 				declaredModelCount: 2,
 			});
 			assert.strictEqual(serverOutcomeText(server), "OK (5 models, 2 declared) - 404 on /models (expected)");
+		});
+
+		test("servedModelsBreakdown classifies once for both string surfaces", () => {
+			// The English paste line and the Servers row's localized headline both
+			// render this classification; these pins are the shared vocabulary.
+			assert.deepStrictEqual(servedModelsBreakdown(2, 2), { kind: "declared", declared: 2 });
+			assert.deepStrictEqual(servedModelsBreakdown(5, 2), { kind: "mixed", served: 5, declared: 2 });
+			// Discovery serves every declared model (served = discovered + declared,
+			// groupDiscovery), so declared never exceeds served and mixed implies
+			// served >= 2 - which is why neither surface carries a singular mixed
+			// form. An out-of-contract input still classifies as the two-count form
+			// rather than claiming the whole served set is declared.
+			assert.deepStrictEqual(servedModelsBreakdown(1, 2), { kind: "mixed", served: 1, declared: 2 });
+			assert.deepStrictEqual(servedModelsBreakdown(3, 0), { kind: "stale", served: 3 });
 		});
 
 		test("the models part, when present, always states the server's servedModelCount", () => {

@@ -206,6 +206,28 @@ function noticeText(notice: DeclaredServerNotice): string {
 }
 
 /**
+ * What an expected-failure row still serves, classified once: the declared set
+ * IS the whole served list, the two counts differ (stale-window models beside
+ * declared ones), or nothing is declared and only the stale window serves. The
+ * English outcome line below and the Servers row's localized headline both
+ * render from this, so the row can never contradict its own served count.
+ * Discovery registers declared models into the served set, so "mixed" means
+ * served > declared >= 1: both surfaces' mixed wording is plural on purpose,
+ * with no singular form to drift.
+ */
+export type ServedModelsBreakdown =
+	| { readonly kind: "declared"; readonly declared: number }
+	| { readonly kind: "mixed"; readonly served: number; readonly declared: number }
+	| { readonly kind: "stale"; readonly served: number };
+
+export function servedModelsBreakdown(served: number, declared: number): ServedModelsBreakdown {
+	if (declared === served) {
+		return { kind: "declared", declared };
+	}
+	return declared > 0 ? { kind: "mixed", served, declared } : { kind: "stale", served };
+}
+
+/**
  * serverOutcomeText decomposed. serverOutcomeText composes exactly these
  * parts, flattening a two-part error's newline to " - " (the presenters suite
  * pins the equality), so the pieces and the copied line cannot drift apart in
@@ -246,22 +268,22 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 				const detail = statusErrorDetail(server.error);
 				const headline = `${statusErrorHeadline(server.error)} (expected)`;
 				const error = detail === undefined ? headline : `${headline}\n${detail}`;
-				const declared = server.declaredModelCount ?? 0;
 				const served = server.servedModelCount;
 				if (served > 0) {
 					// The models part always states the served total (the count the
 					// row and the merged surfaces show); the declared subset rides as
 					// a qualifier, owning the wording only when it IS the whole set.
+					const breakdown = servedModelsBreakdown(served, server.declaredModelCount ?? 0);
 					const models =
-						declared === served
-							? declared === 1
+						breakdown.kind === "declared"
+							? breakdown.declared === 1
 								? "1 declared model"
-								: `${declared} declared models`
-							: declared > 0
-								? `${served} models, ${declared} declared`
-								: served === 1
+								: `${breakdown.declared} declared models`
+							: breakdown.kind === "mixed"
+								? `${breakdown.served} models, ${breakdown.declared} declared`
+								: breakdown.served === 1
 									? "1 model still served"
-									: `${served} models still served`;
+									: `${breakdown.served} models still served`;
 					return { status: "OK", models, error, notice };
 				}
 				return { status: "Error", error, notice };

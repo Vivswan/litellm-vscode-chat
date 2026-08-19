@@ -40,10 +40,14 @@ export function stalenessText(fresh: boolean, keyInfo: UsageEndpointStandingView
  * An amount as every spend surface prints it: the configured currency symbol
  * verbatim (display only, never a conversion; the empty symbol renders the
  * bare number), two decimals below 1000, locale-grouped whole units above.
+ * One pinned locale for the whole column: toFixed is dot-decimal by spec, so
+ * the grouped tier pins en-US grouping rather than asking the runtime - the
+ * webview and the extension host (the status bar) can disagree on ambient
+ * locale, and an ambient answer would mix "12.50" with "1.500" in one column.
  */
 export function formatMoney(amount: number, currencySymbol: string): string {
 	return amount >= 1000
-		? `${currencySymbol}${Math.round(amount).toLocaleString()}`
+		? `${currencySymbol}${Math.round(amount).toLocaleString("en-US")}`
 		: `${currencySymbol}${amount.toFixed(2)}`;
 }
 

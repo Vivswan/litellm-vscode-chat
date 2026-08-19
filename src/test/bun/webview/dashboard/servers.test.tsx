@@ -402,6 +402,67 @@ test("the armed pair names the server it is about, in its buttons and in the cov
 	expect(root.querySelector(".armed-subject")).toBeNull();
 });
 
+test("arming Remove is keyed by row identity, so two rows sharing a label never arm together", () => {
+	// Labels are unique only among declared entries: an external provider group
+	// (named in the native editor) can wear a declared entry's exact label while
+	// pointing elsewhere - the joins that would merge them need the URL or the
+	// connection to match too. Arming by label would put "Confirm remove?" on
+	// both rows at once, and the reader's yes could land on the wrong one.
+	const root = mountSection([
+		makeDeclaredServer({ label: "Prod", baseUrl: "http://a.test" }),
+		makeExternalServer({ label: "Prod", baseUrl: "http://b.test", adoptHandle: "handle-prod" }),
+	]);
+	const items = [...root.querySelectorAll(".server-item")];
+	expect(items.length).toBe(2);
+	const removeIn = (item: Element) =>
+		[...item.querySelectorAll("button")].find((button) => button.textContent === "Remove");
+	const declaredRemove = removeIn(items[0] as Element);
+	expect(declaredRemove).toBeDefined();
+	fireClick(declaredRemove as HTMLButtonElement);
+
+	// Exactly one armed pair, and it sits on the row that asked.
+	expect(root.querySelectorAll(".server-actions.armed").length).toBe(1);
+	expect(items[0]?.querySelector(".server-actions.armed")).not.toBeNull();
+	expect(items[1]?.querySelector(".server-actions.armed")).toBeNull();
+
+	// The external twin arms independently after the declared row disarms.
+	fireClick(buttonByText(root, "Cancel"));
+	const externalRemove = removeIn(items[1] as Element);
+	expect(externalRemove).toBeDefined();
+	fireClick(externalRemove as HTMLButtonElement);
+	expect(items[1]?.querySelector(".server-actions.armed")).not.toBeNull();
+	expect(items[0]?.querySelector(".server-actions.armed")).toBeNull();
+});
+
+test("a Retry in flight busies only the asking row, even when another row wears the same label", () => {
+	// The same collision class as the armed Remove: the "Checking..." relabel
+	// and spinner must follow the row identity, not the display label - the
+	// fleet-wide disable is shared on purpose, the busy claim is not.
+	const root = mountSection([
+		makeDeclaredServer({ label: "Prod", baseUrl: "http://a.test", state: "error", error: "refused" }),
+		makeExternalServer({
+			label: "Prod",
+			baseUrl: "http://b.test",
+			adoptHandle: "handle-prod",
+			state: "error",
+			error: "refused",
+		}),
+	]);
+	const items = [...root.querySelectorAll(".server-item")];
+	expect(items.length).toBe(2);
+	const buttonsIn = (item: Element | undefined) => [...(item?.querySelectorAll("button") ?? [])];
+	const declaredRetry = buttonsIn(items[0]).find((button) => button.textContent === "Retry");
+	expect(declaredRetry).toBeDefined();
+	fireClick(declaredRetry as HTMLButtonElement);
+
+	// The asking row relabels; the same-labeled twin keeps "Retry" (disabled
+	// fleet-wide, because the sync command is).
+	expect(buttonsIn(items[0]).some((button) => button.textContent === "Checking...")).toBe(true);
+	expect(buttonsIn(items[1]).some((button) => button.textContent === "Checking...")).toBe(false);
+	const twinRetry = buttonsIn(items[1]).find((button) => button.textContent === "Retry");
+	expect(twinRetry?.getAttribute("aria-disabled")).toBe("true");
+});
+
 test("add-form save round trip: invalid posts nothing, the ack closes the form, failures follow their disposition", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
@@ -1556,6 +1617,38 @@ test("an expected failure serving declared models reads Connected, and states th
 	expect(root.querySelector(".row-diagnostic.tier-error")).toBeNull();
 	// It still says what the server said, for the reader who wants the cause.
 	expect(line?.textContent).toContain("404 on /models");
+});
+
+test("an expected failure serving stale AND declared models headlines the served total, declared as qualifier", () => {
+	// The shared breakdown (servedModelsBreakdown) is the one count vocabulary:
+	// the headline must state the row's own served count, never just the
+	// declared subset beside a bigger number.
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Gateway",
+			state: "error",
+			error: "404 on /models",
+			expected: true,
+			servedModelCount: 5,
+			declaredModelCount: 2,
+		}),
+		makeDeclaredServer({
+			label: "Edge",
+			baseUrl: "http://edge.test",
+			state: "error",
+			error: "404 on /models",
+			expected: true,
+			servedModelCount: 3,
+			declaredModelCount: 1,
+		}),
+	]);
+	const lines = [...root.querySelectorAll(".row-diagnostic")].map((line) => line.textContent ?? "");
+	expect(lines.some((text) => text.includes("Gateway serves 5 models, 2 declared"))).toBe(true);
+	// A single declared model beside stale ones stays the same two-count form.
+	expect(lines.some((text) => text.includes("Edge serves 3 models, 1 declared"))).toBe(true);
+	// The headline and the row's own count state the same number.
+	const counts = [...root.querySelectorAll(".server-count")].map((count) => count.textContent ?? "");
+	expect(counts.some((text) => text.includes("5 models"))).toBe(true);
 });
 
 test("an expected failure with nothing declared reads blocking and offers Declare models", () => {

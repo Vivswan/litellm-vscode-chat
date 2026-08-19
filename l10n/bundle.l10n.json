@@ -1371,6 +1371,7 @@
 	"{0} serves its models, but its model-info probe never answers and waits out the discovery timeout on every sync. Declaring the failure expected marks that as normal for this server.": "{0} serves its models, but its model-info probe never answers and waits out the discovery timeout on every sync. Declaring the failure expected marks that as normal for this server.",
 	"{0} serves no models: discovery fails in a category this entry expects ({1}), and nothing is declared.": "{0} serves no models: discovery fails in a category this entry expects ({1}), and nothing is declared.",
 	"{0} serves {1} declared models; discovery fails only where this entry expects it to.": "{0} serves {1} declared models; discovery fails only where this entry expects it to.",
+	"{0} serves {1} models, {2} declared; discovery fails only where this entry expects it to.": "{0} serves {1} models, {2} declared; discovery fails only where this entry expects it to.",
 	"{0} settings": "{0} settings",
 	"{0} settings could not be written: {1}.": "{0} settings could not be written: {1}.",
 	"{0} settings have the wrong type and will be skipped.": "{0} settings have the wrong type and will be skipped.",

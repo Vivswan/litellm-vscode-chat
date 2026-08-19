@@ -138,6 +138,27 @@ describe("formatting", () => {
 		expect(formatMoney(1500, "$")).toBe("$1,500");
 	});
 
+	test("one locale policy for the whole column: grouping never asks the ambient locale", () => {
+		// The status bar (extension host) and the dashboard (webview) can run
+		// under different ambient locales; a de-DE toLocaleString() would print
+		// "1.500" beside toFixed's "12.50" in the same column. The pin: an
+		// ambient-locale call (no locale argument) fails the test outright.
+		const original = Number.prototype.toLocaleString;
+		Number.prototype.toLocaleString = function (this: number, ...args: Parameters<typeof original>) {
+			if (args[0] === undefined) {
+				throw new Error("formatMoney consulted the ambient locale");
+			}
+			return original.apply(this, args);
+		};
+		try {
+			expect(formatMoney(1500, "$")).toBe("$1,500");
+			expect(formatMoney(1234567.89, "")).toBe("1,234,568");
+			expect(formatMoney(999.99, "$")).toBe("$999.99");
+		} finally {
+			Number.prototype.toLocaleString = original;
+		}
+	});
+
 	test("a multi-character symbol prefixes verbatim, spacing included", () => {
 		expect(formatMoney(12.5, "EUR ")).toBe("EUR 12.50");
 		expect(formatMoney(1500, "EUR ")).toBe("EUR 1,500");

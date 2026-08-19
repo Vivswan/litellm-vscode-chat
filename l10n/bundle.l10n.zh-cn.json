@@ -1151,6 +1151,7 @@
  "{0} serves its models, but its model-info probe never answers and waits out the discovery timeout on every sync. Declaring the failure expected marks that as normal for this server.": "{0} 可以提供其模型, 但其模型信息探测永远不会应答, 每次同步都要等满发现超时。将该失败声明为预期, 即可把它标记为此服务器的正常情况。",
  "{0} serves no models: discovery fails in a category this entry expects ({1}), and nothing is declared.": "{0} 未提供任何模型: 发现在该条目预期的类别中失败 ({1}), 且未声明任何模型。",
  "{0} serves {1} declared models; discovery fails only where this entry expects it to.": "{0} 提供 {1} 个声明的模型; 发现只在此条目预期的地方失败。",
+ "{0} serves {1} models, {2} declared; discovery fails only where this entry expects it to.": "{0} 提供 {1} 个模型, 声明了 {2} 个; 发现只在此条目预期的地方失败。",
  "{0} settings": "{0} 项设置",
  "{0} settings could not be written: {1}.": "{0} 项设置无法写入: {1}。",
  "{0} settings have the wrong type and will be skipped.": "{0} 项设置类型错误, 将被跳过。",
