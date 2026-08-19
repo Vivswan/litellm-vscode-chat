@@ -1296,7 +1296,8 @@ function CapabilityGroupsFields({
 											// on"; seeding true keeps the checkbox and the parse in
 											// agreement without an extra click.
 											const seedsTrue =
-												capabilityValueKind(nextKey.trim()) === "boolean" && param.valueText.trim().length === 0;
+												capabilityValueKind(resolvedFieldName("caps", nextKey)) === "boolean" &&
+												param.valueText.trim().length === 0;
 											patchRow({ key: nextKey, ...(seedsTrue ? { valueText: "true" } : {}) });
 										}}
 										onEnter={onEnter}
@@ -2194,7 +2195,11 @@ function AddFieldPopover({
 		setKey(nextKey);
 		// A key switched onto a support flag means "turn it on" (the row grid's
 		// seeding rule, so the checkbox and the parse agree without a click).
-		if (kind === "caps" && capabilityValueKind(nextKey.trim()) === "boolean" && valueText.trim().length === 0) {
+		if (
+			kind === "caps" &&
+			capabilityValueKind(resolvedFieldName(kind, nextKey)) === "boolean" &&
+			valueText.trim().length === 0
+		) {
 			setValueText("true");
 		}
 	};
