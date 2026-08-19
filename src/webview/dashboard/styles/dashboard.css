@@ -561,6 +561,18 @@
 		 those cells are on the row at all, and min-width floors cannot fix it -
 		 they stop a cell shrinking, they do not make two rows agree. */
 	/* Eight tracks: chevron, name, url, status, count, spend, badges, actions.
+		 The NAME track is content-sized with a floor (minmax to max-content): a
+		 fixed cap ellipsized "Dev Error (unreacha..." while the URL column held a
+		 pane of slack beside it, so the name now spends free space before it
+		 truncates. Sizing order does the arbitration - an intrinsic track grows
+		 to its limit before the fr distributes - so a long label pushes the URL
+		 toward its floor first, and only then gives characters to an ellipsis
+		 (the drawer's Label fact carries the full name past that). The 12ch
+		 floor - the list's own font units, so roughly a dozen characters of the
+		 smaller mono URL - keeps the URL identifying its row; leftover space
+		 still lands in the URL's fr track. The column HUGS the labels now: a
+		 list of short names sits at its content (floored at 7em) instead of the
+		 old cap's 12em reservation, pulling every URL left.
 		 The actions track is FIXED at the width of its resting pair (Edit beside
 		 Remove); the wider ARMED pair leaves the flow and COVERS the row's own
 		 cells instead (.server-actions.armed below), so arming a remove resizes
@@ -573,8 +585,14 @@
 			 plus the 20px ink gap (the narrow tail re-declares it wider on the
 			 cluster). */
 		--actions-track: 10em;
+		/* The folded tiers' one name cap (their three templates all read it, so
+			 they cannot drift); declared here, unconditionally, like
+			 --actions-track, so no tier can outrun the query that declares it and
+			 compute its template to none. Unused at the wide tier, whose name
+			 track is content-sized below. */
+		--name-cap: 14em;
 		display: grid;
-		grid-template-columns: auto minmax(7em, 12em) minmax(0, 1fr) auto auto auto auto var(--actions-track);
+		grid-template-columns: auto minmax(7em, max-content) minmax(12ch, 1fr) auto auto auto auto var(--actions-track);
 		list-style: none;
 		margin: 0;
 		padding: 0;
@@ -656,6 +674,15 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	/* The URL's <wbr> opportunities serve the folded tiers (and the drawer), where the
+		 address WRAPS by design. Here they would defeat the ellipsis: <wbr> is an
+		 HTML-level break opportunity Chromium honours even under white-space: nowrap, so
+		 a track squeezed below the text's one-line width (a long label spending the
+		 slack) folded every row's URL onto three lines. display: none removes the wbr
+		 box and the opportunity with it; the folded block below restores them. */
+	.server-url wbr {
+		display: none;
 	}
 	.server-count,
 	.server-usage {
@@ -3636,12 +3663,15 @@
 		 at its own minimum - one button wide, so Edit and Remove stacked on
 		 every healthy row. fit-content sizes to the names and stops there,
 		 capped so one very long label cannot take the row; the actions track
-		 takes the slack, which is what right-aligns the cluster. Its 9em floor
+		 takes the slack, which is what right-aligns the cluster. --name-cap is
+		 the one cap every folded tier reads (the --actions-track idiom, so the
+		 three templates cannot drift), and the drawer's Label fact is the path
+		 past it. Its 9em floor
 		 is the resting pair's own width, so Edit and Remove sit side by side
 		 on every healthy row; the armed pair never touches the track's minimum
 		 - it covers the row out of flow (the base .server-actions.armed). */
 		.server-list {
-			grid-template-columns: auto fit-content(10em) auto minmax(9em, 1fr);
+			grid-template-columns: auto fit-content(var(--name-cap)) auto minmax(9em, 1fr);
 		}
 		.server-line {
 			align-items: start;
@@ -3723,6 +3753,10 @@
 			white-space: normal;
 			overflow-wrap: anywhere;
 		}
+		/* The wrap needs its break opportunities back (the wide tier removes them). */
+		.server-url wbr {
+			display: inline;
+		}
 		.server-count,
 		.server-usage {
 			flex: none;
@@ -3774,7 +3808,7 @@
 	   and copy) and the label spends what it frees. */
 	@container pane (width < 560px) {
 		.server-list {
-			grid-template-columns: auto fit-content(14em) auto minmax(9em, 1fr);
+			grid-template-columns: auto fit-content(var(--name-cap)) auto minmax(9em, 1fr);
 		}
 		/* Painted at rest from here down, where hover does not exist (touch,
 		 narrow panes): the reveal idiom's ONE threshold, keyed to the same
@@ -3808,7 +3842,7 @@
 		 minimum (one wrapped button) is all the track still needs - the armed
 		 pair covers the row out of flow and asks the track for nothing. */
 		.server-list {
-			grid-template-columns: auto fit-content(14em) auto minmax(min-content, 1fr);
+			grid-template-columns: auto fit-content(var(--name-cap)) auto minmax(min-content, 1fr);
 		}
 		/* The name takes the button's whole first line, because at this width
 		 the name is what was losing: sharing line one with the verdict pill
