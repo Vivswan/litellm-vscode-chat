@@ -649,6 +649,100 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 			why: "the collapsed rail's active bar is fill-only; the unconditional twin paints it Highlight at every width, and the narrow block's later restatement only wins the geometry argument back",
 		},
 	},
+	// The scrollbar thumbs: forced colors ignores author scrollbar styling
+	// outright and draws the system's own bars, thumb included, so these fills
+	// only exist outside the mode. The HC pair carries its contrastBorder edge
+	// in the same rule.
+	{
+		selector: ":root:hover::-webkit-scrollbar-thumb",
+		declaration: "background: var(--vscode-scrollbarSlider-background)",
+		count: 1,
+		disposition: { kind: "welcome", why: "forced colors draws system scrollbars; this fill exists outside the mode" },
+	},
+	{
+		selector: ":root:hover ::-webkit-scrollbar-thumb",
+		declaration: "background: var(--vscode-scrollbarSlider-background)",
+		count: 1,
+		disposition: { kind: "welcome", why: "forced colors draws system scrollbars; this fill exists outside the mode" },
+	},
+	{
+		selector: ":root:focus-within::-webkit-scrollbar-thumb",
+		declaration: "background: var(--vscode-scrollbarSlider-background)",
+		count: 1,
+		disposition: { kind: "welcome", why: "forced colors draws system scrollbars; this fill exists outside the mode" },
+	},
+	{
+		selector: ":root:focus-within ::-webkit-scrollbar-thumb",
+		declaration: "background: var(--vscode-scrollbarSlider-background)",
+		count: 1,
+		disposition: { kind: "welcome", why: "forced colors draws system scrollbars; this fill exists outside the mode" },
+	},
+	{
+		selector: "::-webkit-scrollbar-thumb:active",
+		declaration: "background: var(--vscode-scrollbarSlider-activeBackground)",
+		count: 1,
+		disposition: { kind: "welcome", why: "forced colors draws system scrollbars; this fill exists outside the mode" },
+	},
+	{
+		selector: ":root:hover::-webkit-scrollbar-thumb:hover",
+		declaration: "background: var(--vscode-scrollbarSlider-hoverBackground)",
+		count: 1,
+		disposition: { kind: "welcome", why: "forced colors draws system scrollbars; this fill exists outside the mode" },
+	},
+	{
+		selector: ":root:hover ::-webkit-scrollbar-thumb:hover",
+		declaration: "background: var(--vscode-scrollbarSlider-hoverBackground)",
+		count: 1,
+		disposition: { kind: "welcome", why: "forced colors draws system scrollbars; this fill exists outside the mode" },
+	},
+	{
+		selector: ":root:hover::-webkit-scrollbar-thumb:active",
+		declaration: "background: var(--vscode-scrollbarSlider-activeBackground)",
+		count: 1,
+		disposition: { kind: "welcome", why: "forced colors draws system scrollbars; this fill exists outside the mode" },
+	},
+	{
+		selector: ":root:hover ::-webkit-scrollbar-thumb:active",
+		declaration: "background: var(--vscode-scrollbarSlider-activeBackground)",
+		count: 1,
+		disposition: { kind: "welcome", why: "forced colors draws system scrollbars; this fill exists outside the mode" },
+	},
+	{
+		selector: ":root:has(body.vscode-high-contrast)::-webkit-scrollbar-thumb",
+		declaration: "background: var(--vscode-scrollbarSlider-background)",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "the HC thumb's contrastBorder edge rides the same rule and is the guaranteed-visible part; the wash tints inside it",
+		},
+	},
+	{
+		selector: ":root:has(body.vscode-high-contrast) ::-webkit-scrollbar-thumb",
+		declaration: "background: var(--vscode-scrollbarSlider-background)",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "the HC thumb's contrastBorder edge rides the same rule and is the guaranteed-visible part; the wash tints inside it",
+		},
+	},
+	{
+		selector: ":root:has(body.vscode-high-contrast-light)::-webkit-scrollbar-thumb",
+		declaration: "background: var(--vscode-scrollbarSlider-background)",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "the HC thumb's contrastBorder edge rides the same rule and is the guaranteed-visible part; the wash tints inside it",
+		},
+	},
+	{
+		selector: ":root:has(body.vscode-high-contrast-light) ::-webkit-scrollbar-thumb",
+		declaration: "background: var(--vscode-scrollbarSlider-background)",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "the HC thumb's contrastBorder edge rides the same rule and is the guaranteed-visible part; the wash tints inside it",
+		},
+	},
 ];
 
 /**

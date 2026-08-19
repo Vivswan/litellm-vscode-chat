@@ -31,6 +31,77 @@
 		border: 0;
 	}
 
+	/* The page's scrollbars, owned here instead of inherited: the webview's
+	   injected defaults (the editor's vscode-default layer) set
+	   html { scrollbar-color: slider editor-background }, and below the shell's
+	   320px floor the designed sideways scroll puts that bar across the webview
+	   bottom - an opaque editor-background track band UNDER the rail, where it
+	   reads as a broken gap at the rail's foot. Owned, the band is quiet:
+	   transparent track and corner so only the page's own color shows through
+	   it, and thumbs that rest transparent until the pointer is over the page
+	   or focus is inside it - the closest CSS gets to the editor's auto-hiding
+	   feel (wheel and touch scrolling never needed the thumb; high contrast
+	   keeps it always painted below). One set of rules for every scroller at
+	   once: the document, the windowed lists, the slide-over. Width stays the
+	   old webview default's 10px - the models list's track arithmetic budgets
+	   exactly it. */
+	:root {
+		/* Load-bearing: the injected scrollbar-color INHERITS into every
+		   scroller, and any non-auto value makes the engine ignore the whole
+		   ::-webkit-scrollbar family below. Reset first, own the paint after. */
+		scrollbar-color: auto;
+	}
+	::-webkit-scrollbar {
+		width: 10px;
+		height: 10px;
+	}
+	::-webkit-scrollbar-track,
+	::-webkit-scrollbar-corner {
+		background: transparent;
+	}
+	::-webkit-scrollbar-thumb {
+		background: transparent;
+	}
+	/* A drag survives the pointer leaving the window: :root:hover drops there,
+	   and a grabbed thumb must not blank mid-drag. Beats the resting rule and
+	   yields to the revealed tiers below. */
+	::-webkit-scrollbar-thumb:active {
+		background: var(--vscode-scrollbarSlider-activeBackground);
+	}
+	/* :root-state pairs, not bare thumb states: the document's scrollbar is
+	   the ROOT's own (body classes and descendant selectors cannot reach it),
+	   and a bare `::-webkit-scrollbar-thumb:hover` would lose the specificity
+	   race against the reveal below. :focus-within joins :hover so keyboard
+	   readers get the same position indicator a pointer summons. */
+	:root:hover::-webkit-scrollbar-thumb,
+	:root:hover ::-webkit-scrollbar-thumb,
+	:root:focus-within::-webkit-scrollbar-thumb,
+	:root:focus-within ::-webkit-scrollbar-thumb {
+		background: var(--vscode-scrollbarSlider-background);
+	}
+	/* The grab tiers ride :hover alone: a pointer on the thumb is already a
+	   pointer over the page. */
+	:root:hover::-webkit-scrollbar-thumb:hover,
+	:root:hover ::-webkit-scrollbar-thumb:hover {
+		background: var(--vscode-scrollbarSlider-hoverBackground);
+	}
+	:root:hover::-webkit-scrollbar-thumb:active,
+	:root:hover ::-webkit-scrollbar-thumb:active {
+		background: var(--vscode-scrollbarSlider-activeBackground);
+	}
+	/* High contrast never hides the thumb and draws it an edge: the reader
+	   chose legibility, an affordance that appears only under a pointer fails
+	   that choice outright, and the HC slider colors are contrastBorder washes
+	   that can sit on a matching surface - the border is the guaranteed-visible
+	   part. Both HC classes named, the house spelling. */
+	:root:has(body.vscode-high-contrast)::-webkit-scrollbar-thumb,
+	:root:has(body.vscode-high-contrast) ::-webkit-scrollbar-thumb,
+	:root:has(body.vscode-high-contrast-light)::-webkit-scrollbar-thumb,
+	:root:has(body.vscode-high-contrast-light) ::-webkit-scrollbar-thumb {
+		border: 1px solid var(--vscode-contrastBorder);
+		background: var(--vscode-scrollbarSlider-background);
+	}
+
 	/* The shell: a rail flush to the window edge, and a pane that scrolls
 		   beside it. The rail is sticky rather than fixed so it stays part of the
 		   flex row - a fixed rail would need the pane to reserve its width by

@@ -376,6 +376,18 @@ One idiom for detail that opens in place:
   (`theme.css @layer base`). The UA's checkbox margin (now a base-layer rule
   there), the rail's content-box drift (`dashboard.css .rail`), and the
   49-not-48 arithmetic above are what forgetting this costs.
+- The page owns its scrollbars rather than inheriting the webview's injected
+  defaults, whose html scrollbar-color paints the band's track in opaque
+  editor-background - reading as a broken gap under the rail below the 320px
+  floor - and, being non-auto and inherited, disables author scrollbar rules
+  outright until it is reset: transparent track and corner, thumbs resting
+  transparent until the pointer is over the page or focus is inside it, and
+  high contrast keeping them always painted with a contrastBorder edge
+  (`dashboard.css ::-webkit-scrollbar`; the paint contract is pinned by
+  `src/test/bun/webview/dashboard/styles/scrollbars.test.ts`, the band's
+  geometry by the rail-band-subfloor render fixture). Quieted, not erased:
+  no element paints into a scroll gutter, so the band shows the page's own
+  color rather than the rail's - a deliberate remainder, named here.
 
 ## 8. Empty, loading, and error states
 

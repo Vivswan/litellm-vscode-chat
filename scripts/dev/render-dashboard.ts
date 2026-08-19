@@ -77,6 +77,20 @@ export interface RenderFixture {
 	 * template per method.
 	 */
 	readonly respond?: Readonly<Record<string, unknown>>;
+	/**
+	 * Launch Chrome without --hide-scrollbars, as the --show-scrollbars flag
+	 * does: the webview's classic scrollbars take space and paint bands the
+	 * default render can never show. Fixture-level so a scrollbar-state guard
+	 * keeps its bars when the sweeps run it without flags.
+	 */
+	readonly showScrollbars?: boolean;
+	/**
+	 * The fixture's width sits under the shell's min-width floor, where the page
+	 * scrolls sideways BY DESIGN. The harness inverts its overflow assertion:
+	 * the sideways scroll must be PRESENT (it is the state such a fixture exists
+	 * to photograph), and the width must really be under the floor.
+	 */
+	readonly belowFloor?: boolean;
 }
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -102,7 +116,7 @@ function usage(): never {
 			" [--pane-widths N,N] [--width N] [--height N] [--theme <host theme>] [--dpr N]" +
 			" [--accent blue|violet|teal|amber] [--app-theme auto|light|dark]" +
 			" [--hover <css selector>] [--focus <css selector>] [--contrast <css selector>] [--contrast-large]" +
-			" [--clip-viewport] [--html-out <page.html>] [--no-theme]"
+			" [--clip-viewport] [--show-scrollbars] [--html-out <page.html>] [--no-theme]"
 	);
 	process.exit(1);
 }
@@ -174,6 +188,9 @@ function themeCss(): string {
 		--vscode-dropdown-foreground: #cccccc;
 		--vscode-dropdown-border: #3c3c3c;
 		--vscode-settings-modifiedItemIndicator: #bb800966;
+		--vscode-scrollbarSlider-background: #79797966;
+		--vscode-scrollbarSlider-hoverBackground: #646464b3;
+		--vscode-scrollbarSlider-activeBackground: #bfbfbf66;
 	}
 	`;
 }
@@ -246,6 +263,9 @@ function lightCss(): string {
 		--vscode-dropdown-foreground: #3b3b3b;
 		--vscode-dropdown-border: #cecece;
 		--vscode-settings-modifiedItemIndicator: #bb800966;
+		--vscode-scrollbarSlider-background: #64646466;
+		--vscode-scrollbarSlider-hoverBackground: #646464b3;
+		--vscode-scrollbarSlider-activeBackground: #00000099;
 	}
 	`;
 }
@@ -300,6 +320,9 @@ function highContrastCss(): string {
 		--vscode-dropdown-background: #000000;
 		--vscode-dropdown-foreground: #ffffff;
 		--vscode-dropdown-border: #6fc3df;
+		--vscode-scrollbarSlider-background: #6fc3df99;
+		--vscode-scrollbarSlider-hoverBackground: #6fc3dfcc;
+		--vscode-scrollbarSlider-activeBackground: #6fc3df;
 	}
 	`;
 }
@@ -353,6 +376,9 @@ function highContrastLightCss(): string {
 		--vscode-dropdown-background: #ffffff;
 		--vscode-dropdown-foreground: #292929;
 		--vscode-dropdown-border: #0f4a85;
+		--vscode-scrollbarSlider-background: #0f4a8566;
+		--vscode-scrollbarSlider-hoverBackground: #0f4a8599;
+		--vscode-scrollbarSlider-activeBackground: #0f4a85;
 	}
 	`;
 }
@@ -864,6 +890,27 @@ const DETERMINISM_CSS =
 	"*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
 
 /**
+ * The scrollbar slice of VS Code's injected webview defaults: the editor
+ * writes these into every webview document AHEAD of the extension's
+ * stylesheets, inside @layer vscode-default, so any author rule beats them.
+ * Current hosts inject the html scrollbar-color rule (read from the shipped
+ * webview prelude, vs/workbench/contrib/webview/browser/pre/index.html): a
+ * non-auto scrollbar-color inherits into every scroller, paints the track in
+ * opaque editor-background, and DISABLES ::-webkit-scrollbar styling wholesale.
+ * Older hosts injected the ::-webkit-scrollbar rules instead. Both halves are
+ * emulated so a --show-scrollbars render proves the dashboard's own scrollbar
+ * rules beat whichever the host injects.
+ */
+const VSCODE_DEFAULT_CSS = `@layer vscode-default {
+	html { scrollbar-color: var(--vscode-scrollbarSlider-background) var(--vscode-editor-background); }
+	::-webkit-scrollbar { width: 10px; height: 10px; }
+	::-webkit-scrollbar-corner { background-color: var(--vscode-editor-background); }
+	::-webkit-scrollbar-thumb { background-color: var(--vscode-scrollbarSlider-background); }
+	::-webkit-scrollbar-thumb:hover { background-color: var(--vscode-scrollbarSlider-hoverBackground); }
+	::-webkit-scrollbar-thumb:active { background-color: var(--vscode-scrollbarSlider-activeBackground); }
+}`;
+
+/**
  * The measurement-mode font pin. Every measurement run (--widths or
  * --pane-widths) swaps the font tokens - the host pair and Tailwind's - for
  * these faces, whose ascent/descent/line-gap overrides make every line-box
@@ -1005,6 +1052,13 @@ function buildPageHtml(
 		theme: forcedTheme,
 		accent,
 	});
+	// The editor injects its defaults before the extension's stylesheets; the
+	// emulation keeps that order so the layer cascade matches the webview's.
+	const dashboardLink = `<link rel="stylesheet" href="./${DASHBOARD_STYLESHEET_FILENAME}">`;
+	if (!html.includes(dashboardLink)) {
+		throw new Error("Unexpected dashboard HTML shape: the stylesheet link was not found");
+	}
+	html = html.replace(dashboardLink, `<link rel="stylesheet" href="./vscode-default.css">\n\t${dashboardLink}`);
 	html = html.replace("</head>", `<link rel="stylesheet" href="./harness.css">\n</head>`);
 	if (tokensCss !== "") {
 		const attribute = inlineTokenStyle(tokensCss).replaceAll('"', "&quot;");
@@ -1108,6 +1162,49 @@ async function assertNoHorizontalOverflow(cdp: CdpConnection, width: number): Pr
 		`${OVERFLOW_SIDEWAYS_MARKER} The page scrolls sideways at ${width}px: ` +
 			`${overflow}px past a ${clientWidth}px viewport.\n  ${culprits.join("\n  ")}`
 	);
+}
+
+/**
+ * The belowFloor inversion: proves the width really sits under the shell's own
+ * min-width floor, and that the sideways scroll is PRESENT - the state such a
+ * fixture exists to photograph. A page that fits here means the floor moved or
+ * the width was mistyped, and the fixture would guard a state not on screen.
+ */
+async function assertBelowFloorSideways(cdp: CdpConnection, width: number): Promise<void> {
+	const floor = (await evaluate(
+		cdp,
+		`(() => {
+			const shell = document.querySelector(".shell");
+			return shell === null ? null : parseFloat(getComputedStyle(shell).minWidth) || null;
+		})()`
+	)) as number | null;
+	if (floor === null) {
+		throw new Error("belowFloor: no .shell min-width to compare against; the floor this fixture undercuts is gone");
+	}
+	if (width >= floor) {
+		throw new Error(
+			`belowFloor: ${width}px is not under the shell's ${floor}px floor; re-point the fixture's viewport`
+		);
+	}
+	const found = (await evaluate(cdp, OVERFLOW_PROBE)) as string | null;
+	if (found === null) {
+		throw new Error(
+			`belowFloor: the page fits at ${width}px, under the ${floor}px floor where it scrolls sideways by design;` +
+				" the below-floor scrollbar state this fixture guards is not on screen"
+		);
+	}
+	// Bounded, not merely present: below the floor the shell's min-width is the
+	// document's only legitimate widener, so a document wider than the floor
+	// itself is a real overflow bug hiding behind the designed one - and it
+	// carries the sideways marker, so the sweep counts it as a page that does
+	// not fit rather than a fixture that never ran.
+	const wide = (await evaluate(cdp, "document.documentElement.scrollWidth")) as number;
+	if (wide > floor + 0.5) {
+		throw new Error(
+			`${OVERFLOW_SIDEWAYS_MARKER} belowFloor: the document measures ${wide}px, past the ${floor}px floor that` +
+				" is the only designed overflow at this width; something overflows on its own"
+		);
+	}
 }
 
 /** Applies a viewport width and lets two frames settle under it. */
@@ -1353,6 +1450,7 @@ async function main(): Promise<void> {
 			height: { type: "string" },
 			"html-out": { type: "string" },
 			"clip-viewport": { type: "boolean", default: false },
+			"show-scrollbars": { type: "boolean", default: false },
 			hover: { type: "string" },
 			focus: { type: "string" },
 			contrast: { type: "string" },
@@ -1505,6 +1603,7 @@ async function main(): Promise<void> {
 	await fs.copyFile(bundlePath, path.join(pageDir, "dashboard.js"));
 	await fs.copyFile(stylesheetPath, path.join(pageDir, DASHBOARD_STYLESHEET_FILENAME));
 	await fs.writeFile(path.join(pageDir, "harness.css"), harnessCss);
+	await fs.writeFile(path.join(pageDir, "vscode-default.css"), VSCODE_DEFAULT_CSS);
 	await fs.writeFile(indexHtml, html);
 	const pageUrl = pathToFileURL(indexHtml).href;
 
@@ -1513,11 +1612,16 @@ async function main(): Promise<void> {
 	// --no-sandbox, since its image restricts the unprivileged user namespaces
 	// the Chrome sandbox needs).
 	const extraFlags = (process.env.CHROME_EXTRA_FLAGS ?? "").split(" ").filter((flag) => flag.length > 0);
+	// Hidden by default so measurements and shots stay platform-independent;
+	// --show-scrollbars (or the fixture's showScrollbars) keeps the bars for the
+	// states only a classic scrollbar can produce, e.g. the band under the rail
+	// when a sub-floor page scrolls sideways.
+	const showScrollbars = values["show-scrollbars"] === true || fixture.showScrollbars === true;
 	const launchFlags = [
 		"--headless=new",
 		"--remote-debugging-port=0",
 		"--no-first-run",
-		"--hide-scrollbars",
+		...(showScrollbars ? [] : ["--hide-scrollbars"]),
 		"--lang=en-US",
 		"--force-color-profile=srgb",
 		`--window-size=${width},${height}`,
@@ -1629,6 +1733,14 @@ async function main(): Promise<void> {
 			console.log(`fonts: pinned for measurement (normal line box ${PINNED_CONTROL_PX}px at 100px font size)`);
 		}
 
+		// The fixture's width is applied BEFORE its steps, not only before the
+		// capture: --window-size is a request a platform may refuse (macOS clamps
+		// windows to ~500px wide), so without the override a narrow fixture's
+		// steps run at whatever width the platform allowed and only the capture
+		// sees the declared one - a step that arms, measures, or asserts against
+		// the fixture's own state would be doing it at a width the fixture never
+		// named.
+		await setWidth(cdp, width, height, dpr);
 		for (const step of fixture.steps ?? []) {
 			await evaluate(cdp, step, true);
 			await delay(200);
@@ -1669,7 +1781,11 @@ async function main(): Promise<void> {
 		// window width gives back a wider viewport than was asked for, so the
 		// number in a failure would not be the number under test.
 		await setWidth(cdp, width, height, dpr);
-		await assertNoHorizontalOverflow(cdp, width);
+		if (fixture.belowFloor === true) {
+			await assertBelowFloorSideways(cdp, width);
+		} else {
+			await assertNoHorizontalOverflow(cdp, width);
+		}
 		const sweeping = fixture.measuredAtOwnWidth !== true;
 		if (!sweeping && (sweepWidths.length > 0 || paneWidths.length > 0)) {
 			console.log(
