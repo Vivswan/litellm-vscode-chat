@@ -78,8 +78,10 @@ async function main(): Promise<void> {
 			return;
 		}
 		const files = parseLcov(text);
-		if (!files.has(sentinel)) {
-			console.error(`${lcovPath} does not cover ${sentinel}; its paths or filters have drifted.`);
+		// Line data, not mere presence: an SF header with no DA records would
+		// pass a presence check while shrinking the floor's denominator.
+		if ((files.get(sentinel)?.size ?? 0) === 0) {
+			console.error(`${lcovPath} has no line data for ${sentinel}; its paths or filters have drifted.`);
 			process.exitCode = 1;
 			return;
 		}

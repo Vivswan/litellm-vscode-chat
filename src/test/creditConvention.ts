@@ -45,10 +45,41 @@ export function extractSubjectCredits(subject: string): SubjectCredit[] {
 	return credits;
 }
 
+/**
+ * Markdown with fenced code blocks dropped: a row shown inside a fence is an
+ * example, not an acknowledgment. CommonMark's fence rules, conservatively: a
+ * fence line takes at most three leading spaces (deeper indentation is
+ * content), a closing fence takes only trailing whitespace (an info string
+ * opens, never closes), and an unclosed fence drops to the end; every
+ * misparse direction only shrinks the set - fail closed.
+ */
+function withoutCodeFences(markdown: string): string {
+	const kept: string[] = [];
+	let openFence: string | undefined;
+	for (const line of markdown.split(/\r?\n/)) {
+		const fence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+		if (openFence === undefined) {
+			if (fence !== null) {
+				openFence = fence[1] as string;
+			} else {
+				kept.push(line);
+			}
+		} else if (
+			fence !== null &&
+			(fence[1] as string)[0] === openFence[0] &&
+			(fence[1] as string).length >= openFence.length &&
+			(fence[2] as string).trim() === ""
+		) {
+			openFence = undefined;
+		}
+	}
+	return kept.join("\n");
+}
+
 /** The lowercased logins with a table row in ACKNOWLEDGMENTS.md (either table; rows link the GitHub profile). */
 export function acknowledgedLogins(markdown: string): Set<string> {
 	const logins = new Set<string>();
-	for (const row of markdown.matchAll(
+	for (const row of withoutCodeFences(markdown).matchAll(
 		new RegExp(String.raw`^\|\s*\[@(${LOGIN_SOURCE})\]\(https://github\.com/`, "gm")
 	)) {
 		logins.add((row[1] as string).toLowerCase());

@@ -381,18 +381,64 @@ function assertThemeCoversStylesheet(stylesheet: string, tokensCss: string, host
 }
 
 /**
+ * The measurement pin's coverage guard, fail closed: pinning the four font
+ * tokens only pins the page if every font-family in the stylesheet resolves
+ * through one of them (or inherit). A future utility class or literal font
+ * stack would reintroduce silent platform divergence, so it fails the run
+ * here instead; the font SHORTHAND also sets the family, so any value there
+ * but inherit fails too rather than earn a family parser. The engagement
+ * check's utility legs measure the .font-sans/.font-mono rules, so their
+ * absence must fail as well instead of letting a leg measure inherited font
+ * and prove nothing.
+ */
+function assertPinCoversStylesheet(stylesheet: string): void {
+	const pinnedSources = [
+		"inherit",
+		"var(--vscode-font-family",
+		"var(--vscode-editor-font-family",
+		"var(--font-sans",
+		"var(--font-mono",
+	];
+	const unpinned = [
+		...[...stylesheet.matchAll(/(?<![-\w])font-family\s*:\s*([^;}]+)/g)]
+			.map((match) => (match[1] as string).trim())
+			.filter((value) => !pinnedSources.some((source) => value.startsWith(source))),
+		...[...stylesheet.matchAll(/(?<![-\w])font\s*:\s*([^;}]+)/g)]
+			.map((match) => `font: ${(match[1] as string).trim()}`)
+			.filter((value) => value !== "font: inherit"),
+	];
+	if (unpinned.length > 0) {
+		throw new Error(
+			`The stylesheet reads fonts outside the pinned tokens, so a measurement would depend on platform fonts:` +
+				` ${[...new Set(unpinned)].join(", ")}`
+		);
+	}
+	for (const utility of ["font-sans", "font-mono"]) {
+		if (!new RegExp(String.raw`\.${utility}\s*\{`).test(stylesheet)) {
+			throw new Error(
+				`The stylesheet no longer carries the .${utility} utility the pin-engagement check measures;` +
+					` update the check's utility legs together with this guard`
+			);
+		}
+	}
+}
+
+/**
  * The host's token delivery, reproduced exactly: VS Code writes --vscode-* one
  * by one onto the document element's inline style (webview/browser/pre/
  * index.html, applyStyles), not into a stylesheet. An inline declaration
  * outranks every author rule on the same element, so a stylesheet rule that
- * redefines a host token loses in the editor and would win here.
+ * redefines a host token loses in the editor and would win here. The
+ * measurement font pin's --font-* declarations ride the same delivery for the
+ * same reason: inline is the one place the stylesheet's theme layer cannot
+ * re-define them (the theme token sets themselves carry no --font-*).
  */
 function inlineTokenStyle(tokensCss: string): string {
-	const declarations = [...tokensCss.matchAll(/(--vscode-[A-Za-z0-9-]+):\s*([^;]+);/g)].map(
+	const declarations = [...tokensCss.matchAll(/(--(?:vscode|font)-[A-Za-z0-9-]+):\s*([^;]+);/g)].map(
 		(match) => `${match[1]}: ${match[2]?.trim()}`
 	);
 	if (declarations.length === 0) {
-		throw new Error("The token set produced no --vscode-* declarations; the render would show no theme at all");
+		throw new Error("The token set produced no token declarations; the render would show no theme at all");
 	}
 	return `${declarations.join("; ")};`;
 }
@@ -819,11 +865,12 @@ const DETERMINISM_CSS =
 
 /**
  * The measurement-mode font pin. Every measurement run (--widths or
- * --pane-widths) swaps the two font tokens for these faces, whose
- * ascent/descent/line-gap overrides make every line-box metric a fixed
- * fraction of the font size: heights measure the same on every platform, so
- * a green sweep on macOS predicts the Linux-only CI gate (the host's mono
- * fallback once rounded a mixed sans+mono line box 1px taller there).
+ * --pane-widths) swaps the font tokens - the host pair and Tailwind's - for
+ * these faces, whose ascent/descent/line-gap overrides make every line-box
+ * metric a fixed fraction of the font size: heights measure the same on every
+ * platform, so a green sweep on macOS predicts the Linux-only CI gate (the
+ * host's mono fallback once rounded a mixed sans+mono line box 1px taller
+ * there).
  * Screenshot runs (--out alone) keep the native stacks: design review judges
  * the host's fonts, measurement judges the pinned ones. Horizontal metrics
  * cannot be overridden in CSS, so the local() chains allow only faces with
@@ -870,14 +917,19 @@ function measurementFontCss(): string {
 }
 
 /**
- * Repoints the two font tokens at the pinned faces. The dashboard reads fonts
- * only through these tokens (plus inherit), so the swap covers every rule;
- * under --no-theme there is no token set to rewrite, so the pin becomes the
- * whole set.
+ * Repoints every font token at the pinned faces: the host pair
+ * (--vscode-font-family, --vscode-editor-font-family) and the Tailwind pair
+ * (--font-sans, --font-mono) the stylesheet's font-sans/font-mono utilities
+ * read - the dashboard reaches fonts only through these four tokens (plus
+ * inherit), so the swap covers every rule. All four ride the inline token
+ * style, which outranks the stylesheet's theme layer where the Tailwind pair
+ * is normally defined; under --no-theme there is no token set to rewrite, so
+ * the pin becomes the whole set.
  */
 function pinFontTokens(tokensCss: string): string {
+	const tailwindPins = "--font-sans: geometry-pinned-sans; --font-mono: geometry-pinned-mono;";
 	if (tokensCss === "") {
-		return `:root { --vscode-font-family: geometry-pinned-sans; --vscode-editor-font-family: geometry-pinned-mono; }`;
+		return `:root { --vscode-font-family: geometry-pinned-sans; --vscode-editor-font-family: geometry-pinned-mono; ${tailwindPins} }`;
 	}
 	const pinned = tokensCss
 		.replace(/--vscode-font-family:[^;]*;/, "--vscode-font-family: geometry-pinned-sans;")
@@ -885,7 +937,7 @@ function pinFontTokens(tokensCss: string): string {
 	if (!pinned.includes("geometry-pinned-sans") || !pinned.includes("geometry-pinned-mono")) {
 		throw new Error("The theme's token set lost its font tokens; the measurement font pin has nothing to rewrite");
 	}
-	return pinned;
+	return `${pinned}\n:root { ${tailwindPins} }`;
 }
 
 /**
@@ -1399,6 +1451,9 @@ async function main(): Promise<void> {
 	// PNG rendered while measuring photographs the pinned stack on purpose, so
 	// a sweep failure can be reproduced with the same fonts it measured.
 	const pinFonts = measuring;
+	if (pinFonts) {
+		assertPinCoversStylesheet(await fs.readFile(stylesheetPath, "utf8"));
+	}
 	const html = buildPageHtml(
 		withAppearance(fixture.messages, forcedTheme, accent),
 		fixture.respond ?? {},
@@ -1507,7 +1562,9 @@ async function main(): Promise<void> {
 		// The pin is proven engaged BEFORE the fixture's steps (a step may end the run by throwing - the geometry
 		// sweep's expected-drift verdicts do - which must not skip the proof), on both axes: line-box height against
 		// the overrides, advance width against the shared design advances CSS cannot override (divergent faces too,
-		// or the metric probe's only-vertical-metrics-change premise is broken).
+		// or the metric probe's only-vertical-metrics-change premise is broken). The two utility legs measure through
+		// the stylesheet's real font-sans/font-mono classes, so a Tailwind font token that lost the pin fails here
+		// instead of silently measuring the platform's own mono.
 		if (pinFonts) {
 			const controls = JSON.parse(
 				(await evaluate(
@@ -1523,11 +1580,20 @@ async function main(): Promise<void> {
 							const rect = box.getBoundingClientRect();
 							return { height: rect.height, width: rect.width };
 						};
+						const measureClass = (utility) => {
+							box.style.fontFamily = "";
+							box.className = utility;
+							const rect = box.getBoundingClientRect();
+							box.className = "";
+							return { height: rect.height, width: rect.width };
+						};
 						const faces = {
 							sans: measure("geometry-pinned-sans"),
 							mono: measure("geometry-pinned-mono"),
 							divergentSans: measure("geometry-divergent-sans"),
 							divergentMono: measure("geometry-divergent-mono"),
+							utilitySans: measureClass("font-sans"),
+							utilityMono: measureClass("font-mono"),
 						};
 						box.remove();
 						return JSON.stringify(faces);
@@ -1539,6 +1605,8 @@ async function main(): Promise<void> {
 				["mono", PINNED_CONTROL_PX, ADVANCE_CONTROL_MONO_PX],
 				["divergentSans", DIVERGENT_CONTROL_PX, ADVANCE_CONTROL_SANS_PX],
 				["divergentMono", DIVERGENT_CONTROL_PX, ADVANCE_CONTROL_MONO_PX],
+				["utilitySans", PINNED_CONTROL_PX, ADVANCE_CONTROL_SANS_PX],
+				["utilityMono", PINNED_CONTROL_PX, ADVANCE_CONTROL_MONO_PX],
 			];
 			const wrong = expectations.flatMap(([face, height, width]) => {
 				const measured = controls[face] ?? { height: 0, width: 0 };
@@ -1554,7 +1622,8 @@ async function main(): Promise<void> {
 			if (wrong.length > 0) {
 				throw new Error(
 					"The measurement font pin did not engage - no advance-identical local() source resolved; install " +
-						`Arial/Courier New or their metric twins (fonts-liberation on bare Linux): ${wrong.join("; ")}`
+						"Arial/Courier New or their metric twins (fonts-liberation on bare Linux). A utility face failing " +
+						`alone means the Tailwind font tokens lost the pin instead: ${wrong.join("; ")}`
 				);
 			}
 			console.log(`fonts: pinned for measurement (normal line box ${PINNED_CONTROL_PX}px at 100px font size)`);

@@ -68,9 +68,14 @@ export const coverageSteps = (state: "expanded" | "collapsed"): readonly string[
 	...(base.steps ?? []),
 	`(async () => {
 		// Subject guard: this must be the empty diagnostics page, or the rail
-		// is being measured over content this fixture never meant.
-		if (!document.querySelector("#panel-diagnostics")) {
-			throw new Error("not the diagnostics page; the rail coverage claim was measured over the wrong subject");
+		// is being measured over content this fixture never meant. Every panel
+		// stays mounted hidden (app.tsx's SectionPanel), so a bare
+		// #panel-diagnostics exists on every page; :not([hidden]) is what
+		// asserts diagnostics is the ACTIVE tab.
+		if (!document.querySelector("#panel-diagnostics:not([hidden])")) {
+			throw new Error(
+				"the diagnostics panel is not the active tab; the rail coverage claim was measured over the wrong subject"
+			);
 		}
 		const doc = document.documentElement;
 		const covers = ${assertCovers};

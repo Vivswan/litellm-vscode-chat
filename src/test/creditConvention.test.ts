@@ -68,6 +68,50 @@ suite("credit convention guard: subject grammar", () => {
 		assert.ok(rows.has("mixedcase"));
 		assert.ok(!rows.has("MixedCase"), "the set is lowercased; callers lowercase before lookup");
 	});
+
+	test("a row inside a fenced code block is an example, not an acknowledgment", () => {
+		const markdown = [
+			"| [@real](https://github.com/real) | Fixed a thing ([#1](x)) |",
+			"```markdown",
+			"| [@example](https://github.com/example) | <what the report helped with> ([#2](x)) |",
+			"```",
+			"~~~",
+			"| [@tilde](https://github.com/tilde) | Also an example ([#3](x)) |",
+			"~~~",
+		];
+		assert.deepStrictEqual(acknowledgedLogins(markdown.join("\n")), new Set(["real"]));
+		assert.deepStrictEqual(
+			acknowledgedLogins(
+				[...markdown, "````", "| [@unclosed](https://github.com/unclosed) | After an unclosed fence |"].join("\n")
+			),
+			new Set(["real"]),
+			"an unclosed fence drops rows to the end of the document - shrinking the set fails closed"
+		);
+		assert.deepStrictEqual(
+			acknowledgedLogins(
+				[
+					"```",
+					"```still-code",
+					"| [@fenced](https://github.com/fenced) | An info string opens, never closes ([#4](x)) |",
+					"```",
+				].join("\n")
+			),
+			new Set(),
+			"a fence line with trailing text is content inside an open fence, not a close"
+		);
+		assert.deepStrictEqual(
+			acknowledgedLogins(
+				[
+					"```",
+					"    ```",
+					"| [@indented](https://github.com/indented) | Four spaces of indent is content ([#5](x)) |",
+					"```",
+				].join("\n")
+			),
+			new Set(),
+			"a fence line indented four or more spaces is content, not a close"
+		);
+	});
 });
 
 suite("credit convention guard: git history vs ACKNOWLEDGMENTS.md", () => {

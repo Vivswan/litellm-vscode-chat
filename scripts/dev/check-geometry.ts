@@ -131,7 +131,7 @@ type StatePair = StatePairBase &
 				 * the pair holds, each is re-measured under the harness's divergent font
 				 * faces (same glyph sources, deliberately different vertical metrics, so
 				 * the swap changes nothing but the metrics) - once with only the mono
-				 * token diverging (the mixed sans+mono line box that broke on Linux) and
+				 * token pair diverging (the mixed sans+mono line box that broke on Linux) and
 				 * once with both. A height that moves would pass on one platform's fonts
 				 * and fail on another's, so it fails here on every platform instead.
 				 */
@@ -1254,9 +1254,11 @@ function intendedByTarget(pair: StatePair): readonly (readonly Dim[])[] {
 /**
  * The font-metric divergence probe, run in the toggled state after the pair
  * held: re-measures each named slot with the divergent faces swapped in
- * through the font tokens and fails when a height moves. The harness has
- * already proven both face sets loaded with their declared metrics, so a
- * height that holds here holds under ANY platform's fonts.
+ * through ALL FOUR font tokens - the host pair and Tailwind's --font-sans/
+ * --font-mono, so a slot rendering through a font-mono utility diverges too -
+ * and fails when a height moves. The harness has already proven both face
+ * sets loaded with their declared metrics, so a height that holds here holds
+ * under ANY platform's fonts.
  */
 function metricProbeStep(pair: StatePair, selectors: readonly string[]): string {
 	return `(async () => {
@@ -1266,14 +1268,21 @@ function metricProbeStep(pair: StatePair, selectors: readonly string[]): string 
 		const rest = {
 			sans: root.style.getPropertyValue("--vscode-font-family"),
 			mono: root.style.getPropertyValue("--vscode-editor-font-family"),
+			utilitySans: root.style.getPropertyValue("--font-sans"),
+			utilityMono: root.style.getPropertyValue("--font-mono"),
 		};
-		if (!rest.sans.includes("geometry-pinned-sans") || !rest.mono.includes("geometry-pinned-mono")) {
+		if (
+			!rest.sans.includes("geometry-pinned-sans") || !rest.mono.includes("geometry-pinned-mono") ||
+			!rest.utilitySans.includes("geometry-pinned-sans") || !rest.utilityMono.includes("geometry-pinned-mono")
+		) {
 			throw new Error(${marker("SETUP", ": the harness did not pin the fonts, so the divergence probe has nothing to toggle")});
 		}
 		const selectors = ${JSON.stringify(selectors)};
 		const under = async (sans, mono) => {
 			root.style.setProperty("--vscode-font-family", sans);
 			root.style.setProperty("--vscode-editor-font-family", mono);
+			root.style.setProperty("--font-sans", sans);
+			root.style.setProperty("--font-mono", mono);
 			await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
 			return selectors.map((selector) => grab(selector).height);
 		};

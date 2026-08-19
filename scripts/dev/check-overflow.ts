@@ -9,7 +9,8 @@
  * breakpoint is swept the moment it is written. Pane thresholds are container
  * queries and go to --pane-widths, which converts them to viewport widths by
  * measuring the rail; window queries go to --widths as they are. Each threshold
- * is tested on both sides, plus the floor the shell declares.
+ * is tested on both sides and at its own boundary width, plus the floor the
+ * shell declares.
  *
  * Exit 1 means a page did not fit. Exit 2 means every page that could be
  * measured fit, but some fixture never ran.
@@ -53,9 +54,19 @@ function floorWidth(css: string): number {
 	return declared(css, /\.shell \{[^}]*min-width: (\d+)px/s, "the shell's minimum width");
 }
 
-/** Both sides of a threshold: the last width inside it and the first outside. */
+/**
+ * Both sides of a threshold, boundary width included: the last width inside a
+ * `width < N` query is N-1 and the first outside is N - but measured layout
+ * under devtools emulation has applied the inside branch AT the threshold
+ * itself (rail collapsed at exactly 1000 while `(width < 1000px)` reports
+ * false), so trusting one convention would leave the first genuinely-outside
+ * width unswept. N-1, N, and N+1 cover the boundary whichever side the
+ * engine lays it out on, for `>=` queries symmetrically.
+ */
 function bothSides(thresholds: readonly number[]): number[] {
-	return [...new Set(thresholds.flatMap((threshold) => [threshold - 1, threshold]))].sort((a, b) => a - b);
+	return [...new Set(thresholds.flatMap((threshold) => [threshold - 1, threshold, threshold + 1]))].sort(
+		(a, b) => a - b
+	);
 }
 
 /**
