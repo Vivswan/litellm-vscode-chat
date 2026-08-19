@@ -56,13 +56,16 @@ function selectsRailItself(selectorList: string): boolean {
 
 /**
  * The window width the rail collapses at, from the media block that actually contains the rail's own rule.
- * Brace-matched rather than pattern-anchored: the anchored regex could not tell membership from adjacency and
- * captured a decoy query's number, putting 235 in the band's floor where 735 belongs. A rule counts only when
- * it opens at depth 1 and `.rail` is a whole member of its selector list; comments come out first.
+ * `<=`, the rail's own spelling (its block in dashboard.css derives it): layout applies a `< N` block AT N
+ * under the render harness while matchMedia reports false there, and `<=` is the spelling both evaluate the
+ * same way at every integer. Brace-matched rather than pattern-anchored: the anchored regex could not tell
+ * membership from adjacency and captured a decoy query's number, putting 235 in the band's floor where 735
+ * belongs. A rule counts only when it opens at depth 1 and `.rail` is a whole member of its selector list;
+ * comments come out first.
  */
 function railCollapseWidth(): number {
 	const css = stylesheet().replace(/\/\*.*?\*\//gs, "");
-	for (const match of css.matchAll(/@media \(width < (\d+)px\) \{/g)) {
+	for (const match of css.matchAll(/@media \(width <= (\d+)px\) \{/g)) {
 		const open = match.index + match[0].length - 1;
 		let depth = 0;
 		let selectorStart = open + 1;
@@ -345,12 +348,19 @@ test("no pane threshold sits inside the band the rail's collapse creates", () =>
 test("the rail's collapse width is the same number in its stylesheet and in its component", () => {
 	// CSS decides what the rail looks like; the component decides what it can do. Neither can read the other.
 	const inCss = railCollapseWidth();
-	expect(RAIL_COLLAPSE_QUERY).toBe(`(width < ${inCss}px)`);
-	// And the utilities that give the collapsed rail its geometry.
+	expect(RAIL_COLLAPSE_QUERY).toBe(`(width <= ${inCss}px)`);
+	// And the utilities that give the collapsed rail its geometry, which ride the
+	// same `<=` spelling as raw arbitrary variants. Floored before judging, since
+	// every per-match assertion passes over an empty list.
 	const railSource = readFileSync(join(WEBVIEW, "rail.tsx"), "utf8");
-	for (const match of railSource.matchAll(/max-\[(\d+)px\]:/g)) {
+	const raw = [...railSource.matchAll(/\[@media\(width<=(\d+)px\)\]:/g)];
+	expect(raw.length).toBeGreaterThan(0);
+	for (const match of raw) {
 		expect(Number(match[1])).toBe(inCss);
 	}
+	// max-[N] compiles to `< N` and may not return: it re-opens the boundary
+	// integer where the paint and the hook disagreed.
+	expect(railSource).not.toMatch(/max-\[\d+px\]:/);
 });
 
 test("every pane query is spelled one of the two legal ways", () => {

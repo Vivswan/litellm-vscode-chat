@@ -53,9 +53,12 @@ export interface RailSection<Id extends string = string> {
 /**
  * The collapse width as a media query, spelled here as well as in the stylesheet: CSS
  * decides what the rail LOOKS like, this decides what it can DO, and neither can read
- * the other. A test pins the two spellings together.
+ * the other. A test pins the two spellings together. `<=` rather than the house `<`:
+ * layout applies a `< 1000px` block AT 1000 while matchMedia says false there, so the
+ * two disagreed at that one integer width; `<=` evaluates the same both ways (the
+ * stylesheet's rail block carries the measurement).
  */
-export const RAIL_COLLAPSE_QUERY = "(width < 1000px)";
+export const RAIL_COLLAPSE_QUERY = "(width <= 1000px)";
 
 /**
  * Whether the rail is painting icons instead of labels. Two behaviours depend on it that
@@ -64,7 +67,10 @@ export const RAIL_COLLAPSE_QUERY = "(width < 1000px)";
  * whether each control renders its tip bubble at all.
  */
 function useCollapsedRail(): boolean {
-	const [collapsed, setCollapsed] = useState(false);
+	// Initialized from the query, not false: the stylesheet collapses the paint
+	// on the very first frame, so a false start would leave the pill's tab stop
+	// and the tips disagreeing with the paint until the effect ran.
+	const [collapsed, setCollapsed] = useState(() => window.matchMedia(RAIL_COLLAPSE_QUERY).matches);
 	useEffect(() => {
 		const query = window.matchMedia(RAIL_COLLAPSE_QUERY);
 		const update = () => setCollapsed(query.matches);
@@ -102,7 +108,7 @@ function RailTab<Id extends string>({
 			onClick={onSelect}
 			{...tip.triggerProps}
 			className={cn(
-				"rail-tab cursor-pointer rounded-sm border border-control-outline px-2 py-1 text-left transition-[color,background-color] duration-[120ms] ease-out focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset) focus-visible:outline-ring focus-visible:outline-solid max-[1000px]:px-0 max-[1000px]:py-1.5",
+				"rail-tab cursor-pointer rounded-sm border border-control-outline px-2 py-1 text-left transition-[color,background-color] duration-[120ms] ease-out focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset) focus-visible:outline-ring focus-visible:outline-solid [@media(width<=1000px)]:px-0 [@media(width<=1000px)]:py-1.5",
 				active
 					? "bg-accent-soft font-semibold text-accent-text"
 					: "text-muted-foreground hover:bg-ghost-hover hover:text-foreground"
@@ -160,7 +166,10 @@ function RailAction({
 			// mx-0: the footer's glyph-column arithmetic (--rail-inset in
 			// dashboard.css) aligns the verdict dot against this button's inline
 			// padding, so the padding stays in the layout here.
-			className="rail-action mx-0 max-[1000px]:size-8 max-[1000px]:px-0 max-[1000px]:py-0"
+			// Raw [@media(width<=1000px)] variants, not Tailwind's max variant:
+			// the collapse is spelled `<=` everywhere it lives (the query constant
+			// above explains why), and a max variant compiles to `< N`.
+			className="rail-action mx-0 [@media(width<=1000px)]:size-8 [@media(width<=1000px)]:px-0 [@media(width<=1000px)]:py-0"
 		>
 			<span className="rail-action-icon" aria-hidden="true">
 				{icon}

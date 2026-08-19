@@ -1,7 +1,7 @@
 /**
  * The Servers page at 500px under OS forced colors, the only way to reach the
  * collapsed rail's own forced-colors block: it is nested inside
- * `width < 1000px`, so it needs both halves at once, and every other
+ * `width <= 1000px`, so it needs both halves at once, and every other
  * forced-colors fixture renders at 1300px. In frame: the selected rail item's
  * edge bar and the footer's verdict dot, both backgrounds (the layer forced
  * colors discard), beside the folded rows' spend units.

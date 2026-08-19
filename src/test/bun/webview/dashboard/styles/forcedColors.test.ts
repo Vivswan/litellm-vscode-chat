@@ -639,7 +639,7 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 		},
 	},
 	{
-		selector: '@media (max-width: 999.999px) .rail-nav .rail-tab[aria-selected="true"]:before',
+		selector: '@media (max-width: 1000px) .rail-nav .rail-tab[aria-selected="true"]:before',
 		declaration: "background: var(--accent-hue)",
 		count: 1,
 		disposition: {

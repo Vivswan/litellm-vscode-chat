@@ -58,10 +58,11 @@ function floorWidth(css: string): number {
  * Both sides of a threshold, boundary width included: the last width inside a
  * `width < N` query is N-1 and the first outside is N - but measured layout
  * under devtools emulation has applied the inside branch AT the threshold
- * itself (rail collapsed at exactly 1000 while `(width < 1000px)` reports
- * false), so trusting one convention would leave the first genuinely-outside
- * width unswept. N-1, N, and N+1 cover the boundary whichever side the
- * engine lays it out on, for `>=` queries symmetrically.
+ * itself (the rail once collapsed at exactly 1000 while `(width < 1000px)`
+ * reported false, which is why its block is spelled `<=` today), so trusting
+ * one convention would leave the first genuinely-outside width unswept. N-1,
+ * N, and N+1 cover the boundary whichever side the engine lays it out on, for
+ * `>=` and `<=` queries symmetrically.
  */
 function bothSides(thresholds: readonly number[]): number[] {
 	return [...new Set(thresholds.flatMap((threshold) => [threshold - 1, threshold, threshold + 1]))].sort(
@@ -98,7 +99,13 @@ function declaredThresholds(css: string): { readonly pane: number[]; readonly wi
 		...read(classStrings, /@max-\[(\d+)px\]\/pane:/g),
 		...read(classStrings, /@min-\[(\d+)px\]\/pane:/g),
 	];
-	const window = [...read(css, /@media \(width < (\d+)px\)/g), ...read(css, /@media \(width >= (\d+)px\)/g)];
+	const window = [
+		...read(css, /@media \(width < (\d+)px\)/g),
+		...read(css, /@media \(width >= (\d+)px\)/g),
+		// The rail's collapse is the one `<=` window query (its block says why);
+		// bothSides covers an inclusive boundary the same way.
+		...read(css, /@media \(width <= (\d+)px\)/g),
+	];
 	// Floored per SOURCE, not on the total: the two extractors fail
 	// independently, and a merged floor is met by either one of them alone.
 	if (paneCss.length < 3 || paneVariants.length < 3 || window.length < 1) {

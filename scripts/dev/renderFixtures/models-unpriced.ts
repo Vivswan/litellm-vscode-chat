@@ -90,10 +90,10 @@ const fixture: RenderFixture = {
 			}
 		})()`,
 	],
-	// 990, not 1000: the stylesheet's rail query reads `width < 1000px`, but
-	// the harness's emulation lands the flip a pixel over (rail collapsed at
-	// 1000, expanded at 1001 in a render), so 1000 sits exactly on it. This
-	// fixture's subject is row alignment, not the rail.
+	// 990, not 1000: the stylesheet's rail query reads `width <= 1000px`, so
+	// 1000 sits exactly on the collapse boundary (the rail-flip-integer
+	// fixture's subject). This fixture's subject is row alignment, not the
+	// rail, so it stands clear of the boundary.
 	viewport: { width: 990, height: 600 },
 	clipViewport: true,
 };

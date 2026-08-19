@@ -3985,8 +3985,13 @@
 	   ~780px; it is deliberately not tuned to keep the server rows on one line (that fold
 	   needs a 1185px window and would trade five labels for one row shape). A media query,
 	   not container: the rail's question is WINDOW width - asking the pane would be
-	   circular, since the rail's width is half of the pane's answer. */
-	@media (width < 1000px) {
+	   circular, since the rail's width is half of the pane's answer. `<=`, the one window
+	   query allowed the spelling: layout applies a `width < 1000px` block AT 1000 while
+	   matchMedia("(width < 1000px)") reports false there (measured under the render
+	   harness, dpr 1), so the paint and useCollapsedRail disagreed at that one integer;
+	   `<=` is the spelling both evaluate the same way at 999, 1000 and 1001, and the
+	   rail-flip fixture holds the agreement. */
+	@media (width <= 1000px) {
 		/* Nothing is dropped from the document, only from the paint: every label,
 		 the brand (the page's only h1) and the fleet's verdict stay readable to
 		 assistive tech, so the accessible name of every control is the same at

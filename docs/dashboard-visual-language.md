@@ -353,7 +353,7 @@ One idiom for detail that opens in place:
 - Breakpoints are container queries on the pane, never viewport media queries
   (`dashboard.css .pane`). The one exception is the rail, whose question is the
   window's own width - and asking the pane would be circular
-  (`dashboard.css @media (width < 1000px)`).
+  (`dashboard.css @media (width <= 1000px)`).
 - Range syntax only: `width < N` and `width >= N` partition at N, where
   `max-width: N` and a `< N` variant disagree for exactly one pixel (the
   range-syntax note on the matcher editor's stacking block,
@@ -361,13 +361,18 @@ One idiom for detail that opens in place:
   pair as the `@max-[Npx]/pane:` and `@min-[Npx]/pane:` variants, which compile
   to the two legal forms. The spelling is enforced, and every threshold is
   kept out of the band the rail's collapse makes ambiguous, by
-  `src/test/bun/webview/dashboard/narrowThresholds.test.ts`.
+  `src/test/bun/webview/dashboard/narrowThresholds.test.ts`. The rail's window
+  query is the one ruled `<=`: layout applies a `< N` block AT N under devtools
+  emulation while `matchMedia` reports false there, so a `<`-spelled collapse
+  left the paint and `useCollapsedRail` disagreeing at that single integer;
+  `<=` evaluates the same both ways (the derivation on the rail's narrow block,
+  the agreement held by the rail-flip-integer render fixture).
 - Reuse the existing tiers before minting a new one: 400, 560, 620, 640, 700,
   910, 920, and 1136 on the pane; 1000 on the window is the rail's alone.
 - A derived sizing number carries its derivation in a comment, so the next
   editor re-derives instead of guessing: the models list's 1136 threshold
   arithmetic (above `dashboard.css @container pane (width >= 1136px)`), the
-  rail collapse's own budget (`dashboard.css @media (width < 1000px)`), and the
+  rail collapse's own budget (`dashboard.css @media (width <= 1000px)`), and the
   collapsed rail's 49-not-48 (`dashboard.css .slide-over`, in the rail's narrow
   block) are the canonical precedents.
 - There is no preflight. Every control states what a UA stylesheet would
