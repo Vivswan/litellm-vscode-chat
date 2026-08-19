@@ -346,6 +346,37 @@ suite("extension/servers/serverSync", () => {
 			);
 		});
 
+		test("dispose settles a queued syncNow, and no pass may start after disposal", async () => {
+			// A queued follow-up will never run once the engine is disposed, so
+			// its waiters must settle instead of hanging - and neither the queued
+			// follow-up nor a later syncNow may reach the host (a disposed
+			// engine's window is going away; its adds would be unobservable).
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const originalAdd = recorded.env.addProviderGroup.bind(recorded.env);
+			recorded.env.addProviderGroup = async (args) => {
+				await gate;
+				return originalAdd(args);
+			};
+			const engine = new ServerSyncEngine(recorded.env, 0);
+			const first = engine.syncNow();
+			const queued = engine.syncNow(true);
+			engine.dispose();
+			release();
+			await first;
+			await queued;
+
+			assert.strictEqual(recorded.upserts.length, 1, "only the in-flight pass's add lands; the queued one is gone");
+			await engine.syncNow(true);
+			assert.strictEqual(recorded.upserts.length, 1, "post-dispose syncNow is a no-op");
+			engine.requestSync();
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			assert.strictEqual(recorded.upserts.length, 1, "post-dispose requestSync schedules nothing");
+		});
+
 		test("an unchanged entry skips the upsert; a changed secret re-upserts", async () => {
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
 			const engine = new ServerSyncEngine(recorded.env);

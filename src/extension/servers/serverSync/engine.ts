@@ -318,6 +318,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 	private running: Promise<void> | undefined;
 	private queued: { force: boolean; promise: Promise<void>; resolve: () => void } | undefined;
 	private timer: ReturnType<typeof setTimeout> | undefined;
+	private disposed = false;
 	/** Listeners on completed sync passes; see onDidSync. */
 	private readonly syncListeners = new Set<() => void>();
 
@@ -359,6 +360,9 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	requestSync(): void {
+		if (this.disposed) {
+			return;
+		}
 		if (this.timer !== undefined) {
 			clearTimeout(this.timer);
 		}
@@ -369,6 +373,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	async syncNow(force = false): Promise<void> {
+		// Checked here, not only at scheduling: the queued follow-up relaunch
+		// below routes through syncNow, and this guard is what stops it from
+		// starting a pass after disposal.
+		if (this.disposed) {
+			return;
+		}
 		if (this.running !== undefined) {
 			if (this.queued === undefined) {
 				let resolve!: () => void;
@@ -396,10 +406,17 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	dispose(): void {
+		this.disposed = true;
 		if (this.timer !== undefined) {
 			clearTimeout(this.timer);
 			this.timer = undefined;
 		}
+		// A queued follow-up will never run; its waiters must still settle
+		// (the poller's dispose contract, mirrored). The in-flight pass is left
+		// to finish: its host call cannot be recalled anyway, and its finally
+		// finds the queue already empty.
+		this.queued?.resolve();
+		this.queued = undefined;
 	}
 
 	private async runOnce(force: boolean): Promise<void> {

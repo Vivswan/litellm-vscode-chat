@@ -74,7 +74,13 @@ async function migrateLegacySingleServer(ctx: MigrationContext): Promise<Migrati
 	if (servers.length > 0 && !hasLegacyEntry()) {
 		// A populated registry means newer configuration superseded the legacy
 		// one; importing a "Default" server on top of it would be a surprise.
-		return "nothing-to-do";
+		// The superseded pair is DELETED, not left waiting: once the group
+		// migration empties the registry, lingering legacy secrets would
+		// re-import on the next activation as a provider group with the stale
+		// key. Marker first, so an interrupted deletion stays retryable.
+		await ctx.globalState.update(LEGACY_CLEANUP_PENDING_KEY, true);
+		await finishCleanup(ctx, []);
+		return "migrated";
 	}
 	const orphanedSecretIds: string[] = [];
 	if (!hasLegacyEntry()) {

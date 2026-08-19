@@ -40,7 +40,10 @@ suite("extension/migrations/legacySingleServer", () => {
 		assert.strictEqual(storage.secretStore.has(LEGACY_API_KEY_SECRET), false);
 	});
 
-	test("is a no-op when the registry already has a server", async () => {
+	test("superseded legacy secrets are cleaned up, not left waiting", async () => {
+		// A populated registry means newer configuration superseded the legacy
+		// pair; nothing is imported on top of it, and the stale secrets must go
+		// through the marker-then-delete machinery rather than linger.
 		const { ctx, storage } = makeContext();
 		await ctx.registry.addServer("Existing", "http://existing:4000", "existing-key");
 		storage.secretStore.set(LEGACY_BASE_URL_SECRET, "http://legacy:4000");
@@ -48,11 +51,39 @@ suite("extension/migrations/legacySingleServer", () => {
 
 		const outcome = await legacySingleServerMigration.run(ctx);
 
-		assert.strictEqual(outcome, "nothing-to-do");
-		assert.strictEqual(ctx.registry.getServers().length, 1);
+		assert.strictEqual(outcome, "migrated");
+		assert.strictEqual(ctx.registry.getServers().length, 1, "nothing is imported over the newer configuration");
 		assert.strictEqual(expectDefined(ctx.registry.getServers()[0]).label, "Existing");
-		assert.strictEqual(storage.secretStore.get(LEGACY_BASE_URL_SECRET), "http://legacy:4000");
-		assert.strictEqual(storage.secretStore.get(LEGACY_API_KEY_SECRET), "legacy-key");
+		assert.strictEqual(storage.secretStore.has(LEGACY_BASE_URL_SECRET), false, "the superseded pair is deleted");
+		assert.strictEqual(storage.secretStore.has(LEGACY_API_KEY_SECRET), false);
+		assert.strictEqual(storage.mementoStore.get(LEGACY_CLEANUP_PENDING_KEY), undefined);
+	});
+
+	test("a second activation after the group migration empties the registry resurrects nothing", async () => {
+		// The resurrection chain this pins closed: activation N sees a populated
+		// registry and leaves the legacy pair alone; the group migration then
+		// empties the registry; activation N+1 sees an empty registry with the
+		// legacy pair still stored and imports it as a "Default" server - which
+		// the group migration would promote to a provider group with the stale
+		// key. The cleanup at activation N must make that impossible.
+		const { ctx, storage } = makeContext();
+		await ctx.registry.addServer("Existing", "http://existing:4000", "existing-key");
+		storage.secretStore.set(LEGACY_BASE_URL_SECRET, "http://stale-legacy:4000");
+		storage.secretStore.set(LEGACY_API_KEY_SECRET, "stale-legacy-key");
+		await legacySingleServerMigration.run(ctx);
+
+		// The group migration moves "Existing" to a provider group and empties
+		// the registry.
+		await ctx.registry.removeServer(expectDefined(ctx.registry.getServers()[0]).id);
+
+		const { ctx: nextActivation } = makeContext(storage);
+		assert.strictEqual(await legacySingleServerMigration.run(nextActivation), "nothing-to-do");
+		assert.deepStrictEqual(
+			nextActivation.registry.getServers(),
+			[],
+			"stale legacy credentials must not re-import as a server the group migration would promote"
+		);
+		assert.strictEqual(storage.secretStore.has(LEGACY_API_KEY_SECRET), false, "the stale key is gone");
 	});
 
 	test("is a no-op when no legacy baseUrl secret exists", async () => {
