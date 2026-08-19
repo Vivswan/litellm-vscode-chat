@@ -2481,7 +2481,14 @@ export function RecordMatcherTable({
 					// when a state push reorders the record, dropping an open add
 					// popover's half-typed field with it.
 					<li
-						className="record-row group/row -mx-2 rounded-md px-2 py-1 hover:bg-accent-soft focus-within:bg-accent-soft"
+						// The wash is the row's edit affordance, so only editable rows wear
+						// it: on a read-only row it promises an editor that never comes, and
+						// its tint under the non-repainting read-only chips took their flag
+						// words under AA (3.38:1 in the server drawer, violet).
+						className={cn(
+							"record-row group/row -mx-2 rounded-md px-2 py-1",
+							editable && "hover:bg-accent-soft focus-within:bg-accent-soft"
+						)}
 						key={`${groupKey}#${groupOrdinal}`}
 					>
 						{/* Shrinkable on purpose: the wide tier's grid ignores flex-shrink, and in

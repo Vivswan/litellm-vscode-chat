@@ -186,15 +186,12 @@ const UTILITY_PATTERN = new RegExp(
  * Border longhands and shorthand. The lookbehind keeps the property name whole, so a custom property merely
  * ending in "border" is read as the token it is rather than a declaration it is not.
  */
-const DECLARATION_PATTERN = new RegExp(
-	String.raw`(?<![a-z-])border[a-z-]*:[^;{}]*(?:${TRANSPARENT_VALUE})[^;{}]*`,
-	"gi"
-);
+const DECLARATION_PATTERN = new RegExp(`(?<![a-z-])border[a-z-]*:[^;{}]*(?:${TRANSPARENT_VALUE})[^;{}]*`, "gi");
 /**
  * Custom properties that can resolve fully transparent, which is a border wherever a `border-*` utility names
  * one. A `color-mix` into transparent is a partial alpha rather than an off state, so those are excluded below.
  */
-const TOKEN_PATTERN = new RegExp(String.raw`--[a-z0-9-]+:[^;{}]*(?:${TRANSPARENT_VALUE})[^;{}]*`, "gi");
+const TOKEN_PATTERN = new RegExp(`--[a-z0-9-]+:[^;{}]*(?:${TRANSPARENT_VALUE})[^;{}]*`, "gi");
 
 function sourceFiles(dir: string): readonly string[] {
 	const found: string[] = [];

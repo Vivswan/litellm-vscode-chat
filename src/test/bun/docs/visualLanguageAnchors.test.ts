@@ -182,7 +182,7 @@ test("every charter citation resolves against today's source", () => {
 	// structurally blind to - removing a citation only makes "every anchor
 	// resolves" greener - and it doubles as the parser's positive control. A
 	// deliberate charter edit moves the number with it.
-	expect(citations.length).toBe(194);
+	expect(citations.length).toBe(202);
 	const failures: string[] = [];
 	const sources = new Map<string, string | undefined>();
 	for (const citation of citations) {

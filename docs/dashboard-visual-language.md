@@ -432,15 +432,51 @@ prose colour reads as prose.
   Dismiss sits in rather than the page. The error hue on light takes the
   foreground too, where the derived muted tier is too light to carry a hue.
   The link hue keeps the muted lean, which clears every surface it lands on.
-  The error hue on dark keeps it too, for a reason older than this
-  measurement - a table of Removes has to stay calm - and pays 4.19:1 for it
-  on a hovered row, named here rather than hidden.
-- The readable tier is not derived here and carries misses of its own: the
-  selected rail tab at 4.34:1, a warn band under an emphasized band action at
-  4.49:1, the chip's fill at 4.05:1. Recorded as a sample rather than a
-  census, because a prose list cannot stay exhaustive - what that tier wants
-  is its own derivation pass, against the same surface enumeration this
-  section applies to the quiet tiers.
+  The error hue on dark kept the muted lean for a reason older than this
+  measurement - a table of Removes has to stay calm - and the census retired
+  it: the lean paid 4.19:1 on the open row's wash, where even the plain hue
+  reads 4.14:1, so no share along that axis clears AA. It takes the foreground
+  now, at 75% hue (4.70:1 on the open row, 5.58:1 on the page; 80% would pass
+  at 4.56:1, and the step down buys margin), solved as one derivation with its
+  hover tier so the moment of aiming and the moment of reading hold together
+  (the hover bullet below; `theme.css --err-quiet`).
+- The readable tier is derived against its census now. Four rules consume
+  `theme.css --accent-text` - the primary button variant (`ui/button.tsx
+  buttonVariants`), the selected rail tab (`rail.tsx RailTab`), the record
+  chips' flag word (`recordEditors.tsx ChipFlagWord`), and the model
+  inspector's directive marks (`dashboard.css .model-inspector`) - and every
+  surface those rules rest on is enumerated below, measured at the aiming
+  moment with the worst accent hue (violet binds nearly everywhere, blue
+  trailing within 0.03). The share steps to 60%, from 70% - the 65% between
+  them still misses the chip fill (4.33:1). Dark, violet, before -> after:
+
+  | surface | 70% | 60% |
+  | --- | --- | --- |
+  | bare page | 5.16 | 5.75 |
+  | card and popover | 5.10 | 5.69 |
+  | open or hovered row | 4.35 | 4.84 |
+  | selected rail tab (its own wash) | 4.32 | 4.81 |
+  | warn band under an emphasized action | 4.51 | 5.03 |
+  | error band under an emphasized action | 4.73 | 5.27 |
+  | server drawer | 4.44 | 4.94 |
+  | chip fill, and the input fill an editing chip wears | 4.10 | 4.56 |
+  | read-only chip on the server drawer | 3.51 | 3.91 |
+
+  The tier's floor is blue on the chip fill, 4.54:1; light's is amber there,
+  5.54:1; blue's warn-band miss (4.49:1) cleared with the share change
+  (5.00:1). A chip never composites over a row wash at a reading moment: the
+  editable chip repaints to the input fill on exactly the row group whose
+  hover paints the wash, and a read-only row does not wash at all - the wash
+  is the edit affordance, and a read-only row has nothing to prove
+  (`recordEditors.tsx chipVariants`). The chip fill itself stays translucent,
+  because the badge's fill is its only boundary and an opaque chip vanishes
+  against the hovered row (`theme.css --chip`). The last table row is the
+  census's one recorded miss: the drawer is the lightest surface a chip rests
+  on, and the share that would clear it (45%) is the supporting tier's own,
+  which merges the two ranks - so it improves with the shared step and stays
+  named here. Measured by reimplementing the oklab/srgb color-mix and WCAG
+  arithmetic against the pinned Dark and Light Modern palettes - the same
+  palettes the render harness and the forced themes state.
 - Contrast is therefore a floor to derive against, not the axis rank travels
   on. A supporting action carries LESS OF THE HUE than a primary one, and
   less weight, which is the axis that already separated the two ranks when
@@ -451,8 +487,12 @@ prose colour reads as prose.
   a hue gains no contrast on its own wash. Both accent ranks deepen to
   `theme.css --accent-strong`, derived against the deepest stack a label
   reaches - a hovered button on a chip, then one in an error banner, then one
-  in a washed row - and danger to `theme.css --err-strong`, derived earlier
-  against its own wash on the page. The subordinated links take the host's
+  in a washed row - and danger to `theme.css --err-strong`, derived as a PAIR
+  with its rest tier against the wash over the open row: with both tiers on
+  the foreground axis the hover step itself is a contrast to keep (a lone
+  rest fix collapsed it to 1.08:1), so the strong tier steps to the share
+  that holds the pair at 1.41:1 while clearing 5.53:1 dark and 6.64:1 light
+  under the pointer. The subordinated links take the host's
   active link colour.
 - Rank is the scenario's, not the label's: a surface whose whole content is
   its actions renders them at the primary rank (the settings transfer pair,
