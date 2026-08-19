@@ -867,12 +867,13 @@
 		margin: 0;
 		max-width: 84ch;
 	}
-	/* The one fact whose value is an identifier rather than a number: a
-		 60-character host has no break opportunity, and a grid item's own minimum
-		 is its content, so the drawer would push the page sideways rather than
-		 wrapping. The numbers beside it keep their rule - a "128,000" split
+	/* The facts whose values are identifiers rather than numbers: a
+		 60-character host or label has no break opportunity, and a grid item's own
+		 minimum is its content, so the drawer would push the page sideways rather
+		 than wrapping. The numbers beside them keep their rule - a "128,000" split
 		 across two lines reads as two values. */
-	.server-facts .fact-url {
+	.server-facts .fact-url,
+	.server-facts .fact-name {
 		overflow-wrap: anywhere;
 	}
 	/* ---- a row's problems --------------------------------------------------

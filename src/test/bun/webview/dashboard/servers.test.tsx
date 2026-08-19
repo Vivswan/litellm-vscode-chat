@@ -831,6 +831,32 @@ test("an external row's drawer states the provenance classification, or the hone
 	expect(defaultTip).toContain("added outside this extension");
 });
 
+test("the drawer leads with the entry's whole label, through the fact pipeline, whatever the origin", () => {
+	// The collapsed header may ellipsize the label (a paint-only clip), so the drawer's first
+	// fact is where the full name is guaranteed readable; the .fact-name class carries the
+	// stylesheet's wrap-instead-of-clip rule. "Label" is the server form's own name for the
+	// field, read from the one vocabulary (serverFormFieldLabel).
+	const longLabel = "Dev Error (unreachable host used for connection diagnostics)";
+	const root = mountSection([
+		makeDeclaredServer({ label: longLabel }),
+		makeExternalServer({ label: "Native", baseUrl: "http://c.test", adoptHandle: "handle-native" }),
+	]);
+	for (const line of root.querySelectorAll("button.server-line")) {
+		fireClick(line as HTMLElement);
+	}
+	const items = [...root.querySelectorAll(".server-item")] as HTMLElement[];
+	expect(items.length).toBe(2);
+	for (const [item, label] of [
+		[items[0], longLabel],
+		[items[1], "Native"],
+	] as const) {
+		// First fact of the inventory: identity leads.
+		const first = item?.querySelector(".server-facts dt");
+		expect(first?.textContent).toBe("Label");
+		expect(first?.nextElementSibling?.querySelector(".fact-name")?.textContent).toBe(label);
+	}
+});
+
 test("the drawer's model count is a scope link only when the section is given onShowModels", () => {
 	// The link lives in the drawer: the row is one disclosure button and a button cannot contain a button.
 	// Direct mounts without the callback (and zero-count rows) keep the count as plain text.

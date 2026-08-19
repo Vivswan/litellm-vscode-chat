@@ -1360,8 +1360,14 @@ function ServerDrawer({
 			    promises never scrolls sideways. Stacked, the dd's own bottom margin keeps the
 			    next label from joining the value above it. */}
 			<dl className="server-facts m-0 grid max-w-[46rem] grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[0.95em] @max-[560px]/pane:grid-cols-[minmax(0,1fr)] @max-[560px]/pane:gap-y-0">
-				{/* "Base URL", the same name the server form gives this field. */}
-				<Fact label={l10n.t("Base URL")}>
+				{/* The row's collapsed header may ellipsize the label, so the inventory leads with
+				    it whole (wrapping, never clipped). These two facts take their names from the
+				    server form's own vocabulary (serverFormFieldLabel), so the drawer and the form
+				    cannot drift apart. */}
+				<Fact label={serverFormFieldLabel("label")}>
+					<span className="fact-name">{server.label}</span>
+				</Fact>
+				<Fact label={serverFormFieldLabel("baseUrl")}>
 					<span className="fact-url">
 						<UrlBreaks text={server.baseUrl} />
 					</span>
