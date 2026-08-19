@@ -21,8 +21,13 @@ import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { ServerSyncEngine } from "../servers/serverSync/engine";
 import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
-import { deleteServerSecrets, readServerSecretsRecord, updateServerSecret } from "../servers/serverSync/secrets";
-import { rawDeclaredLabels } from "../servers/serverSync/setting";
+import {
+	deleteServerSecrets,
+	readServerSecretsRecord,
+	resolveOwnedSecrets,
+	updateServerSecret,
+} from "../servers/serverSync/secrets";
+import { acceptedEntry, rawDeclaredLabels } from "../servers/serverSync/setting";
 import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
 import { parseEnvelope } from "../settingsTransfer/envelope";
@@ -563,11 +568,16 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 
 		const currentServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
 		// Plan twice: the first pass names the colliding labels, whose stored
-		// blobs then let connectionChanged compare EFFECTIVE secret material.
+		// blobs then let connectionChanged compare EFFECTIVE secret material -
+		// through the ownership check, so a refused stored value is compared as
+		// the absence the live entry actually resolves.
 		const prePlan = planSettingsImport(parsed.settings, currentServersRaw);
 		const storedSecrets: Record<string, StoredServerSecrets> = {};
 		for (const collision of prePlan.collisions) {
-			storedSecrets[collision.label] = (await env.readServerSecrets(collision.label)).values;
+			const record = await env.readServerSecrets(collision.label);
+			const standing = acceptedEntry(currentServersRaw, collision.label)?.entry;
+			storedSecrets[collision.label] =
+				standing !== undefined ? resolveOwnedSecrets(standing, record).values : record.values;
 		}
 		const plan = planSettingsImport(parsed.settings, currentServersRaw, storedSecrets);
 

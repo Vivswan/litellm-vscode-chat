@@ -40,7 +40,11 @@ export async function stampSecretOwnersFor(
 			record = await readServerSecretsRecord(secrets, entry.label);
 		} catch (error) {
 			failures += 1;
-			logger.error("Reading a blob to stamp secret ownership failed; retrying on next activation", error);
+			// Classification only: a SecretStorage error could echo what it was
+			// handed, and log lines feed the public issue-report buffer.
+			logger.log("Reading a blob to stamp secret ownership failed; retrying on next activation", {
+				error: error instanceof Error ? error.name : typeof error,
+			});
 			continue;
 		}
 		for (const field of SECRET_FIELD_IDS) {
@@ -56,7 +60,9 @@ export async function stampSecretOwnersFor(
 				stamped += 1;
 			} catch (error) {
 				failures += 1;
-				logger.error("Stamping a stored secret's ownership failed; retrying on next activation", error);
+				logger.log("Stamping a stored secret's ownership failed; retrying on next activation", {
+					error: error instanceof Error ? error.name : typeof error,
+				});
 			}
 		}
 	}
@@ -68,9 +74,13 @@ export async function stampSecretOwnersFor(
 
 /**
  * Migrates away from: the unstamped SecretStorage blobs of v0.4.7 and earlier.
- * Deletable once installs with pre-stamping blobs are judged extinct. Runs
- * pre-registration, after the settings redesign in the same phase, so the
- * entries it derives destinations from are already in the redesigned shape.
+ * Deletable once installs with pre-stamping blobs are judged extinct - though
+ * as long as it lives, a rerun also re-stamps blobs an interim DOWNGRADE
+ * rewrote (an old version's read-modify-write drops the whole `_owner` map),
+ * so ownership protection converges again on the next activation rather than
+ * staying erased. Runs pre-registration, after the settings redesign in the
+ * same phase, so the entries it derives destinations from are already in the
+ * redesigned shape.
  */
 export const stampSecretOwnersMigration: ExtensionMigration = {
 	state: "unstamped-server-secrets",

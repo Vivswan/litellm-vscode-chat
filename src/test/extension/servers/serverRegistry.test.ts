@@ -157,6 +157,44 @@ suite("extension/servers/serverRegistry", () => {
 				"the staged key is rolled back with the entry"
 			);
 		});
+
+		test("updateServer deletes the key when even the rollback restore fails: missing beats mismatched", async () => {
+			// Persist fails AND restoring the old key fails: leaving the staged NEW
+			// key under the entry (still at its old host) would serve a credential
+			// that belongs elsewhere, so the key is deleted instead - requests 401
+			// and the user re-enters, but no host ever sees another host's key.
+			let failPersist = false;
+			let storesAfterArm = 0;
+			const storage = failingStorage(makeExtensionStorage(), {
+				failOn: {
+					mementoUpdate: () => (failPersist ? new Error("registry write failed") : undefined),
+					// The first armed store is the staged new key (succeeds); the
+					// second is the rollback restore (fails).
+					secretStore: () => {
+						if (!failPersist) {
+							return undefined;
+						}
+						storesAfterArm += 1;
+						return storesAfterArm >= 2 ? new Error("keychain locked") : undefined;
+					},
+				},
+			});
+			const registry = new ServerRegistry(storage.memento, storage.secrets);
+			const server = await registry.addServer("Original", "http://old:4000", "old-key");
+			failPersist = true;
+
+			await assert.rejects(
+				registry.updateServer(server.id, "Renamed", "http://new:5000", "new-key"),
+				/registry write failed/
+			);
+
+			assert.deepStrictEqual(registry.getServers(), [server], "the entry stays at its old host");
+			assert.strictEqual(
+				storage.secretStore.has(apiKeySecret(server.id)),
+				false,
+				"no key at all beats the new host's key under the old host's entry"
+			);
+		});
 	});
 
 	suite("getServers validation", () => {

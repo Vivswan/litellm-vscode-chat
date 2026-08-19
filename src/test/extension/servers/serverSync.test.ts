@@ -299,6 +299,12 @@ suite("extension/servers/serverSync", () => {
 			};
 			assert.strictEqual(secretDestination(entry, "apiKey"), "http://a.test");
 			assert.strictEqual(secretDestination(entry, "oauthClientSecret"), "https://idp.test/token");
+			// Both destinations compare under the shared URL normalization, so a
+			// semantically null trailing-slash edit never refuses a pairing.
+			assert.strictEqual(
+				secretDestination({ ...entry, oauthTokenUrl: "https://idp.test/token/" }, "oauthClientSecret"),
+				"https://idp.test/token"
+			);
 
 			const record = {
 				values: { apiKey: "sk-1", oauthClientSecret: "cs-1", virtualKeyValue: "vk-1" },
@@ -400,6 +406,18 @@ suite("extension/servers/serverSync", () => {
 				]
 			);
 			assert.ok(engine.getDeclared().every((view) => view.syncError === undefined));
+		});
+		test("resolveGroupArgs never hands the internal test command a refused field", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://new.test" }], {
+				A: { apiKey: "sk-retired", virtualKeyValue: "vk-ok" },
+			});
+			recorded.secretOwners = { A: { apiKey: "http://retired.test", virtualKeyValue: "http://new.test" } };
+			const engine = new ServerSyncEngine(recorded.env);
+
+			const args = await engine.resolveGroupArgs("A");
+
+			assert.strictEqual(args?.apiKey, undefined, "the refused field must not ride the group path");
+			assert.strictEqual(args?.virtualKeyValue, "vk-ok");
 		});
 	});
 

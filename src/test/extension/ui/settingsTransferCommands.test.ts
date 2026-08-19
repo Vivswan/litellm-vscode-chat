@@ -1284,8 +1284,17 @@ suite("settingsTransferCommands undo flow", () => {
 		world.answers.collisions = { a: "overwrite" };
 		await runImportSettingsFlow(world.env);
 		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "NEW-KEY", virtualKeyValue: "NEW-VK" });
+		assert.deepStrictEqual(
+			ownersOf(world, "a"),
+			{ apiKey: "http://x:4000", virtualKeyValue: "http://x:4000" },
+			"the import stamped its writes"
+		);
 		await runUndoLastImportFlow(world.env);
 		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "ONLY-KEY" });
+		// The pre-import blob was recorded unstamped and restores unstamped: the
+		// snapshot round-trips ownership stamps exactly, so the import's stamps
+		// leave with its values.
+		assert.deepStrictEqual(ownersOf(world, "a"), {});
 	});
 
 	test("a failed restore step keeps the slot for a retry and warns", async () => {

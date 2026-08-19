@@ -201,7 +201,10 @@ export class ServerRegistry {
 		// The secret goes in first, like addServerUnguarded: if the entry persist
 		// below fails, the entry still names its old host and the old key is
 		// restored - the reverse order could leave a re-pointed entry paired with
-		// the old host's key when the secret write fails after the persist.
+		// the old host's key when the secret write fails after the persist. The
+		// window between the key store and the persist still exists (a concurrent
+		// legacy request reads the old entry with the new key); this ordering only
+		// fixes which DURABLE state a failure can leave behind.
 		let previousKey: string | undefined;
 		if (apiKey !== undefined) {
 			previousKey = await this.secrets.get(apiKeySecret(id));
@@ -224,8 +227,16 @@ export class ServerRegistry {
 						await this.secrets.store(apiKeySecret(id), previousKey);
 					}
 				} catch {
-					// Best-effort on this legacy pre-migration surface: the failed
-					// persist is what the caller sees and retries.
+					// The restore failed too, so the entry (still at its old host)
+					// would keep serving the NEW key - a credential that belongs
+					// elsewhere. Deleting errs toward a missing credential (requests
+					// 401 and the user re-enters), never a mismatched one; if even
+					// the delete fails, this legacy surface has nothing safer left.
+					try {
+						await this.secrets.delete(apiKeySecret(id));
+					} catch {
+						// Ignored: the persist failure below is what the caller sees.
+					}
 				}
 			}
 			throw error;

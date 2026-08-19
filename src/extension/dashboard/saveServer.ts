@@ -190,8 +190,10 @@ export async function readKeepSources(
 	const renaming = targetLabel !== label;
 	const storedOldRecord = await readServerSecrets(targetLabel);
 	const storedNewRecord = renaming ? await readServerSecrets(label) : storedOldRecord;
-	const storedOld =
-		accepted !== undefined ? resolveOwnedSecrets(accepted.entry, storedOldRecord).values : storedOldRecord.values;
+	// With no accepted entry there is nothing to pair against, so keeps resolve
+	// NOTHING - never the raw values, which would hand back the one fail-open
+	// reading this module exists to prevent.
+	const storedOld = accepted !== undefined ? resolveOwnedSecrets(accepted.entry, storedOldRecord).values : {};
 	const willCopy = renaming && Object.keys(storedOld).length > 0;
 	return { accepted, storedOld, storedOldRecord, storedNewRecord, willCopy };
 }

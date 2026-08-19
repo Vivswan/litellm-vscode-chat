@@ -13,6 +13,8 @@
  */
 
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
+import type { SecretFieldId } from "../../shared/serverEntry";
+import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isRecord } from "../../shared/util/json";
 import type { StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
 import { resolveOwnedSecrets } from "../servers/serverSync/secrets";
@@ -137,9 +139,13 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 				usable = owned.values;
 				mismatchedSecretCount += owned.refused.length;
 			} else {
-				const values: Record<string, string> = {};
-				for (const [field, value] of Object.entries(record.values)) {
-					if (record.owners[field as keyof typeof record.owners] === undefined) {
+				const values: { -readonly [K in SecretFieldId]?: string } = {};
+				for (const field of SECRET_FIELD_IDS) {
+					const value = record.values[field];
+					if (value === undefined) {
+						continue;
+					}
+					if (record.owners[field] === undefined) {
 						values[field] = value;
 					} else {
 						mismatchedSecretCount += 1;
