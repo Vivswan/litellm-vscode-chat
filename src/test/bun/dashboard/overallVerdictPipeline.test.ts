@@ -1,8 +1,6 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { REPO_ROOT } from "../../util/repoRoot";
+import { type ShippedSource, shippedSources } from "../../sourceScan";
 
 /**
  * The one-verdict-pipeline source guard: classifyOverall is the only place
@@ -15,33 +13,7 @@ import { REPO_ROOT } from "../../util/repoRoot";
  * API, so matches require the call or comparison form.
  */
 
-const SRC_DIR = path.join(REPO_ROOT, "src");
-const TEST_DIR = path.join(SRC_DIR, "test");
-
-function sourceFilesUnder(dir: string): string[] {
-	const files: string[] = [];
-	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-		const full = path.join(dir, entry.name);
-		if (entry.isDirectory()) {
-			files.push(...sourceFilesUnder(full));
-		} else if (/\.(ts|tsx)$/.test(entry.name)) {
-			files.push(full);
-		}
-	}
-	return files;
-}
-
-/** Shipped sources (src/ without src/test), as repo-relative posix paths plus text. */
-function shippedSources(): { file: string; text: string }[] {
-	return sourceFilesUnder(SRC_DIR)
-		.filter((file) => !file.startsWith(TEST_DIR + path.sep))
-		.map((file) => ({
-			file: path.relative(REPO_ROOT, file).split(path.sep).join("/"),
-			text: fs.readFileSync(file, "utf8"),
-		}));
-}
-
-function filesContaining(sources: { file: string; text: string }[], needle: string): string[] {
+function filesContaining(sources: readonly ShippedSource[], needle: string): string[] {
 	return sources
 		.filter((source) => source.text.includes(needle))
 		.map((source) => source.file)

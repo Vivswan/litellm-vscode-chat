@@ -48,7 +48,7 @@ const directiveArb = (values: readonly string[]): fc.Arbitrary<SecretDirective> 
 
 const secretsArb: fc.Arbitrary<Record<SecretFieldId, SecretDirective>> = fc.record({
 	apiKey: directiveArb(["sk-test-set", " sk-test-set-padded ", "  "]),
-	oauthClientSecret: directiveArb(["sk-test-cs-set", " sk-test-cs-padded "]),
+	oauthClientSecret: directiveArb(["sk-test-cs-set", " sk-test-cs-padded ", "  "]),
 	virtualKeyValue: directiveArb(["sk-test-vk-set", " sk-test-vk-padded ", "  "]),
 });
 

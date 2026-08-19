@@ -869,6 +869,24 @@ function pillTone(
 }
 
 /**
+ * Every English word the status pill can say: serverHealth's seven verdicts
+ * collapse onto these six ("Connected" covers both the clean and the
+ * expected-serving states). The literals repeat in pillVerdict below because
+ * l10n extraction only sees a bare string literal inside l10n.t, so this union
+ * is the vocabulary's declared shape rather than its derivation: the bun
+ * statusVocabulary suite compile-pins the cross-surface table's word list to it
+ * and asserts the rendered pill words equal the table's, verdict by covered
+ * verdict.
+ */
+export type ServerPillWord =
+	| "Connected"
+	| "Sync issue"
+	| "Error"
+	| "Not checked"
+	| "Expected failure"
+	| "Misconfigured";
+
+/**
  * The verdict said in words. Words only, no hover tips: the pill sits inside the
  * disclosure button, and a focusable tip wrapper inside a button is a nesting fault.
  */

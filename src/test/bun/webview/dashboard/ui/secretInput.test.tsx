@@ -56,11 +56,16 @@ test("typing reports through onValueChange and the echoed re-render leaves the n
 	const root = mount(<Harness onValue={(next) => seen.push(next)} />);
 	expectOnlyInValueProperty(SECRET);
 
-	fireInput(input(root), TYPED);
+	// The title's actual claim needs the node captured BEFORE the echoed
+	// re-render: same element after, so React updated in place rather than
+	// remounting (a remount would wipe an uncontrolled input's value).
+	const node = input(root);
+	fireInput(node, TYPED);
 	// The submit read-out: what the parent state holds is exactly what was typed.
 	expect(seen).toEqual([TYPED]);
-	expect(input(root).value).toBe(TYPED);
-	expect(input(root).getAttribute("value")).toBeNull();
+	expect(input(root)).toBe(node);
+	expect(node.value).toBe(TYPED);
+	expect(node.getAttribute("value")).toBeNull();
 	expectOnlyInValueProperty(TYPED);
 	expect(findSentinel(SECRET)).toEqual([]);
 });

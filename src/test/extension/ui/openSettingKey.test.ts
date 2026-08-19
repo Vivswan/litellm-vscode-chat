@@ -6,7 +6,6 @@
  * for real against the test profile's settings.json.
  */
 import * as assert from "node:assert";
-import * as path from "node:path";
 import * as vscode from "vscode";
 import type { SettingsJsonEditor } from "../../../extension/ui/openSettingKey";
 import {
@@ -35,7 +34,7 @@ suite("extension/ui/openSettingKey", () => {
 		// (the settings reveal and the groups-file open), free to drift apart.
 		// This pin fails closed both ways: a re-minted walk anywhere in shipped
 		// source flags, and so does a deep link that stops consuming the helper.
-		const helperFile = path.join("src", "extension", "ui", "profilePath.ts");
+		const helperFile = "src/extension/ui/profilePath.ts";
 
 		test("profileUserFileUri owns the only two-levels-up walk in shipped source", () => {
 			// A spelling pin, not a semantic one: it covers the joinPath walk's two
@@ -57,10 +56,7 @@ suite("extension/ui/openSettingKey", () => {
 				.filter((source) => source.file !== helperFile && source.text.includes(call))
 				.map((source) => source.file)
 				.sort();
-			assert.deepStrictEqual(callers, [
-				path.join("src", "extension", "ui", "commands.ts"),
-				path.join("src", "extension", "ui", "openSettingKey.ts"),
-			]);
+			assert.deepStrictEqual(callers, ["src/extension/ui/commands.ts", "src/extension/ui/openSettingKey.ts"]);
 		});
 	});
 	suite("findSettingKeyRange", () => {

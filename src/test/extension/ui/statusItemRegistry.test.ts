@@ -6,7 +6,6 @@
  */
 
 import * as assert from "node:assert";
-import * as path from "node:path";
 import * as vscode from "vscode";
 import type { StatusItemView } from "../../../extension/ui/status";
 import {
@@ -27,9 +26,9 @@ import { countOccurrences, shippedSources } from "../../sourceScan";
  * issue-report buffer taps, and a second webview panel escapes the one-panel lifecycle.
  */
 const SINGLETON_CREATION_POINTS: readonly { readonly api: string; readonly file: string }[] = [
-	{ api: "createStatusBarItem", file: path.join("src", "extension", "ui", "status.ts") },
-	{ api: "createOutputChannel", file: path.join("src", "extension.ts") },
-	{ api: "createWebviewPanel", file: path.join("src", "extension", "dashboard", "panel.ts") },
+	{ api: "createStatusBarItem", file: "src/extension/ui/status.ts" },
+	{ api: "createOutputChannel", file: "src/extension.ts" },
+	{ api: "createWebviewPanel", file: "src/extension/dashboard/panel.ts" },
 ];
 
 function makeContext(): vscode.ExtensionContext {

@@ -12,10 +12,11 @@
  * The literal sweeps below close the remaining hole - a directive a module
  * HANDLES but nobody registered, or a name UI copy still spells after a
  * rename. The source sweep scans CODE, through an AST walk over the string
- * literals of every module in src/shared/config, so comments and doc
- * prose never count (a message string would, but these diagnostics carry
- * kinds and keys, never prose). Its blind spot is a name no literal spells:
- * identifier property access (`record._force`) or a name built at runtime.
+ * literals and the identifier-spelled property routes of every module in
+ * src/shared/config, so comments and doc prose never count (a message string
+ * would, but these diagnostics carry kinds and keys, never prose). What it
+ * still misses: a name built at runtime, and identifier forms no directive
+ * has ever taken (class members, enum members).
  * The copy sweep scans every l10n bundle's and package.nls file's keys and
  * translated values for directive-shaped tokens, so localized copy cannot
  * keep teaching a name the registry dropped. The docs sweep holds every
@@ -84,24 +85,41 @@ const REQUIRED_SOURCES: readonly string[] = [
 ];
 
 /**
- * Every underscore-prefixed string literal in the file's code; the one-char "_" is the
- * namespace probe, never a name. Reserved object-plumbing names ("__proto__") are exempt
- * by the same predicate the record grammar enforces: isUnsafeRecordKey rejects them as
- * record keys, so no such literal could ever be a directive. No such literal exists in
- * code today (the tree's are all in comments); the carve-out pre-empts the next
- * hardening one rather than excusing an existing one.
+ * Every underscore-prefixed name the file's code spells: string and template
+ * literals, plus the identifier routes a literal walk is blind to - property
+ * access (`record._force`), object-literal and type-member keys, and
+ * destructuring bindings. The remaining blind spot is a name built at runtime.
+ * The one-char "_" is the namespace probe, never a name. Reserved
+ * object-plumbing names ("__proto__") are exempt by the same predicate the
+ * record grammar enforces: isUnsafeRecordKey rejects them as record keys, so
+ * no such name could ever be a directive. No such literal exists in code today
+ * (the tree's are all in comments); the carve-out pre-empts the next hardening
+ * one rather than excusing an existing one.
  */
-function underscoreLiterals(fileName: string): ReadonlySet<string> {
+function underscoreNames(fileName: string): ReadonlySet<string> {
 	const text = fs.readFileSync(path.join(CONFIG_DIR, fileName), "utf8");
 	const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 	const found = new Set<string>();
+	const collect = (name: string): void => {
+		if (/^_./.test(name) && !isUnsafeRecordKey(name)) {
+			found.add(name);
+		}
+	};
 	const visit = (node: ts.Node): void => {
-		if (
-			(ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node)) &&
-			/^_./.test(node.text) &&
-			!isUnsafeRecordKey(node.text)
+		if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node)) {
+			collect(node.text);
+		} else if (ts.isPropertyAccessExpression(node)) {
+			collect(node.name.text);
+		} else if (
+			(ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node) || ts.isPropertySignature(node)) &&
+			ts.isIdentifier(node.name)
 		) {
-			found.add(node.text);
+			collect(node.name.text);
+		} else if (ts.isBindingElement(node)) {
+			const key = node.propertyName ?? node.name;
+			if (ts.isIdentifier(key)) {
+				collect(key.text);
+			}
 		}
 		ts.forEachChild(node, visit);
 	};
@@ -118,8 +136,8 @@ function underscoreLiterals(fileName: string): ReadonlySet<string> {
 const DIRECTIVE_TOKEN_PATTERN = /(?<![A-Za-z0-9_])_[a-z][a-z0-9_]*/g;
 
 /** One parse per file, shared by the sweep and its positive control. */
-const LITERALS_BY_FILE: ReadonlyMap<string, ReadonlySet<string>> = new Map(
-	SCANNED_SOURCES.map((file) => [file, underscoreLiterals(file)])
+const NAMES_BY_FILE: ReadonlyMap<string, ReadonlySet<string>> = new Map(
+	SCANNED_SOURCES.map((file) => [file, underscoreNames(file)])
 );
 
 describe("shared/config record-type directive registry", () => {
@@ -170,13 +188,13 @@ describe("shared/config record-type directive registry", () => {
 		}
 	});
 
-	test("every underscore literal in the shared/config sources is a registered directive", () => {
+	test("every underscore name the shared/config sources spell is a registered directive", () => {
 		const failures: string[] = [];
-		for (const [file, literals] of LITERALS_BY_FILE) {
-			for (const literal of literals) {
-				if (!REGISTERED_DIRECTIVES.has(literal)) {
+		for (const [file, names] of NAMES_BY_FILE) {
+			for (const name of names) {
+				if (!REGISTERED_DIRECTIVES.has(name)) {
 					failures.push(
-						`src/shared/config/${file} carries the unregistered underscore literal "${literal}": ` +
+						`src/shared/config/${file} carries the unregistered underscore name "${name}": ` +
 							"add it to RECORD_TYPE_DIRECTIVES or the shared engine directives in recordResolution.ts"
 					);
 				}
@@ -316,7 +334,7 @@ describe("shared/config record-type directive registry", () => {
 		for (const file of REQUIRED_SOURCES) {
 			assert.ok(SCANNED_SOURCES.includes(file), `the sweep no longer reaches ${file}`);
 		}
-		const found = new Set<string>([...LITERALS_BY_FILE.values()].flatMap((literals) => [...literals]));
+		const found = new Set<string>([...NAMES_BY_FILE.values()].flatMap((names) => [...names]));
 		for (const name of REGISTERED_DIRECTIVES) {
 			assert.ok(found.has(name), `the sweep no longer sees ${name}'s mint in the scanned sources`);
 		}

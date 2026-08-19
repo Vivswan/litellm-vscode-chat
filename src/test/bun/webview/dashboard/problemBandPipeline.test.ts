@@ -12,31 +12,13 @@
  * guard's.
  */
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
+import { shippedSources } from "../../../sourceScan";
 import { blocks, compileDashboard, rulesFor } from "./styles/compileStyles";
 
-const srcRoot = path.resolve(import.meta.dir, "../../../..");
-const PIPELINE = path.join("webview", "dashboard", "problemBand.tsx");
+const PIPELINE = "src/webview/dashboard/problemBand.tsx";
 
-/** Every TypeScript source in the trees the webview bundle is built from. */
-function shippedSources(): readonly string[] {
-	const found: string[] = [];
-	for (const tree of ["webview", "dashboard", "shared"]) {
-		const walk = (dir: string): void => {
-			for (const entry of readdirSync(path.join(srcRoot, dir), { withFileTypes: true })) {
-				const relative = path.join(dir, entry.name);
-				if (entry.isDirectory()) {
-					walk(relative);
-				} else if (/\.tsx?$/.test(entry.name)) {
-					found.push(relative);
-				}
-			}
-		};
-		walk(tree);
-	}
-	return found;
-}
+/** The trees the webview bundle is built from; the scanner walks only these. */
+const WEBVIEW_BUNDLE_TREES = ["webview", "dashboard", "shared"] as const;
 
 // The band root class as its own token: the structural children
 // (.row-diagnostic-headline and friends) stay mintable where a surface seats
@@ -52,18 +34,18 @@ const TIER_MINT = /\btier-(?:error|warn|advisory)\b|tier-\$\{/;
 const RETIRED = /\bsev-(?:blocking|degraded|advisory)\b|spend-error/;
 
 test("only problemBand.tsx mints the band vocabulary", () => {
+	const sources = shippedSources(WEBVIEW_BUNDLE_TREES);
 	const offenders: string[] = [];
-	for (const file of shippedSources()) {
+	for (const { file, text } of sources) {
 		if (file === PIPELINE) {
 			continue;
 		}
-		const source = readFileSync(path.join(srcRoot, file), "utf8");
 		for (const [what, pattern] of [
 			["the band root class", BAND_ROOT],
 			["a paint tier class", TIER_MINT],
 			["a retired band class", RETIRED],
 		] as const) {
-			if (pattern.test(source)) {
+			if (pattern.test(text)) {
 				// Comments count on purpose: a comment naming a retired class is rot.
 				offenders.push(`${file} mints ${what} (comments count); render through problemBand.tsx instead`);
 			}
@@ -72,9 +54,10 @@ test("only problemBand.tsx mints the band vocabulary", () => {
 	expect(offenders).toEqual([]);
 	// The positive control: the pipeline itself still mints both halves of the
 	// vocabulary, so an empty scan above cannot mean the vocabulary moved.
-	const pipeline = readFileSync(path.join(srcRoot, PIPELINE), "utf8");
-	expect(pipeline).toMatch(BAND_ROOT);
-	expect(pipeline).toMatch(TIER_MINT);
+	const pipeline = sources.find((source) => source.file === PIPELINE);
+	expect(pipeline).toBeDefined();
+	expect(pipeline?.text).toMatch(BAND_ROOT);
+	expect(pipeline?.text).toMatch(TIER_MINT);
 });
 
 test("the compiled sheet paints tiers only through the pipeline's compound selectors", async () => {

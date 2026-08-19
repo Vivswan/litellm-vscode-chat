@@ -11,11 +11,16 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { classifyOverall, overallStatusText } from "../../../dashboard/presenters";
+import type { DashboardServer } from "../../../dashboard/viewModels";
 import { buildDashboardState, type SettingsReader } from "../../../extension/dashboard/state";
-import type { DeclaredServerView } from "../../../extension/servers/serverSync";
+import type { DeclaredServerView, ServerEntryReport } from "../../../extension/servers/serverSync";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
 import { Notifier } from "../../../extension/ui/notifier";
+import { GroupStatusReporter } from "../../../provider/catalog/statusReporting";
+import { StatusWindow } from "../../../provider/catalog/statusWindow";
+import type { AggregatedStatus } from "../../../shared/servers";
 import { isHiddenGroupServerStatus } from "../../../shared/servers";
+import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import type { Timer } from "../../../shared/util/timer";
 import type { WindowStateRow } from "../../statusVocabulary";
 import { aggregateContradictions, uncoveredPills, uncoveredVerdicts, WINDOW_STATE_ROWS } from "../../statusVocabulary";
@@ -50,6 +55,26 @@ function declaredViews(row: WindowStateRow): DeclaredServerView[] {
 				syncErrorClass: failure?.failureClass,
 			};
 		});
+}
+
+/**
+ * The row's misconfigured rows as the parser's entry reports: what
+ * serverSettingReports hands the state builder for an entry it refused, so the
+ * mirror exercises the builder's misconfigured-row branch rather than assuming
+ * the hand-written literal.
+ */
+function rejectedReports(row: WindowStateRow): ServerEntryReport[] {
+	return row.rows
+		.filter((server): server is Extract<DashboardServer, { origin: "misconfigured" }> => {
+			return server.origin === "misconfigured";
+		})
+		.map((server, index) => ({
+			index,
+			label: server.label,
+			baseUrl: server.baseUrl,
+			problems: [...server.problems],
+			accepted: false,
+		}));
 }
 
 suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
@@ -103,13 +128,16 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 		// rebuilds them through buildDashboardState and proves the mirror holds -
 		// same state, the SAME served count, same expectedness, same notices -
 		// field by field. Hidden window statuses become tombstones, the way the
-		// removal store feeds the real builder.
+		// removal store feeds the real builder; parser-refused entries ride in as
+		// the entry reports serverSettingReports would produce for them.
 		for (const row of WINDOW_STATE_ROWS) {
 			const declaredRows = row.rows.filter((server) => server.origin === "declared");
+			const rejects = rejectedReports(row);
 			const state = buildDashboardState({
 				snapshots: row.window.map((status) => ({ status, models: [] })),
 				reader: EMPTY_READER,
 				declared: declaredViews(row),
+				entryReports: rejects,
 				isGroupSnapshot: () => true,
 				removedGroups: {
 					tombstones: row.window
@@ -120,7 +148,7 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			});
 			// Exactly the table's rows, no extras: a builder inventing a row would
 			// change every verdict without failing a per-row lookup.
-			assert.strictEqual(state.servers.length, declaredRows.length, `${row.name}: row count`);
+			assert.strictEqual(state.servers.length, declaredRows.length + rejects.length, `${row.name}: row count`);
 			assert.strictEqual(state.hiddenGroups.length, row.hiddenGroups ?? 0, `${row.name}: hidden groups`);
 			// The builder's merged served count is the same reduce the bar's
 			// totalModels uses, so the hero can never contradict the table.
@@ -149,12 +177,45 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 					assert.strictEqual(built.error, expected.error, `${row.name}: error of "${expected.label}"`);
 				}
 			}
-			// The table's totalModels is the merged count reportMerged derives.
-			assert.strictEqual(
-				row.window.reduce((sum, status) => sum + status.servedModelCount, 0),
-				row.totalModels,
-				`${row.name}: totalModels`
+			// The misconfigured mirror is the whole row: the builder derives every
+			// field of a parser-refused entry's row from the report alone.
+			for (const expected of row.rows.filter((server) => server.origin === "misconfigured")) {
+				const built = state.servers.find((server) => server.label === expected.label);
+				assert.ok(built !== undefined, `${row.name}: the builder must produce the "${expected.label}" reject row`);
+				assert.deepStrictEqual(built, expected, `${row.name}: the misconfigured "${expected.label}" row`);
+			}
+		}
+	});
+
+	test("the table's totalModels is the merged count reportMerged derives from the window", () => {
+		// The claim asserted against the REAL reporter: record the row's window
+		// into a StatusWindow and read the merged report back, so the table's
+		// count can never drift from the reduce reportMerged actually runs.
+		const groupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "" };
+		const nothingServed = { discovered: [], declared: [] } as const;
+		for (const row of WINDOW_STATE_ROWS) {
+			const window = new StatusWindow(
+				() => 0,
+				() => 0
 			);
+			const reporter = new GroupStatusReporter(window);
+			const reports: AggregatedStatus[] = [];
+			reporter.setCallback((status) => reports.push(status));
+			for (const status of row.window) {
+				// The ok branch carries the observations parameter the error
+				// overload forbids; passing none, the arms differ only in which
+				// overload they satisfy, and merging them stops compiling.
+				if (status.state === "ok") {
+					window.record(status, nothingServed, groupServer, {});
+				} else {
+					window.record(status, nothingServed, groupServer);
+				}
+			}
+			reporter.reportMerged(true);
+			const merged = reports.at(-1);
+			assert.ok(merged !== undefined, `${row.name}: reportMerged must report`);
+			assert.deepStrictEqual(merged.serverStatuses, [...row.window], `${row.name}: the window statuses round-trip`);
+			assert.strictEqual(merged.totalModels, row.totalModels, `${row.name}: totalModels`);
 		}
 	});
 

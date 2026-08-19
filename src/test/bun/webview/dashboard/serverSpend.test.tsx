@@ -89,8 +89,12 @@ describe("the spend unit", () => {
 			const unit = root.querySelector(".server-usage .spend-unit") as HTMLElement;
 			// The hidden noun is the number's name - there is no column header.
 			expect(unit.querySelector(".visually-hidden")?.textContent).toContain("Budget spent");
-			expect(unit.textContent).toContain(percent);
-			expect(unit.querySelector(`.${tone}`)).not.toBeNull();
+			// The figure exactly, hidden noun stripped: a substring check would let
+			// a rendered 142% pass as 42%.
+			const figure = unit.querySelector(`.${tone}`);
+			expect(figure).not.toBeNull();
+			const noun = figure?.querySelector(".visually-hidden")?.textContent ?? "";
+			expect((figure?.textContent ?? "").replace(noun, "").trim()).toBe(percent);
 			// The meter under the number: the axis marks the 100% extent and the
 			// fill carries its forced-colors colour, so the meter can never read
 			// as a measured zero when backgrounds flatten to Canvas.

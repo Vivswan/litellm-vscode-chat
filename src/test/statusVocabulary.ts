@@ -38,9 +38,9 @@ interface BarExpectation {
 /** The notifier expectation: the toast's kind and a fragment of its message, or silence. */
 type NotifierExpectation = { readonly kind: "info" | "warning" | "error"; readonly contains: string } | "none";
 
-/** One rendered pill: its visible word and its dot tone class (both English-bundle values). */
+/** One rendered pill: its visible word (compile-pinned to the vocabulary below) and its dot tone class. */
 interface PillExpectation {
-	readonly word: string;
+	readonly word: (typeof ALL_PILL_WORDS)[number];
 	readonly tone: "ok" | "warn" | "error" | "muted";
 }
 
@@ -240,16 +240,15 @@ const UPDATE_UNAVAILABLE =
 	"A VS Code provider group already uses this name, and VS Code cannot update an existing group.";
 
 /**
- * The window states the initiative's integration findings came from, plus the
- * anchors that bound the classes and one row per remaining verdict and pill
- * word (the coverage helpers below fail closed on omissions). The
- * never-checked row has an EMPTY window on purpose: an entry no discovery pass
- * has seen exists only as a dashboard row, and the bar's configured-gate
- * renders the empty window as the neutral spinner; the misconfigured row rides
- * beside it, since a parser-refused entry never reaches the window either.
- * Sync failures never enter the window either; the two sync-failure rows pin
- * the overlay (applySyncFailures) that folds them into the bar's and
- * notifier's input.
+ * The window states whose surfaces once disagreed, plus the anchors that bound
+ * the classes and one row per remaining verdict and pill word (the coverage
+ * helpers below fail closed on omissions). The never-checked row has an EMPTY
+ * window on purpose: an entry no discovery pass has seen exists only as a
+ * dashboard row, and the bar's configured-gate renders the empty window as the
+ * neutral spinner; the misconfigured row rides beside it, since a
+ * parser-refused entry never reaches the window either. Sync failures never
+ * enter the window either; the two sync-failure rows pin the overlay
+ * (applySyncFailures) that folds them into the bar's and notifier's input.
  *
  * Known residuals (left deliberately - each needs plumbing or a vocabulary
  * ruling of its own, not this table):
@@ -591,11 +590,13 @@ export function uncoveredVerdicts(): OverallVerdict[] {
 /**
  * Every pill word the row health walk can produce (serverHealth's seven
  * verdicts collapse onto these six words; "Connected" covers both the clean
- * and the expected-serving states). An equality pin, not derivable here: the
- * vocabulary lives webview-side and this table must stay importable by the
- * host suite.
+ * and the expected-serving states). The vocabulary lives webview-side
+ * (ServerPillWord in servers.tsx) and this table must stay importable by
+ * the host suite, whose project cannot reach a .tsx module - so the bun
+ * webview suite owns the pin: a compile-level both-ways check of this list
+ * against ServerPillWord, beside the rendered-word equality.
  */
-const ALL_PILL_WORDS = [
+export const ALL_PILL_WORDS = [
 	"Connected",
 	"Sync issue",
 	"Error",

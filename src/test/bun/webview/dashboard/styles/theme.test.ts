@@ -311,6 +311,10 @@ test("every focus rule takes its color from the ring token, never the host's foc
 		// rule by any property: box-shadow and border-color paint a ring too, and
 		// neither is an outline the check above can see.
 		expect(bodies.filter((rule) => rule.body.includes("--vscode-focusBorder"))).toBeEmpty();
+		// And no focus rule paints by box-shadow at all: a shadow ring's colour
+		// (hardcoded or tokened) would dodge both outline checks above, and no
+		// focus surface uses one - ban the property rather than parse it.
+		expect(bodies.filter((rule) => rule.body.includes("box-shadow"))).toBeEmpty();
 	}
 	// The counts are the walk's positive control: a parser finding no focus rules,
 	// or none stating a colour, would satisfy the emptiness above vacuously. Exact,

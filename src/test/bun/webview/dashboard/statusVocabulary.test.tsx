@@ -8,14 +8,39 @@
 import { afterEach, expect, test } from "bun:test";
 import { classifyOverall } from "../../../../dashboard/presenters";
 import { overallState } from "../../../../webview/dashboard/app";
+import type { ServerPillWord } from "../../../../webview/dashboard/servers";
 import { ServersSection } from "../../../../webview/dashboard/servers";
 import {
+	type ALL_PILL_WORDS,
 	aggregateContradictions,
 	uncoveredPills,
 	uncoveredVerdicts,
 	WINDOW_STATE_ROWS,
 } from "../../../statusVocabulary";
 import { cleanup, mount } from "../harness";
+
+/**
+ * The table's word list against the webview vocabulary, compile-pinned both
+ * ways like the table's own ALL_VERDICTS: a word added on either side fails
+ * this assignment until the other side lists it. This project can reach the
+ * .tsx module; the host-importable table cannot, which is why the pin lives
+ * here rather than beside the list.
+ */
+const _pillWordsMatchVocabulary: [
+	Exclude<ServerPillWord, (typeof ALL_PILL_WORDS)[number]>,
+	Exclude<(typeof ALL_PILL_WORDS)[number], ServerPillWord>,
+] extends [never, never]
+	? true
+	: never = true;
+
+/** The element's direct text, child elements (the pill's dot and time) excluded. */
+function ownText(node: Element): string {
+	return [...node.childNodes]
+		.filter((child) => child.nodeType === Node.TEXT_NODE)
+		.map((child) => child.textContent ?? "")
+		.join("")
+		.trim();
+}
 
 afterEach(() => {
 	cleanup();
@@ -61,11 +86,15 @@ test("the row pills say each window state with the table's words and tones", () 
 		expect(pills.length, `${row.name}: pill count`).toBe(row.expect.pills.length);
 		row.expect.pills.forEach((expected, index) => {
 			const pill = pills[index];
-			expect(pill?.textContent ?? "", `${row.name}: pill ${index} word`).toContain(expected.word);
-			expect(
-				pill?.classList.contains(`tone-${expected.tone}`) ?? false,
-				`${row.name}: pill ${index} tone-${expected.tone}`
-			).toBe(true);
+			if (pill === undefined) {
+				throw new Error(`${row.name}: pill ${index} missing`);
+			}
+			// The word alone and exactly: a substring check would let "Connected"
+			// pass on a rendered "Not Connected", and the pill's time span ride in.
+			expect(ownText(pill), `${row.name}: pill ${index} word`).toBe(expected.word);
+			expect(pill.classList.contains(`tone-${expected.tone}`), `${row.name}: pill ${index} tone-${expected.tone}`).toBe(
+				true
+			);
 		});
 		cleanup();
 	}
