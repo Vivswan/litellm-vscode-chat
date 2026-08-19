@@ -28,15 +28,19 @@ import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "./setting";
  * Which failure class produced a view's syncError. "upsertFailed": the add
  * failed outright (non-duplicate), so no live group was created for the entry's
  * configuration. "blocked": a group with the name exists and the host refused
- * the duplicate. "secretsUnreadable": the pass skipped the entry, because its
- * stored secrets could not be used - unreadable, refused by the ownership
- * check, or the fingerprint salt could not be confirmed durable (the message
- * text tells the cases apart in the view).
- * The dashboard reads the distinction: a shared snapshot's models are
- * duplicated per claiming entry EXCEPT upsertFailed claimants, whose group is
- * the one the host provably does not have.
+ * the duplicate. The three skip classes say WHY the pass left the entry alone,
+ * and consumers key on the class alone, never on message text:
+ * "secretsUnreadable" means the blob read itself failed, so the view's secret
+ * locations degraded to the inline-only guess; "secretsMismatched" means the
+ * read succeeded but a stored value's ownership stamp refused the pairing (the
+ * locations are the deliberate owned view); "saltUnavailable" means the read
+ * succeeded and the pass skipped only because the fingerprint salt could not
+ * be confirmed durable. The dashboard reads the distinctions: a shared
+ * snapshot's models are duplicated per claiming entry EXCEPT upsertFailed
+ * claimants, whose group is the one the host provably does not have, and only
+ * "secretsUnreadable" marks a view's locations as unproven.
  */
-type SyncErrorClass = "upsertFailed" | "blocked" | "secretsUnreadable";
+type SyncErrorClass = "upsertFailed" | "blocked" | "secretsUnreadable" | "secretsMismatched" | "saltUnavailable";
 
 /** The non-secret view of a declared server the dashboard renders; secret values stay out. */
 export interface DeclaredServerView extends NonSecretOptionalFields {
@@ -586,20 +590,20 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// delete-failure residual would otherwise pair a surviving blob
 				// with a re-declared label at another host.
 				syncError = SECRET_OWNERSHIP_MISMATCH_MESSAGE;
-				syncErrorClass = "secretsUnreadable";
+				syncErrorClass = "secretsMismatched";
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 				this.env.log("A stored secret is stamped for a different destination; entry not synced", {
 					label: entry.label,
 					fields: refusedFields,
 				});
 			} else if (!saltDurable) {
-				// The same skip for a different unreadable secret: fingerprints
+				// The same skip for a different unusable secret: fingerprints
 				// computed under an unconfirmed salt cannot be recognized by any
 				// later session, so no group may be added on their account and no
 				// record may change; last-known-good carries and the next session,
 				// keyed by the stored salt, syncs normally.
 				syncError = SALT_UNAVAILABLE_MESSAGE;
-				syncErrorClass = "secretsUnreadable";
+				syncErrorClass = "saltUnavailable";
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else if (
 				!force &&
@@ -628,7 +632,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// adds, because a group created now could only be proven by a
 				// fingerprint no later session can recompute.
 				syncError = SALT_UNAVAILABLE_MESSAGE;
-				syncErrorClass = "secretsUnreadable";
+				syncErrorClass = "saltUnavailable";
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else if (!(await this.entryStillCurrent(entry.label, printed))) {
 				// Re-read immediately before the irreversible add, for the same

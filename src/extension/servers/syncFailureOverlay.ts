@@ -67,7 +67,7 @@ function syncFailureStatus(
  * that keeps its served count, and an upsertFailed entry with no live status
  * appends an error serving nothing - upsertFailed alone proves no group
  * exists. A blocked entry's name IS held by a live group (its report gets the
- * overlay), and a skipped pass (secretsUnreadable) leaves the live groups
+ * overlay), and a skipped pass (any of the skip classes) leaves the live groups
  * serving, so for those an absent status means "not reported yet", and
  * synthesizing a dead error would race the first discovery report red and
  * fire a toast no later report can retract. Entries without a sync error

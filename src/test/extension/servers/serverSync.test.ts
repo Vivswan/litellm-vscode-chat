@@ -342,7 +342,7 @@ suite("extension/servers/serverSync", () => {
 			assert.strictEqual(recorded.upserts.length, 0, "the refused pairing must never reach the host");
 			const view = engine.getDeclared()[0];
 			assert.strictEqual(view?.syncError, SECRET_OWNERSHIP_MISMATCH_MESSAGE);
-			assert.strictEqual(view?.syncErrorClass, "secretsUnreadable");
+			assert.strictEqual(view?.syncErrorClass, "secretsMismatched");
 			assert.strictEqual(view?.secrets.apiKey, "none", "a refused field displays as no credential");
 			const line = recorded.logged.find(([message]) => message.includes("stamped for a different destination"));
 			assert.ok(line, "the skip logs a classification");
@@ -1106,6 +1106,10 @@ suite("extension/servers/serverSync", () => {
 			const byLabel = new Map(engine.getDeclared().map((view) => [view.label, view]));
 			assert.strictEqual(byLabel.get("A")?.syncError, undefined);
 			assert.strictEqual(byLabel.get("B")?.syncError, SECRETS_READ_FAILED_MESSAGE);
+			// The read-failure class stands alone: consumers key on it to mark the
+			// view's secret locations unproven, which the other skip classes
+			// (saltUnavailable, secretsMismatched) must never imply.
+			assert.strictEqual(byLabel.get("B")?.syncErrorClass, "secretsUnreadable");
 
 			// The store recovers and a forced pass re-adds both: A's duplicate response
 			// reads as the steady state - only possible because its fingerprint survived
@@ -1308,7 +1312,7 @@ suite("extension/servers/serverSync", () => {
 			);
 			for (const view of engine.getDeclared()) {
 				assert.strictEqual(view.syncError, SALT_UNAVAILABLE_MESSAGE);
-				assert.strictEqual(view.syncErrorClass, "secretsUnreadable");
+				assert.strictEqual(view.syncErrorClass, "saltUnavailable");
 			}
 		});
 
@@ -1348,7 +1352,7 @@ suite("extension/servers/serverSync", () => {
 			const views = engine.getDeclared();
 			assert.strictEqual(views[0]?.syncError, undefined, "A synced normally");
 			assert.strictEqual(views[1]?.syncError, SALT_UNAVAILABLE_MESSAGE, "B is skipped, not added");
-			assert.strictEqual(views[1]?.syncErrorClass, "secretsUnreadable");
+			assert.strictEqual(views[1]?.syncErrorClass, "saltUnavailable");
 		});
 
 		test("a duplicate for a configuration another window already synced confirms against the store", async () => {
