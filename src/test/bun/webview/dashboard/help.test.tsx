@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { SERVER_FORM_FIELD_ORDER } from "../../../../dashboard/serverForm";
+import type { DashboardSectionId } from "../../../../dashboard/viewModels";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
 import { DEFAULT_API_VERSION } from "../../../../shared/util/baseUrl";
 import { App } from "../../../../webview/dashboard/app";
@@ -118,6 +119,19 @@ function helps(root: ParentNode): HTMLElement[] {
 	return Array.from(root.querySelectorAll("button.help"));
 }
 
+/**
+ * The section's tabpanel. Every panel stays mounted (the hidden ones are display:none), so
+ * title lookups scope to their panel - a document-wide first match would couple the test
+ * to the panels' JSX order (the Settings page carries its own "Models" group heading).
+ */
+function panelOf(root: ParentNode, section: DashboardSectionId): HTMLElement {
+	const panel = root.querySelector(`#panel-${section}`);
+	if (panel === null) {
+		throw new Error(`no panel for section ${section}`);
+	}
+	return panel as HTMLElement;
+}
+
 /** The glyph's tooltip element, resolved through the aria-describedby wiring. */
 function tipFor(glyph: HTMLElement): HTMLElement {
 	const id = glyph.getAttribute("aria-describedby");
@@ -184,8 +198,8 @@ test("each section heading carries its own help", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(fullState()));
 
-	const headingByTitle = (title: string): HTMLElement => {
-		const heading = Array.from(root.querySelectorAll("h2, h3")).find((candidate) =>
+	const headingByTitle = (section: DashboardSectionId, title: string): HTMLElement => {
+		const heading = Array.from(panelOf(root, section).querySelectorAll("h2, h3")).find((candidate) =>
 			(candidate.textContent ?? "").trim().startsWith(title)
 		);
 		if (heading === undefined) {
@@ -196,22 +210,27 @@ test("each section heading carries its own help", () => {
 	// The glyph is a SIBLING of the heading on the `.section-head` line, never
 	// inside it, so a button's accessible name cannot fold into the heading's.
 	// Falling back to the heading keeps a lost class failing on the glyph below.
-	const headOf = (title: string): HTMLElement => {
-		const heading = headingByTitle(title);
+	const headOf = (section: DashboardSectionId, title: string): HTMLElement => {
+		const heading = headingByTitle(section, title);
 		return (heading.closest(".section-head") as HTMLElement | null) ?? heading;
 	};
-	helpIn(headOf("Servers"), helpServersSection());
-	helpIn(headOf("Models"), helpModelsSection());
-	helpIn(headOf("Settings"), helpSettingsSection());
-	helpIn(headOf("Model parameters"), helpModelParametersSection());
+	helpIn(headOf("overview", "Servers"), helpServersSection());
+	helpIn(headOf("models", "Models"), helpModelsSection());
+	helpIn(headOf("settings", "Settings"), helpSettingsSection());
+	helpIn(headOf("settings", "Model parameters"), helpModelParametersSection());
 
 	// Placement: the Servers heading sits in the page's top band, so its tip
 	// flips below the trigger; everything further down keeps the default
 	// above placement.
-	const placementOf = (title: string) => tipFor(helps(headOf(title))[0] as HTMLElement).getAttribute("data-placement");
-	expect(placementOf("Servers")).toBe("below");
-	for (const title of ["Models", "Settings", "Model parameters"]) {
-		expect(placementOf(title), title).toBe("above");
+	const placementOf = (section: DashboardSectionId, title: string) =>
+		tipFor(helps(headOf(section, title))[0] as HTMLElement).getAttribute("data-placement");
+	expect(placementOf("overview", "Servers")).toBe("below");
+	for (const [section, title] of [
+		["models", "Models"],
+		["settings", "Settings"],
+		["settings", "Model parameters"],
+	] as const) {
+		expect(placementOf(section, title), title).toBe("above");
 	}
 });
 
@@ -305,7 +324,7 @@ test("the model-parameters editor explains prefix, parameter name, and JSON valu
 	const root = mount(<App />);
 	pushToWebview(statePush(fullState()));
 
-	const section = Array.from(root.querySelectorAll("section")).find((candidate) =>
+	const section = Array.from(panelOf(root, "settings").querySelectorAll("section")).find((candidate) =>
 		(candidate.querySelector("h3")?.textContent ?? "").startsWith("Model parameters")
 	);
 	if (section === undefined) {

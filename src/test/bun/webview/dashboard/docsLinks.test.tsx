@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { DashboardSectionId } from "../../../../dashboard/viewModels";
 import type { SetupHintKind } from "../../../../shared/errorClassification";
 import { SETUP_HINT_KINDS } from "../../../../shared/errorClassification";
 import * as links from "../../../../shared/util/links";
@@ -190,14 +191,31 @@ function headOf(root: ParentNode, title: string): HTMLElement {
 	return (heading.closest(".section-head") as HTMLElement | null) ?? heading;
 }
 
+/**
+ * The section's tabpanel. Every panel stays mounted (the hidden ones are display:none), so
+ * title lookups scope to their panel - a document-wide first match would couple the test
+ * to the panels' JSX order (the Settings page carries its own "Models" group heading).
+ */
+function panelOf(root: ParentNode, section: DashboardSectionId): HTMLElement {
+	const panel = root.querySelector(`#panel-${section}`);
+	if (panel === null) {
+		throw new Error(`no panel for section ${section}`);
+	}
+	return panel as HTMLElement;
+}
+
 test("each section heading links its docs page", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(fullState()));
 
-	docsLinkIn(headOf(root, "Servers"), DOCS_LINK_SERVERS, "Open the servers guide");
-	docsLinkIn(headOf(root, "Models"), DOCS_LINK_MODELS, "Open the models guide");
-	docsLinkIn(headOf(root, "Settings"), DOCS_LINK_SETTINGS, "Open the settings guide");
-	docsLinkIn(headOf(root, "Model parameters"), DOCS_LINK_MODEL_PARAMETERS, "Open the model parameters guide");
+	docsLinkIn(headOf(panelOf(root, "overview"), "Servers"), DOCS_LINK_SERVERS, "Open the servers guide");
+	docsLinkIn(headOf(panelOf(root, "models"), "Models"), DOCS_LINK_MODELS, "Open the models guide");
+	docsLinkIn(headOf(panelOf(root, "settings"), "Settings"), DOCS_LINK_SETTINGS, "Open the settings guide");
+	docsLinkIn(
+		headOf(panelOf(root, "settings"), "Model parameters"),
+		DOCS_LINK_MODEL_PARAMETERS,
+		"Open the model parameters guide"
+	);
 });
 
 test("the server form links the entry-fields section of the servers guide", () => {
