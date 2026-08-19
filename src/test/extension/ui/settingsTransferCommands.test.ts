@@ -52,6 +52,8 @@ interface FakeWorld {
 	failWrites: Set<string>;
 	/** When true, a failing servers write arms secret-store failures (the escalation path). */
 	armSecretFailureOnServersWrite: boolean;
+	/** When true, a failing servers write arms store()-only failures; delete still works (the clear-succeeds path). */
+	armStoreFailureOnServersWrite: boolean;
 	/** SecretStorage keys whose store() fails (delete still works: a targeted mid-unit failure). */
 	failSecretStoreKeys: Set<string>;
 	/** Every mutation and sync request in arrival order: "settings:<key>", "secret-store:<key>", "secret-delete:<key>", "sync". */
@@ -97,12 +99,13 @@ function makeWorld(
 		workspaceValue: workspaceValues.get(key),
 	});
 	let secretMutationsFail = false;
+	let secretStoresFail = false;
 	const world: FakeWorld = {} as FakeWorld;
 	const secretStore: SecretStore = {
 		get: async (key) => secretValues.get(key),
 		store: async (key, value) => {
 			world.ops.push(`secret-store:${key}`);
-			if (secretMutationsFail || world.failSecretStoreKeys.has(key)) {
+			if (secretMutationsFail || secretStoresFail || world.failSecretStoreKeys.has(key)) {
 				throw new Error("secret store failed");
 			}
 			secretValues.set(key, value);
@@ -124,6 +127,9 @@ function makeWorld(
 			if (failWrites.has(key)) {
 				if (key === SERVERS_SETTING_KEY && world.armSecretFailureOnServersWrite) {
 					secretMutationsFail = true;
+				}
+				if (key === SERVERS_SETTING_KEY && world.armStoreFailureOnServersWrite) {
+					secretStoresFail = true;
 				}
 				throw new Error(`write failed: ${key}`);
 			}
@@ -183,6 +189,7 @@ function makeWorld(
 		workspaceValues,
 		failWrites,
 		armSecretFailureOnServersWrite: false,
+		armStoreFailureOnServersWrite: false,
 		failSecretStoreKeys: new Set<string>(),
 		ops: [],
 		secretValues,
@@ -714,6 +721,84 @@ suite("settingsTransferCommands import flow", () => {
 		assert.match(note.message, /could not be restored/);
 		assert.deepStrictEqual(note.actions, ["Undo Import"]);
 		assert.ok(world.logs.some((line) => line.includes("also failed")));
+		// The unrestored secret is the imported key under the still-pre-import
+		// entry; the clear was attempted but the armed store fails deletes too,
+		// so the credential is still there and the engine must not wake.
+		assert.ok(world.ops.includes(`secret-delete:${serverSecretsKey("a")}`), "the mismatched blob's clear is attempted");
+		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "NEW-KEY" }, "the failed clear leaves the imported key");
+		assert.strictEqual(world.syncRequests, 0, "an uncleared mismatched credential must not wake the engine");
+		assert.ok(world.logs.some((line) => line.includes("could not be cleared")));
+	});
+
+	test("a failed rollback clears the imported credential under the re-pointed entry, then syncs", async () => {
+		// The restore write fails but the delete works: the imported key must
+		// not stay under a label whose live entry points at the old host, since
+		// activation force-syncs regardless of the withheld wake. Cleared, the
+		// pairing is consistent and the engine may reconcile now.
+		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] }, { a: { apiKey: "OLD-KEY" } });
+		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }] });
+		world.answers.collisions = { a: "overwrite" };
+		world.failWrites.add(SERVERS_SETTING_KEY);
+		world.armStoreFailureOnServersWrite = true;
+		await runImportSettingsFlow(world.env);
+		const note = onlyNotification(world);
+		assert.match(note.message, /could not be restored/);
+		assert.deepStrictEqual(blobOf(world, "a"), {}, "no credential may remain under an entry that is not its own");
+		assert.ok(world.syncRequests >= 1, "the cleared state is consistent, so the engine wakes");
+		const lastDelete = world.ops.lastIndexOf(`secret-delete:${serverSecretsKey("a")}`);
+		assert.ok(lastDelete !== -1 && lastDelete < world.ops.lastIndexOf("sync"), "the clear precedes the wake");
+	});
+
+	test("a rollback that fails under a byte-identical entry keeps the credential and wakes the engine", async () => {
+		// Key-only import: the written entry is byte-identical to the live one,
+		// so the unrestored imported credential sits exactly where it belongs -
+		// nothing to clear, and syncing pairs it correctly.
+		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://same:4000" }] }, { a: { apiKey: "OLD-KEY" } });
+		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://same:4000", auth: { apiKey: "NEW-KEY" } }] });
+		world.answers.collisions = { a: "overwrite" };
+		world.failWrites.add(SERVERS_SETTING_KEY);
+		world.armStoreFailureOnServersWrite = true;
+		await runImportSettingsFlow(world.env);
+		const note = onlyNotification(world);
+		assert.match(note.message, /could not be restored/);
+		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "NEW-KEY" }, "a matching entry keeps its credential");
+		assert.ok(world.syncRequests >= 1, "a same-entry credential leaves the pairing consistent, so the engine wakes");
+	});
+
+	test("a failed rollback clears the client secret when only the OAuth token URL changed", async () => {
+		// Same base URL, different identity provider: the unrestored client
+		// secret belongs to the imported token endpoint, so a base-URL-only
+		// compare would leave it paired with the live entry's endpoint - the
+		// mismatch rule must read the whole entry.
+		const world = makeWorld(
+			{
+				servers: [
+					{
+						label: "a",
+						baseUrl: "http://same:4000",
+						auth: { oauth: { tokenUrl: "https://old-idp.test/token", clientId: "cid" } },
+					},
+				],
+			},
+			{ a: { oauthClientSecret: "OLD-SECRET" } }
+		);
+		stageEnvelope(world, {
+			servers: [
+				{
+					label: "a",
+					baseUrl: "http://same:4000",
+					auth: { oauth: { tokenUrl: "https://new-idp.test/token", clientId: "cid", clientSecret: "NEW-SECRET" } },
+				},
+			],
+		});
+		world.answers.collisions = { a: "overwrite" };
+		world.failWrites.add(SERVERS_SETTING_KEY);
+		world.armStoreFailureOnServersWrite = true;
+		await runImportSettingsFlow(world.env);
+		const note = onlyNotification(world);
+		assert.match(note.message, /could not be restored/);
+		assert.deepStrictEqual(blobOf(world, "a"), {}, "the client secret must not stay paired with the old endpoint");
+		assert.ok(world.syncRequests >= 1, "the cleared state is consistent, so the engine wakes");
 	});
 
 	test("the servers unit writes every secret before the single servers write", async () => {
@@ -1044,6 +1129,9 @@ suite("settingsTransferCommands undo flow", () => {
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "warning");
 		assert.match(note.message, /snapshot was kept/);
+		// The clear removed every credential sitting under an entry that did not
+		// restore, so the pairing is consistent again and the engine may wake -
+		// but only after the clear.
 		const lastDelete = world.ops.lastIndexOf(`secret-delete:${serverSecretsKey("retired")}`);
 		assert.ok(lastDelete !== -1 && lastDelete < world.ops.indexOf("sync"), "the re-clear precedes waking the engine");
 
@@ -1071,11 +1159,17 @@ suite("settingsTransferCommands undo flow", () => {
 		world.answers.collisions = { a: "overwrite" };
 		await runImportSettingsFlow(world.env);
 		world.notifications = [];
+		const syncsAfterImport = world.syncRequests;
 
 		world.failWrites.add("chat.timeout");
 		await runUndoLastImportFlow(world.env);
 		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "a", baseUrl: "http://old:4000" }]);
 		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "PRE-KEY" }, "the entry is back, so its blob stays restored");
+		assert.strictEqual(
+			world.syncRequests,
+			syncsAfterImport + 1,
+			"the entries and blobs both restored, so this partial failure still wakes the engine"
+		);
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "warning");
 		assert.match(note.message, /1 step failed/);
@@ -1089,6 +1183,7 @@ suite("settingsTransferCommands undo flow", () => {
 		world.answers.collisions = { a: "overwrite" };
 		await runImportSettingsFlow(world.env);
 		world.notifications = [];
+		const syncsAfterImport = world.syncRequests;
 
 		// The servers write fails, and its failure arms the secret store, so the
 		// re-clear of the label's restored blob fails too.
@@ -1101,6 +1196,11 @@ suite("settingsTransferCommands undo flow", () => {
 		assert.match(note.message, /2 steps failed/, "the unmitigated hazard is counted, not silent");
 		assert.notStrictEqual(world.snapshotSlot, undefined, "the slot is kept for the retry");
 		assert.ok(world.logs.some((line) => line.includes("re-clearing a restored secret")));
+		assert.strictEqual(
+			world.syncRequests,
+			syncsAfterImport,
+			"the failed re-clear left a restored credential under an unrestored entry, so nothing may wake the engine"
+		);
 	});
 
 	test("undo asks for confirmation with the snapshot time; declining restores nothing", async () => {

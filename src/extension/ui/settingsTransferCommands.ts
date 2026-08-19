@@ -444,18 +444,36 @@ async function applyServersUnit(
 		await env.settings.writeGlobal(SERVERS_SETTING_KEY, serversValue);
 		return "landed";
 	} catch (error) {
-		let restoreFailed = false;
+		const unrestoredLabels = new Set<string>();
 		for (const { label, field, previous } of [...overwritten].reverse()) {
 			try {
 				await env.updateServerSecret(label, field, previous);
 			} catch {
-				restoreFailed = true;
+				unrestoredLabels.add(label);
 				env.log("Restoring a stored secret after a failed settings import also failed", { field });
 			}
 		}
-		if (restoreFailed) {
+		if (unrestoredLabels.size > 0) {
 			env.log("Settings import failed and left a stored secret unrestored", { error: errorClass(error) });
-			env.requestServerSync();
+			// An unrestored secret is the IMPORTED credential, which belongs to
+			// its entry in serversValue, while the live entries are still
+			// pre-import (the servers write lands last). Withholding the wake
+			// would only defer the hazard - activation force-syncs, and any
+			// servers edit syncs too - so a credential whose live entry is not
+			// its own is CLEARED, the same rule the abandoned undo applies. Both
+			// values survive: the pre-import one in the snapshot slot this run
+			// wrote, the imported one in the file the user chose.
+			const clearFailures = await clearMismatchedBlobs(
+				env,
+				unrestoredLabels,
+				serversValue,
+				"Settings import: clearing an unrestored secret under an entry that is not its own failed"
+			);
+			if (clearFailures === 0) {
+				env.requestServerSync();
+			} else {
+				env.log("Settings import: the sync request was withheld; an unrestored secret could not be cleared");
+			}
 			await env.prompts.notify(
 				"error",
 				`${l10n.t("LiteLLM: The settings import failed, and some stored server secrets could not be restored.")}\n${l10n.t(
@@ -875,35 +893,46 @@ function rawEntriesOf(raw: unknown, label: string): unknown[] {
 	return raw.filter((item) => isRecord(item) && typeof item.label === "string" && item.label.trim() === label);
 }
 
+/** The undo path's clearMismatchedBlobs failure line; both of its call sites report the same classification. */
+const UNDO_CLEAR_FAILURE_LOG = "Undo import: re-clearing a restored secret under an unrestored entry failed";
+
 /**
- * The rule every abandoned undo applies: a restored blob belongs only under an
- * entry the restore also put back, so while an imported entry is still live its
- * pre-import credential would reach the imported host, and those blobs are
- * cleared again. A failed write can leave a label half-restored, so success is
- * not tracked - the kept snapshot restores whatever this removes once a retry
+ * The rule both abandoned failure paths apply: a stored credential belongs
+ * only under the entry it was recorded for, so while the live entry is some
+ * OTHER configuration - an undo's still-imported entry, or an import rollback's
+ * still-pre-import one - that credential would reach the wrong host, and it is
+ * cleared. Withholding the sync request alone would not do: activation
+ * force-syncs and any servers edit syncs too, so only removing the credential
+ * closes the hazard rather than deferring it. Nothing unrecoverable is lost -
+ * the pre-import value is in the snapshot slot and the imported one in the
+ * user's file - and a failed write can leave a label half-restored, so success
+ * is not tracked; the kept snapshot restores whatever this removes once a retry
  * lands the entries too. The compare is raw entry identity rather than the
- * connection fingerprint: only a byte-identical entry proves the blob is under
- * the entry it was recorded for, and a needless clear is recoverable while a
- * served retired credential is not.
+ * connection fingerprint: only a byte-identical entry proves the credential is
+ * under the entry it belongs to (a base URL compare alone would miss the other
+ * routing fields, an OAuth token URL among them), and a needless clear is
+ * recoverable while a served retired credential is not. The returned failure
+ * count is what gates the caller's sync request.
  */
-async function reclearUnrestoredBlobs(
+async function clearMismatchedBlobs(
 	env: SettingsTransferEnv,
-	blobWrites: readonly { readonly label: string }[],
-	targetServersRaw: unknown
+	labels: Iterable<string>,
+	referenceServersRaw: unknown,
+	failureLog: string
 ): Promise<number> {
 	let failures = 0;
 	const liveServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
-	for (const { label } of blobWrites) {
-		if (JSON.stringify(rawEntriesOf(liveServersRaw, label)) === JSON.stringify(rawEntriesOf(targetServersRaw, label))) {
+	for (const label of new Set(labels)) {
+		if (
+			JSON.stringify(rawEntriesOf(liveServersRaw, label)) === JSON.stringify(rawEntriesOf(referenceServersRaw, label))
+		) {
 			continue;
 		}
 		try {
 			await env.deleteServerSecrets(label);
 		} catch (error) {
 			failures += 1;
-			env.log("Undo import: re-clearing a restored secret under an unrestored entry failed", {
-				error: errorClass(error),
-			});
+			env.log(failureLog, { error: errorClass(error) });
 		}
 	}
 	return failures;
@@ -979,7 +1008,12 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			// Stop before the settings phase: writing the servers setting now would
 			// wake the sync engine against partially restored credentials. The slot
 			// is kept, so a retry finishes the job.
-			failures += await reclearUnrestoredBlobs(env, restore.blobWrites, targetServersRaw);
+			failures += await clearMismatchedBlobs(
+				env,
+				restore.blobWrites.map((write) => write.label),
+				targetServersRaw,
+				UNDO_CLEAR_FAILURE_LOG
+			);
 			env.log("Undo import: some blob restores failed; the settings phase was not started", { failures });
 			await notifyKeptSnapshot(env, failures);
 			return;
@@ -999,8 +1033,22 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			}
 		}
 		if (failures > 0) {
-			failures += await reclearUnrestoredBlobs(env, restore.blobWrites, targetServersRaw);
-			env.requestServerSync();
+			const clearFailures = await clearMismatchedBlobs(
+				env,
+				restore.blobWrites.map((write) => write.label),
+				targetServersRaw,
+				UNDO_CLEAR_FAILURE_LOG
+			);
+			failures += clearFailures;
+			// Every credential whose live entry is not its own is gone by now, so
+			// the only thing that still blocks the wake is a clear that failed and
+			// left one in place. The kept slot lets a retry finish the job and
+			// sync then.
+			if (clearFailures === 0) {
+				env.requestServerSync();
+			} else {
+				env.log("Undo import: the sync request was withheld; a mismatched credential could not be cleared");
+			}
 			// The slot is kept: what failed this time may succeed on a retry,
 			// and clearing it would strand the un-restored remainder.
 			env.log("Undo import: some restore steps failed; the snapshot was kept", { failures });
