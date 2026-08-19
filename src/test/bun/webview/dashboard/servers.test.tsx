@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
-import type { RpcRequest } from "../../../../dashboard/endpoints";
+import type { ReplacedEntryIdentity, RpcRequest } from "../../../../dashboard/endpoints";
 import type { DashboardServer } from "../../../../dashboard/viewModels";
 import { App } from "../../../../webview/dashboard/app";
 import { DOCS_LINK_CHECK_BASE_URL, DOCS_LINK_PROXY_NOT_RUNNING } from "../../../../webview/dashboard/docsLinks";
@@ -13,7 +13,7 @@ import { helpEntryModelParameterPrefix } from "../../../../webview/dashboard/hel
 import type { ServerEditRequest } from "../../../../webview/dashboard/serverEditPage";
 import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
 import { ServersSection } from "../../../../webview/dashboard/servers";
-import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
+import { declaredWithSecrets, makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
 import {
 	accessibleNameOf,
 	buttonByText,
@@ -1123,6 +1123,41 @@ test("a hintless classification renders no troubleshooting link", () => {
 	]);
 	expect(root.querySelector(".row-diagnostic")?.textContent).toContain("LiteLLM API error: 500");
 	expect(root.querySelector(".row-diagnostic a.docs-link")).toBeNull();
+});
+
+test("a same-label swap under an open form does not re-vouch: the posted identity stays frozen", () => {
+	// The label is re-pointed while the form sits open (another window's edit
+	// arriving as a state push). The mounted form keeps its draft, and the
+	// identity it vouches for must stay frozen with it: a live identity would
+	// make the extension resolve the REPLACEMENT's credentials for a form
+	// still displaying the old entry.
+	const request: ServerEditRequest = { kind: "edit", label: "Prod" };
+	const handlers = {
+		onDirtyChange: () => {},
+		onTargetGone: () => {},
+		onRequestClose: () => {},
+		onSaved: () => {},
+	};
+	const frozen: ReplacedEntryIdentity = {
+		label: "Prod",
+		baseUrl: "http://localhost:4000",
+		secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+	};
+	const root = mount(
+		<ServerEditPage request={request} servers={[makeDeclaredServer({ label: "Prod" })]} {...handlers} />
+	);
+	const swapped = declaredWithSecrets({ apiKey: "secure" }, { label: "Prod", baseUrl: "http://swapped.test" });
+	render(<ServerEditPage request={request} servers={[swapped]} {...handlers} />, root);
+
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const tested = postedMessages[0] as RpcRequest<"testServerDraft">;
+	expect(tested.payload.replace).toEqual(frozen);
+
+	resetPosted();
+	fireClick(buttonByText(root, "Save"));
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.payload.replace).toEqual(frozen);
 });
 
 test("a failed test renders its message inline and the result clears on any credential-affecting edit", () => {

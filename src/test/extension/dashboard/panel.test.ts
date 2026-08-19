@@ -1212,7 +1212,20 @@ suite("extension/dashboard/panel", () => {
 		const fake = harness.panels[0];
 		assert.ok(fake);
 
-		fake.receiveMessage(request("readInlineSecrets", { label: "Mixed" }, "req-inline"));
+		fake.receiveMessage(
+			request(
+				"readInlineSecrets",
+				{
+					replace: {
+						label: "Mixed",
+						baseUrl: "http://c.test",
+						virtualKeyHeader: "x-vk",
+						secrets: { apiKey: "settings", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
+				},
+				"req-inline"
+			)
+		);
 		await settle();
 
 		const response = fake.posted.at(-1) as ExtensionToWebviewMessage;
@@ -1231,8 +1244,32 @@ suite("extension/dashboard/panel", () => {
 		assert.ok(fake);
 		const before = fake.posted.length;
 
-		fake.receiveMessage(request("readInlineSecrets", { label: "Inline" }, "req-a"));
-		fake.receiveMessage(request("readInlineSecrets", { label: "No Such Entry" }, "req-b"));
+		fake.receiveMessage(
+			request(
+				"readInlineSecrets",
+				{
+					replace: {
+						label: "Inline",
+						baseUrl: "http://a.test",
+						secrets: { apiKey: "settings", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
+				},
+				"req-a"
+			)
+		);
+		fake.receiveMessage(
+			request(
+				"readInlineSecrets",
+				{
+					replace: {
+						label: "No Such Entry",
+						baseUrl: "http://a.test",
+						secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
+				},
+				"req-b"
+			)
+		);
 		await settle();
 
 		assert.strictEqual(fake.posted.length, before + 2, "exactly the two responses, no state pushes");

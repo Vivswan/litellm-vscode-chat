@@ -10,7 +10,7 @@ import {
 	LEGACY_CLEANUP_PENDING_KEY,
 	SERVER_REGISTRY_KEY,
 } from "../../../shared/config/storageKeys";
-import { expectDefined } from "../../pureHelpers";
+import { expectDefined, makeLogger } from "../../pureHelpers";
 import type { FakeExtensionStorage } from "../../testUtils";
 import { failingStorage, makeExtensionStorage, makeMigrationContext } from "../../testUtils";
 
@@ -44,7 +44,10 @@ suite("extension/migrations/legacySingleServer", () => {
 		// A populated registry means newer configuration superseded the legacy
 		// pair; nothing is imported on top of it, and the stale secrets must go
 		// through the marker-then-delete machinery rather than linger.
-		const { ctx, storage } = makeContext();
+		const storage = makeExtensionStorage();
+		const recordedLogger = makeLogger();
+		const logged = recordedLogger.lines;
+		const ctx = makeMigrationContext(storage, { logger: recordedLogger.logger });
 		await ctx.registry.addServer("Existing", "http://existing:4000", "existing-key");
 		storage.secretStore.set(LEGACY_BASE_URL_SECRET, "http://legacy:4000");
 		storage.secretStore.set(LEGACY_API_KEY_SECRET, "legacy-key");
@@ -57,6 +60,12 @@ suite("extension/migrations/legacySingleServer", () => {
 		assert.strictEqual(storage.secretStore.has(LEGACY_BASE_URL_SECRET), false, "the superseded pair is deleted");
 		assert.strictEqual(storage.secretStore.has(LEGACY_API_KEY_SECRET), false);
 		assert.strictEqual(storage.mementoStore.get(LEGACY_CLEANUP_PENDING_KEY), undefined);
+		// The runner's generic line would claim an import that did not happen,
+		// so this path states what it really did (users paste these lines).
+		assert.ok(
+			logged.some((line) => line.includes("superseded by newer configuration; deleted without importing")),
+			`expected the accurate classification, got ${JSON.stringify(logged)}`
+		);
 	});
 
 	test("a second activation after the group migration empties the registry resurrects nothing", async () => {

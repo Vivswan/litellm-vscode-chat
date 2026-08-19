@@ -169,7 +169,11 @@ test("the sanctioned prefill path: masked value lands only in its own input, and
 	resetPosted();
 	openEdit(root);
 	const request = readInlineRequest();
-	expect(request.payload.label).toBe(server.label);
+	// The prefill carries the displayed identity, not a bare label: the
+	// extension answers empty when the entry no longer matches it.
+	expect(request.payload.replace.label).toBe(server.label);
+	expect(request.payload.replace.baseUrl).toBe(server.baseUrl);
+	expect(request.payload.replace.secrets.apiKey).toBe("settings");
 	expectNowhere(SENTINEL);
 
 	// Save waits for the response: saving now would assemble "keep" and

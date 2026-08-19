@@ -11,6 +11,7 @@ import type {
 	DashboardCommandId,
 	DashboardIntent,
 	IntentAckTone,
+	ReplacedEntryIdentity,
 	SaveServerPayload,
 	SecretDirective,
 } from "../../dashboard/endpoints";
@@ -45,7 +46,7 @@ import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { AdoptableGroupCredentials } from "./adopt";
 import { applyAdoptServer } from "./adopt";
-import { applySaveServerSetting } from "./saveServer";
+import { applySaveServerSetting, nonSecretIdentityMatches } from "./saveServer";
 import type { DraftConnection } from "./testDraftConnection";
 import { applyTestServerDraft } from "./testDraftConnection";
 
@@ -345,16 +346,29 @@ function entryHasLabel(entry: unknown, label: string): entry is Record<string, u
 /**
  * One declared entry's inline secret values, for the edit form's on-demand
  * prefill (the readInlineSecrets request). The entry resolves through
- * acceptedEntry, so the values come from exactly the entry the dashboard row
- * describes, and inlineSecretValues (the sync engine's own rule for what
- * counts as inline) decides which fields qualify - so the prefilled fields are
- * exactly the ones whose pushed location reads "settings". Fields stored
+ * acceptedEntry and must still match the DISPLAYED identity the form sends:
+ * a same-label replacement racing the prefill gets an empty answer, never its
+ * inline values into a form showing another entry. The check is blob-free by
+ * construction - inline locations derive from the entry alone, so only fields
+ * the identity showed as "settings" are compared and returned. Fields stored
  * securely or absent get NO key: their values must never reach the webview.
  * The returned values are never logged.
  */
-export function readInlineSecretValues(raw: unknown, label: string): Readonly<Partial<Record<SecretFieldId, string>>> {
-	const accepted = acceptedEntry(raw, label);
-	return accepted === undefined ? {} : inlineSecretValues(accepted.entry);
+export function readInlineSecretValues(
+	raw: unknown,
+	replace: ReplacedEntryIdentity
+): Readonly<Partial<Record<SecretFieldId, string>>> {
+	const accepted = acceptedEntry(raw, replace.label);
+	if (accepted === undefined || !nonSecretIdentityMatches(accepted.entry, replace)) {
+		return {};
+	}
+	const values = inlineSecretValues(accepted.entry);
+	// Location agreement, per field: an inline value where the form displayed
+	// none (or the reverse) is a different entry, and nothing is prefilled.
+	if (SECRET_FIELD_IDS.some((field) => (values[field] !== undefined) !== (replace.secrets[field] === "settings"))) {
+		return {};
+	}
+	return values;
 }
 
 /**

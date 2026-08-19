@@ -14,7 +14,15 @@ import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { acceptedEntry, parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import { stripEntrySecrets } from "../../../extension/settingsTransfer/secretSurgery";
 import { isRecord } from "../../../shared/util/json";
-import { displayedReplace, KEEP_ALL, makeEnv, type RecordedEnv, replaceIdentity, serverPayload } from "./recordedEnv";
+import {
+	displayedReplace,
+	inlineOnlyIdentity,
+	KEEP_ALL,
+	makeEnv,
+	type RecordedEnv,
+	replaceIdentity,
+	serverPayload,
+} from "./recordedEnv";
 
 /** The intent body a clean draft parses to; fails the test if the draft has problems. */
 function parseClean(draft: ServerFormDraft, original: ReplacedEntryIdentity) {
@@ -598,7 +606,7 @@ suite("extension/dashboard/intents", () => {
 					baseUrl: "http://prod.test",
 					apiKey: { value: "", location: "settings", clear: false, existing: "settings" },
 				},
-				readInlineSecretValues([entry], "Prod")
+				readInlineSecretValues([entry], inlineOnlyIdentity([entry], "Prod"))
 			);
 			assert.strictEqual(prefilled.apiKey.value, "sk-inline", "the form shows the inline value");
 			const assembled = parseClean(prefilled, replaceIdentity("Prod", "http://prod.test", { apiKey: "settings" }));
@@ -619,7 +627,10 @@ suite("extension/dashboard/intents", () => {
 					baseUrl: "http://prod.test",
 					apiKey: { value: "", location: "settings", clear: false, existing: "settings" },
 				},
-				readInlineSecretValues(recorded.env.readServersSetting(), "Prod")
+				readInlineSecretValues(
+					recorded.env.readServersSetting(),
+					inlineOnlyIdentity(recorded.env.readServersSetting(), "Prod")
+				)
 			);
 			const edited = { ...prefilled, apiKey: { ...prefilled.apiKey, value: "sk-rotated" } };
 			const assembled = parseClean(edited, replaceIdentity("Prod", "http://prod.test", { apiKey: "settings" }));
@@ -759,7 +770,10 @@ suite("extension/dashboard/intents", () => {
 					!error.message.includes("virtualKeyValue")
 			);
 
-			assert.strictEqual(recorded.syncRequests, 1, "the unrestored blob must reach the provider group");
+			// No sync: the changed values sit under the NEW label, which the
+			// failed write left referenced by no entry - there is nothing a sync
+			// could truthfully pair them with.
+			assert.strictEqual(recorded.syncRequests, 0, "an orphaned blob authorizes no sync");
 		});
 
 		test("a clear whose deletion keeps failing fails the intent after the write landed, with an actionable message", async () => {
@@ -1038,6 +1052,38 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.secretOps, []);
 		});
 
+		test("an edit whose OAuth destination changed underneath the form is refused", async () => {
+			// Same label, same base URL, same secret locations - but the stored
+			// client secret now belongs to a DIFFERENT token URL. "keep" would
+			// send the rotated secret to the endpoint the stale form displays.
+			const recorded = makeEnv([
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					auth: { oauth: { tokenUrl: "https://idp-b.test/token", clientId: "c1" } },
+				},
+			]);
+			recorded.storedSecrets.set("Prod", { oauthClientSecret: "cs-for-idp-b" });
+			const displayed = {
+				...(await displayedReplace(recorded, "Prod")),
+				oauthTokenUrl: "https://idp-a.test/token",
+			};
+			await assert.rejects(
+				save(recorded, {
+					server: serverPayload({
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						oauthTokenUrl: "https://idp-a.test/token",
+						oauthClientId: "c1",
+					}),
+					replace: displayed,
+				}),
+				/changed in the servers setting/
+			);
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.deepStrictEqual(recorded.secretOps, []);
+		});
+
 		test("the identity refusal is validation-kind: nothing durable happened, the form stays editable", async () => {
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://moved.test" }]);
 			await assert.rejects(
@@ -1065,6 +1111,50 @@ suite("extension/dashboard/intents", () => {
 
 			assert.strictEqual(recorded.storedSecrets.get("Prod")?.apiKey, "sk-for-new-host", "the value is stranded");
 			assert.strictEqual(recorded.syncRequests, 0, "no sync may pair the old host with the new credential");
+		});
+
+		test("a same-host OAuth re-point landing mid-failure also suppresses the sync", async () => {
+			// The standing entry keeps the base URL but now points its OAuth
+			// exchange at another IdP; syncing would hand the stranded client
+			// secret to that endpoint. The gate compares the WHOLE non-secret
+			// destination identity against a fresh read, not the pass-start
+			// snapshot and not the host alone.
+			const setting: unknown[] = [
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					auth: { oauth: { tokenUrl: "https://idp-a.test/token", clientId: "c1" } },
+				},
+			];
+			const recorded = makeEnv(setting);
+			recorded.storedSecrets.set("Prod", { oauthClientSecret: "cs-old" });
+			const displayed = await displayedReplace(recorded, "Prod");
+			recorded.onSecretsRead = (label) => {
+				if (label === "Prod") {
+					// The concurrent edit lands after the identity check's parse:
+					// same host, different token URL.
+					(setting[0] as Record<string, unknown>).auth = {
+						oauth: { tokenUrl: "https://idp-b.test/token", clientId: "c1" },
+					};
+					recorded.onSecretsRead = undefined;
+				}
+			};
+			recorded.failStoreField = "oauthClientSecret";
+			await assert.rejects(
+				save(recorded, {
+					server: serverPayload({
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						oauthTokenUrl: "https://idp-a.test/token",
+						oauthClientId: "c1",
+					}),
+					secrets: { ...KEEP_ALL, oauthClientSecret: { action: "set", location: "secure", value: "cs-new" } },
+					replace: displayed,
+				}),
+				(error: unknown) => error instanceof DashboardOperationError
+			);
+
+			assert.strictEqual(recorded.syncRequests, 0, "no sync may route the stranded secret to the new IdP");
 		});
 
 		test("a rename's copy writes the snapshot the form resolved, not a source blob edited mid-save", async () => {

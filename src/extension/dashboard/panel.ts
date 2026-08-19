@@ -50,8 +50,7 @@ import {
 import { PARKED_GLOBAL_HEADERS_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { Logger } from "../../shared/logger";
-import type { SecretFieldId, SecretLocation } from "../../shared/serverEntry";
-import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import {
 	DASHBOARD_BUNDLE_FILENAME,
@@ -64,10 +63,10 @@ import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
 import {
 	deleteServerSecrets,
-	inlineSecretValues,
 	parseServersSetting,
 	readEntryModelParameters,
 	readServerSecrets,
+	secretLocations,
 	serverSettingReports,
 	updateServerSecret,
 } from "../servers/serverSync";
@@ -464,11 +463,12 @@ export class DashboardController implements vscode.Disposable {
 	private readonly readResponders: ReadResponders = {
 		readInlineSecrets: (request) => ({
 			// The edit form's on-demand prefill: values only for fields stored
-			// inline in the servers setting (already plaintext there).
+			// inline in the servers setting (already plaintext there), and only
+			// while the entry still matches the identity the form displayed.
 			kind: "response",
 			id: request.id,
 			method: "readInlineSecrets",
-			payload: { values: readInlineSecretValues(this.env.readServersSetting(), request.payload.label) },
+			payload: { values: readInlineSecretValues(this.env.readServersSetting(), request.payload.replace) },
 		}),
 		readModelCapabilities: (request) => {
 			// The capability inspector's read: resolved extension-side by the
@@ -804,15 +804,13 @@ export function entryParametersResolver(
  * yet. Secret locations reflect only what the setting itself can prove: an
  * inline value reads as "settings", anything else as "none" (a secure blob
  * may exist, but checking it is async and state pushes carry locations, never
- * values).
+ * values), so the shared rule is fed an empty blob rather than re-derived
+ * here. A row served from this fallback can therefore under-report a secure
+ * location until the first pass replaces it.
  */
 export function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
 	return parseServersSetting(raw).entries.map((entry) => {
-		const inline = inlineSecretValues(entry);
-		const secrets = {} as Record<SecretFieldId, SecretLocation>;
-		for (const field of SECRET_FIELD_IDS) {
-			secrets[field] = inline[field] !== undefined ? "settings" : "none";
-		}
+		const secrets = secretLocations(entry, {});
 		return {
 			label: entry.label,
 			baseUrl: entry.baseUrl,

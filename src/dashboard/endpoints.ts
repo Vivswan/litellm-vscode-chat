@@ -99,16 +99,21 @@ export type SecretDirective =
 
 /**
  * The entry an edit form is replacing, as the form displayed it: the label
- * addresses the entry, and the base URL plus per-field secret locations are
- * the identity the extension re-checks before resolving any "keep" directive.
- * A label alone would be spoofable by time - an entry swapped in under the
- * same label while the form was open would hand its credentials to the host
- * the form shows - so a save or draft test is refused when the label's entry
- * no longer matches this identity. Locations only, never values.
+ * addresses the entry, and the rest is the identity the extension re-checks
+ * before resolving any "keep" directive - the base URL, the apiVersion and
+ * non-secret auth fields (they decide WHERE a resolved secret is sent: the
+ * OAuth client secret goes to the token URL, the keys to the base URL), and
+ * where each secret field lived. A label alone would be spoofable by time -
+ * an entry swapped in under the same label while the form was open would hand
+ * its credentials to the destinations the form shows - so a save or draft
+ * test is refused when the label's entry no longer matches this identity.
+ * Locations only, never values.
  */
-export interface ReplacedEntryIdentity {
+export interface ReplacedEntryIdentity extends NonSecretOptionalFields {
 	readonly label: string;
 	readonly baseUrl: string;
+	/** The entry's apiVersion override as displayed; "" is a real value (append nothing), absent is auto. */
+	readonly apiVersion?: string | undefined;
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 }
 
@@ -332,7 +337,13 @@ interface DashboardEndpointIO {
 	 * DashboardState: state pushes must never carry secret material.
 	 */
 	readInlineSecrets: {
-		request: { readonly label: string };
+		/**
+		 * The displayed identity of the entry being edited, not a bare label: a
+		 * same-label replacement racing the prefill must get an empty answer,
+		 * never the replacement's inline values into a form showing another
+		 * entry.
+		 */
+		request: { readonly replace: ReplacedEntryIdentity };
 		response: { readonly values: Readonly<Partial<Record<SecretFieldId, string>>> };
 	};
 	/**

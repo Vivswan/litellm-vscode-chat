@@ -38,7 +38,7 @@ import type { DashboardServer, DeclaredDashboardServer, ExternalDashboardServer 
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
 import type { ExpectedFailureCategory, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
-import { EXPECTED_FAILURE_CATEGORIES, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { EXPECTED_FAILURE_CATEGORIES, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { DEFAULT_API_VERSION } from "../../shared/util/baseUrl";
 import type { DocsUrl } from "./docsLinks";
 import {
@@ -1092,6 +1092,22 @@ function ServerForm({
 	// What the form opened with, for the save bar's unsaved count; re-based when the prefill
 	// lands, so a value the form filled in never reads as a user edit.
 	const [baseline, setBaseline] = useState<ServerFormDraft>(() => draftFor(target));
+	// The identity of the entry this form DISPLAYS, frozen when the form opened like the
+	// draft itself - the target prop follows live state, and a frozen identity is the point:
+	// it rides the save, test, and prefill intents as `replace`, so an entry swapped in
+	// under the same label while the form is open makes the extension REFUSE instead of
+	// resolving credentials this form never showed. Locations only, never values.
+	const [original] = useState<ReplacedEntryIdentity | undefined>(() =>
+		target.kind === "edit"
+			? {
+					label: target.original.label,
+					baseUrl: target.original.baseUrl,
+					...(target.original.config.apiVersion !== undefined ? { apiVersion: target.original.config.apiVersion } : {}),
+					...pickNonSecretOptionalFields(target.original.config),
+					secrets: target.original.config.secrets,
+				}
+			: undefined
+	);
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
 	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
 	const [testState, setTestState] = useState<TestState>({ kind: "idle" });
@@ -1122,20 +1138,19 @@ function ServerForm({
 	const saveOutcome = saveIntent.outcome;
 
 	// Ask for inline-stored values once per form instance (the key remounts a fresh form);
-	// secure-side and absent fields are never requested. Keyed on WHICH entry, not the
-	// target object - the object is re-resolved per render, and an object dependency
-	// re-asks, sets the phase, renders, asks again.
+	// secure-side and absent fields are never requested. The request carries the FROZEN
+	// identity, so a same-label replacement racing the prefill gets an empty answer instead
+	// of prefilling its values into a form showing another entry.
 	const requestInlineSecrets = inlineSecrets.send;
-	const prefillLabel = target.kind === "edit" ? target.original.label : undefined;
 	const hasInlineSecret =
-		target.kind === "edit" && SECRET_FIELD_IDS.some((field) => target.original.config.secrets[field] === "settings");
+		original !== undefined && SECRET_FIELD_IDS.some((field) => original.secrets[field] === "settings");
 	useEffect(() => {
-		if (prefillLabel === undefined || !hasInlineSecret) {
+		if (original === undefined || !hasInlineSecret) {
 			return;
 		}
-		requestInlineSecrets({ label: prefillLabel });
+		requestInlineSecrets({ replace: original });
 		setPhase({ phase: "prefill" });
-	}, [prefillLabel, hasInlineSecret, requestInlineSecrets]);
+	}, [original, hasInlineSecret, requestInlineSecrets]);
 
 	// This form's own response prefills the untouched inline fields; the hook
 	// answers only the request this form instance posted.
@@ -1180,16 +1195,9 @@ function ServerForm({
 		}
 	}, [testOutcome, testState]);
 
-	// The identity of the entry this form displays, riding the save and test
-	// intents as `replace`: the extension refuses both when the label's entry
-	// no longer matches it, so "keep" can never resolve credentials this form
-	// never showed. Locations only, never values.
-	const original: ReplacedEntryIdentity | undefined =
-		target.kind === "edit"
-			? { label: target.original.label, baseUrl: target.original.baseUrl, secrets: target.original.config.secrets }
-			: undefined;
 	// One parse per keystroke: it carries either the intent Save posts or the problems the
-	// form renders, so shown and saved can never diverge. Observed keys are the live prop.
+	// form renders, so shown and saved can never diverge. Observed keys are the live prop;
+	// `original` is the frozen open-time identity above.
 	const parse = parseServerForm(draft, {
 		takenLabels: declaredLabels,
 		...(original !== undefined ? { original } : {}),

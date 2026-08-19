@@ -44,6 +44,7 @@ import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
 import { expectDefined } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage, withConfig } from "../../testUtils";
+import { inlineOnlyIdentity } from "../dashboard/recordedEnv";
 
 function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { values: Map<string, string> } {
 	const values = new Map(Object.entries(initial));
@@ -1793,7 +1794,7 @@ suite("extension/servers/serverSync", () => {
 			await engine.syncNow();
 
 			for (const view of engine.getDeclared()) {
-				const prefill = readInlineSecretValues(setting, view.label);
+				const prefill = readInlineSecretValues(setting, inlineOnlyIdentity(setting, view.label));
 				const settingsLocated = Object.entries(view.secrets)
 					.filter(([, location]) => location === "settings")
 					.map(([field]) => field)

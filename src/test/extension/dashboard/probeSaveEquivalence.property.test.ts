@@ -29,7 +29,7 @@ import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync/secrets";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
 import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
-import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { recordFromKeys } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { makeEnv, type RecordedEnv, serverPayload } from "./recordedEnv";
@@ -118,7 +118,13 @@ function displayedIdentity(
 ): ReplacedEntryIdentity {
 	const parsed = acceptedEntry([existing], "Prod");
 	assert.ok(parsed !== undefined, "the existing fixtures all parse");
-	return { label: "Prod", baseUrl: parsed.entry.baseUrl, secrets: secretLocations(parsed.entry, blob) };
+	return {
+		label: "Prod",
+		baseUrl: parsed.entry.baseUrl,
+		...(parsed.entry.apiVersion !== undefined ? { apiVersion: parsed.entry.apiVersion } : {}),
+		...pickNonSecretOptionalFields(parsed.entry),
+		secrets: secretLocations(parsed.entry, blob),
+	};
 }
 
 async function outcomeOf(run: Promise<unknown>): Promise<Error | undefined> {

@@ -148,7 +148,17 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	}),
 	hideExternalServer: fc.record({ baseUrl: fc.string(), sourceHandle: requestId }),
 	unhideServer: fc.record({ label: fc.string(), baseUrl: fc.string() }),
-	readInlineSecrets: fc.record({ label: fc.string() }),
+	readInlineSecrets: fc.record({
+		replace: fc.record({
+			label: fc.string(),
+			baseUrl: fc.string(),
+			secrets: fc.record({
+				apiKey: secretLocation,
+				oauthClientSecret: secretLocation,
+				virtualKeyValue: secretLocation,
+			}),
+		}),
+	}),
 	readModelCapabilities: fc.record({
 		scopeKey: fc.string({ minLength: 1, maxLength: REQUEST_ID_MAX_LENGTH }),
 		rawId: fc.string({ minLength: 1, maxLength: 64 }),

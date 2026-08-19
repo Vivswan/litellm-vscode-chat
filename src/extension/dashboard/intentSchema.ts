@@ -99,13 +99,15 @@ const secretLocationChoiceSchema = z.union([z.literal("settings"), z.literal("se
 
 /**
  * The identity of the entry an edit form displayed (ReplacedEntryIdentity):
- * what the save and draft-test intents re-check "keep" resolution against.
+ * what the save, draft-test, and inline-prefill intents re-check against.
  * Locations only - a location outside the closed vocabulary is a malformed
  * message, never a value.
  */
 const replacedEntrySchema: z.ZodType<ReplacedEntryIdentity> = z.strictObject({
 	label: labelSchema,
 	baseUrl: z.string().max(WIRE_LIMITS.url),
+	apiVersion: z.string().max(256).optional(),
+	...recordFromKeys(NON_SECRET_OPTIONAL_FIELD_IDS, () => z.string().max(WIRE_LIMITS.textField).optional()),
 	secrets: z.strictObject(
 		recordFromKeys(SECRET_FIELD_IDS, () => z.union([secretLocationChoiceSchema, z.literal("none")]))
 	),
@@ -180,7 +182,7 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	}),
 	hideExternalServer: z.strictObject({ baseUrl: z.string().max(WIRE_LIMITS.url), sourceHandle: requestIdSchema }),
 	unhideServer: z.strictObject({ label: labelSchema, baseUrl: z.string().max(WIRE_LIMITS.url) }),
-	readInlineSecrets: z.strictObject({ label: labelSchema }),
+	readInlineSecrets: z.strictObject({ replace: replacedEntrySchema }),
 	// The inspector reads: the opaque scope key plus the model's raw ID, both
 	// length-bounded like every webview-minted token.
 	readModelCapabilities: z.strictObject({

@@ -7,7 +7,11 @@ import type { ReplacedEntryIdentity, SaveServerPayload } from "../../../dashboar
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
-import { acceptedEntry, secretLocations } from "../../../extension/servers/serverSync";
+import type { DeclaredServer } from "../../../extension/servers/serverSync";
+import { acceptedEntry, inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync";
+import type { NonSecretOptionalFields } from "../../../shared/serverEntry";
+import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { recordFromKeys } from "../../../shared/util/json";
 
 export const KEEP_ALL = {
 	apiKey: { action: "keep" },
@@ -28,6 +32,14 @@ export function replaceIdentity(
 	};
 }
 
+/** The non-secret identity fields an edit form of `entry` would display, ready to spread. */
+function displayedFields(entry: DeclaredServer): NonSecretOptionalFields & { readonly apiVersion?: string } {
+	return {
+		...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
+		...pickNonSecretOptionalFields(entry),
+	};
+}
+
 /**
  * The identity an open edit form of the env's CURRENT entry under `label`
  * would display, by the production derivation, so intents whose subject is
@@ -43,7 +55,27 @@ export async function displayedReplace(recorded: RecordedEnv, label: string): Pr
 	return {
 		label,
 		baseUrl: match.entry.baseUrl,
+		...displayedFields(match.entry),
 		secrets: secretLocations(match.entry, await recorded.env.readServerSecrets(label)),
+	};
+}
+
+/**
+ * The blob-free displayed identity for inline-prefill tests: inline fields
+ * read "settings", everything else "none" (the prefill's own check never
+ * consults the blob).
+ */
+export function inlineOnlyIdentity(raw: unknown, label: string): ReplacedEntryIdentity {
+	const match = acceptedEntry(raw, label);
+	if (match === undefined) {
+		return replaceIdentity(label, "http://gone.test");
+	}
+	const inline = inlineSecretValues(match.entry);
+	return {
+		label,
+		baseUrl: match.entry.baseUrl,
+		...displayedFields(match.entry),
+		secrets: recordFromKeys(SECRET_FIELD_IDS, (field) => (inline[field] !== undefined ? "settings" : "none")),
 	};
 }
 

@@ -78,8 +78,14 @@ async function migrateLegacySingleServer(ctx: MigrationContext): Promise<Migrati
 		// migration empties the registry, lingering legacy secrets would
 		// re-import on the next activation as a provider group with the stale
 		// key. Marker first, so an interrupted deletion stays retryable.
+		//
+		// Logged here because the runner's generic line ("migrated ... to
+		// server registry") would describe an import that did not happen,
+		// while this run permanently deleted a stored credential - and those
+		// lines get pasted into issue reports. English classification only.
 		await ctx.globalState.update(LEGACY_CLEANUP_PENDING_KEY, true);
 		await finishCleanup(ctx, []);
+		ctx.logger.log("Legacy single-server secrets were superseded by newer configuration; deleted without importing");
 		return "migrated";
 	}
 	const orphanedSecretIds: string[] = [];

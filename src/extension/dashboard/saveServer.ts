@@ -6,8 +6,8 @@
 
 import * as l10n from "@vscode/l10n";
 import type { ReplacedEntryIdentity, RequestPayload, SecretDirective } from "../../dashboard/endpoints";
-import type { SecretFieldId } from "../../shared/serverEntry";
-import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import type { NonSecretOptionalFields, SecretFieldId } from "../../shared/serverEntry";
+import { NON_SECRET_OPTIONAL_FIELD_IDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServer } from "../servers/serverSync";
@@ -36,6 +36,26 @@ type SaveMode =
 	| { kind: "upsert"; index: number }
 	| { kind: "edit"; index: number; existing: DeclaredServer }
 	| { kind: "rename"; index: number; existing: DeclaredServer; oldLabel: string; willCopy: boolean };
+
+/**
+ * Whether an entry still matches the non-secret half of a destination
+ * identity: the base URL, the apiVersion override, and the non-secret auth
+ * fields. These decide WHERE resolved secrets are sent (the OAuth client
+ * secret goes to the token URL, the keys to the base URL), so any drift means
+ * the label's stored values no longer belong to those destinations. `other`
+ * is a displayed ReplacedEntryIdentity or another parsed entry; both carry
+ * the same field shape.
+ */
+export function nonSecretIdentityMatches(
+	entry: DeclaredServer,
+	other: NonSecretOptionalFields & { readonly baseUrl: string; readonly apiVersion?: string | undefined }
+): boolean {
+	return (
+		normalizeBaseUrl(entry.baseUrl) === normalizeBaseUrl(other.baseUrl) &&
+		entry.apiVersion === other.apiVersion &&
+		NON_SECRET_OPTIONAL_FIELD_IDS.every((field) => entry[field] === other[field])
+	);
+}
 
 /**
  * The entry the form the user saved was showing, which is what every "keep"
@@ -74,14 +94,14 @@ export function requireEntryShownByForm(
 		);
 	}
 	const entry = sources.accepted.entry;
-	// The identity the form displayed: the host, and where each credential
-	// lived. Locations compare against the same derivation the dashboard's
-	// state push used, so an unchanged entry always passes; the values behind
-	// "secure" locations are deliberately not part of the identity (the webview
-	// never sees them).
+	// The identity the form displayed: the secret destinations, and where each
+	// credential lived. Locations compare against the same derivation the
+	// dashboard's state push used, so an unchanged entry always passes; the
+	// values behind "secure" locations are deliberately not part of the
+	// identity (the webview never sees them).
 	const locations = secretLocations(entry, sources.storedOld);
 	const unchanged =
-		normalizeBaseUrl(entry.baseUrl) === normalizeBaseUrl(replace.baseUrl) &&
+		nonSecretIdentityMatches(entry, replace) &&
 		SECRET_FIELD_IDS.every((field) => locations[field] === replace.secrets[field]);
 	if (!unchanged) {
 		throw new DashboardValidationError(
@@ -433,13 +453,20 @@ export async function applySaveServerSetting(
 			// A sync is requested because the failed settings write fires no
 			// configuration event (the clean-rollback rethrow below stays
 			// sync-free, nothing durable changed there) - but ONLY when the entry
-			// still standing in the setting names the host the user was saving:
-			// a re-point's failed write leaves the OLD base URL standing, and
-			// syncing then would hand the changed credential to the old host. A
-			// create has no standing entry to pair with, so it skips too.
+			// standing in the setting RIGHT NOW resolves the changed blob (it
+			// carries the saved label) and still names every destination the
+			// user was saving: the intended entry, parsed back like the sync
+			// engine will parse the setting, compared over the whole non-secret
+			// identity - a concurrent re-point of the host OR of the OAuth token
+			// URL during the failed write must not route the stranded credential
+			// there. A create or rename has no standing entry under the label,
+			// so it skips too (the changed values sit unreferenced).
+			const intended = acceptedEntry([newEntry], label);
+			const standing = acceptedEntry(env.readServersSetting(), label);
 			if (
-				accepted !== undefined &&
-				normalizeBaseUrl(accepted.entry.baseUrl) === normalizeBaseUrl(intent.server.baseUrl.trim())
+				intended !== undefined &&
+				standing !== undefined &&
+				nonSecretIdentityMatches(standing.entry, intended.entry)
 			) {
 				env.requestServerSync();
 			}

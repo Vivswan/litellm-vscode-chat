@@ -42,7 +42,15 @@ import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { assertOmits, makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
-import { displayedReplace, KEEP_ALL, makeEnv, type RecordedEnv, replaceIdentity, serverPayload } from "./recordedEnv";
+import {
+	displayedReplace,
+	inlineOnlyIdentity,
+	KEEP_ALL,
+	makeEnv,
+	type RecordedEnv,
+	replaceIdentity,
+	serverPayload,
+} from "./recordedEnv";
 
 /** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
@@ -2266,7 +2274,13 @@ suite("extension/dashboard/state", () => {
 						secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
 					},
 				}),
-				req("readInlineSecrets", { label: "Prod" }),
+				req("readInlineSecrets", {
+					replace: {
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						secrets: { apiKey: "settings", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
+				}),
 				req("adoptServer", {
 					label: "Adopted",
 					baseUrl: "http://ext.test",
@@ -2384,9 +2398,16 @@ suite("extension/dashboard/state", () => {
 					secrets: KEEP_ALL,
 					extra: 1,
 				}),
-				// readInlineSecrets: the label only, nothing rides along.
+				// readInlineSecrets: the displayed identity only, nothing rides along.
 				req("readInlineSecrets", {}),
-				req("readInlineSecrets", { label: "P", field: "apiKey" }),
+				req("readInlineSecrets", { label: "P" }),
+				req("readInlineSecrets", {
+					replace: {
+						label: "P",
+						baseUrl: "http://x",
+						secrets: { apiKey: "keychain", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
+				}),
 				// adoptServer: never a credential value, only storage locations.
 				req("adoptServer", {
 					label: "A",
@@ -2454,7 +2475,7 @@ suite("extension/dashboard/state", () => {
 		];
 
 		test("returns inline values trimmed, one key per inline-stored field", () => {
-			assert.deepStrictEqual(readInlineSecretValues(setting, "Inline"), {
+			assert.deepStrictEqual(readInlineSecretValues(setting, inlineOnlyIdentity(setting, "Inline")), {
 				apiKey: "sk-inline",
 				virtualKeyValue: "vk-inline",
 			});
@@ -2463,30 +2484,26 @@ suite("extension/dashboard/state", () => {
 		test("secure-side and absent fields get no key at all: absence, not an empty string", () => {
 			// "Secure" holds nothing inline; whatever its SecretStorage blob holds
 			// is not consulted here and must never come back.
-			assert.deepStrictEqual(readInlineSecretValues(setting, "Secure"), {});
-			const mixed = readInlineSecretValues(setting, "Mixed");
+			assert.deepStrictEqual(readInlineSecretValues(setting, inlineOnlyIdentity(setting, "Secure")), {});
+			const mixed = readInlineSecretValues(setting, inlineOnlyIdentity(setting, "Mixed"));
 			assert.deepStrictEqual(mixed, { apiKey: "sk-mixed" });
 			assert.ok(!("oauthClientSecret" in mixed), "a whitespace-only inline value counts as absent");
 			assert.ok(!("virtualKeyValue" in mixed));
 		});
 
 		test("an unknown label, a junk setting, and a non-string field value all yield an empty record", () => {
-			assert.deepStrictEqual(readInlineSecretValues(setting, "Nope"), {});
-			assert.deepStrictEqual(readInlineSecretValues("not an array", "Inline"), {});
-			assert.deepStrictEqual(readInlineSecretValues(undefined, "Inline"), {});
-			assert.deepStrictEqual(
-				readInlineSecretValues([{ label: "N", baseUrl: "http://x", auth: { apiKey: "" } }], "N"),
-				{}
-			);
+			assert.deepStrictEqual(readInlineSecretValues(setting, replaceIdentity("Nope", "http://x")), {});
+			assert.deepStrictEqual(readInlineSecretValues("not an array", replaceIdentity("Inline", "http://a.test")), {});
+			assert.deepStrictEqual(readInlineSecretValues(undefined, replaceIdentity("Inline", "http://a.test")), {});
+			const emptyValued = [{ label: "N", baseUrl: "http://x", auth: { apiKey: "" } }];
+			assert.deepStrictEqual(readInlineSecretValues(emptyValued, inlineOnlyIdentity(emptyValued, "N")), {});
 		});
 
 		test("labels match trimmed, like entry lookup everywhere else", () => {
-			assert.deepStrictEqual(
-				readInlineSecretValues([{ label: " Prod ", baseUrl: "http://x", auth: { apiKey: "sk-1" } }], "Prod"),
-				{
-					apiKey: "sk-1",
-				}
-			);
+			const padded = [{ label: " Prod ", baseUrl: "http://x", auth: { apiKey: "sk-1" } }];
+			assert.deepStrictEqual(readInlineSecretValues(padded, inlineOnlyIdentity(padded, "Prod")), {
+				apiKey: "sk-1",
+			});
 		});
 
 		test("resolution agrees with parseServersSetting: a rejected same-label sibling cannot shadow the accepted entry", () => {
@@ -2497,14 +2514,19 @@ suite("extension/dashboard/state", () => {
 				{ label: "Prod", auth: { apiKey: "sk-shadow" } },
 				{ label: "Prod", baseUrl: "http://real.test", auth: { apiKey: "sk-real" } },
 			];
-			assert.deepStrictEqual(readInlineSecretValues(shadowed, "Prod"), { apiKey: "sk-real" });
+			assert.deepStrictEqual(readInlineSecretValues(shadowed, inlineOnlyIdentity(shadowed, "Prod")), {
+				apiKey: "sk-real",
+			});
 		});
 
 		test("a label the parser rejects yields nothing, even when a raw entry carries inline fields under it", () => {
 			// The dashboard never declares this entry (reserved label), so a
 			// crafted request must not be able to read its inline fields.
 			const rejected = [{ label: "__proto__", baseUrl: "http://x.test", auth: { apiKey: "sk-hidden" } }];
-			assert.deepStrictEqual(readInlineSecretValues(rejected, "__proto__"), {});
+			assert.deepStrictEqual(
+				readInlineSecretValues(rejected, replaceIdentity("__proto__", "http://x.test", { apiKey: "settings" })),
+				{}
+			);
 		});
 
 		test("duplicate accepted labels resolve to the first, matching the parser's first-entry-wins rule", () => {
@@ -2512,7 +2534,42 @@ suite("extension/dashboard/state", () => {
 				{ label: "Prod", baseUrl: "http://a.test", auth: { apiKey: "sk-first" } },
 				{ label: "Prod", baseUrl: "http://b.test", auth: { apiKey: "sk-second" } },
 			];
-			assert.deepStrictEqual(readInlineSecretValues(duplicated, "Prod"), { apiKey: "sk-first" });
+			assert.deepStrictEqual(readInlineSecretValues(duplicated, inlineOnlyIdentity(duplicated, "Prod")), {
+				apiKey: "sk-first",
+			});
+		});
+
+		test("an entry that no longer matches the displayed identity prefills nothing", () => {
+			// The same-label swap racing the prefill: the form displayed the entry
+			// at a.test; the label now carries one at b.test with its own inline
+			// key. The stale form must not receive the replacement's value.
+			const swapped = [{ label: "Inline", baseUrl: "http://b.test", auth: { apiKey: "sk-swapped" } }];
+			assert.deepStrictEqual(
+				readInlineSecretValues(swapped, replaceIdentity("Inline", "http://a.test", { apiKey: "settings" })),
+				{}
+			);
+		});
+
+		test("moved secret locations prefill nothing either", () => {
+			// Same host, but the entry now inlines a key the form displayed as
+			// "none": a different credential shape is a different entry.
+			const moved = [{ label: "Inline", baseUrl: "http://a.test", auth: { apiKey: "sk-moved-inline" } }];
+			assert.deepStrictEqual(readInlineSecretValues(moved, replaceIdentity("Inline", "http://a.test")), {});
+		});
+
+		test("a changed OAuth destination prefills nothing: the stored values belong to the new token URL", () => {
+			const repointed = [
+				{
+					label: "OAuth",
+					baseUrl: "http://a.test",
+					auth: { oauth: { tokenUrl: "https://idp-b.test/token", clientId: "c1", clientSecret: "cs-inline" } },
+				},
+			];
+			const displayed = {
+				...inlineOnlyIdentity(repointed, "OAuth"),
+				oauthTokenUrl: "https://idp-a.test/token",
+			};
+			assert.deepStrictEqual(readInlineSecretValues(repointed, displayed), {});
 		});
 	});
 
@@ -3031,6 +3088,37 @@ suite("extension/dashboard/state", () => {
 				/changed in the servers setting/
 			);
 			assert.deepStrictEqual(recorded.probes, [], "the swapped entry's credential never rides a probe");
+		});
+
+		test("a probe whose entry's OAuth destination changed is refused before the token exchange", async () => {
+			// Same label, base URL, and locations, but the stored client secret
+			// now belongs to another token URL; probing would exchange it at the
+			// endpoint the stale form displays.
+			const recorded = makeEnv([
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					auth: { oauth: { tokenUrl: "https://idp-b.test/token", clientId: "c1" } },
+				},
+			]);
+			recorded.storedSecrets.set("Prod", { oauthClientSecret: "cs-for-idp-b" });
+			const displayed = {
+				...(await displayedReplace(recorded, "Prod")),
+				oauthTokenUrl: "https://idp-a.test/token",
+			};
+			await assert.rejects(
+				draftTest(recorded, {
+					server: serverPayload({
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						oauthTokenUrl: "https://idp-a.test/token",
+						oauthClientId: "c1",
+					}),
+					replace: displayed,
+				}),
+				/changed in the servers setting/
+			);
+			assert.deepStrictEqual(recorded.probes, [], "the rotated secret never rides toward the stale endpoint");
 		});
 
 		test("a probe for a re-pointed label is refused: the displayed host is not the entry's host anymore", async () => {
