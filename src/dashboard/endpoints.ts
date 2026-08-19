@@ -136,11 +136,22 @@ export interface SaveServerPayload extends NonSecretOptionalFields {
  * "fire-and-forget" gets no ack - the following push is the success signal.
  * channel: "chained" methods run one at a time on the mutation chain (two
  * concurrent saves would lose an update); only non-mutating ones go concurrent.
+ * fail (fire-and-forget only, since acked and read failures answer their
+ * posting hook): where a refused intent's standing notice renders.
+ * "settings-row" carries the owning settings row on the fail envelope and is
+ * what SettingWriteMethod derives from - marking a row forces its
+ * SETTING_WRITE_ROWS entry to exist, and a NEW fire-and-forget method does not
+ * compile until it declares which surface owns its refusals. "pane-top" is the
+ * shell's pane-top line (PANE_TOP_FAIL_METHODS); "log-only" refusals reach the
+ * output log alone, because the following push carries their real outcome.
  */
-interface DashboardEndpointSpec {
-	readonly outcome: "read" | "acked" | "fire-and-forget";
-	readonly channel: "chained" | "concurrent";
-}
+type DashboardEndpointSpec =
+	| { readonly outcome: "read" | "acked"; readonly channel: "chained" | "concurrent" }
+	| {
+			readonly outcome: "fire-and-forget";
+			readonly channel: "chained" | "concurrent";
+			readonly fail: "settings-row" | "pane-top" | "log-only";
+	  };
 
 /**
  * The endpoint table: one row per method the webview can call. The webview is
@@ -149,26 +160,26 @@ interface DashboardEndpointSpec {
  */
 export const DASHBOARD_ENDPOINTS = {
 	/** The page-load handshake: the state push it triggers is the answer. */
-	ready: { outcome: "fire-and-forget", channel: "chained" },
-	setNumberSetting: { outcome: "fire-and-forget", channel: "chained" },
-	setBooleanSetting: { outcome: "fire-and-forget", channel: "chained" },
+	ready: { outcome: "fire-and-forget", channel: "chained", fail: "log-only" },
+	setNumberSetting: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setBooleanSetting: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	/** Remove the setting from the highest-precedence scope that sets it. */
-	resetSetting: { outcome: "fire-and-forget", channel: "chained" },
+	resetSetting: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	/** Open the user settings.json at "litellm-vscode-chat.<setting>". */
-	revealSetting: { outcome: "fire-and-forget", channel: "chained" },
+	revealSetting: { outcome: "fire-and-forget", channel: "chained", fail: "log-only" },
 	setModelParameters: { outcome: "acked", channel: "chained" },
 	setModelCapabilities: { outcome: "acked", channel: "chained" },
-	setUsageStatusBar: { outcome: "fire-and-forget", channel: "chained" },
-	setTokenEstimation: { outcome: "fire-and-forget", channel: "chained" },
-	setCurrencySymbol: { outcome: "fire-and-forget", channel: "chained" },
-	setAdditionalToolSchemaKeywords: { outcome: "fire-and-forget", channel: "chained" },
-	setUiTheme: { outcome: "fire-and-forget", channel: "chained" },
-	setUiAccent: { outcome: "fire-and-forget", channel: "chained" },
-	setUsageAlertThresholds: { outcome: "fire-and-forget", channel: "chained" },
+	setUsageStatusBar: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setTokenEstimation: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setCurrencySymbol: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setAdditionalToolSchemaKeywords: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setUiTheme: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setUiAccent: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setUsageAlertThresholds: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	/** Refresh the OpenRouter catalog now; the outcome lands in the next push's catalog status. */
-	refreshCatalog: { outcome: "fire-and-forget", channel: "chained" },
+	refreshCatalog: { outcome: "fire-and-forget", channel: "chained", fail: "log-only" },
 	/** Refresh usage data for every server now; the poller's completion re-pushes state. */
-	refreshUsage: { outcome: "fire-and-forget", channel: "chained" },
+	refreshUsage: { outcome: "fire-and-forget", channel: "chained", fail: "log-only" },
 	saveServerSetting: { outcome: "acked", channel: "chained" },
 	/**
 	 * Append one expected-failure category to the named entry (the servers
@@ -205,7 +216,7 @@ export const DASHBOARD_ENDPOINTS = {
 	readModelParameters: { outcome: "read", channel: "concurrent" },
 	readResolvedModels: { outcome: "read", channel: "concurrent" },
 	searchCatalog: { outcome: "read", channel: "concurrent" },
-	executeCommand: { outcome: "fire-and-forget", channel: "chained" },
+	executeCommand: { outcome: "fire-and-forget", channel: "chained", fail: "pane-top" },
 } as const satisfies Record<string, DashboardEndpointSpec>;
 
 export type DashboardMethod = keyof typeof DASHBOARD_ENDPOINTS;
@@ -488,19 +499,32 @@ export function isAckedMethod(method: string): method is AckedMethod {
 /**
  * The scalar setting-write methods, whose fail envelopes carry the owning settings row
  * (`row` on IntentFailMessage) so the Settings page can place a standing refusal under
- * the row that posted it without keeping a correlation map of its own.
+ * the row that posted it without keeping a correlation map of its own. Derived from the
+ * table's `fail: "settings-row"` marks, never hand-listed: a method joins the class where
+ * its endpoint row is declared, and joining without a SETTING_WRITE_ROWS entry (or the
+ * inverse) fails the mapped type below.
  */
-export type SettingWriteMethod =
-	| "setNumberSetting"
-	| "setBooleanSetting"
-	| "resetSetting"
-	| "setUsageAlertThresholds"
-	| "setUsageStatusBar"
-	| "setTokenEstimation"
-	| "setAdditionalToolSchemaKeywords"
-	| "setCurrencySymbol"
-	| "setUiTheme"
-	| "setUiAccent";
+export type SettingWriteMethod = {
+	[K in DashboardMethod]: (typeof DASHBOARD_ENDPOINTS)[K] extends { readonly fail: "settings-row" } ? K : never;
+}[DashboardMethod];
+
+/**
+ * The fire-and-forget methods whose standing fail notice is the shell's
+ * pane-top line (methods posted from any tab that own no settings row).
+ * Derived from the table like SettingWriteMethod: marking a row "pane-top" is
+ * the whole registration - the shell iterates this list, so there is no second
+ * list a new method could miss.
+ */
+type PaneTopFailMethod = {
+	[K in DashboardMethod]: (typeof DASHBOARD_ENDPOINTS)[K] extends { readonly fail: "pane-top" } ? K : never;
+}[DashboardMethod];
+
+export const PANE_TOP_FAIL_METHODS = (Object.keys(DASHBOARD_ENDPOINTS) as readonly DashboardMethod[]).filter(
+	(method): method is PaneTopFailMethod => {
+		const spec: DashboardEndpointSpec = DASHBOARD_ENDPOINTS[method];
+		return spec.outcome === "fire-and-forget" && spec.fail === "pane-top";
+	}
+);
 
 /**
  * Each scalar write's owning row, derived from the request itself: the `setting`-carrying

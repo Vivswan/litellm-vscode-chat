@@ -2,7 +2,12 @@ import * as l10n from "@vscode/l10n";
 import type { ReactElement, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AckedMethod, NotifyingMethod, SettingWriteMethod } from "../../dashboard/endpoints";
-import { failuresAfterStatePush, isAckedMethod, SETTING_WRITE_METHODS } from "../../dashboard/endpoints";
+import {
+	failuresAfterStatePush,
+	isAckedMethod,
+	PANE_TOP_FAIL_METHODS,
+	SETTING_WRITE_METHODS,
+} from "../../dashboard/endpoints";
 import { classifyOverall, latestCheckedMs } from "../../dashboard/presenters";
 import type { DashboardSectionId, DashboardServer, DashboardState, SettingRowId } from "../../dashboard/viewModels";
 import { DASHBOARD_SECTION_IDS } from "../../dashboard/viewModels";
@@ -648,9 +653,13 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	const activeSection = pendingFocusSection !== undefined && editing === undefined ? pendingFocusSection : section;
 
 	// The scalar setting writes report on the settings page itself, placed by owning row.
-	// Only executeCommand keeps a pane-top line: it is posted from every tab and owns no
-	// row anywhere.
-	const commandFailure = failures.executeCommand;
+	// The pane-top methods (today executeCommand alone) keep a pane-top line each: they are
+	// posted from every tab and own no row anywhere. Derived from the endpoint table's
+	// fail marks, so a new method of either class renders without touching this shell.
+	const paneTopFailures = PANE_TOP_FAIL_METHODS.flatMap((method) => {
+		const failure = failures[method];
+		return failure === undefined ? [] : [{ method, failure }];
+	});
 	const settingWriteFailures: Partial<Record<SettingWriteMethod, SettingWriteFailure>> = {};
 	for (const method of SETTING_WRITE_METHODS) {
 		const failure = failures[method];
@@ -699,10 +708,13 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					synced={lastSync(state.servers, now)}
 				/>
 				<div className="pane">
-					{/* Both pane-top lines announce once per failure seq and then stand silently
-					    (PaneFailureLine): one owns no row, the other re-mounts on every navigation away
-					    from Settings while its failure stands unchanged. */}
-					{commandFailure !== undefined ? <PaneFailureLine key={commandFailure.seq} failure={commandFailure} /> : null}
+					{/* All pane-top lines announce once per failure seq and then stand silently
+					    (PaneFailureLine): the pane-top methods own no row, and the away-settings
+					    line re-mounts on every navigation away from Settings while its failure
+					    stands unchanged. */}
+					{paneTopFailures.map(({ method, failure }) => (
+						<PaneFailureLine key={`${method}:${failure.seq}`} failure={failure} />
+					))}
 					{awaySettingFailure !== undefined ? (
 						<PaneFailureLine key={awaySettingFailure.seq} failure={awaySettingFailure} />
 					) : null}
