@@ -571,8 +571,15 @@ suite("extension/dashboard/state", () => {
 			);
 			const staging = state.servers.find((server) => server.label === "Staging");
 			assert.strictEqual(staging?.state, "error", "the sync failure outranks the shared live status");
-			assert.strictEqual(staging?.servedModelCount, 2, "the served count stays the live truth");
+			assert.strictEqual(
+				staging?.servedModelCount,
+				0,
+				"no model row carries the excluded claimant's label, so its row must not claim the shared count"
+			);
 			assert.strictEqual(staging?.error, "The host rejected the provider group upsert");
+			const prod = state.servers.find((server) => server.label === "Prod");
+			assert.strictEqual(prod?.servedModelCount, 2, "the serving claimant keeps the live count");
+			assert.strictEqual(state.servedModelCount, 2, "the hero counts the shared snapshot once");
 		});
 
 		test("a blocked claimant keeps its models copy: the duplicate refusal proves its group exists", () => {
@@ -643,6 +650,11 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(
 				state.models.map((m) => `${m.serverLabel}/${m.name}`),
 				["Prod/m1"]
+			);
+			assert.strictEqual(
+				state.servers[0]?.servedModelCount,
+				1,
+				"the fallback claimant's row keeps the live count its rendered models carry"
 			);
 		});
 
@@ -1074,7 +1086,12 @@ suite("extension/dashboard/state", () => {
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
-						status: makeServerStatus({ serverId: "g2", label: "Live", baseUrl: "http://live.test" }),
+						status: makeServerStatus({
+							serverId: "g2",
+							label: "Live",
+							baseUrl: "http://live.test",
+							servedModelCount: 3,
+						}),
 						models: [makeModelInfo({ id: "m2", name: "m2" })],
 					},
 				],
@@ -1095,6 +1112,11 @@ suite("extension/dashboard/state", () => {
 				"the tombstoned snapshot contributes no models"
 			);
 			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Prod", baseUrl: "http://prod.test" }]);
+			assert.strictEqual(
+				state.servedModelCount,
+				3,
+				"a snapshot with no rows or model rows must not count into the hero during the tombstone window"
+			);
 		});
 
 		test("tombstones suppress by the raw status label, not the display ordinal", () => {

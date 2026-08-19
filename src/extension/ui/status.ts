@@ -315,6 +315,12 @@ function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 				return { state: "connecting", attention: true, ...lastChecked };
 			}
 			if (isLegacyZeroModelVerdict(serverStatuses)) {
+				if (classifyOverall(serverStatuses) === "needs-declare") {
+					// Every failure expected and nothing declared: the live path
+					// renders this window as the needs-declare warning, so the
+					// restore may not upgrade it to a green connected.
+					return { state: "connecting", attention: true, ...lastChecked };
+				}
 				// A pre-rename session persisted the zero-model verdict as an error;
 				// the state is honestly "connected with nothing to serve" and the
 				// connected renderer derives the same warning from the statuses.

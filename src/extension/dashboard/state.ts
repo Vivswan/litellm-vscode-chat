@@ -137,15 +137,20 @@ function buildServer(
  * (declaredPresentation): a sync error outranks the live status - even a
  * healthy one, since the group still serving is the entry's OLD configuration
  * and the remove-and-resync instruction must show - while the served count
- * stays the live truth. The status bar's overlay (applySyncFailures) consumes
- * the same rule, so the row and the bar cannot disagree. `errorEnglish` (the
+ * stays the live truth for every label whose models actually render
+ * (`labelServes`; an upsertFailed claimant excluded from a shared snapshot's
+ * labels serves nothing). The status bar's overlay (applySyncFailures)
+ * consumes the same presentation rule, and it carries ONE status per snapshot,
+ * so the two surfaces agree by summation: the per-claimant rows' counts add up
+ * to the overlay's single per-snapshot count. `errorEnglish` (the
  * transport error's log-safe English) and `classification` (enum ids only,
  * protocol-legal) ride exactly when the row's error IS the transport error; a
  * sync error carries neither.
  */
 function declaredOutcome(
 	status: ServerStatus | undefined,
-	syncError: string | undefined
+	syncError: string | undefined,
+	labelServes: boolean
 ):
 	| {
 			state: "ok";
@@ -164,7 +169,14 @@ function declaredOutcome(
 	| { state: "unchecked"; servedModelCount: number } {
 	const presentation = declaredPresentation(status, syncError);
 	if (presentation.kind === "sync-failed") {
-		return { state: "error", servedModelCount: presentation.servedModelCount, error: presentation.error };
+		return {
+			state: "error",
+			// An upsertFailed claimant of a SHARED snapshot renders no model rows
+			// (snapshotLabels drops its label), so the live count would claim
+			// models the tables do not show; the count follows the rendered rows.
+			servedModelCount: labelServes ? presentation.servedModelCount : 0,
+			error: presentation.error,
+		};
 	}
 	// The second test is what narrows `status` below: "unchecked" already means
 	// an absent status, but the kind alone tells the compiler nothing.
@@ -279,15 +291,12 @@ function buildServers(
 				normalizeBaseUrl(record.baseUrl) === normalizeBaseUrl(snapshot.status.baseUrl)
 		)?.origin;
 	// Countable claimant labels per snapshot, in declared order, with the
-	// first claimant of any state as the render-at-least-once fallback.
+	// first claimant of any state as the render-at-least-once fallback. Built
+	// whole before any row, because a shared snapshot's rows need the full
+	// claimant picture to report their own served counts.
 	const claimants = new Map<LabeledSnapshot, { labels: string[]; fallback: string }>();
-	const servers: DashboardServer[] = [];
-	// Hidden externals leave the table AND the models list; this only bridges the
-	// window between the tombstone write and the host's re-resolution.
-	const hidden = new Set<LabeledSnapshot>();
 	declared.forEach((view, declaredIndex) => {
-		const match = matchedByDeclared.get(declaredIndex);
-		const matched = match?.entry;
+		const matched = matchedByDeclared.get(declaredIndex)?.entry;
 		if (matched !== undefined) {
 			const claimed = claimants.get(matched) ?? { labels: [], fallback: view.label };
 			if (view.syncErrorClass !== "upsertFailed") {
@@ -295,6 +304,23 @@ function buildServers(
 			}
 			claimants.set(matched, claimed);
 		}
+	});
+	// The labels a snapshot's models render under; snapshotLabels and the rows'
+	// served counts read the same rule, so they cannot diverge.
+	const labelsRenderedFor = (entry: LabeledSnapshot): string[] => {
+		const claimed = claimants.get(entry);
+		if (claimed === undefined) {
+			return [entry.label];
+		}
+		return claimed.labels.length > 0 ? claimed.labels : [claimed.fallback];
+	};
+	const servers: DashboardServer[] = [];
+	// Hidden externals leave the table AND the models list; this only bridges the
+	// window between the tombstone write and the host's re-resolution.
+	const hidden = new Set<LabeledSnapshot>();
+	declared.forEach((view, declaredIndex) => {
+		const match = matchedByDeclared.get(declaredIndex);
+		const matched = match?.entry;
 		// Only the exact labeled-identity join proves the live group carries this
 		// entry's label, which is what the request path's label-and-URL resolution
 		// keys on. Any other pass means the entry's entry-only fields may silently
@@ -320,7 +346,11 @@ function buildServers(
 		if (entryFieldsInactive && view.apiVersion !== undefined) {
 			notices.push("entry-api-version-inactive");
 		}
-		const outcome = declaredOutcome(matched?.snapshot.status, view.syncError);
+		const outcome = declaredOutcome(
+			matched?.snapshot.status,
+			view.syncError,
+			matched === undefined || labelsRenderedFor(matched).includes(view.label)
+		);
 		if (outcome.state === "error" && outcome.expected === true && outcome.servedModelCount === 0) {
 			// An expected failure serving NOTHING - no declared models, and the
 			// stale window holds nothing; only a declared-models list can fix
@@ -397,16 +427,7 @@ function buildServers(
 	servers.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
 	return {
 		servers,
-		snapshotLabels: labeled.map((entry) => {
-			if (hidden.has(entry)) {
-				return [];
-			}
-			const claimed = claimants.get(entry);
-			if (claimed === undefined) {
-				return [entry.label];
-			}
-			return claimed.labels.length > 0 ? claimed.labels : [claimed.fallback];
-		}),
+		snapshotLabels: labeled.map((entry) => (hidden.has(entry) ? [] : labelsRenderedFor(entry))),
 	};
 }
 
@@ -747,10 +768,16 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 	return {
 		servers,
 		hiddenGroups,
-		// The same reduce reportMerged derives totalModels with: the served-count
-		// truth for the hero and the paste line, immune to the models array's
-		// per-claimant copies.
-		servedModelCount: snapshots.reduce((sum, snapshot) => sum + snapshot.status.servedModelCount, 0),
+		// The served-count truth for the hero and the paste line, reduced like
+		// reportMerged's totalModels but over the VISIBLE snapshots only: a
+		// tombstoned snapshot's models leave the tables (snapshotLabels drops
+		// them), so its count must leave the headline too. Immune to the models
+		// array's per-claimant copies either way.
+		servedModelCount: labeled.reduce(
+			(sum, entry, index) =>
+				(snapshotLabels[index] ?? []).length > 0 ? sum + entry.snapshot.status.servedModelCount : sum,
+			0
+		),
 		models: labeled
 			.flatMap(({ snapshot, label }, index) =>
 				(snapshotLabels[index] ?? [label]).flatMap((serverLabel) =>

@@ -365,6 +365,41 @@ suite("extension/ui/status", () => {
 			assert.ok(item.last.tooltip.includes("No models available"), item.last.tooltip);
 		});
 
+		test("a legacy zero-model error whose rows all failed expectedly restores as the needs-declare warning", async () => {
+			// The live path renders this window through the needs-declare verdict
+			// (connecting, needs-attention); restoring it as a green connected
+			// would claim "0 models available" in the diagnostics snapshot that
+			// lands in public issue reports.
+			const item = new RecordingItem();
+			const manager = createManager(
+				{
+					state: "error",
+					error: "404 page not found",
+					logSafeError: "RequestError(http, status 404)",
+					totalModels: 0,
+					serverStatuses: [
+						{
+							label: "Prod",
+							baseUrl: "http://prod.test",
+							state: "error",
+							error: "404 page not found",
+							expected: true,
+							servedModelCount: 0,
+						},
+					],
+				},
+				() => true,
+				undefined,
+				item
+			);
+			await new Promise((resolve) => setImmediate(resolve));
+			assert.strictEqual(manager.connectionStatus.state, "connecting");
+			assert.strictEqual(manager.connectingAttention, true, "the restored verdict starts in the warning form");
+			assert.strictEqual(item.last.severity, "warning");
+			assert.ok(item.last.tooltip.includes("have not reported any models"), item.last.tooltip);
+			assert.ok(!item.last.tooltip.includes("models available"), item.last.tooltip);
+		});
+
 		test("a restored zero-model verdict with a hidden group still gates the issue reporter", () => {
 			// Cold start: the persisted verdict must gate exactly like the fresh
 			// one, or the first Report Issue after a restart opens a blank issue.
