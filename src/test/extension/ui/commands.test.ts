@@ -9,7 +9,7 @@ import type { ConnectionStatus } from "../../../extension/ui/status";
 import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/transport/errorMapping";
 import { LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
-import type { SetupHintKind } from "../../../shared/errorClassification";
+import { SETUP_HINT_KINDS, type SetupHintKind } from "../../../shared/errorClassification";
 import { Logger, markLogSafe } from "../../../shared/logger";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
@@ -340,17 +340,19 @@ suite("extension/ui/commands", () => {
 		// Composed from ACTUAL transport mappings (mapSdkError -> statusErrorTexts) so
 		// the toast cannot drift from what the transport produces: the toast carries the
 		// message's headline line only, plus the Troubleshooting Docs deep link.
+		// Keyed by SETUP_HINT_KINDS and walked from that registry, so a new hint id
+		// without a coverage row here fails typecheck instead of shipping untested.
 		suite("classified error toasts composed from real transport mappings", () => {
 			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
-			const causes: ReadonlyArray<[string, () => Error, SetupHintKind]> = [
-				[
-					"a discovery 404",
-					() => mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), ctx),
-					"check-base-url",
-				],
-				[
-					"a refused connection",
-					() =>
+			const causes: Record<SetupHintKind, { label: string; buildError: () => Error }> = {
+				"check-base-url": {
+					label: "a discovery 404",
+					buildError: () =>
+						mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), ctx),
+				},
+				"proxy-not-running": {
+					label: "a refused connection",
+					buildError: () =>
 						mapSdkError(
 							new APIConnectionError({
 								cause: Object.assign(new TypeError("fetch failed"), {
@@ -359,15 +361,25 @@ suite("extension/ui/commands", () => {
 							}),
 							ctx
 						),
-					"proxy-not-running",
-				],
-				[
-					"a proxy-rejected key",
-					() =>
+				},
+				"configure-api-key": {
+					label: "a proxy-rejected key",
+					buildError: () =>
 						mapSdkError(new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()), ctx),
-					"configure-api-key",
-				],
-			];
+				},
+				"use-bare-localhost": {
+					label: "a *.localhost host that fails to resolve",
+					buildError: () =>
+						mapSdkError(
+							new APIConnectionError({
+								cause: Object.assign(new TypeError("fetch failed"), {
+									cause: Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" }),
+								}),
+							}),
+							{ ...ctx, baseUrl: "http://www.localhost:8001" }
+						),
+				},
+			};
 
 			function providerLeavingError(statusBar: ReturnType<typeof makeStatusBar>, mapped: Error) {
 				return {
@@ -379,7 +391,8 @@ suite("extension/ui/commands", () => {
 				};
 			}
 
-			for (const [label, buildError, setupHint] of causes) {
+			for (const setupHint of SETUP_HINT_KINDS) {
+				const { label, buildError } = causes[setupHint];
 				test(`${label} keeps the exact transport headline and adds the docs action`, async () => {
 					const mapped = buildError();
 					assert.strictEqual(statusErrorTexts(mapped).classification?.setupHint, setupHint);
