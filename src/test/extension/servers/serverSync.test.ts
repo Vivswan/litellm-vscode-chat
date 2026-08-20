@@ -356,6 +356,27 @@ suite("extension/servers/serverSync", () => {
 			assert.ok(!JSON.stringify(recorded.logged).includes("sk-retired"), "no log line carries the value");
 		});
 
+		test("the refusal precedes the add-only path: a re-pointed entry with a secret stamped for the old URL skips as secretsMismatched", async () => {
+			// The composed case the monkey fuzzer found (FUZZ_SEED=285569): sync a
+			// label, stamp its stored key for that URL, then change the URL. The
+			// entry now BOTH diverges from its immutable group (the blocked path)
+			// and fails the ownership check; the check runs at the read boundary,
+			// before any host call, so the pass classifies secretsMismatched.
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://first.test" }], { A: { apiKey: "sk-first" } });
+			recorded.secretOwners = { A: { apiKey: "http://first.test" } };
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the matching stamp syncs cleanly");
+			assert.strictEqual(recorded.upserts.length, 1);
+
+			recorded.setting = [{ label: "A", baseUrl: "http://first.test/changed" }];
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1, "the refused pairing must never reach the host");
+			const view = engine.getDeclared()[0];
+			assert.strictEqual(view?.syncError, SECRET_OWNERSHIP_MISMATCH_MESSAGE);
+			assert.strictEqual(view?.syncErrorClass, "secretsMismatched");
+		});
+
 		test("the save path's staging window is covered: a staged secret for a re-pointed host refuses until the settings write lands", async () => {
 			// A dashboard save stages secure writes BEFORE the settings write. A
 			// pass running inside that window reads the OLD entry with the NEW

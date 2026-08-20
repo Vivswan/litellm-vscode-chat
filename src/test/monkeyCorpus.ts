@@ -58,6 +58,35 @@ export const MONKEY_CORPUS: MonkeyCorpusEntry[] = [
 		],
 	},
 	{
+		// FUZZ_SEED=285569 walk 0 (CI run 32346126510): a set-secret stamps the
+		// stored apiKey for the entry's base URL at store time, so the later
+		// redeclare's mutated URL makes the ownership check refuse the pairing -
+		// the engine surfaces the secretsMismatched refusal, which runs BEFORE
+		// the add-only duplicate path the oracle used to expect unconditionally.
+		name: "stamped-secret-redeclare-surfaces-ownership-refusal",
+		actions: [
+			{
+				kind: "declare-server",
+				label: "s2",
+				credential: "virtual-key",
+				extras: { headers: true, budget: 8, declared: true, expectedFailures: true },
+			},
+			{ kind: "chat-cancel", chunkCount: 30, cancelAfter: 4 },
+			{ kind: "set-secret", label: "s2", field: "apiKey", serial: 11 },
+			{
+				kind: "dashboard-intent",
+				intent: {
+					kind: "request",
+					id: "fuzz-params-12",
+					method: "setModelParameters",
+					payload: { value: { "gpt-5.2-mini": { temperature: 0.5 } } },
+				},
+				expect: "ok",
+			},
+			{ kind: "redeclare-server", label: "s2" },
+		],
+	},
+	{
 		// FUZZ_SEED=250710 walk 1, shrunk: an entry-declared model must LEAVE on a
 		// redeclare - the mutated base URL stops identifying the live group, so the
 		// entry's per-entry configuration no longer reaches it, exactly like

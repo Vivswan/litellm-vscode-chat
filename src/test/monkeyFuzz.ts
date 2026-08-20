@@ -8,11 +8,13 @@
  * reproduction for replay and shrinking.
  *
  * The oracle is built from the REAL pure functions the extension runs
- * (parseServersSetting, buildGroupArgs), so it cannot drift from the sync
- * engine's rules. Its structural insight: under VS Code's add-only
- * provider-group command a label's first successfully synced configuration is
- * immutable for the host lifetime, so any later divergence expects exactly
- * GROUP_UPDATE_UNAVAILABLE_MESSAGE.
+ * (parseServersSetting, buildGroupArgs, resolveOwnedSecrets), so it cannot
+ * drift from the sync engine's rules. Its structural insight: under VS Code's
+ * add-only provider-group command a label's first successfully synced
+ * configuration is immutable for the host lifetime, so any later divergence
+ * expects exactly GROUP_UPDATE_UNAVAILABLE_MESSAGE - unless a stored secret's
+ * ownership stamp refuses the entry pairing at the engine's read boundary
+ * first, which expects SECRET_OWNERSHIP_MISMATCH_MESSAGE.
  *
  * Known oracle limitations: the storage probe covers Memento keys only
  * (SecretStorage has no enumeration API); model attribution is a lower bound,
@@ -24,13 +26,16 @@
 
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { DeclaredServerView } from "../extension/servers/serverSync";
+import type { DeclaredServer, DeclaredServerView } from "../extension/servers/serverSync";
 import {
 	buildGroupArgs,
 	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
-	inlineSecretValues,
 	parseServersSetting,
+	secretLocations,
 } from "../extension/servers/serverSync";
+import { SECRET_OWNERSHIP_MISMATCH_MESSAGE } from "../extension/servers/serverSync/engine";
+import type { OwnedSecretsResolution } from "../extension/servers/serverSync/secrets";
+import { resolveOwnedSecrets, secretDestination } from "../extension/servers/serverSync/secrets";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import {
@@ -58,7 +63,7 @@ import {
 	SKIPPED_MIGRATION_SERVERS_KEY,
 	SYNCED_ENTRY_BASE_URLS_KEY,
 } from "../shared/config/storageKeys";
-import type { SecretFieldId } from "../shared/serverEntry";
+import type { SecretFieldId, SecretLocation } from "../shared/serverEntry";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { FAKE_MODELS, PLAYBACK_MODEL } from "./fakeStack/models";
 import { FAKE_OAUTH_CLIENT_ID, FAKE_OAUTH_CLIENT_SECRET } from "./fakeStack/oauth";
@@ -106,7 +111,7 @@ type ParamShape = "plain" | "invalid" | "forced" | "inherited" | "barrier" | "ju
 /** One monkey step; label fields carry abstract tokens the executor namespaces per run. */
 export type MonkeyAction =
 	| { kind: "declare-server"; label: string; credential: CredentialMode; extras?: DeclareExtras }
-	/** Mutate an existing label's baseUrl; the add-only host must refuse the update. */
+	/** Mutate an existing label's baseUrl; the sync pass must refuse it (ownership mismatch or the add-only error). */
 	| { kind: "redeclare-server"; label: string }
 	| { kind: "remove-server"; label: string }
 	| { kind: "set-secret"; label: string; field: SecretFieldId; serial: number }
@@ -476,6 +481,12 @@ interface OracleEntry {
 /** Sentinel for "reset removed the configured value"; distinct from "never touched". */
 const UNSET = Symbol("unset");
 
+/** A mutable mirror of one label's SecretStorage blob: the values AND ownership stamps updateServerSecret has written. */
+interface StoredBlobMirror {
+	values: Partial<Record<SecretFieldId, string>>;
+	owners: Partial<Record<SecretFieldId, string>>;
+}
+
 /**
  * Every Memento key storageKeys.ts declares as globalState; the storage probe
  * admits nothing else. SecretStorage key names stay OUT on purpose: one of them
@@ -539,8 +550,8 @@ const MODEL_WAIT_MS = 60000;
  */
 export class MonkeySession {
 	private declared = new Map<string, OracleEntry>();
-	/** SecretStorage blobs by real label; kept across removals like the real store keeps them. */
-	private stored = new Map<string, Partial<Record<SecretFieldId, string>>>();
+	/** SecretStorage blob mirrors by real label; kept across removals like the real store keeps them. */
+	private stored = new Map<string, StoredBlobMirror>();
 	/** Add-only across the whole session: healthy group counts only ever grow. */
 	private everSyncedHealthy = { proxy: 0, fake: 0 };
 	/**
@@ -612,29 +623,53 @@ export class MonkeySession {
 		return (await vscode.commands.executeCommand("litellm._test.dashboardMessage", raw)) as string;
 	}
 
-	/** The real resolution rule: parse the entry as the engine would, resolve secrets inline-first. */
-	private resolvedArgs(entry: Record<string, unknown>, label: string): string {
-		const parsed = expectDefined(
-			parseServersSetting([entry]).entries[0],
-			`oracle entry for ${label} must stay parseable`
-		);
-		return JSON.stringify(buildGroupArgs(parsed, this.stored.get(label) ?? {}));
+	/** Parse one oracle entry as the engine would; oracle entries come from accepted declares, so they stay parseable. */
+	private parsedEntry(entry: Record<string, unknown>, label: string): DeclaredServer {
+		return expectDefined(parseServersSetting([entry]).entries[0], `oracle entry for ${label} must stay parseable`);
 	}
 
+	/** The label's blob mirror, created empty on first touch. */
+	private blobFor(label: string): StoredBlobMirror {
+		const blob = this.stored.get(label) ?? { values: {}, owners: {} };
+		this.stored.set(label, blob);
+		return blob;
+	}
+
+	/** The REAL ownership check over the mirrored blob: the stored values the entry may use, and those it must refuse. */
+	private ownedSecrets(parsed: DeclaredServer, label: string): OwnedSecretsResolution {
+		const blob = this.stored.get(label);
+		return resolveOwnedSecrets(parsed, { values: blob?.values ?? {}, owners: blob?.owners ?? {} });
+	}
+
+	/** The real resolution rule: parse the entry as the engine would, resolve secrets ownership-checked, inline-first. */
+	private resolvedArgs(entry: Record<string, unknown>, label: string): string {
+		const parsed = this.parsedEntry(entry, label);
+		return JSON.stringify(buildGroupArgs(parsed, this.ownedSecrets(parsed, label).values));
+	}
+
+	/**
+	 * The sync outcome the engine's branch order dictates: the ownership check
+	 * runs at the read boundary, so a stored value stamped for a different
+	 * destination refuses the whole pairing before any host call; only a
+	 * resolvable pairing that diverges from the synced group's immutable
+	 * configuration reaches the add-only error.
+	 */
 	private expectedSyncError(label: string): string | undefined {
 		const oracle = expectDefined(this.declared.get(label), `oracle entry for ${label}`);
+		const parsed = this.parsedEntry(oracle.entry, label);
+		if (this.ownedSecrets(parsed, label).refused.length > 0) {
+			return SECRET_OWNERSHIP_MISMATCH_MESSAGE;
+		}
 		return this.resolvedArgs(oracle.entry, label) === oracle.hostArgs ? undefined : GROUP_UPDATE_UNAVAILABLE_MESSAGE;
 	}
 
-	private expectedSecretLocation(label: string, field: SecretFieldId): "settings" | "secure" | "none" {
+	private expectedSecretLocation(label: string, field: SecretFieldId): SecretLocation {
 		const oracle = expectDefined(this.declared.get(label), `oracle entry for ${label}`);
-		// The REAL inline rule over the parsed nested entry, so the oracle
-		// cannot drift from the engine's flattening of the auth object.
-		const parsed = expectDefined(parseServersSetting([oracle.entry]).entries[0], `oracle entry for ${label}`);
-		if (inlineSecretValues(parsed)[field] !== undefined) {
-			return "settings";
-		}
-		return this.stored.get(label)?.[field] !== undefined ? "secure" : "none";
+		// The REAL location rule over the parsed entry and the ownership-resolved
+		// blob, so the oracle cannot drift from the engine's owned view (inline
+		// wins, and a field whose stamp names another destination reads "none").
+		const parsed = this.parsedEntry(oracle.entry, label);
+		return secretLocations(parsed, this.ownedSecrets(parsed, label).values)[field];
 	}
 
 	private async chatModel(id: string): Promise<vscode.LanguageModelChat> {
@@ -676,11 +711,11 @@ export class MonkeySession {
 				break;
 			case "secure": {
 				// The blob lands BEFORE the entry so the first sync pass resolves it;
-				// the entry carries no auth object (the stored slot activates the bearer).
+				// the entry carries no auth object (the stored slot activates the
+				// bearer). Seeded before the entry exists, so the store command
+				// writes it unstamped and it resolves anywhere, like a pre-stamping blob.
 				await this.setStoredSecret(label, "apiKey", this.env.apiKey);
-				const blob = this.stored.get(label) ?? {};
-				blob.apiKey = this.env.apiKey;
-				this.stored.set(label, blob);
+				this.blobFor(label).values.apiKey = this.env.apiKey;
 				break;
 			}
 			case "virtual-key":
@@ -930,11 +965,14 @@ export class MonkeySession {
 				oracle.entry = mutated;
 				await this.syncNow();
 				const view = await this.declaredView(real);
-				assert.strictEqual(
-					view.syncError,
-					GROUP_UPDATE_UNAVAILABLE_MESSAGE,
-					"a redeclared label must surface the add-only error"
-				);
+				// Derived, never fixed: the mutated URL always diverges from the
+				// synced group, so the pass must refuse - with the ownership mismatch
+				// when a stored secret the entry would use was stamped for the old
+				// URL (set-secret stamps the destination at store time), and with the
+				// add-only error otherwise.
+				const expected = this.expectedSyncError(real);
+				assert.notStrictEqual(expected, undefined, "the oracle must expect a redeclare to be refused");
+				assert.strictEqual(view.syncError, expected, "a redeclared label must surface the derived refusal");
 				// The mutated base URL no longer identifies the live group, so the
 				// entry's configuration stops reaching it and the declared model must
 				// leave the host list; the group keeps serving what it discovered.
@@ -992,7 +1030,8 @@ export class MonkeySession {
 			}
 			case "set-secret": {
 				const real = label(action.label);
-				if (!this.declared.has(real)) {
+				const oracle = this.declared.get(real);
+				if (oracle === undefined) {
 					return;
 				}
 				const value =
@@ -1001,9 +1040,12 @@ export class MonkeySession {
 						: `sk-monkey-${this.env.seed}-${action.serial}`;
 				this.minted.push(value);
 				await this.setStoredSecret(real, action.field, value);
-				const blob = this.stored.get(real) ?? {};
-				blob[action.field] = value;
-				this.stored.set(real, blob);
+				const blob = this.blobFor(real);
+				blob.values[action.field] = value;
+				// The store command stamps like the palette: the label resolves to a
+				// declared entry, so the value is stored for that entry's CURRENT
+				// destination - a later redeclare diverges from this stamp.
+				blob.owners[action.field] = secretDestination(this.parsedEntry(oracle.entry, real), action.field);
 				await this.syncNow();
 				const view = await this.declaredView(real);
 				assert.strictEqual(view.secrets[action.field], this.expectedSecretLocation(real, action.field));
@@ -1018,7 +1060,9 @@ export class MonkeySession {
 				await this.setStoredSecret(real, action.field, undefined);
 				const blob = this.stored.get(real);
 				if (blob !== undefined) {
-					delete blob[action.field];
+					// updateServerSecret deletes the field's value AND its stamp.
+					delete blob.values[action.field];
+					delete blob.owners[action.field];
 				}
 				await this.syncNow();
 				const view = await this.declaredView(real);
