@@ -1031,13 +1031,26 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		const currentServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
 		const serversEntry = snapshot.settings[SERVERS_SETTING_KEY];
 		const targetServersRaw = serversEntry?.present === true ? serversEntry.value : undefined;
+		// Both sides read through the same ownership resolution the import
+		// preview's collision pass uses: no accepted entry resolves nothing, and
+		// a stored field stamped for a different destination compares as the
+		// absence its entry actually resolves - a dormant leftover value must
+		// not count as a reconnect.
 		const currentBlobs: Record<string, StoredServerSecrets> = {};
+		const targetBlobs: Record<string, StoredServerSecrets> = {};
 		for (const label of new Set([...rawDeclaredLabels(currentServersRaw), ...rawDeclaredLabels(targetServersRaw)])) {
-			currentBlobs[label] = (await env.readServerSecrets(label)).values;
-		}
-		const targetBlobs: Record<string, StoredServerSecrets> = { ...currentBlobs };
-		for (const [label, entry] of Object.entries(snapshot.blobs)) {
-			targetBlobs[label] = entry.present ? entry.value : {};
+			const record = await env.readServerSecrets(label);
+			const snapshotBlob = Object.hasOwn(snapshot.blobs, label) ? snapshot.blobs[label] : undefined;
+			const targetRecord =
+				snapshotBlob === undefined
+					? record
+					: snapshotBlob.present
+						? { values: snapshotBlob.value, owners: snapshotBlob.owners ?? {} }
+						: { values: {}, owners: {} };
+			const standing = acceptedEntry(currentServersRaw, label)?.entry;
+			const target = acceptedEntry(targetServersRaw, label)?.entry;
+			currentBlobs[label] = standing !== undefined ? resolveOwnedSecrets(standing, record).values : {};
+			targetBlobs[label] = target !== undefined ? resolveOwnedSecrets(target, targetRecord).values : {};
 		}
 		const reconnectCount = connectionChangedLabels(
 			currentServersRaw,

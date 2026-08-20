@@ -1270,6 +1270,55 @@ suite("settingsTransferCommands undo flow", () => {
 		assert.ok(!note.message.includes("reconnect"), "nothing reconnects, so nothing is said");
 	});
 
+	test("a stored value the entry's ownership stamp refuses does not count as a reconnect", async () => {
+		// Import a connection change, then hand-edit the baseUrl back to the
+		// pre-import value (the settings file is user-editable): the import's
+		// stored apiKey is now stamped for a destination the entry no longer
+		// names, so the entry resolves it as absent. The undo deletes only that
+		// dormant value - effective connection material never changes - so the
+		// note must not claim a reconnect. A raw .values read would count it.
+		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://w:4000" }] });
+		stageEnvelope(world, {
+			servers: [{ label: "a", baseUrl: "http://x:4000", auth: { apiKey: "NEW-KEY" } }],
+		});
+		world.answers.collisions = { a: "overwrite" };
+		await runImportSettingsFlow(world.env);
+		assert.deepStrictEqual(ownersOf(world, "a"), { apiKey: "http://x:4000" }, "the import stamped its write");
+		world.settings.set(SERVERS_SETTING_KEY, [{ label: "a", baseUrl: "http://w:4000" }]);
+		world.notifications = [];
+		await runUndoLastImportFlow(world.env);
+		const note = onlyNotification(world);
+		assert.match(note.message, /pre-import state/);
+		assert.ok(!note.message.includes("reconnect"), "a refused stored value is not connection material");
+	});
+
+	test("a snapshot value the pre-import entry's stamp refuses does not count as a reconnect", async () => {
+		// The pre-import blob was dormant already: stamped for a destination the
+		// entry does not name, so neither the pre-import nor the post-import
+		// entry ever resolved it. Clearing it between import and undo changes
+		// no effective connection material, so restoring it is no reconnect.
+		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://x:4000" }] });
+		world.secretValues.set(
+			serverSecretsKey("a"),
+			JSON.stringify({ apiKey: "DORMANT", _owner: { apiKey: "http://elsewhere:4000" } })
+		);
+		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://x:4000" }] });
+		world.answers.collisions = { a: "overwrite" };
+		await runImportSettingsFlow(world.env);
+		world.secretValues.delete(serverSecretsKey("a"));
+		world.notifications = [];
+		await runUndoLastImportFlow(world.env);
+		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "DORMANT" }, "the undo restored the recorded blob");
+		assert.deepStrictEqual(
+			ownersOf(world, "a"),
+			{ apiKey: "http://elsewhere:4000" },
+			"the snapshot round-trips the stamp the refusal depends on"
+		);
+		const note = onlyNotification(world);
+		assert.match(note.message, /pre-import state/);
+		assert.ok(!note.message.includes("reconnect"), "a refused snapshot value is not connection material");
+	});
+
 	test("undo restores the whole blob, clearing fields the import added", async () => {
 		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://x:4000" }] }, { a: { apiKey: "ONLY-KEY" } });
 		stageEnvelope(world, {
