@@ -466,10 +466,17 @@ export function redactSecrets(text: string): string {
 			.replace(/(access[_-]?token[=:\s]+)\S+/gi, "$1[REDACTED]")
 			// sk- prefixed API keys
 			.replace(/(sk-[a-zA-Z0-9]{4})[a-zA-Z0-9]+/g, "$1[REDACTED]")
-			// Credentials embedded in URLs
-			.replace(/(https?:\/\/)[^/\s]*:[^@/\s]*@/g, "$1[REDACTED]@")
+			// Credentials embedded in URLs: any userinfo, username-only included,
+			// greedy to the run's last "@" so multi-@ userinfo leaves no tail,
+			// scheme matched case-insensitively (HTTP:// is a valid URL too).
+			// Ordered before the host rule below, whose localhost carve-out would
+			// otherwise keep a credentialed localhost URL intact. The userinfo is
+			// dropped rather than replaced with a bracketed marker: the host rule
+			// reparses the URL, and a marker's "]" would split the match and leak
+			// the host past [REDACTED_HOST].
+			.replace(/(https?:\/\/)[^/\s]*@/gi, "$1")
 			// Full http(s) URLs: replace host+path with just the scheme and a placeholder
-			.replace(/https?:\/\/[^\s"')>\]]+/g, (match) => {
+			.replace(/https?:\/\/[^\s"')>\]]+/gi, (match) => {
 				try {
 					const u = new URL(match);
 					const host = u.hostname;

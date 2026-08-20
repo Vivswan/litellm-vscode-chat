@@ -548,6 +548,35 @@ suite("IssueReporter", () => {
 		assert.ok(!result.includes("pass"));
 	});
 
+	test("redactSecrets removes username-only URL credentials, localhost carve-out included", () => {
+		// A username-only userinfo has no colon, and the host rule's localhost
+		// carve-out keeps the rest of the URL verbatim - the credential must be
+		// gone before that rule runs. The userinfo is dropped, not marked: a
+		// bracketed marker would split the host rule's reparse.
+		const result = redactSecrets("Fetching from: http://tok-secret@localhost:4000/v1/models");
+		assert.ok(!result.includes("tok-secret"), result);
+		assertContains(result, "http://localhost:4000/v1/models");
+	});
+
+	test("redactSecrets composes the userinfo and host rules on non-localhost URLs", () => {
+		const result = redactSecrets("Fetching from: https://user:pass@my-litellm.internal.corp.com:4000/v1/models");
+		assert.ok(!result.includes("pass"), result);
+		assertHostRedacted(result, "my-litellm.internal.corp.com");
+		assert.ok(result.includes("[REDACTED_HOST]"), result);
+	});
+
+	test("redactSecrets matches URL schemes case-insensitively", () => {
+		// HTTP:// is a valid scheme spelling; a case-sensitive rule would let
+		// the credential and the host walk past both URL rules.
+		const local = redactSecrets("Fetching from: HTTP://tok-secret@localhost:4000/v1/models");
+		assert.ok(!local.includes("tok-secret"), local);
+		assertContains(local, "localhost:4000/v1/models");
+		const remote = redactSecrets("Fetching from: HTTPS://user:pass@my-litellm.internal.corp.com:4000/v1/models");
+		assert.ok(!remote.includes("pass"), remote);
+		assertHostRedacted(remote, "my-litellm.internal.corp.com");
+		assert.ok(remote.includes("[REDACTED_HOST]"), remote);
+	});
+
 	test("redactSecrets preserves non-secret text", () => {
 		assert.equal(redactSecrets("Connection refused to localhost:4000"), "Connection refused to localhost:4000");
 	});
