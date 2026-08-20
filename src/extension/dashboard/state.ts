@@ -66,7 +66,6 @@ import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
-import { SALT_UNAVAILABLE_MESSAGE } from "../servers/serverSync";
 import { declaredPresentation } from "../servers/syncFailureOverlay";
 import type { SettingsInspection } from "../settingsAccess";
 import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
@@ -225,18 +224,16 @@ export type DeclaredServersInput =
 
 /**
  * One declared view's secrets as the push may claim them. An engine view is
- * proven by its blob read - except when its locations are a guess: the
- * engine's "secretsUnreadable" class covers a failed blob read (locations
- * degraded to the inline-only reading) AND salt-durability skips whose read
- * succeeded, distinguishable only by the sync message, so anything but the
- * salt message reads as guessed (fail closed; the class deserves splitting
- * engine-side). Without a blob read, a view is proven only when every secret
- * field reads "settings": inline wins over any blob, so the setting alone
- * proves those - while a "none" is just "no inline value", and the row must
- * say unproven instead of denying a secure blob nobody read.
+ * proven by its blob read - except under the "secretsUnreadable" class, the
+ * one skip whose locations are a guess (the blob read failed and the view
+ * degraded to the inline-only reading); the other skip classes keep their
+ * successful read. Without a blob read, a view is proven only when every
+ * secret field reads "settings": inline wins over any blob, so the setting
+ * alone proves those - while a "none" is just "no inline value", and the row
+ * must say unproven instead of denying a secure blob nobody read.
  */
 function secretsView(view: DeclaredServerView, source: DeclaredServersInput["source"]): ServerSecretsView {
-	const locationsGuessed = view.syncErrorClass === "secretsUnreadable" && view.syncError !== SALT_UNAVAILABLE_MESSAGE;
+	const locationsGuessed = view.syncErrorClass === "secretsUnreadable";
 	if (
 		(source === "engine" && !locationsGuessed) ||
 		SECRET_FIELD_IDS.every((field) => view.secrets[field] === "settings")

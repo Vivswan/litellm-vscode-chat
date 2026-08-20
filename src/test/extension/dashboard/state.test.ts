@@ -1024,10 +1024,10 @@ suite("extension/dashboard/state", () => {
 				assert.deepStrictEqual(declaredRow(state).config.secrets, { kind: "unproven" });
 			});
 
-			test("a salt-durability skip read its blob, so its locations stay proven despite the shared class", () => {
-				// The engine reuses "secretsUnreadable" for salt-durability skips
-				// whose secret read SUCCEEDED (only the message differs); marking
-				// those unproven would lock the row out of editing all session.
+			test("a salt-durability skip read its blob, so its locations stay proven under its own class", () => {
+				// Salt-durability skips carry their own "saltUnavailable" class and
+				// their secret read SUCCEEDED; marking those unproven would lock
+				// the row out of editing all session.
 				const state = buildDashboardState({
 					snapshots: [],
 					reader: makeReader({}),
@@ -1037,7 +1037,7 @@ suite("extension/dashboard/state", () => {
 							makeDeclared({
 								secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
 								syncError: SALT_UNAVAILABLE_MESSAGE,
-								syncErrorClass: "secretsUnreadable",
+								syncErrorClass: "saltUnavailable",
 							}),
 						],
 					},
