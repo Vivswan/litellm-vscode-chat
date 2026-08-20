@@ -438,6 +438,74 @@ suite("provider/transport/errorMapping", () => {
 			});
 		});
 
+		suite("userinfo in the configured URL never renders", () => {
+			test("a connection error echoes the base URL without its credentials", () => {
+				const err = connectionError(new Error("connect ECONNREFUSED 127.0.0.1:4000"));
+				const mapped = expectRequestError(
+					mapSdkError(err, { surface: "chat", baseUrl: "http://user:sekret@litellm.test:4000", timeoutMs: 5000 }),
+					"connection"
+				);
+				assert.ok(mapped.message.includes("http://litellm.test:4000"), mapped.message);
+				assert.ok(!mapped.message.includes("sekret"), mapped.message);
+				assert.ok(!mapped.message.includes("user:"), mapped.message);
+				assert.ok(!mapped.englishMessage?.includes("sekret"), mapped.englishMessage ?? "");
+			});
+
+			test("the bare-localhost correction strips credentials from both echoed URLs", () => {
+				// Before the display pipeline, the one headline echoed the userinfo
+				// TWICE: once in the configured URL and once in the corrected one.
+				const err = connectionError(
+					Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" })
+				);
+				const mapped = expectRequestError(
+					mapSdkError(err, { surface: "chat", baseUrl: "http://user:sekret@www.localhost:8001", timeoutMs: 5000 }),
+					"connection"
+				);
+				assertStartsWith(
+					mapped.message,
+					"Connection Error: Try http://localhost:8001 instead of http://www.localhost:8001 - subdomains of localhost usually do not resolve."
+				);
+				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
+				assert.ok(!mapped.message.includes("sekret"), mapped.message);
+				assert.ok(!mapped.message.includes("@"), mapped.message);
+			});
+
+			test("the certificate detail line echoes the URL without its credentials", () => {
+				const err = connectionError(new Error("unable to verify the first certificate"));
+				const mapped = expectRequestError(
+					mapSdkError(err, { surface: "chat", baseUrl: "https://user:sekret@litellm.test", timeoutMs: 5000 }),
+					"certificate"
+				);
+				assert.ok(mapped.message.includes("SSL certificate error for https://litellm.test"), mapped.message);
+				assert.ok(!mapped.message.includes("sekret"), mapped.message);
+			});
+
+			test("the OAuth token endpoint connection headline strips credentials too", () => {
+				const mapped = socketFailureRequestError(
+					new Error("connect ECONNREFUSED 127.0.0.1:8080"),
+					undefined,
+					{ endpoint: "oauthToken", surface: "chat", url: "http://user:sekret@idp.test:8080/token" },
+					() => timeoutRequestError(chatCtx, undefined)
+				);
+				assert.ok(mapped.message.includes("http://idp.test:8080/token"), mapped.message);
+				assert.ok(!mapped.message.includes("sekret"), mapped.message);
+			});
+
+			test("a cause-chain message quoting a credentialed URL is scrubbed on the detail line", () => {
+				// Node and undici quote the offending URL verbatim in some failure
+				// messages; the chain-derived detail must not re-leak what the
+				// headline stripped.
+				const err = connectionError(new Error("Failed to parse URL from http://user:sekret@litellm.test:4000/v1"));
+				const mapped = expectRequestError(
+					mapSdkError(err, { surface: "chat", baseUrl: "http://user:sekret@litellm.test:4000", timeoutMs: 5000 }),
+					"network"
+				);
+				assert.ok(!mapped.message.includes("sekret"), mapped.message);
+				assert.ok(mapped.message.includes("Failed to parse URL from http://litellm.test:4000/v1"), mapped.message);
+				assert.ok(!mapped.englishMessage?.includes("sekret"), mapped.englishMessage ?? "");
+			});
+		});
+
 		test("expired certificate in the cause chain maps to the SSL-expired message", () => {
 			const err = connectionError(new Error("certificate has expired"));
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");

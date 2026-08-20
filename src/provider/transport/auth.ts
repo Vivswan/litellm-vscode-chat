@@ -1,5 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { displayUrl } from "../../shared/util/displayUrl";
 import { collapseWhitespace } from "../../shared/util/errorText";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { isValidHeaderValue } from "../../shared/util/headers";
@@ -175,10 +176,11 @@ function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> 
 }
 
 function timeoutError(tokenUrl: string, timeoutMs: number, cause?: unknown): RequestError {
+	const url = displayUrl(tokenUrl);
 	return new RequestError(
 		l10n.t(
 			'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.discovery.timeout" setting if your identity provider needs more time.',
-			tokenUrl,
+			url,
 			timeoutMs,
 			CONFIG_SECTION
 		),
@@ -186,7 +188,7 @@ function timeoutError(tokenUrl: string, timeoutMs: number, cause?: unknown): Req
 		{
 			cause,
 			// The English mirror for the output channel and the issue-report buffer; the display message localizes.
-			englishMessage: `OAuth token request to ${tokenUrl} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your identity provider needs more time.`,
+			englishMessage: `OAuth token request to ${url} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your identity provider needs more time.`,
 		}
 	);
 }
@@ -260,7 +262,7 @@ function parseTokenResponse(
 	// detail line; these errors carry no logClassification, so the
 	// byte-faithful English mirror is what the diagnostics surfaces render.
 	if (!isRecord(parsed) || typeof parsed.access_token !== "string" || parsed.access_token.length === 0) {
-		const detail = `OAuth token endpoint ${tokenUrl} answered 2xx without JSON containing a non-empty access_token.`;
+		const detail = `OAuth token endpoint ${displayUrl(tokenUrl)} answered 2xx without JSON containing a non-empty access_token.`;
 		const texts = twoPartTexts(
 			surface,
 			{
@@ -275,7 +277,7 @@ function parseTokenResponse(
 		throw new RequestError(texts.message, "http", { englishMessage: texts.englishMessage });
 	}
 	if (!isValidHeaderValue(parsed.access_token)) {
-		const detail = `OAuth token from ${tokenUrl} contains characters not allowed in an HTTP header value (control characters or non-Latin-1 text); the token was not sent, and its value is never shown or logged.`;
+		const detail = `OAuth token from ${displayUrl(tokenUrl)} contains characters not allowed in an HTTP header value (control characters or non-Latin-1 text); the token was not sent, and its value is never shown or logged.`;
 		const texts = twoPartTexts(
 			surface,
 			{
@@ -362,7 +364,7 @@ async function exchangeClientCredentials(
 			// (response-derived), so it rides only the message and its English
 			// mirror; the classification is what public surfaces record.
 			const detailLine = collapseWhitespace(
-				`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+				`OAuth token endpoint ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
 			const texts = twoPartTexts(
 				surface,
@@ -386,7 +388,7 @@ async function exchangeClientCredentials(
 		if (status === 400 || status === 401 || status === 403) {
 			// Same: the IdP detail can carry correlation IDs and tenant text.
 			const detailLine = collapseWhitespace(
-				`OAuth ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+				`OAuth ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
 			const texts = twoPartTexts(
 				surface,
@@ -407,7 +409,7 @@ async function exchangeClientCredentials(
 			});
 		}
 		const detailLine = collapseWhitespace(
-			`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+			`OAuth token endpoint ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 		);
 		const texts = twoPartTexts(
 			surface,

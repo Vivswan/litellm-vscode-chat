@@ -13,6 +13,7 @@ import {
 	englishChatErrorMessage,
 	MirroredError,
 } from "../../shared/mirroredError";
+import { displayUrl, redactUrlCredentials } from "../../shared/util/displayUrl";
 import { collapseWhitespace } from "../../shared/util/errorText";
 
 /** The kind union lives in shared (status surfaces and the dashboard protocol may not import this layer); the transport keeps its established name. */
@@ -264,12 +265,18 @@ function causeChain(err: unknown): ChainLink[] {
 	return chain;
 }
 
-/** One link's diagnostic text: its message, or its bare code when the message is empty (Node's AggregateError shape). */
+/**
+ * One link's diagnostic text: its message, or its bare code when the message is
+ * empty (Node's AggregateError shape). The one choke point for chain-derived
+ * text entering displayed detail lines, so URL-embedded credentials are
+ * scrubbed here (Node and undici quote the offending URL verbatim in some
+ * failure messages).
+ */
 function linkText(link: ChainLink | undefined): string {
 	if (link === undefined) {
 		return "";
 	}
-	return link.message !== "" ? link.message : (link.code ?? "");
+	return redactUrlCredentials(link.message !== "" ? link.message : (link.code ?? ""));
 }
 
 /**
@@ -278,7 +285,7 @@ function linkText(link: ChainLink | undefined): string {
  * cause cannot break the two-line message shape.
  */
 function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
-	const fallback = typeof fallbackMessage === "string" ? fallbackMessage : "";
+	const fallback = redactUrlCredentials(typeof fallbackMessage === "string" ? fallbackMessage : "");
 	const first = chain.length > 0 ? linkText(chain[0]) : fallback;
 	const deepest = linkText(chain.at(-1));
 	const head = first.replace(/\.$/, "");
@@ -674,21 +681,22 @@ interface SocketFailureContext {
 
 /** Expired-certificate advice per endpoint: who renews it, and which URL setting to revisit. */
 function expiredCertificateHeadline(ctx: SocketFailureContext): LocalizedText {
+	const url = displayUrl(ctx.url);
 	if (ctx.endpoint === "oauthToken") {
 		return {
 			display: l10n.t(
 				"SSL Certificate Error: The SSL certificate for the OAuth token endpoint at {0} has expired. Please contact your identity provider's administrator to renew the certificate, or update the OAuth token URL in this server's settings.",
-				ctx.url
+				url
 			),
-			english: `SSL Certificate Error: The SSL certificate for the OAuth token endpoint at ${ctx.url} has expired. Please contact your identity provider's administrator to renew the certificate, or update the OAuth token URL in this server's settings.`,
+			english: `SSL Certificate Error: The SSL certificate for the OAuth token endpoint at ${url} has expired. Please contact your identity provider's administrator to renew the certificate, or update the OAuth token URL in this server's settings.`,
 		};
 	}
 	return {
 		display: l10n.t(
 			"SSL Certificate Error: The SSL certificate for {0} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.",
-			ctx.url
+			url
 		),
-		english: `SSL Certificate Error: The SSL certificate for ${ctx.url} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`,
+		english: `SSL Certificate Error: The SSL certificate for ${url} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`,
 	};
 }
 
@@ -751,13 +759,14 @@ function bareLocalhostUrl(url: string): string | undefined {
  * is-the-server-running advice rather than following it.
  */
 function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): LocalizedText {
+	const url = displayUrl(ctx.url);
 	if (ctx.endpoint === "oauthToken") {
 		return {
 			display: l10n.t(
 				"Connection Error: Unable to connect to the OAuth token endpoint at {0}. Please check that the OAuth token URL is correct and the identity provider is reachable.",
-				ctx.url
+				url
 			),
-			english: `Connection Error: Unable to connect to the OAuth token endpoint at ${ctx.url}. Please check that the OAuth token URL is correct and the identity provider is reachable.`,
+			english: `Connection Error: Unable to connect to the OAuth token endpoint at ${url}. Please check that the OAuth token URL is correct and the identity provider is reachable.`,
 		};
 	}
 	if (suggestedUrl !== undefined) {
@@ -765,45 +774,46 @@ function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): L
 			display: l10n.t(
 				"Connection Error: Try {0} instead of {1} - subdomains of localhost usually do not resolve.",
 				suggestedUrl,
-				ctx.url
+				url
 			),
-			english: `Connection Error: Try ${suggestedUrl} instead of ${ctx.url} - subdomains of localhost usually do not resolve.`,
+			english: `Connection Error: Try ${suggestedUrl} instead of ${url} - subdomains of localhost usually do not resolve.`,
 		};
 	}
 	return {
 		display: l10n.t(
 			"Connection Error: Unable to connect to {0}. Please check that the server is running and the URL is correct.",
-			ctx.url
+			url
 		),
-		english: `Connection Error: Unable to connect to ${ctx.url}. Please check that the server is running and the URL is correct.`,
+		english: `Connection Error: Unable to connect to ${url}. Please check that the server is running and the URL is correct.`,
 	};
 }
 
 /** Generic could-not-reach advice per endpoint; chat and discovery keep their distinct framing of what was lost. */
 function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
+	const url = displayUrl(ctx.url);
 	if (ctx.endpoint === "oauthToken") {
 		return {
 			display: l10n.t(
 				"Network Error: Unable to reach the OAuth token endpoint at {0}. Please check that the URL is correct and the identity provider is reachable.",
-				ctx.url
+				url
 			),
-			english: `Network Error: Unable to reach the OAuth token endpoint at ${ctx.url}. Please check that the URL is correct and the identity provider is reachable.`,
+			english: `Network Error: Unable to reach the OAuth token endpoint at ${url}. Please check that the URL is correct and the identity provider is reachable.`,
 		};
 	}
 	return ctx.endpoint === "chat"
 		? {
 				display: l10n.t(
 					"Could not reach {0}. Check your network, VPN, or proxy settings, and that the server is up.",
-					ctx.url
+					url
 				),
-				english: `Could not reach ${ctx.url}. Check your network, VPN, or proxy settings, and that the server is up.`,
+				english: `Could not reach ${url}. Check your network, VPN, or proxy settings, and that the server is up.`,
 			}
 		: {
 				display: l10n.t(
 					"Could not reach {0} to list its models. Check your network, VPN, or proxy settings, and that the server is up.",
-					ctx.url
+					url
 				),
-				english: `Could not reach ${ctx.url} to list its models. Check your network, VPN, or proxy settings, and that the server is up.`,
+				english: `Could not reach ${url} to list its models. Check your network, VPN, or proxy settings, and that the server is up.`,
 			};
 }
 
@@ -849,10 +859,10 @@ export function socketFailureRequestError(
 		const certLink =
 			[...chain].reverse().find((link) => link.message.includes("certificate") || (link.code ?? "").includes("CERT")) ??
 			chain.at(-1);
-		const certMessage = compactText(certLink?.message ?? "", 300);
+		const certMessage = compactText(redactUrlCredentials(certLink?.message ?? ""), 300);
 		const certCode = certLink?.code !== undefined ? compactText(certLink.code, 80) : "";
 		const certText = certMessage !== "" ? `${certMessage}${certCode !== "" ? ` (${certCode})` : ""}` : certCode;
-		const detail = `SSL certificate error for ${ctx.url}${certText !== "" ? `: ${certText}` : ""}`;
+		const detail = `SSL certificate error for ${displayUrl(ctx.url)}${certText !== "" ? `: ${certText}` : ""}`;
 		const texts = twoPartTexts(ctx.surface, unverifiedCertificateHeadline(ctx), detail);
 		return new RequestError(texts.message, "certificate", {
 			cause,
@@ -873,8 +883,12 @@ export function socketFailureRequestError(
 		// At the token endpoint the stopped process would be the identity
 		// provider, not the proxy, and a plain-host ENOTFOUND is just DNS (the
 		// process may run fine behind a mistyped hostname) - so no hint.
+		// The correction derives from the display form of the URL, so it can
+		// never carry userinfo the headline just stripped.
 		const suggestedUrl =
-			ctx.endpoint !== "oauthToken" && haystack.includes("ENOTFOUND") ? bareLocalhostUrl(ctx.url) : undefined;
+			ctx.endpoint !== "oauthToken" && haystack.includes("ENOTFOUND")
+				? bareLocalhostUrl(displayUrl(ctx.url))
+				: undefined;
 		const texts = twoPartTexts(ctx.surface, connectionHeadline(ctx, suggestedUrl), detail);
 		const setupHint =
 			suggestedUrl !== undefined
@@ -938,12 +952,13 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				const typeSeg = envelope?.type !== undefined ? ` ${envelope.type}` : "";
 				const detail =
 					envelope?.message !== undefined ? `LiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
+				const baseUrl = displayUrl(ctx.baseUrl);
 				const headline: LocalizedText = {
 					display: l10n.t(
 						"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
-						ctx.baseUrl
+						baseUrl
 					),
-					english: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.`,
+					english: `Failed to fetch LiteLLM models: the server at ${baseUrl} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.`,
 				};
 				const texts = twoPartTexts("discovery", headline, detail);
 				return new RequestError(texts.message, "http", {
@@ -1061,7 +1076,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		if (socketSignature || undiciTermination) {
 			const chainText = chainDetail(chain, topMessage);
 			if (ctx.surface === "chat") {
-				const detail = `Connection to ${ctx.baseUrl} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
+				const detail = `Connection to ${displayUrl(ctx.baseUrl)} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
 				const texts = twoPartTexts(
 					"chat",
 					{
@@ -1080,14 +1095,15 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			}
 			// Distinct from the never-connected discovery headline above: here the
 			// server did respond, then the connection died.
+			const droppedUrl = displayUrl(ctx.baseUrl);
 			const texts = twoPartTexts(
 				"discovery",
 				{
 					display: l10n.t(
 						"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
-						ctx.baseUrl
+						droppedUrl
 					),
-					english: `The connection to ${ctx.baseUrl} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.`,
+					english: `The connection to ${droppedUrl} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.`,
 				},
 				chainText
 			);
@@ -1115,7 +1131,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	}
 	const rawText = errorMessageText(err);
 	const text = compactText(typeof rawText === "string" ? rawText : "", 300);
-	const detail = `Unexpected ${name} during the ${ctx.surface} request to ${ctx.baseUrl}${text !== "" ? `: ${text}` : ""}`;
+	const detail = `Unexpected ${name} during the ${ctx.surface} request to ${displayUrl(ctx.baseUrl)}${text !== "" ? `: ${text}` : ""}`;
 	const tailHeadline: LocalizedText = {
 		display: l10n.t(
 			"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it."

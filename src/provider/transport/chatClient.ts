@@ -17,6 +17,7 @@ import { convertTools } from "../../shared/conversion/tools";
 import type { Logger } from "../../shared/logger";
 import { chatErrorMessage, englishChatErrorMessage, localizedError } from "../../shared/mirroredError";
 import type { ServerWithKey } from "../../shared/servers";
+import { displayUrl } from "../../shared/util/displayUrl";
 import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
 import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/discovery";
@@ -451,16 +452,17 @@ export class ChatClient {
 			if (!response.body) {
 				// Free of mapSdkError's socket-signature tokens, so the catch below
 				// cannot reclassify this as a mid-response network death.
+				const bodyUrl = displayUrl(connection.baseUrl);
 				throw localizedError(
 					chatErrorMessage(
 						l10n.t(
 							"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server."
 						),
-						l10n.t("LiteLLM answered {0} with a missing response body ({1})", response.status, connection.baseUrl)
+						l10n.t("LiteLLM answered {0} with a missing response body ({1})", response.status, bodyUrl)
 					),
 					englishChatErrorMessage(
 						"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server.",
-						`LiteLLM answered ${response.status} with a missing response body (${connection.baseUrl})`
+						`LiteLLM answered ${response.status} with a missing response body (${bodyUrl})`
 					)
 				);
 			}

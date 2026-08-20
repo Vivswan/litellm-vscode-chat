@@ -3,6 +3,7 @@ import type OpenAI from "openai";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
 import { classificationOf, errorMessageText } from "../../shared/logger";
+import { displayUrl } from "../../shared/util/displayUrl";
 import { collapseWhitespace } from "../../shared/util/errorText";
 import { isRecord } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
@@ -378,7 +379,7 @@ const UNPARSEABLE_REASON_MAX_LENGTH = 100;
 function unparseableModelsResponse(endpointUrl: string, reason: string, cause: unknown): RequestError {
 	// The reason quotes the payload verbatim, newlines included; collapsing
 	// keeps the detail one physical line under the headline.
-	const detail = `Unparseable response from ${endpointUrl}: ${collapseWhitespace(reason).slice(
+	const detail = `Unparseable response from ${displayUrl(endpointUrl)}: ${collapseWhitespace(reason).slice(
 		0,
 		UNPARSEABLE_REASON_MAX_LENGTH
 	)}`;
@@ -492,7 +493,7 @@ function modelListingUnservedError(mapped: Error, evidence: EndpointFailureEvide
 		namedEntry !== undefined
 			? `The models listing failed, but this server answers. If it never serves the models listing, declare that on the "${namedEntry}" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`
 			: `The models listing failed, but this server answers. If it never serves the models listing, add an entry for it in the "${CONFIG_SECTION}.servers" setting declaring "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`;
-	const detail = `GET ${modelsUrl(ctx.baseUrl, ctx.apiVersion)} ${evidenceText(evidence, ctx.timeoutMs)}; model info ${
+	const detail = `GET ${displayUrl(modelsUrl(ctx.baseUrl, ctx.apiVersion))} ${evidenceText(evidence, ctx.timeoutMs)}; model info ${
 		ctx.modelInfo.answered ? "answered" : "is declared an expected failure"
 	}`;
 	return new RequestError(`${headline}\n${detail}`, kind, {
@@ -518,22 +519,23 @@ function noEndpointServedError(
 	ctx: ModelsFailureContext
 ) {
 	const { kind: errorKind, status, token } = evidenceKind(evidence);
+	const baseUrl = displayUrl(ctx.baseUrl);
 	// The caller guarantees both evidences share a kind, so the headline must
 	// match the detail line right below it, which names what each GET did.
 	const headline =
 		evidence.kind === "timeout"
 			? l10n.t(
 					"Neither discovery endpoint answered at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.",
-					ctx.baseUrl
+					baseUrl
 				)
 			: l10n.t(
 					"This server does not serve either discovery endpoint at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.",
-					ctx.baseUrl
+					baseUrl
 				);
 	const englishHeadline =
 		evidence.kind === "timeout"
-			? `Neither discovery endpoint answered at ${ctx.baseUrl} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.`
-			: `This server does not serve either discovery endpoint at ${ctx.baseUrl} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.`;
+			? `Neither discovery endpoint answered at ${baseUrl} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.`
+			: `This server does not serve either discovery endpoint at ${baseUrl} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.`;
 	const detail = `GET ${MODEL_INFO_PATH} ${evidenceText(infoEvidence, ctx.timeoutMs)}; GET ${MODELS_PATH} ${evidenceText(
 		evidence,
 		ctx.timeoutMs
