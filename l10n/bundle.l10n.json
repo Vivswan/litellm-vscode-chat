@@ -1216,6 +1216,7 @@
 	"none declared": "none declared",
 	"not a usable http(s) URL": "not a usable http(s) URL",
 	"not in use": "not in use",
+	"not read yet - secret storage is checked on the first sync": "not read yet - secret storage is checked on the first sync",
 	"not reported": "not reported",
 	"not sent": "not sent",
 	"nothing - barrier": "nothing - barrier",

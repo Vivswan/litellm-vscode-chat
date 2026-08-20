@@ -22,7 +22,7 @@ const base = baseState({
 			label: "prod",
 			baseUrl: "https://litellm.example.com",
 			servedModelCount: 0,
-			hasApiKey: true,
+			credentials: "present",
 			hasOAuth: false,
 			state: "unchecked",
 			config: { secrets: NO_SECRETS },

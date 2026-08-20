@@ -17,7 +17,7 @@ const OLLAMA_ROW: DashboardServer = {
 	label: "ollama",
 	baseUrl: "http://localhost:11434",
 	servedModelCount: 4,
-	hasApiKey: false,
+	credentials: "absent",
 	hasOAuth: false,
 	state: "ok",
 	modelInfoUnsupported: "timeout",
@@ -30,7 +30,7 @@ const LISTING_UNSERVED_ROW: DashboardServer = {
 	label: "bare-gateway",
 	baseUrl: "https://gateway.example.com",
 	servedModelCount: 0,
-	hasApiKey: true,
+	credentials: "present",
 	hasOAuth: false,
 	state: "error",
 	error:

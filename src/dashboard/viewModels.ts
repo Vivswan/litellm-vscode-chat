@@ -40,6 +40,15 @@ export type ServerSecretsView =
 /** The proven variant alone: what the edit form's prefill and frozen identity are built from. */
 type ProvenServerSecrets = Extract<ServerSecretsView, { kind: "proven" }>;
 
+/**
+ * A row's credential verdict, "unknown" reserved for the window where no
+ * verdict exists yet: a declared entry before its secret locations are proven
+ * (ServerSecretsView "unproven") with no other evidence of a key. Derived
+ * host-side from that same union - the one proof classifier - never recomputed
+ * in the webview.
+ */
+type CredentialPresence = "present" | "absent" | "unknown";
+
 /** A per-entry modelCapabilities record: model-ID prefix to capability fields and directives. Non-secret. */
 export type EntryModelCapabilitiesPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
@@ -108,8 +117,14 @@ interface DashboardServerBase {
 	readonly servedModelCount: number;
 	/** ISO timestamp of the last discovery attempt; absent while unchecked. */
 	readonly lastChecked?: string | undefined;
-	/** Whether the server has credentials configured anywhere; never the credentials themselves. */
-	readonly hasApiKey: boolean;
+	/**
+	 * Whether the server has credentials configured anywhere; never the
+	 * credentials themselves. Three-valued because a declared row's "none" is a
+	 * claim only a secret-blob read can back: while `config.secrets` is
+	 * unproven and nothing else vouches for a key, the row says "unknown"
+	 * instead of denying a secure key nobody read.
+	 */
+	readonly credentials: CredentialPresence;
 	readonly hasOAuth: boolean;
 	/**
 	 * The server's last successful /model/info key set, for the record editors'

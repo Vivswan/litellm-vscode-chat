@@ -111,7 +111,9 @@ function buildServer(
 		label,
 		baseUrl: status.baseUrl,
 		lastChecked: status.lastChecked,
-		hasApiKey: status.hasApiKey === true,
+		// The live group's own report is the verdict here: an external row has
+		// no declared secrets whose locations could still be unread.
+		credentials: status.hasApiKey === true ? "present" : "absent",
 		hasOAuth: false,
 		origin: "external",
 		adoptHandle: adoptSourceHandle(status.serverId),
@@ -395,11 +397,19 @@ function buildServers(
 			// of declared and stale models it serves.
 			notices.push("expected-failures-nothing-declared");
 		}
+		const secrets = secretsView(view, declaredInput.source);
+		// The presence verdict reads the SAME union the edit form gates on. Only
+		// the deny needs proof: an unproven view's non-"none" location can only
+		// be "settings" (both blind readings are inline-only, and inline wins
+		// over any blob), and the live group's report is the host's own truth -
+		// but an unproven "none" is a guess, and the row says "unknown" instead
+		// of denying a secure key nobody read.
+		const knownPresent = matched?.snapshot.status.hasApiKey === true || view.secrets.apiKey !== "none";
 		servers.push({
 			label: view.label,
 			baseUrl: view.baseUrl,
 			lastChecked: matched?.snapshot.status.lastChecked,
-			hasApiKey: matched?.snapshot.status.hasApiKey === true || view.secrets.apiKey !== "none",
+			credentials: knownPresent ? "present" : secrets.kind === "proven" ? "absent" : "unknown",
 			hasOAuth: view.oauthTokenUrl !== undefined && view.oauthClientId !== undefined,
 			origin: "declared",
 			...(matched?.snapshot.observedModelInfoKeys !== undefined
@@ -408,7 +418,7 @@ function buildServers(
 			config: {
 				...pickNonSecretOptionalFields(view),
 				...(view.apiVersion !== undefined ? { apiVersion: view.apiVersion } : {}),
-				secrets: secretsView(view, declaredInput.source),
+				secrets,
 				...(view.modelParameters !== undefined ? { modelParameters: view.modelParameters } : {}),
 				...(view.modelCapabilities !== undefined ? { modelCapabilities: view.modelCapabilities } : {}),
 				...(view.expectedFailures !== undefined && view.expectedFailures.length > 0
@@ -450,7 +460,7 @@ function buildServers(
 			label: report.label,
 			baseUrl: report.baseUrl,
 			servedModelCount: 0,
-			hasApiKey: false,
+			credentials: "absent",
 			hasOAuth: false,
 			origin: "misconfigured",
 			problems: report.problems,

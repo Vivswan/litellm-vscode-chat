@@ -33,7 +33,7 @@ const SANDBOX_SERVER: DashboardServer = {
 	label: "sandbox",
 	baseUrl: "http://localhost:4000",
 	servedModelCount: 1,
-	hasApiKey: false,
+	credentials: "absent",
 	lastChecked: minutesAgoIso(2),
 };
 

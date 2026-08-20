@@ -18,6 +18,7 @@ import {
 	makeDeclaredServer,
 	makeExternalServer,
 	makeState,
+	makeUnprovenServer,
 	provenSecrets,
 	statePush,
 } from "../fixtures";
@@ -901,6 +902,38 @@ test("an external row's drawer states the provenance classification, or the hone
 	expect(renamedTip).toContain("Leftover");
 	const defaultTip = origins.find((tip) => tip.includes("predates"));
 	expect(defaultTip).toContain("added outside this extension");
+});
+
+test("the drawer's Authentication fact keeps the three credential verdicts apart", () => {
+	// Pre-proof, "none" would be a guess (the fallback cannot read secret blobs),
+	// so the unknown row goes absent-with-reason instead of denying a key.
+	const root = mountSection([
+		declaredWithSecrets({ apiKey: "secure" }, { label: "Keyed", baseUrl: "http://keyed.test" }),
+		makeDeclaredServer({ label: "Open", baseUrl: "http://open.test" }),
+		makeUnprovenServer({ label: "Pending", baseUrl: "http://pending.test" }),
+	]);
+	for (const line of root.querySelectorAll("button.server-line")) {
+		fireClick(line as HTMLElement);
+	}
+	const verdicts = [...root.querySelectorAll(".server-facts dt")]
+		.filter((dt) => (dt.textContent ?? "").trim() === "Authentication")
+		.map((dt) => (dt.nextElementSibling?.textContent ?? "").trim());
+	expect(verdicts.length).toBe(3);
+	expect(verdicts[0]).toBe("API key");
+	expect(verdicts[1]).toBe("none");
+	expect(verdicts[2]).toBe("-not read yet - secret storage is checked on the first sync");
+});
+
+test("the header's auth badge asserts presence only: shown when vouched for, blank while unknown", () => {
+	const root = mountSection([
+		declaredWithSecrets({ apiKey: "secure" }, { label: "Keyed", baseUrl: "http://keyed.test" }),
+		makeUnprovenServer({ label: "Pending", baseUrl: "http://pending.test" }),
+	]);
+	const badgeTexts = (item: Element) =>
+		[...item.querySelectorAll(".server-badges span[data-slot='badge']")].map((el) => el.textContent?.trim());
+	const [keyed, pending] = [...root.querySelectorAll(".server-item")] as HTMLElement[];
+	expect(badgeTexts(keyed as Element)).toEqual(["API key"]);
+	expect(badgeTexts(pending as Element)).toEqual([]);
 });
 
 test("the drawer leads with the entry's whole label, through the fact pipeline, whatever the origin", () => {

@@ -156,7 +156,7 @@ export function makeDeclaredServer(overrides: ServerOverrides<DeclaredServer> = 
 		label: "Prod",
 		baseUrl: "http://localhost:4000",
 		servedModelCount: 0,
-		hasApiKey: false,
+		credentials: "absent",
 		hasOAuth: false,
 		state: "ok",
 		config: { secrets: provenSecrets() },
@@ -170,7 +170,7 @@ export function declaredWithSecrets(
 	overrides: ServerOverrides<DeclaredServer> = {}
 ): DeclaredServer {
 	return makeDeclaredServer({
-		hasApiKey: true,
+		credentials: "present",
 		config: { secrets: provenSecrets(secrets) },
 		...overrides,
 	});
@@ -180,10 +180,12 @@ export function declaredWithSecrets(
  * A declared row from the pre-first-pass settings fallback: its secret
  * locations are unproven, so it carries none - and is no edit target. The
  * unproven marker wins over any config override; a helper named for the
- * marker must not silently hand back a proven row.
+ * marker must not silently hand back a proven row. The credential verdict
+ * defaults to the builder's own pre-proof value ("unknown"), overridable for
+ * the rows something else vouches for.
  */
 export function makeUnprovenServer(overrides: ServerOverrides<DeclaredServer> = {}): DeclaredServer {
-	return makeDeclaredServer({ ...overrides, config: { secrets: { kind: "unproven" } } });
+	return makeDeclaredServer({ credentials: "unknown", ...overrides, config: { secrets: { kind: "unproven" } } });
 }
 
 export function makeExternalServer(overrides: ServerOverrides<ExternalServer> = {}): ExternalServer {
@@ -192,7 +194,7 @@ export function makeExternalServer(overrides: ServerOverrides<ExternalServer> = 
 		label: "Copilot",
 		baseUrl: "http://copilot.example:4000",
 		servedModelCount: 2,
-		hasApiKey: true,
+		credentials: "present",
 		hasOAuth: false,
 		state: "ok",
 		adoptHandle: "handle-abc123",
@@ -288,7 +290,7 @@ export function makeMisconfiguredServer(overrides: MisconfiguredOverrides = {}):
 		label: "Broken",
 		baseUrl: "http://broken.test:4000",
 		servedModelCount: 0,
-		hasApiKey: false,
+		credentials: "absent",
 		hasOAuth: false,
 		state: "error",
 		error: "auth configures more than one form",

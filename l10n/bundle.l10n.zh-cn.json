@@ -1036,6 +1036,7 @@
  "none declared": "未声明",
  "not a usable http(s) URL": "不是可用的 http(s) URL",
  "not in use": "未使用",
+ "not read yet - secret storage is checked on the first sync": "尚未读取 - 首次同步时会检查密钥存储",
  "not reported": "未报告",
  "not sent": "未发送",
  "nothing - barrier": "无 - 屏障",

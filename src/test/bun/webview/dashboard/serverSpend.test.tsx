@@ -179,7 +179,9 @@ describe("the drawer", () => {
 				}),
 			],
 		});
-		const root = mountServers(usage, [prodServer({ servedModelCount: 3, hasApiKey: true, lastChecked: undefined })]);
+		const root = mountServers(usage, [
+			prodServer({ servedModelCount: 3, credentials: "present", lastChecked: undefined }),
+		]);
 		const line = root.querySelector("button.server-line") as HTMLButtonElement;
 		expect(line.getAttribute("aria-expanded")).toBe("false");
 		expect(root.querySelector(".server-drawer")).toBeNull();
@@ -465,7 +467,7 @@ describe("the drawer", () => {
 						label: "Copilot",
 						baseUrl: "http://copilot.example:4000",
 						servedModelCount: 2,
-						hasApiKey: true,
+						credentials: "present",
 						hasOAuth: false,
 						state: "ok",
 						adoptHandle: "handle-abc",

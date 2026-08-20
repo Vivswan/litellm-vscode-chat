@@ -18,7 +18,7 @@ const fixture: RenderFixture = {
 						label: "prod",
 						baseUrl: "https://litellm.example.com",
 						servedModelCount: 0,
-						hasApiKey: true,
+						credentials: "present",
 						hasOAuth: false,
 						state: "ok",
 						lastChecked: minutesAgoIso(2),

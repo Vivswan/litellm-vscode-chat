@@ -1414,8 +1414,18 @@ function ServerDrawer({
 					</span>
 				</Fact>
 				<Fact label={l10n.t("Authentication")}>
-					{/* The credential KIND, never a value; OAuth stays English by policy. */}
-					{server.hasOAuth ? "OAuth" : server.hasApiKey ? l10n.t("API key") : l10n.t("none")}
+					{/* The credential KIND, never a value; OAuth stays English by policy.
+					    "unknown" is the pre-proof window: denying a key nobody read would
+					    be a guess, so the fact goes absent with the reason instead. */}
+					{server.hasOAuth ? (
+						"OAuth"
+					) : server.credentials === "present" ? (
+						l10n.t("API key")
+					) : server.credentials === "absent" ? (
+						l10n.t("none")
+					) : (
+						<Absent reason={l10n.t("not read yet - secret storage is checked on the first sync")} />
+					)}
 				</Fact>
 				<Fact label={l10n.t("Models")}>
 					{/* The whole phrase is the link: a bare "models" fragment cannot be translated
@@ -1697,8 +1707,11 @@ function ServerRow({
 							<SpendUnit usage={usageNumbers} thresholds={spend.thresholds} currencySymbol={spend.currencySymbol} />
 						</span>
 						<span className="server-badges">
-							{/* The credential kind is the information, so it is the visible text. */}
-							{server.hasApiKey || server.hasOAuth ? (
+							{/* The credential kind is the information, so it is the visible text.
+							    Badges assert presence only: both "absent" and the pre-proof
+							    "unknown" stay blank here, and the drawer's Authentication fact
+							    tells the two apart. */}
+							{server.hasOAuth || server.credentials === "present" ? (
 								<Badge>{server.hasOAuth ? "OAuth" : l10n.t("API key")}</Badge>
 							) : null}
 							{/* Provenance is the drawer's Origin fact; a hover tip here would be a

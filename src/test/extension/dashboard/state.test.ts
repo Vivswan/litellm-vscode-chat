@@ -144,10 +144,10 @@ suite("extension/dashboard/state", () => {
 			);
 			assert.strictEqual(state.servers[0]?.state, "error");
 			assert.strictEqual(state.servers[0]?.error, "boom");
-			assert.strictEqual(state.servers[0]?.hasApiKey, false, "absent hasApiKey narrows to false");
+			assert.strictEqual(state.servers[0]?.credentials, "absent", "an absent status hasApiKey reads as absent");
 			assert.strictEqual(state.servers[0]?.origin, "external", "live rows without a settings entry are external");
 			assert.strictEqual(state.servers[0]?.config, undefined);
-			assert.strictEqual(state.servers[1]?.hasApiKey, true);
+			assert.strictEqual(state.servers[1]?.credentials, "present");
 			assert.strictEqual(state.servers[1]?.baseUrl, "http://prod.test");
 			assert.strictEqual(state.servers[1]?.lastChecked, "2026-07-26T00:00:00.000Z");
 		});
@@ -329,7 +329,7 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(server?.origin, "declared");
 			assert.strictEqual(server?.state, "ok");
 			assert.strictEqual(server?.servedModelCount, 4);
-			assert.strictEqual(server?.hasApiKey, true, "a secure-side key counts");
+			assert.strictEqual(server?.credentials, "present", "a secure-side key counts");
 			assert.strictEqual(server?.hasOAuth, true);
 			assert.deepStrictEqual(server?.config?.secrets, {
 				kind: "proven",
@@ -1000,6 +1000,69 @@ suite("extension/dashboard/state", () => {
 				});
 
 				assert.deepStrictEqual(declaredRow(state).config.secrets, { kind: "unproven" });
+			});
+
+			test("an unproven row's credential verdict is unknown, never a denial", () => {
+				// The fallback's "none" is "no inline value", not "no key": a
+				// secure-side key exists exactly when this window matters, so the
+				// row must say it does not know rather than show a false negative.
+				const state = buildDashboardState({
+					snapshots: [],
+					reader: makeReader({}),
+					declared: {
+						source: "settings-fallback",
+						views: [makeDeclared({ secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } })],
+					},
+				});
+
+				assert.strictEqual(declaredRow(state).credentials, "unknown");
+			});
+
+			test("a proven none is a real absent, not unknown", () => {
+				const state = buildDashboardState({
+					snapshots: [],
+					reader: makeReader({}),
+					declared: {
+						source: "engine",
+						views: [makeDeclared({ secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } })],
+					},
+				});
+
+				assert.strictEqual(declaredRow(state).credentials, "absent");
+			});
+
+			test("an inline key vouches for presence even while the row stays unproven", () => {
+				// Inline wins over any blob, so a fallback "settings" location is
+				// already fact; only the deny side waits for proof.
+				const state = buildDashboardState({
+					snapshots: [],
+					reader: makeReader({}),
+					declared: {
+						source: "settings-fallback",
+						views: [
+							makeDeclared({ secrets: { apiKey: "settings", oauthClientSecret: "none", virtualKeyValue: "none" } }),
+						],
+					},
+				});
+
+				const row = declaredRow(state);
+				assert.deepStrictEqual(row.config.secrets, { kind: "unproven" });
+				assert.strictEqual(row.credentials, "present");
+			});
+
+			test("a live group's own report vouches for an unproven row", () => {
+				const state = buildDashboardState({
+					snapshots: [{ status: makeServerStatus({ hasApiKey: true }), models: [] }],
+					reader: makeReader({}),
+					declared: {
+						source: "settings-fallback",
+						views: [makeDeclared({ secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } })],
+					},
+				});
+
+				const row = declaredRow(state);
+				assert.deepStrictEqual(row.config.secrets, { kind: "unproven" });
+				assert.strictEqual(row.credentials, "present");
 			});
 
 			test("an engine view whose own blob read failed is as blind as the fallback: unproven", () => {

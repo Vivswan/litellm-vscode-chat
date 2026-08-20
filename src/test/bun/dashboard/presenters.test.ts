@@ -35,7 +35,7 @@ function declaredServer(overrides: Partial<DeclaredServer> = {}): DashboardServe
 		label: "Prod",
 		baseUrl: "http://prod.test",
 		servedModelCount: 0,
-		hasApiKey: false,
+		credentials: "absent",
 		hasOAuth: false,
 		state: "ok",
 		config: {
@@ -51,7 +51,7 @@ function misconfiguredServer(problems: readonly string[]): DashboardServer {
 		label: "Broken",
 		baseUrl: "http://broken.test",
 		servedModelCount: 0,
-		hasApiKey: false,
+		credentials: "absent",
 		hasOAuth: false,
 		state: "error",
 		problems,

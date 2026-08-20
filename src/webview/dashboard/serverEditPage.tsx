@@ -1960,10 +1960,10 @@ function AdoptForm({
 		onAdoptPosted(requestId);
 	};
 
-	// hasApiKey is coarse (reported for OAuth-only groups too), so the key row drops out only
-	// when the group demonstrably holds no credentials; every row states its own condition.
+	// The credential verdict is coarse (reported for OAuth-only groups too), so the key row drops
+	// out only when the group demonstrably holds no credentials; every row states its own condition.
 	const secretRows: readonly { field: SecretFieldId; hint: string }[] = [
-		...(server.hasApiKey
+		...(server.credentials === "present"
 			? [{ field: "apiKey" as const, hint: l10n.t("Copied only if the group has an API key.") }]
 			: []),
 		{ field: "oauthClientSecret" as const, hint: l10n.t("Copied only if the group is configured for OAuth.") },
