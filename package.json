@@ -2,7 +2,7 @@
 	"name": "litellm-vscode-chat",
 	"displayName": "%litellm.displayName%",
 	"description": "%litellm.description%",
-	"version": "0.4.7",
+	"version": "0.5.0",
 	"publisher": "vivswan",
 	"license": "SEE LICENSE IN LICENSE.md",
 	"icon": "assets/logo.png",
@@ -489,7 +489,12 @@
 					},
 					"litellm-vscode-chat.chat.tokenEstimation": {
 						"type": "string",
-						"enum": ["auto", "heuristic", "o200k_base", "cl100k_base"],
+						"enum": [
+							"auto",
+							"heuristic",
+							"o200k_base",
+							"cl100k_base"
+						],
 						"default": "auto",
 						"enumDescriptions": [
 							"%litellm.config.chat.tokenEstimation.auto%",
