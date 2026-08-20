@@ -341,14 +341,16 @@ suite("provider/transport/errorMapping", () => {
 			const enotfound = () =>
 				connectionError(Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" }));
 
-			test("ENOTFOUND at a *.localhost host appends the bare-localhost suggestion and its setup hint", () => {
+			test("ENOTFOUND at a *.localhost host leads with the bare-localhost correction and its setup hint", () => {
 				const mapped = expectRequestError(
 					mapSdkError(enotfound(), localhostCtx("http://www.localhost:8001")),
 					"connection"
 				);
+				// The correction leads the headline: toasts truncate from the tail,
+				// so a trailing try-this sentence would be the first thing cut.
 				assertStartsWith(
 					mapped.message,
-					"Connection Error: Unable to connect to http://www.localhost:8001. Please check that the server is running and the URL is correct. Try http://localhost:8001 instead: subdomains of localhost usually do not resolve."
+					"Connection Error: Try http://localhost:8001 instead of http://www.localhost:8001 - subdomains of localhost usually do not resolve."
 				);
 				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
 				// The classification rides to the status surfaces (toast actions and

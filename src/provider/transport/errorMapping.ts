@@ -744,8 +744,11 @@ function bareLocalhostUrl(url: string): string | undefined {
 /**
  * Nothing-answered advice per endpoint: which process to check and which URL
  * setting names it. `suggestedUrl` is the caller's ENOTFOUND-proven
- * bare-localhost correction; when present it appends the try-this sentence,
- * in lockstep with the use-bare-localhost hint the caller assigns.
+ * bare-localhost correction; when present the correction IS the headline,
+ * leading the sentence - toasts truncate from the tail, so advice appended
+ * there is the first thing cut - in lockstep with the use-bare-localhost hint
+ * the caller assigns. The certain diagnosis replaces the generic
+ * is-the-server-running advice rather than following it.
  */
 function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): LocalizedText {
 	if (ctx.endpoint === "oauthToken") {
@@ -757,19 +760,22 @@ function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): L
 			english: `Connection Error: Unable to connect to the OAuth token endpoint at ${ctx.url}. Please check that the OAuth token URL is correct and the identity provider is reachable.`,
 		};
 	}
-	const base: LocalizedText = {
+	if (suggestedUrl !== undefined) {
+		return {
+			display: l10n.t(
+				"Connection Error: Try {0} instead of {1} - subdomains of localhost usually do not resolve.",
+				suggestedUrl,
+				ctx.url
+			),
+			english: `Connection Error: Try ${suggestedUrl} instead of ${ctx.url} - subdomains of localhost usually do not resolve.`,
+		};
+	}
+	return {
 		display: l10n.t(
 			"Connection Error: Unable to connect to {0}. Please check that the server is running and the URL is correct.",
 			ctx.url
 		),
 		english: `Connection Error: Unable to connect to ${ctx.url}. Please check that the server is running and the URL is correct.`,
-	};
-	if (suggestedUrl === undefined) {
-		return base;
-	}
-	return {
-		display: `${base.display} ${l10n.t("Try {0} instead: subdomains of localhost usually do not resolve.", suggestedUrl)}`,
-		english: `${base.english} Try ${suggestedUrl} instead: subdomains of localhost usually do not resolve.`,
 	};
 }
 
