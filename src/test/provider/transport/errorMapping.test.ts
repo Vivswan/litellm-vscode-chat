@@ -12,6 +12,7 @@ import {
 	type MapErrorContext,
 	mapSdkError,
 	RequestError,
+	socketFailureRequestError,
 	statusErrorTexts,
 	streamErrorFrame,
 	timeoutMessage,
@@ -331,6 +332,108 @@ suite("provider/transport/errorMapping", () => {
 			// DNS failure does not establish the proxy is stopped (a mistyped hostname
 			// resolves nowhere with the proxy running fine), so no hint.
 			assert.strictEqual(mapped.setupHint, undefined);
+		});
+
+		suite("*.localhost hosts", () => {
+			function localhostCtx(baseUrl: string): MapErrorContext {
+				return { surface: "chat", baseUrl, timeoutMs: 5000 };
+			}
+			const enotfound = () =>
+				connectionError(Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" }));
+
+			test("ENOTFOUND at a *.localhost host appends the bare-localhost suggestion and its setup hint", () => {
+				const mapped = expectRequestError(
+					mapSdkError(enotfound(), localhostCtx("http://www.localhost:8001")),
+					"connection"
+				);
+				assertStartsWith(
+					mapped.message,
+					"Connection Error: Unable to connect to http://www.localhost:8001. Please check that the server is running and the URL is correct. Try http://localhost:8001 instead: subdomains of localhost usually do not resolve."
+				);
+				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
+				// The classification rides to the status surfaces (toast actions and
+				// the dashboard's draft-test footer branch on it).
+				assert.strictEqual(statusErrorTexts(mapped).classification?.setupHint, "use-bare-localhost");
+				assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
+			});
+
+			test("the discovery surface carries the same suggestion and hint", () => {
+				const mapped = expectRequestError(
+					mapSdkError(enotfound(), { surface: "discovery", baseUrl: "http://www.localhost:8001", timeoutMs: 5000 }),
+					"connection"
+				);
+				assert.ok(mapped.message.includes("Try http://localhost:8001 instead"), mapped.message);
+				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
+			});
+
+			test("the corrected URL keeps scheme, port, and path: only the host changes", () => {
+				const mapped = expectRequestError(
+					mapSdkError(enotfound(), localhostCtx("https://api.dev.localhost:8080/v1")),
+					"connection"
+				);
+				assert.ok(mapped.message.includes("Try https://localhost:8080/v1 instead"), mapped.message);
+				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
+			});
+
+			test("a trailing dot on the host still counts as the family", () => {
+				const mapped = expectRequestError(
+					mapSdkError(enotfound(), localhostCtx("http://www.localhost.:8001")),
+					"connection"
+				);
+				assert.ok(mapped.message.includes("Try http://localhost:8001 instead"), mapped.message);
+				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
+			});
+
+			test("the family check is case-insensitive", () => {
+				const mapped = expectRequestError(
+					mapSdkError(enotfound(), localhostCtx("http://WWW.LOCALHOST:8001")),
+					"connection"
+				);
+				assert.ok(mapped.message.includes("Try http://localhost:8001 instead"), mapped.message);
+				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
+			});
+
+			test("ECONNREFUSED at a *.localhost host keeps proxy-not-running: resolution worked, nothing listens", () => {
+				// The refusal proves the name resolved and the port answered "nothing
+				// here"; bare localhost would reach the same loopback, so the
+				// corrected-URL advice cannot fix the observed failure.
+				const err = connectionError(new Error("connect ECONNREFUSED 127.0.0.1:8001"));
+				const mapped = expectRequestError(mapSdkError(err, localhostCtx("http://www.localhost:8001")), "connection");
+				assert.strictEqual(mapped.setupHint, "proxy-not-running");
+				assert.ok(!mapped.message.includes("Try "), mapped.message);
+			});
+
+			test("plain localhost is not the family: ECONNREFUSED keeps proxy-not-running and no suggestion renders", () => {
+				const err = connectionError(new Error("connect ECONNREFUSED 127.0.0.1:4000"));
+				const mapped = expectRequestError(mapSdkError(err, localhostCtx("http://localhost:4000")), "connection");
+				assert.strictEqual(mapped.setupHint, "proxy-not-running");
+				assert.ok(!mapped.message.includes("Try "), mapped.message);
+			});
+
+			test("an IPv6 loopback host is not the family", () => {
+				const mapped = expectRequestError(mapSdkError(enotfound(), localhostCtx("http://[::1]:8001")), "connection");
+				assert.strictEqual(mapped.setupHint, undefined);
+				assert.ok(!mapped.message.includes("Try "), mapped.message);
+			});
+
+			test("a non-connection failure at a *.localhost host gets neither suggestion nor hint", () => {
+				const err = connectionError(new Error("certificate has expired"));
+				const mapped = expectRequestError(mapSdkError(err, localhostCtx("http://www.localhost:8001")), "certificate");
+				assert.strictEqual(mapped.setupHint, undefined);
+				assert.ok(!mapped.message.includes("Try "), mapped.message);
+			});
+
+			test("the OAuth token endpoint gets neither the suggestion nor the hint", () => {
+				const mapped = socketFailureRequestError(
+					Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" }),
+					undefined,
+					{ endpoint: "oauthToken", surface: "chat", url: "http://www.localhost:8080/token" },
+					() => timeoutRequestError(chatCtx, undefined)
+				);
+				assert.strictEqual(mapped.setupHint, undefined);
+				assert.ok(!mapped.message.includes("Try "), mapped.message);
+				assert.strictEqual(mapped.oauthTokenEndpoint, true);
+			});
 		});
 
 		test("expired certificate in the cause chain maps to the SSL-expired message", () => {

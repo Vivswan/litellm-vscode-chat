@@ -156,6 +156,10 @@ suite("extension/ui/setupGate", () => {
 				substring: "the server answered 404 at the configured base URL",
 				labels: ["Troubleshooting Docs", "Test Connection", "Report Anyway"],
 			},
+			"use-bare-localhost": {
+				substring: "the configured host is a subdomain of localhost",
+				labels: ["Troubleshooting Docs", "Test Connection", "Report Anyway"],
+			},
 		};
 		const original = vscode.window.showWarningMessage;
 		const shown: { message: string; labels: string[] }[] = [];

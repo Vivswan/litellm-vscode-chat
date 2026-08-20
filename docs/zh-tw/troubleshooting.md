@@ -56,6 +56,7 @@
 基底 URL 上沒有任何東西回應。
 
 - 確認基底 URL 正確 (例如 `http://localhost:4000`), 且您的 LiteLLM 代理正在執行。
+- `.localhost` 下的主機 (如 `http://www.localhost:8001`) 通常無法解析, 請改用純 `localhost` (`http://localhost:8001`); 錯誤訊息會給出修正後的 URL。
 - 以 `/v1` 結尾的 URL 沒有問題: 只有當 URL 尚未以 `/v1` 或 `/v2` 這樣的版本區段結尾時, 延伸模組才會附加 `/v1`; 每伺服器的 `apiVersion` 欄位可覆寫兩者 (空字串 = 什麼都不附加)。
 - 檢查 VS Code 與伺服器之間的防火牆、VPN 或 Proxy 設定。
 

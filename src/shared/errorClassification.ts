@@ -24,7 +24,12 @@ export type TransportErrorKind = (typeof TRANSPORT_ERROR_KINDS)[number];
  * different failures at different sites (an OAuth token-endpoint 404 is not a
  * wrong LiteLLM base URL).
  */
-export const SETUP_HINT_KINDS = ["check-base-url", "proxy-not-running", "configure-api-key"] as const;
+export const SETUP_HINT_KINDS = [
+	"check-base-url",
+	"proxy-not-running",
+	"configure-api-key",
+	"use-bare-localhost",
+] as const;
 export type SetupHintKind = (typeof SETUP_HINT_KINDS)[number];
 
 /**

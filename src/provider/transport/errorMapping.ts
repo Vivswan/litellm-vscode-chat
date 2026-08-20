@@ -712,8 +712,42 @@ function unverifiedCertificateHeadline(ctx: SocketFailureContext): LocalizedText
 	};
 }
 
-/** Nothing-answered advice per endpoint: which process to check and which URL setting names it. */
-function connectionHeadline(ctx: SocketFailureContext): LocalizedText {
+/**
+ * The corrected URL to suggest when the target host sits under `.localhost`
+ * (www.localhost, api.localhost, ...): those hosts do not resolve on stock
+ * systems while plain `localhost` does, so the same URL with the bare host is
+ * a recognizable fix rather than a guess. Undefined for every other host -
+ * bare `localhost` included - and for unparseable URLs. The family is decided
+ * by hostname alone (port irrelevant); the parser lowercases registered names,
+ * one trailing dot counts (it fails resolution the same way), and an IPv6
+ * literal never ends in the suffix.
+ */
+function bareLocalhostUrl(url: string): string | undefined {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return undefined;
+	}
+	const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
+	if (!host.endsWith(".localhost") || host === ".localhost") {
+		return undefined;
+	}
+	parsed.hostname = "localhost";
+	const suggested = parsed.href;
+	// href appends "/" to a bare origin; trim that one back so the common
+	// bare-origin case reads like the configured URL. Other href
+	// normalizations (default-port drop, "/" before a query) may remain.
+	return !url.endsWith("/") && suggested.endsWith("/") && parsed.pathname === "/" ? suggested.slice(0, -1) : suggested;
+}
+
+/**
+ * Nothing-answered advice per endpoint: which process to check and which URL
+ * setting names it. `suggestedUrl` is the caller's ENOTFOUND-proven
+ * bare-localhost correction; when present it appends the try-this sentence,
+ * in lockstep with the use-bare-localhost hint the caller assigns.
+ */
+function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): LocalizedText {
 	if (ctx.endpoint === "oauthToken") {
 		return {
 			display: l10n.t(
@@ -723,12 +757,19 @@ function connectionHeadline(ctx: SocketFailureContext): LocalizedText {
 			english: `Connection Error: Unable to connect to the OAuth token endpoint at ${ctx.url}. Please check that the OAuth token URL is correct and the identity provider is reachable.`,
 		};
 	}
-	return {
+	const base: LocalizedText = {
 		display: l10n.t(
 			"Connection Error: Unable to connect to {0}. Please check that the server is running and the URL is correct.",
 			ctx.url
 		),
 		english: `Connection Error: Unable to connect to ${ctx.url}. Please check that the server is running and the URL is correct.`,
+	};
+	if (suggestedUrl === undefined) {
+		return base;
+	}
+	return {
+		display: `${base.display} ${l10n.t("Try {0} instead: subdomains of localhost usually do not resolve.", suggestedUrl)}`,
+		english: `${base.english} Try ${suggestedUrl} instead: subdomains of localhost usually do not resolve.`,
 	};
 }
 
@@ -817,18 +858,28 @@ export function socketFailureRequestError(
 	// An empty cause chain gets no detail line rather than a trailing blank.
 	const detail = chainDetail(chain, "");
 	if (haystack.includes("ENOTFOUND") || haystack.includes("ECONNREFUSED")) {
-		const texts = twoPartTexts(ctx.surface, connectionHeadline(ctx), detail);
+		// A *.localhost host that failed to RESOLVE is a recognizable
+		// misconfiguration (subdomains of localhost do not resolve on stock
+		// systems while plain localhost does), so the corrected URL is the
+		// certain advice there. ECONNREFUSED proves resolution worked and
+		// nothing listens on that port - bare localhost would reach the same
+		// loopback - so it keeps "is the proxy running?" even for the family.
+		// At the token endpoint the stopped process would be the identity
+		// provider, not the proxy, and a plain-host ENOTFOUND is just DNS (the
+		// process may run fine behind a mistyped hostname) - so no hint.
+		const suggestedUrl =
+			ctx.endpoint !== "oauthToken" && haystack.includes("ENOTFOUND") ? bareLocalhostUrl(ctx.url) : undefined;
+		const texts = twoPartTexts(ctx.surface, connectionHeadline(ctx, suggestedUrl), detail);
+		const setupHint =
+			suggestedUrl !== undefined
+				? ("use-bare-localhost" as const)
+				: ctx.endpoint !== "oauthToken" && haystack.includes("ECONNREFUSED")
+					? ("proxy-not-running" as const)
+					: undefined;
 		return new RequestError(texts.message, "connection", {
 			cause,
 			englishMessage: texts.englishMessage,
-			// ECONNREFUSED at the server means the host answered "nothing listens
-			// on that port", so "is the proxy running?" is certainly the right
-			// first question. At the token endpoint the stopped process would be
-			// the identity provider, not the proxy, and ENOTFOUND is DNS (the
-			// process may run fine behind a mistyped hostname) - so no hint.
-			...(ctx.endpoint !== "oauthToken" && haystack.includes("ECONNREFUSED")
-				? { setupHint: "proxy-not-running" as const }
-				: {}),
+			...(setupHint !== undefined ? { setupHint } : {}),
 			...oauthMark,
 		});
 	}

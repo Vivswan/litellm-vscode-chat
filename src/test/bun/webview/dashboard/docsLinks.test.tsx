@@ -92,6 +92,7 @@ test("the host's per-cause hint links and the dashboard's docsLinks constants ag
 		"check-base-url": DOCS_LINK_CHECK_BASE_URL,
 		"proxy-not-running": DOCS_LINK_PROXY_NOT_RUNNING,
 		"configure-api-key": DOCS_LINK_CONFIGURE_API_KEY,
+		"use-bare-localhost": DOCS_LINK_PROXY_NOT_RUNNING,
 	};
 	for (const hint of SETUP_HINT_KINDS) {
 		expect(links.SETUP_HINT_DOCS_URLS[hint], hint).toBe(mirrored[hint]);

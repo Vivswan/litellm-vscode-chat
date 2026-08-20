@@ -56,6 +56,7 @@
 基础 URL 上没有任何东西应答。
 
 - 核实基础 URL 正确 (例如 `http://localhost:4000`), 且你的 LiteLLM 代理正在运行。
+- `.localhost` 下的主机 (如 `http://www.localhost:8001`) 通常无法解析, 请改用纯 `localhost` (`http://localhost:8001`); 错误信息会给出修正后的 URL。
 - 以 `/v1` 结尾的 URL 没有问题: 只有当 URL 尚未以 `/v1` 或 `/v2` 这样的版本段结尾时, 扩展才会追加 `/v1`; 每服务器的 `apiVersion` 字段可覆盖两者 (空字符串 = 什么都不追加)。
 - 检查 VS Code 与服务器之间的防火墙、VPN 或代理设置。
 

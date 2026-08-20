@@ -56,6 +56,7 @@ This extension plugs into GitHub Copilot Chat; without it there is no chat view 
 Nothing answered at the base URL.
 
 - Verify the base URL is correct (e.g., `http://localhost:4000`) and your LiteLLM proxy is running.
+- A host under `.localhost` (like `http://www.localhost:8001`) usually does not resolve - use plain `localhost` (`http://localhost:8001`); the error suggests the corrected URL.
 - A URL ending in `/v1` is fine: the extension appends `/v1` only when the URL does not already end in a version segment (like `/v1` or `/v2`); the per-server `apiVersion` field overrides both (empty string = append nothing).
 - Check firewall, VPN, or proxy settings between VS Code and the server.
 

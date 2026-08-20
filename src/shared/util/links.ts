@@ -25,4 +25,6 @@ export const SETUP_HINT_DOCS_URLS: Record<SetupHintKind, string> = {
 	"check-base-url": `${GITHUB_TROUBLESHOOTING_DOC}#the-server-did-not-recognize-this-request--answered-404---it-responded-but-does-not-serve-the-litellm-api`,
 	"proxy-not-running": `${GITHUB_TROUBLESHOOTING_DOC}#connection-error-unable-to-connect`,
 	"configure-api-key": `${GITHUB_TROUBLESHOOTING_DOC}#authentication-failed`,
+	// The corrected-URL advice is a bullet of the same connection-error section.
+	"use-bare-localhost": `${GITHUB_TROUBLESHOOTING_DOC}#connection-error-unable-to-connect`,
 };

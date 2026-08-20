@@ -82,6 +82,10 @@ function gateMessage(problem: SetupProblem): string {
 			return l10n.t(
 				"LiteLLM: This looks like a setup problem (the server answered 404 at the configured base URL). The troubleshooting guide usually resolves it faster than a GitHub issue."
 			);
+		case "use-bare-localhost":
+			return l10n.t(
+				"LiteLLM: This looks like a setup problem (the configured host is a subdomain of localhost, which usually does not resolve - plain localhost does). The troubleshooting guide usually resolves it faster than a GitHub issue."
+			);
 	}
 }
 

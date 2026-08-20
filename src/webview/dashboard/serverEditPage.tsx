@@ -165,6 +165,9 @@ type TestState =
 export function troubleshootingLink(hint: SetupHintKind): { href: DocsUrl; label: string; topic: string } {
 	switch (hint) {
 		case "proxy-not-running":
+		case "use-bare-localhost":
+			// The bare-localhost advice is a bullet of the same connection-error
+			// section, so both hints link one heading.
 			return {
 				href: DOCS_LINK_PROXY_NOT_RUNNING,
 				label: l10n.t("Open the troubleshooting guide: unable to connect"),
