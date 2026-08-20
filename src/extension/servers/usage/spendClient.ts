@@ -29,6 +29,7 @@ import { RequestError } from "../../../provider/transport/errorMapping";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
 import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
+import { displayUrl } from "../../../shared/util/displayUrl";
 import { isValidHeaderName, isValidHeaderValue } from "../../../shared/util/headers";
 import { isRecord } from "../../../shared/util/json";
 import { sleepUnlessAborted } from "../../../shared/util/timer";
@@ -297,17 +298,18 @@ function parseDailyUsage(payload: unknown): DailyUsage {
 }
 
 function timeoutError(url: string, timeoutMs: number, cause?: unknown): RequestError {
+	const displayed = displayUrl(url);
 	return new RequestError(
 		l10n.t(
 			'LiteLLM usage request to {0} timed out after {1}ms. Increase the "{2}.discovery.timeout" setting if your server needs more time.',
-			url,
+			displayed,
 			timeoutMs,
 			CONFIG_SECTION
 		),
 		"timeout",
 		{
 			cause,
-			englishMessage: `LiteLLM usage request to ${url} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your server needs more time.`,
+			englishMessage: `LiteLLM usage request to ${displayed} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your server needs more time.`,
 		}
 	);
 }
@@ -318,28 +320,29 @@ function timeoutError(url: string, timeoutMs: number, cause?: unknown): RequestE
  * errors these are template-only and need no logClassification.
  */
 function usageHttpError(url: string, status: number): RequestError {
+	const displayed = displayUrl(url);
 	if (status === 401 || status === 403) {
 		return new RequestError(
 			l10n.t(
 				"LiteLLM usage request to {0} was rejected ({1}). The configured key may not be allowed to read usage data on this server.",
-				url,
+				displayed,
 				status
 			),
 			"auth",
 			{
 				status,
-				englishMessage: `LiteLLM usage request to ${url} was rejected (${status}). The configured key may not be allowed to read usage data on this server.`,
+				englishMessage: `LiteLLM usage request to ${displayed} was rejected (${status}). The configured key may not be allowed to read usage data on this server.`,
 			}
 		);
 	}
 	return new RequestError(
 		l10n.t({
 			message: "LiteLLM usage request to {0} failed: {1}",
-			args: [url, status],
+			args: [displayed, status],
 			comment: ["{1} is the HTTP status code the server answered with"],
 		}),
 		"http",
-		{ status, englishMessage: `LiteLLM usage request to ${url} failed: ${status}` }
+		{ status, englishMessage: `LiteLLM usage request to ${displayed} failed: ${status}` }
 	);
 }
 
@@ -491,9 +494,13 @@ export class UsageClient {
 				} catch {
 					// The SyntaxError quotes a payload snippet (response-derived), so it
 					// does not ride along - not even as the cause.
-					throw new RequestError(l10n.t("Failed to parse the LiteLLM usage response from {0}.", url), "http", {
-						englishMessage: `Failed to parse the LiteLLM usage response from ${url}.`,
-					});
+					throw new RequestError(
+						l10n.t("Failed to parse the LiteLLM usage response from {0}.", displayUrl(url)),
+						"http",
+						{
+							englishMessage: `Failed to parse the LiteLLM usage response from ${displayUrl(url)}.`,
+						}
+					);
 				}
 			}
 			const failure = usageHttpError(url, response.status);
@@ -513,11 +520,11 @@ export class UsageClient {
 			throw lastFailure;
 		}
 		throw new RequestError(
-			l10n.t("Network Error: Unable to reach {0} for usage data. Check that the server is reachable.", url),
+			l10n.t("Network Error: Unable to reach {0} for usage data. Check that the server is reachable.", displayUrl(url)),
 			"network",
 			{
 				cause: lastFailure,
-				englishMessage: `Network Error: Unable to reach ${url} for usage data. Check that the server is reachable.`,
+				englishMessage: `Network Error: Unable to reach ${displayUrl(url)} for usage data. Check that the server is reachable.`,
 			}
 		);
 	}

@@ -169,6 +169,18 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 	expect(iconPath()).not.toBe(copyIconPath);
 });
 
+test("Copy diagnostics never carries URL credentials", () => {
+	// The copy block is a paste-into-issues surface: a base URL configured
+	// with userinfo must land on the clipboard without it.
+	const root = mountDiagnostics({
+		servers: [makeDeclaredServer({ label: "Prod", baseUrl: "http://user:sekret@localhost:4000", servedModelCount: 1 })],
+		models: [makeModel()],
+	});
+	const text = copyDiagnostics(root);
+	expect(text).not.toContain("sekret");
+	expect(text).toContain("Prod (http://localhost:4000):");
+});
+
 test("Copy diagnostics carries the configuration diagnostics, worst first, in English", () => {
 	// The page's subject is configuration, and for as long as this action
 	// existed the copy carried only connections - so an issue about an inert

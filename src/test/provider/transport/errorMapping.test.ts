@@ -504,6 +504,13 @@ suite("provider/transport/errorMapping", () => {
 				assert.ok(mapped.message.includes("Failed to parse URL from http://litellm.test:4000/v1"), mapped.message);
 				assert.ok(!mapped.englishMessage?.includes("sekret"), mapped.englishMessage ?? "");
 			});
+
+			test("the anonymous tail scrubs a credentialed URL quoted in arbitrary error text", () => {
+				const mapped = mapSdkError(new Error("boom while probing http://user:sekret@x.test/v1"), chatCtx);
+				assert.ok(mapped instanceof MirroredError, mapped.message);
+				assert.ok(!mapped.message.includes("sekret"), mapped.message);
+				assert.ok(mapped.message.includes("http://x.test/v1"), mapped.message);
+			});
 		});
 
 		test("expired certificate in the cause chain maps to the SSL-expired message", () => {

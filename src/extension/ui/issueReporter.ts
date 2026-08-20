@@ -4,6 +4,7 @@ import { LAST_ISSUE_REPORT_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import { publicErrorStack, publicErrorText } from "../../shared/logger";
+import { redactUrlCredentials } from "../../shared/util/displayUrl";
 import { GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 
@@ -450,7 +451,13 @@ function shortenLine(text: string, maxLength: number): string {
 
 export function redactSecrets(text: string): string {
 	return (
-		text
+		// URL-embedded credentials go first, through the one shared scrub
+		// (scheme-agnostic, greedy to the run's last "@"): the host rule below
+		// reparses each URL, and userinfo left in place - or a bracketed marker
+		// put in its place - would split that match and leak the host past
+		// [REDACTED_HOST]. Its localhost carve-out is also why the credential
+		// must already be gone.
+		redactUrlCredentials(text)
 			// JSON-encoded auth headers. The value pattern consumes escaped sequences
 			// so an escaped quote inside the secret cannot end the match early.
 			.replace(/("(?:Authorization|X-API-Key)":\s*")((?:Bearer\s+)?)(?:\\.|[^"\\])*(")/gi, "$1$2[REDACTED]$3")
@@ -466,15 +473,6 @@ export function redactSecrets(text: string): string {
 			.replace(/(access[_-]?token[=:\s]+)\S+/gi, "$1[REDACTED]")
 			// sk- prefixed API keys
 			.replace(/(sk-[a-zA-Z0-9]{4})[a-zA-Z0-9]+/g, "$1[REDACTED]")
-			// Credentials embedded in URLs: any userinfo, username-only included,
-			// greedy to the run's last "@" so multi-@ userinfo leaves no tail,
-			// scheme matched case-insensitively (HTTP:// is a valid URL too).
-			// Ordered before the host rule below, whose localhost carve-out would
-			// otherwise keep a credentialed localhost URL intact. The userinfo is
-			// dropped rather than replaced with a bracketed marker: the host rule
-			// reparses the URL, and a marker's "]" would split the match and leak
-			// the host past [REDACTED_HOST].
-			.replace(/(https?:\/\/)[^/\s]*@/gi, "$1")
 			// Full http(s) URLs: replace host+path with just the scheme and a placeholder
 			.replace(/https?:\/\/[^\s"')>\]]+/gi, (match) => {
 				try {

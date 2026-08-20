@@ -28,6 +28,7 @@ import {
 	formatCostPerMillion,
 } from "../../shared/config/capabilityDisplay";
 import type { RecordDiagnostic } from "../../shared/config/recordResolution";
+import { displayUrl } from "../../shared/util/displayUrl";
 import type { DocsUrl } from "./docsLinks";
 import {
 	DOCS_LINK_AUTHENTICATION,
@@ -1037,7 +1038,7 @@ function diagnosticsReportText(
 		lines.push(`Legacy registry servers: ${legacyServerCount}`);
 	}
 	for (const server of copyServers) {
-		lines.push(`${server.label} (${server.baseUrl}): ${serverOutcomeText(server)}`);
+		lines.push(`${server.label} (${displayUrl(server.baseUrl)}): ${serverOutcomeText(server)}`);
 	}
 	// Worst first, the order the page renders them in, so the paste reads the
 	// way the reader's screen did.

@@ -160,6 +160,7 @@
 											"!**/shared/errorClassification",
 											"!**/shared/serverEntry",
 											"!**/shared/util/baseUrl",
+											"!**/shared/util/displayUrl",
 											"!**/shared/util/errorText",
 											"!**/shared/util/json"
 										],

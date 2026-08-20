@@ -1130,7 +1130,9 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		name = typeof err;
 	}
 	const rawText = errorMessageText(err);
-	const text = compactText(typeof rawText === "string" ? rawText : "", 300);
+	// Arbitrary error text can quote a credentialed URL verbatim; scrubbed by
+	// construction rather than argued unreachable.
+	const text = compactText(redactUrlCredentials(typeof rawText === "string" ? rawText : ""), 300);
 	const detail = `Unexpected ${name} during the ${ctx.surface} request to ${displayUrl(ctx.baseUrl)}${text !== "" ? `: ${text}` : ""}`;
 	const tailHeadline: LocalizedText = {
 		display: l10n.t(
