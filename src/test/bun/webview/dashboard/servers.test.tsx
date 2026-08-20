@@ -936,6 +936,21 @@ test("the header's auth badge asserts presence only: shown when vouched for, bla
 	expect(badgeTexts(pending as Element)).toEqual([]);
 });
 
+test("an external OAuth group's badge and Authentication fact both say OAuth, never API key", () => {
+	// The host's report carries the credential kind for external groups too; the
+	// row and the drawer read the same field, so the two surfaces cannot drift.
+	const root = mountSection([makeExternalServer({ hasOAuth: true })]);
+	const badges = [...root.querySelectorAll(".server-badges span[data-slot='badge']")].map((el) =>
+		el.textContent?.trim()
+	);
+	expect(badges).toEqual(["OAuth", "external"]);
+	fireClick(root.querySelector("button.server-line") as HTMLElement);
+	const verdicts = [...root.querySelectorAll(".server-facts dt")]
+		.filter((dt) => (dt.textContent ?? "").trim() === "Authentication")
+		.map((dt) => (dt.nextElementSibling?.textContent ?? "").trim());
+	expect(verdicts).toEqual(["OAuth"]);
+});
+
 test("the drawer leads with the entry's whole label, through the fact pipeline, whatever the origin", () => {
 	// The collapsed header may ellipsize the label (a paint-only clip), so the drawer's first
 	// fact is where the full name is guaranteed readable; the .fact-name class carries the

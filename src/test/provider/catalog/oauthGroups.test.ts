@@ -222,6 +222,31 @@ suite("provider groups with OAuth", () => {
 			true,
 			"diagnostics reads hasApiKey as authentication configured"
 		);
+		assert.strictEqual(
+			expectDefined(last.serverStatuses[0]).hasOAuth,
+			true,
+			"the credential KIND rides the report; the dashboard's external rows render it"
+		);
+	});
+
+	test("a static-key group reports its credential kind as not OAuth", async () => {
+		const provider = makeProvider();
+		const statuses: AggregatedStatus[] = [];
+		provider.setStatusCallback((status) => statuses.push(status));
+		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
+
+		await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "test-key" }),
+			cancellation()
+		);
+
+		const last = expectDefined(statuses.at(-1));
+		assert.strictEqual(expectDefined(last.serverStatuses[0]).hasApiKey, true);
+		assert.strictEqual(
+			expectDefined(last.serverStatuses[0]).hasOAuth,
+			false,
+			"the kind derives from the oauth configuration, never from the static key"
+		);
 	});
 
 	test("the virtual-key header rides on discovery and chat requests when configured", async () => {

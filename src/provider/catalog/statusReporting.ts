@@ -102,6 +102,9 @@ export class GroupStatusReporter {
 			// Diagnostics reads this as "authentication configured", so OAuth
 			// client credentials count the same as a static key.
 			hasApiKey: groupServer.apiKey.length > 0 || groupServer.oauth !== undefined,
+			// The credential KIND, for the dashboard's external rows: their group
+			// configuration is the only place it is knowable.
+			hasOAuth: groupServer.oauth !== undefined,
 			...outcome,
 		};
 		if (status.state === "ok") {

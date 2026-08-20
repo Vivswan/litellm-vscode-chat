@@ -98,10 +98,27 @@ export const EXTERNAL_SERVER: DashboardServer = {
 	baseUrl: "http://localhost:4000",
 	servedModelCount: 2,
 	credentials: "present",
-	hasOAuth: false,
+	// The host report carries the credential kind for external groups too; this
+	// row is the matrix's external-OAuth specimen.
+	hasOAuth: true,
 	state: "ok",
 	lastChecked: minutesAgoIso(5),
 	adoptHandle: "handle-fixture",
+	hideable: true,
+};
+
+// The external-API-key specimen: "API key" + "external" is the widest badge
+// pair a row can produce, so the overflow sweep must keep measuring it.
+export const EXTERNAL_KEYED_SERVER: DashboardServer = {
+	origin: "external",
+	label: "Legacy proxy",
+	baseUrl: "http://10.0.0.7:4000",
+	servedModelCount: 1,
+	credentials: "present",
+	hasOAuth: false,
+	state: "ok",
+	lastChecked: minutesAgoIso(12),
+	adoptHandle: "handle-fixture-keyed",
 	hideable: true,
 };
 

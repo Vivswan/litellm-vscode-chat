@@ -112,9 +112,10 @@ function buildServer(
 		baseUrl: status.baseUrl,
 		lastChecked: status.lastChecked,
 		// The live group's own report is the verdict here: an external row has
-		// no declared secrets whose locations could still be unread.
+		// no declared secrets whose locations could still be unread, and the
+		// report carries the credential kind alongside the presence.
 		credentials: status.hasApiKey === true ? "present" : "absent",
-		hasOAuth: false,
+		hasOAuth: status.hasOAuth === true,
 		origin: "external",
 		adoptHandle: adoptSourceHandle(status.serverId),
 		hideable,

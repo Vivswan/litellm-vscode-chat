@@ -152,6 +152,25 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers[1]?.lastChecked, "2026-07-26T00:00:00.000Z");
 		});
 
+		test("an external row's credential kind follows the group's report, so OAuth never wears the API key badge", () => {
+			const state = buildState(
+				[
+					{
+						status: makeServerStatus({ serverId: "o", label: "OAuthed", hasApiKey: true, hasOAuth: true }),
+						models: [],
+					},
+					{ status: makeServerStatus({ serverId: "k", label: "Keyed", hasApiKey: true, hasOAuth: false }), models: [] },
+				],
+				makeReader({})
+			);
+
+			assert.strictEqual(state.servers[0]?.label, "Keyed");
+			assert.strictEqual(state.servers[0]?.hasOAuth, false);
+			assert.strictEqual(state.servers[1]?.label, "OAuthed");
+			assert.strictEqual(state.servers[1]?.credentials, "present");
+			assert.strictEqual(state.servers[1]?.hasOAuth, true, "the report knows the kind; the row must not overwrite it");
+		});
+
 		test("errorEnglish carries the status's log-safe rendering exactly when the display error is the transport error", () => {
 			// The copyable diagnostics block stays English by policy: the webview
 			// substitutes errorEnglish there while the row renders the possibly

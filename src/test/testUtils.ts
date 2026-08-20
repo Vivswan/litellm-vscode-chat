@@ -205,7 +205,7 @@ export async function captureRequestBody(
 
 /** Overrides for makeServerStatus; the state-specific payload rides the matching variant. */
 type ServerStatusOverrides = Partial<
-	Pick<ServerStatus, "serverId" | "label" | "baseUrl" | "lastChecked" | "hasApiKey">
+	Pick<ServerStatus, "serverId" | "label" | "baseUrl" | "lastChecked" | "hasApiKey" | "hasOAuth">
 > &
 	(
 		| {
@@ -233,6 +233,7 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 		baseUrl: overrides.baseUrl ?? "http://prod.test",
 		lastChecked: overrides.lastChecked ?? "2026-07-26T00:00:00.000Z",
 		...(overrides.hasApiKey !== undefined ? { hasApiKey: overrides.hasApiKey } : {}),
+		...(overrides.hasOAuth !== undefined ? { hasOAuth: overrides.hasOAuth } : {}),
 	};
 	return overrides.state === "error"
 		? {

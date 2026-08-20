@@ -31,6 +31,12 @@ interface ServerStatusCommon {
 	servedModelCount: number;
 	/** Whether the configuration carries credentials; the secrets themselves never leave their store. */
 	hasApiKey?: boolean | undefined;
+	/**
+	 * Whether those credentials are OAuth client credentials rather than a
+	 * static key: the credential-kind display for rows with no settings entry
+	 * reads this, since the group's configuration is its only source.
+	 */
+	hasOAuth?: boolean | undefined;
 }
 
 interface ServerStatusOk extends ServerStatusCommon {

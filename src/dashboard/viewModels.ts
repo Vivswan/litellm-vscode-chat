@@ -125,6 +125,11 @@ interface DashboardServerBase {
 	 * instead of denying a secure key nobody read.
 	 */
 	readonly credentials: CredentialPresence;
+	/**
+	 * The credential kind beside that presence: OAuth client credentials rather
+	 * than a static key. Declared rows derive it from the entry's OAuth fields,
+	 * external rows from the group's own report.
+	 */
 	readonly hasOAuth: boolean;
 	/**
 	 * The server's last successful /model/info key set, for the record editors'

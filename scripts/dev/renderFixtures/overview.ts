@@ -4,7 +4,14 @@
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, EXTERNAL_SERVER, GATEWAY_SERVER, MISCONFIGURED_SERVER, PROD_SERVER } from "./shared.ts";
+import {
+	baseState,
+	EXTERNAL_KEYED_SERVER,
+	EXTERNAL_SERVER,
+	GATEWAY_SERVER,
+	MISCONFIGURED_SERVER,
+	PROD_SERVER,
+} from "./shared.ts";
 
 const fixture: RenderFixture = {
 	messages: [
@@ -16,6 +23,7 @@ const fixture: RenderFixture = {
 					GATEWAY_SERVER,
 					MISCONFIGURED_SERVER,
 					EXTERNAL_SERVER,
+					EXTERNAL_KEYED_SERVER,
 					{
 						...PROD_SERVER,
 						label: "renamed",
