@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.1](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.5.0...v0.5.1) (2026-08-22)
+
+
+### Features
+
+* add commit message generation command ([82e5fbd](https://github.com/Vivswan/litellm-vscode-chat/commit/82e5fbddf734b4ab94513b04864785c07a230bd8))
+* add inline completion and commit generation settings scaffolding ([e6ed047](https://github.com/Vivswan/litellm-vscode-chat/commit/e6ed047aad757d48e8a531b10d01a58943cfffe6))
+* add inline completions from LiteLLM FIM models ([311e50c](https://github.com/Vivswan/litellm-vscode-chat/commit/311e50c952d896015426cf660319d965daf6689e))
+
+
+### Bug Fixes
+
+* align commit generation errors, privacy claims, and naming across features ([9b4b6bc](https://github.com/Vivswan/litellm-vscode-chat/commit/9b4b6bc3ac8221d4cd93cb5309e9d0e179b9110b))
+
 ## [0.5.0](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.7...v0.5.0) (2026-08-20)
 
 
