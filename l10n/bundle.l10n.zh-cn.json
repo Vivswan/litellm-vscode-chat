@@ -643,6 +643,8 @@
 	"OAuth needs the token URL and client ID": "OAuth 需要令牌 URL 和客户端 ID",
 	"OAuth scopes": "OAuth 作用域",
 	"OAuth token URL": "OAuth 令牌 URL",
+	"OAuth token request to {0} timed out after {1}ms.": "对 {0} 的 OAuth 令牌请求在 {1}ms 后超时。",
+	"OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.chat.timeout\" setting if your identity provider needs more time.": "对 {0} 的 OAuth 令牌请求在 {1}ms 后超时。如果你的身份提供方需要更多时间, 请调大「{2}.chat.timeout」设置。",
 	"OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.discovery.timeout\" setting if your identity provider needs more time.": "对 {0} 的 OAuth 令牌请求在 {1}ms 后超时。如果你的身份提供方需要更多时间, 请调大「{2}.discovery.timeout」设置。",
 	"Off/Reasoning effort level label in the model picker": "关闭",
 	"One model ID per line, e.g. deepseek-r1": "每行一个模型 ID, 例如 deepseek-r1",

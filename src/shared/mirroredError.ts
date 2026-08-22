@@ -1,11 +1,11 @@
 import * as l10n from "@vscode/l10n";
 
 /**
- * Compose a chat-surface two-part error message: headline, paragraph break,
- * localized "Details:" lead-in, detail. GitHub Copilot Chat's error block
- * flattens newlines, so the lead-in is the visible boundary there.
- * Discovery-surface messages keep the plain "\n" join, which the dashboard and
- * tooltips split on.
+ * Compose a two-part error message for surfaces that flatten newlines
+ * (GitHub Copilot Chat's error block, VS Code notifications): headline,
+ * paragraph break, localized "Details:" lead-in, detail - the lead-in is the
+ * visible boundary once the newlines are gone. Discovery-surface messages
+ * keep the plain "\n" join, which the dashboard and tooltips split on.
  */
 export function chatErrorMessage(headline: string, detail: string): string {
 	return `${headline}\n\n${l10n.t("Details: {0}", detail)}`;

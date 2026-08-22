@@ -234,6 +234,9 @@ suite("provider/transport/oneShotClient", () => {
 		assert.strictEqual(error.status, 404);
 		assert.match(error.message, /commit message model/);
 		assert.ok(!error.message.includes("Sync Models"), "Sync Models does not touch the commit model setting");
+		// The commit boundary shows this in a VS Code notification, which
+		// flattens newlines: the two-part join must carry the Details lead-in.
+		assert.match(error.message, /\n\nDetails: LiteLLM 404/);
 		assert.strictEqual(error.logClassification, "RequestError(http, status 404, commitGeneration)");
 		assert.strictEqual(error.englishMessage, error.message);
 	});

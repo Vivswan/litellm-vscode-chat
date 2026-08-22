@@ -392,6 +392,40 @@ suite("provider/transport/auth", () => {
 			assert.ok(error.message.includes("discovery.timeout"), "the message must name the governing setting");
 		});
 
+		test("the exchange-timeout advice names each surface's true bound", async () => {
+			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
+
+			// The chat transport bounds the exchange by the discovery timeout too
+			// (chatClient passes it through; chat.timeout only interrupts via the
+			// outer signal and renders its own message there), so the chat surface
+			// keeps the discovery.timeout advice - naming chat.timeout would point
+			// at a setting that cannot extend this bound.
+			const chat = await expectRequestError(new OAuthTokenSource().getToken(oauthConfig(), "chat", 100), "timeout");
+			assert.ok(chat.message.includes("discovery.timeout"), `unexpected message: ${chat.message}`);
+
+			// The commit call passes its chat.timeout whole-call budget through.
+			const commit = await expectRequestError(
+				new OAuthTokenSource().getToken(oauthConfig(), "commitGeneration", 100),
+				"timeout"
+			);
+			assert.ok(commit.message.includes("chat.timeout"), `unexpected message: ${commit.message}`);
+			assert.ok(!commit.message.includes("discovery.timeout"), "the commit bound is not the discovery timeout");
+
+			// The inline-completion bound is fixed in code (FIM_TIMEOUT_MS), so no
+			// setting is named - advice to raise one would be a lie.
+			const completion = await expectRequestError(
+				new OAuthTokenSource().getToken(oauthConfig(), "completion", 100),
+				"timeout"
+			);
+			assert.ok(completion.message.includes("timed out after 100ms"), `unexpected message: ${completion.message}`);
+			assert.ok(!completion.message.includes(".timeout"), "no setting can raise the fixed FIM bound");
+
+			// English fallback: display and mirror coincide on every surface.
+			for (const error of [chat, commit, completion]) {
+				assert.strictEqual(error.englishMessage, error.message);
+			}
+		});
+
 		test("an aborted caller signal interrupts the exchange and surfaces the abort, not a token timeout", async () => {
 			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
 			const source = new OAuthTokenSource();

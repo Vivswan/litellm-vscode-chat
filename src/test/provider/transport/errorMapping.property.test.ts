@@ -194,12 +194,14 @@ suite("provider/errorMapping properties", () => {
 						assert.strictEqual(mapped.setupHint, ctx.surface === "discovery" ? "check-base-url" : undefined);
 					} else if (status !== 401) {
 						// Two-part shape: a headline, then one compact detail line keeping
-						// the status greppable, never a re-serialized envelope. Chat
-						// separates the parts with a blank line and "Details:"; discovery
-						// keeps the single newline the dashboard splits on.
+						// the status greppable, never a re-serialized envelope. The
+						// newline-flattened surfaces (chat's error block, the commit
+						// notification) separate the parts with a blank line and
+						// "Details:"; discovery and completion keep the single newline
+						// the dashboard splits on.
 						const lines = mapped.message.split("\n");
 						let detail: string;
-						if (ctx.surface === "chat") {
+						if (ctx.surface === "chat" || ctx.surface === "commitGeneration") {
 							assert.strictEqual(lines.length, 3, mapped.message);
 							assert.strictEqual(lines[1], "", mapped.message);
 							const lead = lines[2] ?? "";
@@ -224,9 +226,10 @@ suite("provider/errorMapping properties", () => {
 
 	test("every twoPartTexts product keeps the display/English pairing byte-faithful", () => {
 		// Pinned against the naive join: the English mirror is the SAME join
-		// applied to the English headline and the SAME detail, on both surfaces,
-		// with an empty detail rendering the headline alone. The chat "Details:"
-		// lead-in localizes, so the display leg holds under the test host's
+		// applied to the English headline and the SAME detail, on every surface,
+		// with an empty detail rendering the headline alone. The newline-flattened
+		// surfaces (chat's error block, the commit notification) get the "Details:"
+		// lead-in, which localizes, so the display leg holds under the test host's
 		// English fallback; the englishMessage leg is locale-independent.
 		fc.assert(
 			fc.property(
@@ -239,7 +242,7 @@ suite("provider/errorMapping properties", () => {
 					const join = (headline: string) =>
 						detail === ""
 							? headline
-							: surface === "chat"
+							: surface === "chat" || surface === "commitGeneration"
 								? `${headline}\n\nDetails: ${detail}`
 								: `${headline}\n${detail}`;
 					assert.strictEqual(texts.message, join(display));

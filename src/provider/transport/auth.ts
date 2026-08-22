@@ -89,9 +89,9 @@ export class OAuthTokenSource {
 
 	/**
 	 * The cached token while it is not yet due for refresh, otherwise a fresh
-	 * exchange bounded by `timeoutMs` (the discovery timeout: the exchange is
-	 * auth plumbing, not a chat call, even when a chat triggers it) and, when
-	 * given, by `signal`. A caller that joins an exchange another call started
+	 * exchange bounded by `timeoutMs` (the calling transport's budget: the
+	 * discovery timeout on the chat and discovery paths, the one-shot callers'
+	 * whole-call budgets) and, when given, by `signal`. A caller that joins an exchange another call started
 	 * shares that call's bounds and surface shape, except that its own signal
 	 * still stops its wait while the shared exchange continues for the others.
 	 */
@@ -175,8 +175,39 @@ function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> 
 	});
 }
 
-function timeoutError(tokenUrl: string, timeoutMs: number, cause?: unknown): RequestError {
+/**
+ * The exchange-timeout advice names the surface's true bound, because
+ * `timeoutMs` is whatever the calling transport passed: the chat and discovery
+ * paths both bound the exchange by "discovery.timeout" (auth plumbing with its
+ * own budget, even when a chat triggers it), the commit call passes its
+ * "chat.timeout" whole-call budget through, and the inline-completion call
+ * passes the fixed FIM bound no setting can raise - so that surface names none.
+ */
+function timeoutError(tokenUrl: string, surface: OAuthErrorSurface, timeoutMs: number, cause?: unknown): RequestError {
 	const url = displayUrl(tokenUrl);
+	// English mirrors ride each construction for the output channel and the
+	// issue-report buffer; the display message localizes.
+	if (surface === "completion") {
+		return new RequestError(l10n.t("OAuth token request to {0} timed out after {1}ms.", url, timeoutMs), "timeout", {
+			cause,
+			englishMessage: `OAuth token request to ${url} timed out after ${timeoutMs}ms.`,
+		});
+	}
+	if (surface === "commitGeneration") {
+		return new RequestError(
+			l10n.t(
+				'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.chat.timeout" setting if your identity provider needs more time.',
+				url,
+				timeoutMs,
+				CONFIG_SECTION
+			),
+			"timeout",
+			{
+				cause,
+				englishMessage: `OAuth token request to ${url} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your identity provider needs more time.`,
+			}
+		);
+	}
 	return new RequestError(
 		l10n.t(
 			'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.discovery.timeout" setting if your identity provider needs more time.',
@@ -187,7 +218,6 @@ function timeoutError(tokenUrl: string, timeoutMs: number, cause?: unknown): Req
 		"timeout",
 		{
 			cause,
-			// The English mirror for the output channel and the issue-report buffer; the display message localizes.
 			englishMessage: `OAuth token request to ${url} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your identity provider needs more time.`,
 		}
 	);
@@ -329,7 +359,7 @@ async function exchangeClientCredentials(
 				throw abortReason(outerSignal);
 			}
 			if (timeoutSignal.aborted) {
-				throw timeoutError(config.tokenUrl, timeoutMs, lastFailure);
+				throw timeoutError(config.tokenUrl, surface, timeoutMs, lastFailure);
 			}
 		}
 
@@ -348,7 +378,7 @@ async function exchangeClientCredentials(
 				throw error;
 			}
 			if (timeoutSignal.aborted) {
-				throw timeoutError(config.tokenUrl, timeoutMs, error);
+				throw timeoutError(config.tokenUrl, surface, timeoutMs, error);
 			}
 			lastFailure = error;
 			continue;
@@ -441,6 +471,6 @@ async function exchangeClientCredentials(
 		lastFailure,
 		lastFailure,
 		{ endpoint: "oauthToken", surface, url: config.tokenUrl },
-		() => timeoutError(config.tokenUrl, timeoutMs, lastFailure)
+		() => timeoutError(config.tokenUrl, surface, timeoutMs, lastFailure)
 	);
 }

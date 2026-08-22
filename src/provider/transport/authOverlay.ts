@@ -26,7 +26,7 @@ export interface AuthOverlayContext {
 	readonly tokens: OAuthTokenSource;
 	/** The error surface a token-exchange failure renders toward. */
 	readonly surface: OAuthErrorSurface;
-	/** Hard bound on the token exchange (auth plumbing has its own budget). */
+	/** Hard bound on the token exchange: the chat and discovery callers pass the discovery timeout (auth plumbing with its own budget), the one-shot callers their whole-call budget. */
 	readonly timeoutMs: number;
 	/** Interrupts the exchange when the triggering call is aborted or times out. */
 	readonly signal?: AbortSignal | undefined;

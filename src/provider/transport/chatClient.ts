@@ -204,10 +204,10 @@ export class ChatClient {
 	 * Per-request credentials the cached SDK client cannot carry statically:
 	 * the OAuth bearer token and the virtual-key header, applied by the shared
 	 * overlay (authOverlay.ts) that also serves the plain-fetch transports. The
-	 * token exchange is bounded by the discovery timeout on every surface (it
-	 * is auth plumbing, not a chat call) and additionally by `signal` when the
-	 * triggering call carries one, so user cancellation and the chat timeout
-	 * interrupt it too.
+	 * token exchange is bounded by the discovery timeout on both surfaces this
+	 * client serves (it is auth plumbing, not a chat call) and additionally by
+	 * `signal` when the triggering call carries one, so user cancellation and
+	 * the chat timeout interrupt it too.
 	 *
 	 * `sentOAuthToken` is the bearer token the returned headers actually carry,
 	 * captured here so a later 401 never has to re-parse it out of the

@@ -748,6 +748,8 @@
 	"OAuth needs the token URL and client ID": "OAuth needs the token URL and client ID",
 	"OAuth scopes": "OAuth scopes",
 	"OAuth token URL": "OAuth token URL",
+	"OAuth token request to {0} timed out after {1}ms.": "OAuth token request to {0} timed out after {1}ms.",
+	"OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.chat.timeout\" setting if your identity provider needs more time.": "OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.chat.timeout\" setting if your identity provider needs more time.",
 	"OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.discovery.timeout\" setting if your identity provider needs more time.": "OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.discovery.timeout\" setting if your identity provider needs more time.",
 	"Off/Reasoning effort level label in the model picker": {
 		"message": "Off",

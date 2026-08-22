@@ -819,6 +819,10 @@ suite("provider/transport/errorMapping", () => {
 				"The connection dropped before the reply arrived, so no commit message was generated"
 			);
 			assert.ok(!commit.message.includes("cut short"), "a non-streaming call leaves nothing to cut short");
+			assert.ok(
+				commit.message.includes("\n\nDetails: Connection to http://litellm.test closed mid-response"),
+				"commit errors reach a newline-flattening notification, so the join carries the Details lead-in"
+			);
 			const disco = expectRequestError(mapSdkError(err, discoveryCtx), "network");
 			assertStartsWith(disco.message, "The connection to http://litellm.test dropped while fetching models");
 			assert.ok(disco.message.endsWith("\nterminated (cause: other side closed)"), disco.message);
@@ -1150,24 +1154,34 @@ suite("provider/transport/errorMapping", () => {
 			const chat = twoPartTexts("chat", headline, "detail line");
 			assert.strictEqual(chat.message, "AFFICHAGE\n\nDetails: detail line");
 			assert.strictEqual(chat.englishMessage, "HEADLINE\n\nDetails: detail line");
+			// Commit errors reach a VS Code notification, which flattens newlines:
+			// the "Details:" lead-in is the visible boundary there, like chat.
+			const commit = twoPartTexts("commitGeneration", headline, "detail line");
+			assert.strictEqual(commit.message, "AFFICHAGE\n\nDetails: detail line");
+			assert.strictEqual(commit.englishMessage, "HEADLINE\n\nDetails: detail line");
 			const discovery = twoPartTexts("discovery", headline, "detail line");
 			assert.strictEqual(discovery.message, "AFFICHAGE\ndetail line");
 			assert.strictEqual(discovery.englishMessage, "HEADLINE\ndetail line");
+			// Completion errors serve the dashboard's test probe, which splits on
+			// the discovery-style "\n".
+			const completion = twoPartTexts("completion", headline, "detail line");
+			assert.strictEqual(completion.message, "AFFICHAGE\ndetail line");
+			assert.strictEqual(completion.englishMessage, "HEADLINE\ndetail line");
 		});
 
-		test("an English headline yields a byte-identical message and mirror on both surfaces", () => {
+		test("an English headline yields a byte-identical message and mirror on every surface", () => {
 			// Under the test host's English fallback the display headline IS the
 			// English headline, so the two products must coincide byte for byte.
 			const headline = { display: "same text", english: "same text" };
-			for (const surface of ["chat", "discovery"] as const) {
+			for (const surface of ["chat", "discovery", "completion", "commitGeneration"] as const) {
 				const texts = twoPartTexts(surface, headline, "LiteLLM 500: boom");
 				assert.strictEqual(texts.englishMessage, texts.message);
 			}
 		});
 
-		test("an empty detail renders the headline alone on both surfaces", () => {
+		test("an empty detail renders the headline alone on every surface", () => {
 			const headline = { display: "affichage", english: "english" };
-			for (const surface of ["chat", "discovery"] as const) {
+			for (const surface of ["chat", "discovery", "completion", "commitGeneration"] as const) {
 				const texts = twoPartTexts(surface, headline, "");
 				assert.strictEqual(texts.message, "affichage");
 				assert.strictEqual(texts.englishMessage, "english");

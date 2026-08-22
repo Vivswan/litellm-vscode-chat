@@ -89,8 +89,9 @@ export interface MapErrorContext {
 	 * degrade silently in the editor, so the texts serve the log surfaces and
 	 * the dashboard's test probe, and they join discovery-style (the "\n" the
 	 * dashboard splits on). "commitGeneration" is the commit-message
-	 * /chat/completions call, surfaced as a notification by its command
-	 * boundary and joined the same way.
+	 * /chat/completions call, surfaced as a VS Code notification by its command
+	 * boundary - notifications flatten newlines, so it joins chat-style with
+	 * the "Details:" lead-in.
 	 */
 	surface: "chat" | "discovery" | "completion" | "commitGeneration";
 	baseUrl: string;
@@ -467,10 +468,11 @@ interface LocalizedText {
 }
 
 /**
- * Both renderings of a two-part error message, joined per surface: chat
- * carries the "Details:" lead-in after a blank line (Copilot Chat's error
- * block flattens newlines), discovery the single "\n" the dashboard and
- * tooltips split on. The English mirror is byte-faithful to the English
+ * Both renderings of a two-part error message, joined per surface: chat and
+ * commitGeneration carry the "Details:" lead-in after a blank line (Copilot
+ * Chat's error block and the commit command's VS Code notification both
+ * flatten newlines), discovery and completion the single "\n" the dashboard
+ * and tooltips split on. The English mirror is byte-faithful to the English
  * display: the same join applied to the English headline and the same detail.
  * An empty detail renders the headline alone rather than a trailing blank
  * detail line.
@@ -483,7 +485,7 @@ export function twoPartTexts(
 	if (detail === "") {
 		return { message: headline.display, englishMessage: headline.english };
 	}
-	return surface === "chat"
+	return surface === "chat" || surface === "commitGeneration"
 		? {
 				message: chatErrorMessage(headline.display, detail),
 				englishMessage: englishChatErrorMessage(headline.english, detail),
