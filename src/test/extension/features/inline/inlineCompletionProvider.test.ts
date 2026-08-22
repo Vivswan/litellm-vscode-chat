@@ -1,21 +1,24 @@
 import * as assert from "node:assert";
 import { http } from "msw";
 import * as vscode from "vscode";
-import { CompletionCache } from "../../../extension/inline/completionCache";
-import type { InlineCompletionRequest, InlineCompletionSend } from "../../../extension/inline/inlineCompletionProvider";
+import { CompletionCache } from "../../../../extension/features/inline/completionCache";
+import type {
+	InlineCompletionRequest,
+	InlineCompletionSend,
+} from "../../../../extension/features/inline/inlineCompletionProvider";
 import {
 	createInlineCompletionProvider,
 	INLINE_COMPLETION_DEBOUNCE_MS,
-} from "../../../extension/inline/inlineCompletionProvider";
-import { COMPLETIONS_PATH, completionsUrl } from "../../../provider/transport/clients";
+} from "../../../../extension/features/inline/inlineCompletionProvider";
+import { COMPLETIONS_PATH, completionsUrl } from "../../../../provider/transport/clients";
 import {
 	buildFimPrompt,
 	FIM_PREFIX_BUDGET,
 	FIM_SUFFIX_BUDGET,
 	parseCompletionText,
-} from "../../../provider/transport/fim";
-import { COMPLETIONS_URL, completionJsonResponse, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
-import { withConfig } from "../../testUtils";
+} from "../../../../provider/transport/fim";
+import { COMPLETIONS_URL, completionJsonResponse, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
+import { withConfig } from "../../../testUtils";
 
 /**
  * The inline-completions provider core, driven with an injected send: the
@@ -91,7 +94,7 @@ async function invoke(
 	return (result ?? undefined) as vscode.InlineCompletionItem[] | undefined;
 }
 
-suite("extension/inline/inlineCompletionProvider", () => {
+suite("extension/features/inline/inlineCompletionProvider", () => {
 	useMsw();
 
 	test("the completions URL helper and the msw constant agree on the wire path", () => {

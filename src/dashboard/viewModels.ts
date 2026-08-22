@@ -10,13 +10,18 @@ import type {
 	BooleanSettingId,
 	FeatureModelId,
 	FeatureModelRef,
+	FeatureModelSettingKey,
 	LanguageFilterMode,
 	NumberSettingId,
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
 } from "../shared/config/settingSpec";
-import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../shared/config/settingSpec";
+import {
+	BOOLEAN_SETTING_SPECS,
+	FEATURE_MODEL_SETTING_KEY_LIST,
+	NUMBER_SETTING_SPECS,
+} from "../shared/config/settingSpec";
 import type { TransportErrorClassification, UnservedEndpointEvidence } from "../shared/errorClassification";
 import type {
 	ExpectedFailureCategory,
@@ -326,11 +331,14 @@ export const BOOLEAN_SETTING_IDS = Object.keys(BOOLEAN_SETTING_SPECS) as readonl
 
 /**
  * The settings the revealSetting intent may name: exactly what the Settings
- * tab renders rows or editors for. A classification list, not free text.
+ * and Features tabs render rows or editors for. A classification list, not
+ * free text. The feature model keys derive from FEATURE_MODEL_SETTING_KEYS,
+ * so a new feature's row joins without a hand edit here.
  */
 export type RevealableSettingId =
 	| NumberSettingId
 	| BooleanSettingId
+	| FeatureModelSettingKey
 	| "models.parameters"
 	| "models.capabilities"
 	| "servers"
@@ -341,9 +349,7 @@ export type RevealableSettingId =
 	| "usage.currencySymbol"
 	| "ui.theme"
 	| "ui.accent"
-	| "inlineCompletions.model"
 	| "inlineCompletions.languageFilter"
-	| "commitGeneration.model"
 	| "commitGeneration.prompt";
 
 /**
@@ -359,6 +365,7 @@ const everyId =
 export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<RevealableSettingId>()([
 	...NUMBER_SETTING_IDS,
 	...BOOLEAN_SETTING_IDS,
+	...FEATURE_MODEL_SETTING_KEY_LIST,
 	"models.parameters",
 	"models.capabilities",
 	"servers",
@@ -369,9 +376,7 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 	"usage.currencySymbol",
 	"ui.theme",
 	"ui.accent",
-	"inlineCompletions.model",
 	"inlineCompletions.languageFilter",
-	"commitGeneration.model",
 	"commitGeneration.prompt",
 ]);
 
@@ -379,6 +384,7 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 export type ResettableSettingId =
 	| NumberSettingId
 	| BooleanSettingId
+	| FeatureModelSettingKey
 	| "chat.additionalToolSchemaKeywords"
 	| "chat.tokenEstimation"
 	| "usage.statusBar"
@@ -386,14 +392,13 @@ export type ResettableSettingId =
 	| "usage.currencySymbol"
 	| "ui.theme"
 	| "ui.accent"
-	| "inlineCompletions.model"
 	| "inlineCompletions.languageFilter"
-	| "commitGeneration.model"
 	| "commitGeneration.prompt";
 
 export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<ResettableSettingId>()([
 	...NUMBER_SETTING_IDS,
 	...BOOLEAN_SETTING_IDS,
+	...FEATURE_MODEL_SETTING_KEY_LIST,
 	"chat.additionalToolSchemaKeywords",
 	"chat.tokenEstimation",
 	"usage.statusBar",
@@ -401,9 +406,7 @@ export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<Re
 	"usage.currencySymbol",
 	"ui.theme",
 	"ui.accent",
-	"inlineCompletions.model",
 	"inlineCompletions.languageFilter",
-	"commitGeneration.model",
 	"commitGeneration.prompt",
 ]);
 
@@ -843,6 +846,12 @@ export interface DashboardState {
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
 	readonly settings: DashboardSettings;
+	/**
+	 * The features whose model row offers a host-side test probe (the exact
+	 * pipeline the feature itself runs). Derived from the probes activation
+	 * registered, so the button exists exactly where a probe does.
+	 */
+	readonly featureProbes: readonly FeatureModelId[];
 	/** The Servers page's usage snapshot (spend units, drawers, diagnostics); see DashboardUsage. */
 	readonly usage: DashboardUsage;
 	/** Configuration problems found in the settings; see ConfigDiagnosticView. */
@@ -856,12 +865,70 @@ export interface DashboardState {
 }
 
 /**
- * The dashboard's top-level sections, one tab each, in the rail's order.
+ * The dashboard's top-level sections, one tab each, in the rail's order: what
+ * the fleet IS (servers, then the models they serve), then what it DOES
+ * (features and the settings behind them), then what is wrong with it.
  * Declared here because deep links cross the boundary: the extension's
  * focusSection message names a tab by ID. The retired "usage" id can still
  * arrive in stale deep links; the shell's unknown-section guard drops those,
  * which a test pins.
  */
-export const DASHBOARD_SECTION_IDS = ["overview", "settings", "models", "diagnostics"] as const;
+export const DASHBOARD_SECTION_IDS = ["overview", "models", "features", "settings", "diagnostics"] as const;
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number];
+
+/** The two pages that render setting rows; every SettingRowId belongs to exactly one. */
+export type SettingRowPageId = Extract<DashboardSectionId, "features" | "settings">;
+
+/**
+ * Which page owns each settings row: the Features page carries the per-feature
+ * rows, the Settings page everything else. TOTAL over SettingRowId by mapped
+ * type, so a new row id fails compilation until it names its page - and the
+ * consumers' lookups fail OPEN (an id missing at runtime renders visible on
+ * the Settings page rather than crashing), which settingRowPage encodes.
+ */
+const SETTING_ROW_PAGES: { readonly [K in SettingRowId]: SettingRowPageId } = {
+	"chat.timeout": "settings",
+	"chat.maxToolsPerRequest": "settings",
+	"discovery.timeout": "settings",
+	"discovery.cacheTtl": "settings",
+	"discovery.staleServeWindow": "settings",
+	"usage.pollInterval": "settings",
+	"usage.initialRefreshDelay": "settings",
+	"usage.serversChangeRefreshDelay": "settings",
+	"usage.pollingOffFreshnessWindow": "settings",
+	"chat.promptCaching": "settings",
+	"models.openRouterCatalog": "settings",
+	"ui.maskSecretInputs": "settings",
+	"chat.additionalToolSchemaKeywords": "settings",
+	"chat.tokenEstimation": "settings",
+	"usage.alertThresholds": "settings",
+	"usage.statusBar": "settings",
+	"usage.currencySymbol": "settings",
+	"ui.theme": "settings",
+	"ui.accent": "settings",
+	"inlineCompletions.enabled": "features",
+	"inlineCompletions.model": "features",
+	"inlineCompletions.languageFilter": "features",
+	"commitGeneration.enabled": "features",
+	"commitGeneration.model": "features",
+	"commitGeneration.prompt": "features",
+	"prGeneration.enabled": "features",
+	"prGeneration.model": "features",
+	"consultTool.enabled": "features",
+	"consultTool.model": "features",
+	"quickFix.enabled": "features",
+	"quickFix.model": "features",
+	"reviewComments.enabled": "features",
+	"reviewComments.model": "features",
+	"chatParticipant.enabled": "features",
+};
+
+/**
+ * The page a row lives on, total over any string: an id the map does not know
+ * reads as the Settings page instead of crashing a lookup - the fail-open half
+ * of the owner-map contract (a misrouted notice beats a dead page).
+ */
+export function settingRowPage(row: string): SettingRowPageId {
+	return Object.hasOwn(SETTING_ROW_PAGES, row) ? SETTING_ROW_PAGES[row as SettingRowId] : "settings";
+}

@@ -769,6 +769,148 @@
 						"markdownDescription": "%litellm.config.commitGeneration.prompt.description%"
 					}
 				}
+			},
+			{
+				"title": "%litellm.config.section.prGeneration%",
+				"properties": {
+					"litellm-vscode-chat.prGeneration.enabled": {
+						"type": "boolean",
+						"default": false,
+						"markdownDescription": "%litellm.config.prGeneration.enabled.description%"
+					},
+					"litellm-vscode-chat.prGeneration.model": {
+						"type": [
+							"object",
+							"null"
+						],
+						"default": null,
+						"required": [
+							"server",
+							"model"
+						],
+						"properties": {
+							"server": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.server.description%"
+							},
+							"model": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.model.description%"
+							}
+						},
+						"additionalProperties": false,
+						"markdownDescription": "%litellm.config.prGeneration.model.description%"
+					}
+				}
+			},
+			{
+				"title": "%litellm.config.section.consultTool%",
+				"properties": {
+					"litellm-vscode-chat.consultTool.enabled": {
+						"type": "boolean",
+						"default": false,
+						"markdownDescription": "%litellm.config.consultTool.enabled.description%"
+					},
+					"litellm-vscode-chat.consultTool.model": {
+						"type": [
+							"object",
+							"null"
+						],
+						"default": null,
+						"required": [
+							"server",
+							"model"
+						],
+						"properties": {
+							"server": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.server.description%"
+							},
+							"model": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.model.description%"
+							}
+						},
+						"additionalProperties": false,
+						"markdownDescription": "%litellm.config.consultTool.model.description%"
+					}
+				}
+			},
+			{
+				"title": "%litellm.config.section.quickFix%",
+				"properties": {
+					"litellm-vscode-chat.quickFix.enabled": {
+						"type": "boolean",
+						"default": false,
+						"markdownDescription": "%litellm.config.quickFix.enabled.description%"
+					},
+					"litellm-vscode-chat.quickFix.model": {
+						"type": [
+							"object",
+							"null"
+						],
+						"default": null,
+						"required": [
+							"server",
+							"model"
+						],
+						"properties": {
+							"server": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.server.description%"
+							},
+							"model": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.model.description%"
+							}
+						},
+						"additionalProperties": false,
+						"markdownDescription": "%litellm.config.quickFix.model.description%"
+					}
+				}
+			},
+			{
+				"title": "%litellm.config.section.reviewComments%",
+				"properties": {
+					"litellm-vscode-chat.reviewComments.enabled": {
+						"type": "boolean",
+						"default": false,
+						"markdownDescription": "%litellm.config.reviewComments.enabled.description%"
+					},
+					"litellm-vscode-chat.reviewComments.model": {
+						"type": [
+							"object",
+							"null"
+						],
+						"default": null,
+						"required": [
+							"server",
+							"model"
+						],
+						"properties": {
+							"server": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.server.description%"
+							},
+							"model": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.model.description%"
+							}
+						},
+						"additionalProperties": false,
+						"markdownDescription": "%litellm.config.reviewComments.model.description%"
+					}
+				}
+			},
+			{
+				"title": "%litellm.config.section.chatParticipant%",
+				"properties": {
+					"litellm-vscode-chat.chatParticipant.enabled": {
+						"type": "boolean",
+						"default": true,
+						"markdownDescription": "%litellm.config.chatParticipant.enabled.description%"
+					}
+				}
 			}
 		]
 	},
@@ -827,7 +969,7 @@
 		"@types/node": "^26.1.1",
 		"@types/react": "^19.2.0",
 		"@types/react-dom": "^19.2.0",
-		"@types/vscode": "^1.125.0",
+		"@types/vscode": "^1.129.0",
 		"@vscode/l10n-dev": "^0.0.35",
 		"@vscode/test-cli": "^0.0.15",
 		"@vscode/test-electron": "^3.1.0",

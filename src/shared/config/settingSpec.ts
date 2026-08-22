@@ -27,20 +27,40 @@ export const CURRENCY_SYMBOL_SETTING_KEY = "usage.currencySymbol";
 export const UI_THEME_SETTING_KEY = "ui.theme";
 export const UI_ACCENT_SETTING_KEY = "ui.accent";
 export const INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY = "inlineCompletions.languageFilter";
-// The model keys are addressed through the FEATURE_MODEL_SETTING_KEYS map (one
-// pipeline for getters, intents, and rows), so only the map exports.
-const INLINE_COMPLETIONS_MODEL_SETTING_KEY = "inlineCompletions.model";
-const COMMIT_GENERATION_MODEL_SETTING_KEY = "commitGeneration.model";
 export const COMMIT_GENERATION_PROMPT_SETTING_KEY = "commitGeneration.prompt";
 
 /**
  * The features that pick their model through an explicit `<feature>.model`
- * setting. Both are opt-in and fail-closed: the enabled boolean without a
- * model ref keeps the feature inert.
+ * setting. Every one is opt-in and fail-closed: the enabled boolean without a
+ * model ref keeps the feature inert. prGeneration, consultTool, quickFix, and
+ * reviewComments are registered vocabulary ahead of their features shipping -
+ * their settings exist and persist, and nothing consumes them yet.
  */
-export const FEATURE_MODEL_IDS = ["inlineCompletions", "commitGeneration"] as const;
+export const FEATURE_MODEL_IDS = [
+	"inlineCompletions",
+	"commitGeneration",
+	"prGeneration",
+	"consultTool",
+	"quickFix",
+	"reviewComments",
+] as const;
 
 export type FeatureModelId = (typeof FEATURE_MODEL_IDS)[number];
+
+/**
+ * Every feature with an enable setting: the model-picking features plus the
+ * chat participant, which uses the chat request's own model and so has no
+ * model key. The one FeatureId vocabulary the per-layer tables (settings keys,
+ * dashboard descriptors, diagnostics flags, contribution pins) key on.
+ */
+export const FEATURE_IDS = [...FEATURE_MODEL_IDS, "chatParticipant"] as const;
+
+export type FeatureId = (typeof FEATURE_IDS)[number];
+
+/** Whether a feature picks its model through a `<feature>.model` setting (vs the participant's request model). */
+export function isFeatureModelId(feature: FeatureId): feature is FeatureModelId {
+	return (FEATURE_MODEL_IDS as readonly FeatureId[]).includes(feature);
+}
 
 /**
  * A feature's explicit model choice: a `servers` entry's label (the same
@@ -55,9 +75,21 @@ export interface FeatureModelRef {
 
 /** Each feature's model setting key; the one map the getters, intents, and rows address the pair through. */
 export const FEATURE_MODEL_SETTING_KEYS = {
-	inlineCompletions: INLINE_COMPLETIONS_MODEL_SETTING_KEY,
-	commitGeneration: COMMIT_GENERATION_MODEL_SETTING_KEY,
+	inlineCompletions: "inlineCompletions.model",
+	commitGeneration: "commitGeneration.model",
+	prGeneration: "prGeneration.model",
+	consultTool: "consultTool.model",
+	quickFix: "quickFix.model",
+	reviewComments: "reviewComments.model",
 } as const satisfies Record<FeatureModelId, string>;
+
+/** One feature's model setting key as a literal type; the view-model unions derive their members from it. */
+export type FeatureModelSettingKey = (typeof FEATURE_MODEL_SETTING_KEYS)[FeatureModelId];
+
+/** The model setting keys as a list, in FEATURE_MODEL_IDS order, for the surfaces that spread the whole family. */
+export const FEATURE_MODEL_SETTING_KEY_LIST: readonly FeatureModelSettingKey[] = FEATURE_MODEL_IDS.map(
+	(feature) => FEATURE_MODEL_SETTING_KEYS[feature]
+);
 
 /**
  * The inline-completions language filter's mode vocabulary: "block" runs
@@ -190,13 +222,38 @@ export const BOOLEAN_SETTING_SPECS = {
 	"chat.promptCaching": { default: true },
 	"models.openRouterCatalog": { default: true },
 	"ui.maskSecretInputs": { default: true },
-	// Both features are opt-in by contract: disabled means zero registration
-	// and zero traffic, and enabling without a model ref stays inert.
+	// The model-picking features are opt-in by contract: disabled means zero
+	// registration and zero traffic, and enabling without a model ref stays
+	// inert. The last four are registered vocabulary for features that have not
+	// shipped yet (the settings persist; nothing consumes them).
 	"inlineCompletions.enabled": { default: false },
 	"commitGeneration.enabled": { default: false },
+	"prGeneration.enabled": { default: false },
+	"consultTool.enabled": { default: false },
+	"quickFix.enabled": { default: false },
+	"reviewComments.enabled": { default: false },
+	// The participant is on by default (it costs nothing until invoked and uses
+	// the chat request's own model); inert until the feature ships.
+	"chatParticipant.enabled": { default: true },
 } as const satisfies Record<string, BooleanSettingValueSpec>;
 
 export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;
+
+/**
+ * Each feature's enable setting key: the one map the settings getter, the
+ * diagnostics flags, and the dashboard's feature rows address the boolean
+ * through. Typed against BooleanSettingId, so a feature cannot name an enable
+ * key the manifest and specs do not carry.
+ */
+export const FEATURE_ENABLE_SETTING_KEYS = {
+	inlineCompletions: "inlineCompletions.enabled",
+	commitGeneration: "commitGeneration.enabled",
+	prGeneration: "prGeneration.enabled",
+	consultTool: "consultTool.enabled",
+	quickFix: "quickFix.enabled",
+	reviewComments: "reviewComments.enabled",
+	chatParticipant: "chatParticipant.enabled",
+} as const satisfies Record<FeatureId, BooleanSettingId>;
 
 /**
  * Whether one number is a usable usage.alertThresholds value: finite, in
@@ -224,9 +281,8 @@ export const STRUCTURED_SETTING_KEYS = [
 	CURRENCY_SYMBOL_SETTING_KEY,
 	UI_THEME_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
-	INLINE_COMPLETIONS_MODEL_SETTING_KEY,
+	...FEATURE_MODEL_SETTING_KEY_LIST,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
-	COMMIT_GENERATION_MODEL_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 ] as const;
 

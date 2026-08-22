@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { LiteLLMChatModelProvider } from "../../provider";
 import { INTERNAL_CMD } from "../../shared/config/commandIds";
-import type { FeatureModelRef, NumberSettingId } from "../../shared/config/settingSpec";
+import type { NumberSettingId } from "../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
 	CURRENCY_SYMBOL_SETTING_KEY,
@@ -14,6 +14,7 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
+import type { FeatureProbes } from "../dashboard/intents";
 import type { DashboardController } from "../dashboard/panel";
 import { registerDashboardCommand } from "../dashboard/panel";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
@@ -47,23 +48,22 @@ export function wireDashboard(
 		usagePoller: UsagePoller;
 		/** The one User-Agent activation composes, for the panel's draft probe. */
 		ua: string;
-		/** The inline-completions probe (the feature wiring's shared send over a sample context). */
-		probeFimCompletion: (model: FeatureModelRef) => Promise<string | undefined>;
+		/** The per-feature model probes (each feature wiring's shared send over a sample). */
+		featureProbes: FeatureProbes;
 	}
 ): DashboardController {
-	const dashboard = registerDashboardCommand(
-		context,
-		deps.provider,
+	const dashboard = registerDashboardCommand(context, {
+		provider: deps.provider,
 		logger,
-		deps.syncEngine,
-		deps.registry,
-		deps.groupRemovals,
-		deps.catalogStore,
-		deps.usagePoller,
-		readEntryModelCapabilities,
-		deps.ua,
-		deps.probeFimCompletion
-	);
+		syncEngine: deps.syncEngine,
+		registry: deps.registry,
+		removals: deps.groupRemovals,
+		catalog: deps.catalogStore,
+		usagePoller: deps.usagePoller,
+		getEntryModelCapabilities: readEntryModelCapabilities,
+		ua: deps.ua,
+		featureProbes: deps.featureProbes,
+	});
 	context.subscriptions.push(deps.syncEngine.onDidSync(() => dashboard.refresh()));
 	return dashboard;
 }

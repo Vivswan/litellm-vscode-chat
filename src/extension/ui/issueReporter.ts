@@ -1,5 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import type { FeatureId } from "../../shared/config/settingSpec";
+import { FEATURE_IDS } from "../../shared/config/settingSpec";
 import { LAST_ISSUE_REPORT_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { transportClassificationOf } from "../../shared/errorClassification";
@@ -21,6 +23,13 @@ export interface ErrorContext {
 	classification?: TransportErrorClassification | undefined;
 }
 
+/** One feature's report facts: the opt-in and whether a model ref is set - flags only, never which model or label. */
+interface FeatureFlagFacts {
+	readonly enabled: boolean;
+	/** Absent for features with no model key (the chat participant uses the request's own model). */
+	readonly modelConfigured?: boolean | undefined;
+}
+
 export interface DiagnosticsSnapshot {
 	extensionVersion: string;
 	vscodeVersion: string;
@@ -30,13 +39,51 @@ export interface DiagnosticsSnapshot {
 	/** "unknown" when the configurations are VS Code-managed and none were observed yet. */
 	apiKeyConfigured: boolean | "unknown";
 	baseUrlConfigured: boolean;
-	/** The feature opt-ins and whether a model ref is set - flags only, never which model or label. */
-	commitGenerationEnabled: boolean;
-	commitGenerationModelConfigured: boolean;
-	inlineCompletionsEnabled: boolean;
-	inlineCompletionsModelConfigured: boolean;
+	/** Every feature's flags, keyed by FeatureId; featureFlagLines renders them, the fingerprint folds them in. */
+	featureFlags: Readonly<Record<FeatureId, FeatureFlagFacts>>;
 	latestError?: ErrorContext | undefined;
 	recentLogs: string[];
+}
+
+/**
+ * Each feature's prose name in the report body. English by the issue-report
+ * policy, and total over FeatureId so a new feature cannot ship without its
+ * report line.
+ */
+const FEATURE_PROSE_NAMES: Readonly<Record<FeatureId, string>> = {
+	inlineCompletions: "Inline completions",
+	commitGeneration: "Commit generation",
+	prGeneration: "PR generation",
+	consultTool: "Consult tool",
+	quickFix: "Quick fix",
+	reviewComments: "Review comments",
+	chatParticipant: "Chat participant",
+};
+
+/**
+ * The feature lines of a report body, one loop for every body variant: the
+ * enable line always, the model line where the feature has a model key. The
+ * two shipped features' lines are pinned byte-for-byte by test against the
+ * pre-loop hand-written output. `include` narrows the walk for the compacted
+ * clipboard fallback, which exists because even the trimmed body blew the URL
+ * bound - features carrying no signal stay out of it.
+ */
+function featureFlagLines(
+	flags: Readonly<Record<FeatureId, FeatureFlagFacts>>,
+	include: (facts: FeatureFlagFacts) => boolean = () => true
+): string[] {
+	return FEATURE_IDS.flatMap((feature) => {
+		const facts = flags[feature];
+		if (!include(facts)) {
+			return [];
+		}
+		const name = FEATURE_PROSE_NAMES[feature];
+		const lines = [`- ${name} enabled: ${facts.enabled ? "yes" : "no"}`];
+		if (facts.modelConfigured !== undefined) {
+			lines.push(`- ${name} model configured: ${facts.modelConfigured ? "yes" : "no"}`);
+		}
+		return lines;
+	});
 }
 
 function apiKeyConfiguredText(snapshot: DiagnosticsSnapshot): string {
@@ -58,21 +105,22 @@ export interface LastIssueReport {
  * enum, count, and flag fields plus the latest error's classification.
  * Deliberately NEVER the error message, stack, source, or log lines - the
  * source strings interpolate server labels and base URLs, and the rest is
- * response-derived - because this string lands in globalState.
+ * response-derived - because this string lands in globalState. The feature
+ * fields fold in per FEATURE_IDS entry ("v2" versioned the loop's field set).
  */
 export function reportFingerprint(snapshot: DiagnosticsSnapshot): string {
 	const classification = snapshot.latestError?.classification;
 	return [
-		"v1",
+		"v2",
 		snapshot.extensionVersion,
 		snapshot.connectionState,
 		snapshot.modelCount ?? "-",
 		String(snapshot.apiKeyConfigured),
 		String(snapshot.baseUrlConfigured),
-		String(snapshot.commitGenerationEnabled),
-		String(snapshot.commitGenerationModelConfigured),
-		String(snapshot.inlineCompletionsEnabled),
-		String(snapshot.inlineCompletionsModelConfigured),
+		...FEATURE_IDS.flatMap((feature) => {
+			const facts = snapshot.featureFlags[feature];
+			return [String(facts.enabled), String(facts.modelConfigured ?? "-")];
+		}),
 		classification?.kind ?? "-",
 		classification?.status ?? "-",
 		classification?.setupHint ?? "-",
@@ -263,10 +311,7 @@ export class IssueReporter {
 			snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
 			`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
 			`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
-			`- Commit generation enabled: ${snapshot.commitGenerationEnabled ? "yes" : "no"}`,
-			`- Commit generation model configured: ${snapshot.commitGenerationModelConfigured ? "yes" : "no"}`,
-			`- Inline completions enabled: ${snapshot.inlineCompletionsEnabled ? "yes" : "no"}`,
-			`- Inline completions model configured: ${snapshot.inlineCompletionsModelConfigured ? "yes" : "no"}`,
+			...featureFlagLines(snapshot.featureFlags),
 		].filter((l): l is string => l !== null);
 
 		if (snapshot.latestError) {
@@ -433,8 +478,9 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, sink: Compact
 		snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
 		`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
 		`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
-		`- Commit generation enabled: ${snapshot.commitGenerationEnabled ? "yes" : "no"}`,
-		`- Commit generation model configured: ${snapshot.commitGenerationModelConfigured ? "yes" : "no"}`,
+		// Signal-bearing features only: this body exists because the full one
+		// blew the URL bound, and eleven all-off lines are not signal.
+		...featureFlagLines(snapshot.featureFlags, (facts) => facts.enabled || facts.modelConfigured === true),
 	];
 
 	if (snapshot.latestError) {

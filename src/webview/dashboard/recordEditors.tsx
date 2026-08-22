@@ -73,6 +73,7 @@ import { Input } from "./ui/input";
 import { watchPopoverFlip } from "./ui/popoverFlip";
 import { Reveal } from "./ui/reveal";
 import { Select } from "./ui/select";
+import { Textarea } from "./ui/textarea";
 import { sendRequest } from "./vscodeApi";
 
 /**
@@ -2997,7 +2998,8 @@ export function ModelParametersEditor({
 				) : null}
 				{json !== undefined ? (
 					<div className="record-json">
-						<textarea
+						<Textarea
+							className="w-full px-2 py-1"
 							rows={10}
 							aria-label={l10n.t("Model parameters as JSON")}
 							aria-invalid={jsonBlocked}
@@ -3286,7 +3288,8 @@ export function ModelCapabilitiesEditor({
 				) : null}
 				{json !== undefined ? (
 					<div className="record-json">
-						<textarea
+						<Textarea
+							className="w-full px-2 py-1"
 							rows={10}
 							aria-label={l10n.t("Model capabilities as JSON")}
 							aria-invalid={jsonBlocked}

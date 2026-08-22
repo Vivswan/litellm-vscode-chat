@@ -12,8 +12,8 @@ import {
 	stripMarkdownFences,
 	UNTRACKED_PATHS_LIMIT,
 	untrackedRelativePaths,
-} from "../../../../extension/scm/commitMessage";
-import type { Change, Commit, Repository } from "../../../../extension/scm/gitApi";
+} from "../../../../../extension/features/commitGen/commitMessage";
+import type { Change, Commit, Repository } from "../../../../../extension/features/gitApi";
 
 const REF: CommitModelRef = { server: "alpha", model: "gpt-test" };
 
@@ -64,7 +64,7 @@ function fakeRepo(parts: {
 	};
 }
 
-describe("extension/scm buildCommitPrompt", () => {
+describe("extension/features/commitGen buildCommitPrompt", () => {
 	test("a blank custom prompt selects the built-in Conventional Commits instruction", () => {
 		for (const blank of ["", "   ", "\n\t"]) {
 			const prompt = buildCommitPrompt({ customPrompt: blank, diff: "+x", recentSubjects: [], untrackedPaths: [] });
@@ -133,7 +133,7 @@ describe("extension/scm buildCommitPrompt", () => {
 	});
 });
 
-describe("extension/scm untrackedRelativePaths", () => {
+describe("extension/features/commitGen untrackedRelativePaths", () => {
 	test("keeps only untracked changes, relativized to the repository root and sorted", () => {
 		const repo: Pick<Repository, "rootUri" | "state"> = {
 			rootUri: { fsPath: "/repo/" } as Repository["rootUri"],
@@ -179,7 +179,7 @@ describe("extension/scm untrackedRelativePaths", () => {
 	});
 });
 
-describe("extension/scm commitSubjects", () => {
+describe("extension/features/commitGen commitSubjects", () => {
 	test("keeps first lines only - a commit body never rides into the prompt", () => {
 		const commits: Commit[] = [
 			{ hash: "a", message: "feat: subject one\n\nSECRET-BODY-DETAIL that stays out" },
@@ -192,7 +192,7 @@ describe("extension/scm commitSubjects", () => {
 	});
 });
 
-describe("extension/scm stripMarkdownFences", () => {
+describe("extension/features/commitGen stripMarkdownFences", () => {
 	test("removes a fence pair, language tag included", () => {
 		expect(stripMarkdownFences("```\nfeat: x\n```")).toBe("feat: x");
 		expect(stripMarkdownFences("```text\nfeat: x\n\nbody line\n```\n")).toBe("feat: x\n\nbody line");
@@ -209,7 +209,7 @@ describe("extension/scm stripMarkdownFences", () => {
 	});
 });
 
-describe("extension/scm generateCommitMessage", () => {
+describe("extension/features/commitGen generateCommitMessage", () => {
 	test("no configured model is a typed outcome before any git call", async () => {
 		const { repo, diffCalls } = fakeRepo({ staged: "+x" });
 		const outcome = await generateCommitMessage(repo, reader({ modelRef: undefined }), () => {

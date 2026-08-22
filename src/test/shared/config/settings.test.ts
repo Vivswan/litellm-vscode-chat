@@ -1,12 +1,15 @@
 import * as assert from "node:assert";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
+	BOOLEAN_SETTING_SPECS,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_INLINE_LANGUAGE_FILTER,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
+	FEATURE_ENABLE_SETTING_KEYS,
+	FEATURE_IDS,
 	TOKEN_ESTIMATION_MODES,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
@@ -35,8 +38,7 @@ import {
 	getUsagePollIntervalMs,
 	getUsagePollingOffFreshnessWindowMs,
 	getUsageServersChangeRefreshDelayMs,
-	isCommitGenerationEnabled,
-	isInlineCompletionsEnabled,
+	isFeatureEnabled,
 	MIN_TIMEOUT_MS,
 	MIN_USAGE_POLL_INTERVAL_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
@@ -600,14 +602,19 @@ suite("shared/config/settings language filter", () => {
 });
 
 suite("shared/config/settings feature opt-in getters", () => {
-	test("both default to false and read a configured true", async () => {
+	test("every feature reads its spec default and a configured true through the one enable map", async () => {
 		await withConfig({}, () => {
-			assert.strictEqual(isInlineCompletionsEnabled(), false);
-			assert.strictEqual(isCommitGenerationEnabled(), false);
+			for (const feature of FEATURE_IDS) {
+				assert.strictEqual(
+					isFeatureEnabled(feature),
+					BOOLEAN_SETTING_SPECS[FEATURE_ENABLE_SETTING_KEYS[feature]].default,
+					`${feature} default`
+				);
+			}
 		});
 		await withConfig({ "inlineCompletions.enabled": true, "commitGeneration.enabled": true }, () => {
-			assert.strictEqual(isInlineCompletionsEnabled(), true);
-			assert.strictEqual(isCommitGenerationEnabled(), true);
+			assert.strictEqual(isFeatureEnabled("inlineCompletions"), true);
+			assert.strictEqual(isFeatureEnabled("commitGeneration"), true);
 		});
 	});
 });

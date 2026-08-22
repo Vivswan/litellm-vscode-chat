@@ -58,7 +58,10 @@ export function Help({ text, name, below }: { text: string; name?: string; below
 	const bubble = useTip(below === true ? "below" : "above");
 	return (
 		<span className="help-wrap" {...bubble.triggerProps}>
-			<button type="button" className="help" aria-label={name ?? l10n.t("Help")} aria-describedby={bubble.id}>
+			{/* hit-24 grows the pointer target around the 14px ring without growing
+			    the ring; hover on the expanded area still reaches the wrapper's
+			    handlers, since the pseudo hit-tests as the button inside it. */}
+			<button type="button" className="help hit-24" aria-label={name ?? l10n.t("Help")} aria-describedby={bubble.id}>
 				?
 			</button>
 			<TipBubble tip={bubble}>{text}</TipBubble>

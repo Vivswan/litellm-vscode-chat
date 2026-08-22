@@ -146,7 +146,7 @@ Ghost text in the editor, written by a model on your own proxy. Two settings tur
 "litellm-vscode-chat.inlineCompletions.languageFilter": { "mode": "block", "languages": ["markdown", "plaintext"] }
 ```
 
-There is no command to run: the feature is settings-driven end to end. Off, nothing registers and no automatic request is ever made (the dashboard's explicit "Test completion" button is the one exception - it sends a single probe on your click, enabled or not); on but without a model, it stays idle.
+There is no command to run: the feature is settings-driven end to end. Off, nothing registers and no automatic request is ever made (the dashboard's explicit "Test model" button is the one exception - it sends a single probe on your click, enabled or not); on but without a model, it stays idle.
 
 **Pick a completions model, not a chat model.** Inline completions POST to `/v1/completions`, so the model has to be one your LiteLLM server declares with `mode: completion` in its `model_info` - a fill-in-the-middle (FIM) model. Those models deliberately stay out of the chat model picker, so take the ID from your proxy's config rather than from the picker.
 

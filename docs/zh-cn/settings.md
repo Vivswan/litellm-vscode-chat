@@ -68,6 +68,15 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.commitGeneration.enabled` | `false` | 选择启用由 LiteLLM 模型生成提交消息, 随提交消息生成功能一起交付。默认关闭: 启用前命令保持隐藏、不发送任何请求; 只启用而不设置 `commitGeneration.model` 时功能保持闲置 |
 | `litellm-vscode-chat.commitGeneration.model` | `null` | 起草提交消息的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
 | `litellm-vscode-chat.commitGeneration.prompt` | `""` | 生成提交消息时使用的自定义指令, 会整体替换内置指令。留空使用内置指令 (Conventional Commits 主题行加简短正文)。面向模型的文本, 按原样发送 |
+| `litellm-vscode-chat.prGeneration.enabled` | `false` | 选择启用由 LiteLLM 模型生成 PR 标题和描述。先于功能注册: 设置会保留, 待功能发布后生效 |
+| `litellm-vscode-chat.prGeneration.model` | `null` | 起草 PR 描述的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
+| `litellm-vscode-chat.consultTool.enabled` | `false` | 选择启用咨询工具 (聊天代理向另一个 LiteLLM 模型提问)。先于功能注册: 设置会保留, 待功能发布后生效 |
+| `litellm-vscode-chat.consultTool.model` | `null` | 咨询工具询问的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
+| `litellm-vscode-chat.quickFix.enabled` | `false` | 选择启用针对诊断的修复/解释快速修复。先于功能注册: 设置会保留, 待功能发布后生效 |
+| `litellm-vscode-chat.quickFix.model` | `null` | 快速修复后备路径使用的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
+| `litellm-vscode-chat.reviewComments.enabled` | `false` | 选择启用对改动的 AI 评审评论。先于功能注册: 设置会保留, 待功能发布后生效 |
+| `litellm-vscode-chat.reviewComments.model` | `null` | 撰写评审评论的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
+| `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天参与者, 使用聊天请求自身的模型作答 (没有模型设置)。默认开启; 先于功能注册, 待功能发布后生效 |
 
 有意不提供全局标头设置: 自定义 HTTP 标头描述的是如何与某一个服务器交谈, 所以它们存放在服务器条目上 ([`headers`](servers.md#自定义标头)) - 机器作用域, 在 Settings Sync 够不到的地方, 与全局设置不同。
 

@@ -6,9 +6,12 @@ import {
 	CMD,
 	generateCommitMessageCommandTitle,
 	INTERNAL_CMD,
+	MCP_PROVIDER_ID,
 	manageCommandTitle,
+	PARTICIPANT_ID,
 	refreshUsageCommandTitle,
 	syncModelsCommandTitle,
+	TOOL_NAME,
 	VENDOR_ID,
 } from "../../../../shared/config/commandIds";
 import type { BooleanSettingId } from "../../../../shared/config/settingSpec";
@@ -27,6 +30,9 @@ interface PackageJson {
 		readonly menus?: Readonly<Record<string, readonly { readonly command: string; readonly when?: string }[]>>;
 		readonly languageModelChatProviders: readonly [{ readonly vendor: string }];
 		readonly walkthroughs?: unknown;
+		readonly chatParticipants?: readonly { readonly id?: string }[];
+		readonly languageModelTools?: readonly { readonly name?: string }[];
+		readonly mcpServerDefinitionProviders?: readonly { readonly id?: string }[];
 	};
 }
 
@@ -123,6 +129,37 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 	test("VENDOR_ID is the contributed language-model vendor", () => {
 		const [provider] = readPackageJson().contributes.languageModelChatProviders;
 		assert.strictEqual(VENDOR_ID, provider.vendor);
+	});
+
+	test("the feature contribution identities are pinned fail-closed: empty until contributed, then exactly the constants", () => {
+		// The constants exist AHEAD of their features: each manifest section stays
+		// absent-or-empty until the feature lands, and any entry it ever carries
+		// must use exactly the shared identity - a contribution under another id
+		// (or a second entry) fails here rather than shipping a drifting mirror.
+		const contributes = readPackageJson().contributes;
+		const pins: readonly { section: string; ids: readonly (string | undefined)[]; constant: string }[] = [
+			{
+				section: "chatParticipants",
+				ids: (contributes.chatParticipants ?? []).map((entry) => entry.id),
+				constant: PARTICIPANT_ID,
+			},
+			{
+				section: "languageModelTools",
+				ids: (contributes.languageModelTools ?? []).map((entry) => entry.name),
+				constant: TOOL_NAME,
+			},
+			{
+				section: "mcpServerDefinitionProviders",
+				ids: (contributes.mcpServerDefinitionProviders ?? []).map((entry) => entry.id),
+				constant: MCP_PROVIDER_ID,
+			},
+		];
+		for (const pin of pins) {
+			assert.ok(pin.ids.length <= 1, `${pin.section} contributes more than one entry`);
+			for (const id of pin.ids) {
+				assert.strictEqual(id, pin.constant, `${pin.section} must contribute exactly the shared constant`);
+			}
+		}
 	});
 
 	test("walkthrough command: and onCommand: deep-links use registered command IDs", () => {

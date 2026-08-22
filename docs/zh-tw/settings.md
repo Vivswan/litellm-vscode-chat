@@ -68,6 +68,15 @@
 | `litellm-vscode-chat.commitGeneration.enabled` | `false` | 選擇啟用由 LiteLLM 模型產生提交訊息, 隨提交訊息產生功能一起交付。預設關閉: 啟用前命令保持隱藏、不送出任何要求; 只啟用而不設定 `commitGeneration.model` 時功能保持閒置 |
 | `litellm-vscode-chat.commitGeneration.model` | `null` | 起草提交訊息的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
 | `litellm-vscode-chat.commitGeneration.prompt` | `""` | 產生提交訊息時使用的自訂指示, 會整體取代內建指示。留空使用內建指示 (Conventional Commits 主旨行加簡短內文)。面向模型的文字, 按原樣送出 |
+| `litellm-vscode-chat.prGeneration.enabled` | `false` | 選擇啟用由 LiteLLM 模型產生 PR 標題和描述。先於功能註冊: 設定會保留, 待功能發佈後生效 |
+| `litellm-vscode-chat.prGeneration.model` | `null` | 起草 PR 描述的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
+| `litellm-vscode-chat.consultTool.enabled` | `false` | 選擇啟用諮詢工具 (聊天代理向另一個 LiteLLM 模型提問)。先於功能註冊: 設定會保留, 待功能發佈後生效 |
+| `litellm-vscode-chat.consultTool.model` | `null` | 諮詢工具詢問的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
+| `litellm-vscode-chat.quickFix.enabled` | `false` | 選擇啟用針對診斷的修復/解釋快速修復。先於功能註冊: 設定會保留, 待功能發佈後生效 |
+| `litellm-vscode-chat.quickFix.model` | `null` | 快速修復後備路徑使用的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
+| `litellm-vscode-chat.reviewComments.enabled` | `false` | 選擇啟用對變更的 AI 審查評論。先於功能註冊: 設定會保留, 待功能發佈後生效 |
+| `litellm-vscode-chat.reviewComments.model` | `null` | 撰寫審查評論的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
+| `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟; 先於功能註冊, 待功能發佈後生效 |
 
 刻意不提供全域標頭設定: 自訂 HTTP 標頭描述的是如何與某一個伺服器交談, 所以它們存放在伺服器項目上 ([`headers`](servers.md#自訂標頭)) - 機器範圍, 在設定同步搆不到的地方, 與全域設定不同。
 

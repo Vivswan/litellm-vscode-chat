@@ -33,32 +33,36 @@ const fixture: RenderFixture = {
 						...state.settings.featureModels,
 						inlineCompletions: { server: "prod", model: "gpt-5-mini" },
 					},
-					featureModelScopes: { inlineCompletions: "global", commitGeneration: null },
+					featureModelScopes: {
+						...state.settings.featureModelScopes,
+						inlineCompletions: "global",
+						commitGeneration: null,
+					},
 				},
 			},
 		},
-		{ kind: "focusSection", section: "settings" },
+		{ kind: "focusSection", section: "features" },
 	],
 	steps: [
 		`(() => {
 			const row = document.querySelector('.setting-row:has([id="setting-inlineCompletions.model"])');
 			const button = Array.from(row.querySelectorAll("button")).find(
-				(candidate) => candidate.textContent === "Test completion"
+				(candidate) => candidate.textContent === "Test model"
 			);
 			if (button === undefined) {
-				throw new Error("the inline model row must render the Test completion button");
+				throw new Error("the inline model row must render the Test model button");
 			}
 			button.click();
-			const posted = (window.__posted || []).filter((message) => message.method === "testFimCompletion").at(-1);
+			const posted = (window.__posted || []).filter((message) => message.method === "testFeatureModel").at(-1);
 			if (posted === undefined) {
-				throw new Error("clicking Test completion must post one testFimCompletion request");
+				throw new Error("clicking Test model must post one testFeatureModel request");
 			}
 			window.dispatchEvent(
 				new MessageEvent("message", {
 					data: {
 						kind: "ack",
 						id: posted.id,
-						method: "testFimCompletion",
+						method: "testFeatureModel",
 						message: "Completion received - 42 characters",
 					},
 				})

@@ -5,6 +5,7 @@ import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../util
 import { isRecord, isUnsafeRecordKey } from "../util/json";
 import type {
 	BooleanSettingId,
+	FeatureId,
 	FeatureModelId,
 	FeatureModelRef,
 	InlineLanguageFilter,
@@ -23,6 +24,7 @@ import {
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
+	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_MODEL_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	isIntegerSetting,
@@ -439,14 +441,13 @@ export function isOpenRouterCatalogEnabled(): boolean {
 	return getBooleanSetting("models.openRouterCatalog");
 }
 
-/** The inline-completions opt-in; false means zero registration and zero traffic. */
-export function isInlineCompletionsEnabled(): boolean {
-	return getBooleanSetting("inlineCompletions.enabled");
-}
-
-/** The commit-generation opt-in; false hides the command surfaces and sends nothing. */
-export function isCommitGenerationEnabled(): boolean {
-	return getBooleanSetting("commitGeneration.enabled");
+/**
+ * One feature's enable flag, through the FEATURE_ENABLE_SETTING_KEYS map: the
+ * one pipeline for every feature opt-in. For the model-picking features, false
+ * means zero registration and zero traffic.
+ */
+export function isFeatureEnabled(feature: FeatureId): boolean {
+	return getBooleanSetting(FEATURE_ENABLE_SETTING_KEYS[feature]);
 }
 
 /**

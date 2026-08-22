@@ -261,9 +261,9 @@ test("the palette and radius resets keep Tailwind's defaults unreachable", async
 	// Exact counts, because a site quietly losing its binding is the regression.
 	const boundSites = [
 		{ file: "recordEditors.tsx", utility: "rounded-(--radius-chip)", count: 3 },
-		{ file: "serverEditPage.tsx", utility: "rounded-(--radius-field)", count: 1 },
 		{ file: "ui/input.tsx", utility: "rounded-(--radius-field)", count: 1 },
 		{ file: "ui/select.tsx", utility: "rounded-(--radius-field)", count: 1 },
+		{ file: "ui/textarea.tsx", utility: "rounded-(--radius-field)", count: 1 },
 	] as const;
 	for (const site of boundSites) {
 		const source = readFileSync(path.resolve(componentsDir, site.file), "utf8");
@@ -320,9 +320,10 @@ test("every focus rule takes its color from the ring token, never the host's foc
 	// or none stating a colour, would satisfy the emptiness above vacuously. Exact,
 	// not floors - one rule losing its ring is precisely the regression - and Bun
 	// splits a grouped selector, so the button/a/.tip-wrap global counts three
-	// times. Update deliberately when a focus surface is added or removed.
+	// times (the record JSON textarea's own rule left with the shared Textarea
+	// primitive). Update deliberately when a focus surface is added or removed.
 	const ringed = (css: string) => focusRules(css).filter((rule) => outlineColor(rule.body) === "var(--ring)");
-	expect(ringed(sheets.dashboard)).toHaveLength(5);
+	expect(ringed(sheets.dashboard)).toHaveLength(4);
 	expect(ringed(sheets.theme)).toHaveLength(3);
 });
 
@@ -365,8 +366,9 @@ test("every focus rule takes its geometry from the ring tokens, never a literal"
 	// Positive controls, exact: the offset statements per sheet and variant, so a parser
 	// finding no outline declarations cannot pass vacuously and a surface changing its
 	// variant is a deliberate update here. Dashboard: the button/a/.tip-wrap global (Bun
-	// splits it into three) outset; the windowed scrollport and the record JSON textarea
-	// inset. Theme: the focus-visible outset utility; the focus and focus-visible inset ones.
+	// splits it into three) outset; the windowed scrollport inset (the record JSON textarea
+	// rides the shared Textarea primitive's utilities now). Theme: the focus-visible outset
+	// utility; the focus and focus-visible inset ones.
 	const offsetRules = (css: string, token: string) =>
 		blocks(css).filter(
 			(rule) =>
@@ -376,7 +378,7 @@ test("every focus rule takes its geometry from the ring tokens, never a literal"
 				)
 		);
 	expect(offsetRules(sheets.dashboard, "var(--ring-offset)")).toHaveLength(3);
-	expect(offsetRules(sheets.dashboard, "var(--ring-offset-inset)")).toHaveLength(2);
+	expect(offsetRules(sheets.dashboard, "var(--ring-offset-inset)")).toHaveLength(1);
 	expect(offsetRules(sheets.theme, "var(--ring-offset)")).toHaveLength(1);
 	expect(offsetRules(sheets.theme, "var(--ring-offset-inset)")).toHaveLength(2);
 	// The tokens themselves: canonical values in the compiled theme, minted exactly once

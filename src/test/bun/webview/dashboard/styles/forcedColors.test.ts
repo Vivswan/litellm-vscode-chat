@@ -48,7 +48,7 @@ interface TransparentBorder {
  */
 const TRANSPARENT_BORDERS: readonly TransparentBorder[] = [
 	{
-		file: "dashboard/settings.tsx",
+		file: "dashboard/settingRows.tsx",
 		text: "border-l-transparent",
 		count: 1,
 		disposition: {
@@ -108,15 +108,6 @@ const TRANSPARENT_BORDERS: readonly TransparentBorder[] = [
 		disposition: {
 			kind: "welcome",
 			why: "the fallback says the host declares no select edge, and the mode draws one on the control anyway",
-		},
-	},
-	{
-		file: "dashboard/styles/dashboard.css",
-		text: "border: 1px solid var(--vscode-input-border, transparent)",
-		count: 1,
-		disposition: {
-			kind: "welcome",
-			why: "same fallback on the JSON textarea: a field that looks like a field",
 		},
 	},
 	{
@@ -509,15 +500,6 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 		declaration: "background: var(--vscode-editorWidget-background, transparent)",
 		count: 1,
 		disposition: { kind: "insideBorder", why: "the frame's 1px border is the box, same chrome as .group" },
-	},
-	{
-		selector: ".record-json textarea",
-		declaration: "background: var(--vscode-input-background)",
-		count: 1,
-		disposition: {
-			kind: "insideBorder",
-			why: "a field: its always-present border repaints from its transparent fallback (the border registry's welcome case), a field that looks like a field",
-		},
 	},
 	{
 		selector: ".model-inspector .max-tokens",

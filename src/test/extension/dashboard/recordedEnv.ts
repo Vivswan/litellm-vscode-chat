@@ -148,7 +148,7 @@ export interface RecordedEnv {
 	probes: DraftConnection[];
 	probeResult: readonly string[];
 	probeError?: Error;
-	/** Every probeFimCompletion call's model ref; fimProbeResult/probeError shape the outcome. */
+	/** Every inlineCompletions feature-probe call's model ref; fimProbeResult/probeError shape the outcome. */
 	fimProbes: FeatureModelRef[];
 	fimProbeResult: string | undefined;
 	/** Every hideGroup call. */
@@ -292,12 +292,14 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 				}
 				return recorded.probeResult;
 			},
-			probeFimCompletion: async (model) => {
-				recorded.fimProbes.push(model);
-				if (recorded.probeError !== undefined) {
-					throw recorded.probeError;
-				}
-				return recorded.fimProbeResult;
+			featureProbes: {
+				inlineCompletions: async (model: FeatureModelRef) => {
+					recorded.fimProbes.push(model);
+					if (recorded.probeError !== undefined) {
+						throw recorded.probeError;
+					}
+					return recorded.fimProbeResult;
+				},
 			},
 			log: (message, data) => {
 				recorded.logs.push([message, data]);

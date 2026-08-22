@@ -5,7 +5,7 @@
  * filter arrives normalized (settings.ts's normalizeInlineLanguageFilter).
  */
 
-import type { InlineLanguageFilter } from "../../shared/config/settingSpec";
+import type { InlineLanguageFilter } from "../../../shared/config/settingSpec";
 
 /**
  * Whether inline completions run for a language: block mode admits everything

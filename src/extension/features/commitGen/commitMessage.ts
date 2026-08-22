@@ -1,4 +1,4 @@
-import type { Commit, Repository } from "./gitApi";
+import type { Commit, Repository } from "../gitApi";
 
 /**
  * The commit-message generation core: pure prompt assembly plus one

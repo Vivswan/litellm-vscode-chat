@@ -182,6 +182,7 @@ export function makeState(overrides: Partial<DashboardState> = {}): DashboardSta
 		servedModelCount: servers.reduce((sum, server) => sum + server.servedModelCount, 0),
 		models: [],
 		settings: makeSettings(),
+		featureProbes: ["inlineCompletions"],
 		usage: makeUsage(),
 		diagnostics: [],
 		legacyServerCount: 0,

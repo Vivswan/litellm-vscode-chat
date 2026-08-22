@@ -4,12 +4,10 @@
  */
 
 import { isGroupClientId } from "../../provider/catalog/groupModels";
-import {
-	getFeatureModelRef,
-	isCommitGenerationEnabled,
-	isInlineCompletionsEnabled,
-} from "../../shared/config/settings";
+import { FEATURE_IDS, isFeatureModelId } from "../../shared/config/settingSpec";
+import { getFeatureModelRef, isFeatureEnabled } from "../../shared/config/settings";
 import type { ServerStatus } from "../../shared/servers";
+import { recordFromKeys } from "../../shared/util/json";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DiagnosticsSnapshot, IssueReporter } from "./issueReporter";
 import type { ConnectionStatus } from "./status";
@@ -68,11 +66,12 @@ export async function buildDiagnosticsSnapshot(
 		apiKeyConfigured: hasApiKey,
 		baseUrlConfigured: hasBaseUrl,
 		// Feature flags only: whether each feature is on and whether a model
-		// ref is set - never which model or label.
-		commitGenerationEnabled: isCommitGenerationEnabled(),
-		commitGenerationModelConfigured: getFeatureModelRef("commitGeneration") !== undefined,
-		inlineCompletionsEnabled: isInlineCompletionsEnabled(),
-		inlineCompletionsModelConfigured: getFeatureModelRef("inlineCompletions") !== undefined,
+		// ref is set - never which model or label. One loop over FEATURE_IDS, so
+		// a new feature joins the report by joining the vocabulary.
+		featureFlags: recordFromKeys(FEATURE_IDS, (feature) => ({
+			enabled: isFeatureEnabled(feature),
+			...(isFeatureModelId(feature) ? { modelConfigured: getFeatureModelRef(feature) !== undefined } : {}),
+		})),
 		latestError: issueReporter.getLatestError(),
 		recentLogs: issueReporter.getRecentLogs(),
 	};

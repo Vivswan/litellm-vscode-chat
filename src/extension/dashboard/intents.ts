@@ -19,7 +19,7 @@ import { unitBehavior, zeroModelExplanation } from "../../dashboard/presenters";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import { usableThresholds } from "../../dashboard/spendFormat";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
-import type { FeatureModelRef, NumberSettingId } from "../../shared/config/settingSpec";
+import type { FeatureModelId, FeatureModelRef, NumberSettingId } from "../../shared/config/settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
@@ -95,6 +95,21 @@ export class DashboardOperationError extends Error {
 	}
 }
 
+/**
+ * The per-feature model probes, keyed by feature: each runs the feature's
+ * exact pipeline over a fixed sample (the inline-completions probe is the
+ * shared FIM send - connection resolution, `_fim_template` application, fixed
+ * bounds). Partial: a feature without a probe has no key, the model row
+ * renders no Test button for it, and a forged intent is refused. Read-only;
+ * each resolves to the probe's answer text or undefined when the 200 body
+ * carried none, and throws the transport's classified error. Declared here
+ * because the intent executor is the contract's consumer; the feature wirings
+ * build the record and the dashboard wiring passes it through.
+ */
+export type FeatureProbes = Readonly<
+	Partial<Record<FeatureModelId, (model: FeatureModelRef) => Promise<string | undefined>>>
+>;
+
 /** The effects an intent can have; injected so intents are testable without vscode. */
 export interface IntentEnvironment {
 	/** Write one litellm-vscode-chat.* setting (the key is relative to the section). */
@@ -152,14 +167,8 @@ export interface IntentEnvironment {
 	 * discovered raw model IDs; throws the transport's classified error.
 	 */
 	probeDraftConnection(connection: DraftConnection): Promise<readonly string[]>;
-	/**
-	 * One FIM probe of a picked (server, model) pair: the exact send pipeline
-	 * ghost text runs (shared connection resolution, `_fim_template`
-	 * application, fixed bounds) over a fixed sample context. Read-only;
-	 * resolves to the completion text or undefined when the 200 body carried
-	 * none; throws the transport's classified error.
-	 */
-	probeFimCompletion(model: FeatureModelRef): Promise<string | undefined>;
+	/** The per-feature model probes; see FeatureProbes. */
+	featureProbes: FeatureProbes;
 	/**
 	 * Kick one immediate OpenRouter catalog refresh. Fire-and-forget: the
 	 * wiring re-pushes state when the refresh settles, and the row status
@@ -655,10 +664,18 @@ export async function executeDashboardIntent(
 				? l10n.t("Connected - 1 model")
 				: l10n.t("Connected - {0} models", outcome.modelCount);
 		}
-		case "testFimCompletion": {
+		case "testFeatureModel": {
+			const probe = env.featureProbes[intent.payload.feature];
+			if (probe === undefined) {
+				// The button renders only where a probe exists, so this is a
+				// bypassing caller (or a stale page across an upgrade).
+				throw new DashboardValidationError(
+					l10n.t("This feature has no model test; pick the model and use it directly.")
+				);
+			}
 			let text: string | undefined;
 			try {
-				text = await env.probeFimCompletion(intent.payload.model);
+				text = await probe(intent.payload.model);
 			} catch (error) {
 				// The transport's classified errors render at the button like the
 				// draft probe's: the message is the transport's own two-part text,

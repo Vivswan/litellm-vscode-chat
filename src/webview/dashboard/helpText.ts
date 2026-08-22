@@ -35,6 +35,12 @@ export function helpSettingsSection(): string {
 	);
 }
 
+export function helpFeaturesSection(): string {
+	return l10n.t(
+		"The extension's features beyond chat, e.g. inline completions, each with its own opt-in and model. Sections marked not active yet are registered ahead of their feature and take effect when it ships."
+	);
+}
+
 export function helpImportExportGroup(): string {
 	return l10n.t(
 		"Move your setup to another machine: Export writes your settings to a JSON file, and Import merges such a file back. Export includes secrets only if you ask it to."

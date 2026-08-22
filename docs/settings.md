@@ -68,6 +68,15 @@ The file is a versioned envelope (setting keys inside it drop the `litellm-vscod
 | `litellm-vscode-chat.commitGeneration.enabled` | `false` | Opt-in for commit message generation from a LiteLLM model, shipping with the commit generation feature. Off by default: the command stays hidden and nothing is sent until enabled, and enabling without `commitGeneration.model` keeps the feature idle |
 | `litellm-vscode-chat.commitGeneration.model` | `null` | The model that drafts commit messages; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model` |
 | `litellm-vscode-chat.commitGeneration.prompt` | `""` | Custom instruction for the generated commit message, replacing the built-in instruction wholesale. Empty uses the built-in (a Conventional Commits subject plus a short body). Model-facing text, sent as written |
+| `litellm-vscode-chat.prGeneration.enabled` | `false` | Opt-in for PR title/description generation from a LiteLLM model. Registered ahead of the feature: the setting persists and takes effect when the feature ships |
+| `litellm-vscode-chat.prGeneration.model` | `null` | The model that drafts PR descriptions; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model` |
+| `litellm-vscode-chat.consultTool.enabled` | `false` | Opt-in for the consult tool (a chat agent asking a second LiteLLM model). Registered ahead of the feature: the setting persists and takes effect when the feature ships |
+| `litellm-vscode-chat.consultTool.model` | `null` | The model the consult tool asks; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model` |
+| `litellm-vscode-chat.quickFix.enabled` | `false` | Opt-in for Fix/Explain quick fixes on diagnostics. Registered ahead of the feature: the setting persists and takes effect when the feature ships |
+| `litellm-vscode-chat.quickFix.model` | `null` | The model behind the quick-fix fallback path; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model` |
+| `litellm-vscode-chat.reviewComments.enabled` | `false` | Opt-in for AI review comments on your changes. Registered ahead of the feature: the setting persists and takes effect when the feature ships |
+| `litellm-vscode-chat.reviewComments.model` | `null` | The model that writes review comments; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model` |
+| `litellm-vscode-chat.chatParticipant.enabled` | `true` | The @litellm chat participant, answering with the chat request's own model (no model setting). On by default; registered ahead of the feature and takes effect when it ships |
 
 There is deliberately no global headers setting: custom HTTP headers describe how to talk to one server, so they live on the server entry ([`headers`](servers.md#custom-headers)) - machine-scoped and out of Settings Sync's reach, unlike a global setting.
 

@@ -1,13 +1,16 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import type { CompletionCacheKey } from "../../../../extension/inline/completionCache";
-import { CompletionCache, DEFAULT_COMPLETION_CACHE_CAPACITY } from "../../../../extension/inline/completionCache";
+import type { CompletionCacheKey } from "../../../../../extension/features/inline/completionCache";
+import {
+	CompletionCache,
+	DEFAULT_COMPLETION_CACHE_CAPACITY,
+} from "../../../../../extension/features/inline/completionCache";
 
 function key(overrides: Partial<CompletionCacheKey> = {}): CompletionCacheKey {
 	return { server: "Main", model: "codestral-fim", prefix: "function ad", suffix: "\n}", ...overrides };
 }
 
-describe("extension/inline/completionCache", () => {
+describe("extension/features/inline/completionCache", () => {
 	test("miss then hit round trip, empty completions included", () => {
 		const cache = new CompletionCache();
 		assert.strictEqual(cache.get(key()), undefined);

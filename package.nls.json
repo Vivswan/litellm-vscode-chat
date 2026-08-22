@@ -119,5 +119,19 @@
 	"litellm.config.commitGeneration.model.description": "The model that drafts commit messages, e.g. `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`: the label of a `#litellm-vscode-chat.servers#` entry plus one of its raw model IDs. `null` means no model is picked and the feature stays idle.",
 	"litellm.config.commitGeneration.prompt.description": "Custom instruction for the generated commit message, replacing the built-in instruction wholesale. Empty uses the built-in (a Conventional Commits subject plus a short body).",
 	"litellm.config.featureModel.server.description": "The label of the servers entry that serves the model.",
-	"litellm.config.featureModel.model.description": "The raw model ID as that server reports it."
+	"litellm.config.featureModel.model.description": "The raw model ID as that server reports it.",
+	"litellm.config.section.prGeneration": "PR description generation",
+	"litellm.config.prGeneration.enabled.description": "Opt in to PR title and description generation from a LiteLLM model. Not active yet: the setting is registered ahead of the feature and takes effect when it ships.",
+	"litellm.config.prGeneration.model.description": "The model that drafts PR descriptions, e.g. `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`: the label of a `#litellm-vscode-chat.servers#` entry plus one of its raw model IDs. `null` means no model is picked and the feature stays idle.",
+	"litellm.config.section.consultTool": "Consult tool",
+	"litellm.config.consultTool.enabled.description": "Opt in to the consult tool, which lets a chat agent ask a second LiteLLM model. Not active yet: the setting is registered ahead of the feature and takes effect when it ships.",
+	"litellm.config.consultTool.model.description": "The model the consult tool asks, e.g. `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`: the label of a `#litellm-vscode-chat.servers#` entry plus one of its raw model IDs. `null` means no model is picked and the feature stays idle.",
+	"litellm.config.section.quickFix": "Quick fixes",
+	"litellm.config.quickFix.enabled.description": "Opt in to Fix and Explain quick fixes on diagnostics. Not active yet: the setting is registered ahead of the feature and takes effect when it ships.",
+	"litellm.config.quickFix.model.description": "The model behind the quick-fix fallback path, e.g. `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`: the label of a `#litellm-vscode-chat.servers#` entry plus one of its raw model IDs. `null` means no model is picked and the fallback stays idle.",
+	"litellm.config.section.reviewComments": "Review comments",
+	"litellm.config.reviewComments.enabled.description": "Opt in to AI review comments on your changes. Not active yet: the setting is registered ahead of the feature and takes effect when it ships.",
+	"litellm.config.reviewComments.model.description": "The model that writes review comments, e.g. `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`: the label of a `#litellm-vscode-chat.servers#` entry plus one of its raw model IDs. `null` means no model is picked and the feature stays idle.",
+	"litellm.config.section.chatParticipant": "Chat participant",
+	"litellm.config.chatParticipant.enabled.description": "The @litellm chat participant. On by default and costs nothing until invoked; it answers with the chat request's own model. Not active yet: the setting is registered ahead of the feature and takes effect when it ships."
 }

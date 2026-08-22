@@ -16,6 +16,8 @@ export const DOCS_LINK_PARAMS_INSPECTOR =
 export const DOCS_LINK_CAPS_INSPECTOR =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/dashboard.md#effective-capabilities";
 export const DOCS_LINK_SETTINGS = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/settings.md";
+export const DOCS_LINK_DASHBOARD_FEATURES =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/dashboard.md#features";
 export const DOCS_LINK_MODEL_PARAMETERS =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/models.md#parameters";
 export const DOCS_LINK_MODEL_CAPABILITIES =
@@ -53,6 +55,7 @@ export type DocsUrl =
 	| typeof DOCS_LINK_PARAMS_INSPECTOR
 	| typeof DOCS_LINK_CAPS_INSPECTOR
 	| typeof DOCS_LINK_SETTINGS
+	| typeof DOCS_LINK_DASHBOARD_FEATURES
 	| typeof DOCS_LINK_MODEL_PARAMETERS
 	| typeof DOCS_LINK_MODEL_CAPABILITIES
 	| typeof DOCS_LINK_PARAMS_INACTIVE

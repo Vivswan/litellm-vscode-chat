@@ -1,22 +1,22 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import { statusErrorTexts } from "../../provider/transport/errorMapping";
-import type { OneShotClient } from "../../provider/transport/oneShotClient";
-import type { BooleanSettingId } from "../../shared/config/settingSpec";
-import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../shared/config/settingSpec";
+import { statusErrorTexts } from "../../../provider/transport/errorMapping";
+import type { OneShotClient } from "../../../provider/transport/oneShotClient";
+import type { BooleanSettingId } from "../../../shared/config/settingSpec";
+import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
 import {
 	getCommitGenerationPrompt,
 	getFeatureModelRef,
 	getRequestTimeout,
-	isCommitGenerationEnabled,
-} from "../../shared/config/settings";
-import type { Logger } from "../../shared/logger";
-import { localizedError } from "../../shared/mirroredError";
-import { entryConnectionFor } from "../servers/entryConnection";
-import { commandErrorActions, openSettingsAction, showActionableMessage } from "../ui/notifier";
+	isFeatureEnabled,
+} from "../../../shared/config/settings";
+import type { Logger } from "../../../shared/logger";
+import { localizedError } from "../../../shared/mirroredError";
+import { entryConnectionFor } from "../../servers/entryConnection";
+import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
+import type { API, GitExtension, Repository } from "../gitApi";
 import type { CommitModelRef } from "./commitMessage";
 import { generateCommitMessage } from "./commitMessage";
-import type { API, GitExtension, Repository } from "./gitApi";
 
 /**
  * The generate-commit-message command surface: git repo selection, progress,
@@ -126,7 +126,7 @@ export async function runGenerateCommitMessage(
 	commandArg: unknown,
 	resolveGit: () => Promise<API | undefined> = resolveGitApi
 ): Promise<void> {
-	if (!isCommitGenerationEnabled()) {
+	if (!isFeatureEnabled("commitGeneration")) {
 		await showActionableMessage(
 			"info",
 			l10n.t('Commit message generation is off. Enable "{0}" in settings to use it.', ENABLED_SETTING_ID),

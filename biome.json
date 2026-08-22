@@ -136,6 +136,46 @@
 			}
 		},
 		{
+			"includes": ["src/extension/features/inline/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/commitGen/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/commitGen/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/inline/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
 			"includes": ["src/webview/**"],
 			"linter": {
 				"rules": {

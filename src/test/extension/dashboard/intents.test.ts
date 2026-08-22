@@ -1661,11 +1661,14 @@ suite("extension/dashboard/intents", () => {
 			assert.strictEqual(recorded.probes[1]?.label, undefined);
 		});
 
-		test("testFimCompletion probes the picked pair and answers with counts, never completion text", async () => {
+		test("testFeatureModel probes the picked pair and answers with counts, never completion text", async () => {
 			const recorded = makeEnv([]);
 			recorded.fimProbeResult = "return a + b;";
 			const notice = await executeDashboardIntent(
-				{ method: "testFimCompletion", payload: { model: { server: "Main", model: "codestral-fim" } } },
+				{
+					method: "testFeatureModel",
+					payload: { feature: "inlineCompletions", model: { server: "Main", model: "codestral-fim" } },
+				},
 				recorded.env
 			);
 			assert.deepStrictEqual(recorded.fimProbes, [{ server: "Main", model: "codestral-fim" }]);
@@ -1677,7 +1680,10 @@ suite("extension/dashboard/intents", () => {
 				const recorded = makeEnv([]);
 				recorded.fimProbeResult = result;
 				const notice = await executeDashboardIntent(
-					{ method: "testFimCompletion", payload: { model: { server: "Main", model: "gpt-5.2" } } },
+					{
+						method: "testFeatureModel",
+						payload: { feature: "inlineCompletions", model: { server: "Main", model: "gpt-5.2" } },
+					},
 					recorded.env
 				);
 				assert.ok(typeof notice === "object" && notice !== null);
@@ -1693,7 +1699,10 @@ suite("extension/dashboard/intents", () => {
 			});
 			await assert.rejects(
 				executeDashboardIntent(
-					{ method: "testFimCompletion", payload: { model: { server: "Main", model: "codestral-fim" } } },
+					{
+						method: "testFeatureModel",
+						payload: { feature: "inlineCompletions", model: { server: "Main", model: "codestral-fim" } },
+					},
 					recorded.env
 				),
 				(error: unknown) => {

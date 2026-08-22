@@ -1,8 +1,8 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import { languageAllowed } from "../../../../extension/inline/languageFilter";
+import { languageAllowed } from "../../../../../extension/features/inline/languageFilter";
 
-describe("extension/inline/languageFilter", () => {
+describe("extension/features/inline/languageFilter", () => {
 	test("block mode with the empty list allows every language", () => {
 		assert.strictEqual(languageAllowed("typescript", { mode: "block", languages: [] }), true);
 		assert.strictEqual(languageAllowed("plaintext", { mode: "block", languages: [] }), true);

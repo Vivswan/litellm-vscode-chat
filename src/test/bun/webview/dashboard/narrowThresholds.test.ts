@@ -382,20 +382,21 @@ test("the settings rows' shared tracks leave the description a working column at
 	// above the threshold where the label cap, the fixed tracks, and the gaps leave it a word per line. The
 	// geometry lives in dashboard.css (the .settings-groups block), so this reads it out of the stylesheet.
 	const css = stylesheet();
+	// The gutter is a fixed token both settings pages read, declared on the
+	// track owner; settingLabelGutter.test.ts owns WHY it is fixed, this reads
+	// its width so the arithmetic below prices the real column.
+	const gutter = /\.settings-groups \{\s*--setting-label-gutter: (\d+(?:\.\d+)?)rem;/.exec(css);
+	if (gutter?.[1] === undefined) {
+		throw new Error("could not read --setting-label-gutter from dashboard.css's .settings-groups block");
+	}
 	// Anchored to the wide-tier block: the tracks, the label cap, and the gap all live inside the ONE
 	// `@container pane (width >= N px)` block that owns the settings grid, so the threshold cannot be spelled
 	// twice and drift - membership in the block is checked by brace depth below.
 	const wide =
-		/@container pane \(width >= (\d+)px\) \{\s*\.settings-groups \{\s*display: grid;\s*grid-template-columns: minmax\((\d+(?:\.\d+)?)rem, max-content\) minmax\(0, (\d+(?:\.\d+)?)rem\) minmax\(0, 1fr\) (\d+(?:\.\d+)?)rem;\s*column-gap: (\d+)px;/.exec(
+		/@container pane \(width >= (\d+)px\) \{\s*\.settings-groups \{\s*display: grid;\s*grid-template-columns: var\(--setting-label-gutter\) minmax\(0, (\d+(?:\.\d+)?)rem\) minmax\(0, 1fr\) (\d+(?:\.\d+)?)rem;\s*column-gap: (\d+)px;/.exec(
 			css
 		);
-	if (
-		wide?.[1] === undefined ||
-		wide[2] === undefined ||
-		wide[3] === undefined ||
-		wide[4] === undefined ||
-		wide[5] === undefined
-	) {
+	if (wide?.[1] === undefined || wide[2] === undefined || wide[3] === undefined || wide[4] === undefined) {
 		throw new Error("could not read the shared settings tracks from dashboard.css's .settings-groups block");
 	}
 	const threshold = Number(wide[1]);
@@ -416,10 +417,9 @@ test("the settings rows' shared tracks leave the description a working column at
 		}
 	}
 	const wideBlock = css.slice(blockStart, blockEnd);
-	const cap = /\.setting-title \{\s*max-width: (\d+(?:\.\d+)?)rem;/.exec(wideBlock);
-	if (cap?.[1] === undefined) {
-		throw new Error("could not read the label cap from the settings wide-tier block in dashboard.css");
-	}
+	// The cell's own bound reads the SAME token as the track, so the gutter has
+	// one width rather than a track and a cap that can disagree.
+	expect(wideBlock).toContain("max-width: var(--setting-label-gutter)");
 	expect(wideBlock).toContain("grid-template-columns: subgrid");
 	// The stacked band opens where the wide tier closes: the `< threshold` block
 	// (brace-balanced, like the wide one - an unbounded scan would be satisfied
@@ -441,13 +441,11 @@ test("the settings rows' shared tracks leave the description a working column at
 		}
 	}
 	expect(css.slice(stackedOpen, stackedEnd)).toContain("grid-template-columns: auto 1fr");
-	// The cap is the growth limit over the floor, not under it.
-	expect(Number(cap[1])).toBeGreaterThanOrEqual(Number(wide[2]));
 	// The tracks are rem and the threshold px, so a root font size other than the CSS default of 16 would move
 	// one side of the comparison. That is a fact about the stylesheets rather than a constant, so it is checked.
 	expect(rootFontSizeDeclarations()).toEqual([]);
 	const gaps = 3;
-	const fixed = (Number(cap[1]) + Number(wide[3]) + Number(wide[4])) * 16 + Number(wide[5]) * gaps;
+	const fixed = (Number(gutter[1]) + Number(wide[2]) + Number(wide[3])) * 16 + Number(wide[4]) * gaps;
 	// 240px is about 34 characters of 0.95em prose: a real column, not a sliver.
 	expect(threshold - fixed).toBeGreaterThanOrEqual(240);
 });

@@ -33,11 +33,15 @@ const fixture: RenderFixture = {
 						...state.settings.featureModels,
 						inlineCompletions: { server: "prod", model: "gpt-5-mini" },
 					},
-					featureModelScopes: { inlineCompletions: "global", commitGeneration: null },
+					featureModelScopes: {
+						...state.settings.featureModelScopes,
+						inlineCompletions: "global",
+						commitGeneration: null,
+					},
 				},
 			},
 		},
-		{ kind: "focusSection", section: "settings" },
+		{ kind: "focusSection", section: "features" },
 	],
 	steps: [
 		`(() => {

@@ -643,6 +643,31 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 					"Drafts the commit message from your changes with a LiteLLM model. Requires enabling this and choosing a model below."
 				),
 			};
+		case "prGeneration.enabled":
+			return {
+				label: l10n.t("Enable PR description generation"),
+				description: l10n.t("Drafts PR titles and descriptions from your commits with a LiteLLM model."),
+			};
+		case "consultTool.enabled":
+			return {
+				label: l10n.t("Enable the consult tool"),
+				description: l10n.t("Lets a chat agent ask a second LiteLLM model through a tool call."),
+			};
+		case "quickFix.enabled":
+			return {
+				label: l10n.t("Enable quick fixes"),
+				description: l10n.t("Fix and Explain actions on diagnostics, answered by a LiteLLM model."),
+			};
+		case "reviewComments.enabled":
+			return {
+				label: l10n.t("Enable review comments"),
+				description: l10n.t("AI review comments on your changes from a LiteLLM model."),
+			};
+		case "chatParticipant.enabled":
+			return {
+				label: l10n.t("Enable the @litellm participant"),
+				description: l10n.t("Answers @litellm chat turns with the request's own model; costs nothing until invoked."),
+			};
 	}
 }
 

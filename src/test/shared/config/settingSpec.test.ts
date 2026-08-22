@@ -119,7 +119,7 @@ function schemaTypes(schema: SettingSchema): readonly string[] {
 }
 
 suite("shared/config/settingSpec: package.json drift guard", () => {
-	test("the configuration contributes exactly the eight titled sections, in order", () => {
+	test("the configuration contributes exactly the thirteen titled sections, in order", () => {
 		const titles = readPackageJson().contributes.configuration.map((section) => resolveNls(section.title));
 		assert.deepStrictEqual(titles, [
 			"Servers",
@@ -130,6 +130,11 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 			"UI",
 			"Inline completions",
 			"Commit message generation",
+			"PR description generation",
+			"Consult tool",
+			"Quick fixes",
+			"Review comments",
+			"Chat participant",
 		]);
 	});
 
@@ -281,8 +286,7 @@ suite("shared/config/settingSpec: docs drift guard", () => {
 		// leaving five default columns as unpinned prose.
 		const properties = allProperties();
 		for (const id of [
-			FEATURE_MODEL_SETTING_KEYS.inlineCompletions,
-			FEATURE_MODEL_SETTING_KEYS.commitGeneration,
+			...FEATURE_MODEL_IDS.map((feature) => FEATURE_MODEL_SETTING_KEYS[feature]),
 			COMMIT_GENERATION_PROMPT_SETTING_KEY,
 			INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 		]) {

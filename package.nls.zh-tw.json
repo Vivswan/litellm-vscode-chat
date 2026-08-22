@@ -119,5 +119,19 @@
 	"litellm.config.commitGeneration.model.description": "起草提交訊息的模型。寫法如 `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`。server 是某個 `#litellm-vscode-chat.servers#` 項目的 label。model 是該伺服器的一個原始模型 ID。`null` 表示未選擇模型、功能保持閒置。",
 	"litellm.config.commitGeneration.prompt.description": "產生提交訊息時使用的自訂指示。設定後會整體取代內建指示。留空使用內建指示 (Conventional Commits 主旨行加簡短內文)。",
 	"litellm.config.featureModel.server.description": "提供該模型的 servers 項目的 label。",
-	"litellm.config.featureModel.model.description": "該伺服器回報的原始模型 ID。"
+	"litellm.config.featureModel.model.description": "該伺服器回報的原始模型 ID。",
+	"litellm.config.section.prGeneration": "PR 描述產生",
+	"litellm.config.prGeneration.enabled.description": "選擇啟用由 LiteLLM 模型產生 PR 標題和描述。尚未生效。該設定先於功能註冊、待功能發佈後生效。",
+	"litellm.config.prGeneration.model.description": "起草 PR 描述的模型。寫法如 `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`。server 是某個 `#litellm-vscode-chat.servers#` 項目的 label。model 是該伺服器的一個原始模型 ID。`null` 表示未選擇模型、功能保持閒置。",
+	"litellm.config.section.consultTool": "諮詢工具",
+	"litellm.config.consultTool.enabled.description": "選擇啟用諮詢工具。它讓聊天代理向另一個 LiteLLM 模型提問。尚未生效。該設定先於功能註冊、待功能發佈後生效。",
+	"litellm.config.consultTool.model.description": "諮詢工具詢問的模型。寫法如 `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`。server 是某個 `#litellm-vscode-chat.servers#` 項目的 label。model 是該伺服器的一個原始模型 ID。`null` 表示未選擇模型、功能保持閒置。",
+	"litellm.config.section.quickFix": "快速修復",
+	"litellm.config.quickFix.enabled.description": "選擇啟用針對診斷的「修復」和「解釋」快速修復。尚未生效。該設定先於功能註冊、待功能發佈後生效。",
+	"litellm.config.quickFix.model.description": "快速修復後備路徑使用的模型。寫法如 `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`。server 是某個 `#litellm-vscode-chat.servers#` 項目的 label。model 是該伺服器的一個原始模型 ID。`null` 表示未選擇模型、後備路徑保持閒置。",
+	"litellm.config.section.reviewComments": "審查評論",
+	"litellm.config.reviewComments.enabled.description": "選擇啟用對變更的 AI 審查評論。尚未生效。該設定先於功能註冊、待功能發佈後生效。",
+	"litellm.config.reviewComments.model.description": "撰寫審查評論的模型。寫法如 `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`。server 是某個 `#litellm-vscode-chat.servers#` 項目的 label。model 是該伺服器的一個原始模型 ID。`null` 表示未選擇模型、功能保持閒置。",
+	"litellm.config.section.chatParticipant": "聊天參與者",
+	"litellm.config.chatParticipant.enabled.description": "@litellm 聊天參與者。預設開啟、未呼叫時沒有任何開銷。它使用聊天請求自身的模型作答。尚未生效。該設定先於功能註冊、待功能發佈後生效。"
 }

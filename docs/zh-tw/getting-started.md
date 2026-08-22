@@ -146,7 +146,7 @@ Answer with the commit message text only: no markdown fences, no surrounding quo
 "litellm-vscode-chat.inlineCompletions.languageFilter": { "mode": "block", "languages": ["markdown", "plaintext"] }
 ```
 
-沒有需要執行的命令: 這個功能完全由設定驅動。關閉時不註冊任何內容, 也不會自動送出請求 (唯一的例外是儀表板上明確的「測試補全」按鈕, 無論功能是否開啟, 點擊都會發送一次探測請求); 開啟但未指定模型時, 功能保持閒置。
+沒有需要執行的命令: 這個功能完全由設定驅動。關閉時不註冊任何內容, 也不會自動送出請求 (唯一的例外是儀表板上明確的「測試模型」按鈕, 無論功能是否開啟, 點擊都會發送一次探測請求); 開啟但未指定模型時, 功能保持閒置。
 
 **要選補全模型, 不是聊天模型。** 內嵌補全會 POST 到 `/v1/completions`, 因此模型必須是您的 LiteLLM 伺服器在 `model_info` 中宣告為 `mode: completion` 的那一種 - 一個中間填充 (FIM) 模型。這類模型刻意不出現在聊天模型選擇器裡, 所以模型 ID 要從 Proxy 的設定檔取得, 而不是從選擇器取得。
 

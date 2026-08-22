@@ -1,13 +1,14 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import { INTERNAL_CMD } from "../../shared/config/commandIds";
+import { INTERNAL_CMD } from "../../../shared/config/commandIds";
 import {
 	CONFIG_SECTION,
 	FEATURE_MODEL_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
-} from "../../shared/config/settingSpec";
-import { getFeatureModelRef, getInlineLanguageFilter } from "../../shared/config/settings";
-import { createSettingsAccess } from "../settingsAccess";
+} from "../../../shared/config/settingSpec";
+import { getFeatureModelRef, getInlineLanguageFilter } from "../../../shared/config/settings";
+import { createSettingsAccess } from "../../settingsAccess";
+import { errorLabel } from "../errorLabel";
 import { languageAllowed } from "./languageFilter";
 
 /**
@@ -152,9 +153,7 @@ export function registerToggleInlineLanguageCommand(
 			} catch (error) {
 				// A settings write can fail (readonly settings file); classification
 				// only, the toggle simply does not happen.
-				log("Inline completions language toggle failed", {
-					error: error instanceof Error ? error.name : typeof error,
-				});
+				log("Inline completions language toggle failed", { error: errorLabel(error) });
 			}
 		})
 	);

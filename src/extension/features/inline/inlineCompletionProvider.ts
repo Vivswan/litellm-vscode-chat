@@ -13,9 +13,10 @@ import {
 	FIM_SUFFIX_BUDGET,
 	truncateFimPrefix,
 	truncateFimSuffix,
-} from "../../provider/transport/fim";
-import type { FeatureModelRef } from "../../shared/config/settingSpec";
-import { getFeatureModelRef, getInlineLanguageFilter } from "../../shared/config/settings";
+} from "../../../provider/transport/fim";
+import type { FeatureModelRef } from "../../../shared/config/settingSpec";
+import { getFeatureModelRef, getInlineLanguageFilter } from "../../../shared/config/settings";
+import { errorLabel } from "../errorLabel";
 import type { CompletionCache } from "./completionCache";
 import { languageAllowed } from "./languageFilter";
 
@@ -62,33 +63,6 @@ function isCancellation(error: unknown): boolean {
 		return error instanceof vscode.CancellationError;
 	} catch {
 		return false;
-	}
-}
-
-/** Terse label shape: one short printable-ASCII line, so multi-line or binary junk never reaches a log. */
-const TERSE_LABEL = /^[\x20-\x7e]{1,120}$/;
-
-/**
- * A log-safe name for a failed send: the error's own terse logClassification
- * when it carries one (MirroredError's English-by-construction field), else
- * the Error class name, else the value's type. Total over hostile values -
- * throwing getters included - and shape-gated, so response-derived text has
- * no path into the issue-report buffer through this line.
- */
-function errorLabel(error: unknown): string {
-	try {
-		if (typeof error === "object" && error !== null) {
-			const classification = (error as { logClassification?: unknown }).logClassification;
-			if (typeof classification === "string" && TERSE_LABEL.test(classification)) {
-				return classification;
-			}
-			if (error instanceof Error && TERSE_LABEL.test(error.name)) {
-				return error.name;
-			}
-		}
-		return typeof error;
-	} catch {
-		return "unreadable-error";
 	}
 }
 

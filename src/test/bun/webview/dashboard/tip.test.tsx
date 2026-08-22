@@ -246,6 +246,36 @@ test("collapsed rail controls carry paint-only tips: name echoes, hidden from as
 	expect(document.getElementById(described)?.className).toBe("rail-synced");
 });
 
+test("an icon rail tab names itself on hover AND on keyboard focus: the icon is the only other clue", () => {
+	// On the collapsed rail a tab paints an icon and nothing else, so the tip IS
+	// the route to its name for a sighted reader - by pointer and by Tab alike.
+	// The pointer half is pinned above; this is the keyboard half, on the rail
+	// rather than on the primitive, because only the rail hides the name in the
+	// first place.
+	const root = mountCollapsedApp();
+	for (const tab of Array.from(root.querySelectorAll<HTMLElement>("[role='tab']"))) {
+		const label = tab.querySelector(".rail-label")?.textContent ?? "";
+		const bubble = tab.querySelector(".tip-bubble") as HTMLElement;
+		expect(isOpen(bubble)).toBe(false);
+
+		fireMouseEnter(tab);
+		expect(isOpen(bubble)).toBe(true);
+		fireMouseLeave(tab);
+		expect(isOpen(bubble)).toBe(false);
+
+		void act(() => {
+			tab.focus();
+		});
+		expect(isOpen(bubble)).toBe(true);
+		expect(bubble.textContent).toContain(label);
+		void act(() => {
+			tab.blur();
+		});
+		fireBlur(tab);
+		expect(isOpen(bubble)).toBe(false);
+	}
+});
+
 test("a never-synced verdict pill describes nothing: there is no second fact to add", () => {
 	setViewport(800, 700);
 	const root = mount(<App />);

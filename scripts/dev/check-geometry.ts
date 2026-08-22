@@ -152,17 +152,17 @@ type StatePair = StatePairBase &
 
 /** The theme appearance row, the settings row every pair on that page anchors to. */
 const THEME_ROW = '.setting-row:has([id="setting-ui.theme"])';
-/** The inline-completions model-picker row (settings-features.ts), whose dangling warning is a covered-slot tenant. */
+/** The inline-completions model-picker row (features-page.ts), whose dangling warning is a covered-slot tenant. */
 const INLINE_MODEL_ROW = '.setting-row:has([id="setting-inlineCompletions.model"])';
-/** The commit model-picker row (settings-features.ts), at rest wearing the long vanished-server warning. */
+/** The commit model-picker row (features-page.ts), at rest wearing the long vanished-server warning. */
 const COMMIT_MODEL_ROW = '.setting-row:has([id="setting-commitGeneration.model"])';
-/** The commit prompt row (settings-features.ts), whose bounded auto-growing textarea holds a three-line prompt at rest. */
+/** The commit prompt row (features-page.ts), whose bounded auto-growing textarea holds a three-line prompt at rest. */
 const COMMIT_PROMPT_ROW = '.setting-row:has([id="setting-commitGeneration.prompt"])';
 /** That row's textarea itself, the box whose growth the prompt pair measures. */
 const COMMIT_PROMPT_BOX = '[id="setting-commitGeneration.prompt"]';
-/** The language filter's mode row (settings-features.ts), the companion select above the list row. */
+/** The language filter's mode row (features-page.ts), the companion select above the list row. */
 const LANGUAGE_FILTER_MODE_ROW = '.setting-row:has([id="setting-inlineCompletions.languageFilter-mode"])';
-/** The language filter's list row (settings-features.ts), the setting's primary comma-list row. */
+/** The language filter's list row (features-page.ts), the setting's primary comma-list row. */
 const LANGUAGE_FILTER_LIST_ROW = '.setting-row:has([id="setting-inlineCompletions.languageFilter"])';
 /** The usage-thresholds row, whose error contract is "the overlay never changes the row's height". */
 const THRESHOLDS_ROW = '.setting-row:has([id="setting-usage.alertThresholds-warning"])';
@@ -200,6 +200,8 @@ const GPT5_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor
 const LAST_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "claude-sonnet-4"'])`;
 /** The Copy diagnostics tool in the Diagnostics page's vertical action stack (third of the four tools). */
 const COPY_TOOL = ".diagnostics-tools li:nth-child(3) button";
+/** A rail destination that is never the selected one on the coverage fixtures, so its tip is a real reveal. */
+const RAIL_MODELS_TAB = '.rail-nav [role="tab"][id="tab-models"]';
 
 /**
  * The armed cover's own claim, stated in the pair's verify because the pair
@@ -318,7 +320,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 		// the ref's DECLARED SERVER behind a pick may change NOTHING but the
 		// warning: the row's box and the row below must hold still.
 		name: "feature-model-dangling",
-		fixture: "settings-features.ts",
+		fixture: "features-page.ts",
 		targets: [INLINE_MODEL_ROW],
 		siblingOf: INLINE_MODEL_ROW,
 		toggle: [
@@ -348,22 +350,22 @@ const STATE_PAIRS: readonly StatePair[] = [
 		// the errors), so a finished probe may move neither the row's box nor
 		// the row below.
 		name: "fim-probe-outcome",
-		fixture: "settings-features.ts",
+		fixture: "features-page.ts",
 		targets: [INLINE_MODEL_ROW],
 		siblingOf: INLINE_MODEL_ROW,
 		toggle: [
 			`(() => {
 				const button = Array.from(document.querySelectorAll(${JSON.stringify(`${INLINE_MODEL_ROW} button`)})).find(
-					(candidate) => candidate.textContent === "Test completion"
+					(candidate) => candidate.textContent === "Test model"
 				);
 				button.click();
-				const posted = (window.__posted || []).filter((message) => message.method === "testFimCompletion").at(-1);
+				const posted = (window.__posted || []).filter((message) => message.method === "testFeatureModel").at(-1);
 				window.dispatchEvent(
 					new MessageEvent("message", {
 						data: {
 							kind: "ack",
 							id: posted.id,
-							method: "testFimCompletion",
+							method: "testFeatureModel",
 							message: "Completion received - 42 characters",
 						},
 					})
@@ -381,7 +383,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 		// change is the intended delta while its x, y, and width hold - the
 		// editor must grow downward in place, never shift the row.
 		name: "feature-model-custom-entry",
-		fixture: "settings-features.ts",
+		fixture: "features-page.ts",
 		targets: [INLINE_MODEL_ROW],
 		intended: { [INLINE_MODEL_ROW]: ["height"] },
 		toggle: [
@@ -408,7 +410,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 		// loudly instead of passing an unmoved row. No metricProbe on purpose:
 		// the box's height is lh-derived BY DESIGN, so it moves with font metrics.
 		name: "commit-prompt-textarea-grows",
-		fixture: "settings-features.ts",
+		fixture: "features-page.ts",
 		targets: [COMMIT_PROMPT_ROW, COMMIT_PROMPT_BOX],
 		intended: { [COMMIT_PROMPT_ROW]: ["height"], [COMMIT_PROMPT_BOX]: ["height"] },
 		toggle: [
@@ -435,7 +437,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 		// the mode option, but both rows keep single-line texts by design, so
 		// neither row's box nor the row below the pair may move.
 		name: "language-filter-mode-switch",
-		fixture: "settings-features.ts",
+		fixture: "features-page.ts",
 		// The list row is its group's last row (no next sibling), so the held
 		// downstream witness is the next group's model row; the mode row's own
 		// sibling is the list row, held twice over.
@@ -464,12 +466,14 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`list?.value === "markdown, plaintext"; })()`,
 	},
 	{
-		// The covered slot renders ONE truncated line however long the tenant,
-		// so a standing long warning holds the row; opening its Details
-		// disclosure is the user-initiated reveal whose only intended delta is
-		// the row's height (the full selectable text joins the flow below).
+		// The covered slot renders ONE line however much the tenant holds, so a
+		// standing warning holds the row; opening its Details disclosure is the
+		// user-initiated reveal whose only intended delta is the row's height
+		// (the full consequence-first sentence joins the flow below). The
+		// warning's line is deliberately shorter than that sentence, which is
+		// why Details is offered at all here.
 		name: "covered-slot-details-disclosure",
-		fixture: "settings-features.ts",
+		fixture: "features-page.ts",
 		targets: [COMMIT_MODEL_ROW],
 		intended: { [COMMIT_MODEL_ROW]: ["height"] },
 		toggle: [
@@ -487,6 +491,37 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify:
 			`(() => { const detail = document.querySelector(${JSON.stringify(`${COMMIT_MODEL_ROW} .setting-detail`)}); ` +
 			`return detail !== null && detail.textContent.includes("no longer configured"); })()`,
+	},
+	{
+		// On the icon rail a tab paints an icon and nothing else, so its tip is
+		// how a sighted reader learns its name - and a name arriving under the
+		// pointer must not move the column it names. The bubble is fixed-position
+		// INSIDE its trigger, which is exactly the construction that could push
+		// the tab if it ever rejoined the flow: the rail's inner column, the
+		// tablist, and the tab below the hovered one are all held. The pointer
+		// half is driven here because a headless page has a deterministic
+		// mouseover and a heuristic :focus-visible; the keyboard half is pinned
+		// in src/test/bun/webview/dashboard/tip.test.tsx.
+		name: "rail-tab-tip-reveal",
+		fixture: "rail-coverage-collapsed.ts",
+		targets: [".rail-inner", ".rail-nav", RAIL_MODELS_TAB],
+		siblingOf: RAIL_MODELS_TAB,
+		toggle: [
+			`(() => {
+				const tab = document.querySelector(${JSON.stringify(RAIL_MODELS_TAB)});
+				if (tab === null) { throw new Error(${marker("SETUP", ": no Models tab on the collapsed rail")}); }
+				// mouseover, not mouseenter: React delegates onMouseEnter off the
+				// bubbling pair, so a non-bubbling mouseenter reaches no handler.
+				tab.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+			})()`,
+		],
+		restVerify: `document.querySelector('.rail .tip-bubble[data-open="true"]') === null`,
+		verify:
+			`(() => { const bubble = document.querySelector(${JSON.stringify(`${RAIL_MODELS_TAB} .tip-bubble`)}); ` +
+			`return bubble?.getAttribute("data-open") === "true" && ` +
+			`bubble.getBoundingClientRect().width > 0 && ` +
+			// The bubble says the name the collapsed rail stopped painting.
+			`bubble.textContent.includes("Models"); })()`,
 	},
 	{
 		// A modified row's hover/focus reveal is opacity through the Reveal
@@ -1198,12 +1233,24 @@ const WIDTH_SURFACES: readonly WidthSurface[] = [
 	{ name: "servers-list-full-bleed", fixture: "servers-spend.ts", selector: "ul.server-list" },
 	{ name: "diagnostics-problems-full-bleed", fixture: "diagnostics.ts", selector: ".config-diagnostics" },
 	{ name: "diagnostics-resolution-full-bleed", fixture: "diagnostics.ts", selector: ".resolved-scroll" },
-	// The settings rows adopt .settings-groups' shared tracks through subgrid and
-	// the label track auto-grows to the longest title, but the fixed trailing
-	// actions slot must still land on the pane's content edge. The claim is on
-	// the actions cell because the row's own box overhangs by 8px (the hover
-	// tint), so the cell is where the CONTENT stops.
-	{ name: "settings-rows-full-bleed", fixture: "settings.ts", selector: ".setting-row .setting-actions" },
+	// The settings rows adopt .settings-groups' shared tracks through subgrid
+	// and the label gutter is one fixed token both pages read, but the fixed
+	// trailing actions slot must still land on the pane's content edge. The
+	// claim is on the actions cell because the row's own box overhangs by 8px
+	// (the hover tint), so the cell is where the CONTENT stops; scoped to the
+	// owning panel because the OTHER page's rows also match bare .setting-row
+	// from inside their hidden tabpanel (rect 0).
+	{
+		name: "settings-rows-full-bleed",
+		fixture: "settings.ts",
+		selector: "#panel-settings .setting-row .setting-actions",
+	},
+	// The Features page adopts the same row construction on its own pane.
+	{
+		name: "features-rows-full-bleed",
+		fixture: "features-page.ts",
+		selector: "#panel-features .setting-row .setting-actions",
+	},
 ];
 
 /**

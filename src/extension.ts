@@ -5,7 +5,7 @@ import { registerOpenRouterCatalogTestSeam } from "./extension/openRouterCatalog
 import { registerTestCommands, SessionLogTee } from "./extension/ui/commands";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
 import { wireDashboard, wireGroupRemovalReactions, wireUsageSurfaces } from "./extension/wiring/dashboard";
-import { createFimProbe, wireInlineCompletions } from "./extension/wiring/inlineCompletions";
+import { wireFeatures } from "./extension/wiring/features";
 import { wireCatalogRefresh, wireProvider, wireTokenCounting } from "./extension/wiring/provider";
 import { wireServers } from "./extension/wiring/servers";
 import { wireStorage } from "./extension/wiring/storage";
@@ -94,10 +94,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const { statusBar, notifier } = wireStatusSurfaces(context, logger, hasConfiguredServers, () =>
 		servers.syncEngine.getDeclared()
 	);
-	// Inline completions: opt-in by construction (nothing registers while the
-	// enable flag is off). Before the dashboard so its test probe can reuse the
-	// exact send pipeline ghost text runs.
-	const inline = wireInlineCompletions(context, logger, { ua });
+	// The features (inline completions, commit generation): each is opt-in by
+	// construction, and all share one one-shot client. Before the dashboard so
+	// its test probes reuse the features' exact send pipelines.
+	const features = wireFeatures(context, logger, { ua, outputChannel });
 	const dashboard = wireDashboard(context, logger, {
 		provider,
 		syncEngine: servers.syncEngine,
@@ -106,7 +106,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		catalogStore,
 		usagePoller: servers.usagePoller,
 		ua,
-		probeFimCompletion: createFimProbe(inline.fimSend),
+		featureProbes: features.featureProbes,
 	});
 	wireUsageSurfaces(context, logger, { usagePoller: servers.usagePoller, dashboard });
 	wireCatalogRefresh(context, logger, { catalogStore, notifyModelsChanged, dashboard });
@@ -152,7 +152,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		issueReporter,
 		extVersion,
 		vscodeVersion,
-		ua,
 	});
 }
 

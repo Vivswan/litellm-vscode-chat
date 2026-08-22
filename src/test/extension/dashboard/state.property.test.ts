@@ -162,7 +162,8 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	}),
 	saveServerSetting: serverDraftPayload,
 	testServerDraft: serverDraftPayload,
-	testFimCompletion: fc.record({
+	testFeatureModel: fc.record({
+		feature: fc.constantFrom(...FEATURE_MODEL_IDS),
 		model: fc.record({
 			server: fc.string({ minLength: 1, maxLength: 64 }),
 			model: fc.string({ minLength: 1, maxLength: 128 }),

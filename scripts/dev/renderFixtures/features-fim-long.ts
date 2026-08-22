@@ -39,35 +39,40 @@ const fixture: RenderFixture = {
 						},
 					},
 					featureModels: {
+						...state.settings.featureModels,
 						inlineCompletions: { server: "prod", model: "gpt-5-mini" },
 						commitGeneration: {
 							server: "decommissioned-staging-litellm-gateway-eu-central-legacy",
 							model: "claude-4",
 						},
 					},
-					featureModelScopes: { inlineCompletions: "global", commitGeneration: "global" },
+					featureModelScopes: {
+						...state.settings.featureModelScopes,
+						inlineCompletions: "global",
+						commitGeneration: "global",
+					},
 				},
 			},
 		},
-		{ kind: "focusSection", section: "settings" },
+		{ kind: "focusSection", section: "features" },
 	],
 	steps: [
 		`(() => {
 			const row = document.querySelector('.setting-row:has([id="setting-inlineCompletions.model"])');
 			const button = Array.from(row.querySelectorAll("button")).find(
-				(candidate) => candidate.textContent === "Test completion"
+				(candidate) => candidate.textContent === "Test model"
 			);
 			button.click();
-			const posted = (window.__posted || []).filter((message) => message.method === "testFimCompletion").at(-1);
+			const posted = (window.__posted || []).filter((message) => message.method === "testFeatureModel").at(-1);
 			if (posted === undefined) {
-				throw new Error("clicking Test completion must post one testFimCompletion request");
+				throw new Error("clicking Test model must post one testFeatureModel request");
 			}
 			window.dispatchEvent(
 				new MessageEvent("message", {
 					data: {
 						kind: "fail",
 						id: posted.id,
-						method: "testFimCompletion",
+						method: "testFeatureModel",
 						message: ${JSON.stringify(LONG_FAIL_MESSAGE)},
 						failureKind: "validation",
 					},

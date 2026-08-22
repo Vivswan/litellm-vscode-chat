@@ -200,9 +200,10 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	refreshUsage: z.null(),
 	saveServerSetting: serverDraftPayloadSchema,
 	testServerDraft: serverDraftPayloadSchema,
-	// The probe tests exactly one picked pair, bounded like setFeatureModel's
-	// non-null arm; the pair's existence is judged extension-side.
-	testFimCompletion: z.strictObject({
+	// The probe tests exactly one feature's picked pair, bounded like
+	// setFeatureModel's non-null arm; probe existence is judged extension-side.
+	testFeatureModel: z.strictObject({
+		feature: asEnum(FEATURE_MODEL_IDS),
 		model: z.strictObject({
 			server: z.string().min(1).max(WIRE_LIMITS.label),
 			model: z.string().min(1).max(WIRE_LIMITS.modelId),
@@ -282,7 +283,7 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	refreshUsage: requestSchema("refreshUsage"),
 	saveServerSetting: requestSchema("saveServerSetting"),
 	testServerDraft: requestSchema("testServerDraft"),
-	testFimCompletion: requestSchema("testFimCompletion"),
+	testFeatureModel: requestSchema("testFeatureModel"),
 	removeServerSetting: requestSchema("removeServerSetting"),
 	declareExpectedFailure: requestSchema("declareExpectedFailure"),
 	adoptServer: requestSchema("adoptServer"),

@@ -12,6 +12,20 @@ import * as l10n from "@vscode/l10n";
 /** The vendor this extension registers with the language-model host; provider groups carry it. */
 export const VENDOR_ID = "litellm";
 
+/**
+ * The contribution identities of the upcoming features, declared ahead of
+ * their manifests so registrations and package.json cannot drift apart once
+ * they land (the same contract as CMD). Each is pinned fail-closed by
+ * commandIds.test.ts: the manifest section stays EMPTY until the feature
+ * ships, and any entry it ever contributes must carry exactly this identity.
+ */
+/** The chatParticipants contribution's id (the @litellm participant). */
+export const PARTICIPANT_ID = "litellm.participant";
+/** The languageModelTools contribution's name (the consult tool). */
+export const TOOL_NAME = "litellm_consult";
+/** The mcpServerDefinitionProviders contribution's id. */
+export const MCP_PROVIDER_ID = "litellm.mcpServers";
+
 /** The commands package.json contributes; the palette and walkthrough deep-links use exactly these. */
 export const CMD = {
 	manage: "litellm.manage",

@@ -45,11 +45,16 @@ Three surface classes, each with one owner of its geometry.
   control column, the explanation column growing with the pane, and a fixed
   trailing actions slot at the pane's right edge. The PAGE owns the wide
   tier's tracks and every row adopts them through subgrid
-  (`settings.tsx SETTING_GRID_TRACKS`; `settings.tsx SETTING_ROW_GRID`), so
-  the label gutter is one measured width that grows to the longest visible
-  title instead of wrapping it, capped by the label cell's max-width so a
-  pathological title cannot starve the control column
-  (`settings.tsx SETTING_TITLE`). Below the stack threshold the row costs two
+  (`settingRows.tsx SETTING_GRID_TRACKS`; `settingRows.tsx SETTING_ROW_GRID`), and
+  the label gutter is one FIXED width shared by every settings surface
+  (`dashboard.css --setting-label-gutter`), with the label cell bounded by the
+  same token so a pathological title wraps inside the gutter instead of
+  painting over the control (`settingRows.tsx SETTING_TITLE`). Fixed rather than
+  content-measured, which is what it was: Features and Settings render this
+  anatomy on separate panes, so a max-content gutter sized itself to whichever
+  page's titles were longest and put their control edges ~20px apart - every
+  tab switch moved the whole form sideways. Below the stack threshold the row
+  costs two
   lines, not three: the label turns left and keeps its control beside it, the
   description takes the line under them, and the actions pin to the row's
   top-right corner. Only under the 560px tier, where the widest controls
@@ -58,15 +63,15 @@ Three surface classes, each with one owner of its geometry.
   checkbox) keeps the title's line at every width.
 - The description wears the hint measure, 72ch (`dashboard.css p.hint`'s own),
   as a reading cap inside its growing track: structure goes full-bleed, prose
-  stops where lines stay readable (`settings.tsx setting-hint`). The one
+  stops where lines stay readable (`settingRows.tsx setting-hint`). The one
   carve-out is a STATUS cluster standing in the description slot (the catalog
   row's counts, Refresh, and verdict): status is not prose, so it sheds the
   reading cap rather than wrap its own controls.
 - The gutter marker is always present and transparent when clean, so marking a
-  row modified never shifts it (`settings.tsx SettingRow`).
+  row modified never shifts it (`settingRows.tsx SettingRow`).
 - An error COVERS the description, never displaces it: the description stays in
   flow, merely invisible, so the form's height does not change while you type
-  (`settings.tsx SettingRow`).
+  (`settingRows.tsx SettingRow`).
 
 ### Form rows (slide-over panels, the server form)
 
@@ -89,6 +94,19 @@ Three surface classes, each with one owner of its geometry.
   a word only pushes it away from the name it belongs to
   (`modelInspector.tsx ValueCell`), and a localized template's shape changes
   with the locale, so its right edge is not a stable alignment axis.
+
+### Pointer targets
+
+- A control the size of its glyph gets a 24px pointer target from ONE shared
+  rule, and the rule grows the hit area only: an out-of-flow pseudo-element
+  centered on the control, never padding or a larger box, so the "?" ring keeps
+  its 14px and the line box it sits in keeps its height
+  (`dashboard.css .hit-24`). Its two tenants today are the help glyph
+  (`help.tsx hit-24`) and the settings row's settings.json jump
+  (`settingRows.tsx reveal-json`). The expansion reaches into the gap beside the
+  control rather than onto a neighbour, which is a fact about each site: the
+  actions slot leaves 8px of box gap between Reset and the jump, and the "?"
+  sits at a sentence tail where nothing beside it is interactive.
 
 ### Gaps and edge paddings measure ink
 
@@ -130,7 +148,7 @@ One idiom for actions that rest hidden on a row, and it has one home:
   (`dashboard.css .server-row`), the two-step remove confirm - wider than that
   track - leaves the flow and covers the row's own cells rather than resizing
   anything (`dashboard.css .server-actions.armed`), a settings error covers
-  the description instead of displacing it (`settings.tsx SettingRow`), a
+  the description instead of displacing it (`settingRows.tsx SettingRow`), a
   record card's validation verdict and its write refusal share an always-mounted
   slot over the footer row's free space - zero flex basis, so a message mounting
   there moves neither button group and a quiet footer stays exactly one row
@@ -147,29 +165,29 @@ One idiom for actions that rest hidden on a row, and it has one home:
   (`dashboard.css .matcher-status`; `dashboard.css .json-status`), and a note
   whose sentence is known at rest holds its own box as an invisible spacing
   twin until it speaks - aria-hidden where opacity holds the box
-  (`settings.tsx ModifiedNote`), or visibility-hidden, which removes the words
+  (`settingRows.tsx ModifiedNote`), or visibility-hidden, which removes the words
   from the accessibility tree itself (the server form's connection note,
   `serverEditPage.tsx connectionEdited`, and its label consequence notes,
   `serverEditPage.tsx rename-note`). In a prose zone
   the transient trails what is visible: nothing visible follows the "?" at
   rest, so the settings row's hover-only note renders after the glyph rather
-  than holding a gap open mid-sentence (`settings.tsx ModifiedNote`) - and the
+  than holding a gap open mid-sentence (`settingRows.tsx ModifiedNote`) - and the
   row's help glyph is ONE live control at the visible sentence's tail
-  (`settings.tsx glyphTrail`): a covering error joins the glyph's own inline
+  (`settingRows.tsx glyphTrail`): a covering error joins the glyph's own inline
   flow while the resting text's invisible twin - aria-hidden and
   visibility-hidden, its copies inert - holds the cell's box
-  (`settings.tsx SettingRow`), because a glyph painted through an overlay
+  (`settingRows.tsx SettingRow`), because a glyph painted through an overlay
   collides with the error's text in every theme and is buried whole under
   forced colors' text backplate - and a glyph remounted per tenant drops the
   keyboard focused on it.
 - One placement per element class, zero exceptions within the class: an element
   class has exactly one home on its surface. Row actions sit in the reserved
   trailing track (`dashboard.css .server-row`; the settings rows' actions slot,
-  `settings.tsx setting-actions`), section actions trail the header line
+  `settingRows.tsx setting-actions`), section actions trail the header line
   (`dashboard.css .section-head .section-actions`) - except that a section
   whose ONLY content is its actions renders them as its body, because parked
   in the header slot of an otherwise empty section they read as tucked-away
-  chrome (`settings.tsx settings-transfer`) - and the heading
+  chrome (`settingsPage.tsx settings-transfer`) - and the heading
   settings.json jump sits directly after the heading it opens, everywhere
   (`recordEditors.tsx HeadingRevealButton`). The Diagnostics page is the other
   section-actions exception, because a destination whose whole subject is
@@ -189,7 +207,7 @@ One idiom for actions that rest hidden on a row, and it has one home:
 - An annotation earns rest-visibility by being news. A User-scope setting value
   shows no note at rest - the gutter bar already says "set", and the scope is
   the expected one - while a workspace-scope value names its scope, the one
-  case the bar cannot disambiguate (`settings.tsx ModifiedNote`). "Showing 3 of
+  case the bar cannot disambiguate (`settingRows.tsx ModifiedNote`). "Showing 3 of
   3" at rest is a tautology (`diagnostics.tsx ResolvedModels`); and when the
   narrow server row must shed something, the `https://` scheme goes first while
   insecure `http://` stays painted - insecure is news
@@ -210,7 +228,11 @@ job each:
   square error, hollow ring muted - because hue alone cannot rank the tones
   (`dashboard.css .pill .dot`).
 - Badge: soft-fill prose facts beside names and counts
-  (`ui/badge.tsx badgeVariants`).
+  (`ui/badge.tsx badgeVariants`), the Features page's Coming soon marker on an
+  unshipped section's heading among them (`featuresPage.tsx comingSoonMarker`) -
+  a marker says WHICH sections, and the one page-level hint below the header
+  says what the marker means, rather than repeating the sentence per section
+  (`featuresPage.tsx featuresComingHint`).
 - Filter pill: an outlined toggle, filled when pressed, with `aria-pressed`
   carrying the state (`dashboard.css .filter-pill`; `models.tsx FilterPill`).
 - Provenance chip: outline plus mono, and never severity-toned - provenance
@@ -294,7 +316,12 @@ One idiom for detail that opens in place:
 - A problem leads with ONE consequence sentence; technical detail rides a
   dimmed second line under it, and the guide lives behind Learn more
   (`dashboard.css .row-diagnostic-headline`;
-  `diagnostics.tsx legacyProblemText`).
+  `diagnostics.tsx legacyProblemText`). Where the problem stands in a covered
+  slot whose height is reserved, the row's LINE may be shorter than the
+  sentence: the tenant carries both, one scannable line for the row and the
+  full consequence-first text for Details, read through one derivation so the
+  slot never grows a second truncation rule (`settingRows.tsx coveredLine`;
+  `settingRows.tsx coveredDetail`).
 - Standing prose is a hint line, not a paragraph: the section's "?" carries the
   long explanation (`helpText.ts`), and counts and filter state ride the
   section header's meta slot (`ui/section.tsx SectionHeader`;
@@ -305,7 +332,7 @@ One idiom for detail that opens in place:
 - Error placement follows scope:
   - field-level stands in the description's slot: where the surface promises
     stable height it covers the still-present description
-    (`settings.tsx SettingRow`), and the server form covers the still-present
+    (`settingRows.tsx SettingRow`), and the server form covers the still-present
     hint the same way under one id, so the field's advice stays announced at
     rest and the error alone is announced while it stands
     (`serverEditPage.tsx errorId`);
@@ -315,9 +342,9 @@ One idiom for detail that opens in place:
     any tab: the owning row first, named by the fail envelope itself (the
     extension derives the row from the refused payload,
     `src/dashboard/endpoints.ts settingWriteRow`; placement is
-    `settings.tsx writeFailures`); a section-top line when the failure carries
+    `settingsPage.tsx writeFailures`); a section-top line when the failure carries
     no row or the owning row is filter-hidden
-    (`settings.tsx unclaimedFailure`); and a pane-top line while another tab
+    (`settingRows.tsx placeWriteFailures`); and a pane-top line while another tab
     is active, because a hidden subtree neither paints nor announces
     (`app.tsx awaySettingFailure`). Only executeCommand keeps a pane-top line
     always: it is posted from every tab and owns no row anywhere
@@ -334,7 +361,7 @@ One idiom for detail that opens in place:
 - Structure runs full-bleed to the pane; forms and prose are measured (the
   width-policy note on `dashboard.css .pane`, whose own 1560px cap is the one
   structural bound). Hints and setting descriptions share the 72ch measure
-  (`dashboard.css p.hint`; `settings.tsx setting-hint`); a prose surface with
+  (`dashboard.css p.hint`; `settingRows.tsx setting-hint`); a prose surface with
   its own reading problem states its own cap and why (the diagnostic
   headline's 84ch, `dashboard.css .row-diagnostic-headline`; the notice
   card's, `dashboard.css .notice p`).
@@ -343,7 +370,7 @@ One idiom for detail that opens in place:
   lists, and rows fill the pane at every window size - with a trailing
   actions track where a row needs one, reserved on the server list
   (`dashboard.css .server-list`), fixed on the settings rows so clean and
-  modified rows share one explanation edge (`settings.tsx SETTING_ROW_GRID`).
+  modified rows share one explanation edge (`settingRows.tsx SETTING_ROW_GRID`).
   The surface measure is retired for page bodies: the diagnostics page's
   64rem cap left ~500px of dead pane beside the resolution table at a ~2000px
   window, and `src/test/bun/webview/dashboard/styles/measure.test.ts` fails
@@ -398,7 +425,7 @@ One idiom for detail that opens in place:
 
 - A filter that matches nothing says so in the emptied surface itself - a
   colSpan cell inside the table body (`diagnostics.tsx colSpan`), or the list's
-  own empty line (`models.tsx clearFilters`; `settings.tsx nothingMatches`) -
+  own empty line (`models.tsx clearFilters`; `settingsPage.tsx nothingMatches`) -
   with the way back beside it when this surface's own filters caused the
   nothing (`models.tsx clearFilters`).
 - Nothing configured yet is a guided card: a welcome, the steps in plain words,
@@ -513,7 +540,7 @@ prose colour reads as prose.
   active link colour.
 - Rank is the scenario's, not the label's: a surface whose whole content is
   its actions renders them at the primary rank (the settings transfer pair,
-  `settings.tsx settings-transfer`; the Diagnostics tools,
+  `settingsPage.tsx settings-transfer`; the Diagnostics tools,
   `diagnostics.tsx DiagnosticsTools`), while the same action on a crowded
   surface stays supporting - the rail's own Report a bug is a quiet compact
   secondary (`rail.tsx reportIssue`).
@@ -621,7 +648,7 @@ common defaults are deliberately not followed:
 - Labels sit in a right-aligned gutter beside their controls, the host Settings
   editor's idiom, not above the inputs. When the pane is too narrow for the
   gutter, a setting row turns its label left and keeps the control beside it on
-  one line (`settings.tsx SETTING_TITLE`), while the forms stack the label
+  one line (`settingRows.tsx SETTING_TITLE`), while the forms stack the label
   above the input (`serverEditPage.tsx label-row`).
 - Skeletons are for content and button spinners are for actions - two different
   jobs, not two treatments of one job (`app.tsx LoadingSkeleton`;

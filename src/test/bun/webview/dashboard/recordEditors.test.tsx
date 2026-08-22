@@ -16,7 +16,7 @@ import {
 	capabilityKeySuggestions,
 	RecordStatusSlot,
 } from "../../../../webview/dashboard/recordEditors";
-import { SettingsSection } from "../../../../webview/dashboard/settings";
+import { SettingsSection } from "../../../../webview/dashboard/settingsPage";
 import { makeSettings } from "../../../dashboardSettingsFixture";
 import { makeModel, makeState, statePush } from "../fixtures";
 import {

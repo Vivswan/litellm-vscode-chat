@@ -206,6 +206,75 @@ test("a refused write is visible from another tab, and announced exactly once pe
 	);
 });
 
+test("a Features-owned failure routes by the owner map: away everywhere else, claimed on Features, never on Settings", () => {
+	// The away line keys on the failure's OWN page (SETTING_ROW_PAGES), not on
+	// "am I on Settings": a setFeatureModel refusal must stand visible from the
+	// Settings tab and stand down only on the Features tab, where its row
+	// claims it. A map regression routing feature rows to "settings" fails
+	// both halves of this test.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	pushToWebview({
+		kind: "fail",
+		id: "req-4",
+		method: "setFeatureModel",
+		message: "the pick was refused",
+		failureKind: "operation",
+		row: "inlineCompletions.model",
+	});
+	// Default tab is Servers: the away line stands, announced.
+	expect(root.querySelector(".pane > p.error[role='alert']")?.textContent).toContain(
+		"The last change did not apply: the pick was refused"
+	);
+
+	// SETTINGS is not the owning page: the away line must STILL stand there,
+	// and no settings row may claim the notice.
+	const settingsTab = root.querySelector("#tab-settings");
+	if (!(settingsTab instanceof HTMLElement)) {
+		throw new Error("no settings rail tab");
+	}
+	fireClick(settingsTab);
+	expect(root.querySelector(".pane > p.error")?.textContent).toContain(
+		"The last change did not apply: the pick was refused"
+	);
+	expect(root.querySelector("#panel-settings .setting-hint .error")).toBeNull();
+
+	// FEATURES is the owning page: the away line stands down and the model
+	// row's covered slot claims the notice.
+	const featuresTab = root.querySelector("#tab-features");
+	if (!(featuresTab instanceof HTMLElement)) {
+		throw new Error("no features rail tab");
+	}
+	fireClick(featuresTab);
+	expect(root.querySelector(".pane > p.error")).toBeNull();
+	const claimed = root.querySelector("#panel-features .setting-hint .error");
+	expect(claimed?.textContent).toContain("The last change did not apply: the pick was refused");
+});
+
+test("a Settings-owned failure stays an away line while the Features tab is active", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	pushToWebview({
+		kind: "fail",
+		id: "req-5",
+		method: "setCurrencySymbol",
+		message: "the write was refused",
+		failureKind: "operation",
+		row: "usage.currencySymbol",
+	});
+	const featuresTab = root.querySelector("#tab-features");
+	if (!(featuresTab instanceof HTMLElement)) {
+		throw new Error("no features rail tab");
+	}
+	fireClick(featuresTab);
+	// Features does not own usage.currencySymbol, so the away line stands and
+	// no feature row claims it.
+	expect(root.querySelector(".pane > p.error")?.textContent).toContain(
+		"The last change did not apply: the write was refused"
+	);
+	expect(root.querySelector("#panel-features .setting-hint .error")).toBeNull();
+});
+
 test("a saveServerSetting fail notice survives a subsequent state push", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));

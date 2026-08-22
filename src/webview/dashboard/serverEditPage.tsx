@@ -86,6 +86,7 @@ import { Radio } from "./ui/radio";
 import { SecretInput } from "./ui/secretInput";
 import { SectionHeader } from "./ui/section";
 import { Select } from "./ui/select";
+import { Textarea } from "./ui/textarea";
 import { sendRequest } from "./vscodeApi";
 
 /**
@@ -1790,9 +1791,9 @@ function ServerForm({
 					}
 					wide={true}
 				>
-					<textarea
+					<Textarea
 						id="server-declaredModels"
-						className="w-full rounded-(--radius-field) border border-input bg-input-background px-1.5 py-[3px] font-mono text-[12px] text-input-foreground placeholder:text-input-placeholder focus:outline-(length:--ring-w) focus:outline-offset-(--ring-offset-inset) focus:outline-ring focus:outline-solid"
+						className="w-full font-mono text-[12px]"
 						rows={3}
 						placeholder={l10n.t("One model ID per line, e.g. deepseek-r1")}
 						value={draft.declaredModels}

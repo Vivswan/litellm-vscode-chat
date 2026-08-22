@@ -1202,6 +1202,30 @@
 		color: var(--vscode-foreground);
 		border-color: var(--vscode-foreground);
 	}
+	/* The 24px pointer target every glyph-sized control wears (WCAG 2.5.8), one
+	   rule for the class: an out-of-flow ::after grows the HIT AREA around the
+	   control while the control's own box is untouched, so the "?" ring stays
+	   14px, the {} stays its icon's size, and the line boxes they sit in keep
+	   their height - padding or a larger box would enlarge both. Centered on
+	   the control and never smaller than it, so one rule fits every glyph. The
+	   expansion reaches into the gap beside the control, not onto a neighbour:
+	   the settings row's actions slot holds 8px of box gap between Reset and
+	   the {} (gap-4.5 ink-to-ink less both hand-backs), and the "?" sits at a
+	   sentence tail where nothing beside it is interactive. */
+	.hit-24 {
+		position: relative;
+	}
+	.hit-24::after {
+		content: "";
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		translate: -50% -50%;
+		width: 100%;
+		height: 100%;
+		min-width: 24px;
+		min-height: 24px;
+	}
 	/* The page's one tooltip bubble (ui/tip.tsx decides when it shows and
 		 measures where; ONLY that primitive renders this class). It mirrors the
 		 editor's hover widget, on the same theme tokens. Fixed positioning is
@@ -1379,23 +1403,33 @@
 	/* ---- the settings rows' shared tracks and stacking bands ----
 	   One full-bleed template for every row (settings.tsx SettingRow renders
 	   onto these classes). Wide (pane >= 910px): the four tracks live on
-	   .settings-groups - auto label gutter (10rem floor; growth capped by
-	   .setting-title's max-width, because minmax cannot clamp max-content),
-	   control, growing explanation, fixed actions so clean and modified rows
-	   share one explanation edge - and groups and rows adopt them through two
-	   levels of subgrid, so the label gutter is ONE measured width hugging the
-	   longest visible title (per-row auto tracks would misalign the control
-	   edge). The PANE decides, not the window, and 910 sits clear of the band
-	   the rail's collapse makes ambiguous (every pane width in it happens TWICE
-	   as the window widens). */
+	   .settings-groups - label gutter, control, growing explanation, fixed
+	   actions so clean and modified rows share one explanation edge - and
+	   groups and rows adopt them through two levels of subgrid, so the label
+	   gutter is ONE measured width for the page (per-row auto tracks would
+	   misalign the control edge). The PANE decides, not the window, and 910
+	   sits clear of the band the rail's collapse makes ambiguous (every pane
+	   width in it happens TWICE as the window widens). */
 	.setting-row {
 		display: grid;
 		column-gap: 16px;
 	}
+	/* The label gutter is ONE FIXED width for every settings surface, declared
+	   here and read by both the track list and the label cell. Not a
+	   max-content track: Features and Settings render the same row anatomy on
+	   separate panes, so a content-measured gutter sized itself to whichever
+	   page's titles happened to be longest and put the two pages' control
+	   edges ~20px apart - every tab switch moved the whole form sideways. The
+	   number is the growth cap the auto track already answered to, so nothing
+	   that fitted before wraps now, and 13rem + 20rem + 5.5rem + the gaps
+	   still leaves ~246px of description at the 910 floor. */
+	.settings-groups {
+		--setting-label-gutter: 13rem;
+	}
 	@container pane (width >= 910px) {
 		.settings-groups {
 			display: grid;
-			grid-template-columns: minmax(10rem, max-content) minmax(0, 20rem) minmax(0, 1fr) 5.5rem;
+			grid-template-columns: var(--setting-label-gutter) minmax(0, 20rem) minmax(0, 1fr) 5.5rem;
 			column-gap: 16px;
 		}
 		.settings-group {
@@ -1412,11 +1446,10 @@
 		.settings-transfer {
 			grid-column: span 4;
 		}
-		/* The label gutter's growth limit: a pathological translation wraps
-		   instead of starving the control column (13rem + 20rem + 5.5rem + the
-		   gaps still leaves ~246px of description at the 910 floor). */
+		/* The cell's own bound, so a pathological translation wraps inside the
+		   gutter instead of painting over the control beside it. */
 		.setting-title {
-			max-width: 13rem;
+			max-width: var(--setting-label-gutter);
 		}
 		/* The row's one actions slot, placed explicitly: a description cell
 		   spanning a second row would drag the auto cursor down with it. */
@@ -1903,20 +1936,12 @@
 	.record-json {
 		max-width: 880px;
 	}
+	/* Layout and typography only: the input chrome (border, background, radius,
+		   focus ring) is the shared Textarea primitive's (ui/textarea.tsx). */
 	.record-json textarea {
-		width: 100%;
 		resize: vertical;
 		font-family: var(--vscode-editor-font-family, monospace);
 		font-size: inherit;
-		color: var(--vscode-input-foreground);
-		background: var(--vscode-input-background);
-		border: 1px solid var(--vscode-input-border, transparent);
-		border-radius: var(--radius-field);
-		padding: 4px 8px;
-	}
-	.record-json textarea:focus {
-		outline: var(--ring-w) solid var(--ring);
-		outline-offset: var(--ring-offset-inset);
 	}
 	/* The side door's one reserved status line under the textarea (the
 		   .row-status idiom): the parse verdict lands per keystroke, and a line

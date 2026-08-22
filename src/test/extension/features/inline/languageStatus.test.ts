@@ -8,9 +8,12 @@
  */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { InlineLanguageStatusRow, registerToggleInlineLanguageCommand } from "../../../extension/inline/languageStatus";
-import { INTERNAL_CMD } from "../../../shared/config/commandIds";
-import { withConfig } from "../../testUtils";
+import {
+	InlineLanguageStatusRow,
+	registerToggleInlineLanguageCommand,
+} from "../../../../extension/features/inline/languageStatus";
+import { INTERNAL_CMD } from "../../../../shared/config/commandIds";
+import { withConfig } from "../../../testUtils";
 
 interface FakeStatusItem {
 	text: string;
@@ -87,7 +90,7 @@ async function withStatusSpies<T>(fn: (spies: StatusSpies) => T | Promise<T>): P
 
 const MODEL_REF = { server: "Main", model: "codestral-fim" };
 
-suite("extension/inline languageStatus", () => {
+suite("extension/features/inline languageStatus", () => {
 	test("the row reads active/off from the same languageAllowed decision the provider filters by", async () => {
 		await withStatusSpies(async (spies) => {
 			await withConfig(

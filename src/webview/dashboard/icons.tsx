@@ -59,6 +59,16 @@ export function IconModels() {
 	);
 }
 
+/** The Features destination: a four-point spark, the manifest's own sparkle vocabulary. */
+export function IconSparkle() {
+	return (
+		<StrokeSvg>
+			<path d="M8 2.2c.5 2.6 1.7 3.8 4.3 4.3-2.6.5-3.8 1.7-4.3 4.3-.5-2.6-1.7-3.8-4.3-4.3 2.6-.5 3.8-1.7 4.3-4.3z" />
+			<path d="M12.4 10.4c.25 1.3.85 1.9 2.1 2.1-1.25.2-1.85.8-2.1 2.1-.25-1.3-.85-1.9-2.1-2.1 1.25-.2 1.85-.8 2.1-2.1z" />
+		</StrokeSvg>
+	);
+}
+
 /** The Diagnostics destination. */
 export function IconPulse() {
 	return (

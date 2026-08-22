@@ -37,8 +37,7 @@ import type { CapabilityCatalogLookup } from "../../shared/config/capabilityReso
 import { CMD } from "../../shared/config/commandIds";
 import { searchCatalogModels } from "../../shared/config/openRouterCatalog";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
-import type { FeatureModelRef } from "../../shared/config/settingSpec";
-import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { CONFIG_SECTION, FEATURE_MODEL_IDS } from "../../shared/config/settingSpec";
 import {
 	getDiscoveryTimeout,
 	getUiAccent,
@@ -79,7 +78,7 @@ import { buildConfigDiagnostics } from "./configDiagnostics";
 import { joinDeclared, labeledSnapshots } from "./declaredJoin";
 import { buildDashboardHtml } from "./html";
 import { parseDashboardRequest } from "./intentSchema";
-import type { IntentAckNotice, IntentEnvironment } from "./intents";
+import type { FeatureProbes, IntentAckNotice, IntentEnvironment } from "./intents";
 import {
 	DashboardOperationError,
 	DashboardValidationError,
@@ -421,6 +420,9 @@ export class DashboardController implements vscode.Disposable {
 		const removedGroups = this.env.getRemovedGroups();
 		const wasGroupObserved = (label: string, baseUrl: string) =>
 			this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl));
+		// In FEATURE_MODEL_IDS order for a stable push, whatever object the env
+		// built its probes record from.
+		const featureProbes = FEATURE_MODEL_IDS.filter((feature) => this.env.featureProbes[feature] !== undefined);
 		this.postToPanel({
 			kind: "push",
 			state: buildDashboardState({
@@ -428,6 +430,7 @@ export class DashboardController implements vscode.Disposable {
 				reader,
 				declared,
 				entryReports,
+				featureProbes,
 				legacyServers: this.env.getLegacyServers(),
 				removedGroups,
 				isGroupSnapshot: (serverId) => this.env.serverResolution.isGroupSnapshot(serverId),
@@ -618,7 +621,8 @@ export class DashboardController implements vscode.Disposable {
 		refreshUsage: (payload) => executeDashboardIntent({ method: "refreshUsage", payload }, this.env),
 		saveServerSetting: (payload) => executeDashboardIntent({ method: "saveServerSetting", payload }, this.env),
 		testServerDraft: (payload) => executeDashboardIntent({ method: "testServerDraft", payload }, this.env),
-		testFimCompletion: (payload) => executeDashboardIntent({ method: "testFimCompletion", payload }, this.env),
+		testFeatureModel: (payload) => executeDashboardIntent({ method: "testFeatureModel", payload }, this.env),
+
 		removeServerSetting: (payload) => executeDashboardIntent({ method: "removeServerSetting", payload }, this.env),
 		declareExpectedFailure: (payload) =>
 			executeDashboardIntent({ method: "declareExpectedFailure", payload }, this.env),
@@ -842,6 +846,31 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServersInput {
 	return { source: "settings-fallback", views };
 }
 
+/** Everything registerDashboardCommand wires beyond the extension context, as one named-options object. */
+export interface RegisterDashboardOptions {
+	readonly provider: LiteLLMChatModelProvider;
+	readonly logger: Logger;
+	readonly syncEngine: ServerSyncEngine;
+	readonly registry: ServerRegistry;
+	readonly removals: GroupRemovalStore;
+	/**
+	 * Structurally the OpenRouter catalog store: the snapshot feeds the
+	 * picker's search, the lookup feeds the capability inspector, the status
+	 * feeds the settings row, and refreshNow backs the row's Refresh button.
+	 */
+	readonly catalog: Pick<OpenRouterCatalogStore, "lookup" | "snapshot" | "status" | "refreshNow">;
+	readonly usagePoller: UsagePoller;
+	/**
+	 * The same composed entry-capabilities resolver activation wires into the
+	 * provider, so the inspector cannot diverge from registration and requests.
+	 */
+	readonly getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined;
+	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
+	readonly ua: string;
+	/** The per-feature model probes the feature wirings registered; see IntentEnvironment.featureProbes. */
+	readonly featureProbes: FeatureProbes;
+}
+
 /**
  * Register litellm.openDashboard and litellm.showDiagnostics (the deep link
  * to the Diagnostics tab) and keep the panel in sync with the stores:
@@ -851,24 +880,10 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServersInput {
  */
 export function registerDashboardCommand(
 	context: vscode.ExtensionContext,
-	provider: LiteLLMChatModelProvider,
-	logger: Logger,
-	syncEngine: ServerSyncEngine,
-	registry: ServerRegistry,
-	removals: GroupRemovalStore,
-	// Structurally the OpenRouter catalog store: the snapshot feeds the
-	// picker's search, the lookup feeds the capability inspector, the status
-	// feeds the settings row, and refreshNow backs the row's Refresh button.
-	catalog: Pick<OpenRouterCatalogStore, "lookup" | "snapshot" | "status" | "refreshNow">,
-	usagePoller: UsagePoller,
-	// The same composed entry-capabilities resolver activation wires into the
-	// provider, so the inspector cannot diverge from registration and requests.
-	getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined,
-	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
-	ua: string,
-	/** The inline-completions send pipeline's probe; see IntentEnvironment.probeFimCompletion. */
-	probeFimCompletion: (model: FeatureModelRef) => Promise<string | undefined>
+	options: RegisterDashboardOptions
 ): DashboardController {
+	const { provider, logger, syncEngine, registry, removals, catalog, usagePoller, getEntryModelCapabilities, ua } =
+		options;
 	const serverResolution: ServerResolution = {
 		isGroupSnapshot: (serverId) => provider.getGroupServer(serverId) !== undefined,
 		// The exact resolver chat requests use (activation wires the provider's
@@ -999,7 +1014,7 @@ export function registerDashboardCommand(
 		// mutation, no caching, and no logger (its discovery chatter would enter
 		// the issue-report buffer).
 		probeDraftConnection: createDraftConnectionProbe(ua),
-		probeFimCompletion,
+		featureProbes: options.featureProbes,
 		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
 		log: (message, data) => logger.log(message, data),
 		logError: (message, error) => logger.error(message, error),

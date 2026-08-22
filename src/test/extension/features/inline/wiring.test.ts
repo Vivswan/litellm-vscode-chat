@@ -9,12 +9,13 @@
 import * as assert from "node:assert";
 import { http } from "msw";
 import * as vscode from "vscode";
-import { liveInlineLanguageStatusRows } from "../../../extension/inline/languageStatus";
-import { createFimProbe, wireInlineCompletions } from "../../../extension/wiring/inlineCompletions";
-import { Logger } from "../../../shared/logger";
-import { MirroredError } from "../../../shared/mirroredError";
-import { COMPLETIONS_URL, completionJsonResponse, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
-import { withConfig } from "../../testUtils";
+import { liveInlineLanguageStatusRows } from "../../../../extension/features/inline/languageStatus";
+import { createFimProbe, wireInlineCompletions } from "../../../../extension/features/inline/wiring";
+import { OneShotClient } from "../../../../provider/transport/oneShotClient";
+import { Logger } from "../../../../shared/logger";
+import { MirroredError } from "../../../../shared/mirroredError";
+import { COMPLETIONS_URL, completionJsonResponse, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
+import { withConfig } from "../../../testUtils";
 
 interface RecordedRegistration {
 	readonly selector: vscode.DocumentSelector;
@@ -126,13 +127,15 @@ function quietLogger(): Logger {
 const MODEL_REF = { server: "Main", model: "codestral-fim" };
 const SERVER_ENTRY = { label: "Main", baseUrl: TEST_BASE_URL };
 
-suite("extension/wiring inlineCompletions", () => {
+suite("extension/features/inline wiring", () => {
 	useMsw();
 
 	test("disabled wires nothing: no provider registration, no status row", async () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig({ "inlineCompletions.enabled": false }, () => {
-				wireInlineCompletions(fakeContext(), quietLogger(), { ua: "test-agent" });
+				wireInlineCompletions(fakeContext(), quietLogger(), {
+					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+				});
 			});
 			assert.strictEqual(spies.registrations.length, 0);
 			assert.strictEqual(spies.statusItems.length, 0);
@@ -145,7 +148,9 @@ suite("extension/wiring inlineCompletions", () => {
 	test("enabled registers the ** provider and the status row; disable disposes both", async () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig({ "inlineCompletions.enabled": true }, () => {
-				wireInlineCompletions(fakeContext(), quietLogger(), { ua: "test-agent" });
+				wireInlineCompletions(fakeContext(), quietLogger(), {
+					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+				});
 			});
 			assert.strictEqual(spies.registrations.length, 1);
 			assert.deepStrictEqual(spies.registrations[0]?.selector, { pattern: "**" });
@@ -173,7 +178,9 @@ suite("extension/wiring inlineCompletions", () => {
 		// would fail the suite through onUnhandledRequest: "error".
 		await withWiringSpies(async (spies) => {
 			await withConfig({ "inlineCompletions.enabled": true }, async () => {
-				wireInlineCompletions(fakeContext(), quietLogger(), { ua: "test-agent" });
+				wireInlineCompletions(fakeContext(), quietLogger(), {
+					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+				});
 				const provider = spies.registrations[0]?.provider;
 				assert.ok(provider !== undefined);
 				const document = await vscode.workspace.openTextDocument({ content: "let x = ", language: "typescript" });
@@ -202,7 +209,7 @@ suite("extension/wiring inlineCompletions", () => {
 		};
 		await withWiringSpies(async () => {
 			const { fimSend } = await withConfig({ "inlineCompletions.enabled": true, servers: [entryWithTemplate] }, () =>
-				wireInlineCompletions(fakeContext(), quietLogger(), { ua: "test-agent" })
+				wireInlineCompletions(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) })
 			);
 			const result = await withConfig({ servers: [entryWithTemplate] }, () =>
 				fimSend({
@@ -237,7 +244,7 @@ suite("extension/wiring inlineCompletions", () => {
 		};
 		await withWiringSpies(async () => {
 			const { fimSend } = await withConfig({ "inlineCompletions.enabled": false, servers: [entryWithParams] }, () =>
-				wireInlineCompletions(fakeContext(), quietLogger(), { ua: "test-agent" })
+				wireInlineCompletions(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) })
 			);
 			await withConfig({ servers: [entryWithParams] }, () =>
 				fimSend({
@@ -259,7 +266,7 @@ suite("extension/wiring inlineCompletions", () => {
 	test("a label matching no entry throws the classified error, zero fetches", async () => {
 		await withWiringSpies(async () => {
 			const { fimSend } = await withConfig({ "inlineCompletions.enabled": false, servers: [] }, () =>
-				wireInlineCompletions(fakeContext(), quietLogger(), { ua: "test-agent" })
+				wireInlineCompletions(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) })
 			);
 			await withConfig({ servers: [] }, () =>
 				assert.rejects(

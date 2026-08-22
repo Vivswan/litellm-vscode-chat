@@ -126,12 +126,13 @@ function clickCountLink(root: ParentNode, label: string): void {
 	fireClick(found);
 }
 
-test("four rail items in reading order, servers selected by default, and panels wired by aria", () => {
+test("five rail items in reading order, servers selected by default, and panels wired by aria", () => {
 	const root = mountApp();
 	const tabs = Array.from(root.querySelectorAll("[role='tab']"));
-	// Order is the rail's order: servers and their settings first, then the
-	// models they serve, then the destination that tells you something is wrong.
-	expect(tabs.map(labelOf)).toEqual(["Servers", "Settings", "Models", "Diagnostics"]);
+	// Order is the rail's order: what the fleet IS (the servers, then the models
+	// they serve), then what it DOES (the features and the settings behind
+	// them), then the destination that tells you something is wrong.
+	expect(tabs.map(labelOf)).toEqual(["Servers", "Models", "Features", "Settings", "Diagnostics"]);
 	// A count inside the button would announce as "Servers & Models 4" - a
 	// number with no noun - and the tabpanel inherits that name, so an item
 	// carrying a count names itself in words (Label in Name still holds).
@@ -163,7 +164,7 @@ test("four rail items in reading order, servers selected by default, and panels 
 	expect(tab(root, "Settings").tabIndex).toBe(-1);
 	expect(tab(root, "Diagnostics").tabIndex).toBe(-1);
 
-	for (const section of ["overview", "settings", "models", "diagnostics"]) {
+	for (const section of ["overview", "models", "features", "settings", "diagnostics"]) {
 		const pane = panel(root, section);
 		expect(pane.getAttribute("role")).toBe("tabpanel");
 		expect(pane.getAttribute("aria-labelledby")).toBe(`tab-${section}`);
@@ -271,9 +272,11 @@ test("arrow keys move selection with wrap-around; Home and End jump", () => {
 	const tablist = root.querySelector("[role='tablist']") as HTMLElement;
 
 	fireKeyDown(tablist, "ArrowDown");
-	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
-	fireKeyDown(tablist, "ArrowDown");
 	expect(tab(root, "Models").getAttribute("aria-selected")).toBe("true");
+	fireKeyDown(tablist, "ArrowDown");
+	expect(tab(root, "Features").getAttribute("aria-selected")).toBe("true");
+	fireKeyDown(tablist, "ArrowDown");
+	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowDown");
 	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowDown");
@@ -440,13 +443,13 @@ test("arrow keys move focus with selection, and only the selected item is tabbab
 	const root = mountApp();
 	const tablist = root.querySelector("[role='tablist']") as HTMLElement;
 	const tabIndexes = () => Array.from(root.querySelectorAll("[role='tab']")).map((t) => (t as HTMLElement).tabIndex);
-	expect(tabIndexes()).toEqual([0, -1, -1, -1]);
+	expect(tabIndexes()).toEqual([0, -1, -1, -1, -1]);
 
 	fireKeyDown(tablist, "ArrowDown");
-	expect(tabIndexes()).toEqual([-1, 0, -1, -1]);
-	expect(document.activeElement).toBe(tab(root, "Settings"));
+	expect(tabIndexes()).toEqual([-1, 0, -1, -1, -1]);
+	expect(document.activeElement).toBe(tab(root, "Models"));
 
 	fireKeyDown(tablist, "End");
-	expect(tabIndexes()).toEqual([-1, -1, -1, 0]);
+	expect(tabIndexes()).toEqual([-1, -1, -1, -1, 0]);
 	expect(document.activeElement).toBe(tab(root, "Diagnostics"));
 });

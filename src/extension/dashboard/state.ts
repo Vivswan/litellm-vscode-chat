@@ -36,7 +36,12 @@ import { matchChain } from "../../shared/config/modelMatcher";
 import type { EffectiveParametersProjection } from "../../shared/config/parameterResolution";
 import { projectResolvedParameters, resolveModelParameters } from "../../shared/config/parameterResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
-import type { BooleanSettingId, InlineLanguageFilter, NumberSettingId } from "../../shared/config/settingSpec";
+import type {
+	BooleanSettingId,
+	FeatureModelId,
+	InlineLanguageFilter,
+	NumberSettingId,
+} from "../../shared/config/settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
@@ -676,7 +681,15 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 		featureModelScopes: recordFromKeys(FEATURE_MODEL_IDS, (feature) =>
 			resolveConfiguredScope(reader.inspect(FEATURE_MODEL_SETTING_KEYS[feature]))
 		),
-		commitPrompt: normalizeCommitGenerationPrompt(reader.get(COMMIT_GENERATION_PROMPT_SETTING_KEY)),
+		// CR-normalized at this boundary alone: the webview's textarea drafts in
+		// \n, so a settings.json prompt written with \r\n would never compare
+		// equal to its own round trip (a phantom "modified" draft on every push).
+		// The request path (getCommitGenerationPrompt) keeps the stored text
+		// verbatim - the prompt is model-facing.
+		commitPrompt: normalizeCommitGenerationPrompt(reader.get(COMMIT_GENERATION_PROMPT_SETTING_KEY)).replace(
+			/\r\n?/g,
+			"\n"
+		),
 		commitPromptScope: resolveConfiguredScope(reader.inspect(COMMIT_GENERATION_PROMPT_SETTING_KEY)),
 		languageFilter: (() => {
 			const raw = reader.get(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY);
@@ -782,6 +795,8 @@ export interface DashboardStateInputs {
 	readonly usage?: DashboardUsage;
 	/** The Configuration diagnostics list; defaults to none. */
 	readonly diagnostics?: readonly ConfigDiagnosticView[];
+	/** The features whose model row offers a host-side probe; defaults to none (no Test buttons). */
+	readonly featureProbes?: readonly FeatureModelId[];
 }
 
 /**
@@ -862,6 +877,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 		catalog = EMPTY_CATALOG_STATUS,
 		usage = EMPTY_USAGE_VIEW,
 		diagnostics = [],
+		featureProbes = [],
 	} = inputs;
 	const labeled = labeledSnapshots(snapshots);
 	const { servers, snapshotLabels } = buildServers(labeled, declared, entryReports, removedGroups, isGroupSnapshot);
@@ -893,6 +909,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 			.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.name.localeCompare(b.name)),
 		...(observedUnion !== undefined ? { observedModelInfoKeys: observedUnion } : {}),
 		settings: readDashboardSettings(reader, catalog),
+		featureProbes,
 		usage,
 		diagnostics,
 		legacyServerCount: countUnlistedLegacyServers(servers, legacyServers),

@@ -10,12 +10,12 @@ import type { RpcRequest } from "../../../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
 import { isBoundViolation, parseNumberDraft } from "../../../../dashboard/presenters";
 import { formatPercentExact } from "../../../../dashboard/spendFormat";
-import { NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
+import { NUMBER_SETTING_IDS, settingRowPage } from "../../../../dashboard/viewModels";
 import { OPENROUTER_MODEL_DIRECTIVE } from "../../../../shared/config/recordResolution";
 import { AnnounceOnceScope } from "../../../../webview/dashboard/announceOnce";
 import { App } from "../../../../webview/dashboard/app";
 import { settingRowHelp } from "../../../../webview/dashboard/helpText";
-import { parseThresholdBox, SettingsSection } from "../../../../webview/dashboard/settings";
+import { parseThresholdBox, SettingsSection } from "../../../../webview/dashboard/settingsPage";
 import { makeSettings } from "../../../dashboardSettingsFixture";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 import { makeState, statePush } from "../fixtures";
@@ -753,7 +753,8 @@ test("the title's stacked flip shares the row grid's threshold, inside the same 
 test("every settings row anchors its actions in one trailing slot: Reset then the settings.json jump", () => {
 	// Fail-closed structural pin behind the "{} renders in two different positions" defect: the slot is the row
 	// template's LAST cell, the jump its LAST child, and no action leaks into the control or hint cells. Counted
-	// against the page's row INVENTORY (every scalar id plus the twelve non-scalar rows), so it fails both ways.
+	// against the page's row INVENTORY (every scalar id this page owns plus the seven non-scalar rows - the
+	// feature rows live on the Features page now), so it fails both ways.
 	const base = makeSettings();
 	const settings = makeSettings({
 		configuredScopes: {
@@ -763,9 +764,11 @@ test("every settings row anchors its actions in one trailing slot: Reset then th
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
 	const rows = Array.from(root.querySelectorAll(".setting-row"));
-	expect(rows.length).toBe(
-		Object.keys(settings.configuredScopes.numbers).length + Object.keys(settings.configuredScopes.booleans).length + 12
-	);
+	const ownedScalars = [
+		...Object.keys(settings.configuredScopes.numbers),
+		...Object.keys(settings.configuredScopes.booleans),
+	].filter((id) => settingRowPage(id) === "settings");
+	expect(rows.length).toBe(ownedScalars.length + 7);
 	for (const row of rows) {
 		const slots = Array.from(row.children).filter((child) => child.classList.contains("setting-actions"));
 		expect(slots.length, row.textContent ?? "").toBe(1);
@@ -800,10 +803,10 @@ test("every settings row anchors its actions in one trailing slot: Reset then th
 			expect(wrap.classList.contains("@max-[560px]/pane:opacity-100")).toBe(true);
 		}
 	}
-	// Exactly one companion row today: the language filter's mode row (its
-	// list row is the setting's primary). A new companion joins this count in
-	// the same change that adds it.
-	expect(rows.filter((row) => row.classList.contains("setting-companion")).length).toBe(1);
+	// No companion rows live on this page: the one companion (the language
+	// filter's mode row) moved to the Features page with its setting, where
+	// featureSettings.test.tsx pins it.
+	expect(rows.filter((row) => row.classList.contains("setting-companion")).length).toBe(0);
 });
 
 test("the catalog status renders inside the row's own description slot, with the moved prose in the row's ?", () => {

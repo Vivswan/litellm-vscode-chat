@@ -546,6 +546,7 @@ export function baseState(overrides: Partial<DashboardState> = {}): DashboardSta
 			},
 			catalog: { modelCount: 324, lastSuccessAt: minutesAgoMs(60 * 26), refreshing: false },
 		}),
+		featureProbes: ["inlineCompletions"],
 		usage: USAGE,
 		diagnostics: [],
 		legacyServerCount: 0,

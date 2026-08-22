@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { buildDiagnosticsSnapshot } from "../../../extension/ui/diagnostics";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
+import { FEATURE_IDS } from "../../../shared/config/settingSpec";
 import { markLogSafe } from "../../../shared/logger";
 import { expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
@@ -37,10 +38,23 @@ suite("extension/ui/diagnostics", () => {
 			assert.strictEqual(snapshot.modelCount, 7);
 			assert.strictEqual(snapshot.apiKeyConfigured, "unknown", "unobserved native groups cannot be ruled out");
 			assert.strictEqual(snapshot.baseUrlConfigured, false);
-			assert.strictEqual(snapshot.commitGenerationEnabled, false, "the opt-in defaults off");
-			assert.strictEqual(snapshot.commitGenerationModelConfigured, false, "no model ref is set by default");
-			assert.strictEqual(snapshot.inlineCompletionsEnabled, false, "the inline opt-in defaults off");
-			assert.strictEqual(snapshot.inlineCompletionsModelConfigured, false, "no inline model ref is set by default");
+			assert.strictEqual(snapshot.featureFlags.commitGeneration.enabled, false, "the opt-in defaults off");
+			assert.strictEqual(
+				snapshot.featureFlags.commitGeneration.modelConfigured,
+				false,
+				"no model ref is set by default"
+			);
+			assert.strictEqual(snapshot.featureFlags.inlineCompletions.enabled, false, "the inline opt-in defaults off");
+			assert.strictEqual(
+				snapshot.featureFlags.inlineCompletions.modelConfigured,
+				false,
+				"no inline model ref is set by default"
+			);
+			// The whole record is total over FEATURE_IDS, the unshipped features
+			// included; the participant carries no model flag by construction.
+			assert.deepStrictEqual(Object.keys(snapshot.featureFlags).sort(), [...FEATURE_IDS].sort());
+			assert.strictEqual(snapshot.featureFlags.chatParticipant.enabled, true, "the participant defaults on");
+			assert.strictEqual(snapshot.featureFlags.chatParticipant.modelConfigured, undefined);
 			assert.strictEqual(expectDefined(snapshot.latestError).source, "discovery");
 			assert.strictEqual(expectDefined(snapshot.latestError).message, "fetch exploded");
 			assert.deepStrictEqual(snapshot.recentLogs, ["first log line", "second log line"]);

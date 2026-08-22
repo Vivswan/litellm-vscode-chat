@@ -14,8 +14,9 @@ import { DASHBOARD_SECTION_IDS } from "../../dashboard/viewModels";
 import { AnnounceOnceScope, useAlertOnce } from "./announceOnce";
 import { DiagnosticsSection, pageConfigDiagnostics } from "./diagnostics";
 import { FailureText } from "./failureText";
+import { FeaturesSection } from "./featuresPage";
 import { asExtensionMessage } from "./hooks";
-import { IconClose, IconGear, IconModels, IconPulse, IconServers } from "./icons";
+import { IconClose, IconGear, IconModels, IconPulse, IconServers, IconSparkle } from "./icons";
 import type { InspectorSection } from "./modelInspector";
 import { ModelInspector } from "./modelInspector";
 import { ModelsSection } from "./models";
@@ -24,8 +25,10 @@ import { Rail } from "./rail";
 import type { ServerEditRequest } from "./serverEditPage";
 import { ServerEditPage } from "./serverEditPage";
 import { ServersSection } from "./servers";
-import type { EditRecordRequest, SettingWriteFailure } from "./settings";
-import { SettingsSection } from "./settings";
+import type { SettingWriteFailure } from "./settingRows";
+import { failurePage } from "./settingRows";
+import type { EditRecordRequest } from "./settingsPage";
+import { SettingsSection } from "./settingsPage";
 import { relativeTime, useNow } from "./time";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/dialog";
@@ -42,6 +45,8 @@ function sectionLabel(section: SectionId): string {
 			return l10n.t("Servers");
 		case "models":
 			return l10n.t("Models");
+		case "features":
+			return l10n.t("Features");
 		case "settings":
 			return l10n.t("Settings");
 		case "diagnostics":
@@ -59,6 +64,8 @@ function sectionIcon(section: SectionId): ReactElement {
 			return <IconServers />;
 		case "models":
 			return <IconModels />;
+		case "features":
+			return <IconSparkle />;
 		case "settings":
 			return <IconGear />;
 		case "diagnostics":
@@ -235,6 +242,7 @@ function railSections(state: DashboardState): readonly RailSection<SectionId>[] 
 		// Tinted only when there is something to fix. Advisories are counted but never tinted:
 		// a permanent amber badge for a typo hint is an alarm nobody can silence or act on.
 		diagnostics: diagnosticsCount(pageConfigDiagnostics(state.diagnostics)),
+		features: {},
 		settings: {},
 	};
 	return SECTION_IDS.map((id) => ({ id, label: sectionLabel(id), icon: sectionIcon(id), ...counts[id] }));
@@ -668,16 +676,15 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		}
 	}
 	// A refused write must stay visible from ANY tab: a rail click can be the very blur
-	// that commits the failing write, so the fail lands after the settings panel is hidden
-	// - and a hidden subtree neither paints nor announces.
-	const awaySettingFailure =
-		activeSection === "settings"
-			? undefined
-			: Object.values(settingWriteFailures).reduce(
-					(latest: SettingWriteFailure | undefined, failure) =>
-						latest === undefined || failure.seq > latest.seq ? failure : latest,
-					undefined
-				);
+	// that commits the failing write, so the fail lands after the owning panel is hidden
+	// - and a hidden subtree neither paints nor announces. Ownership routes through the
+	// SETTING_ROW_PAGES map: the away line renders only while the reader is NOT on the
+	// failure's own page (Features rows announce there, everything else on Settings).
+	const awaySettingFailure = Object.values(settingWriteFailures).reduce(
+		(latest: SettingWriteFailure | undefined, failure) =>
+			failurePage(failure) !== activeSection && (latest === undefined || failure.seq > latest.seq) ? failure : latest,
+		undefined
+	);
 	return (
 		<AnnounceOnceScope>
 			<main
@@ -747,13 +754,21 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 							/>
 						</div>
 					</SectionPanel>
-					<SectionPanel section="settings" active={activeSection}>
-						<SettingsSection
+					<SectionPanel section="features" active={activeSection}>
+						<FeaturesSection
 							settings={state.settings}
 							models={state.models}
 							declaredServerLabels={state.servers
 								.filter((server) => server.origin === "declared")
 								.map((server) => server.label)}
+							featureProbes={state.featureProbes}
+							writeFailures={settingWriteFailures}
+						/>
+					</SectionPanel>
+					<SectionPanel section="settings" active={activeSection}>
+						<SettingsSection
+							settings={state.settings}
+							models={state.models}
 							observedModelInfoKeys={state.observedModelInfoKeys}
 							now={now}
 							editRecordRequest={editRecordRequest}

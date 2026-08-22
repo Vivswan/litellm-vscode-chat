@@ -33,6 +33,7 @@ const fixture: RenderFixture = {
 						},
 					},
 					featureModels: {
+						...state.settings.featureModels,
 						// Served by the base state's prod snapshot: the picker's quiet state.
 						inlineCompletions: { server: "prod", model: "gpt-5-mini" },
 						// No DECLARED SERVER carries this label: the dangling warning
@@ -40,7 +41,11 @@ const fixture: RenderFixture = {
 						// list in the chat catalog).
 						commitGeneration: { server: "removed-server", model: "claude-4" },
 					},
-					featureModelScopes: { inlineCompletions: "global", commitGeneration: "global" },
+					featureModelScopes: {
+						...state.settings.featureModelScopes,
+						inlineCompletions: "global",
+						commitGeneration: "global",
+					},
 					// Three lines: the prompt box is a bounded auto-growing textarea, so
 					// the fixture prices a MULTILINE value at rest (between the two-row
 					// floor and the eight-row scroll ceiling) at every sweep width.
@@ -56,7 +61,7 @@ const fixture: RenderFixture = {
 				},
 			},
 		},
-		{ kind: "focusSection", section: "settings" },
+		{ kind: "focusSection", section: "features" },
 	],
 	viewport: { width: 1300, height: 2400 },
 };

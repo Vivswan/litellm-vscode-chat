@@ -25,10 +25,15 @@ suite("IssueReporter", () => {
 			modelCount: 5,
 			apiKeyConfigured: true,
 			baseUrlConfigured: true,
-			commitGenerationEnabled: false,
-			commitGenerationModelConfigured: false,
-			inlineCompletionsEnabled: false,
-			inlineCompletionsModelConfigured: false,
+			featureFlags: {
+				inlineCompletions: { enabled: false, modelConfigured: false },
+				commitGeneration: { enabled: false, modelConfigured: false },
+				prGeneration: { enabled: false, modelConfigured: false },
+				consultTool: { enabled: false, modelConfigured: false },
+				quickFix: { enabled: false, modelConfigured: false },
+				reviewComments: { enabled: false, modelConfigured: false },
+				chatParticipant: { enabled: true },
+			},
 			recentLogs: [],
 			...overrides,
 		};
@@ -109,6 +114,37 @@ suite("IssueReporter", () => {
 		assert.ok(body.includes("## Diagnostics"));
 		assert.ok(body.includes("API key configured: yes"));
 		assert.ok(body.includes("Model count: 5"));
+	});
+
+	test("the feature-flag loop reproduces the two shipped features' lines byte-for-byte", () => {
+		// The loop replaced hand-written per-feature lines; these strings are the
+		// old renderer's exact output, so a prose or casing drift in the loop's
+		// composition fails here instead of silently rewording public reports.
+		const reporter = new IssueReporter();
+		const body = reporter.buildBody(
+			makeSnapshot({
+				featureFlags: {
+					inlineCompletions: { enabled: true, modelConfigured: false },
+					commitGeneration: { enabled: false, modelConfigured: true },
+					prGeneration: { enabled: false, modelConfigured: false },
+					consultTool: { enabled: false, modelConfigured: false },
+					quickFix: { enabled: false, modelConfigured: false },
+					reviewComments: { enabled: false, modelConfigured: false },
+					chatParticipant: { enabled: true },
+				},
+			})
+		);
+		for (const line of [
+			"- Commit generation enabled: no",
+			"- Commit generation model configured: yes",
+			"- Inline completions enabled: yes",
+			"- Inline completions model configured: no",
+		]) {
+			assert.ok(body.includes(`\n${line}\n`), `body must carry the exact line: ${line}`);
+		}
+		// The participant has no model key, so exactly one line renders for it.
+		assert.ok(body.includes("\n- Chat participant enabled: yes\n"));
+		assert.ok(!body.includes("Chat participant model configured"));
 	});
 
 	test("buildBody includes error details and stack trace", () => {
@@ -650,11 +686,13 @@ suite("IssueReporter", () => {
 				recentLogs: ["log-line-MARKER", "another log-line-MARKER"],
 			});
 			// Exact equality pins the composition: any new field joining the
-			// fingerprint must be reviewed here for content hygiene. The two
-			// false flags are the commit-generation enabled/model-configured pair.
+			// fingerprint must be reviewed here for content hygiene. The pairs
+			// after baseUrlConfigured are enabled|modelConfigured per FEATURE_IDS
+			// entry: six model features all off, then the participant's true and
+			// its "-" no-model-key marker, then the classification tail.
 			assert.strictEqual(
 				reportFingerprint(snapshot),
-				"v1|0.2.3|connected|5|true|true|false|false|false|false|http|502|-"
+				"v2|0.2.3|connected|5|true|true|false|false|false|false|false|false|false|false|false|false|false|false|true|-|http|502|-"
 			);
 		});
 

@@ -40,7 +40,9 @@ import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../..
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import type { NumberSettingId } from "../../../shared/config/settingSpec";
+import { FEATURE_MODEL_IDS } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { recordFromKeys } from "../../../shared/util/json";
 import { assertOmits, makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
 import {
@@ -2480,15 +2482,22 @@ suite("extension/dashboard/state", () => {
 					"commitGeneration.model": { server: "Prod" },
 				})
 			);
+			// One record entry per FEATURE_MODEL_IDS member, the unconfigured
+			// features included: recordFromKeys totals the snapshot by construction.
+			const unsetRefs = recordFromKeys(FEATURE_MODEL_IDS, () => null);
 			assert.deepStrictEqual(settings.featureModels, {
+				...unsetRefs,
 				inlineCompletions: { server: "Prod", model: "codestral" },
-				commitGeneration: null,
 			});
-			assert.deepStrictEqual(settings.featureModelScopes, { inlineCompletions: "global", commitGeneration: "global" });
+			assert.deepStrictEqual(settings.featureModelScopes, {
+				...unsetRefs,
+				inlineCompletions: "global",
+				commitGeneration: "global",
+			});
 
 			const unset = readSettings(makeReader({}));
-			assert.deepStrictEqual(unset.featureModels, { inlineCompletions: null, commitGeneration: null });
-			assert.deepStrictEqual(unset.featureModelScopes, { inlineCompletions: null, commitGeneration: null });
+			assert.deepStrictEqual(unset.featureModels, unsetRefs);
+			assert.deepStrictEqual(unset.featureModelScopes, unsetRefs);
 		});
 
 		test("the commit prompt snapshots verbatim; a junk value reads as the built-in marker", () => {
@@ -2498,6 +2507,16 @@ suite("extension/dashboard/state", () => {
 			const junk = readSettings(makeReader({ "commitGeneration.prompt": 7 }));
 			assert.strictEqual(junk.commitPrompt, "");
 			assert.strictEqual(readSettings(makeReader({})).commitPromptScope, null);
+		});
+
+		test("the commit prompt CR-normalizes at the state boundary alone: the webview drafts in LF", () => {
+			// A CRLF (or bare-CR) settings.json prompt would never compare equal to
+			// the textarea's own LF round trip, reading as a permanently modified
+			// draft on every push; the first dashboard edit rewrites the stored
+			// value to LF. The REQUEST path stays verbatim (model-facing text) -
+			// getCommitGenerationPrompt is pinned separately in settings.test.ts.
+			const crlf = readSettings(makeReader({ "commitGeneration.prompt": "Subject.\r\nBody line.\rTail." }));
+			assert.strictEqual(crlf.commitPrompt, "Subject.\nBody line.\nTail.");
 		});
 
 		test("the language filter snapshots normalized, and the lossy flag marks exactly the raw values an edit would rewrite", () => {

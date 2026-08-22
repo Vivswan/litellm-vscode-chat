@@ -1,15 +1,15 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import type { GenerateCommitDeps } from "../../../extension/scm/generateCommitCommand";
-import { runGenerateCommitMessage } from "../../../extension/scm/generateCommitCommand";
-import type { API, Change, Commit, Repository } from "../../../extension/scm/gitApi";
-import { OneShotClient } from "../../../provider/transport/oneShotClient";
-import { serverSecretsKey } from "../../../shared/config/storageKeys";
-import { Logger } from "../../../shared/logger";
-import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
-import { makeLogger } from "../../pureHelpers";
-import { withConfig } from "../../testUtils";
+import type { GenerateCommitDeps } from "../../../../extension/features/commitGen/generateCommitCommand";
+import { runGenerateCommitMessage } from "../../../../extension/features/commitGen/generateCommitCommand";
+import type { API, Change, Commit, Repository } from "../../../../extension/features/gitApi";
+import { OneShotClient } from "../../../../provider/transport/oneShotClient";
+import { serverSecretsKey } from "../../../../shared/config/storageKeys";
+import { Logger } from "../../../../shared/logger";
+import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
+import { makeLogger } from "../../../pureHelpers";
+import { withConfig } from "../../../testUtils";
 
 /** The settings that make the feature live against the msw-mocked server. */
 const ENABLED_CONFIG = {
@@ -63,7 +63,7 @@ function client(): OneShotClient {
 	return new OneShotClient({ userAgent: "test-agent" });
 }
 
-suite("extension/scm generateCommitCommand", () => {
+suite("extension/features/commitGen generateCommitCommand", () => {
 	useMsw();
 
 	// Toast promises stay pending until dismissed in a live host, which would

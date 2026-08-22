@@ -1,18 +1,18 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import { buildFimPrompt, FIM_MAX_TOKENS, FIM_TIMEOUT_MS } from "../../provider/transport/fim";
-import { OneShotClient } from "../../provider/transport/oneShotClient";
-import { ModelResolutionTable } from "../../shared/config/resolutionTable";
-import type { FeatureModelRef } from "../../shared/config/settingSpec";
-import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../shared/config/settingSpec";
-import { getModelParametersConfig, isInlineCompletionsEnabled } from "../../shared/config/settings";
-import type { Logger } from "../../shared/logger";
-import { localizedError } from "../../shared/mirroredError";
-import { CompletionCache } from "../inline/completionCache";
-import type { InlineCompletionSend } from "../inline/inlineCompletionProvider";
-import { createInlineCompletionProvider } from "../inline/inlineCompletionProvider";
-import { InlineLanguageStatusRow, registerToggleInlineLanguageCommand } from "../inline/languageStatus";
-import { entryConnectionFor } from "../servers/entryConnection";
+import { buildFimPrompt, FIM_MAX_TOKENS, FIM_TIMEOUT_MS } from "../../../provider/transport/fim";
+import type { OneShotClient } from "../../../provider/transport/oneShotClient";
+import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
+import type { FeatureModelRef } from "../../../shared/config/settingSpec";
+import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
+import { getModelParametersConfig, isFeatureEnabled } from "../../../shared/config/settings";
+import type { Logger } from "../../../shared/logger";
+import { localizedError } from "../../../shared/mirroredError";
+import { entryConnectionFor } from "../../servers/entryConnection";
+import { CompletionCache } from "./completionCache";
+import type { InlineCompletionSend } from "./inlineCompletionProvider";
+import { createInlineCompletionProvider } from "./inlineCompletionProvider";
+import { InlineLanguageStatusRow, registerToggleInlineLanguageCommand } from "./languageStatus";
 
 /**
  * Inline completions wiring: the provider and the language status row exist
@@ -95,33 +95,33 @@ export function createFimProbe(fimSend: InlineCompletionSend): (model: FeatureMo
 }
 
 /**
- * Wire the feature. Returns the send so the dashboard's test-completion probe
- * runs the exact pipeline ghost text runs (one pipeline, one truth).
+ * Wire the feature. Returns the send so the dashboard's test-model probe runs
+ * the exact pipeline ghost text runs (one pipeline, one truth). `oneShot` is
+ * the activation-shared client, so OAuth tokens cache across keystrokes and
+ * across features and invalidate on 401 like the chat and usage paths.
  */
 export function wireInlineCompletions(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	deps: { readonly ua: string }
+	deps: { readonly oneShot: OneShotClient }
 ): { readonly fimSend: InlineCompletionSend } {
 	const log = (message: string, data?: unknown): void => {
 		logger.log(message, data);
 	};
 	registerToggleInlineLanguageCommand(context, log);
 
-	// One client for the feature's lifetime, so OAuth tokens cache across
-	// keystrokes and invalidate on 401 like the chat and usage paths; one
-	// resolution table, so the directive read is memoized, never per-request.
-	const oneShot = new OneShotClient({ userAgent: deps.ua });
+	// One resolution table for the feature's lifetime, so the directive read is
+	// memoized, never per-request.
 	const table = new ModelResolutionTable();
 	const cache = new CompletionCache();
-	const fimSend = createFimSend(context.secrets, oneShot, table);
+	const fimSend = createFimSend(context.secrets, deps.oneShot, table);
 	const provider = createInlineCompletionProvider({ send: fimSend, cache, log });
 
 	let registration: vscode.Disposable | undefined;
 	let statusRow: InlineLanguageStatusRow | undefined;
 
 	const applyEnablement = (): void => {
-		const enabled = isInlineCompletionsEnabled();
+		const enabled = isFeatureEnabled("inlineCompletions");
 		if (enabled && registration === undefined) {
 			// pattern "**": registration cannot express language-ID lists, so the
 			// provider filters per invocation (zero requests for filtered
