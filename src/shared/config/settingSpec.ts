@@ -26,12 +26,10 @@ export const USAGE_STATUS_BAR_SETTING_KEY = "usage.statusBar";
 export const CURRENCY_SYMBOL_SETTING_KEY = "usage.currencySymbol";
 export const UI_THEME_SETTING_KEY = "ui.theme";
 export const UI_ACCENT_SETTING_KEY = "ui.accent";
-// These keys are addressed through the FEATURE_MODEL_SETTING_KEYS /
-// INLINE_LANGUAGE_LIST_SETTING_KEYS maps (one pipeline for getters, intents,
-// and rows), so only the maps export.
+export const INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY = "inlineCompletions.languageFilter";
+// The model keys are addressed through the FEATURE_MODEL_SETTING_KEYS map (one
+// pipeline for getters, intents, and rows), so only the map exports.
 const INLINE_COMPLETIONS_MODEL_SETTING_KEY = "inlineCompletions.model";
-const INLINE_COMPLETIONS_ALLOWED_LANGUAGES_SETTING_KEY = "inlineCompletions.allowedLanguages";
-const INLINE_COMPLETIONS_BLOCKED_LANGUAGES_SETTING_KEY = "inlineCompletions.blockedLanguages";
 const COMMIT_GENERATION_MODEL_SETTING_KEY = "commitGeneration.model";
 export const COMMIT_GENERATION_PROMPT_SETTING_KEY = "commitGeneration.prompt";
 
@@ -62,19 +60,26 @@ export const FEATURE_MODEL_SETTING_KEYS = {
 } as const satisfies Record<FeatureModelId, string>;
 
 /**
- * The two inline-completions language lists, named by their setting-key
- * suffixes. Exact VS Code language IDs; block beats allow, and the empty
- * allow list means every language.
+ * The inline-completions language filter's mode vocabulary: "block" runs
+ * completions everywhere except the listed languages, "allow" runs them only
+ * there.
  */
-export const INLINE_LANGUAGE_LISTS = ["allowedLanguages", "blockedLanguages"] as const;
+export const LANGUAGE_FILTER_MODES = ["block", "allow"] as const;
 
-export type InlineLanguageListId = (typeof INLINE_LANGUAGE_LISTS)[number];
+export type LanguageFilterMode = (typeof LANGUAGE_FILTER_MODES)[number];
 
-/** Each language list's setting key; the getters, intents, and rows share this one map. */
-export const INLINE_LANGUAGE_LIST_SETTING_KEYS = {
-	allowedLanguages: INLINE_COMPLETIONS_ALLOWED_LANGUAGES_SETTING_KEY,
-	blockedLanguages: INLINE_COMPLETIONS_BLOCKED_LANGUAGES_SETTING_KEY,
-} as const satisfies Record<InlineLanguageListId, string>;
+/**
+ * The inlineCompletions.languageFilter value: one mode plus exact VS Code
+ * language IDs (no globs). Block mode with the empty list filters nothing;
+ * allow mode with the empty list runs completions nowhere.
+ */
+export interface InlineLanguageFilter {
+	readonly mode: LanguageFilterMode;
+	readonly languages: readonly string[];
+}
+
+/** The default filter: block nothing, so completions run everywhere. */
+export const DEFAULT_INLINE_LANGUAGE_FILTER: InlineLanguageFilter = { mode: "block", languages: [] };
 
 /**
  * The dashboard's theme choices. "auto" leaves every semantic token mapped
@@ -220,8 +225,7 @@ export const STRUCTURED_SETTING_KEYS = [
 	UI_THEME_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
 	INLINE_COMPLETIONS_MODEL_SETTING_KEY,
-	INLINE_COMPLETIONS_ALLOWED_LANGUAGES_SETTING_KEY,
-	INLINE_COMPLETIONS_BLOCKED_LANGUAGES_SETTING_KEY,
+	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	COMMIT_GENERATION_MODEL_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 ] as const;

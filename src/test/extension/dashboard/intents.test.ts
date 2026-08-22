@@ -241,33 +241,43 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.removals, ["commitGeneration.prompt"]);
 		});
 
-		test("setLanguageList refuses blank IDs, writes trimmed deduplicated lists, and resets on empty", async () => {
+		test("setLanguageFilter merges partial patches onto the stored filter, refuses blanks and empty patches, and resets on block-nothing", async () => {
 			const recorded = makeEnv();
-			for (const values of [[""], ["typescript", "  "]]) {
+			for (const languages of [[""], ["typescript", "  "]]) {
 				await assert.rejects(
-					executeDashboardIntent(
-						{ method: "setLanguageList", payload: { list: "allowedLanguages", values } },
-						recorded.env
-					),
+					executeDashboardIntent({ method: "setLanguageFilter", payload: { languages } }, recorded.env),
 					/allowed range plain non-empty strings/
 				);
 			}
+			// A patch must name something; the rows always name their own field.
+			await assert.rejects(
+				executeDashboardIntent({ method: "setLanguageFilter", payload: {} }, recorded.env),
+				/allowed range mode and\/or languages/
+			);
 			assert.deepStrictEqual(recorded.updates, []);
 
+			// A languages patch writes trimmed and deduplicated, keeping the
+			// stored (here: default) block mode.
 			await executeDashboardIntent(
-				{
-					method: "setLanguageList",
-					payload: { list: "allowedLanguages", values: [" typescript ", "python", "typescript"] },
-				},
+				{ method: "setLanguageFilter", payload: { languages: [" typescript ", "python", "typescript"] } },
 				recorded.env
 			);
-			await executeDashboardIntent(
-				{ method: "setLanguageList", payload: { list: "blockedLanguages", values: [] } },
-				recorded.env
-			);
+			// A mode patch keeps the JUST-WRITTEN languages: the merge reads
+			// landed writes, never a caller's stale snapshot.
+			await executeDashboardIntent({ method: "setLanguageFilter", payload: { mode: "allow" } }, recorded.env);
+			// Allow mode with the empty list is a real configuration (completions
+			// run nowhere), so it writes rather than resets.
+			await executeDashboardIntent({ method: "setLanguageFilter", payload: { languages: [] } }, recorded.env);
+			// Block mode with the empty list IS the default, so patching the mode
+			// back resets the setting.
+			await executeDashboardIntent({ method: "setLanguageFilter", payload: { mode: "block" } }, recorded.env);
 
-			assert.deepStrictEqual(recorded.updates, [["inlineCompletions.allowedLanguages", ["typescript", "python"]]]);
-			assert.deepStrictEqual(recorded.removals, ["inlineCompletions.blockedLanguages"]);
+			assert.deepStrictEqual(recorded.updates, [
+				["inlineCompletions.languageFilter", { mode: "block", languages: ["typescript", "python"] }],
+				["inlineCompletions.languageFilter", { mode: "allow", languages: ["typescript", "python"] }],
+				["inlineCompletions.languageFilter", { mode: "allow", languages: [] }],
+			]);
+			assert.deepStrictEqual(recorded.removals, ["inlineCompletions.languageFilter"]);
 		});
 
 		test("every command ID maps to an allow-listed command", async () => {

@@ -21,7 +21,7 @@ import {
 import { parseDashboardRequest, secretDirectiveSchema } from "../../../extension/dashboard/intentSchema";
 import {
 	FEATURE_MODEL_IDS,
-	INLINE_LANGUAGE_LISTS,
+	LANGUAGE_FILTER_MODES,
 	TOKEN_ESTIMATION_MODES,
 	UI_ACCENTS,
 	UI_THEMES,
@@ -156,9 +156,9 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 		),
 	}),
 	setCommitPrompt: fc.record({ value: fc.string({ maxLength: 256 }) }),
-	setLanguageList: fc.record({
-		list: fc.constantFrom(...INLINE_LANGUAGE_LISTS),
-		values: fc.array(fc.string({ maxLength: 128 }), { maxLength: 16 }),
+	setLanguageFilter: fc.record({
+		mode: fc.constantFrom(...LANGUAGE_FILTER_MODES),
+		languages: fc.array(fc.string({ maxLength: 128 }), { maxLength: 16 }),
 	}),
 	saveServerSetting: serverDraftPayload,
 	testServerDraft: serverDraftPayload,

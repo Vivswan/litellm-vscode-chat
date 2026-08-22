@@ -3,6 +3,7 @@ import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
+	DEFAULT_INLINE_LANGUAGE_FILTER,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
@@ -23,7 +24,7 @@ import {
 	getDiscoveryCacheTtl,
 	getDiscoveryTimeout,
 	getFeatureModelRef,
-	getInlineCompletionsLanguageList,
+	getInlineLanguageFilter,
 	getMaxToolsPerRequest,
 	getModelCapabilitiesConfig,
 	getRequestTimeout,
@@ -44,7 +45,7 @@ import {
 	normalizeCurrencySymbol,
 	normalizeCustomHeaders,
 	normalizeFeatureModelRef,
-	normalizeLanguageList,
+	normalizeInlineLanguageFilter,
 	normalizeModelCapabilities,
 	normalizeTokenEstimationMode,
 	normalizeUiAccent,
@@ -539,45 +540,62 @@ suite("shared/config/settings commit prompt getter", () => {
 	});
 });
 
-suite("shared/config/settings language lists", () => {
-	test("trims, drops non-strings and empties, and deduplicates in order", () => {
+suite("shared/config/settings language filter", () => {
+	test("trims, drops non-strings and empties, and deduplicates languages in order", () => {
 		const logged: string[] = [];
 		assert.deepStrictEqual(
-			normalizeLanguageList([" typescript ", "python", 3, "", "   ", "typescript", null], (message) =>
-				logged.push(message)
+			normalizeInlineLanguageFilter(
+				{ mode: "allow", languages: [" typescript ", "python", 3, "", "   ", "typescript", null] },
+				(message) => logged.push(message)
 			),
-			["typescript", "python"]
+			{ mode: "allow", languages: ["typescript", "python"] }
 		);
 		assert.strictEqual(logged.length, 1);
 	});
 
-	test("a non-array reads as the empty list; only a configured non-array logs", () => {
+	test("a value without a recognized mode reads as the default; everything configured logs, unset stays silent", () => {
 		const logged: string[] = [];
 		assert.deepStrictEqual(
-			normalizeLanguageList(undefined, (message) => logged.push(message)),
-			[]
+			normalizeInlineLanguageFilter(undefined, (message) => logged.push(message)),
+			DEFAULT_INLINE_LANGUAGE_FILTER
 		);
 		assert.strictEqual(logged.length, 0);
-		for (const junk of ["typescript", 3, {}, null]) {
+		for (const junk of [null, "block", 3, {}, [], { mode: "deny" }, { mode: 3, languages: ["ts"] }]) {
 			assert.deepStrictEqual(
-				normalizeLanguageList(junk, (message) => logged.push(message)),
-				[]
+				normalizeInlineLanguageFilter(junk, (message) => logged.push(message)),
+				DEFAULT_INLINE_LANGUAGE_FILTER
 			);
 		}
-		assert.strictEqual(logged.length, 4);
+		assert.strictEqual(logged.length, 7);
 	});
 
-	test("the one getter reads both lists through the normalizer", async () => {
-		await withConfig(
+	test("a valid mode with a missing or malformed languages list keeps the mode and reads the empty list", () => {
+		const logged: string[] = [];
+		assert.deepStrictEqual(
+			normalizeInlineLanguageFilter({ mode: "allow" }, (message) => logged.push(message)),
 			{
-				"inlineCompletions.allowedLanguages": ["typescript", " python "],
-				"inlineCompletions.blockedLanguages": "markdown",
-			},
-			() => {
-				assert.deepStrictEqual(getInlineCompletionsLanguageList("allowedLanguages"), ["typescript", "python"]);
-				assert.deepStrictEqual(getInlineCompletionsLanguageList("blockedLanguages"), []);
+				mode: "allow",
+				languages: [],
 			}
 		);
+		assert.strictEqual(logged.length, 0);
+		assert.deepStrictEqual(
+			normalizeInlineLanguageFilter({ mode: "block", languages: "markdown" }, (message) => logged.push(message)),
+			{ mode: "block", languages: [] }
+		);
+		assert.strictEqual(logged.length, 1);
+	});
+
+	test("the getter reads the setting through the normalizer", async () => {
+		await withConfig(
+			{ "inlineCompletions.languageFilter": { mode: "allow", languages: ["typescript", " python "] } },
+			() => {
+				assert.deepStrictEqual(getInlineLanguageFilter(), { mode: "allow", languages: ["typescript", "python"] });
+			}
+		);
+		await withConfig({ "inlineCompletions.languageFilter": "markdown" }, () => {
+			assert.deepStrictEqual(getInlineLanguageFilter(), DEFAULT_INLINE_LANGUAGE_FILTER);
+		});
 	});
 });
 

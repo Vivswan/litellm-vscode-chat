@@ -173,13 +173,16 @@ function makeHarness(): Harness {
 				throw harness.failUpdates;
 			}
 			updates.push([key, value]);
+			settingsValues[key] = value;
 		},
 		removeSetting: async (key) => {
 			if (harness.failUpdates !== undefined) {
 				throw harness.failUpdates;
 			}
 			removals.push(key);
+			delete settingsValues[key];
 		},
+		readSetting: (key) => settingsValues[key],
 		readServersSetting: () => harness.serversSetting,
 		writeServersSetting: async (value) => {
 			if (harness.failUpdates !== undefined) {

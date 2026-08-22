@@ -7,4 +7,4 @@ Two settings turn the feature on, both under the extension's settings:
 
 Pick a completions-capable model - one your LiteLLM server declares with `mode: completion`, which is also why it is absent from the chat model picker. Suggestions then appear as ghost text while you type, and the file content around your cursor goes to that server automatically as you go.
 
-Two more settings keep it out of the wrong files: `inlineCompletions.allowedLanguages` and `inlineCompletions.blockedLanguages` take exact VS Code language IDs, and the "LiteLLM inline suggestions" row in the editor's `{}` language status menu toggles the current language for you.
+One more setting keeps it out of the wrong files: `inlineCompletions.languageFilter` takes a mode plus exact VS Code language IDs (block runs everywhere except the listed ones, allow only in them), and the "LiteLLM inline suggestions" row in the editor's `{}` language status menu toggles the current language for you.

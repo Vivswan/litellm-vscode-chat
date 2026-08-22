@@ -2,10 +2,9 @@
  * The language status row and its toggle: the row's text consumes the same
  * languageAllowed decision as the provider filter, the no-model state reads
  * "no model selected" with a settings-opening action, and the toggle writes
- * the lists through the shared update-scope rule - turning a language OFF always adds it to
- * blockedLanguages (removing an allow-list entry could empty the list, which
- * means "all languages"), turning it ON removes the block and joins a
- * non-empty allow list.
+ * the language filter through the shared update-scope rule - one membership
+ * flip of the current language in the filter's list, keeping the mode (block
+ * mode lists the OFF languages, allow mode the ON ones).
  */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
@@ -92,7 +91,10 @@ suite("extension/inline languageStatus", () => {
 	test("the row reads active/off from the same languageAllowed decision the provider filters by", async () => {
 		await withStatusSpies(async (spies) => {
 			await withConfig(
-				{ "inlineCompletions.model": MODEL_REF, "inlineCompletions.blockedLanguages": ["markdown"] },
+				{
+					"inlineCompletions.model": MODEL_REF,
+					"inlineCompletions.languageFilter": { mode: "block", languages: ["markdown"] },
+				},
 				() => {
 					const row = new InlineLanguageStatusRow(() => {});
 					const item = spies.items[0];
@@ -141,7 +143,7 @@ suite("extension/inline languageStatus", () => {
 		});
 	});
 
-	suite("the toggle command writes the lists through the shared update-scope rule", () => {
+	suite("the toggle command writes the filter through the shared update-scope rule", () => {
 		interface RecordedWrite {
 			readonly key: string;
 			readonly value: unknown;
@@ -196,58 +198,82 @@ suite("extension/inline languageStatus", () => {
 			}
 		}
 
-		test("turning OFF always adds to blockedLanguages, never empties an allow list", async () => {
+		test("in block mode, turning OFF adds the language to the filter's list", async () => {
 			const writes = await withRecordedToggle(
-				{ "inlineCompletions.allowedLanguages": ["python"], "inlineCompletions.blockedLanguages": [] },
+				{ "inlineCompletions.languageFilter": { mode: "block", languages: [] } },
 				"python"
 			);
 			assert.deepStrictEqual(writes, [
 				{
-					key: "inlineCompletions.blockedLanguages",
-					value: ["python"],
+					key: "inlineCompletions.languageFilter",
+					value: { mode: "block", languages: ["python"] },
 					target: vscode.ConfigurationTarget.Global,
 				},
 			]);
 		});
 
-		test("turning ON removes the block and joins a non-empty allow list", async () => {
-			const writes = await withRecordedToggle(
-				{
-					"inlineCompletions.allowedLanguages": ["python"],
-					"inlineCompletions.blockedLanguages": ["typescript"],
-				},
-				"typescript"
+		test("in allow mode, turning OFF removes the language and turning ON adds it, keeping the mode", async () => {
+			const off = await withRecordedToggle(
+				{ "inlineCompletions.languageFilter": { mode: "allow", languages: ["python", "go"] } },
+				"python"
 			);
-			assert.deepStrictEqual(writes, [
-				{ key: "inlineCompletions.blockedLanguages", value: [], target: vscode.ConfigurationTarget.Global },
+			assert.deepStrictEqual(off, [
 				{
-					key: "inlineCompletions.allowedLanguages",
-					value: ["python", "typescript"],
+					key: "inlineCompletions.languageFilter",
+					value: { mode: "allow", languages: ["go"] },
+					target: vscode.ConfigurationTarget.Global,
+				},
+			]);
+			const on = await withRecordedToggle(
+				{ "inlineCompletions.languageFilter": { mode: "allow", languages: ["go"] } },
+				"python"
+			);
+			assert.deepStrictEqual(on, [
+				{
+					key: "inlineCompletions.languageFilter",
+					value: { mode: "allow", languages: ["go", "python"] },
 					target: vscode.ConfigurationTarget.Global,
 				},
 			]);
 		});
 
-		test("a workspace-held block list is written IN the workspace scope, never shadow-written to user", async () => {
+		test("a workspace-held filter is written IN the workspace scope, never shadow-written to user", async () => {
 			// The dashboard's own scope rule (updateAuto): a hardcoded Global
 			// write here would leave the workspace value standing and the toggle
-			// looking dead while the user scope silently absorbed the list.
-			const writes = await withRecordedToggle({ "inlineCompletions.blockedLanguages": ["python"] }, "python", [
-				"inlineCompletions.blockedLanguages",
-			]);
+			// looking dead while the user scope silently absorbed the filter.
+			const writes = await withRecordedToggle(
+				{ "inlineCompletions.languageFilter": { mode: "block", languages: ["python"] } },
+				"python",
+				["inlineCompletions.languageFilter"]
+			);
 			assert.deepStrictEqual(writes, [
-				{ key: "inlineCompletions.blockedLanguages", value: [], target: vscode.ConfigurationTarget.Workspace },
+				{
+					key: "inlineCompletions.languageFilter",
+					value: { mode: "block", languages: [] },
+					target: vscode.ConfigurationTarget.Workspace,
+				},
 			]);
 		});
 
-		test("with empty lists, off-then-on round-trips through blockedLanguages alone", async () => {
+		test("with the filter unset, off-then-on round-trips through the default block mode", async () => {
 			const off = await withRecordedToggle({}, "go");
 			assert.deepStrictEqual(off, [
-				{ key: "inlineCompletions.blockedLanguages", value: ["go"], target: vscode.ConfigurationTarget.Global },
+				{
+					key: "inlineCompletions.languageFilter",
+					value: { mode: "block", languages: ["go"] },
+					target: vscode.ConfigurationTarget.Global,
+				},
 			]);
-			const on = await withRecordedToggle({ "inlineCompletions.blockedLanguages": ["go"] }, "go");
+			const on = await withRecordedToggle(
+				{ "inlineCompletions.languageFilter": { mode: "block", languages: ["go"] } },
+				"go"
+			);
 			assert.deepStrictEqual(on, [
-				{ key: "inlineCompletions.blockedLanguages", value: [], target: vscode.ConfigurationTarget.Global },
+				{
+					key: "inlineCompletions.languageFilter",
+					value: { mode: "block", languages: [] },
+					target: vscode.ConfigurationTarget.Global,
+				},
 			]);
 		});
 	});

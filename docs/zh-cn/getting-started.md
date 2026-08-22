@@ -143,14 +143,14 @@ Answer with the commit message text only: no markdown fences, no surrounding quo
 ```jsonc
 "litellm-vscode-chat.inlineCompletions.enabled": true,
 "litellm-vscode-chat.inlineCompletions.model": { "server": "local", "model": "qwen2.5-coder-fim" },
-"litellm-vscode-chat.inlineCompletions.blockedLanguages": ["markdown", "plaintext"]
+"litellm-vscode-chat.inlineCompletions.languageFilter": { "mode": "block", "languages": ["markdown", "plaintext"] }
 ```
 
 没有需要运行的命令: 这个功能完全由设置驱动。关闭时不注册任何内容, 也不会自动发出请求 (唯一的例外是仪表盘上显式的「测试补全」按钮, 无论功能是否开启, 点击都会发送一次探测请求); 开启但没有指定模型时, 功能保持闲置。
 
 **要选补全模型, 不是聊天模型。** 内联补全 POST 到 `/v1/completions`, 因此模型必须是你的 LiteLLM 服务器在 `model_info` 中声明为 `mode: completion` 的那种 - 一个中间填充 (FIM) 模型。这类模型有意不出现在聊天模型选择器里, 所以模型 ID 要从代理的配置里取, 而不是从选择器里取。
 
-另外两个设置决定它在哪里运行。`inlineCompletions.allowedLanguages` 和 `inlineCompletions.blockedLanguages` 保存精确的 VS Code 语言 ID; 允许列表为空表示所有语言, 同时出现在两个列表里的语言仍被屏蔽。你不必手动编辑它们: 功能启用后, 编辑器的 `{}` 语言状态菜单 (右下角) 会出现一行「LiteLLM inline suggestions」, 其开关会替你把当前语言写进这些列表。
+还有一个设置决定它在哪里运行。`inlineCompletions.languageFilter` 保存一个模式加精确的 VS Code 语言 ID: `"block"` 表示补全在列出的语言之外的所有语言中运行, `"allow"` 表示仅在列出的语言中运行 (允许列表为空则不在任何语言中运行)。你不必手动编辑它: 功能启用后, 编辑器的 `{}` 语言状态菜单 (右下角) 会出现一行「LiteLLM inline suggestions」, 其开关会替你把当前语言写进这个过滤器。
 
 请求的形状是固定的, 不可调节: 光标之前最多 8000 个字符 (从左侧截断)、之后最多 4000 个字符, 停止输入 200 毫秒后才发出请求, `max_tokens` 为 256, 超时 15 秒。一个小的内存缓存让相同的上下文不会被问第二次。失败按设计静默 - 超时、401 或格式错误的响应都只是不出现建议, 绝不会弹窗打断你输入。
 

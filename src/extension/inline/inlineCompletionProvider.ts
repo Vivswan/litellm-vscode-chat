@@ -15,7 +15,7 @@ import {
 	truncateFimSuffix,
 } from "../../provider/transport/fim";
 import type { FeatureModelRef } from "../../shared/config/settingSpec";
-import { getFeatureModelRef, getInlineCompletionsLanguageList } from "../../shared/config/settings";
+import { getFeatureModelRef, getInlineLanguageFilter } from "../../shared/config/settings";
 import type { CompletionCache } from "./completionCache";
 import { languageAllowed } from "./languageFilter";
 
@@ -108,9 +108,8 @@ class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
 
 	/**
 	 * A settings getter's advisory sink, deduplicated per setting scope AND
-	 * message: the language-list messages do not name their list, so the scope
-	 * in the key is what keeps a broken allow list from silencing the block
-	 * list's advisory (the line itself stays the getter's own wording).
+	 * message: one setting's malformed value must not silence another's
+	 * advisory (the line itself stays the getter's own wording).
 	 */
 	private settingsLog(scope: string): (message: string, data?: unknown) => void {
 		return (message, data) => {
@@ -129,9 +128,8 @@ class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
 			return undefined;
 		}
 
-		const allowed = getInlineCompletionsLanguageList("allowedLanguages", this.settingsLog("allowedLanguages"));
-		const blocked = getInlineCompletionsLanguageList("blockedLanguages", this.settingsLog("blockedLanguages"));
-		if (!languageAllowed(document.languageId, allowed, blocked)) {
+		const filter = getInlineLanguageFilter(this.settingsLog("languageFilter"));
+		if (!languageAllowed(document.languageId, filter)) {
 			return undefined;
 		}
 

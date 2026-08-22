@@ -7,11 +7,24 @@ import { expect, test } from "bun:test";
 import packageJson from "../../../../package.json";
 import { WIRE_LIMITS } from "../../../dashboard/endpoints";
 
-function manifestProperty(
-	id: string
-): { maxLength?: number; maxItems?: number; items?: { maxLength?: number } } | undefined {
+function manifestProperty(id: string):
+	| {
+			maxLength?: number;
+			maxItems?: number;
+			items?: { maxLength?: number };
+			properties?: Record<string, { maxItems?: number; items?: { maxLength?: number } }>;
+	  }
+	| undefined {
 	const sections = packageJson.contributes.configuration as readonly {
-		properties: Record<string, { maxLength?: number; maxItems?: number; items?: { maxLength?: number } }>;
+		properties: Record<
+			string,
+			{
+				maxLength?: number;
+				maxItems?: number;
+				items?: { maxLength?: number };
+				properties?: Record<string, { maxItems?: number; items?: { maxLength?: number } }>;
+			}
+		>;
 	}[];
 	return sections.map((section) => section.properties[id]).find((candidate) => candidate !== undefined);
 }
@@ -28,14 +41,11 @@ test("the manifest's commitGeneration.prompt maxLength mirrors WIRE_LIMITS.commi
 	expect(property?.maxLength).toBe(WIRE_LIMITS.commitPrompt);
 });
 
-test("the manifest's language-list bounds mirror WIRE_LIMITS.languageList and languageId", () => {
-	for (const id of [
-		"litellm-vscode-chat.inlineCompletions.allowedLanguages",
-		"litellm-vscode-chat.inlineCompletions.blockedLanguages",
-	]) {
-		const property = manifestProperty(id);
-		expect(property, id).toBeDefined();
-		expect(property?.maxItems, id).toBe(WIRE_LIMITS.languageList);
-		expect(property?.items?.maxLength, id).toBe(WIRE_LIMITS.languageId);
-	}
+test("the manifest's languageFilter list bounds mirror WIRE_LIMITS.languageList and languageId", () => {
+	const property = manifestProperty("litellm-vscode-chat.inlineCompletions.languageFilter");
+	expect(property).toBeDefined();
+	const languages = property?.properties?.languages;
+	expect(languages).toBeDefined();
+	expect(languages?.maxItems).toBe(WIRE_LIMITS.languageList);
+	expect(languages?.items?.maxLength).toBe(WIRE_LIMITS.languageId);
 });

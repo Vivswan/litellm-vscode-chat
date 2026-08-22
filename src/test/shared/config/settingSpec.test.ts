@@ -12,9 +12,9 @@ import {
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	FEATURE_MODEL_IDS,
 	FEATURE_MODEL_SETTING_KEYS,
-	INLINE_LANGUAGE_LIST_SETTING_KEYS,
-	INLINE_LANGUAGE_LISTS,
+	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	isIntegerSetting,
+	LANGUAGE_FILTER_MODES,
 	MIN_TIMEOUT_MS,
 	NUMBER_SETTING_SPECS,
 	type NumberSettingId,
@@ -284,7 +284,7 @@ suite("shared/config/settingSpec: docs drift guard", () => {
 			FEATURE_MODEL_SETTING_KEYS.inlineCompletions,
 			FEATURE_MODEL_SETTING_KEYS.commitGeneration,
 			COMMIT_GENERATION_PROMPT_SETTING_KEY,
-			...INLINE_LANGUAGE_LISTS.map((list) => INLINE_LANGUAGE_LIST_SETTING_KEYS[list]),
+			INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 		]) {
 			defaults.set(id, JSON.stringify(settingSchema(properties, id).default));
 		}
@@ -483,13 +483,20 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 		assert.strictEqual(schema.editPresentation, "multilineText");
 	});
 
-	test("the inline-completions language lists are contributed as string arrays defaulting to empty", () => {
-		const properties = allProperties();
-		for (const list of INLINE_LANGUAGE_LISTS) {
-			const schema = settingSchema(properties, INLINE_LANGUAGE_LIST_SETTING_KEYS[list]);
-			assert.strictEqual(schema.type, "array", `${list} type`);
-			assert.strictEqual(schema.items?.type, "string", `${list} items`);
-			assert.deepStrictEqual(schema.default, [], `${list} default`);
-		}
+	test("the inline-completions language filter is contributed as the closed { mode, languages } object", () => {
+		const schema = settingSchema(allProperties(), INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY);
+		assert.strictEqual(schema.type, "object");
+		// Closed shape: a typo'd key must flag in the editor, not silently ride
+		// along until a rewrite drops it.
+		assert.strictEqual(schema.additionalProperties, false);
+		// A filter without a mode is not a filter; the languages list may be
+		// omitted (the reader treats it as empty).
+		assert.deepStrictEqual(schema.required, ["mode"]);
+		assert.deepStrictEqual(Object.keys(schema.properties ?? {}).sort(), ["languages", "mode"]);
+		assert.deepStrictEqual(schema.properties?.mode?.enum, [...LANGUAGE_FILTER_MODES]);
+		assert.strictEqual(schema.properties?.languages?.type, "array");
+		assert.strictEqual(schema.properties?.languages?.items?.type, "string");
+		// Identical semantics to the readers' default: block nothing.
+		assert.deepStrictEqual(schema.default, { mode: "block", languages: [] });
 	});
 });

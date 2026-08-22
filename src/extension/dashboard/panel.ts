@@ -613,7 +613,7 @@ export class DashboardController implements vscode.Disposable {
 			executeDashboardIntent({ method: "setUsageAlertThresholds", payload }, this.env),
 		setFeatureModel: (payload) => executeDashboardIntent({ method: "setFeatureModel", payload }, this.env),
 		setCommitPrompt: (payload) => executeDashboardIntent({ method: "setCommitPrompt", payload }, this.env),
-		setLanguageList: (payload) => executeDashboardIntent({ method: "setLanguageList", payload }, this.env),
+		setLanguageFilter: (payload) => executeDashboardIntent({ method: "setLanguageFilter", payload }, this.env),
 		refreshCatalog: (payload) => executeDashboardIntent({ method: "refreshCatalog", payload }, this.env),
 		refreshUsage: (payload) => executeDashboardIntent({ method: "refreshUsage", payload }, this.env),
 		saveServerSetting: (payload) => executeDashboardIntent({ method: "saveServerSetting", payload }, this.env),
@@ -954,6 +954,9 @@ export function registerDashboardCommand(
 		settingsReader: () => settingsAccess.snapshotReader(),
 		updateSetting: (key, value) => settingsAccess.updateAuto(key, value),
 		removeSetting: (key) => settingsAccess.removeConfigured(key),
+		// The effective (scope-merged) value, matching what the state pushes
+		// show and what a fresh getter would read after the awaited write.
+		readSetting: (key) => settingsAccess.readEffective(key),
 		// The servers setting is machine-scoped: workspaces cannot re-point a
 		// label at another host to harvest its stored secrets, and reads and
 		// writes always target the user-scope value.

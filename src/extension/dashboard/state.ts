@@ -36,14 +36,14 @@ import { matchChain } from "../../shared/config/modelMatcher";
 import type { EffectiveParametersProjection } from "../../shared/config/parameterResolution";
 import { projectResolvedParameters, resolveModelParameters } from "../../shared/config/parameterResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
-import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
+import type { BooleanSettingId, InlineLanguageFilter, NumberSettingId } from "../../shared/config/settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	FEATURE_MODEL_IDS,
 	FEATURE_MODEL_SETTING_KEYS,
-	INLINE_LANGUAGE_LIST_SETTING_KEYS,
-	INLINE_LANGUAGE_LISTS,
+	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
+	LANGUAGE_FILTER_MODES,
 	NUMBER_SETTING_SPECS,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
@@ -57,7 +57,7 @@ import {
 	normalizeCommitGenerationPrompt,
 	normalizeCurrencySymbol,
 	normalizeFeatureModelRef,
-	normalizeLanguageList,
+	normalizeInlineLanguageFilter,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
 	normalizeTokenEstimationMode,
@@ -594,7 +594,7 @@ function buildScopedRecord<V>(
  * without this flag a list row cannot tell a clean list from one hiding
  * entries a comma-box edit would silently destroy; the flag forces the row's
  * read-only fallback instead. One rule for every normalized list setting (the
- * schema keywords, both language lists).
+ * schema keywords, the language filter's list).
  */
 function normalizedListLossy(raw: unknown, normalized: readonly string[]): boolean {
 	if (raw === undefined) {
@@ -678,16 +678,47 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 		),
 		commitPrompt: normalizeCommitGenerationPrompt(reader.get(COMMIT_GENERATION_PROMPT_SETTING_KEY)),
 		commitPromptScope: resolveConfiguredScope(reader.inspect(COMMIT_GENERATION_PROMPT_SETTING_KEY)),
-		languageLists: recordFromKeys(INLINE_LANGUAGE_LISTS, (list) => {
-			const raw = reader.get(INLINE_LANGUAGE_LIST_SETTING_KEYS[list]);
-			const normalized = normalizeLanguageList(raw);
+		languageFilter: (() => {
+			const raw = reader.get(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY);
+			const filter = normalizeInlineLanguageFilter(raw);
 			return {
-				values: normalized,
-				lossy: normalizedListLossy(raw, normalized),
-				scope: resolveConfiguredScope(reader.inspect(INLINE_LANGUAGE_LIST_SETTING_KEYS[list])),
+				mode: filter.mode,
+				languages: {
+					values: filter.languages,
+					lossy: languageFilterLossy(raw, filter),
+					scope: resolveConfiguredScope(reader.inspect(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY)),
+				},
 			};
-		}),
+		})(),
 	};
+}
+
+/**
+ * Whether a filter row edit would rewrite raw configured state the push
+ * cannot carry: a value normalization rewrote (unrecognized mode, dropped or
+ * trimmed language entries) or keys a { mode, languages } write would drop.
+ * The whole-object twin of normalizedListLossy, and the same read-only
+ * fallback consumes it.
+ */
+function languageFilterLossy(raw: unknown, filter: InlineLanguageFilter): boolean {
+	if (raw === undefined) {
+		return false;
+	}
+	if (
+		typeof raw !== "object" ||
+		raw === null ||
+		Array.isArray(raw) ||
+		!("mode" in raw) ||
+		typeof raw.mode !== "string" ||
+		!(LANGUAGE_FILTER_MODES as readonly string[]).includes(raw.mode)
+	) {
+		return true;
+	}
+	if (Object.keys(raw).some((key) => key !== "mode" && key !== "languages")) {
+		return true;
+	}
+	const languages = (raw as { readonly languages?: unknown }).languages;
+	return languages === undefined ? false : normalizedListLossy(languages, filter.languages);
 }
 
 /**

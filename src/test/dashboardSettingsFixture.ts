@@ -71,10 +71,7 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 		featureModelScopes: { inlineCompletions: null, commitGeneration: null },
 		commitPrompt: "",
 		commitPromptScope: null,
-		languageLists: {
-			allowedLanguages: { values: [], lossy: false, scope: null },
-			blockedLanguages: { values: [], lossy: false, scope: null },
-		},
+		languageFilter: { mode: "block", languages: { values: [], lossy: false, scope: null } },
 		...overrides,
 	};
 }

@@ -169,21 +169,23 @@ suite("extension/inline/inlineCompletionProvider", () => {
 		assert.strictEqual(harness.requests.length, 0);
 	});
 
-	test("a blocked language means zero sends, and block beats allow", async () => {
+	test("a block-mode-listed language means zero sends", async () => {
 		const harness = makeHarness();
 		const config = {
 			"inlineCompletions.model": MODEL_REF,
-			"inlineCompletions.allowedLanguages": ["plaintext"],
-			"inlineCompletions.blockedLanguages": ["plaintext"],
+			"inlineCompletions.languageFilter": { mode: "block", languages: ["plaintext"] },
 		};
 		const items = await withConfig(config, () => invoke(harness, { language: "plaintext" }));
 		assert.strictEqual(items, undefined);
 		assert.strictEqual(harness.requests.length, 0);
 	});
 
-	test("a language outside a non-empty allow list means zero sends", async () => {
+	test("a language outside an allow-mode list means zero sends", async () => {
 		const harness = makeHarness();
-		const config = { "inlineCompletions.model": MODEL_REF, "inlineCompletions.allowedLanguages": ["python"] };
+		const config = {
+			"inlineCompletions.model": MODEL_REF,
+			"inlineCompletions.languageFilter": { mode: "allow", languages: ["python"] },
+		};
 		const items = await withConfig(config, () => invoke(harness));
 		assert.strictEqual(items, undefined);
 		assert.strictEqual(harness.requests.length, 0);
@@ -220,19 +222,18 @@ suite("extension/inline/inlineCompletionProvider", () => {
 		assert.ok(!JSON.stringify(harness.logs).includes("boom"), "no response-derived text reaches the log");
 	});
 
-	test("a malformed language-list setting advises once per list, not per keystroke", async () => {
+	test("a malformed language-filter setting advises once, not per keystroke", async () => {
 		const harness = makeHarness(async () => "unused");
 		const config = {
 			"inlineCompletions.model": MODEL_REF,
-			"inlineCompletions.allowedLanguages": "typescript",
-			"inlineCompletions.blockedLanguages": "markdown",
+			"inlineCompletions.languageFilter": "typescript",
 		};
 		await withConfig(config, async () => {
 			await invoke(harness);
 			await invoke(harness);
 		});
-		const advisories = harness.logs.filter((line) => line.message.includes("language list"));
-		assert.strictEqual(advisories.length, 2, "one line per broken list, session-deduplicated");
+		const advisories = harness.logs.filter((line) => line.message.includes("languageFilter"));
+		assert.strictEqual(advisories.length, 1, "one line for the broken filter, session-deduplicated");
 	});
 
 	test("hostile error shapes still log a safe label instead of throwing or leaking", async () => {

@@ -7,4 +7,4 @@
 
 要选一个补全模型 - 你的 LiteLLM 服务器声明为 `mode: completion` 的那种, 这也正是它不出现在聊天模型选择器里的原因。之后建议会在你输入时以幽灵文本出现, 光标周围的文件内容也会自动发送到该服务器。
 
-另外两个设置让它不进入不该进的文件: `inlineCompletions.allowedLanguages` 和 `inlineCompletions.blockedLanguages` 接受精确的 VS Code 语言 ID, 而编辑器 `{}` 语言状态菜单里的「LiteLLM inline suggestions」一行会替你切换当前语言。
+还有一个设置让它不进入不该进的文件: `inlineCompletions.languageFilter` 接受一个模式加精确的 VS Code 语言 ID (block 表示在列出的语言之外的所有语言中运行, allow 表示仅在列出的语言中运行), 而编辑器 `{}` 语言状态菜单里的「LiteLLM inline suggestions」一行会替你切换当前语言。

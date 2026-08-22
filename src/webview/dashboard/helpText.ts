@@ -9,7 +9,7 @@
 
 import * as l10n from "@vscode/l10n";
 import type { ServerFormField } from "../../dashboard/serverForm";
-import type { BooleanSettingId, InlineLanguageListId, NumberSettingId } from "../../shared/config/settingSpec";
+import type { BooleanSettingId, LanguageFilterMode, NumberSettingId } from "../../shared/config/settingSpec";
 
 export function helpServersSection(): string {
 	return l10n.t(
@@ -279,13 +279,18 @@ export function helpCommitPrompt(): string {
 	);
 }
 
-/** The two language-list rows' help, keyed by list; both quote example IDs (short-example-led). */
-export function helpLanguageList(list: InlineLanguageListId): string {
-	return list === "allowedLanguages"
-		? l10n.t(
-				"Exact VS Code language IDs, e.g. typescript, python. Leave empty to allow every language; block beats allow."
-			)
-		: l10n.t("Exact VS Code language IDs, e.g. markdown, plaintext. Leave empty to block none; block beats allow.");
+/** The language filter's mode row help: what each mode does with the list below. */
+export function helpLanguageFilterMode(): string {
+	return l10n.t(
+		"Block runs inline completions everywhere except the listed languages; Allow only runs them in the listed ones."
+	);
+}
+
+/** The language filter's list row help, keyed by mode; both quote example IDs (short-example-led). */
+export function helpLanguageFilterList(mode: LanguageFilterMode): string {
+	return mode === "allow"
+		? l10n.t("Exact VS Code language IDs, e.g. typescript, python. While the list is empty, completions run nowhere.")
+		: l10n.t("Exact VS Code language IDs, e.g. markdown, plaintext. Leave empty to run everywhere.");
 }
 
 export function helpCapsInspector(): string {

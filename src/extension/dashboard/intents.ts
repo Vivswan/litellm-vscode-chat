@@ -26,7 +26,7 @@ import {
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	FEATURE_MODEL_SETTING_KEYS,
-	INLINE_LANGUAGE_LIST_SETTING_KEYS,
+	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	isIntegerSetting,
 	isUsableThreshold,
 	NUMBER_SETTING_SPECS,
@@ -37,6 +37,7 @@ import {
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
+	normalizeInlineLanguageFilter,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
@@ -100,6 +101,8 @@ export interface IntentEnvironment {
 	updateSetting(key: string, value: unknown): Promise<void>;
 	/** Remove one litellm-vscode-chat.* setting from the highest-precedence scope that sets it (resolveConfiguredScope). */
 	removeSetting(key: string): Promise<void>;
+	/** Read one litellm-vscode-chat.* setting's effective (scope-merged) value, reflecting landed writes. */
+	readSetting(key: string): unknown;
 	executeCommand(command: string, ...args: readonly unknown[]): Thenable<unknown>;
 	/** The servers array a write would replace (the user-scope value; the setting is machine-scoped). */
 	readServersSetting(): unknown;
@@ -533,27 +536,50 @@ export async function executeDashboardIntent(
 				await env.updateSetting(COMMIT_GENERATION_PROMPT_SETTING_KEY, intent.payload.value);
 			}
 			return undefined;
-		case "setLanguageList": {
-			const key = INLINE_LANGUAGE_LIST_SETTING_KEYS[intent.payload.list];
-			// Entries that trim away are refused rather than dropped: the row's
-			// editor already trims empties out, so anything else is a bypassing
-			// caller. Written trimmed and deduplicated in the given order - the
-			// canonical form normalization would produce anyway.
-			const values = intent.payload.values.map((value) => value.trim());
-			if (values.some((value) => value.length === 0)) {
+		case "setLanguageFilter": {
+			// A partial patch: each dashboard row sends only its own half, and the
+			// merge onto the STORED filter happens here on the chained channel, so
+			// two quick writes from different rows can never revert each other.
+			if (intent.payload.mode === undefined && intent.payload.languages === undefined) {
+				// The rows always name their own field; an empty patch is a
+				// bypassing caller.
 				throw new DashboardValidationError(
-					`${l10n.t("Language IDs must be plain, non-empty identifiers, e.g. typescript.")}\n${l10n.t(
+					`${l10n.t("A language filter change names a mode, languages, or both.")}\n${l10n.t(
 						"setting {0}: allowed range {1}",
-						`${CONFIG_SECTION}.${key}`,
-						"plain non-empty strings"
+						`${CONFIG_SECTION}.${INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY}`,
+						"mode and/or languages"
 					)}`
 				);
 			}
-			const unique = [...new Set(values)];
-			if (unique.length === 0) {
-				await env.removeSetting(key);
+			const current = normalizeInlineLanguageFilter(env.readSetting(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY));
+			let languages = current.languages;
+			if (intent.payload.languages !== undefined) {
+				// Entries that trim away are refused rather than dropped: the row's
+				// editor already trims empties out, so anything else is a bypassing
+				// caller. Written trimmed and deduplicated in the given order - the
+				// canonical form normalization would produce anyway.
+				const trimmed = intent.payload.languages.map((value) => value.trim());
+				if (trimmed.some((value) => value.length === 0)) {
+					throw new DashboardValidationError(
+						`${l10n.t("Language IDs must be plain, non-empty identifiers, e.g. typescript.")}\n${l10n.t(
+							"setting {0}: allowed range {1}",
+							`${CONFIG_SECTION}.${INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY}`,
+							"plain non-empty strings"
+						)}`
+					);
+				}
+				languages = [...new Set(trimmed)];
+			}
+			const mode = intent.payload.mode ?? current.mode;
+			if (mode === "block" && languages.length === 0) {
+				// Block-nothing IS the default: resetting instead of writing it keeps
+				// the row unmarked, like the other empty-equals-default writes.
+				await env.removeSetting(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY);
 			} else {
-				await env.updateSetting(key, unique);
+				await env.updateSetting(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY, {
+					mode,
+					languages: [...languages],
+				});
 			}
 			return undefined;
 		}

@@ -1,23 +1,22 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { INTERNAL_CMD } from "../../shared/config/commandIds";
-import type { InlineLanguageListId } from "../../shared/config/settingSpec";
 import {
 	CONFIG_SECTION,
 	FEATURE_MODEL_SETTING_KEYS,
-	INLINE_LANGUAGE_LIST_SETTING_KEYS,
+	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 } from "../../shared/config/settingSpec";
-import { getFeatureModelRef, getInlineCompletionsLanguageList } from "../../shared/config/settings";
+import { getFeatureModelRef, getInlineLanguageFilter } from "../../shared/config/settings";
 import { createSettingsAccess } from "../settingsAccess";
 import { languageAllowed } from "./languageFilter";
 
 /**
  * The inline-completions language status row: one entry in the editor's {}
  * language status menu stating whether LiteLLM inline suggestions run for the
- * current file's language, with a toggle action writing the allow/block
- * lists. It consumes the same languageAllowed decision as the provider's
- * invoke-time filter, so the row and the filter can never disagree. Created
- * only while the feature is enabled; the wiring disposes it on disable.
+ * current file's language, with a toggle action writing the language filter.
+ * It consumes the same languageAllowed decision as the provider's invoke-time
+ * filter, so the row and the filter can never disagree. Created only while
+ * the feature is enabled; the wiring disposes it on disable.
  */
 
 /** The one language-status slot this extension owns; see the slot rule below. */
@@ -29,37 +28,22 @@ export function liveInlineLanguageStatusRows(): number {
 }
 
 /**
- * Toggle rule, chosen so no edit can flip unrelated languages: turning a
- * language OFF always adds it to blockedLanguages (block beats allow, and
- * removing an allow-list entry could empty the list, which means "all
- * languages" and would silently turn every other language ON). Turning it
- * back ON removes it from blockedLanguages and, when an allow list is in
- * force without it, adds it there. Writes go through the shared
- * SettingsAccess scope rule (the dashboard's own): the workspace scope when
- * it already holds the value, else Global - a hardcoded Global write against
- * a workspace-held list would silently change nothing while rewriting the
- * user scope.
+ * Toggle rule: flip the language's membership in the filter's list, keeping
+ * the mode. In block mode the list holds the OFF languages (disable adds,
+ * enable removes); in allow mode it holds the ON languages (enable adds,
+ * disable removes) - one membership flip covers both, and no edit can flip
+ * unrelated languages. Writes go through the shared SettingsAccess scope rule
+ * (the dashboard's own): the workspace scope when it already holds the value,
+ * else Global - a hardcoded Global write against a workspace-held filter
+ * would silently change nothing while rewriting the user scope.
  */
 async function toggleLanguage(languageId: string, log: (message: string, data?: unknown) => void): Promise<void> {
-	const allowed = getInlineCompletionsLanguageList("allowedLanguages", log);
-	const blocked = getInlineCompletionsLanguageList("blockedLanguages", log);
+	const filter = getInlineLanguageFilter(log);
+	const languages = filter.languages.includes(languageId)
+		? filter.languages.filter((id) => id !== languageId)
+		: [...filter.languages, languageId];
 	const access = createSettingsAccess();
-	const write = async (list: InlineLanguageListId, value: readonly string[]): Promise<void> => {
-		await access.updateAuto(INLINE_LANGUAGE_LIST_SETTING_KEYS[list], [...value]);
-	};
-	if (languageAllowed(languageId, allowed, blocked)) {
-		await write("blockedLanguages", [...blocked, languageId]);
-		return;
-	}
-	if (blocked.includes(languageId)) {
-		await write(
-			"blockedLanguages",
-			blocked.filter((id) => id !== languageId)
-		);
-	}
-	if (allowed.length > 0 && !allowed.includes(languageId)) {
-		await write("allowedLanguages", [...allowed, languageId]);
-	}
+	await access.updateAuto(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY, { mode: filter.mode, languages });
 }
 
 /**
@@ -117,9 +101,8 @@ export class InlineLanguageStatusRow implements vscode.Disposable {
 			this.item.command = undefined;
 			return;
 		}
-		const allowed = getInlineCompletionsLanguageList("allowedLanguages", this.log);
-		const blocked = getInlineCompletionsLanguageList("blockedLanguages", this.log);
-		const active = languageAllowed(languageId, allowed, blocked);
+		const filter = getInlineLanguageFilter(this.log);
+		const active = languageAllowed(languageId, filter);
 		this.item.severity = vscode.LanguageStatusSeverity.Information;
 		this.item.text = active
 			? l10n.t("LiteLLM inline suggestions: active for {0}", languageId)
@@ -150,7 +133,7 @@ export class InlineLanguageStatusRow implements vscode.Disposable {
  * The toggle command behind the row's action. Registered for the extension's
  * lifetime (command registration cannot follow the enable flag without
  * re-registration races); without the row there is nothing that invokes it,
- * and a manual invocation still just edits the lists.
+ * and a manual invocation still just edits the filter.
  */
 export function registerToggleInlineLanguageCommand(
 	context: vscode.ExtensionContext,

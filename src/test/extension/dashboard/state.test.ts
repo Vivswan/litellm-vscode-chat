@@ -2500,27 +2500,46 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(readSettings(makeReader({})).commitPromptScope, null);
 		});
 
-		test("language lists snapshot normalized, and the lossy flag marks exactly the raw values an edit would rewrite", () => {
-			// The flag is what stands between a hand-written settings.json list and
-			// a dashboard edit silently canonicalizing it: any drop, trim, or
-			// dedupe marks the list lossy and its row falls back to read-only.
-			const clean = readSettings(makeReader({ "inlineCompletions.allowedLanguages": ["typescript", "python"] }));
-			assert.deepStrictEqual(clean.languageLists.allowedLanguages, {
-				values: ["typescript", "python"],
-				lossy: false,
-				scope: "global",
+		test("the language filter snapshots normalized, and the lossy flag marks exactly the raw values an edit would rewrite", () => {
+			// The flag is what stands between a hand-written settings.json filter
+			// and a dashboard edit silently canonicalizing it: any drop, trim,
+			// dedupe, unrecognized mode, or extra key marks the filter lossy and
+			// its rows fall back to read-only.
+			const clean = readSettings(
+				makeReader({ "inlineCompletions.languageFilter": { mode: "allow", languages: ["typescript", "python"] } })
+			);
+			assert.deepStrictEqual(clean.languageFilter, {
+				mode: "allow",
+				languages: { values: ["typescript", "python"], lossy: false, scope: "global" },
 			});
-			assert.deepStrictEqual(clean.languageLists.blockedLanguages, { values: [], lossy: false, scope: null });
+			assert.deepStrictEqual(readSettings(makeReader({})).languageFilter, {
+				mode: "block",
+				languages: { values: [], lossy: false, scope: null },
+			});
+			// A missing languages list reads as the clean empty list: writing
+			// { mode, languages: [] } back is equivalent configuration.
+			const bare = readSettings(makeReader({ "inlineCompletions.languageFilter": { mode: "allow" } }));
+			assert.deepStrictEqual(bare.languageFilter, {
+				mode: "allow",
+				languages: { values: [], lossy: false, scope: "global" },
+			});
 
-			const lossyCases: readonly [string, unknown, readonly string[]][] = [
-				["edge whitespace rewrites", [" typescript "], ["typescript"]],
-				["duplicates collapse", ["ts", "ts"], ["ts"]],
-				["non-strings drop", ["ts", 3], ["ts"]],
-				["a non-array reads as empty", "markdown", []],
+			const lossyCases: readonly [string, unknown, string, readonly string[]][] = [
+				["edge whitespace rewrites", { mode: "block", languages: [" typescript "] }, "block", ["typescript"]],
+				["duplicates collapse", { mode: "block", languages: ["ts", "ts"] }, "block", ["ts"]],
+				["non-strings drop", { mode: "allow", languages: ["ts", 3] }, "allow", ["ts"]],
+				["a non-array list reads as empty", { mode: "block", languages: "markdown" }, "block", []],
+				["an unrecognized mode reads as the default", { mode: "deny", languages: ["ts"] }, "block", []],
+				["a non-object reads as the default", "markdown", "block", []],
+				["extra keys a rewrite would drop", { mode: "block", languages: [], legacy: true }, "block", []],
 			];
-			for (const [name, raw, values] of lossyCases) {
-				const settings = readSettings(makeReader({ "inlineCompletions.blockedLanguages": raw }));
-				assert.deepStrictEqual(settings.languageLists.blockedLanguages, { values, lossy: true, scope: "global" }, name);
+			for (const [name, raw, mode, values] of lossyCases) {
+				const settings = readSettings(makeReader({ "inlineCompletions.languageFilter": raw }));
+				assert.deepStrictEqual(
+					settings.languageFilter,
+					{ mode, languages: { values, lossy: true, scope: "global" } },
+					name
+				);
 			}
 		});
 

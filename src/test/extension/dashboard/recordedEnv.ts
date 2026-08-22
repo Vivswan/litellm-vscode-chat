@@ -104,6 +104,8 @@ export interface RecordedEnv {
 	updates: [string, unknown][];
 	/** Every removeSetting call (the resetSetting intent's removals). */
 	removals: string[];
+	/** The visible litellm-vscode-chat.* values; reads reflect landed writes like the real configuration. */
+	settingValues: Map<string, unknown>;
 	commands: [string, ...unknown[]][];
 	/** Every writeServersSetting call, whole arrays. */
 	serverWrites: unknown[][];
@@ -168,6 +170,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 	const recorded: RecordedEnv = {
 		updates: [],
 		removals: [],
+		settingValues: new Map(),
 		commands: [],
 		serverWrites: [],
 		secretOps: [],
@@ -192,10 +195,13 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		env: {
 			updateSetting: async (key, value) => {
 				recorded.updates.push([key, value]);
+				recorded.settingValues.set(key, value);
 			},
 			removeSetting: async (key) => {
 				recorded.removals.push(key);
+				recorded.settingValues.delete(key);
 			},
+			readSetting: (key) => recorded.settingValues.get(key),
 			executeCommand: async (command, ...args) => {
 				recorded.commands.push([command, ...args]);
 			},

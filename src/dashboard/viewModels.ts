@@ -10,7 +10,7 @@ import type {
 	BooleanSettingId,
 	FeatureModelId,
 	FeatureModelRef,
-	InlineLanguageListId,
+	LanguageFilterMode,
 	NumberSettingId,
 	TokenEstimationMode,
 	UiAccent,
@@ -342,8 +342,7 @@ export type RevealableSettingId =
 	| "ui.theme"
 	| "ui.accent"
 	| "inlineCompletions.model"
-	| "inlineCompletions.allowedLanguages"
-	| "inlineCompletions.blockedLanguages"
+	| "inlineCompletions.languageFilter"
 	| "commitGeneration.model"
 	| "commitGeneration.prompt";
 
@@ -371,8 +370,7 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 	"ui.theme",
 	"ui.accent",
 	"inlineCompletions.model",
-	"inlineCompletions.allowedLanguages",
-	"inlineCompletions.blockedLanguages",
+	"inlineCompletions.languageFilter",
 	"commitGeneration.model",
 	"commitGeneration.prompt",
 ]);
@@ -389,8 +387,7 @@ export type ResettableSettingId =
 	| "ui.theme"
 	| "ui.accent"
 	| "inlineCompletions.model"
-	| "inlineCompletions.allowedLanguages"
-	| "inlineCompletions.blockedLanguages"
+	| "inlineCompletions.languageFilter"
 	| "commitGeneration.model"
 	| "commitGeneration.prompt";
 
@@ -405,8 +402,7 @@ export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<Re
 	"ui.theme",
 	"ui.accent",
 	"inlineCompletions.model",
-	"inlineCompletions.allowedLanguages",
-	"inlineCompletions.blockedLanguages",
+	"inlineCompletions.languageFilter",
 	"commitGeneration.model",
 	"commitGeneration.prompt",
 ]);
@@ -504,13 +500,24 @@ export interface DashboardSettings {
 	/** The commitGeneration.prompt row's value; "" means the built-in instruction applies. */
 	readonly commitPrompt: string;
 	readonly commitPromptScope: SettingScope | null;
-	/** The two inline-completions language lists; see StringListSetting. */
-	readonly languageLists: Readonly<Record<InlineLanguageListId, StringListSetting>>;
+	/** The inline-completions language filter's two rows: the mode select and its language list. */
+	readonly languageFilter: LanguageFilterSetting;
+}
+
+/**
+ * The inlineCompletions.languageFilter setting as its two rows render it: the
+ * mode plus the languages list riding the shared StringListSetting shape (the
+ * list's lossy flag and scope speak for the whole setting - one key holds
+ * both halves).
+ */
+export interface LanguageFilterSetting {
+	readonly mode: LanguageFilterMode;
+	readonly languages: StringListSetting;
 }
 
 /**
  * One normalized string-list setting as its comma-list row renders it (the
- * schema keywords and the two inline-completions language lists): the
+ * schema keywords and the language filter's list): the
  * normalized values, plus the lossy flag that forces the row's read-only
  * fallback when normalization dropped or rewrote raw entries a comma-box edit
  * would silently destroy.

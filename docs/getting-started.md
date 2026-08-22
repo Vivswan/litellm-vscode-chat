@@ -143,14 +143,14 @@ Ghost text in the editor, written by a model on your own proxy. Two settings tur
 ```jsonc
 "litellm-vscode-chat.inlineCompletions.enabled": true,
 "litellm-vscode-chat.inlineCompletions.model": { "server": "local", "model": "qwen2.5-coder-fim" },
-"litellm-vscode-chat.inlineCompletions.blockedLanguages": ["markdown", "plaintext"]
+"litellm-vscode-chat.inlineCompletions.languageFilter": { "mode": "block", "languages": ["markdown", "plaintext"] }
 ```
 
 There is no command to run: the feature is settings-driven end to end. Off, nothing registers and no automatic request is ever made (the dashboard's explicit "Test completion" button is the one exception - it sends a single probe on your click, enabled or not); on but without a model, it stays idle.
 
 **Pick a completions model, not a chat model.** Inline completions POST to `/v1/completions`, so the model has to be one your LiteLLM server declares with `mode: completion` in its `model_info` - a fill-in-the-middle (FIM) model. Those models deliberately stay out of the chat model picker, so take the ID from your proxy's config rather than from the picker.
 
-Two more settings decide where it runs. `inlineCompletions.allowedLanguages` and `inlineCompletions.blockedLanguages` hold exact VS Code language IDs; an empty allow list means every language, and a language on both lists stays blocked. You do not have to edit them by hand: while the feature is enabled, a "LiteLLM inline suggestions" row appears in the editor's `{}` language status menu (bottom right), and its toggle writes the current language into those lists for you.
+One more setting decides where it runs. `inlineCompletions.languageFilter` holds a mode plus exact VS Code language IDs: `"block"` runs completions everywhere except the listed languages, `"allow"` only in the listed ones (an empty allow list runs nowhere). You do not have to edit it by hand: while the feature is enabled, a "LiteLLM inline suggestions" row appears in the editor's `{}` language status menu (bottom right), and its toggle writes the current language into the filter for you.
 
 The request shape is fixed rather than tunable: at most 8000 characters of the text before your cursor (truncated from the left) and 4000 characters after it, a 200 ms pause in typing before anything is sent, `max_tokens` 256, and a 15 second timeout. A small in-memory cache keeps an unchanged context from being asked twice. Failures are silent by design - a timeout, a 401 or a malformed response means no suggestion appears, never a popup interrupting your typing.
 

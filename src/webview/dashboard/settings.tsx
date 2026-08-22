@@ -27,6 +27,7 @@ import type {
 	CatalogStatusView,
 	DashboardModel,
 	DashboardSettings,
+	LanguageFilterSetting,
 	SettingRowId,
 	SettingScope,
 	StringListSetting,
@@ -37,7 +38,7 @@ import type {
 	BooleanSettingId,
 	FeatureModelId,
 	FeatureModelRef,
-	InlineLanguageListId,
+	LanguageFilterMode,
 	NumberSettingId,
 	TokenEstimationMode,
 	UiAccent,
@@ -45,8 +46,8 @@ import type {
 } from "../../shared/config/settingSpec";
 import {
 	FEATURE_MODEL_SETTING_KEYS,
-	INLINE_LANGUAGE_LIST_SETTING_KEYS,
 	isUsableThreshold,
+	LANGUAGE_FILTER_MODES,
 	NUMBER_SETTING_SPECS,
 	TOKEN_ESTIMATION_MODES,
 	UI_ACCENTS,
@@ -62,7 +63,8 @@ import {
 	helpCurrencySymbol,
 	helpFeatureModel,
 	helpImportExportGroup,
-	helpLanguageList,
+	helpLanguageFilterList,
+	helpLanguageFilterMode,
 	helpModelCapabilitiesSection,
 	helpModelParametersSection,
 	helpSettingsSection,
@@ -317,6 +319,7 @@ function SettingRow({
 	hidden,
 	hintClassName,
 	compactControl,
+	companion,
 }: {
 	settingId: SettingRowId;
 	title: string;
@@ -348,13 +351,21 @@ function SettingRow({
 	 * these against the base template's own sub-560 classes (same variant, later input wins).
 	 */
 	compactControl?: boolean;
+	/**
+	 * A secondary row of a setting that spans several rows (the language
+	 * filter's mode row): the setting's primary row carries the actions and the
+	 * standing write failure, so a companion renders neither - a shared failure
+	 * would otherwise show and announce once per row.
+	 */
+	companion?: boolean;
 }) {
 	// The standing failure of this row's last write, rendered in the covered-description slot
 	// like the parse errors (an inserted block used to move every row below). HEADLINE only:
 	// the detail line is arbitrary-length and the covering contract keeps the cell's height.
 	// A live parse error outranks it (it describes the draft under the user's fingers);
 	// the failure resurfaces when the draft parses clean again.
-	const writeFailure = useContext(SettingFailuresContext)[settingId];
+	const settingFailures = useContext(SettingFailuresContext);
+	const writeFailure = companion === true ? undefined : settingFailures[settingId];
 	// Announced once per failure seq. The seq reaches the hook only while this branch
 	// actually renders: fed unconditionally, a failure landing behind a parse error was
 	// marked spoken with no visible line having spoken it, and surfaced silent later.
@@ -434,7 +445,10 @@ function SettingRow({
 				configuredScope !== null ? "modified border-l-(--accent-hue)" : "border-l-transparent",
 				// A compact control keeps the two-column line at every stacked width
 				// (dashboard.css .setting-row.setting-compact).
-				compactControl === true && "setting-compact"
+				compactControl === true && "setting-compact",
+				// The structural mark of a multi-row setting's secondary row; tests
+				// pin that exactly the companions leave their actions slot empty.
+				companion === true && "setting-companion"
 			)}
 			hidden={hidden}
 		>
@@ -527,10 +541,17 @@ function SettingRow({
 			</div>
 			{/* The row's one actions slot: Reset then the settings.json jump, always last (the
 			    anatomy's fourth track; placement per band in dashboard.css .setting-actions).
-			    gap-4.5 is ink-to-ink (compact buttons hand their padding back). */}
+			    gap-4.5 is ink-to-ink (compact buttons hand their padding back). A companion row
+			    keeps the empty track so its grid lines up with its primary's. */}
 			<div className="setting-actions flex items-center justify-end gap-4.5 self-start justify-self-end">
-				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId={settingId} /> : null}
-				<RevealButton title={title} settingId={settingId} />
+				{companion === true ? null : (
+					<>
+						{configuredScope !== null ? (
+							<ResetButton title={title} scope={configuredScope} settingId={settingId} />
+						) : null}
+						<RevealButton title={title} settingId={settingId} />
+					</>
+				)}
 			</div>
 		</div>
 	);
@@ -840,16 +861,29 @@ function commitPromptDescription(): string {
 	return l10n.t("Custom instruction for generated commit messages; empty uses the built-in.");
 }
 
-/** The language-list rows' descriptions, keyed by list like their help. */
-function languageListDescription(list: InlineLanguageListId): string {
-	return list === "allowedLanguages"
-		? l10n.t("Language IDs where inline completions may run. Leave empty to allow all.")
-		: l10n.t("Language IDs where inline completions never run. Leave empty to block none.");
+/** The language filter's mode row title and description; the filter matches this exact text. */
+function languageFilterModeTitle(): string {
+	return l10n.t("Language filter");
 }
 
-/** The language-list rows' titles, keyed by list like their descriptions. */
-function languageListTitle(list: InlineLanguageListId): string {
-	return list === "allowedLanguages" ? l10n.t("Allowed languages") : l10n.t("Blocked languages");
+function languageFilterModeDescription(): string {
+	return l10n.t("Whether the language list blocks or allows inline completions.");
+}
+
+/** The mode options' names, resolved at call time (no module-level localized constants). */
+function languageFilterModeLabel(mode: LanguageFilterMode): string {
+	return mode === "allow" ? l10n.t("Allow only listed languages") : l10n.t("Block listed languages");
+}
+
+/** The language filter's list row title and description, keyed by the picked mode like its help. */
+function languageFilterListTitle(mode: LanguageFilterMode): string {
+	return mode === "allow" ? l10n.t("Allowed languages") : l10n.t("Blocked languages");
+}
+
+function languageFilterListDescription(mode: LanguageFilterMode): string {
+	return mode === "allow"
+		? l10n.t("Inline completions run only in these language IDs.")
+		: l10n.t("Inline completions run everywhere except these language IDs.");
 }
 
 /** The usage.statusBar mode names, resolved at call time (no module-level localized constants). */
@@ -1325,16 +1359,27 @@ function CurrencySymbolRow({
 }
 
 /**
+ * Whether a stored comma-list value can only be edited in settings.json: the
+ * box cannot round-trip an entry that holds a comma or edge whitespace, and
+ * the lossy flag covers what the normalized push cannot show at all. THE ONE
+ * predicate for the class - CommaListRow's read-only fallback and the
+ * language filter's mode row (which patches the setting the list lives in, so
+ * it freezes alongside it) must never disagree.
+ */
+function commaListCustom(values: readonly string[], lossy: boolean): boolean {
+	return lossy || values.some((entry) => entry.includes(",") || entry !== entry.trim());
+}
+
+/**
  * The intent schema's list bounds are WIRE_LIMITS entries (both sides of the
  * wire read the same numbers), so a paste the host would reject is refused
  * here with a reason instead of surfacing as a generic envelope failure.
  *
- * The ONE comma-separated list editor behind the keywords and language-list rows: one
- * draft (trimmed, empties dropped, deduplicated in order), committed on blur or Enter
+ * The ONE comma-separated list editor behind the keywords and language-filter list rows:
+ * one draft (trimmed, empties dropped, deduplicated in order), committed on blur or Enter
  * when it differs from the stored list; a draft past the wire bounds shows the bound and
- * never commits; and a stored list the box cannot round-trip (the lossy flag, or an
- * entry holding a comma or edge whitespace) renders read-only with the reveal button, so
- * the dashboard never destroys it.
+ * never commits; and a stored list the box cannot round-trip (commaListCustom) renders
+ * read-only with the reveal button, so the dashboard never destroys it.
  */
 function CommaListRow({
 	settingId,
@@ -1401,10 +1446,7 @@ function CommaListRow({
 
 	const inputId = `setting-${settingId}`;
 	const errorId = `${inputId}-error`;
-	// The comma-separated box cannot round-trip an entry that holds a comma or
-	// edge whitespace, and the lossy flag covers what the normalized push
-	// cannot show at all; only the settings file can write either.
-	const custom = lossy || values.some((entry) => entry.includes(",") || entry !== entry.trim());
+	const custom = commaListCustom(values, lossy);
 	return (
 		<SettingRow
 			settingId={settingId}
@@ -1471,32 +1513,111 @@ function ToolSchemaKeywordsRow({ setting, hidden }: { setting: StringListSetting
 	);
 }
 
-/** One inline-completions language list over the shared comma-list editor, rendered for both lists. */
-function LanguageListRow({
-	list,
-	setting,
+/**
+ * The languageFilter setting's two rows over one wire method. Each row sends
+ * ONLY its own half as a patch - the mode select a mode, the list row
+ * languages - and the extension merges the patch onto the stored filter on
+ * the chained channel, so two quick writes from different rows can never
+ * revert each other and a refused write leaves nothing stale client-side.
+ */
+function LanguageFilterRows({ filter, hidden }: { filter: LanguageFilterSetting; hidden: boolean }) {
+	return (
+		<>
+			<LanguageFilterModeRow
+				filter={filter}
+				hidden={hidden}
+				onPick={(mode) => sendRequest("setLanguageFilter", { mode })}
+			/>
+			<LanguageFilterListRow
+				filter={filter}
+				hidden={hidden}
+				onCommit={(languages) => sendRequest("setLanguageFilter", { languages })}
+			/>
+		</>
+	);
+}
+
+/**
+ * The languageFilter mode row: which way the list row below applies. A
+ * companion row - the list row is the setting's primary row (actions, write
+ * failures), so the pair reads as one setting spanning two rows.
+ */
+function LanguageFilterModeRow({
+	filter,
 	hidden,
+	onPick,
 }: {
-	list: InlineLanguageListId;
-	setting: StringListSetting;
+	filter: LanguageFilterSetting;
 	hidden: boolean;
+	onPick: (mode: LanguageFilterMode) => void;
+}) {
+	const inputId = "setting-inlineCompletions.languageFilter-mode";
+	// The stored value only settings.json can round-trip freezes the mode too:
+	// a mode write re-sends the normalized list and would destroy the raw form.
+	const custom = commaListCustom(filter.languages.values, filter.languages.lossy);
+	return (
+		<SettingRow
+			settingId="inlineCompletions.languageFilter"
+			companion
+			title={languageFilterModeTitle()}
+			titleFor={custom ? undefined : inputId}
+			description={languageFilterModeDescription()}
+			help={helpLanguageFilterMode()}
+			configuredScope={filter.languages.scope}
+			hidden={hidden}
+			control={
+				custom ? (
+					<>
+						<span>{languageFilterModeLabel(filter.mode)}</span>
+						<span className="hint">{l10n.t("Custom list - edit in settings.json.")}</span>
+					</>
+				) : (
+					<Select
+						id={inputId}
+						className="max-w-full"
+						value={filter.mode}
+						// The mode travels with the languages it applies to: switching
+						// mode keeps the list exactly as last written.
+						onChange={(event) => onPick(event.currentTarget.value as LanguageFilterMode)}
+					>
+						{LANGUAGE_FILTER_MODES.map((candidate) => (
+							<option key={candidate} value={candidate}>
+								{languageFilterModeLabel(candidate)}
+							</option>
+						))}
+					</Select>
+				)
+			}
+		/>
+	);
+}
+
+/** The languageFilter list row over the shared comma-list editor; its write keeps the mode as last written. */
+function LanguageFilterListRow({
+	filter,
+	hidden,
+	onCommit,
+}: {
+	filter: LanguageFilterSetting;
+	hidden: boolean;
+	onCommit: (languages: readonly string[]) => void;
 }) {
 	return (
 		<CommaListRow
-			settingId={INLINE_LANGUAGE_LIST_SETTING_KEYS[list]}
-			title={languageListTitle(list)}
-			description={languageListDescription(list)}
-			help={helpLanguageList(list)}
-			placeholder={l10n.t("e.g. typescript, python")}
-			values={setting.values}
-			lossy={setting.lossy}
+			settingId="inlineCompletions.languageFilter"
+			title={languageFilterListTitle(filter.mode)}
+			description={languageFilterListDescription(filter.mode)}
+			help={helpLanguageFilterList(filter.mode)}
+			placeholder={filter.mode === "allow" ? l10n.t("e.g. typescript, python") : l10n.t("e.g. markdown, plaintext")}
+			values={filter.languages.values}
+			lossy={filter.languages.lossy}
 			maxLength={WIRE_LIMITS.languageId}
 			maxCount={WIRE_LIMITS.languageList}
 			countProblem={(max) => l10n.t("At most {0} language IDs.", max)}
 			lengthProblem={(max) => l10n.t("Language IDs run up to {0} characters each.", max)}
-			configuredScope={setting.scope}
+			configuredScope={filter.languages.scope}
 			hidden={hidden}
-			onCommit={(next) => sendRequest("setLanguageList", { list, values: next })}
+			onCommit={onCommit}
 		/>
 	);
 }
@@ -1934,7 +2055,7 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 		settings.appearance.accentScope,
 		...Object.values(settings.featureModelScopes),
 		settings.commitPromptScope,
-		...Object.values(settings.languageLists).map((list) => list.scope),
+		settings.languageFilter.languages.scope,
 	];
 }
 
@@ -2109,18 +2230,22 @@ export function SettingsSection({
 		"commitGeneration.prompt",
 		helpCommitPrompt()
 	);
-	const allowedLanguagesVisible = matches(
-		languageListTitle("allowedLanguages"),
-		languageListDescription("allowedLanguages"),
-		"inlineCompletions.allowedLanguages",
-		helpLanguageList("allowedLanguages")
-	);
-	const blockedLanguagesVisible = matches(
-		languageListTitle("blockedLanguages"),
-		languageListDescription("blockedLanguages"),
-		"inlineCompletions.blockedLanguages",
-		helpLanguageList("blockedLanguages")
-	);
+	// One flag for both of the setting's rows: a needle matching either half
+	// keeps the pair together - a lone mode select with no list (or the
+	// reverse) would show half a setting with no route to the rest of it.
+	const languageFilterVisible =
+		matches(
+			languageFilterModeTitle(),
+			languageFilterModeDescription(),
+			"inlineCompletions.languageFilter",
+			helpLanguageFilterMode()
+		) ||
+		matches(
+			languageFilterListTitle(settings.languageFilter.mode),
+			languageFilterListDescription(settings.languageFilter.mode),
+			"inlineCompletions.languageFilter",
+			helpLanguageFilterList(settings.languageFilter.mode)
+		);
 	// The Import & Export group filters like a scalar row (title and button labels). Its
 	// help stays OUT of the haystack even though row-level help is in: a group matched
 	// through group help would stand with no row in it matching - the reader scans the
@@ -2145,8 +2270,7 @@ export function SettingsSection({
 		!inlineModelVisible &&
 		!commitModelVisible &&
 		!commitPromptVisible &&
-		!allowedLanguagesVisible &&
-		!blockedLanguagesVisible;
+		!languageFilterVisible;
 	const booleanMeta: Partial<Record<BooleanSettingId, ReactNode>> = {
 		"models.openRouterCatalog": (
 			<CatalogMeta catalog={settings.catalog} enabled={settings.booleans["models.openRouterCatalog"]} now={nowMs} />
@@ -2180,10 +2304,8 @@ export function SettingsSection({
 				return commitModelVisible;
 			case "commitGeneration.prompt":
 				return commitPromptVisible;
-			case "inlineCompletions.allowedLanguages":
-				return allowedLanguagesVisible;
-			case "inlineCompletions.blockedLanguages":
-				return blockedLanguagesVisible;
+			case "inlineCompletions.languageFilter":
+				return languageFilterVisible;
 			default:
 				return isVisible(row);
 		}
@@ -2284,7 +2406,7 @@ export function SettingsSection({
 									(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible)) ||
 									(isUsageGroup && (statusBarVisible || thresholdsVisible || currencyVisible)) ||
 									(isUiGroup && (themeVisible || accentVisible)) ||
-									(isInlineGroup && (inlineModelVisible || allowedLanguagesVisible || blockedLanguagesVisible)) ||
+									(isInlineGroup && (inlineModelVisible || languageFilterVisible)) ||
 									(isCommitGroup && (commitModelVisible || commitPromptVisible))
 								}
 								tail={
@@ -2382,16 +2504,7 @@ export function SettingsSection({
 												configuredScope={settings.featureModelScopes.inlineCompletions}
 												hidden={!inlineModelVisible}
 											/>
-											<LanguageListRow
-												list="allowedLanguages"
-												setting={settings.languageLists.allowedLanguages}
-												hidden={!allowedLanguagesVisible}
-											/>
-											<LanguageListRow
-												list="blockedLanguages"
-												setting={settings.languageLists.blockedLanguages}
-												hidden={!blockedLanguagesVisible}
-											/>
+											<LanguageFilterRows filter={settings.languageFilter} hidden={!languageFilterVisible} />
 										</>
 									) : isCommitGroup ? (
 										<>

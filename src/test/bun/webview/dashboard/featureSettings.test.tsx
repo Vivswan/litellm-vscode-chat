@@ -1,7 +1,7 @@
 /**
  * The inline-completions and commit-generation settings rows: the shared model picker
  * (declared-only options, writes, the dangling warning's covering contract), the
- * language-list rows, and the commit prompt row.
+ * language filter's mode and list rows, and the commit prompt row.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
@@ -204,39 +204,133 @@ test("a standing write failure outranks the dangling warning in the covered slot
 	expect(error).not.toContain("cannot be reached because");
 });
 
-test("the language-list rows commit trimmed deduplicated IDs to their own list; clearing sends the empty list", () => {
+test("the language list row commits its half as a patch: trimmed deduplicated IDs, never a mode", () => {
 	const settings = makeSettings({
-		languageLists: {
-			allowedLanguages: { values: [], lossy: false, scope: null },
-			blockedLanguages: { values: ["markdown"], lossy: false, scope: "global" },
-		},
+		languageFilter: { mode: "allow", languages: { values: ["markdown"], lossy: false, scope: "global" } },
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
-	const allowed = inputOf(root, "inlineCompletions.allowedLanguages");
-	fireInput(allowed, " typescript , python, typescript ");
-	fireBlur(allowed);
-	const blocked = inputOf(root, "inlineCompletions.blockedLanguages");
-	fireInput(blocked, "");
-	fireBlur(blocked);
+	const list = inputOf(root, "inlineCompletions.languageFilter");
+	fireInput(list, " typescript , python, typescript ");
+	fireBlur(list);
+	fireInput(list, "");
+	fireBlur(list);
 	expect(postedCalls()).toEqual([
-		{ method: "setLanguageList", payload: { list: "allowedLanguages", values: ["typescript", "python"] } },
-		{ method: "setLanguageList", payload: { list: "blockedLanguages", values: [] } },
+		{ method: "setLanguageFilter", payload: { languages: ["typescript", "python"] } },
+		{ method: "setLanguageFilter", payload: { languages: [] } },
 	]);
 });
 
-test("a lossy stored language list renders read-only instead of being silently canonicalized", () => {
+test("switching the mode patches the mode alone: the stored languages are the extension's to keep", () => {
 	const settings = makeSettings({
-		languageLists: {
-			allowedLanguages: { values: ["typescript"], lossy: true, scope: "global" },
-			blockedLanguages: { values: [], lossy: false, scope: null },
-		},
+		languageFilter: { mode: "block", languages: { values: ["markdown", "plaintext"], lossy: false, scope: "global" } },
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
-	expect(root.querySelector("#setting-inlineCompletions\\.allowedLanguages")).toBeNull();
+	const mode = selectOf(root, "inlineCompletions.languageFilter-mode");
+	expect([...mode.options].map((option) => option.textContent)).toEqual([
+		"Block listed languages",
+		"Allow only listed languages",
+	]);
+	fireSelect(mode, "allow");
+	expect(postedCalls()).toEqual([{ method: "setLanguageFilter", payload: { mode: "allow" } }]);
+	// The list row's texts follow the picked mode.
+	const list = inputOf(root, "inlineCompletions.languageFilter");
+	expect(rowOf(list).textContent ?? "").toContain("Blocked languages");
+});
+
+test("cross-row writes cannot revert each other: each row's patch names only its own field", () => {
+	// The merge onto the stored filter happens extension-side on the chained
+	// channel, so no interleaving of pushes and queued writes can make one
+	// row's write carry the other row's stale half.
+	const settings = makeSettings({
+		languageFilter: { mode: "block", languages: { values: ["markdown"], lossy: false, scope: "global" } },
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	const list = inputOf(root, "inlineCompletions.languageFilter");
+	fireInput(list, "markdown, plaintext");
+	fireBlur(list);
+	fireSelect(selectOf(root, "inlineCompletions.languageFilter-mode"), "allow");
+	fireInput(list, "markdown, plaintext, git-commit");
+	fireBlur(list);
+	for (const call of postedCalls()) {
+		expect(Object.keys(call.payload as Record<string, unknown>).length).toBe(1);
+	}
+	expect(postedCalls()).toEqual([
+		{ method: "setLanguageFilter", payload: { languages: ["markdown", "plaintext"] } },
+		{ method: "setLanguageFilter", payload: { mode: "allow" } },
+		{ method: "setLanguageFilter", payload: { languages: ["markdown", "plaintext", "git-commit"] } },
+	]);
+});
+
+test("filtering by either row's text keeps BOTH rows: one setting never shows as half a setting", () => {
+	const settings = makeSettings({
+		languageFilter: { mode: "block", languages: { values: ["markdown"], lossy: false, scope: "global" } },
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	const filter = root.querySelector('input[aria-label="Filter settings"]') as HTMLInputElement;
+	expect(filter).not.toBeNull();
+	// "Language filter" matches only the mode row's own text...
+	fireInput(filter, "Language filter");
+	const modeRow = rowOf(selectOf(root, "inlineCompletions.languageFilter-mode"));
+	const listRow = rowOf(inputOf(root, "inlineCompletions.languageFilter"));
+	expect(modeRow.hidden).toBe(false);
+	expect(listRow.hidden).toBe(false);
+	// ...and "Blocked languages" only the list row's; both keep the pair.
+	fireInput(filter, "Blocked languages");
+	expect(modeRow.hidden).toBe(false);
+	expect(listRow.hidden).toBe(false);
+});
+
+test("a lossy stored language filter renders BOTH rows read-only instead of being silently canonicalized", () => {
+	const settings = makeSettings({
+		languageFilter: { mode: "allow", languages: { values: ["typescript"], lossy: true, scope: "global" } },
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	// The list input is gone (CommaListRow's read-only fallback)...
+	expect(root.querySelector("#setting-inlineCompletions\\.languageFilter")).toBeNull();
 	const row = root.querySelector('.setting-row:has([aria-label="Open Allowed languages in settings.json"])');
 	expect(row).not.toBeNull();
 	expect(row?.textContent ?? "").toContain("typescript");
 	expect(row?.textContent ?? "").toContain("Custom list");
+	// ...and so is the mode select: a mode write would re-send the normalized
+	// list and destroy the raw form the fallback protects.
+	expect(root.querySelector("#setting-inlineCompletions\\.languageFilter-mode")).toBeNull();
+	expect(root.textContent ?? "").toContain("Allow only listed languages");
+});
+
+test("a comma-holding entry freezes both rows too: the shared custom rule, not just the lossy flag", () => {
+	// "a,b" survives normalization verbatim (lossy: false), but the comma box
+	// cannot round-trip it - and a mode write re-sends the list, so the mode
+	// select must freeze by the SAME predicate as the list row.
+	const settings = makeSettings({
+		languageFilter: { mode: "block", languages: { values: ["a,b"], lossy: false, scope: "global" } },
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	expect(root.querySelector("#setting-inlineCompletions\\.languageFilter")).toBeNull();
+	expect(root.querySelector("#setting-inlineCompletions\\.languageFilter-mode")).toBeNull();
+});
+
+test("the filter's write failure and actions render once, under the list row (the mode row is a companion)", () => {
+	const settings = makeSettings({
+		languageFilter: { mode: "block", languages: { values: ["markdown"], lossy: false, scope: "global" } },
+	});
+	const root = mount(
+		<SettingsSection
+			settings={settings}
+			models={[]}
+			writeFailures={{
+				setLanguageFilter: { seq: 1, row: "inlineCompletions.languageFilter", message: "refused by the extension" },
+			}}
+		/>
+	);
+	const failures = [...root.querySelectorAll(".setting-cover .error")].filter((line) =>
+		(line.textContent ?? "").includes("The last change did not apply")
+	);
+	expect(failures.length).toBe(1);
+	expect(failures[0]?.closest(".setting-row")).toBe(rowOf(inputOf(root, "inlineCompletions.languageFilter")));
+	// One reset gesture for the one setting: the companion mode row offers none.
+	const modeRow = rowOf(selectOf(root, "inlineCompletions.languageFilter-mode"));
+	expect(modeRow.querySelector('[aria-label^="Open"]')).toBeNull();
+	expect(rowOf(inputOf(root, "inlineCompletions.languageFilter")).querySelector('[aria-label^="Open"]')).not.toBeNull();
 });
 
 test("the commit prompt commits verbatim on blur and clears with the empty string", () => {

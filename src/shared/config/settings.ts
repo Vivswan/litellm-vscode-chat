@@ -7,7 +7,8 @@ import type {
 	BooleanSettingId,
 	FeatureModelId,
 	FeatureModelRef,
-	InlineLanguageListId,
+	InlineLanguageFilter,
+	LanguageFilterMode,
 	NumberSettingId,
 	TokenEstimationMode,
 } from "./settingSpec";
@@ -18,13 +19,15 @@ import {
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
+	DEFAULT_INLINE_LANGUAGE_FILTER,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
 	FEATURE_MODEL_SETTING_KEYS,
-	INLINE_LANGUAGE_LIST_SETTING_KEYS,
+	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	isIntegerSetting,
 	isUsableThreshold,
+	LANGUAGE_FILTER_MODES,
 	MIN_TIMEOUT_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -491,28 +494,48 @@ export function getCommitGenerationPrompt(): string {
 }
 
 /**
- * Narrow a raw language-list value to VS Code language IDs: strings only,
- * edge-trimmed, empties dropped, deduplicated in configuration order. A
- * non-array reads as the empty list (allow everything / block nothing).
+ * Narrow a raw inlineCompletions.languageFilter value to the filter the
+ * provider and the language status row consume. Lenient by design: a value
+ * without a recognized mode is advisory-logged and reads as the default
+ * (block nothing), and languages entries that are not non-empty strings drop
+ * (edge-trimmed, deduplicated in configuration order).
  */
-export function normalizeLanguageList(raw: unknown, log?: LogFn): readonly string[] {
-	if (!Array.isArray(raw)) {
-		if (raw !== undefined) {
-			log?.("Invalid inline-completions language list configuration, using the empty list", { configured: typeof raw });
-		}
-		return [];
+export function normalizeInlineLanguageFilter(raw: unknown, log?: LogFn): InlineLanguageFilter {
+	if (raw === undefined) {
+		return DEFAULT_INLINE_LANGUAGE_FILTER;
 	}
-	const valid = raw
+	if (
+		!isRecord(raw) ||
+		typeof raw.mode !== "string" ||
+		!(LANGUAGE_FILTER_MODES as readonly string[]).includes(raw.mode)
+	) {
+		log?.("Invalid inlineCompletions.languageFilter configuration, using the default (block nothing)", {
+			configured: typeof raw,
+		});
+		return DEFAULT_INLINE_LANGUAGE_FILTER;
+	}
+	const mode = raw.mode as LanguageFilterMode;
+	if (!Array.isArray(raw.languages)) {
+		if (raw.languages !== undefined) {
+			log?.("Invalid inlineCompletions.languageFilter languages configuration, using the empty list", {
+				configured: typeof raw.languages,
+			});
+		}
+		return { mode, languages: [] };
+	}
+	const valid = raw.languages
 		.filter((value): value is string => typeof value === "string")
 		.map((value) => value.trim())
 		.filter((value) => value.length > 0);
-	if (valid.length < raw.length) {
-		log?.("Ignoring language list entries that are not non-empty language IDs", { ignored: raw.length - valid.length });
+	if (valid.length < raw.languages.length) {
+		log?.("Ignoring language filter entries that are not non-empty language IDs", {
+			ignored: raw.languages.length - valid.length,
+		});
 	}
-	return [...new Set(valid)];
+	return { mode, languages: [...new Set(valid)] };
 }
 
-/** One inline-completions language list, normalized; both lists read through the one pipeline. */
-export function getInlineCompletionsLanguageList(list: InlineLanguageListId, log?: LogFn): readonly string[] {
-	return normalizeLanguageList(getConfig().get<unknown>(INLINE_LANGUAGE_LIST_SETTING_KEYS[list]), log);
+/** The inline-completions language filter, normalized (see normalizeInlineLanguageFilter). */
+export function getInlineLanguageFilter(log?: LogFn): InlineLanguageFilter {
+	return normalizeInlineLanguageFilter(getConfig().get<unknown>(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY), log);
 }

@@ -160,6 +160,10 @@ const COMMIT_MODEL_ROW = '.setting-row:has([id="setting-commitGeneration.model"]
 const COMMIT_PROMPT_ROW = '.setting-row:has([id="setting-commitGeneration.prompt"])';
 /** That row's textarea itself, the box whose growth the prompt pair measures. */
 const COMMIT_PROMPT_BOX = '[id="setting-commitGeneration.prompt"]';
+/** The language filter's mode row (settings-features.ts), the companion select above the list row. */
+const LANGUAGE_FILTER_MODE_ROW = '.setting-row:has([id="setting-inlineCompletions.languageFilter-mode"])';
+/** The language filter's list row (settings-features.ts), the setting's primary comma-list row. */
+const LANGUAGE_FILTER_LIST_ROW = '.setting-row:has([id="setting-inlineCompletions.languageFilter"])';
 /** The usage-thresholds row, whose error contract is "the overlay never changes the row's height". */
 const THRESHOLDS_ROW = '.setting-row:has([id="setting-usage.alertThresholds-warning"])';
 /**
@@ -424,6 +428,40 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`return box.value.split("\\n").length === 12 && ` +
 			`box.getBoundingClientRect().height > window.__commitPromptRestHeight + 1 && ` +
 			`box.scrollHeight > box.clientHeight + 1; })()`,
+	},
+	{
+		// One setting, two rows: flipping the language filter's mode re-labels
+		// the list row (title, description, help, placeholder) and re-selects
+		// the mode option, but both rows keep single-line texts by design, so
+		// neither row's box nor the row below the pair may move.
+		name: "language-filter-mode-switch",
+		fixture: "settings-features.ts",
+		// The list row is its group's last row (no next sibling), so the held
+		// downstream witness is the next group's model row; the mode row's own
+		// sibling is the list row, held twice over.
+		targets: [LANGUAGE_FILTER_MODE_ROW, LANGUAGE_FILTER_LIST_ROW, COMMIT_MODEL_ROW],
+		siblingOf: LANGUAGE_FILTER_MODE_ROW,
+		toggle: [
+			`(() => {
+				const push = structuredClone(window.__fixtureMessages.find((message) => message.kind === "push"));
+				push.state.settings.languageFilter = {
+					mode: "allow",
+					languages: push.state.settings.languageFilter.languages,
+				};
+				window.dispatchEvent(new MessageEvent("message", { data: push }));
+			})()`,
+		],
+		restVerify:
+			`(() => { const mode = document.querySelector('[id="setting-inlineCompletions.languageFilter-mode"]'); ` +
+			`const row = document.querySelector(${JSON.stringify(LANGUAGE_FILTER_LIST_ROW)}); ` +
+			`return mode?.value === "block" && row !== null && row.textContent.includes("Blocked languages"); })()`,
+		verify:
+			`(() => { const mode = document.querySelector('[id="setting-inlineCompletions.languageFilter-mode"]'); ` +
+			`const row = document.querySelector(${JSON.stringify(LANGUAGE_FILTER_LIST_ROW)}); ` +
+			// The list itself survives the flip: the mode never edits the languages.
+			`const list = document.querySelector('[id="setting-inlineCompletions.languageFilter"]'); ` +
+			`return mode?.value === "allow" && row !== null && row.textContent.includes("Allowed languages") && ` +
+			`list?.value === "markdown, plaintext"; })()`,
 	},
 	{
 		// The covered slot renders ONE truncated line however long the tenant,

@@ -3,8 +3,8 @@
  * feature groups with their booleans set, the inline model pick backed by a
  * served model (at rest for the dangling geometry pair), the commit model pick
  * DANGLING (its warning covers the description), a custom MULTILINE commit
- * prompt (the auto-growing textarea's at-rest state), and both language lists
- * filled.
+ * prompt (the auto-growing textarea's at-rest state), and the language filter
+ * configured (block mode with a filled list, both rows marked).
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
@@ -49,9 +49,9 @@ const fixture: RenderFixture = {
 						"Then one blank line.\n" +
 						"Then a short body explaining why, wrapped at 72 columns.",
 					commitPromptScope: "global",
-					languageLists: {
-						allowedLanguages: { values: ["typescript", "python", "go"], lossy: false, scope: "global" },
-						blockedLanguages: { values: ["markdown", "plaintext"], lossy: false, scope: "global" },
+					languageFilter: {
+						mode: "block",
+						languages: { values: ["markdown", "plaintext"], lossy: false, scope: "global" },
 					},
 				},
 			},

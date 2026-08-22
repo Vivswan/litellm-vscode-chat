@@ -697,25 +697,36 @@
 						"additionalProperties": false,
 						"markdownDescription": "%litellm.config.inlineCompletions.model.description%"
 					},
-					"litellm-vscode-chat.inlineCompletions.allowedLanguages": {
-						"type": "array",
-						"maxItems": 256,
-						"items": {
-							"type": "string",
-							"maxLength": 128
+					"litellm-vscode-chat.inlineCompletions.languageFilter": {
+						"type": "object",
+						"additionalProperties": false,
+						"required": [
+							"mode"
+						],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"enum": [
+									"block",
+									"allow"
+								],
+								"description": "%litellm.config.inlineCompletions.languageFilter.mode.description%"
+							},
+							"languages": {
+								"type": "array",
+								"maxItems": 256,
+								"items": {
+									"type": "string",
+									"maxLength": 128
+								},
+								"description": "%litellm.config.inlineCompletions.languageFilter.languages.description%"
+							}
 						},
-						"default": [],
-						"markdownDescription": "%litellm.config.inlineCompletions.allowedLanguages.description%"
-					},
-					"litellm-vscode-chat.inlineCompletions.blockedLanguages": {
-						"type": "array",
-						"maxItems": 256,
-						"items": {
-							"type": "string",
-							"maxLength": 128
+						"default": {
+							"mode": "block",
+							"languages": []
 						},
-						"default": [],
-						"markdownDescription": "%litellm.config.inlineCompletions.blockedLanguages.description%"
+						"markdownDescription": "%litellm.config.inlineCompletions.languageFilter.description%"
 					}
 				}
 			},

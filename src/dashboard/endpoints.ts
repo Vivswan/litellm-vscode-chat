@@ -13,13 +13,16 @@ import type {
 	BooleanSettingId,
 	FeatureModelId,
 	FeatureModelRef,
-	InlineLanguageListId,
+	LanguageFilterMode,
 	NumberSettingId,
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
 } from "../shared/config/settingSpec";
-import { FEATURE_MODEL_SETTING_KEYS, INLINE_LANGUAGE_LIST_SETTING_KEYS } from "../shared/config/settingSpec";
+import {
+	FEATURE_MODEL_SETTING_KEYS,
+	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
+} from "../shared/config/settingSpec";
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import type {
 	ExpectedFailureCategory,
@@ -88,9 +91,9 @@ export const WIRE_LIMITS = {
 	schemaKeyword: 256,
 	/** Keywords per chat.additionalToolSchemaKeywords write. */
 	schemaKeywords: 64,
-	/** One VS Code language ID in an inline-completions language list. */
+	/** One VS Code language ID in the inline-completions language filter. */
 	languageId: 128,
-	/** Entries per inline-completions language list. */
+	/** Language entries per inline-completions language filter write. */
 	languageList: 256,
 	/**
 	 * The usage.currencySymbol display prefix. Unlike the caps above, honest
@@ -218,7 +221,7 @@ export const DASHBOARD_ENDPOINTS = {
 	setUsageAlertThresholds: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	setFeatureModel: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	setCommitPrompt: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
-	setLanguageList: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setLanguageFilter: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	/** Refresh the OpenRouter catalog now; the outcome lands in the next push's catalog status. */
 	refreshCatalog: { outcome: "fire-and-forget", channel: "chained", fail: "log-only" },
 	/** Refresh usage data for every server now; the poller's completion re-pushes state. */
@@ -315,10 +318,20 @@ interface DashboardEndpointIO {
 	/** The commitGeneration.prompt text; the empty string resets the setting (the built-in instruction applies). */
 	setCommitPrompt: { request: { readonly value: string } };
 	/**
-	 * Replace one inline-completions language list whole. Values must be
-	 * non-empty VS Code language IDs; the empty list resets the setting.
+	 * Patch the inline-completions language filter: each settings row sends
+	 * only its own half (the mode select a mode, the list row languages), and
+	 * the extension merges the patch onto the STORED filter on the chained
+	 * channel - so two quick writes from different rows can never revert each
+	 * other. Language entries must be non-empty VS Code language IDs; a merged
+	 * result of block mode with the empty list resets the setting (it IS the
+	 * default), and an empty patch is refused.
 	 */
-	setLanguageList: { request: { readonly list: InlineLanguageListId; readonly values: readonly string[] } };
+	setLanguageFilter: {
+		request: {
+			readonly mode?: LanguageFilterMode | undefined;
+			readonly languages?: readonly string[] | undefined;
+		};
+	};
 	refreshCatalog: { request: null };
 	refreshUsage: { request: null };
 	saveServerSetting: {
@@ -622,7 +635,7 @@ const SETTING_WRITE_ROWS: { readonly [K in SettingWriteMethod]: (payload: Reques
 	setUiAccent: () => "ui.accent",
 	setFeatureModel: (payload) => FEATURE_MODEL_SETTING_KEYS[payload.feature],
 	setCommitPrompt: () => "commitGeneration.prompt",
-	setLanguageList: (payload) => INLINE_LANGUAGE_LIST_SETTING_KEYS[payload.list],
+	setLanguageFilter: () => INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 };
 
 export const SETTING_WRITE_METHODS = Object.keys(SETTING_WRITE_ROWS) as readonly SettingWriteMethod[];

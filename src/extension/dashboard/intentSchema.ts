@@ -25,7 +25,7 @@ import {
 } from "../../dashboard/viewModels";
 import {
 	FEATURE_MODEL_IDS,
-	INLINE_LANGUAGE_LISTS,
+	LANGUAGE_FILTER_MODES,
 	TOKEN_ESTIMATION_MODES,
 	UI_ACCENTS,
 	UI_THEMES,
@@ -191,10 +191,10 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	// balloon the setting.
 	setCommitPrompt: z.strictObject({ value: z.string().max(WIRE_LIMITS.commitPrompt) }),
 	// Bounded like every webview-minted list; the value constraints (non-empty
-	// language IDs) live in executeDashboardIntent.
-	setLanguageList: z.strictObject({
-		list: asEnum(INLINE_LANGUAGE_LISTS),
-		values: z.array(z.string().max(WIRE_LIMITS.languageId)).max(WIRE_LIMITS.languageList),
+	// language IDs, at least one field named) live in executeDashboardIntent.
+	setLanguageFilter: z.strictObject({
+		mode: asEnum(LANGUAGE_FILTER_MODES).optional(),
+		languages: z.array(z.string().max(WIRE_LIMITS.languageId)).max(WIRE_LIMITS.languageList).optional(),
 	}),
 	refreshCatalog: z.null(),
 	refreshUsage: z.null(),
@@ -277,7 +277,7 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	setUsageAlertThresholds: requestSchema("setUsageAlertThresholds"),
 	setFeatureModel: requestSchema("setFeatureModel"),
 	setCommitPrompt: requestSchema("setCommitPrompt"),
-	setLanguageList: requestSchema("setLanguageList"),
+	setLanguageFilter: requestSchema("setLanguageFilter"),
 	refreshCatalog: requestSchema("refreshCatalog"),
 	refreshUsage: requestSchema("refreshUsage"),
 	saveServerSetting: requestSchema("saveServerSetting"),

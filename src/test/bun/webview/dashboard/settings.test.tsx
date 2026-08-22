@@ -772,6 +772,15 @@ test("every settings row anchors its actions in one trailing slot: Reset then th
 		const slot = slots[0] as HTMLElement;
 		expect(row.lastElementChild).toBe(slot);
 		const jumps = row.querySelectorAll("button.reveal-json");
+		if (row.classList.contains("setting-companion")) {
+			// A multi-row setting's secondary row: the primary row owns the
+			// actions, so the companion keeps the empty slot (the grid track
+			// stays) and offers neither gesture.
+			expect(jumps.length, row.textContent ?? "").toBe(0);
+			expect(row.querySelectorAll("button.reset").length, row.textContent ?? "").toBe(0);
+			expect(slot.children.length, row.textContent ?? "").toBe(0);
+			continue;
+		}
 		expect(jumps.length, row.textContent ?? "").toBe(1);
 		expect(slot.contains(jumps[0] as HTMLElement)).toBe(true);
 		expect(slot.lastElementChild?.querySelector("button.reveal-json") ?? null).not.toBeNull();
@@ -791,6 +800,10 @@ test("every settings row anchors its actions in one trailing slot: Reset then th
 			expect(wrap.classList.contains("@max-[560px]/pane:opacity-100")).toBe(true);
 		}
 	}
+	// Exactly one companion row today: the language filter's mode row (its
+	// list row is the setting's primary). A new companion joins this count in
+	// the same change that adds it.
+	expect(rows.filter((row) => row.classList.contains("setting-companion")).length).toBe(1);
 });
 
 test("the catalog status renders inside the row's own description slot, with the moved prose in the row's ?", () => {
