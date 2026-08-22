@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { StreamProcessor } from "../../../provider/transport/streaming";
+import { chatResponseStreamSink } from "../../../provider/transport/streaming/processor";
 import type { DataPartCtor } from "../../../shared/conversion/dataPart";
 import { resetDataPartLogOnce } from "../../../shared/conversion/dataPart";
 import type { ThinkingPartCtor } from "../../../shared/conversion/thinkingPart";
@@ -2780,5 +2781,33 @@ suite("provider/streaming usage DataPart", () => {
 			cache_read_input_tokens: 7,
 			cache_creation_input_tokens: 3,
 		});
+	});
+});
+
+suite("provider/streaming ChatResponseStream adapter", () => {
+	/** A recording stand-in for the participant API's stream; only markdown is consulted by the adapter. */
+	function recordingStream(rendered: string[]): vscode.ChatResponseStream {
+		return {
+			markdown: (value: string | vscode.MarkdownString) => {
+				rendered.push(typeof value === "string" ? value : value.value);
+			},
+		} as vscode.ChatResponseStream;
+	}
+
+	test("text parts render as markdown; tool-call parts are dropped by design", () => {
+		const rendered: string[] = [];
+		const sink = chatResponseStreamSink(recordingStream(rendered));
+		sink.report(new vscode.LanguageModelTextPart("hello "));
+		sink.report(new vscode.LanguageModelToolCallPart("id-1", "some_tool", { a: 1 }));
+		sink.report(new vscode.LanguageModelTextPart("world"));
+		assert.deepStrictEqual(rendered, ["hello ", "world"]);
+	});
+
+	test("the adapter satisfies the processor's structural sink: a delta streams straight into markdown", () => {
+		const rendered: string[] = [];
+		const sink = chatResponseStreamSink(recordingStream(rendered));
+		const stream = new StreamProcessor(idSource(), () => {});
+		stream.processDelta({ choices: [{ delta: { content: "chunk" } }] }, sink);
+		assert.deepStrictEqual(rendered, ["chunk"]);
 	});
 });

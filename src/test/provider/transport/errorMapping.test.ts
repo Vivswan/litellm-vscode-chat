@@ -15,6 +15,7 @@ import {
 	socketFailureRequestError,
 	statusErrorTexts,
 	streamErrorFrame,
+	TRANSPORT_ERROR_SURFACES,
 	timeoutMessage,
 	timeoutRequestError,
 	toLanguageModelError,
@@ -1173,7 +1174,7 @@ suite("provider/transport/errorMapping", () => {
 			// Under the test host's English fallback the display headline IS the
 			// English headline, so the two products must coincide byte for byte.
 			const headline = { display: "same text", english: "same text" };
-			for (const surface of ["chat", "discovery", "completion", "commitGeneration"] as const) {
+			for (const surface of TRANSPORT_ERROR_SURFACES) {
 				const texts = twoPartTexts(surface, headline, "LiteLLM 500: boom");
 				assert.strictEqual(texts.englishMessage, texts.message);
 			}
@@ -1181,7 +1182,7 @@ suite("provider/transport/errorMapping", () => {
 
 		test("an empty detail renders the headline alone on every surface", () => {
 			const headline = { display: "affichage", english: "english" };
-			for (const surface of ["chat", "discovery", "completion", "commitGeneration"] as const) {
+			for (const surface of TRANSPORT_ERROR_SURFACES) {
 				const texts = twoPartTexts(surface, headline, "");
 				assert.strictEqual(texts.message, "affichage");
 				assert.strictEqual(texts.englishMessage, "english");
@@ -1264,6 +1265,207 @@ suite("provider/transport/errorMapping", () => {
 			const err = localizedError("display text", "english text");
 			assert.strictEqual(err.message, "display text");
 			assert.strictEqual(err.englishMessage, "english text");
+		});
+	});
+
+	suite("per-surface copy equality pins", () => {
+		// Byte-equality pins over every axis the copy table owns (join,
+		// httpVocabulary, timeout, notFound, contextWindow, dropped, phrase),
+		// written against the branch ladders BEFORE they collapsed onto
+		// SURFACE_COPY and kept as the table's regression pins. The expected
+		// table is a Record over the surface union, so a new surface fails
+		// typecheck here until it declares its copy.
+		interface SurfaceCopyPins {
+			/** How headline and detail join: the "Details:" lead-in for newline-flattening hosts, or the bare "\n". */
+			readonly join: "details" | "newline";
+			readonly timeout: string;
+			readonly notFound: string;
+			readonly notFoundHint: "check-base-url" | undefined;
+			readonly contextWindow: string;
+			readonly dropped: string;
+			readonly droppedDetail: string;
+			/** The httpVocabulary axis, pinned through a 500: the base headline and the non-envelope detail form. */
+			readonly serverError: string;
+			readonly serverErrorDetail: string;
+			readonly phrase: string;
+		}
+
+		const SURFACE_PINS: Record<MapErrorContext["surface"], SurfaceCopyPins> = {
+			chat: {
+				join: "details",
+				timeout:
+					'LiteLLM request timed out after 5000ms. Increase the "litellm-vscode-chat.chat.timeout" setting if your model needs more time.',
+				notFound:
+					'The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
+				notFoundHint: undefined,
+				contextWindow:
+					"The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
+				dropped:
+					"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+				droppedDetail: "Connection to http://litellm.test closed mid-response: terminated (cause: other side closed)",
+				serverError:
+					"The LiteLLM server hit an internal error - try again, and check the server's logs if it persists.",
+				serverErrorDetail: "LiteLLM 500: upstream exploded",
+				phrase: "chat",
+			},
+			discovery: {
+				join: "newline",
+				timeout:
+					'LiteLLM model discovery timed out after 5000ms. Increase the "litellm-vscode-chat.discovery.timeout" setting if your server needs more time.',
+				notFound:
+					"Failed to fetch LiteLLM models: the server at http://litellm.test answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
+				notFoundHint: "check-base-url",
+				contextWindow: "The server refused the model-list request.",
+				dropped:
+					"The connection to http://litellm.test dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
+				droppedDetail: "terminated (cause: other side closed)",
+				serverError: "The LiteLLM server hit an internal error while listing models.",
+				serverErrorDetail: "HTTP 500: upstream exploded",
+				phrase: "discovery",
+			},
+			completion: {
+				join: "newline",
+				timeout: "LiteLLM inline completion request timed out after 5000ms.",
+				notFound:
+					"The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves.",
+				notFoundHint: undefined,
+				contextWindow: "The completion was refused: the code context around the cursor is too long for this model.",
+				dropped:
+					"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+				droppedDetail: "Connection to http://litellm.test closed mid-response: terminated (cause: other side closed)",
+				serverError:
+					"The LiteLLM server hit an internal error - try again, and check the server's logs if it persists.",
+				serverErrorDetail: "LiteLLM 500: upstream exploded",
+				phrase: "completion",
+			},
+			commitGeneration: {
+				join: "details",
+				timeout:
+					'LiteLLM commit message generation timed out after 5000ms. Increase the "litellm-vscode-chat.chat.timeout" setting if your model needs more time.',
+				notFound:
+					"The server did not recognize this commit message request. Check that the configured commit message model is one the server still serves.",
+				notFoundHint: undefined,
+				contextWindow:
+					"The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window.",
+				dropped:
+					"The connection dropped before the reply arrived, so no commit message was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+				droppedDetail: "Connection to http://litellm.test closed mid-response: terminated (cause: other side closed)",
+				serverError:
+					"The LiteLLM server hit an internal error - try again, and check the server's logs if it persists.",
+				serverErrorDetail: "LiteLLM 500: upstream exploded",
+				phrase: "commit generation",
+			},
+		};
+
+		// Derived from the copy table, with the pin table's own keys pinned
+		// against it: a new surface row must bring its pins here or fail.
+		const surfaces = TRANSPORT_ERROR_SURFACES;
+
+		test("the pin table covers exactly the copy table's surfaces", () => {
+			assert.deepStrictEqual([...Object.keys(SURFACE_PINS)].sort(), [...TRANSPORT_ERROR_SURFACES].sort());
+		});
+
+		const ctxFor = (surface: MapErrorContext["surface"]): MapErrorContext => ({
+			surface,
+			baseUrl: "http://litellm.test",
+			timeoutMs: 5000,
+		});
+		/** The surface's pinned join applied to a headline and detail - the shape every two-part message must land in. */
+		const joined = (surface: MapErrorContext["surface"], headline: string, detail: string): string =>
+			SURFACE_PINS[surface].join === "details" ? `${headline}\n\nDetails: ${detail}` : `${headline}\n${detail}`;
+
+		test("timeout: the exact per-surface message on display and mirror", () => {
+			for (const surface of surfaces) {
+				const mapped = expectRequestError(mapSdkError(new APIConnectionTimeoutError(), ctxFor(surface)), "timeout");
+				assert.strictEqual(mapped.message, SURFACE_PINS[surface].timeout, surface);
+				assert.strictEqual(mapped.englishMessage, SURFACE_PINS[surface].timeout, surface);
+			}
+		});
+
+		test("404: the exact per-surface advice, hint, detail join, and classification", () => {
+			for (const surface of surfaces) {
+				const err = APIError.generate(
+					404,
+					{ error: { message: "model gone", type: "invalid_request_error" } },
+					undefined,
+					new Headers()
+				);
+				const mapped = expectRequestError(mapSdkError(err, ctxFor(surface)), "http");
+				const expected = joined(
+					surface,
+					SURFACE_PINS[surface].notFound,
+					"LiteLLM 404 invalid_request_error: model gone"
+				);
+				assert.strictEqual(mapped.message, expected, surface);
+				assert.strictEqual(mapped.englishMessage, expected, surface);
+				assert.strictEqual(mapped.setupHint, SURFACE_PINS[surface].notFoundHint, surface);
+				assert.strictEqual(mapped.logClassification, `RequestError(http, status 404, ${surface})`, surface);
+			}
+		});
+
+		test("context window: the exact per-surface headline over the shared classifier", () => {
+			for (const surface of surfaces) {
+				const err = APIError.generate(
+					400,
+					{ error: { message: "maximum context length exceeded", type: "context_window_exceeded" } },
+					undefined,
+					new Headers()
+				);
+				const mapped = expectRequestError(mapSdkError(err, ctxFor(surface)), "http");
+				const expected = joined(
+					surface,
+					SURFACE_PINS[surface].contextWindow,
+					"LiteLLM 400 context_window_exceeded: maximum context length exceeded"
+				);
+				assert.strictEqual(mapped.message, expected, surface);
+				assert.strictEqual(mapped.englishMessage, expected, surface);
+				assert.strictEqual(
+					mapped.logClassification,
+					"RequestError(http, status 400, context_window_exceeded)",
+					surface
+				);
+			}
+		});
+
+		test("dropped connection: the exact per-surface headline and detail", () => {
+			for (const surface of surfaces) {
+				const err = Object.assign(new TypeError("terminated"), {
+					cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
+				});
+				const mapped = expectRequestError(mapSdkError(err, ctxFor(surface)), "network");
+				const expected = joined(surface, SURFACE_PINS[surface].dropped, SURFACE_PINS[surface].droppedDetail);
+				assert.strictEqual(mapped.message, expected, surface);
+				assert.strictEqual(mapped.englishMessage, expected, surface);
+			}
+		});
+
+		test("http vocabulary: the exact per-surface 500 headline and non-envelope detail", () => {
+			// A non-envelope body makes the two vocabularies' detail forms diverge
+			// ("LiteLLM 500: ..." vs "HTTP 500: ..."), so this pins the
+			// httpVocabulary axis on both of its consumers.
+			for (const surface of surfaces) {
+				const err = new APIError(500, undefined, "upstream exploded", new Headers());
+				const mapped = expectRequestError(mapSdkError(err, ctxFor(surface)), "http");
+				const expected = joined(surface, SURFACE_PINS[surface].serverError, SURFACE_PINS[surface].serverErrorDetail);
+				assert.strictEqual(mapped.message, expected, surface);
+				assert.strictEqual(mapped.englishMessage, expected, surface);
+				assert.strictEqual(mapped.logClassification, "RequestError(http, status 500)", surface);
+			}
+		});
+
+		test("anonymous tail: the exact per-surface phrase in the detail line", () => {
+			for (const surface of surfaces) {
+				const mapped = mapSdkError(new RangeError("boom"), ctxFor(surface));
+				assert.ok(mapped instanceof MirroredError, surface);
+				const expected = joined(
+					surface,
+					"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.",
+					`Unexpected RangeError during the ${SURFACE_PINS[surface].phrase} request to http://litellm.test: boom`
+				);
+				assert.strictEqual(mapped.message, expected, surface);
+				assert.strictEqual(mapped.englishMessage, expected, surface);
+				assert.strictEqual(mapped.logClassification, `unhandled Error in transport (RangeError, ${surface})`, surface);
+			}
 		});
 	});
 });

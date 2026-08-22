@@ -11,6 +11,7 @@ import {
 	chatErrorMessage,
 	type EnglishRendering,
 	englishChatErrorMessage,
+	localizedError,
 	MirroredError,
 } from "../../shared/mirroredError";
 import { displayUrl, redactUrlCredentials } from "../../shared/util/displayUrl";
@@ -83,6 +84,14 @@ export class RequestError extends MirroredError {
 	}
 }
 
+/**
+ * The error surfaces the transport maps for. Every member owns a SURFACE_COPY
+ * row: the Record fails closed, so adding a surface here does not compile
+ * until its copy exists, and the per-surface test suites derive their lists
+ * from the table's keys.
+ */
+export type TransportErrorSurface = "chat" | "discovery" | "completion" | "commitGeneration";
+
 export interface MapErrorContext {
 	/**
 	 * "completion" is the inline-completions /completions call: its errors
@@ -93,7 +102,7 @@ export interface MapErrorContext {
 	 * boundary - notifications flatten newlines, so it joins chat-style with
 	 * the "Details:" lead-in.
 	 */
-	surface: "chat" | "discovery" | "completion" | "commitGeneration";
+	surface: TransportErrorSurface;
 	baseUrl: string;
 	timeoutMs: number;
 }
@@ -203,51 +212,15 @@ function isUpstreamAuthFailure(error: unknown): boolean {
 	return typeof message === "string" && /litellm\.[\w.]*AuthenticationError/i.test(message);
 }
 
-/** The localized display string for a timed-out call; englishTimeoutMessage mirrors it for the log side. */
+/** The localized display string for a timed-out call; the same table row's `english` leg mirrors it for the log side. */
 export function timeoutMessage(ctx: MapErrorContext): string {
-	if (ctx.surface === "completion") {
-		// The FIM bound is fixed in code (FIM_TIMEOUT_MS), so no setting is
-		// named - advice to raise one would be a lie.
-		return l10n.t("LiteLLM inline completion request timed out after {0}ms.", ctx.timeoutMs);
-	}
-	if (ctx.surface === "commitGeneration") {
-		// The commit call runs under the chat timeout setting, so that IS the
-		// bound to raise - only the wording names the commit call.
-		return l10n.t(
-			'LiteLLM commit message generation timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
-			ctx.timeoutMs,
-			CONFIG_SECTION
-		);
-	}
-	return ctx.surface === "chat"
-		? l10n.t(
-				'LiteLLM request timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
-				ctx.timeoutMs,
-				CONFIG_SECTION
-			)
-		: l10n.t(
-				'LiteLLM model discovery timed out after {0}ms. Increase the "{1}.discovery.timeout" setting if your server needs more time.',
-				ctx.timeoutMs,
-				CONFIG_SECTION
-			);
-}
-
-/** English mirror of timeoutMessage: what the English-by-policy log surfaces record. */
-function englishTimeoutMessage(ctx: MapErrorContext): string {
-	if (ctx.surface === "completion") {
-		return `LiteLLM inline completion request timed out after ${ctx.timeoutMs}ms.`;
-	}
-	if (ctx.surface === "commitGeneration") {
-		return `LiteLLM commit message generation timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`;
-	}
-	return ctx.surface === "chat"
-		? `LiteLLM request timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`
-		: `LiteLLM model discovery timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your server needs more time.`;
+	return surfaceCopy(ctx.surface).timeout(ctx.timeoutMs).display;
 }
 
 /** One constructor for every timed-out call, so a throw site cannot forget the display/English split. */
 export function timeoutRequestError(ctx: MapErrorContext, cause: unknown): RequestError {
-	return new RequestError(timeoutMessage(ctx), "timeout", { cause, englishMessage: englishTimeoutMessage(ctx) });
+	const texts = surfaceCopy(ctx.surface).timeout(ctx.timeoutMs);
+	return new RequestError(texts.display, "timeout", { cause, englishMessage: texts.english });
 }
 
 interface ChainLink {
@@ -467,25 +440,324 @@ interface LocalizedText {
 	english: string;
 }
 
+/** The 404 advice one surface renders: the headline, the certain setup hint if any, and how the detail line reads the envelope. */
+interface NotFoundCopy {
+	/** `url` is the display form of the base URL (credentials already stripped); non-discovery headlines ignore it. */
+	readonly headline: (url: string) => LocalizedText;
+	/** Only where the advice is certain (discovery's check-the-base-URL); a hint that can be wrong stays unset. */
+	readonly setupHint?: SetupHintKind;
+	readonly detail: (err: APIError, envelope: ErrorEnvelope | undefined) => string;
+}
+
+/** The mid-response connection-death message one surface renders; `url` is the display form of the base URL. */
+interface DroppedCopy {
+	readonly headline: (url: string) => LocalizedText;
+	readonly detail: (url: string, chainText: string) => string;
+}
+
 /**
- * Both renderings of a two-part error message, joined per surface: chat and
- * commitGeneration carry the "Details:" lead-in after a blank line (Copilot
- * Chat's error block and the commit command's VS Code notification both
- * flatten newlines), discovery and completion the single "\n" the dashboard
- * and tooltips split on. The English mirror is byte-faithful to the English
- * display: the same join applied to the English headline and the same detail.
- * An empty detail renders the headline alone rather than a trailing blank
- * detail line.
+ * Everything that legitimately varies per error surface, as one row per
+ * surface: the headline/detail join, the timeout advice, the 404 advice, the
+ * context-window advice, the dropped-connection message, and the prose phrase
+ * naming the surface. The Record fails closed - a new TransportErrorSurface
+ * member does not compile until its row exists - and the per-surface test
+ * suites derive their lists from the table's keys, so a new row joins every
+ * pin automatically. Copy only: classification (kind, status, the envelope
+ * classifier) is surface-invariant and stays in the mapping functions.
+ */
+interface SurfaceCopy {
+	/**
+	 * How twoPartTexts joins headline and detail: "detailsLeadIn" is the blank
+	 * line plus "Details:" for newline-flattening hosts (Copilot Chat's error
+	 * block, VS Code notifications); "newline" is the single "\n" the dashboard
+	 * and tooltips split on.
+	 */
+	readonly join: "detailsLeadIn" | "newline";
+	/**
+	 * Which base vocabulary the generic HTTP branch speaks for this surface,
+	 * headline and detail alike: "request" is chat's framing (it serves every
+	 * completion-style surface), "modelList" discovery's. A new row must
+	 * choose - no surface inherits a vocabulary silently.
+	 */
+	readonly httpVocabulary: "request" | "modelList";
+	/** The timed-out call's message: what timed out, and which setting (if any) raises the bound. */
+	readonly timeout: (timeoutMs: number) => LocalizedText;
+	readonly notFound: NotFoundCopy;
+	/** The context_window_exceeded headline - the one HTTP class whose advice must name what to shrink per surface. */
+	readonly contextWindow: () => LocalizedText;
+	readonly dropped: DroppedCopy;
+	/** The prose naming this surface in the anonymous-tail detail line; logClassification keeps the camelCase id. */
+	readonly phrase: string;
+}
+
+/**
+ * The standard 404 detail: the envelope code (unless it just repeats the
+ * status) outranks the type, and a non-envelope body recovers the SDK's raw
+ * text so the nginx/wrong-server signature of a mispointed base URL stays
+ * visible.
+ */
+function standardNotFoundDetail(err: APIError, envelope: ErrorEnvelope | undefined): string {
+	const kind =
+		envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
+			? ` ${envelope.code}`
+			: envelope?.type !== undefined
+				? ` ${envelope.type}`
+				: "";
+	const text = envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(404, err, 200);
+	return text !== "" ? `LiteLLM 404${kind}: ${text}` : `LiteLLM 404${kind}`;
+}
+
+/** Discovery's 404 detail renders only when the body parsed as an error envelope with a message; the headline says the rest. */
+function discoveryNotFoundDetail(_err: APIError, envelope: ErrorEnvelope | undefined): string {
+	const typeSeg = envelope?.type !== undefined ? ` ${envelope.type}` : "";
+	return envelope?.message !== undefined ? `LiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
+}
+
+/** The dropped-connection detail everywhere the server had accepted the request and the body then died. */
+function midResponseDroppedDetail(url: string, chainText: string): string {
+	return `Connection to ${url} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
+}
+
+const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
+	chat: {
+		join: "detailsLeadIn",
+		httpVocabulary: "request",
+		timeout: (timeoutMs) => ({
+			display: l10n.t(
+				'LiteLLM request timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
+				timeoutMs,
+				CONFIG_SECTION
+			),
+			english: `LiteLLM request timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`,
+		}),
+		notFound: {
+			// A chat 404 usually means the proxy dropped the model, so no
+			// setupHint - "check the base URL" would be wrong advice for an
+			// otherwise healthy server. "LiteLLM: Sync Models Now" is the palette
+			// title package.json contributes (the manageCommandTitle mirror
+			// pattern).
+			headline: () => ({
+				display: l10n.t(
+					'The server did not recognize this request - the model may have been removed from the proxy. Run "{0}" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
+					syncModelsCommandTitle()
+				),
+				english:
+					'The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
+			}),
+			detail: standardNotFoundDetail,
+		},
+		contextWindow: () => ({
+			display: l10n.t(
+				"The conversation is too long for this model - trim it, remove attachments, or start a new chat."
+			),
+			english: "The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
+		}),
+		dropped: {
+			headline: () => ({
+				display: l10n.t(
+					"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
+				),
+				english:
+					"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+			}),
+			detail: midResponseDroppedDetail,
+		},
+		phrase: "chat",
+	},
+	discovery: {
+		join: "newline",
+		httpVocabulary: "modelList",
+		timeout: (timeoutMs) => ({
+			display: l10n.t(
+				'LiteLLM model discovery timed out after {0}ms. Increase the "{1}.discovery.timeout" setting if your server needs more time.',
+				timeoutMs,
+				CONFIG_SECTION
+			),
+			english: `LiteLLM model discovery timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your server needs more time.`,
+		}),
+		notFound: {
+			// A discovery 404 almost always means the base URL points at
+			// something that is not a LiteLLM proxy (wrong port, a path that is
+			// not the API root), so the advice is certain. The headline is quoted
+			// verbatim by docs/troubleshooting.md - only the detail line may
+			// change.
+			headline: (url) => ({
+				display: l10n.t(
+					"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
+					url
+				),
+				english: `Failed to fetch LiteLLM models: the server at ${url} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.`,
+			}),
+			setupHint: "check-base-url",
+			detail: discoveryNotFoundDetail,
+		},
+		// Discovery has no conversation to trim: a context-window 400 on the
+		// model-list request reads as the generic refusal.
+		contextWindow: () => ({
+			display: l10n.t("The server refused the model-list request."),
+			english: "The server refused the model-list request.",
+		}),
+		dropped: {
+			// Distinct from the never-connected discovery headline: here the
+			// server did respond, then the connection died.
+			headline: (url) => ({
+				display: l10n.t(
+					"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
+					url
+				),
+				english: `The connection to ${url} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.`,
+			}),
+			detail: (_url, chainText) => chainText,
+		},
+		phrase: "discovery",
+	},
+	completion: {
+		join: "newline",
+		httpVocabulary: "request",
+		// The FIM bound is fixed in code (FIM_TIMEOUT_MS), so no setting is
+		// named - advice to raise one would be a lie.
+		timeout: (timeoutMs) => ({
+			display: l10n.t("LiteLLM inline completion request timed out after {0}ms.", timeoutMs),
+			english: `LiteLLM inline completion request timed out after ${timeoutMs}ms.`,
+		}),
+		notFound: {
+			// Sync Models cannot help here: completion-mode models never join
+			// the chat catalog, so the advice is the model setting itself.
+			headline: () => ({
+				display: l10n.t(
+					"The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves."
+				),
+				english:
+					"The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves.",
+			}),
+			detail: standardNotFoundDetail,
+		},
+		// There is no conversation to trim and no new chat to start - the code
+		// context around the cursor is what was too long.
+		contextWindow: () => ({
+			display: l10n.t("The completion was refused: the code context around the cursor is too long for this model."),
+			english: "The completion was refused: the code context around the cursor is too long for this model.",
+		}),
+		dropped: {
+			headline: () => ({
+				display: l10n.t(
+					"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
+				),
+				english:
+					"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+			}),
+			detail: midResponseDroppedDetail,
+		},
+		phrase: "completion",
+	},
+	commitGeneration: {
+		join: "detailsLeadIn",
+		httpVocabulary: "request",
+		// The commit call runs under the chat timeout setting, so that IS the
+		// bound to raise - only the wording names the commit call.
+		timeout: (timeoutMs) => ({
+			display: l10n.t(
+				'LiteLLM commit message generation timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
+				timeoutMs,
+				CONFIG_SECTION
+			),
+			english: `LiteLLM commit message generation timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`,
+		}),
+		notFound: {
+			// Sync Models refreshes the chat catalog, which the commit model
+			// setting never reads - the advice is the setting itself.
+			headline: () => ({
+				display: l10n.t(
+					"The server did not recognize this commit message request. Check that the configured commit message model is one the server still serves."
+				),
+				english:
+					"The server did not recognize this commit message request. Check that the configured commit message model is one the server still serves.",
+			}),
+			detail: standardNotFoundDetail,
+		},
+		// No conversation, no attachments, no new chat - only the change being
+		// described.
+		contextWindow: () => ({
+			display: l10n.t(
+				"The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window."
+			),
+			english:
+				"The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window.",
+		}),
+		dropped: {
+			// The commit call is non-streaming, so a dropped connection leaves
+			// no cut-short answer - nothing was generated at all.
+			headline: () => ({
+				display: l10n.t(
+					"The connection dropped before the reply arrived, so no commit message was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
+				),
+				english:
+					"The connection dropped before the reply arrived, so no commit message was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+			}),
+			detail: midResponseDroppedDetail,
+		},
+		phrase: "commit generation",
+	},
+};
+
+/** Every surface, derived from the copy table's keys, so per-surface suites and fuzz arbitraries stay total when a row is added. */
+export const TRANSPORT_ERROR_SURFACES = Object.keys(SURFACE_COPY) as readonly TransportErrorSurface[];
+
+/**
+ * The one table read, total like mapSdkError itself: a surface outside the
+ * union (unreachable from typed callers, but this module hardens against
+ * hostile input elsewhere) falls back to chat's row instead of throwing.
+ */
+function surfaceCopy(surface: TransportErrorSurface): SurfaceCopy {
+	return SURFACE_COPY[surface] ?? SURFACE_COPY.chat;
+}
+
+/**
+ * A 2xx that arrived without a response body, the one shape the transports
+ * cannot parse anything out of. One constructor for the streaming chat path
+ * and the one-shot stream, so the headline, the localized detail, and the
+ * per-surface join cannot drift between them. Free of mapSdkError's
+ * socket-signature tokens, and it passes the mapping catch unchanged
+ * (mirrored errors are never re-wrapped).
+ */
+export function bodylessResponseError(surface: TransportErrorSurface, status: number, baseUrl: string): MirroredError {
+	const url = displayUrl(baseUrl);
+	const headline: LocalizedText = {
+		display: l10n.t(
+			"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server."
+		),
+		english:
+			"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server.",
+	};
+	const detailDisplay = l10n.t("LiteLLM answered {0} with a missing response body ({1})", status, url);
+	const detailEnglish = `LiteLLM answered ${status} with a missing response body (${url})`;
+	// The detail localizes (unlike the English-only technical lines above), so
+	// the join applies to each rendering's own detail rather than through
+	// twoPartTexts' single-detail shape.
+	return surfaceCopy(surface).join === "detailsLeadIn"
+		? localizedError(
+				chatErrorMessage(headline.display, detailDisplay),
+				englishChatErrorMessage(headline.english, detailEnglish)
+			)
+		: localizedError(`${headline.display}\n${detailDisplay}`, `${headline.english}\n${detailEnglish}`);
+}
+
+/**
+ * Both renderings of a two-part error message, joined per the surface's copy
+ * row (see SurfaceCopy.join). The English mirror is byte-faithful to the
+ * English display: the same join applied to the English headline and the same
+ * detail. An empty detail renders the headline alone rather than a trailing
+ * blank detail line.
  */
 export function twoPartTexts(
-	surface: MapErrorContext["surface"],
+	surface: TransportErrorSurface,
 	headline: LocalizedText,
 	detail: string
 ): { message: string; englishMessage: string } {
 	if (detail === "") {
 		return { message: headline.display, englishMessage: headline.english };
 	}
-	return surface === "chat" || surface === "commitGeneration"
+	return surfaceCopy(surface).join === "detailsLeadIn"
 		? {
 				message: chatErrorMessage(headline.display, detail),
 				englishMessage: englishChatErrorMessage(headline.english, detail),
@@ -493,8 +765,12 @@ export function twoPartTexts(
 		: { message: `${headline.display}\n${detail}`, englishMessage: `${headline.english}\n${detail}` };
 }
 
-/** The chat-surface headline per error class; streamErrorFrame reuses the entries of the classes classifiable without a status. */
-function chatHttpHeadline(cls: HttpErrorClass): LocalizedText {
+/**
+ * The chat-vocabulary headline per error class, also serving the one-shot
+ * surfaces; context_window_exceeded is absent BY TYPE - that class's advice
+ * is per-surface and lives in SURFACE_COPY, chosen by httpHeadline.
+ */
+function chatHttpHeadline(cls: Exclude<HttpErrorClass, "context_window_exceeded">): LocalizedText {
 	switch (cls) {
 		case "budget_exceeded":
 			return {
@@ -507,13 +783,6 @@ function chatHttpHeadline(cls: HttpErrorClass): LocalizedText {
 			return {
 				display: l10n.t("The server is handling too many requests - wait a moment and try again."),
 				english: "The server is handling too many requests - wait a moment and try again.",
-			};
-		case "context_window_exceeded":
-			return {
-				display: l10n.t(
-					"The conversation is too long for this model - trim it, remove attachments, or start a new chat."
-				),
-				english: "The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
 			};
 		case "invalid_request":
 			return {
@@ -561,41 +830,8 @@ function chatHttpHeadline(cls: HttpErrorClass): LocalizedText {
 	}
 }
 
-/**
- * The completion-surface headline: chat's vocabulary except where the chat
- * advice would mislead a FIM call - there is no conversation to trim and no
- * new chat to start.
- */
-function completionHttpHeadline(cls: HttpErrorClass): LocalizedText {
-	if (cls === "context_window_exceeded") {
-		return {
-			display: l10n.t("The completion was refused: the code context around the cursor is too long for this model."),
-			english: "The completion was refused: the code context around the cursor is too long for this model.",
-		};
-	}
-	return chatHttpHeadline(cls);
-}
-
-/**
- * The commit-generation-surface headline: chat's vocabulary except where the
- * chat advice would mislead a commit call - there is no conversation to trim,
- * no attachments, and no new chat to start, only the change being described.
- */
-function commitGenerationHttpHeadline(cls: HttpErrorClass): LocalizedText {
-	if (cls === "context_window_exceeded") {
-		return {
-			display: l10n.t(
-				"The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window."
-			),
-			english:
-				"The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window.",
-		};
-	}
-	return chatHttpHeadline(cls);
-}
-
-/** The discovery-surface headline per error class: what the failure means for the model list. */
-function discoveryHttpHeadline(cls: HttpErrorClass): LocalizedText {
+/** The discovery-vocabulary headline per error class: what the failure means for the model list. */
+function discoveryHttpHeadline(cls: Exclude<HttpErrorClass, "context_window_exceeded">): LocalizedText {
 	switch (cls) {
 		case "budget_exceeded":
 			return {
@@ -637,6 +873,20 @@ function discoveryHttpHeadline(cls: HttpErrorClass): LocalizedText {
 				english: "The server refused the model-list request.",
 			};
 	}
+}
+
+/**
+ * The one HTTP headline choice: context_window_exceeded reads its per-surface
+ * advice from the copy table (the one class whose base-vocabulary advice
+ * would mislead the other surfaces), every other class the surface's declared
+ * base vocabulary.
+ */
+function httpHeadline(surface: TransportErrorSurface, cls: HttpErrorClass): LocalizedText {
+	const copy = surfaceCopy(surface);
+	if (cls === "context_window_exceeded") {
+		return copy.contextWindow();
+	}
+	return copy.httpVocabulary === "modelList" ? discoveryHttpHeadline(cls) : chatHttpHeadline(cls);
 }
 
 /**
@@ -694,7 +944,7 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 	const knownClass = classifyEnvelope(envelope);
 	const headline: LocalizedText =
 		knownClass !== undefined
-			? chatHttpHeadline(knownClass)
+			? httpHeadline("chat", knownClass)
 			: {
 					display: l10n.t(
 						"The server reported an error while it was streaming this reply, so the response was interrupted. This is often temporary - trying again may work; if it repeats, the detail below shows what the server said."
@@ -735,7 +985,7 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
  * the chat, discovery, and OAuth token-endpoint callers.
  */
 interface SocketFailureContext {
-	endpoint: "chat" | "discovery" | "oauthToken" | "completion" | "commitGeneration";
+	endpoint: TransportErrorSurface | "oauthToken";
 	/** The surface whose two-part join renders the message; the token exchange fails toward its caller's surface. */
 	surface: MapErrorContext["surface"];
 	/** The URL the advice names: the server base URL, or the OAuth token endpoint. */
@@ -1005,113 +1255,26 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 					});
 		}
 		const envelope = errorEnvelopeOf(err.error);
-		// 404 gets its own guidance per surface: on discovery it almost always
-		// means the base URL points at something that is not a LiteLLM proxy
-		// (wrong port, a path that is not the API root); on chat it usually means
-		// the proxy dropped the model, so no setupHint - "check the base URL"
-		// would be wrong advice for an otherwise healthy server.
+		// 404 gets its own guidance per surface (the copy table's notFound row):
+		// on discovery it almost always means the base URL points at something
+		// that is not a LiteLLM proxy; on the other surfaces it usually means the
+		// server no longer serves the model the surface's setting or picker
+		// names.
 		if (err.status === 404) {
-			if (ctx.surface === "discovery") {
-				// The headline is quoted verbatim by docs/troubleshooting.md - only
-				// the detail line may change. It renders only when the body parsed
-				// as an error envelope with a message.
-				const typeSeg = envelope?.type !== undefined ? ` ${envelope.type}` : "";
-				const detail =
-					envelope?.message !== undefined ? `LiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
-				const baseUrl = displayUrl(ctx.baseUrl);
-				const headline: LocalizedText = {
-					display: l10n.t(
-						"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
-						baseUrl
-					),
-					english: `Failed to fetch LiteLLM models: the server at ${baseUrl} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.`,
-				};
-				const texts = twoPartTexts("discovery", headline, detail);
-				return new RequestError(texts.message, "http", {
-					status: 404,
-					cause: err,
-					logClassification: "RequestError(http, status 404, discovery)",
-					englishMessage: texts.englishMessage,
-					setupHint: "check-base-url",
-				});
-			}
-			// The envelope code outranks the type here, and the non-envelope
-			// recovery keeps the nginx/wrong-server signature of a mispointed
-			// base URL visible in the detail.
-			const kind =
-				envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
-					? ` ${envelope.code}`
-					: envelope?.type !== undefined
-						? ` ${envelope.type}`
-						: "";
-			const text =
-				envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(404, err, 200);
-			const detail = text !== "" ? `LiteLLM 404${kind}: ${text}` : `LiteLLM 404${kind}`;
-			if (ctx.surface === "completion") {
-				// Sync Models cannot help here: completion-mode models never join
-				// the chat catalog, so the advice is the model setting itself.
-				const headline: LocalizedText = {
-					display: l10n.t(
-						"The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves."
-					),
-					english:
-						"The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves.",
-				};
-				const texts = twoPartTexts("completion", headline, detail);
-				return new RequestError(texts.message, "http", {
-					status: 404,
-					cause: err,
-					logClassification: "RequestError(http, status 404, completion)",
-					englishMessage: texts.englishMessage,
-				});
-			}
-			if (ctx.surface === "commitGeneration") {
-				// Sync Models refreshes the chat catalog, which the commit model
-				// setting never reads - the advice is the setting itself.
-				const headline: LocalizedText = {
-					display: l10n.t(
-						"The server did not recognize this commit message request. Check that the configured commit message model is one the server still serves."
-					),
-					english:
-						"The server did not recognize this commit message request. Check that the configured commit message model is one the server still serves.",
-				};
-				const texts = twoPartTexts("commitGeneration", headline, detail);
-				return new RequestError(texts.message, "http", {
-					status: 404,
-					cause: err,
-					logClassification: "RequestError(http, status 404, commitGeneration)",
-					englishMessage: texts.englishMessage,
-				});
-			}
-			// "LiteLLM: Sync Models Now" is the palette title package.json
-			// contributes (the manageCommandTitle mirror pattern).
-			const headline: LocalizedText = {
-				display: l10n.t(
-					'The server did not recognize this request - the model may have been removed from the proxy. Run "{0}" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
-					syncModelsCommandTitle()
-				),
-				english:
-					'The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
-			};
-			const texts = twoPartTexts("chat", headline, detail);
+			const copy = surfaceCopy(ctx.surface).notFound;
+			const texts = twoPartTexts(ctx.surface, copy.headline(displayUrl(ctx.baseUrl)), copy.detail(err, envelope));
 			return new RequestError(texts.message, "http", {
 				status: 404,
 				cause: err,
-				logClassification: "RequestError(http, status 404, chat)",
+				logClassification: `RequestError(http, status 404, ${ctx.surface})`,
 				englishMessage: texts.englishMessage,
+				...(copy.setupHint !== undefined ? { setupHint: copy.setupHint } : {}),
 			});
 		}
 		const cls = classifyEnvelope(envelope, err.status);
-		const headline =
-			ctx.surface === "discovery"
-				? discoveryHttpHeadline(cls)
-				: ctx.surface === "completion"
-					? completionHttpHeadline(cls)
-					: ctx.surface === "commitGeneration"
-						? commitGenerationHttpHeadline(cls)
-						: chatHttpHeadline(cls);
+		const headline = httpHeadline(ctx.surface, cls);
 		const detail =
-			ctx.surface === "discovery"
+			surfaceCopy(ctx.surface).httpVocabulary === "modelList"
 				? discoveryHttpDetail(err.status, err, envelope)
 				: chatHttpDetail(err.status, err, envelope);
 		// The classifier's own closed-set token may ride the classification
@@ -1184,46 +1347,12 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		const undiciTermination = err instanceof TypeError && topMessage === "terminated";
 		if (socketSignature || undiciTermination) {
 			const chainText = chainDetail(chain, topMessage);
-			if (ctx.surface !== "discovery") {
-				const detail = `Connection to ${displayUrl(ctx.baseUrl)} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
-				// The commit call is non-streaming, so a dropped connection leaves
-				// no cut-short answer - nothing was generated at all.
-				const headline: LocalizedText =
-					ctx.surface === "commitGeneration"
-						? {
-								display: l10n.t(
-									"The connection dropped before the reply arrived, so no commit message was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
-								),
-								english:
-									"The connection dropped before the reply arrived, so no commit message was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
-							}
-						: {
-								display: l10n.t(
-									"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
-								),
-								english:
-									"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
-							};
-				const texts = twoPartTexts(ctx.surface, headline, detail);
-				return new RequestError(texts.message, "network", {
-					cause: err,
-					englishMessage: texts.englishMessage,
-				});
-			}
-			// Distinct from the never-connected discovery headline above: here the
-			// server did respond, then the connection died.
-			const droppedUrl = displayUrl(ctx.baseUrl);
-			const texts = twoPartTexts(
-				"discovery",
-				{
-					display: l10n.t(
-						"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
-						droppedUrl
-					),
-					english: `The connection to ${droppedUrl} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.`,
-				},
-				chainText
-			);
+			// The per-surface message is the copy table's dropped row: what was
+			// lost (a cut-short answer, a missing commit message, an incomplete
+			// model list) and where the detail carries the URL.
+			const copy = surfaceCopy(ctx.surface).dropped;
+			const url = displayUrl(ctx.baseUrl);
+			const texts = twoPartTexts(ctx.surface, copy.headline(url), copy.detail(url, chainText));
 			return new RequestError(texts.message, "network", {
 				cause: err,
 				englishMessage: texts.englishMessage,
@@ -1251,9 +1380,8 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	// construction rather than argued unreachable.
 	const text = compactText(redactUrlCredentials(typeof rawText === "string" ? rawText : ""), 300);
 	// The camelCase surface id stays in logClassification; the detail line is
-	// prose, so the commit surface gets a readable phrase.
-	const surfacePhrase = ctx.surface === "commitGeneration" ? "commit generation" : ctx.surface;
-	const detail = `Unexpected ${name} during the ${surfacePhrase} request to ${displayUrl(ctx.baseUrl)}${text !== "" ? `: ${text}` : ""}`;
+	// prose, so it names the copy table's phrase for the surface.
+	const detail = `Unexpected ${name} during the ${surfaceCopy(ctx.surface).phrase} request to ${displayUrl(ctx.baseUrl)}${text !== "" ? `: ${text}` : ""}`;
 	const tailHeadline: LocalizedText = {
 		display: l10n.t(
 			"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it."

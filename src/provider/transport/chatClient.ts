@@ -17,7 +17,6 @@ import { convertTools } from "../../shared/conversion/tools";
 import type { Logger } from "../../shared/logger";
 import { chatErrorMessage, englishChatErrorMessage, localizedError } from "../../shared/mirroredError";
 import type { ServerWithKey } from "../../shared/servers";
-import { displayUrl } from "../../shared/util/displayUrl";
 import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
 import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/discovery";
@@ -28,7 +27,7 @@ import { requestParamsFromModelConfiguration } from "../catalog/modelConfigurati
 import { type OAuthConfig, type OAuthErrorSurface, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
 import { applyAuthOverlay, invalidateRejectedOAuthToken } from "./authOverlay";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
-import { mapSdkError, timeoutRequestError } from "./errorMapping";
+import { bodylessResponseError, mapSdkError, timeoutRequestError } from "./errorMapping";
 import { buildRequestBody, resolveMaxTokens } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
@@ -427,21 +426,9 @@ export class ChatClient {
 				.asResponse();
 
 			if (!response.body) {
-				// Free of mapSdkError's socket-signature tokens, so the catch below
-				// cannot reclassify this as a mid-response network death.
-				const bodyUrl = displayUrl(connection.baseUrl);
-				throw localizedError(
-					chatErrorMessage(
-						l10n.t(
-							"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server."
-						),
-						l10n.t("LiteLLM answered {0} with a missing response body ({1})", response.status, bodyUrl)
-					),
-					englishChatErrorMessage(
-						"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server.",
-						`LiteLLM answered ${response.status} with a missing response body (${bodyUrl})`
-					)
-				);
+				// One constructor with the one-shot stream's bodyless-200 error, so
+				// the copy cannot drift between the two streaming paths.
+				throw bodylessResponseError("chat", response.status, connection.baseUrl);
 			}
 
 			// The user-set audio.format parameter (when a modality-audio request

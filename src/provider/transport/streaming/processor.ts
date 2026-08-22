@@ -42,6 +42,33 @@ export interface ToolCallIdSource {
 	next(): number;
 }
 
+/**
+ * Where the processor's emitted parts go. Structurally what
+ * vscode.Progress<LanguageModelResponsePart> already is, so the provider's
+ * host-supplied progress satisfies it unchanged, and consumers without one -
+ * a chat participant's response stream (see chatResponseStreamSink), a
+ * collecting array in a feature or test - satisfy it with a plain object.
+ */
+export interface ResponsePartSink {
+	report(part: vscode.LanguageModelResponsePart): void;
+}
+
+/**
+ * Adapt a chat participant's ChatResponseStream to the processor's part sink:
+ * text parts render as markdown, and every other kind (tool calls, thinking,
+ * data) is dropped by design - the participant transport requests none of
+ * them, and a stray one has no participant rendering.
+ */
+export function chatResponseStreamSink(stream: vscode.ChatResponseStream): ResponsePartSink {
+	return {
+		report(part: vscode.LanguageModelResponsePart): void {
+			if (part instanceof vscode.LanguageModelTextPart) {
+				stream.markdown(part.value);
+			}
+		},
+	};
+}
+
 function normalizeToolCallIndex(index: number | string | undefined): number {
 	if (typeof index === "number") {
 		return index;
@@ -134,10 +161,7 @@ export class StreamProcessor {
 	}
 
 	/** Every part reaches the host through here, so the end-of-stream empty-response check sees all emissions. */
-	private reportPart(
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		part: vscode.LanguageModelResponsePart
-	): void {
+	private reportPart(progress: ResponsePartSink, part: vscode.LanguageModelResponsePart): void {
 		this._req.reportedAnyPart = true;
 		progress.report(part);
 	}
@@ -167,7 +191,7 @@ export class StreamProcessor {
 
 	async processStreamingResponse(
 		responseBody: ReadableStream<Uint8Array>,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		progress: ResponsePartSink,
 		token: vscode.CancellationToken
 	): Promise<void> {
 		let sawDone = false;
@@ -221,7 +245,7 @@ export class StreamProcessor {
 	 * emit. A harness that feeds processDelta directly calls it to mirror the
 	 * transport loop.
 	 */
-	endOfStream(progress: vscode.Progress<vscode.LanguageModelResponsePart>, finishedNormally = true): void {
+	endOfStream(progress: ResponsePartSink, finishedNormally = true): void {
 		this.finishStream(progress, finishedNormally, true);
 	}
 
@@ -257,11 +281,7 @@ export class StreamProcessor {
 		}
 	}
 
-	processDelta(
-		chunk: ChatCompletionChunk,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		token?: vscode.CancellationToken
-	): boolean {
+	processDelta(chunk: ChatCompletionChunk, progress: ResponsePartSink, token?: vscode.CancellationToken): boolean {
 		let emitted = false;
 
 		if (chunk.usage) {
@@ -411,10 +431,7 @@ export class StreamProcessor {
 	 * order relative to the surrounding text. A malformed entry is skipped and
 	 * logged as a classification; the stream continues either way.
 	 */
-	private processImagesDelta(
-		images: NonNullable<ChunkDelta["images"]>,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>
-	): boolean {
+	private processImagesDelta(images: NonNullable<ChunkDelta["images"]>, progress: ResponsePartSink): boolean {
 		if (!this._dataPartCtor) {
 			logMissingDataPartSupportOnce(this._log);
 			return false;
@@ -451,7 +468,7 @@ export class StreamProcessor {
 	 * at end of stream. The mime derives from the request's audio.format (the
 	 * wire delta carries no format field); see audioMimeForFormat.
 	 */
-	private processAudioDelta(audio: ChunkAudio, progress: vscode.Progress<vscode.LanguageModelResponsePart>): boolean {
+	private processAudioDelta(audio: ChunkAudio, progress: ResponsePartSink): boolean {
 		if (!this._dataPartCtor) {
 			logMissingDataPartSupportOnce(this._log);
 			return false;
@@ -470,7 +487,7 @@ export class StreamProcessor {
 	}
 
 	/** Emit the accumulated audio as one DataPart; an undecodable or empty payload is logged as a classification and dropped. */
-	private flushAudioBuffer(progress: vscode.Progress<vscode.LanguageModelResponsePart>): boolean {
+	private flushAudioBuffer(progress: ResponsePartSink): boolean {
 		const buffer = this._req.audioBuffer;
 		this._req.audioBuffer = undefined;
 		if (buffer === undefined || buffer.base64 === "") {
@@ -502,16 +519,13 @@ export class StreamProcessor {
 		}
 	}
 
-	processTextContent(
-		input: string,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>
-	): { emittedText: boolean; emittedAny: boolean } {
+	processTextContent(input: string, progress: ResponsePartSink): { emittedText: boolean; emittedAny: boolean } {
 		return this.handleTextParse(this._req.textParser.push(input), progress);
 	}
 
 	private handleTextParse(
 		result: TextParseResult,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>
+		progress: ResponsePartSink
 	): { emittedText: boolean; emittedAny: boolean } {
 		let emittedText = false;
 		let emittedAny = false;
@@ -555,7 +569,7 @@ export class StreamProcessor {
 	private emitInlineToolCall(
 		call: TextToolCall,
 		parsedArgs: Record<string, unknown>,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>
+		progress: ResponsePartSink
 	): boolean {
 		const name = call.name ?? "unknown_tool";
 		const contentKey = `${name}:${JSON.stringify(parsedArgs)}`;
@@ -570,7 +584,7 @@ export class StreamProcessor {
 	}
 
 	private emitToolCall(
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		progress: ResponsePartSink,
 		call: { id?: string | undefined; name: string; parsedArgs: Record<string, unknown> },
 		bufferIndex?: number
 	): boolean {
@@ -598,7 +612,7 @@ export class StreamProcessor {
 		return true;
 	}
 
-	private tryEmitBufferedToolCall(index: number, progress: vscode.Progress<vscode.LanguageModelResponsePart>): void {
+	private tryEmitBufferedToolCall(index: number, progress: ResponsePartSink): void {
 		const buf = this._req.toolCallBuffers.get(index);
 		if (!buf?.name) {
 			return;
@@ -611,7 +625,7 @@ export class StreamProcessor {
 	}
 
 	/** Flushes every buffer, logging each invalid one; returns the invalid count. */
-	private flushToolCallBuffers(progress: vscode.Progress<vscode.LanguageModelResponsePart>): number {
+	private flushToolCallBuffers(progress: ResponsePartSink): number {
 		let invalidCount = 0;
 		for (const [index, buf] of Array.from(this._req.toolCallBuffers.entries())) {
 			const parsed = tryParseJSONObject(buf.args);
@@ -636,11 +650,7 @@ export class StreamProcessor {
 	 * Sources list and the usage DataPart) may emit; the finish_reason and
 	 * [DONE] runs can still be followed by more chunks.
 	 */
-	private finishStream(
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		finishedNormally: boolean,
-		isFinal = false
-	): void {
+	private finishStream(progress: ResponsePartSink, finishedNormally: boolean, isFinal = false): void {
 		let invalidCount = this.flushToolCallBuffers(progress);
 
 		const rest = this._req.textParser.flush();

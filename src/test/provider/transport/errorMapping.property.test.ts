@@ -5,6 +5,7 @@ import {
 	type MapErrorContext,
 	mapSdkError,
 	RequestError,
+	TRANSPORT_ERROR_SURFACES,
 	timeoutMessage,
 	twoPartTexts,
 } from "../../../provider/transport/errorMapping";
@@ -33,7 +34,9 @@ const UPSTREAM_AUTH_MESSAGE =
 	"Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.";
 
 const ctxArb: fc.Arbitrary<MapErrorContext> = fc.record({
-	surface: fc.constantFrom<MapErrorContext["surface"]>("chat", "discovery", "completion", "commitGeneration"),
+	// Derived from the copy table's keys, so a new surface row joins every
+	// property here without touching this file.
+	surface: fc.constantFrom(...TRANSPORT_ERROR_SURFACES),
 	baseUrl: fc.constantFrom("http://litellm.test", "https://proxy.internal:4000/v1", "http://localhost:4000/"),
 	timeoutMs: fc.integer({ min: 1, max: 3_600_000 }),
 });
@@ -233,7 +236,7 @@ suite("provider/errorMapping properties", () => {
 		// English fallback; the englishMessage leg is locale-independent.
 		fc.assert(
 			fc.property(
-				fc.constantFrom<MapErrorContext["surface"]>("chat", "discovery", "completion", "commitGeneration"),
+				fc.constantFrom(...TRANSPORT_ERROR_SURFACES),
 				fc.string(),
 				fc.string(),
 				fc.string(),

@@ -13,6 +13,7 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
+import { withFetch } from "../../pureHelpers";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
 
@@ -63,7 +64,12 @@ suite("provider/transport/oneShotClient", () => {
 		);
 
 		const messages: OneShotChatMessage[] = [{ role: "user", content: "diff" }];
-		const result = await client().completeChatOnce(connection(), { model: "gpt-test", messages }, callOptions());
+		const result = await client().completeChatOnce(
+			connection(),
+			{ model: "gpt-test", messages },
+			"commitGeneration",
+			callOptions()
+		);
 
 		assert.strictEqual(result, "feat: add the thing");
 		assert.ok(seenBody, "the request must carry a JSON body");
@@ -91,6 +97,7 @@ suite("provider/transport/oneShotClient", () => {
 		await client().completeChatOnce(
 			connection(),
 			{ model: "gpt-test", messages: [{ role: "user", content: "hi" }], maxTokens: 256 },
+			"commitGeneration",
 			callOptions()
 		);
 
@@ -105,6 +112,7 @@ suite("provider/transport/oneShotClient", () => {
 		const result = await client().completeChatOnce(
 			connection(),
 			{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+			"commitGeneration",
 			callOptions()
 		);
 
@@ -133,17 +141,20 @@ suite("provider/transport/oneShotClient", () => {
 		const conn = connection({ apiKey: "", oauth });
 		const request = { model: "gpt-test", messages: [{ role: "user" as const, content: "hi" }] };
 
-		const error = await expectRequestError(oneShot.completeChatOnce(conn, request, callOptions()), "auth");
+		const error = await expectRequestError(
+			oneShot.completeChatOnce(conn, request, "commitGeneration", callOptions()),
+			"auth"
+		);
 		assert.strictEqual(error.status, 401);
 		assert.strictEqual(exchanges, 1);
 
 		// The rejected token is gone, so the second call exchanges anew.
-		const second = await oneShot.completeChatOnce(conn, request, callOptions());
+		const second = await oneShot.completeChatOnce(conn, request, "commitGeneration", callOptions());
 		assert.strictEqual(exchanges, 2);
 		assert.strictEqual(second, "answered with Bearer tok-2");
 
 		// And a token the server accepted stays cached: no third exchange.
-		await oneShot.completeChatOnce(conn, request, callOptions());
+		await oneShot.completeChatOnce(conn, request, "commitGeneration", callOptions());
 		assert.strictEqual(exchanges, 2, "an accepted token must be served from cache, not re-exchanged");
 	});
 
@@ -163,6 +174,7 @@ suite("provider/transport/oneShotClient", () => {
 			client().completeChatOnce(
 				connection(),
 				{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+				"commitGeneration",
 				callOptions()
 			),
 			"http"
@@ -181,6 +193,7 @@ suite("provider/transport/oneShotClient", () => {
 			client().completeChatOnce(
 				connection(),
 				{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+				"commitGeneration",
 				callOptions()
 			),
 			"auth"
@@ -203,6 +216,7 @@ suite("provider/transport/oneShotClient", () => {
 			client().completeChatOnce(
 				connection(),
 				{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+				"commitGeneration",
 				callOptions()
 			),
 			"http"
@@ -226,6 +240,7 @@ suite("provider/transport/oneShotClient", () => {
 			client().completeChatOnce(
 				connection(),
 				{ model: "gone-model", messages: [{ role: "user", content: "hi" }] },
+				"commitGeneration",
 				callOptions()
 			),
 			"http"
@@ -256,6 +271,7 @@ suite("provider/transport/oneShotClient", () => {
 		const result = await client().completeChatOnce(
 			connection({ virtualKey: { header: "x-litellm-key", value: "bad\nvalue" } }),
 			{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+			"commitGeneration",
 			callOptions()
 		);
 
@@ -289,10 +305,10 @@ suite("provider/transport/oneShotClient", () => {
 		});
 		const request = { model: "gpt-test", messages: [{ role: "user" as const, content: "hi" }] };
 
-		const straggler = oneShot.completeChatOnce(conn, request, callOptions());
+		const straggler = oneShot.completeChatOnce(conn, request, "commitGeneration", callOptions());
 		straggler.catch(() => {}); // settled below; the handler keeps it pending meanwhile
 		await new Promise((resolve) => setTimeout(resolve, 100));
-		const fresh = await oneShot.completeChatOnce(conn, request, callOptions());
+		const fresh = await oneShot.completeChatOnce(conn, request, "commitGeneration", callOptions());
 		assert.strictEqual(fresh, "answered with Bearer tok-2");
 		assert.strictEqual(exchanges, 2);
 
@@ -301,7 +317,7 @@ suite("provider/transport/oneShotClient", () => {
 		// Keyed invalidation: the straggler's 401 named tok-1, so tok-2 survives
 		// and the next call is served from cache. An unconditional invalidation
 		// would exchange a third token here.
-		const after = await oneShot.completeChatOnce(conn, request, callOptions());
+		const after = await oneShot.completeChatOnce(conn, request, "commitGeneration", callOptions());
 		assert.strictEqual(after, "answered with Bearer tok-2");
 		assert.strictEqual(exchanges, 2, "a straggling 401 must not discard the token that already replaced it");
 	});
@@ -326,6 +342,7 @@ suite("provider/transport/oneShotClient", () => {
 				virtualKey: { header: "authorization", value: "vk-value" },
 			}),
 			{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+			"commitGeneration",
 			callOptions()
 		);
 
@@ -346,6 +363,7 @@ suite("provider/transport/oneShotClient", () => {
 			client().completeChatOnce(
 				connection(),
 				{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+				"commitGeneration",
 				callOptions()
 			),
 			"http"
@@ -368,6 +386,7 @@ suite("provider/transport/oneShotClient", () => {
 			client().completeChatOnce(
 				connection(),
 				{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+				"commitGeneration",
 				callOptions(50)
 			),
 			"timeout"
@@ -392,6 +411,7 @@ suite("provider/transport/oneShotClient", () => {
 		const pending = client().completeChatOnce(
 			connection(),
 			{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+			"commitGeneration",
 			{ timeoutMs: 5000, token: cts.token }
 		);
 		setTimeout(() => cts.cancel(), 20);
@@ -550,6 +570,297 @@ suite("provider/transport/oneShotClient", () => {
 			assert.match(error.message, /code context around the cursor is too long/);
 			assert.ok(!error.message.includes("new chat"), "no chat-flavored advice on a FIM call");
 			assert.strictEqual(error.englishMessage?.split("\n")[0], error.message.split("\n")[0]);
+		});
+	});
+
+	test("the surface parameter is caller-owned: the same 404 renders the caller's surface copy", async () => {
+		// completeChatOnce serves several features, each under its own error
+		// surface; the transport must not hardcode any one of them.
+		mswServer.use(
+			http.post(CHAT_COMPLETIONS_URL, () =>
+				HttpResponse.json({ error: { message: "model not found", type: "invalid_request_error" } }, { status: 404 })
+			)
+		);
+
+		const error = await expectRequestError(
+			client().completeChatOnce(
+				connection(),
+				{ model: "gone-model", messages: [{ role: "user", content: "hi" }] },
+				"chat",
+				callOptions()
+			),
+			"http"
+		);
+
+		assert.match(error.message, /Sync Models/, "the chat surface keeps the chat catalog advice");
+		assert.strictEqual(error.logClassification, "RequestError(http, status 404, chat)");
+	});
+
+	suite("sendJson (the shared Response core)", () => {
+		test("returns the raw 2xx Response with its body unread", async () => {
+			let seenContentType: string | null = null;
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+					seenContentType = request.headers.get("content-type");
+					return new HttpResponse("raw payload, not parsed here", { status: 201 });
+				})
+			);
+
+			const response = await client().sendJson(
+				CHAT_COMPLETIONS_URL,
+				JSON.stringify({ ping: true }),
+				connection(),
+				"commitGeneration",
+				callOptions()
+			);
+
+			assert.strictEqual(response.status, 201);
+			assert.strictEqual(seenContentType, "application/json");
+			assert.strictEqual(await response.text(), "raw payload, not parsed here", "the body reaches the caller unread");
+		});
+
+		test("a non-2xx never returns: the error body is read and mapped through the shared pipeline", async () => {
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, () =>
+					HttpResponse.json(
+						{ error: { message: "Budget has been exceeded for this key", type: "budget_exceeded" } },
+						{ status: 429 }
+					)
+				)
+			);
+
+			const error = await expectRequestError(
+				client().sendJson(
+					CHAT_COMPLETIONS_URL,
+					JSON.stringify({ ping: true }),
+					connection(),
+					"commitGeneration",
+					callOptions()
+				),
+				"http"
+			);
+
+			assert.strictEqual(error.status, 429);
+			assert.match(error.message, /budget is used up/);
+			assert.strictEqual(error.logClassification, "RequestError(http, status 429, budget_exceeded)");
+		});
+	});
+
+	suite("completeChatStream", () => {
+		const sseBody = 'data: {"choices":[{"delta":{"content":"streamed"}}]}\n\ndata: [DONE]\n\n';
+
+		test("sends exactly model/messages/stream:true and returns the raw SSE body", async () => {
+			let seenBody: Record<string, unknown> | undefined;
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, async ({ request }) => {
+					seenBody = (await request.json()) as Record<string, unknown>;
+					return new HttpResponse(sseBody, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+				})
+			);
+
+			const stream = await client().completeChatStream(
+				connection(),
+				{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+				"chat",
+				callOptions()
+			);
+
+			assert.ok(seenBody, "the request must carry a JSON body");
+			// The body key set is the whole contract: nothing injected beyond the
+			// provider-owned fields, and max_tokens absent when the caller set none.
+			assert.deepStrictEqual(Object.keys(seenBody).sort(), ["messages", "model", "stream"]);
+			assert.strictEqual(seenBody.stream, true);
+			// The raw bytes reach the caller unframed; sseFrames + StreamProcessor
+			// own everything downstream of here.
+			assert.strictEqual(await new Response(stream).text(), sseBody);
+		});
+
+		test("max_tokens rides the streaming body only when the caller sets it", async () => {
+			let seenBody: Record<string, unknown> | undefined;
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, async ({ request }) => {
+					seenBody = (await request.json()) as Record<string, unknown>;
+					return new HttpResponse(sseBody, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+				})
+			);
+
+			await client().completeChatStream(
+				connection(),
+				{ model: "gpt-test", messages: [{ role: "user", content: "hi" }], maxTokens: 128 },
+				"chat",
+				callOptions()
+			);
+
+			assert.ok(seenBody);
+			assert.deepStrictEqual(Object.keys(seenBody).sort(), ["max_tokens", "messages", "model", "stream"]);
+			assert.strictEqual(seenBody.max_tokens, 128);
+		});
+
+		test("an HTTP error before any stream maps through the shared pipeline under the caller's surface", async () => {
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, () =>
+					HttpResponse.json(
+						{ error: { message: "maximum context length exceeded", type: "context_window_exceeded" } },
+						{ status: 400 }
+					)
+				)
+			);
+
+			const error = await expectRequestError(
+				client().completeChatStream(
+					connection(),
+					{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+					"chat",
+					callOptions()
+				),
+				"http"
+			);
+
+			assert.strictEqual(error.status, 400);
+			assert.match(error.message, /conversation is too long for this model/);
+			assert.strictEqual(error.logClassification, "RequestError(http, status 400, context_window_exceeded)");
+		});
+
+		test("user cancellation keeps aborting the in-flight request after the headers arrived", async () => {
+			// msw does not tie a mocked body stream to the request's AbortSignal,
+			// so this observes the signal itself through the withFetch escape
+			// hatch (tying the stub body to it like undici does): the outliving
+			// cancellation bridge (armed for the stream's lifetime, after
+			// postJson's own call-scoped bridge was disposed) must abort the
+			// wired signal, and the reader must see the classified cancellation.
+			let wiredSignal: AbortSignal | undefined;
+			const cts = new vscode.CancellationTokenSource();
+			await withFetch(
+				async (_url, init) => {
+					const signal = init?.signal ?? undefined;
+					wiredSignal = signal;
+					return new Response(
+						new ReadableStream<Uint8Array>({
+							start(controller) {
+								controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"first"}}]}\n\n'));
+								// Never closed: only the abort can end this stream.
+								signal?.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "text/event-stream" } }
+					);
+				},
+				async () => {
+					const stream = await client().completeChatStream(
+						connection(),
+						{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+						"chat",
+						{ timeoutMs: 5000, token: cts.token }
+					);
+					const reader = stream.getReader();
+					const first = await reader.read();
+					assert.strictEqual(first.done, false, "the first chunk streams before cancellation");
+					assert.ok(wiredSignal, "fetch must be armed with the combined signal");
+					assert.strictEqual(wiredSignal.aborted, false, "nothing has aborted yet");
+					cts.cancel();
+					await assert.rejects(reader.read(), (err: unknown) => {
+						assert.ok(err instanceof vscode.CancellationError, `expected CancellationError, got ${String(err)}`);
+						return true;
+					});
+					assert.strictEqual(wiredSignal.aborted, true, "cancellation must reach the in-flight request");
+				}
+			);
+		});
+
+		test("a post-header timeout reaches the reader as the classified timeout error", async () => {
+			// The stub ties its body to the wired signal like undici does; the
+			// returned stream's mapping is what must turn the abort into the
+			// surface's classified timeout error at the reader.
+			await withFetch(
+				async (_url, init) => {
+					const signal = init?.signal ?? undefined;
+					return new Response(
+						new ReadableStream<Uint8Array>({
+							start(controller) {
+								// Never emits: only the whole-call timeout ends it.
+								signal?.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "text/event-stream" } }
+					);
+				},
+				async () => {
+					const stream = await client().completeChatStream(
+						connection(),
+						{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+						"chat",
+						callOptions(50)
+					);
+					const reader = stream.getReader();
+					await assert.rejects(reader.read(), (err: unknown) => {
+						assert.ok(err instanceof RequestError, `expected RequestError, got ${String(err)}`);
+						assert.strictEqual(err.kind, "timeout");
+						assert.match(err.message, /LiteLLM request timed out after 50ms/);
+						return true;
+					});
+				}
+			);
+		});
+
+		test("the whole-call timeout stays armed on the returned stream", async () => {
+			// The signal must fire at the hard bound even though completeChatStream
+			// resolved long before - the stream's reclamation is the timeout's job.
+			let wiredSignal: AbortSignal | undefined;
+			await withFetch(
+				async (_url, init) => {
+					wiredSignal = init?.signal ?? undefined;
+					return new Response(
+						new ReadableStream<Uint8Array>({
+							start() {
+								// Never emits and never closes: only the timeout ends it.
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "text/event-stream" } }
+					);
+				},
+				async () => {
+					await client().completeChatStream(
+						connection(),
+						{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+						"chat",
+						callOptions(50)
+					);
+					assert.ok(wiredSignal, "fetch must be armed with the combined signal");
+					const aborted = new Promise<void>((resolve) =>
+						wiredSignal?.addEventListener("abort", () => resolve(), { once: true })
+					);
+					await aborted;
+					assert.strictEqual(wiredSignal.aborted, true, "the timeout must fire after the call returned");
+					assert.strictEqual((wiredSignal.reason as Error).name, "TimeoutError", "the abort must be the timeout's");
+				}
+			);
+		});
+
+		test("a bodyless 200 throws the shared classified error instead of returning null", async () => {
+			await withFetch(
+				async () => new Response(null, { status: 200 }),
+				async () => {
+					await assert.rejects(
+						client().completeChatStream(
+							connection(),
+							{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
+							"chat",
+							callOptions()
+						),
+						(err: unknown) => {
+							assert.ok(err instanceof Error, `expected an Error, got ${String(err)}`);
+							// The chat transport's exact bodyless-200 message (one shared
+							// constructor), joined chat-style for this surface.
+							assert.strictEqual(
+								err.message,
+								"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server.\n\nDetails: LiteLLM answered 200 with a missing response body (http://litellm.test)"
+							);
+							assert.strictEqual((err as Error & { englishMessage?: string }).englishMessage, err.message);
+							return true;
+						}
+					);
+				}
+			);
 		});
 	});
 });

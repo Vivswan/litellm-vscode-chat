@@ -109,6 +109,7 @@ async function sendCommitPrompt(
 	return oneShot.completeChatOnce(
 		resolved.connection,
 		{ model: ref.model, messages: [{ role: "user", content: prompt }] },
+		"commitGeneration",
 		{ timeoutMs: getRequestTimeout(log), token }
 	);
 }
