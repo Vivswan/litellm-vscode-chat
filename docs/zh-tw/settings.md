@@ -38,6 +38,7 @@
 
 ## 參考
 
+<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts, package.json, and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->
 | 設定 | 預設值 | 行為 |
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | 宣告的 LiteLLM 伺服器; [項目屬性見下](#伺服器項目屬性), 完整故事在[伺服器](servers.md) |
@@ -77,6 +78,7 @@
 | `litellm-vscode-chat.reviewComments.enabled` | `false` | 選擇啟用對變更的 AI 審查評論。預設關閉; 啟用前不存在任何審查討論串, 也不會送出任何審查請求, 儀表板中明確的「測試模型」按鈕除外 ([配方](getting-started.md#讓模型審查您的程式碼)) |
 | `litellm-vscode-chat.reviewComments.model` | `null` | 撰寫審查評論的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
 | `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟 |
+<!-- settings-reference:end -->
 
 刻意不提供全域標頭設定: 自訂 HTTP 標頭描述的是如何與某一個伺服器交談, 所以它們存放在伺服器項目上 ([`headers`](servers.md#自訂標頭)) - 機器範圍, 在設定同步搆不到的地方, 與全域設定不同。
 

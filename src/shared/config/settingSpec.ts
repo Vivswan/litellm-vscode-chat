@@ -288,6 +288,13 @@ export const STRUCTURED_SETTING_KEYS = [
 ] as const;
 
 /**
+ * Every setting key as a literal union, for the surfaces that must be TOTAL
+ * over the vocabulary: ALL_SETTING_KEYS is the same set widened to strings for
+ * the ones that merely iterate it.
+ */
+export type SettingId = (typeof STRUCTURED_SETTING_KEYS)[number] | NumberSettingId | BooleanSettingId;
+
+/**
  * Every litellm-vscode-chat.* setting key. settingSpec.test.ts pins this list
  * against package.json's contributed configuration, so a future setting cannot
  * silently escape the surfaces that walk the whole vocabulary.

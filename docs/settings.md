@@ -38,6 +38,7 @@ The file is a versioned envelope (setting keys inside it drop the `litellm-vscod
 
 ## Reference
 
+<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts, package.json, and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->
 | Setting | Default | Behavior |
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | The declared LiteLLM servers; [entry properties below](#server-entry-properties), full story in [Servers](servers.md) |
@@ -77,6 +78,7 @@ The file is a versioned envelope (setting keys inside it drop the `litellm-vscod
 | `litellm-vscode-chat.reviewComments.enabled` | `false` | Opt-in for AI review comments on your changes. Off by default; no comment threads exist and no review is sent until enabled, except the dashboard's explicit "Test model" button ([recipe](getting-started.md#get-review-comments-on-your-code)) |
 | `litellm-vscode-chat.reviewComments.model` | `null` | The model that writes review comments; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model` |
 | `litellm-vscode-chat.chatParticipant.enabled` | `true` | The @litellm chat participant, answering with the chat request's own model (no model setting). On by default |
+<!-- settings-reference:end -->
 
 There is deliberately no global headers setting: custom HTTP headers describe how to talk to one server, so they live on the server entry ([`headers`](servers.md#custom-headers)) - machine-scoped and out of Settings Sync's reach, unlike a global setting.
 

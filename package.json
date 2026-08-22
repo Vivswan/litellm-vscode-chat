@@ -1199,6 +1199,8 @@
 		"setup-env:pwsh": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/env/setup-env.ps1",
 		"l10n:extract": "bun scripts/l10n/extract.ts",
 		"l10n:check": "bun scripts/l10n/check.ts",
+		"docs:settings": "bun scripts/docs/generate-settings-reference.ts",
+		"docs:settings:check": "bun scripts/docs/generate-settings-reference.ts --check",
 		"lint:actions": "bun scripts/ci/lint-actions.ts",
 		"lint:knip": "knip",
 		"lint:types": "eslint src scripts",

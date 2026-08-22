@@ -86,12 +86,8 @@ function allProperties(): Record<string, SettingSchema> {
 	return merged;
 }
 
-// Every shipped locale's settings reference; the zh tables share the English
-// table's row shape, so one drift guard covers all three.
-const SETTINGS_DOC_PATHS = ["docs/settings.md", "docs/zh-cn/settings.md", "docs/zh-tw/settings.md"] as const;
-
-function readSettingsDoc(relativePath: (typeof SETTINGS_DOC_PATHS)[number] = "docs/settings.md"): string {
-	return fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+function readSettingsDoc(): string {
+	return fs.readFileSync(path.join(repoRoot, "docs", "settings.md"), "utf8");
 }
 
 function readModelsDoc(): string {
@@ -272,47 +268,6 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 });
 
 suite("shared/config/settingSpec: docs drift guard", () => {
-	test("every locale's settings-reference table covers every scalar and feature setting and shows its default", () => {
-		// Rows look like: | `litellm-vscode-chat.chat.timeout` | `300000` | ... |
-		// In every shipped locale, every spec'd number and boolean setting must have a
-		// row showing its default in the second column; a dropped row fails the compare.
-		const defaults = new Map<string, string>();
-		for (const [id, spec] of [...Object.entries(NUMBER_SETTING_SPECS), ...Object.entries(BOOLEAN_SETTING_SPECS)]) {
-			defaults.set(id, String(spec.default));
-		}
-		// The structured feature settings carry no scalar spec, so their rendered
-		// defaults (`null`, `""`, `[]`) come from the manifest itself: the docs
-		// pin follows a package.json default change automatically instead of
-		// leaving five default columns as unpinned prose.
-		const properties = allProperties();
-		for (const id of [
-			...FEATURE_MODEL_IDS.map((feature) => FEATURE_MODEL_SETTING_KEYS[feature]),
-			COMMIT_GENERATION_PROMPT_SETTING_KEY,
-			INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
-		]) {
-			defaults.set(id, JSON.stringify(settingSchema(properties, id).default));
-		}
-		const row = new RegExp(`^\\|\\s*\`${CONFIG_SECTION}\\.([\\w.]+)\`\\s*\\|\\s*\`([^\`]*)\``);
-		for (const docPath of SETTINGS_DOC_PATHS) {
-			const covered: string[] = [];
-			for (const line of readSettingsDoc(docPath).split("\n")) {
-				const match = row.exec(line);
-				const id = match?.[1];
-				const shown = match?.[2];
-				if (id === undefined || shown === undefined || !defaults.has(id)) {
-					continue;
-				}
-				covered.push(id);
-				assert.strictEqual(shown, defaults.get(id), `${docPath} default column for ${id}`);
-			}
-			assert.deepStrictEqual(
-				covered.sort(),
-				[...defaults.keys()].sort(),
-				`the ${docPath} reference table names every scalar and feature setting exactly once`
-			);
-		}
-	});
-
 	test("the minimum-timeout prose quotes MIN_TIMEOUT_MS", () => {
 		const quoted = /Minimum (\d+); lower values are clamped/.exec(readSettingsDoc())?.[1];
 		assert.ok(quoted, "docs/settings.md states the minimum timeout");
