@@ -2,7 +2,7 @@
 
 English | [简体中文](zh-cn/getting-started.md) | [繁體中文](zh-tw/getting-started.md)
 
-Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you ten short recipes for the most common next steps.
+Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you twelve short recipes for the most common next steps.
 
 ## Requirements
 
@@ -55,7 +55,7 @@ The LiteLLM status bar item (bottom right) shows the connection state at a glanc
 
 ## Where to next
 
-Ten recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
+Twelve recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
 
 ### Correct a capability the server reports wrong
 
@@ -203,7 +203,7 @@ Type `@litellm` in the chat view and ask. Unlike the recipes above this one is a
 
 It answers with **whichever model the chat model picker has selected**, and that is the whole model policy: there is no separate model setting to fill in, and pointing the picker at one of your LiteLLM models is what makes the answer come from your own proxy. Every turn is an ordinary chat request, so it goes exactly where that model goes and nowhere else - pick one of your LiteLLM models and it is your own server, covered by the same [usage tracking and budget alerts](usage.md) as any other chat turn; leave a built-in Copilot model selected and the turn goes to Copilot, as that model always does. Either way this adds no path off your machine that chat did not already have.
 
-Three slash commands come with it. `/tests` and `/docs` put a fixed instruction in front of your text and send it to the model. `/models` is the odd one out: it answers from what the extension already knows, listing every connected server with its models, their context windows, and their tool and image support, without touching the network - which is the quick way to get the exact raw model ID to paste into a `servers` entry or a feature's model setting.
+Five slash commands come with it. `/tests`, `/docs`, `/fix` and `/explain` put a fixed instruction in front of your text and send it to the model - the last two are what the [quick fixes](#fix-or-explain-a-diagnostic) send for you, and they work just as well typed by hand. `/models` is the odd one out: it answers from what the extension already knows, listing every connected server with its models, their context windows, and their tool and image support, without touching the network - which is the quick way to get the exact raw model ID to paste into a `servers` entry or a feature's model setting.
 
 Whatever you attach comes with it: the editor selection, the file you have open, and every `#file:` you add are read and sent below your text, so "write tests for this" means the code in front of you. Attachments are capped at 40,000 characters in total, and anything cut or left out is labeled as such rather than passed off as whole.
 
@@ -227,6 +227,25 @@ Nothing is attached automatically. The consulted model gets only what the agent 
 The outgoing prompt is capped at 60,000 characters, a fixed limit like the commit recipe's diff cap; past it the context is trimmed first, with a marker so the consulted model knows material was cut, and the question is only shortened once the context is gone. Coming back, the reply is fitted to whatever token budget the calling model advertised, again with a marker. The request runs under the same `chat.timeout` setting as chat and sends no `max_tokens`, so the consulted model's own default bounds the answer.
 
 Privacy is the same trust boundary as chat - your own server, no third party - but, like inline completions, without a per-request action from you, and with the agent rather than you choosing what to send, which is why this ships off and takes an explicit model. The question and context the agent writes go to the LiteLLM server you named for the tool, and the requests count toward the same [usage and spend tracking and budget alerts](usage.md) as everything else. The dashboard's "Test model" button is the one exception: it sends a single fixed question on your click, never anything of yours.
+
+### Fix or explain a diagnostic
+
+Turn the quick fixes on, and pick the model that answers when the chat view cannot be opened:
+
+```jsonc
+"litellm-vscode-chat.quickFix.enabled": true,
+"litellm-vscode-chat.quickFix.model": { "server": "Team proxy", "model": "gpt-4o-mini" }
+```
+
+Now any squiggle - a compiler error, a linter warning, anything an extension reports - carries two extra lightbulb entries: **Fix with LiteLLM** and **Explain with LiteLLM**. Picking one opens the chat view and **sends** `@litellm /fix` (or `/explain`) with the diagnostic messages behind it and the offending lines attached, so the answer comes from **whichever model the chat picker has selected** - one of yours if you selected one, a built-in Copilot model otherwise - and lands in a conversation you can keep asking questions in. Nothing is sent while you are only reading the lightbulb; the request happens when you pick an action.
+
+The lightbulb appears on saved files. An unsaved buffer's code cannot be attached to a chat turn, and asking a model to fix diagnostics it cannot see is worse than not offering, so save the file first.
+
+An action claims at most five diagnostics at that position, worst first (errors before warnings), and attaches the lines they sit on plus two lines either side.
+
+The `quickFix.model` setting is the fallback, not the main path: it is used only when the chat view cannot answer - no chat extension installed, one that is disabled or failing, or the `@litellm` participant itself turned off or refused registration. Then the same question - Fix asks for corrected code, Explain asks for an explanation, exactly as on the chat path - goes to that model as a single request, and the answer opens as a new untitled markdown editor you can read and close; nothing is ever written into your file. Leaving the model unset is fine if you have chat - you simply get a message instead of an answer on the rare occasions the fallback would have run. The dashboard's "Test model" button on that row sends one small fixed snippet, never your code.
+
+Privacy: both paths send the diagnostic messages and the attached lines off your machine - on the chat path to whichever model the picker names (a built-in Copilot model unless you selected one of yours), with the conversation's earlier turns riding along as any chat turn's do; on the fallback path to the server behind `quickFix.model`.
 
 ## Commands
 

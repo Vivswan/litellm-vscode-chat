@@ -357,6 +357,7 @@ export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)
 	"commitGeneration.enabled",
 	"prGeneration.enabled",
 	"consultTool.enabled",
+	"quickFix.enabled",
 	"chatParticipant.enabled",
 ];
 
@@ -423,6 +424,13 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 			// description no longer spells out - WHO decides, and what leaves.
 			return l10n.t(
 				"The agent decides when to consult, sending the question and background it writes to your LiteLLM server."
+			);
+		case "quickFix.enabled":
+			// The row's own description names both paths; the tip carries what the
+			// model picker below it does NOT decide, which is where the code goes
+			// on the path most people will take.
+			return l10n.t(
+				"Picking Fix or Explain sends the diagnostic and its lines to @litellm, on whichever model the chat picker names."
 			);
 		case "chatParticipant.enabled":
 			// Its own row has no model picker, so the tip carries the one fact that

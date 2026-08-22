@@ -81,8 +81,15 @@ function instructed(instruction: string, prompt: string): string {
  * model, with the turn's attachments below the user's own words. These are the
  * commands whose sample requests say "the selected function", so they are
  * exactly the ones that must not arrive without it.
+ *
+ * Exported because the quick-fix feature's /fix and /explain are the same
+ * shape, and a second copy of this three-line body is a second answer to "what
+ * does a prompt-shaping command do with attachments". Their definitions sit at
+ * the features/ root (quickFixChatCommands.ts) rather than here or in
+ * features/quickFix/, because the sibling-import ban is per-feature-directory
+ * and that bridge belongs to neither tree alone.
  */
-function promptCommand(name: string, description: string, instruction: string): SlashCommand {
+export function promptCommand(name: string, description: string, instruction: string): SlashCommand {
 	return {
 		name,
 		description,

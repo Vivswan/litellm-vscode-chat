@@ -476,7 +476,7 @@ test("every FeatureId renders its section in registry order, enable rows include
 	const marked = [...root.querySelectorAll(".settings-group-head")]
 		.filter((head) => head.querySelector('[data-slot="badge"]')?.textContent === "Coming soon")
 		.map((head) => head.querySelector(".settings-group-title")?.textContent);
-	expect(marked).toEqual(["Quick fixes", "Review comments"]);
+	expect(marked).toEqual(["Review comments"]);
 	// The consequence is said ONCE for the page, not once per section: headings
 	// each wearing the same sentence was the defect this replaced.
 	const hints = [...root.querySelectorAll("p.hint")].filter((hint) => (hint.textContent ?? "").includes("Coming soon"));

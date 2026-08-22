@@ -505,7 +505,9 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "chat.timeout":
 			return {
 				label: l10n.t("Request timeout"),
-				description: l10n.t("Hard bound for one chat, commit-message, or pull-request-description call."),
+				description: l10n.t(
+					"Hard bound for one chat, commit-message, pull-request-description, consult-tool, or quick-fix call."
+				),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 			};
 		case "chat.maxToolsPerRequest":
@@ -660,7 +662,9 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 		case "quickFix.enabled":
 			return {
 				label: l10n.t("Enable quick fixes"),
-				description: l10n.t("Fix and Explain actions on diagnostics, answered by a LiteLLM model."),
+				description: l10n.t(
+					"Fix and Explain actions on diagnostics, answered through @litellm chat or the model below."
+				),
 			};
 		case "reviewComments.enabled":
 			return {

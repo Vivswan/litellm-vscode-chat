@@ -209,6 +209,38 @@
 								]
 							}
 						]
+					},
+					{
+						"name": "fix",
+						"description": "%litellm.participant.command.fix.description%",
+						"isSticky": true,
+						"sampleRequest": "%litellm.participant.command.fix.sampleRequest%",
+						"disambiguation": [
+							{
+								"category": "litellm_fix_diagnostic",
+								"description": "%litellm.participant.command.fix.disambiguation.description%",
+								"examples": [
+									"%litellm.participant.command.fix.disambiguation.example1%",
+									"%litellm.participant.command.fix.disambiguation.example2%"
+								]
+							}
+						]
+					},
+					{
+						"name": "explain",
+						"description": "%litellm.participant.command.explain.description%",
+						"isSticky": true,
+						"sampleRequest": "%litellm.participant.command.explain.sampleRequest%",
+						"disambiguation": [
+							{
+								"category": "litellm_explain_diagnostic",
+								"description": "%litellm.participant.command.explain.disambiguation.description%",
+								"examples": [
+									"%litellm.participant.command.explain.disambiguation.example1%",
+									"%litellm.participant.command.explain.disambiguation.example2%"
+								]
+							}
+						]
 					}
 				]
 			}

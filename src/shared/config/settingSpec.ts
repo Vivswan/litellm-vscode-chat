@@ -31,10 +31,13 @@ export const COMMIT_GENERATION_PROMPT_SETTING_KEY = "commitGeneration.prompt";
 
 /**
  * The features that pick their model through an explicit `<feature>.model`
- * setting. Every one is opt-in and fail-closed: the enabled boolean without a
- * model ref keeps the feature inert. quickFix and reviewComments are
- * registered vocabulary ahead of their features shipping - their settings
- * exist and persist, and nothing consumes them yet.
+ * setting. Every one is opt-in, and for all but one the enabled boolean without
+ * a model ref keeps the feature inert. The exception is quickFix, whose model
+ * backs only its FALLBACK path: enabled with no model still works, because the
+ * primary path routes through the @litellm participant on whichever model the
+ * chat picker names. reviewComments is registered vocabulary ahead of its
+ * feature shipping - its settings exist and persist, and nothing consumes them
+ * yet.
  */
 export const FEATURE_MODEL_IDS = [
 	"inlineCompletions",
@@ -224,8 +227,10 @@ export const BOOLEAN_SETTING_SPECS = {
 	"ui.maskSecretInputs": { default: true },
 	// The model-picking features are opt-in by contract: disabled means zero
 	// registration and zero traffic, and enabling without a model ref stays
-	// inert. quickFix and reviewComments are registered vocabulary for features
-	// that have not shipped yet (the settings persist; nothing consumes them).
+	// inert - with the one carve-out FEATURE_MODEL_IDS documents, quickFix,
+	// whose model backs only its fallback path. reviewComments is registered
+	// vocabulary for a feature that has not shipped yet (the settings persist;
+	// nothing consumes them).
 	"inlineCompletions.enabled": { default: false },
 	"commitGeneration.enabled": { default: false },
 	"prGeneration.enabled": { default: false },

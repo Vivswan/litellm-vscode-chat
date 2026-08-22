@@ -301,9 +301,18 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 					}
 					return recorded.fimProbeResult;
 				},
-				// A second registered probe, so the executor's per-feature outcome
-				// copy can be exercised for a feature other than inline completions.
+				// Two more registered probes, so the executor's per-feature outcome
+				// copy can be exercised for features other than inline completions -
+				// with only the FIM key here, both of its non-inline arms would be
+				// unreachable from any test. Each suite names the feature it means.
 				prGeneration: async (model: FeatureModelRef) => {
+					recorded.fimProbes.push(model);
+					if (recorded.probeError !== undefined) {
+						throw recorded.probeError;
+					}
+					return recorded.fimProbeResult;
+				},
+				quickFix: async (model: FeatureModelRef) => {
 					recorded.fimProbes.push(model);
 					if (recorded.probeError !== undefined) {
 						throw recorded.probeError;

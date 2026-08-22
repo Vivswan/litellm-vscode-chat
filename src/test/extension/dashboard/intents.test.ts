@@ -1675,6 +1675,35 @@ suite("extension/dashboard/intents", () => {
 			assert.strictEqual(notice, "Completion received - 13 characters");
 		});
 
+		test("a chat-shaped probe answers in its own vocabulary, not the FIM one", async () => {
+			// The outcome copy is per-feature: only inline completions receive a
+			// "completion", and only they can be told to go find a FIM model served
+			// on /completions.
+			const recorded = makeEnv([]);
+			recorded.fimProbeResult = "Here is the fix.";
+			const notice = await executeDashboardIntent(
+				{
+					method: "testFeatureModel",
+					payload: { feature: "quickFix", model: { server: "Main", model: "gpt-5.2" } },
+				},
+				recorded.env
+			);
+			assert.strictEqual(notice, "Reply received - 16 characters");
+
+			const empty = makeEnv([]);
+			empty.fimProbeResult = "";
+			const emptyNotice = await executeDashboardIntent(
+				{
+					method: "testFeatureModel",
+					payload: { feature: "quickFix", model: { server: "Main", model: "gpt-5.2" } },
+				},
+				empty.env
+			);
+			assert.ok(typeof emptyNotice === "object" && emptyNotice !== null);
+			assert.strictEqual(emptyNotice.tone, "warning");
+			assert.doesNotMatch(emptyNotice.message, /FIM|\/completions/, emptyNotice.message);
+		});
+
 		test("an empty or missing completion answers with the FIM-model hint at warning tone", async () => {
 			for (const result of [undefined, ""]) {
 				const recorded = makeEnv([]);

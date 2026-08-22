@@ -1389,6 +1389,23 @@ suite("provider/transport/errorMapping", () => {
 				serverErrorDetail: "LiteLLM 500: upstream exploded",
 				phrase: "pull request description generation",
 			},
+			quickFix: {
+				join: "details",
+				timeout:
+					'LiteLLM quick fix timed out after 5000ms. Increase the "litellm-vscode-chat.chat.timeout" setting if your model needs more time.',
+				notFound:
+					"The server did not recognize this quick fix request. Check that the configured quick fix model is one the server still serves.",
+				notFoundHint: undefined,
+				contextWindow:
+					"The code and diagnostics are too large for this model - fix a smaller range, or pick a quick fix model with a larger context window.",
+				dropped:
+					"The connection dropped before the reply arrived, so no answer was written. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+				droppedDetail: "Connection to http://litellm.test closed mid-response: terminated (cause: other side closed)",
+				serverError:
+					"The LiteLLM server hit an internal error - try again, and check the server's logs if it persists.",
+				serverErrorDetail: "LiteLLM 500: upstream exploded",
+				phrase: "quick fix",
+			},
 		};
 
 		// Derived from the copy table, with the pin table's own keys pinned

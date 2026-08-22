@@ -86,9 +86,10 @@ suite("extension/wiring features", () => {
 				getSnapshots: () => [],
 			});
 			// Every feature's wiring ran: the inline toggle command, the commit
-			// command, the PR command, and the MCP provider registration are their
-			// observable registrations here (the inline provider, the consult tool
-			// and the PR integration are enablement-gated and covered by their own
+			// command, the PR command, the MCP provider registration, and the
+			// quick-fix chat command are their observable registrations here (the
+			// inline provider, the consult tool, the PR integration and the
+			// code-action provider are enablement-gated and covered by their own
 			// wiring suites, so with the defaults they stay unregistered; the
 			// participant is proven by the slash-command test below).
 			assert.ok(
@@ -98,13 +99,20 @@ suite("extension/wiring features", () => {
 			assert.ok(registeredIds.includes(CMD.generateCommitMessage), "the commit feature wiring did not run");
 			assert.ok(registeredIds.includes(CMD.generatePrDescription), "the PR feature wiring did not run");
 			assert.ok(registeredIds.includes(MCP_PROVIDER_ID), "the MCP feature wiring did not run");
+			assert.ok(registeredIds.includes(INTERNAL_CMD.quickFixChat), "the quick-fix feature wiring did not run");
 			// The probe registry: exactly the features whose model rows carry a
 			// Test button. A key added here must come with a real probe; a key
 			// dropped here silently removes the button.
-			assert.deepStrictEqual(Object.keys(featureProbes).sort(), ["consultTool", "inlineCompletions", "prGeneration"]);
+			assert.deepStrictEqual(Object.keys(featureProbes).sort(), [
+				"consultTool",
+				"inlineCompletions",
+				"prGeneration",
+				"quickFix",
+			]);
 			assert.strictEqual(typeof featureProbes.inlineCompletions, "function");
 			assert.strictEqual(typeof featureProbes.consultTool, "function");
 			assert.strictEqual(typeof featureProbes.prGeneration, "function");
+			assert.strictEqual(typeof featureProbes.quickFix, "function");
 			// The render fixtures carry their OWN probe list, and a page rendered
 			// from a stale one under-represents the shipped state - visual review
 			// then judges a page users never see. Pinned to the production set so
@@ -119,6 +127,62 @@ suite("extension/wiring features", () => {
 			assert.ok(declared !== null, "the render fixture declares a featureProbes list");
 			const fixtureProbes = [...(declared[1] ?? "").matchAll(/"([^"]+)"/g)].map((match) => match[1] as string);
 			assert.deepStrictEqual(fixtureProbes.sort(), Object.keys(featureProbes).sort());
+		});
+	});
+
+	test("participant readiness reaches the quick fixes through the seam, refusal included", async () => {
+		// The whole chat path hangs off this predicate, and every quickFix test
+		// injects its own - so without this the producer and the wiring that
+		// carries it are unpinned, and a predicate that merely read the enable
+		// setting would ship green.
+		await withCommandSpy(async () => {
+			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
+			const live = wireFeatures(fakeContext(), quietLogger(), {
+				ua: "test-agent",
+				outputChannel,
+				getSnapshots: () => [],
+			});
+			assert.strictEqual(live.chatParticipant.isRegistered(), true, "a wired participant reads as ready");
+		});
+
+		await withCommandSpy(async () => {
+			// Inside the spy, which installs its own working stub on entry and
+			// restores the real API on exit: refusing has to be the LAST word.
+			(vscode.chat as Record<string, unknown>).createChatParticipant = () => {
+				throw new Error("id already registered");
+			};
+			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
+			const refused = wireFeatures(fakeContext(), quietLogger(), {
+				ua: "test-agent",
+				outputChannel,
+				getSnapshots: () => [],
+			});
+			assert.strictEqual(
+				refused.chatParticipant.isRegistered(),
+				false,
+				"a refused registration must not read as ready, whatever the setting says"
+			);
+		});
+	});
+
+	test("the seam registration reaches the live table: /fix and /explain answer after wiring", async () => {
+		// The runtime half of the quick-fix seam contract. The set-equality pin
+		// below would also fail if this registration went missing, but only
+		// together with the manifest - this one names the two commands, so a
+		// dropped registerQuickFixSlashCommands call reads as what it is.
+		await withCommandSpy(async () => {
+			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
+			const { chatParticipant } = wireFeatures(fakeContext(), quietLogger(), {
+				ua: "test-agent",
+				outputChannel,
+				getSnapshots: () => [],
+			});
+			for (const name of ["fix", "explain"]) {
+				assert.ok(
+					chatParticipant.slashCommands.find(name) !== undefined,
+					`/${name} is contributed but nothing registered it into the live table`
+				);
+			}
 		});
 	});
 

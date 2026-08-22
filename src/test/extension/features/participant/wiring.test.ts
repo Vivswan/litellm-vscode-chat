@@ -194,26 +194,33 @@ suite("extension/features/participant wiring", () => {
 
 	test("disabled wires nothing; the toggle disposes and re-creates around it", async () => {
 		await withWiringSpies(async (spies) => {
-			await withConfig({ "chatParticipant.enabled": false }, () => {
-				wireChatParticipant(fakeContext(), quietLogger().logger, { getSnapshots: () => [] });
-			});
+			const wiring = await withConfig({ "chatParticipant.enabled": false }, () =>
+				wireChatParticipant(fakeContext(), quietLogger().logger, { getSnapshots: () => [] })
+			);
 			assert.strictEqual(spies.participants.length, 0, "disabled must not create a participant");
+			// The readiness predicate follows the same lifecycle, because the quick
+			// fixes submit turns addressed to @litellm and must not do that into a
+			// name with nothing behind it.
+			assert.strictEqual(wiring.isRegistered(), false, "no participant means not ready");
 
 			await withConfig({ "chatParticipant.enabled": true }, () => {
 				spies.fireConfigChange();
 			});
 			assert.strictEqual(spies.participants.length, 1, "enabling creates one");
+			assert.strictEqual(wiring.isRegistered(), true, "a live participant reads as ready");
 
 			await withConfig({ "chatParticipant.enabled": false }, () => {
 				spies.fireConfigChange();
 			});
 			assert.strictEqual(spies.participants[0]?.disposed, true, "disabling disposes it");
+			assert.strictEqual(wiring.isRegistered(), false, "and readiness goes with it");
 
 			await withConfig({ "chatParticipant.enabled": true }, () => {
 				spies.fireConfigChange();
 			});
 			assert.strictEqual(spies.participants.length, 2, "re-enabling creates a fresh one");
 			assert.strictEqual(spies.participants[1]?.disposed, false);
+			assert.strictEqual(wiring.isRegistered(), true);
 		});
 	});
 
@@ -226,10 +233,11 @@ suite("extension/features/participant wiring", () => {
 			throw new Error("id already registered");
 		};
 		const { logger, lines } = quietLogger();
+		let wiring: ReturnType<typeof wireChatParticipant> | undefined;
 		try {
 			await withConfig({}, () => {
 				assert.doesNotThrow(() => {
-					wireChatParticipant(fakeContext(), logger, { getSnapshots: () => [] });
+					wiring = wireChatParticipant(fakeContext(), logger, { getSnapshots: () => [] });
 				});
 			});
 		} finally {
@@ -239,6 +247,10 @@ suite("extension/features/participant wiring", () => {
 			lines.some((line) => line.includes("chat participant registration failed")),
 			"the refusal is classified, not swallowed"
 		);
+		// The case the enable SETTING cannot see: it says on, and @litellm still
+		// cannot answer. A predicate that read the setting would say true here and
+		// send the quick fixes' turn nowhere.
+		assert.strictEqual(wiring?.isRegistered(), false, "a refused registration must not read as ready");
 	});
 
 	test("a repeated toggle in the same direction is a no-op, never a second participant", async () => {

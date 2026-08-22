@@ -99,9 +99,11 @@ export function prGenerationProviderTitle(): string {
  * contributes.commands on purpose - the palette shows only the manage hub.
  * openGroupsFile opens the host's provider-groups JSON directly: the one place
  * a leftover provider group can be deleted, since no editor UI for it is
- * sanctioned. The litellm._test.* harness commands are deliberately not mapped
- * here: they are test-mode-only, and their ids double as oracle strings in the
- * suites.
+ * sanctioned. quickFixChat is the command a quick-fix lightbulb runs: it takes
+ * a structured payload no user could type, so contributing it to the palette
+ * would offer an action that fails on every invocation from there. The
+ * litellm._test.* harness commands are deliberately not mapped here: they are
+ * test-mode-only, and their ids double as oracle strings in the suites.
  */
 export const INTERNAL_CMD = {
 	manageServers: "litellm.manageServers",
@@ -109,6 +111,7 @@ export const INTERNAL_CMD = {
 	openOutput: "litellm.openOutput",
 	openSettingKey: "litellm.openSettingKey",
 	openUsage: "litellm.openUsage",
+	quickFixChat: "litellm.quickFixChat",
 	toggleInlineCompletionsLanguage: "litellm.toggleInlineCompletionsLanguage",
 } as const;
 

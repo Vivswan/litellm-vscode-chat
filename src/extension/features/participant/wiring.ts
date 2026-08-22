@@ -48,6 +48,19 @@ export interface ChatParticipantWiring {
 	 *   disposes the participant, not the table.
 	 */
 	readonly slashCommands: SlashCommandRegistry;
+	/**
+	 * Whether a live participant exists RIGHT NOW - the enable setting said yes
+	 * AND the host accepted the registration. Read per use, never cached: both
+	 * halves change at runtime.
+	 *
+	 * It exists because the setting alone is not the same fact. Registration can
+	 * refuse (an id conflict, a host that says no), and that failure is
+	 * classified and left unregistered here rather than thrown, so a caller that
+	 * needs @litellm to actually answer - the quick fixes, whose lightbulb
+	 * submits a turn addressed to it - would otherwise send into a name with
+	 * nothing behind it.
+	 */
+	readonly isRegistered: () => boolean;
 }
 
 /** The participant's avatar in the chat view: the extension's own logo. */
@@ -251,5 +264,5 @@ export function wireChatParticipant(
 		})
 	);
 
-	return { slashCommands: commands };
+	return { slashCommands: commands, isRegistered: () => participant !== undefined };
 }

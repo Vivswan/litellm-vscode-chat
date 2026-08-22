@@ -14,9 +14,24 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { builtinSlashCommands } from "../../../../../extension/features/participant/slashCommands";
+import { quickFixSlashCommands } from "../../../../../extension/features/quickFixChatCommands";
 import { PARTICIPANT_ID } from "../../../../../shared/config/commandIds";
 import { CONFIG_SECTION, FEATURE_ENABLE_SETTING_KEYS } from "../../../../../shared/config/settingSpec";
 import { REPO_ROOT } from "../../../../util/repoRoot";
+
+/**
+ * Every command the participant can answer: the built-in table plus what the
+ * quick-fix feature registers through the seam at activation. The manifest is
+ * pinned against THIS list rather than the built-ins alone, because the host
+ * routes on the manifest - a seam registration the manifest does not declare
+ * is a command nothing can ever invoke, and it fails silently.
+ */
+function liveCommands(): { name: string; description: string }[] {
+	return [...builtinSlashCommands(), ...quickFixSlashCommands()].map((command) => ({
+		name: command.name,
+		description: command.description,
+	}));
+}
 
 interface Disambiguation {
 	readonly category?: string;
@@ -169,12 +184,12 @@ describe("extension/features/participant contribution", () => {
 		}
 	});
 
-	test("the contributed commands are exactly the built-in table, in the same order", () => {
+	test("the contributed commands are exactly the live table, in the same order", () => {
 		// Order too, not just the set: the manifest drives the "/" picker and the
 		// registry drives the in-chat help listing, and a user reading both
 		// should not have to reconcile two orders.
 		const contributed = (participant().commands ?? []).map((command) => command.name);
-		expect(contributed).toEqual(builtinSlashCommands().map((command) => command.name));
+		expect(contributed).toEqual(liveCommands().map((command) => command.name));
 	});
 
 	test("every contributed command carries a description and a sample request in every locale", () => {
@@ -193,9 +208,9 @@ describe("extension/features/participant contribution", () => {
 		// process exists), so the prose cannot be shared by construction - but it
 		// can be pinned equal, which is what keeps the "/" picker and the in-chat
 		// listing from describing the same command two ways.
-		const builtin = new Map(builtinSlashCommands().map((command) => [command.name, command.description]));
+		const live = new Map(liveCommands().map((command) => [command.name, command.description]));
 		for (const command of participant().commands ?? []) {
-			const registryDescription = builtin.get(command.name as string);
+			const registryDescription = live.get(command.name as string);
 			expect(
 				registryDescription,
 				`/${command.name} is contributed but the registry answers no such command`
