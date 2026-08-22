@@ -84,7 +84,13 @@ export class RequestError extends MirroredError {
 }
 
 export interface MapErrorContext {
-	surface: "chat" | "discovery";
+	/**
+	 * "completion" is the inline-completions /completions call: its errors
+	 * degrade silently in the editor, so the texts serve the log surfaces and
+	 * the dashboard's test probe, and they join discovery-style (the "\n" the
+	 * dashboard splits on).
+	 */
+	surface: "chat" | "discovery" | "completion";
 	baseUrl: string;
 	timeoutMs: number;
 }
@@ -196,6 +202,11 @@ function isUpstreamAuthFailure(error: unknown): boolean {
 
 /** The localized display string for a timed-out call; englishTimeoutMessage mirrors it for the log side. */
 export function timeoutMessage(ctx: MapErrorContext): string {
+	if (ctx.surface === "completion") {
+		// The FIM bound is fixed in code (FIM_TIMEOUT_MS), so no setting is
+		// named - advice to raise one would be a lie.
+		return l10n.t("LiteLLM inline completion request timed out after {0}ms.", ctx.timeoutMs);
+	}
 	return ctx.surface === "chat"
 		? l10n.t(
 				'LiteLLM request timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
@@ -211,6 +222,9 @@ export function timeoutMessage(ctx: MapErrorContext): string {
 
 /** English mirror of timeoutMessage: what the English-by-policy log surfaces record. */
 function englishTimeoutMessage(ctx: MapErrorContext): string {
+	if (ctx.surface === "completion") {
+		return `LiteLLM inline completion request timed out after ${ctx.timeoutMs}ms.`;
+	}
 	return ctx.surface === "chat"
 		? `LiteLLM request timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`
 		: `LiteLLM model discovery timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your server needs more time.`;
@@ -531,6 +545,21 @@ function chatHttpHeadline(cls: HttpErrorClass): LocalizedText {
 	}
 }
 
+/**
+ * The completion-surface headline: chat's vocabulary except where the chat
+ * advice would mislead a FIM call - there is no conversation to trim and no
+ * new chat to start.
+ */
+function completionHttpHeadline(cls: HttpErrorClass): LocalizedText {
+	if (cls === "context_window_exceeded") {
+		return {
+			display: l10n.t("The completion was refused: the code context around the cursor is too long for this model."),
+			english: "The completion was refused: the code context around the cursor is too long for this model.",
+		};
+	}
+	return chatHttpHeadline(cls);
+}
+
 /** The discovery-surface headline per error class: what the failure means for the model list. */
 function discoveryHttpHeadline(cls: HttpErrorClass): LocalizedText {
 	switch (cls) {
@@ -672,7 +701,7 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
  * the chat, discovery, and OAuth token-endpoint callers.
  */
 interface SocketFailureContext {
-	endpoint: "chat" | "discovery" | "oauthToken";
+	endpoint: "chat" | "discovery" | "oauthToken" | "completion";
 	/** The surface whose two-part join renders the message; the token exchange fails toward its caller's surface. */
 	surface: MapErrorContext["surface"];
 	/** The URL the advice names: the server base URL, or the OAuth token endpoint. */
@@ -800,20 +829,22 @@ function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
 			english: `Network Error: Unable to reach the OAuth token endpoint at ${url}. Please check that the URL is correct and the identity provider is reachable.`,
 		};
 	}
-	return ctx.endpoint === "chat"
+	// Discovery keeps its distinct framing of what was lost; the chat wording
+	// serves every other completion-style endpoint (the FIM path included).
+	return ctx.endpoint === "discovery"
 		? {
-				display: l10n.t(
-					"Could not reach {0}. Check your network, VPN, or proxy settings, and that the server is up.",
-					url
-				),
-				english: `Could not reach ${url}. Check your network, VPN, or proxy settings, and that the server is up.`,
-			}
-		: {
 				display: l10n.t(
 					"Could not reach {0} to list its models. Check your network, VPN, or proxy settings, and that the server is up.",
 					url
 				),
 				english: `Could not reach ${url} to list its models. Check your network, VPN, or proxy settings, and that the server is up.`,
+			}
+		: {
+				display: l10n.t(
+					"Could not reach {0}. Check your network, VPN, or proxy settings, and that the server is up.",
+					url
+				),
+				english: `Could not reach ${url}. Check your network, VPN, or proxy settings, and that the server is up.`,
 			};
 }
 
@@ -981,6 +1012,24 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			const text =
 				envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(404, err, 200);
 			const detail = text !== "" ? `LiteLLM 404${kind}: ${text}` : `LiteLLM 404${kind}`;
+			if (ctx.surface === "completion") {
+				// Sync Models cannot help here: completion-mode models never join
+				// the chat catalog, so the advice is the model setting itself.
+				const headline: LocalizedText = {
+					display: l10n.t(
+						"The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves."
+					),
+					english:
+						"The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves.",
+				};
+				const texts = twoPartTexts("completion", headline, detail);
+				return new RequestError(texts.message, "http", {
+					status: 404,
+					cause: err,
+					logClassification: "RequestError(http, status 404, completion)",
+					englishMessage: texts.englishMessage,
+				});
+			}
 			// "LiteLLM: Sync Models Now" is the palette title package.json
 			// contributes (the manageCommandTitle mirror pattern).
 			const headline: LocalizedText = {
@@ -1000,11 +1049,16 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			});
 		}
 		const cls = classifyEnvelope(envelope, err.status);
-		const headline = ctx.surface === "chat" ? chatHttpHeadline(cls) : discoveryHttpHeadline(cls);
+		const headline =
+			ctx.surface === "discovery"
+				? discoveryHttpHeadline(cls)
+				: ctx.surface === "completion"
+					? completionHttpHeadline(cls)
+					: chatHttpHeadline(cls);
 		const detail =
-			ctx.surface === "chat"
-				? chatHttpDetail(err.status, err, envelope)
-				: discoveryHttpDetail(err.status, err, envelope);
+			ctx.surface === "discovery"
+				? discoveryHttpDetail(err.status, err, envelope)
+				: chatHttpDetail(err.status, err, envelope);
 		// The classifier's own closed-set token may ride the classification
 		// (classify FROM the body, never quote it); the response text itself
 		// rides only in message/englishMessage.
@@ -1075,10 +1129,10 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		const undiciTermination = err instanceof TypeError && topMessage === "terminated";
 		if (socketSignature || undiciTermination) {
 			const chainText = chainDetail(chain, topMessage);
-			if (ctx.surface === "chat") {
+			if (ctx.surface !== "discovery") {
 				const detail = `Connection to ${displayUrl(ctx.baseUrl)} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
 				const texts = twoPartTexts(
-					"chat",
+					ctx.surface,
 					{
 						display: l10n.t(
 							"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server."

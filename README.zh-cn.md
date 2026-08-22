@@ -19,6 +19,7 @@
 - 流式传输、函数调用和思维/推理 token
 - 广泛的模型选项透传 (`response_format`、`reasoning_effort`、`seed` 等)
 - 每模型能力覆盖与声明的模型: 纠正网关报告的内容, 或注册它根本列不出的模型, 空缺由 OpenRouter 目录自动填补 ([详情](docs/zh-cn/models.md#能力))
+- 内联补全: 选择加入的幽灵文本, 由你自己代理上的补全 (FIM) 模型写出, 范围限定在你选择的语言 ([详情](docs/zh-cn/getting-started.md#用-litellm-模型获得内联补全))
 - 用于管理服务器、模型和设置的仪表板面板, 背后是普通的 VS Code 设置
 - 设置导出与导入: 把服务器、模型记录以及 (明确选择时) 存储的密钥搬到另一台机器, 并支持一条命令撤销 ([详情](docs/zh-cn/settings.md#导出与导入))
 - 支持自托管或云端部署
@@ -73,7 +74,7 @@ bun run compile
 
 ## 隐私
 
-你的提示和补全只在 VS Code 与你配置的 LiteLLM 服务器之间传输。当你调用提交消息生成时, 已暂存或工作区的差异以及未跟踪文件的名称会发送到你为它配置的 LiteLLM 服务器 - 仅在你显式调用时发送, 并计入与聊天相同的用量跟踪和预算警报。一个默认开启的例外: 扩展约每周从 `https://openrouter.ai/api/v1/models` 刷新一次内置的模型能力目录, 这是一个公开的、无需身份验证的模型列表 - 该请求不携带提示、不携带用量, 也不携带任何关于你或你的服务器的信息。把 `litellm-vscode-chat.models.openRouterCatalog` 设为 `false` 可关闭刷新和自动匹配; 显式的 `_openrouter_model` 指令继续离线工作于内置快照。详情见[模型能力](docs/zh-cn/models.md#openrouter-目录)和[隐私与数据](docs/zh-cn/troubleshooting.md#隐私与数据)。
+你的提示和补全只在 VS Code 与你配置的 LiteLLM 服务器之间传输。启用内联补全后, 光标周围的文件内容会在你输入时自动发送到你为它配置的 LiteLLM 服务器 - 与聊天是同一个信任边界, 但少了你逐次请求的动作, 这也正是该功能默认关闭并要求显式指定模型的原因。当你调用提交消息生成时, 已暂存或工作区的差异以及未跟踪文件的名称会发送到你为它配置的 LiteLLM 服务器 - 仅在你显式调用时发送, 并计入与聊天相同的用量跟踪和预算警报。一个默认开启的例外: 扩展约每周从 `https://openrouter.ai/api/v1/models` 刷新一次内置的模型能力目录, 这是一个公开的、无需身份验证的模型列表 - 该请求不携带提示、不携带用量, 也不携带任何关于你或你的服务器的信息。把 `litellm-vscode-chat.models.openRouterCatalog` 设为 `false` 可关闭刷新和自动匹配; 显式的 `_openrouter_model` 指令继续离线工作于内置快照。详情见[模型能力](docs/zh-cn/models.md#openrouter-目录)和[隐私与数据](docs/zh-cn/troubleshooting.md#隐私与数据)。
 
 ## 致谢
 

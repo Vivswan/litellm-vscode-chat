@@ -655,11 +655,11 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 		chat: {
 			tokenEstimation: normalizeTokenEstimationMode(reader.get(TOKEN_ESTIMATION_SETTING_KEY)),
 			tokenEstimationScope: resolveConfiguredScope(reader.inspect(TOKEN_ESTIMATION_SETTING_KEY)),
-			additionalToolSchemaKeywords: keywords,
-			additionalToolSchemaKeywordsLossy: normalizedListLossy(rawKeywords, keywords),
-			additionalToolSchemaKeywordsScope: resolveConfiguredScope(
-				reader.inspect(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY)
-			),
+			additionalToolSchemaKeywords: {
+				values: keywords,
+				lossy: normalizedListLossy(rawKeywords, keywords),
+				scope: resolveConfiguredScope(reader.inspect(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY)),
+			},
 		},
 		usage: {
 			statusBarMode: normalizeUsageStatusBarMode(reader.get(USAGE_STATUS_BAR_SETTING_KEY)),

@@ -4,7 +4,15 @@ import * as vscode from "vscode";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import type { OneShotChatMessage, OneShotConnection } from "../../../provider/transport/oneShotClient";
 import { OneShotClient } from "../../../provider/transport/oneShotClient";
-import { CHAT_COMPLETIONS_URL, emptyErrorResponse, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
+import {
+	CHAT_COMPLETIONS_URL,
+	COMPLETIONS_URL,
+	completionJsonResponse,
+	emptyErrorResponse,
+	mswServer,
+	TEST_BASE_URL,
+	useMsw,
+} from "../../mocks/handlers";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
 
@@ -356,6 +364,157 @@ suite("provider/transport/oneShotClient", () => {
 		await assert.rejects(pending, (err: unknown) => {
 			assert.ok(err instanceof vscode.CancellationError, `expected CancellationError, got ${String(err)}`);
 			return true;
+		});
+	});
+
+	suite("completeFim", () => {
+		test("sends exactly model/prompt/suffix/max_tokens/stream:false and returns the completion text", async () => {
+			let seenBody: Record<string, unknown> | undefined;
+			mswServer.use(
+				http.post(COMPLETIONS_URL, async ({ request }) => {
+					seenBody = (await request.json()) as Record<string, unknown>;
+					return completionJsonResponse("d(a, b) {");
+				})
+			);
+
+			const result = await client().completeFim(
+				connection(),
+				{ model: "codestral-fim", prompt: "function ad", suffix: "\n}", maxTokens: 256 },
+				callOptions()
+			);
+
+			assert.strictEqual(result, "d(a, b) {");
+			assert.ok(seenBody, "the request must carry a JSON body");
+			// The exact key set IS the zero-injection guard: no parameters record
+			// field, no temperature, nothing beyond the five provider-owned keys.
+			assert.deepStrictEqual(Object.keys(seenBody).sort(), ["max_tokens", "model", "prompt", "stream", "suffix"]);
+			assert.strictEqual(seenBody.model, "codestral-fim");
+			assert.strictEqual(seenBody.prompt, "function ad");
+			assert.strictEqual(seenBody.suffix, "\n}");
+			assert.strictEqual(seenBody.max_tokens, 256);
+			assert.strictEqual(seenBody.stream, false);
+		});
+
+		test("a template-owned prompt omits the wire suffix key entirely", async () => {
+			let seenBody: Record<string, unknown> | undefined;
+			mswServer.use(
+				http.post(COMPLETIONS_URL, async ({ request }) => {
+					seenBody = (await request.json()) as Record<string, unknown>;
+					return completionJsonResponse("filled");
+				})
+			);
+
+			await client().completeFim(
+				connection(),
+				{ model: "codestral-fim", prompt: "<fim_prefix>a<fim_suffix>b<fim_middle>", maxTokens: 256 },
+				callOptions()
+			);
+
+			assert.ok(seenBody);
+			assert.deepStrictEqual(Object.keys(seenBody).sort(), ["max_tokens", "model", "prompt", "stream"]);
+		});
+
+		test("a malformed 200 body reads as undefined, never as an error or quoted text", async () => {
+			for (const body of ["not json", JSON.stringify({ choices: [] }), JSON.stringify({ error: "secret" })]) {
+				mswServer.use(http.post(COMPLETIONS_URL, () => new HttpResponse(body, { status: 200 }), { once: true }));
+				const result = await client().completeFim(
+					connection(),
+					{ model: "codestral-fim", prompt: "p", suffix: "s", maxTokens: 256 },
+					callOptions()
+				);
+				assert.strictEqual(result, undefined);
+			}
+		});
+
+		test("the completion surface's timeout text names no setting", async () => {
+			mswServer.use(
+				http.post(COMPLETIONS_URL, async () => {
+					await new Promise((resolve) => setTimeout(resolve, 500));
+					return completionJsonResponse("late");
+				})
+			);
+
+			const error = await expectRequestError(
+				client().completeFim(
+					connection(),
+					{ model: "codestral-fim", prompt: "p", suffix: "s", maxTokens: 256 },
+					callOptions(50)
+				),
+				"timeout"
+			);
+
+			assert.match(error.message, /inline completion request timed out after 50ms/);
+			assert.ok(!error.message.includes("setting"), "the FIM bound is fixed in code; no setting to raise");
+			assert.strictEqual(error.englishMessage, error.message);
+		});
+
+		test("a 5xx maps as a classified http error and is never retried", async () => {
+			let attempts = 0;
+			mswServer.use(
+				http.post(COMPLETIONS_URL, () => {
+					attempts += 1;
+					return emptyErrorResponse(503);
+				})
+			);
+
+			const error = await expectRequestError(
+				client().completeFim(
+					connection(),
+					{ model: "codestral-fim", prompt: "p", suffix: "s", maxTokens: 256 },
+					callOptions()
+				),
+				"http"
+			);
+
+			assert.strictEqual(error.status, 503);
+			assert.strictEqual(attempts, 1, "completions never retry");
+		});
+
+		test("a 404 gets the completion surface's own advice, never the chat path's Sync Models hint", async () => {
+			mswServer.use(
+				http.post(COMPLETIONS_URL, () =>
+					HttpResponse.json({ error: { message: "model not found", type: "invalid_request_error" } }, { status: 404 })
+				)
+			);
+
+			const error = await expectRequestError(
+				client().completeFim(
+					connection(),
+					{ model: "gone-fim", prompt: "p", suffix: "s", maxTokens: 256 },
+					callOptions()
+				),
+				"http"
+			);
+
+			assert.strictEqual(error.status, 404);
+			assert.match(error.message, /text-completion model/);
+			assert.ok(!error.message.includes("Sync Models"), "Sync Models cannot discover completion-mode models");
+			assert.strictEqual(error.logClassification, "RequestError(http, status 404, completion)");
+		});
+
+		test("a context-window 400 gets the completion surface's own headline, never chat's new-chat advice", async () => {
+			mswServer.use(
+				http.post(COMPLETIONS_URL, () =>
+					HttpResponse.json(
+						{ error: { message: "maximum context length exceeded", type: "context_window_exceeded" } },
+						{ status: 400 }
+					)
+				)
+			);
+
+			const error = await expectRequestError(
+				client().completeFim(
+					connection(),
+					{ model: "codestral-fim", prompt: "p", suffix: "s", maxTokens: 256 },
+					callOptions()
+				),
+				"http"
+			);
+
+			assert.strictEqual(error.status, 400);
+			assert.match(error.message, /code context around the cursor is too long/);
+			assert.ok(!error.message.includes("new chat"), "no chat-flavored advice on a FIM call");
+			assert.strictEqual(error.englishMessage?.split("\n")[0], error.message.split("\n")[0]);
 		});
 	});
 });

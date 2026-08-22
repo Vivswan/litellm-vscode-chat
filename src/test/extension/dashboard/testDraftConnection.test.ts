@@ -7,15 +7,12 @@
  */
 import * as assert from "node:assert";
 import { http } from "msw";
-import type * as vscode from "vscode";
 import { createDraftConnectionProbe } from "../../../extension/dashboard/testDraftConnection";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 
 suite("extension/dashboard/testDraftConnection", () => {
 	useMsw();
-
-	const fakeContext = { extension: { packageJSON: { version: "0.0.0-test" } } } as unknown as vscode.ExtensionContext;
 
 	test("expected-failure flags reach fetchModels: expected endpoints probe with a single attempt", async () => {
 		let infoAttempts = 0;
@@ -30,7 +27,7 @@ suite("extension/dashboard/testDraftConnection", () => {
 				return emptyErrorResponse(500);
 			})
 		);
-		const probe = createDraftConnectionProbe(fakeContext);
+		const probe = createDraftConnectionProbe("litellm-vscode-chat/0.0.0-test VSCode/test");
 
 		await assert.rejects(
 			probe({

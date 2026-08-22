@@ -37,8 +37,8 @@ describe("fakeStack proxyConfig emission", () => {
 		return blocks;
 	}
 
-	test("both tools-negatives emit explicit false flags", () => {
-		for (const alias of ["deepseek-r2", "llama-4-scout"]) {
+	test("every tools-negative emits explicit false flags", () => {
+		for (const alias of ["deepseek-r2", "llama-4-scout", "codestral-fim"]) {
 			const [block] = infoBlocks(alias);
 			assert.ok(block, `${alias} emitted`);
 			assert.ok(block.includes("supports_function_calling: false"), `${alias} function_calling false`);
@@ -172,10 +172,18 @@ describe("fakeStack proxyConfig emission", () => {
 		]);
 	});
 
-	test("the catalog shape is pinned: exactly 8 entries across 7 aliases", () => {
+	test("the catalog shape is pinned: exactly 9 entries across 8 aliases", () => {
 		const names = config.split("\n").filter((line) => line.startsWith("  - model_name: "));
-		assert.strictEqual(names.length, 8, "one entry per deployment");
-		assert.strictEqual(new Set(names).size, 7, "seven distinct aliases (the pair repeats)");
+		assert.strictEqual(names.length, 9, "one entry per deployment");
+		assert.strictEqual(new Set(names).size, 8, "eight distinct aliases (the pair repeats)");
+	});
+
+	test("the FIM model emits mode: completion and no other model emits a mode", () => {
+		const fimBlocks = infoBlocks("codestral-fim");
+		assert.strictEqual(fimBlocks.length, 1, "one deployment");
+		assert.ok(fimBlocks[0]?.includes("mode: completion"), "the FIM model declares itself a text-completion model");
+		const modeLines = config.split("\n").filter((line) => line.trim().startsWith("mode: "));
+		assert.deepStrictEqual(modeLines, ["      mode: completion"], "exactly one mode line in the whole config");
 	});
 
 	test("costLiteral throws outside its plain-decimal window", () => {

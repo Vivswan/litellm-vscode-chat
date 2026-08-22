@@ -200,6 +200,14 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	refreshUsage: z.null(),
 	saveServerSetting: serverDraftPayloadSchema,
 	testServerDraft: serverDraftPayloadSchema,
+	// The probe tests exactly one picked pair, bounded like setFeatureModel's
+	// non-null arm; the pair's existence is judged extension-side.
+	testFimCompletion: z.strictObject({
+		model: z.strictObject({
+			server: z.string().min(1).max(WIRE_LIMITS.label),
+			model: z.string().min(1).max(WIRE_LIMITS.modelId),
+		}),
+	}),
 	removeServerSetting: z.strictObject({ label: labelSchema }),
 	// Two closed vocabularies: an entry label and a category token; the
 	// entry-existence check lives in executeDashboardIntent.
@@ -274,6 +282,7 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	refreshUsage: requestSchema("refreshUsage"),
 	saveServerSetting: requestSchema("saveServerSetting"),
 	testServerDraft: requestSchema("testServerDraft"),
+	testFimCompletion: requestSchema("testFimCompletion"),
 	removeServerSetting: requestSchema("removeServerSetting"),
 	declareExpectedFailure: requestSchema("declareExpectedFailure"),
 	adoptServer: requestSchema("adoptServer"),

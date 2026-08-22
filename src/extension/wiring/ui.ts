@@ -158,6 +158,8 @@ export function wireUiCommands(
 		issueReporter: IssueReporter;
 		extVersion: string;
 		vscodeVersion: string;
+		/** The one User-Agent activation composes; every transport client receives this instance. */
+		ua: string;
 	}
 ): void {
 	// The hub's server entry routes by the UI mode (see getManagementUiMode).
@@ -191,11 +193,8 @@ export function wireUiCommands(
 
 	// Commit message generation: ONE one-shot client for the extension's
 	// lifetime, so OAuth tokens cache across invocations and invalidate on 401
-	// like the chat and usage paths. The User-Agent mirrors the one activation
-	// composes for the provider (activation does not export it).
-	const oneShot = new OneShotClient({
-		userAgent: `litellm-vscode-chat/${deps.extVersion} VSCode/${deps.vscodeVersion}`,
-	});
+	// like the chat and usage paths.
+	const oneShot = new OneShotClient({ userAgent: deps.ua });
 	registerGenerateCommitMessageCommand(context, oneShot, {
 		secrets: context.secrets,
 		logger,

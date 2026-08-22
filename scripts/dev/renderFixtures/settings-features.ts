@@ -34,8 +34,10 @@ const fixture: RenderFixture = {
 					featureModels: {
 						// Served by the base state's prod snapshot: the picker's quiet state.
 						inlineCompletions: { server: "prod", model: "gpt-5-mini" },
-						// No served model backs this pair: the dangling warning stands.
-						commitGeneration: { server: "prod", model: "retired-model" },
+						// No DECLARED SERVER carries this label: the dangling warning
+						// stands (a missing model alone stays quiet - FIM models never
+						// list in the chat catalog).
+						commitGeneration: { server: "removed-server", model: "claude-4" },
 					},
 					featureModelScopes: { inlineCompletions: "global", commitGeneration: "global" },
 					commitPrompt: "Write a Conventional Commits subject under 60 characters.",

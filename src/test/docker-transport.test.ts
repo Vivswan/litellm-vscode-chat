@@ -1,5 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { FIM_MAX_TOKENS, FIM_TIMEOUT_MS } from "../provider/transport/fim";
+import { OneShotClient } from "../provider/transport/oneShotClient";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
@@ -583,6 +585,46 @@ function bufferSecrecySuite(): void {
 	});
 }
 
+/**
+ * The FIM path end to end: one non-streaming completeFim through the real
+ * LiteLLM proxy to the fake backend's /v1/completions arm. The backend's
+ * reply is a pure function of the prompt, so the assertion derives the
+ * expected text from the request alone; the observation route then proves
+ * what actually reached the wire behind the proxy.
+ */
+function fimCompletionSuite(): void {
+	suite("Docker FIM completion (proxy end to end)", () => {
+		test("completeFim reaches the completion-mode model through the proxy and nothing extra rides the body", async function () {
+			this.timeout(30000);
+			const client = new OneShotClient({ userAgent: "litellm-vscode-chat-docker-test" });
+			const prompt = "function add(a, b) {\n\treturn ";
+			const suffix = ";\n}\n";
+			const text = await client.completeFim(
+				{ baseUrl: BASE_URL, apiKey: API_KEY, headers: {} },
+				{ model: "codestral-fim", prompt, suffix, maxTokens: FIM_MAX_TOKENS },
+				{ timeoutMs: FIM_TIMEOUT_MS, token: new vscode.CancellationTokenSource().token }
+			);
+			// The fake backend's deterministic echo: fim(<last 24 of prompt>|<first 12 of suffix>).
+			assert.strictEqual(text, `fim(${prompt.slice(-24)}|${suffix.slice(0, 12)})`);
+
+			const observedResponse = await fetch(`${FAKE_URL}/_test/last-completion-request`);
+			assert.ok(observedResponse.ok, `last-completion-request answered ${observedResponse.status}`);
+			const observed = (await observedResponse.json()) as Record<string, unknown>;
+			assert.strictEqual(observed.model, "fake-fim", "LiteLLM resolves the alias to its upstream id");
+			assert.strictEqual(observed.prompt, prompt, "the prompt crosses the proxy unchanged");
+			assert.strictEqual(observed.suffix, suffix, "the suffix crosses the proxy unchanged");
+			assert.strictEqual(observed.max_tokens, FIM_MAX_TOKENS);
+			assert.strictEqual(observed.stream, false, "FIM requests are non-streaming by contract");
+			// The pass-through contract's negative half: nothing this extension
+			// never sends may appear (a proxy-added bookkeeping field would carry
+			// a litellm marker, not a bare OpenAI parameter name).
+			for (const key of ["temperature", "top_p", "_fim_template"]) {
+				assert.ok(!(key in observed), `unexpected ${key} reached the backend`);
+			}
+		});
+	});
+}
+
 if (!BASE_URL) {
 	suite("Docker LiteLLM transport failures", () => {
 		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
@@ -594,5 +636,6 @@ if (!BASE_URL) {
 	errorMappingSuite("Docker error mapping and timeouts (proxy)", false);
 	errorMappingSuite("Docker error mapping and timeouts (direct)", true);
 	wrongMasterKeySuite();
+	fimCompletionSuite();
 	bufferSecrecySuite();
 }

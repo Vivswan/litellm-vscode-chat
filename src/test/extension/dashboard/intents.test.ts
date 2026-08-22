@@ -7,12 +7,14 @@ import type { AdoptableGroupCredentials } from "../../../extension/dashboard/ado
 import type { IntentAckNotice } from "../../../extension/dashboard/intents";
 import {
 	DashboardOperationError,
+	DashboardValidationError,
 	executeDashboardIntent,
 	readInlineSecretValues,
 } from "../../../extension/dashboard/intents";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { acceptedEntry, parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import { stripEntrySecrets } from "../../../extension/settingsTransfer/secretSurgery";
+import { RequestError } from "../../../provider/transport/errorMapping";
 import { isRecord } from "../../../shared/util/json";
 import {
 	displayedReplace,
@@ -1647,6 +1649,50 @@ suite("extension/dashboard/intents", () => {
 				recorded.env
 			);
 			assert.strictEqual(recorded.probes[1]?.label, undefined);
+		});
+
+		test("testFimCompletion probes the picked pair and answers with counts, never completion text", async () => {
+			const recorded = makeEnv([]);
+			recorded.fimProbeResult = "return a + b;";
+			const notice = await executeDashboardIntent(
+				{ method: "testFimCompletion", payload: { model: { server: "Main", model: "codestral-fim" } } },
+				recorded.env
+			);
+			assert.deepStrictEqual(recorded.fimProbes, [{ server: "Main", model: "codestral-fim" }]);
+			assert.strictEqual(notice, "Completion received - 13 characters");
+		});
+
+		test("an empty or missing completion answers with the FIM-model hint at warning tone", async () => {
+			for (const result of [undefined, ""]) {
+				const recorded = makeEnv([]);
+				recorded.fimProbeResult = result;
+				const notice = await executeDashboardIntent(
+					{ method: "testFimCompletion", payload: { model: { server: "Main", model: "gpt-5.2" } } },
+					recorded.env
+				);
+				assert.ok(typeof notice === "object" && notice !== null);
+				assert.strictEqual(notice.tone, "warning");
+				assert.match(notice.message, /text-completion \(FIM\) model/);
+			}
+		});
+
+		test("a classified probe failure surfaces as a validation failure carrying the classification", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeError = new RequestError("LiteLLM inline completion request timed out after 15000ms.", "timeout", {
+				englishMessage: "LiteLLM inline completion request timed out after 15000ms.",
+			});
+			await assert.rejects(
+				executeDashboardIntent(
+					{ method: "testFimCompletion", payload: { model: { server: "Main", model: "codestral-fim" } } },
+					recorded.env
+				),
+				(error: unknown) => {
+					assert.ok(error instanceof DashboardValidationError);
+					assert.match(error.message, /timed out after 15000ms/);
+					assert.strictEqual(error.classification?.kind, "timeout");
+					return true;
+				}
+			);
 		});
 	});
 

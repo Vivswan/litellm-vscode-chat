@@ -1285,9 +1285,7 @@ test("a stored keyword list round-trips into the box, and an unchanged blur post
 		chat: {
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
-			additionalToolSchemaKeywords: ["propertyNames", "patternProperties"],
-			additionalToolSchemaKeywordsLossy: false,
-			additionalToolSchemaKeywordsScope: "global",
+			additionalToolSchemaKeywords: { values: ["propertyNames", "patternProperties"], lossy: false, scope: "global" },
 		},
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
@@ -1333,9 +1331,7 @@ test("a lossy stored list (entries normalization dropped) renders read-only even
 		chat: {
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
-			additionalToolSchemaKeywords: ["propertyNames"],
-			additionalToolSchemaKeywordsLossy: true,
-			additionalToolSchemaKeywordsScope: "global",
+			additionalToolSchemaKeywords: { values: ["propertyNames"], lossy: true, scope: "global" },
 		},
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
@@ -1351,9 +1347,7 @@ test("a stored keyword the comma box cannot round-trip renders read-only with th
 		chat: {
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
-			additionalToolSchemaKeywords: ["a,b"],
-			additionalToolSchemaKeywordsLossy: false,
-			additionalToolSchemaKeywordsScope: "global",
+			additionalToolSchemaKeywords: { values: ["a,b"], lossy: false, scope: "global" },
 		},
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} />);

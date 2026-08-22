@@ -4,7 +4,11 @@
  */
 
 import { isGroupClientId } from "../../provider/catalog/groupModels";
-import { getFeatureModelRef, isCommitGenerationEnabled } from "../../shared/config/settings";
+import {
+	getFeatureModelRef,
+	isCommitGenerationEnabled,
+	isInlineCompletionsEnabled,
+} from "../../shared/config/settings";
 import type { ServerStatus } from "../../shared/servers";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DiagnosticsSnapshot, IssueReporter } from "./issueReporter";
@@ -63,10 +67,12 @@ export async function buildDiagnosticsSnapshot(
 		modelCount: statusTotalModels(connectionStatus),
 		apiKeyConfigured: hasApiKey,
 		baseUrlConfigured: hasBaseUrl,
-		// Feature flags only: whether commit generation is on and whether a
-		// model ref is set - never which model or label.
+		// Feature flags only: whether each feature is on and whether a model
+		// ref is set - never which model or label.
 		commitGenerationEnabled: isCommitGenerationEnabled(),
 		commitGenerationModelConfigured: getFeatureModelRef("commitGeneration") !== undefined,
+		inlineCompletionsEnabled: isInlineCompletionsEnabled(),
+		inlineCompletionsModelConfigured: getFeatureModelRef("inlineCompletions") !== undefined,
 		latestError: issueReporter.getLatestError(),
 		recentLogs: issueReporter.getRecentLogs(),
 	};

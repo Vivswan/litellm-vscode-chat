@@ -193,6 +193,73 @@ describe("shared/config parameterResolution resolveModelParameters", () => {
 		assert.deepStrictEqual(resolved.diagnostics, []);
 	});
 
+	test("_fim_template rides the layer winners: entry beats global, and it never enters params", () => {
+		const resolved = resolveModelParameters({
+			rawModelId: "codestral-fim",
+			globalParameters: { "*": { _fim_template: "<g>{prefix}{suffix}", temperature: 1 } },
+			entryParameters: { "codestral-*": { _fim_template: "<e>{prefix}{suffix}" } },
+		});
+		assert.strictEqual(resolved.fimTemplate, "<e>{prefix}{suffix}");
+		// A directive is never a field: the wire merge carries no underscore key.
+		assert.deepStrictEqual(Object.keys(resolved.params), ["temperature"]);
+
+		// The global winner's template serves when the entry's winner carries none.
+		const globalOnly = resolveModelParameters({
+			rawModelId: "codestral-fim",
+			globalParameters: { "*": { _fim_template: "<g>{prefix}{suffix}" } },
+			entryParameters: { "codestral-*": { top_p: 1 } },
+		});
+		assert.strictEqual(globalOnly.fimTemplate, "<g>{prefix}{suffix}");
+	});
+
+	test("_fim_template is never inherited: a broader record's template does not reach a more specific winner", () => {
+		const resolved = resolveModelParameters({
+			rawModelId: "codestral-fim",
+			globalParameters: {
+				"*": { _fim_template: "<broad>{prefix}{suffix}", temperature: 1, _inheritable: true },
+				"codestral-*": { top_p: 1, _inherit_from: true },
+			},
+		});
+		// The fields flowed; the directive stayed with its writer, which lost.
+		assert.deepStrictEqual(resolved.params, { temperature: 1, top_p: 1 });
+		assert.strictEqual(resolved.fimTemplate, undefined);
+	});
+
+	test("an invalid _fim_template reads absent and carries the invalid-directive diagnostic", () => {
+		for (const junk of [42, true, "{prefix} only", "{suffix} only", ""]) {
+			const resolved = resolveModelParameters({
+				rawModelId: "m1",
+				globalParameters: { m1: { _fim_template: junk } },
+			});
+			assert.strictEqual(resolved.fimTemplate, undefined);
+			assert.ok(
+				resolved.diagnostics.some((d) => d.kind === "invalid-directive" && d.key === "_fim_template"),
+				`junk ${String(junk)} must diagnose`
+			);
+		}
+	});
+
+	test("an invalid ENTRY _fim_template suppresses the global one: invalid means native, never reach-past", () => {
+		const suppressed = resolveModelParameters({
+			rawModelId: "codestral-fim",
+			globalParameters: { "*": { _fim_template: "<g>{prefix}{suffix}" } },
+			entryParameters: { "codestral-*": { _fim_template: "{prefix} only" } },
+		});
+		assert.strictEqual(
+			suppressed.fimTemplate,
+			undefined,
+			"the typo falls back to the native body, not the global template"
+		);
+		assert.ok(suppressed.diagnostics.some((d) => d.layer === "entry" && d.kind === "invalid-directive"));
+		// An entry SILENT on the directive still lets the global one through.
+		const silent = resolveModelParameters({
+			rawModelId: "codestral-fim",
+			globalParameters: { "*": { _fim_template: "<g>{prefix}{suffix}" } },
+			entryParameters: { "codestral-*": { top_p: 1 } },
+		});
+		assert.strictEqual(silent.fimTemplate, "<g>{prefix}{suffix}");
+	});
+
 	test("diagnostics carry their layer; both layers' matching chains report", () => {
 		const resolved = resolveModelParameters({
 			rawModelId: "m1",

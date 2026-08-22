@@ -4,15 +4,17 @@ import { isRecord } from "../../shared/util/json";
 import type { OAuthConfig, VirtualKeyConfig } from "./auth";
 import { OAuthTokenSource } from "./auth";
 import { applyAuthOverlay, invalidateRejectedOAuthToken, plainFetchBaseHeaders, setOwnedHeader } from "./authOverlay";
-import { chatCompletionsUrl } from "./clients";
+import { chatCompletionsUrl, completionsUrl } from "./clients";
 import { type MapErrorContext, mapSdkError, timeoutRequestError } from "./errorMapping";
+import { parseCompletionText } from "./fim";
 
 /**
- * The one-shot chat transport: a single non-streaming POST /chat/completions
- * whose whole reply is one string. Serves the background features (commit
- * message generation) that need an answer, not a stream, so it stays a plain
- * fetch on the spend-client pattern - no SDK client cache, no retries (chat
- * completions never retry), and the shared auth overlay for its headers.
+ * The one-shot transport: single non-streaming POSTs whose whole reply is one
+ * string - /chat/completions for the background chat features (commit message
+ * generation) and /completions for inline completions (FIM). Both need an
+ * answer, not a stream, so this stays a plain fetch on the spend-client
+ * pattern - no SDK client cache, no retries (completions never retry), and
+ * the shared auth overlay for its headers.
  *
  * Error ownership follows the transport-module convention: construct specific
  * errors through the existing chat-surface constructors and throw WITHOUT
@@ -36,6 +38,22 @@ export interface OneShotChatRequest {
 	readonly model: string;
 	readonly messages: readonly OneShotChatMessage[];
 	readonly maxTokens?: number | undefined;
+}
+
+/**
+ * The request fields a FIM call sends, and nothing else: the body is exactly
+ * model/prompt/suffix/max_tokens/stream:false, with `suffix` omitted when a
+ * `_fim_template` already placed it inside the prompt. models.parameters
+ * records deliberately do NOT apply to /completions - the template directive
+ * is the one documented exception, and it is applied by the caller through
+ * buildFimPrompt, never sent.
+ */
+export interface FimCompletionRequest {
+	readonly model: string;
+	readonly prompt: string;
+	/** Absent exactly when the template owns the whole prompt. */
+	readonly suffix?: string | undefined;
+	readonly maxTokens: number;
 }
 
 /**
@@ -111,7 +129,50 @@ export class OneShotClient {
 			stream: false,
 			...(request.maxTokens !== undefined ? { max_tokens: request.maxTokens } : {}),
 		});
+		return oneShotContentOf(await this.postJson(url, body, connection, "chat", opts));
+	}
 
+	/**
+	 * POST one non-streaming /completions (FIM) request and return its
+	 * completion text; undefined when the 200 body carried none (malformed or
+	 * choiceless - the caller treats it as "no suggestion", never an error).
+	 */
+	async completeFim(
+		connection: OneShotConnection,
+		request: FimCompletionRequest,
+		opts: OneShotCallOptions
+	): Promise<string | undefined> {
+		const url = completionsUrl(connection.baseUrl, connection.apiVersion);
+		const body = JSON.stringify({
+			model: request.model,
+			prompt: request.prompt,
+			...(request.suffix !== undefined ? { suffix: request.suffix } : {}),
+			max_tokens: request.maxTokens,
+			stream: false,
+		});
+		const payload = await this.postJson(url, body, connection, "completion", opts);
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(payload);
+		} catch {
+			return undefined;
+		}
+		return parseCompletionText(parsed);
+	}
+
+	/**
+	 * The shared HTTP core of both one-shot calls: header composition through
+	 * the shared overlay, the whole-call timeout, and the one error pipeline
+	 * (mapSdkError via the SDK's own error factory). Returns the raw 200 body;
+	 * each caller owns its lenient parse.
+	 */
+	private async postJson(
+		url: string,
+		body: string,
+		connection: OneShotConnection,
+		surface: MapErrorContext["surface"],
+		opts: OneShotCallOptions
+	): Promise<string> {
 		// User cancellation must abort the in-flight request, not just abandon
 		// the await, so the token is bridged onto an AbortController combined
 		// with the whole-call timeout (the chatClient.send pattern).
@@ -119,7 +180,7 @@ export class OneShotClient {
 		const cancelListener = opts.token.onCancellationRequested(() => cancelController.abort());
 		const timeoutSignal = AbortSignal.timeout(opts.timeoutMs);
 		const requestSignal = AbortSignal.any([cancelController.signal, timeoutSignal]);
-		const errorContext: MapErrorContext = { surface: "chat", baseUrl: connection.baseUrl, timeoutMs: opts.timeoutMs };
+		const errorContext: MapErrorContext = { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeoutMs };
 		let sentOAuthToken: string | undefined;
 
 		try {
@@ -131,7 +192,7 @@ export class OneShotClient {
 			setOwnedHeader(headers, "Content-Type", "application/json");
 			sentOAuthToken = await applyAuthOverlay(headers, connection, {
 				tokens: this.oauthTokens,
-				surface: "chat",
+				surface,
 				timeoutMs: opts.timeoutMs,
 				signal: requestSignal,
 			});
@@ -167,7 +228,7 @@ export class OneShotClient {
 				const recoveredText = envelope === undefined && payload !== "" ? payload : undefined;
 				throw APIError.generate(response.status, envelope, recoveredText, response.headers);
 			}
-			return oneShotContentOf(payload);
+			return payload;
 		} catch (err) {
 			if (opts.token.isCancellationRequested) {
 				throw new vscode.CancellationError();

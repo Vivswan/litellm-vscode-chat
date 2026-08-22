@@ -39,6 +39,8 @@ suite("extension/ui/diagnostics", () => {
 			assert.strictEqual(snapshot.baseUrlConfigured, false);
 			assert.strictEqual(snapshot.commitGenerationEnabled, false, "the opt-in defaults off");
 			assert.strictEqual(snapshot.commitGenerationModelConfigured, false, "no model ref is set by default");
+			assert.strictEqual(snapshot.inlineCompletionsEnabled, false, "the inline opt-in defaults off");
+			assert.strictEqual(snapshot.inlineCompletionsModelConfigured, false, "no inline model ref is set by default");
 			assert.strictEqual(expectDefined(snapshot.latestError).source, "discovery");
 			assert.strictEqual(expectDefined(snapshot.latestError).message, "fetch exploded");
 			assert.deepStrictEqual(snapshot.recentLogs, ["first log line", "second log line"]);

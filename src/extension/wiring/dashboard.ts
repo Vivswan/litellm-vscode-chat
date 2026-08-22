@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { LiteLLMChatModelProvider } from "../../provider";
 import { INTERNAL_CMD } from "../../shared/config/commandIds";
-import type { NumberSettingId } from "../../shared/config/settingSpec";
+import type { FeatureModelRef, NumberSettingId } from "../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
 	CURRENCY_SYMBOL_SETTING_KEY,
@@ -45,6 +45,10 @@ export function wireDashboard(
 		groupRemovals: GroupRemovalStore;
 		catalogStore: OpenRouterCatalogStore;
 		usagePoller: UsagePoller;
+		/** The one User-Agent activation composes, for the panel's draft probe. */
+		ua: string;
+		/** The inline-completions probe (the feature wiring's shared send over a sample context). */
+		probeFimCompletion: (model: FeatureModelRef) => Promise<string | undefined>;
 	}
 ): DashboardController {
 	const dashboard = registerDashboardCommand(
@@ -56,7 +60,9 @@ export function wireDashboard(
 		deps.groupRemovals,
 		deps.catalogStore,
 		deps.usagePoller,
-		readEntryModelCapabilities
+		readEntryModelCapabilities,
+		deps.ua,
+		deps.probeFimCompletion
 	);
 	context.subscriptions.push(deps.syncEngine.onDidSync(() => dashboard.refresh()));
 	return dashboard;

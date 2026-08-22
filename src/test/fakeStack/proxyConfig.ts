@@ -138,6 +138,9 @@ function consolidatedInfoLines(model: FakeModel, deployment: FakeModel["deployme
 			lines.push(`      ${wireKey}: ${costLiteral(value)}`);
 		}
 	}
+	if (model.mode !== undefined) {
+		lines.push(`      mode: ${model.mode}`);
+	}
 	if (model.blocked) {
 		lines.push("      blocked: true");
 	}

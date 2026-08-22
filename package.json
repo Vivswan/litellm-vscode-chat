@@ -279,6 +279,17 @@
 						"completionEvents": [
 							"onCommand:litellm.generateCommitMessage"
 						]
+					},
+					{
+						"id": "litellm.walkthrough.inlineCompletions",
+						"title": "%litellm.walkthrough.inlineCompletions.title%",
+						"description": "%litellm.walkthrough.inlineCompletions.description%",
+						"media": {
+							"markdown": "assets/walkthrough/inline-completions.md"
+						},
+						"completionEvents": [
+							"onSettingChanged:litellm-vscode-chat.inlineCompletions.enabled"
+						]
 					}
 				]
 			}

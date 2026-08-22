@@ -7,6 +7,7 @@ export const TEST_BASE_URL = "http://litellm.test";
 export const MODEL_INFO_URL = `${TEST_BASE_URL}/v1/model/info`;
 export const MODELS_URL = `${TEST_BASE_URL}/v1/models`;
 export const CHAT_COMPLETIONS_URL = `${TEST_BASE_URL}/v1/chat/completions`;
+export const COMPLETIONS_URL = `${TEST_BASE_URL}/v1/completions`;
 
 /**
  * The shared msw server for all unit suites. Suites opt in with useMsw() and
@@ -87,4 +88,9 @@ export function sseResponse(...events: string[]): Response {
 export function sseTextResponse(text: string): Response {
 	const chunk = JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: "stop" }] });
 	return sseResponse(`data: ${chunk}\n\n`, "data: [DONE]\n\n");
+}
+
+/** A non-streaming /completions body carrying one choice's text (the FIM response shape). */
+export function completionJsonResponse(text: string): Response {
+	return HttpResponse.json({ choices: [{ index: 0, text, finish_reason: "stop" }] });
 }

@@ -48,6 +48,8 @@
 	"litellm.walkthrough.fineTune.description": "超时、模型列表缓存、提示缓存、自定义标头和每模型请求参数都在扩展设置中。\n[打开设置](command:workbench.action.openSettings?%5B%22@ext:vivswan.litellm-vscode-chat%22%5D)",
 	"litellm.walkthrough.generateCommit.title": "生成提交消息",
 	"litellm.walkthrough.generateCommit.description": "启用提交消息生成并选择起草它的模型; 之后源代码管理标题栏会出现一个闪光按钮, 该命令会根据你已暂存的更改起草消息并填入提交框。\n[打开设置](command:workbench.action.openSettings?%5B%22litellm-vscode-chat.commitGeneration%22%5D)",
+	"litellm.walkthrough.inlineCompletions.title": "获得内联补全",
+	"litellm.walkthrough.inlineCompletions.description": "启用内联补全并选择一个补全 (FIM) 模型; 之后建议会在你输入时以幽灵文本出现, 范围是你允许的语言。\n[打开设置](command:workbench.action.openSettings?%5B%22litellm-vscode-chat.inlineCompletions%22%5D)",
 	"litellm.config.section.servers": "服务器",
 	"litellm.config.section.models": "模型",
 	"litellm.config.section.chat": "聊天",

@@ -214,6 +214,7 @@ function makeHarness(): Harness {
 				? Promise.resolve<readonly string[]>([])
 				: harness.probeGate.then<readonly string[]>(() => []);
 		},
+		probeFimCompletion: async () => undefined,
 		executeCommand: async (command, ...args) => {
 			commands.push([command, ...args]);
 		},

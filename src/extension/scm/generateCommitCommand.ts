@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { statusErrorTexts } from "../../provider/transport/errorMapping";
 import type { OneShotClient } from "../../provider/transport/oneShotClient";
 import type { BooleanSettingId } from "../../shared/config/settingSpec";
-import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
+import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../shared/config/settingSpec";
 import {
 	getCommitGenerationPrompt,
 	getFeatureModelRef,
@@ -12,9 +12,7 @@ import {
 } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
 import { localizedError } from "../../shared/mirroredError";
-import { readServerSecrets } from "../servers/serverSync/secrets";
-import { acceptedEntry } from "../servers/serverSync/setting";
-import { usageConnectionFor } from "../servers/usage/spendClient";
+import { entryConnectionFor } from "../servers/entryConnection";
 import { commandErrorActions, openSettingsAction, showActionableMessage } from "../ui/notifier";
 import type { CommitModelRef } from "./commitMessage";
 import { generateCommitMessage } from "./commitMessage";
@@ -85,8 +83,8 @@ async function pickRepository(git: API, commandArg: unknown): Promise<Repository
 
 /**
  * Resolve the configured server label to its declared entry's connection and
- * send the prompt as one non-streaming request. Secrets resolve like the
- * usage path: inline settings values outrank the label's SecretStorage blob.
+ * send the prompt as one non-streaming request. Connection resolution is the
+ * shared entryConnectionFor; only the no-such-label advice is this command's.
  */
 async function sendCommitPrompt(
 	oneShot: OneShotClient,
@@ -96,9 +94,8 @@ async function sendCommitPrompt(
 	token: vscode.CancellationToken,
 	log: (message: string, data?: unknown) => void
 ): Promise<string> {
-	const raw = vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
-	const found = acceptedEntry(raw, ref.server);
-	if (found === undefined) {
+	const resolved = await entryConnectionFor(secrets, ref.server);
+	if (resolved === undefined) {
 		throw localizedError(
 			l10n.t(
 				'The commit model setting names server "{0}", but no servers entry carries that label. Update the "{1}" setting.',
@@ -109,10 +106,8 @@ async function sendCommitPrompt(
 			"CommitGeneration(configured server label matches no entry)"
 		);
 	}
-	const stored = await readServerSecrets(secrets, ref.server);
-	const connection = usageConnectionFor(found.entry, stored);
 	return oneShot.completeChatOnce(
-		connection,
+		resolved.connection,
 		{ model: ref.model, messages: [{ role: "user", content: prompt }] },
 		{ timeoutMs: getRequestTimeout(log), token }
 	);

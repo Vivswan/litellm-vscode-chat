@@ -162,6 +162,12 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	}),
 	saveServerSetting: serverDraftPayload,
 	testServerDraft: serverDraftPayload,
+	testFimCompletion: fc.record({
+		model: fc.record({
+			server: fc.string({ minLength: 1, maxLength: 64 }),
+			model: fc.string({ minLength: 1, maxLength: 128 }),
+		}),
+	}),
 	removeServerSetting: fc.record({ label: fc.string() }),
 	declareExpectedFailure: fc.record({
 		label: fc.string(),

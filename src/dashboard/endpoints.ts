@@ -236,6 +236,12 @@ export const DASHBOARD_ENDPOINTS = {
 	 * queued behind an abandoned probe would stall.
 	 */
 	testServerDraft: { outcome: "acked", channel: "concurrent" },
+	/**
+	 * One read-only FIM probe of a picked (server, model) pair. Concurrent for
+	 * the same reason as testServerDraft: it blocks on the network for up to
+	 * the fixed FIM timeout and writes nothing.
+	 */
+	testFimCompletion: { outcome: "acked", channel: "concurrent" },
 	removeServerSetting: { outcome: "acked", channel: "chained" },
 	/** Adopt an external provider group into the servers setting; credentials resolve extension-side only. */
 	adoptServer: { outcome: "acked", channel: "chained" },
@@ -336,6 +342,13 @@ interface DashboardEndpointIO {
 			readonly replace?: ReplacedEntryIdentity | undefined;
 		};
 	};
+	/**
+	 * Test one (server, model) pair against /completions with the exact FIM
+	 * pipeline ghost text runs: same send, same fixed bounds, same template
+	 * application. Read-only, and the success notice is composed
+	 * extension-side from counts only - never from response text.
+	 */
+	testFimCompletion: { request: { readonly model: FeatureModelRef } };
 	removeServerSetting: { request: { readonly label: string } };
 	/**
 	 * Append `category` to the declared entry `label` names. The whole payload

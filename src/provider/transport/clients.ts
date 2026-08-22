@@ -35,6 +35,7 @@ const KEYLESS_PLACEHOLDER = "keyless";
 export const MODEL_INFO_PATH = "/model/info";
 export const MODELS_PATH = "/models";
 export const CHAT_COMPLETIONS_PATH = "/chat/completions";
+export const COMPLETIONS_PATH = "/completions";
 
 /** The absolute model-discovery endpoint, for logs; requests go through MODEL_INFO_PATH on the client. */
 export function modelInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
@@ -49,6 +50,11 @@ export function modelsUrl(baseUrl: string, apiVersion: string | undefined): stri
 /** The absolute chat endpoint, for logs; requests go through CHAT_COMPLETIONS_PATH on the client. */
 export function chatCompletionsUrl(baseUrl: string, apiVersion: string | undefined): string {
 	return `${apiRootOf(baseUrl, apiVersion)}${CHAT_COMPLETIONS_PATH}`;
+}
+
+/** The absolute text-completions (FIM) endpoint; the one route inline completions call. */
+export function completionsUrl(baseUrl: string, apiVersion: string | undefined): string {
+	return `${apiRootOf(baseUrl, apiVersion)}${COMPLETIONS_PATH}`;
 }
 
 /** Non-secret change detector for a server's client-relevant config; never embeds the API key itself. */

@@ -14,7 +14,6 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import * as vscode from "vscode";
 import type { RequestPayload } from "../../dashboard/endpoints";
 import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery";
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
@@ -249,12 +248,8 @@ const DRAFT_PROBE_SERVER_ID = "dashboard-draft-probe";
  * classification once instead.
  */
 export function createDraftConnectionProbe(
-	context: vscode.ExtensionContext
+	userAgent: string
 ): (connection: DraftConnection) => Promise<readonly string[]> {
-	// The same User-Agent activation composes for the provider; recomputed here
-	// because activation does not export it.
-	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";
-	const userAgent = `litellm-vscode-chat/${extVersion} VSCode/${vscode.version}`;
 	return async (connection) => {
 		const client = new ChatClient({
 			userAgent,

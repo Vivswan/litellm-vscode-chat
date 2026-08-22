@@ -102,6 +102,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `"_openrouter_model": "vendor/id"` | `models.capabilities` | 从 OpenRouter 目录拉取点名模型的能力数据 - 只有能力, 从不包括定价。由此得到的字段排在服务器报告之上 (这条指令的含义是: 对这个模型, 服务器的数据不可信), 但排在同记录中你显式写下的字段之下。离线也能用内置快照工作。完整故事: [模型 - 能力](models.md#能力) |
 | `"_inheritable": true \| ["field", ...]` | 两种记录 | 把全部/列出的字段标记为可被匹配得更具体、且未另行声明的模型继承。完整故事: [模型 - 匹配](models.md#哪条记录生效) |
 | `"_inherit_from": true \| false \| ["key", ...]` | 两种记录 | 本记录继承什么: 到达它的一切、什么都不继承 (`false` - 也是屏障: 任何东西都流不过一条什么都不继承的记录), 或恰好点名的记录 (绕过屏障)。完整故事: [模型 - 匹配](models.md#哪条记录生效) |
+| `"_fim_template": "...{prefix}...{suffix}..."` | `models.parameters` | 在没有原生中间填充处理的后端上, [内联补全](getting-started.md#用-litellm-模型获得内联补全)使用的 FIM 提示: `{prefix}` 和 `{suffix}` 会被替换为光标周围的文本, 请求只携带构建好的 prompt, 不再有单独的 `suffix` 字段。缺少任一占位符的值会被忽略, 改用原生的 prompt 加 suffix 请求体。它只塑造内联补全, 也是唯一能到达内联补全的 `models.parameters` 字段 - 聊天会忽略它 |
 
 ```jsonc
 "litellm-vscode-chat.models.capabilities": {

@@ -37,6 +37,7 @@ import type { CapabilityCatalogLookup } from "../../shared/config/capabilityReso
 import { CMD } from "../../shared/config/commandIds";
 import { searchCatalogModels } from "../../shared/config/openRouterCatalog";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
+import type { FeatureModelRef } from "../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
 	getDiscoveryTimeout,
@@ -617,6 +618,7 @@ export class DashboardController implements vscode.Disposable {
 		refreshUsage: (payload) => executeDashboardIntent({ method: "refreshUsage", payload }, this.env),
 		saveServerSetting: (payload) => executeDashboardIntent({ method: "saveServerSetting", payload }, this.env),
 		testServerDraft: (payload) => executeDashboardIntent({ method: "testServerDraft", payload }, this.env),
+		testFimCompletion: (payload) => executeDashboardIntent({ method: "testFimCompletion", payload }, this.env),
 		removeServerSetting: (payload) => executeDashboardIntent({ method: "removeServerSetting", payload }, this.env),
 		declareExpectedFailure: (payload) =>
 			executeDashboardIntent({ method: "declareExpectedFailure", payload }, this.env),
@@ -861,7 +863,11 @@ export function registerDashboardCommand(
 	usagePoller: UsagePoller,
 	// The same composed entry-capabilities resolver activation wires into the
 	// provider, so the inspector cannot diverge from registration and requests.
-	getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined
+	getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined,
+	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
+	ua: string,
+	/** The inline-completions send pipeline's probe; see IntentEnvironment.probeFimCompletion. */
+	probeFimCompletion: (model: FeatureModelRef) => Promise<string | undefined>
 ): DashboardController {
 	const serverResolution: ServerResolution = {
 		isGroupSnapshot: (serverId) => provider.getGroupServer(serverId) !== undefined,
@@ -989,7 +995,8 @@ export function registerDashboardCommand(
 		// The draft-connection test's probe: one throwaway discovery pass, no
 		// mutation, no caching, and no logger (its discovery chatter would enter
 		// the issue-report buffer).
-		probeDraftConnection: createDraftConnectionProbe(context),
+		probeDraftConnection: createDraftConnectionProbe(ua),
+		probeFimCompletion,
 		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
 		log: (message, data) => logger.log(message, data),
 		logError: (message, error) => logger.error(message, error),

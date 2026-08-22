@@ -27,6 +27,8 @@ suite("IssueReporter", () => {
 			baseUrlConfigured: true,
 			commitGenerationEnabled: false,
 			commitGenerationModelConfigured: false,
+			inlineCompletionsEnabled: false,
+			inlineCompletionsModelConfigured: false,
 			recentLogs: [],
 			...overrides,
 		};
@@ -650,7 +652,10 @@ suite("IssueReporter", () => {
 			// Exact equality pins the composition: any new field joining the
 			// fingerprint must be reviewed here for content hygiene. The two
 			// false flags are the commit-generation enabled/model-configured pair.
-			assert.strictEqual(reportFingerprint(snapshot), "v1|0.2.3|connected|5|true|true|false|false|http|502|-");
+			assert.strictEqual(
+				reportFingerprint(snapshot),
+				"v1|0.2.3|connected|5|true|true|false|false|false|false|http|502|-"
+			);
 		});
 
 		test("the fingerprint never carries log lines, error text, stacks, sources, or timestamps", () => {

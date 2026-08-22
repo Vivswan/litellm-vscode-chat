@@ -569,6 +569,7 @@ suite("provider/catalog/discovery", () => {
 							{ model_name: "whisper-3", model_info: { mode: "audio_transcription" } },
 							{ model_name: "rerank-4", model_info: { mode: "rerank" } },
 							{ model_name: "guard-2", model_info: { mode: "moderation" } },
+							{ model_name: "fim-coder", model_info: { mode: "completion" } },
 							{ model_name: "chat-model", model_info: { mode: "chat" } },
 							{ model_name: "responses-model", model_info: { mode: "responses" } },
 							{ model_name: "unlabeled-model", model_info: {} },
@@ -594,9 +595,15 @@ suite("provider/catalog/discovery", () => {
 			const skips = logged.filter((l) => l.message.includes("Skipping non-chat model/info entry"));
 			assert.deepStrictEqual(
 				skips.map((l) => l.data),
-				["embedding", "image_generation", "audio_speech", "audio_transcription", "rerank", "moderation"].map(
-					(mode) => ({ mode })
-				),
+				[
+					"embedding",
+					"image_generation",
+					"audio_speech",
+					"audio_transcription",
+					"rerank",
+					"moderation",
+					"completion",
+				].map((mode) => ({ mode })),
 				"one skip line per dropped entry, carrying only the known mode constant"
 			);
 			for (const droppedId of ["text-embedding-4", "dall-e-5", "tts-2", "whisper-3", "rerank-4", "guard-2"]) {

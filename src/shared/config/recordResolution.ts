@@ -43,6 +43,22 @@ export const FALLBACK_DIRECTIVE = "_fallback";
 export const OPENROUTER_MODEL_DIRECTIVE = "_openrouter_model";
 
 /**
+ * Names a FIM prompt template for raw backends without native
+ * fill-in-the-middle support: a string carrying both `{prefix}` and
+ * `{suffix}` placeholders. Parsed in parameterResolution.ts; the completions
+ * transport applies it (provider/transport/fim.ts) and omits the wire
+ * `suffix` field when it does. The ONE parameters-record directive the
+ * /completions path reads - everything else in a parameters record stays
+ * chat-only.
+ */
+export const FIM_TEMPLATE_DIRECTIVE = "_fim_template";
+
+/** Whether a raw directive value is a usable FIM template: the one grammar, shared by the parser and the transport. */
+export function isFimTemplateValue(value: unknown): value is string {
+	return typeof value === "string" && value.includes("{prefix}") && value.includes("{suffix}");
+}
+
+/**
  * Every type-specific directive name, minted once, keyed by the owning record
  * type. This module treats it as data - the parsers attach the behavior: each
  * derives its own vocabulary from its row and diagnoses the other rows' names
@@ -50,7 +66,7 @@ export const OPENROUTER_MODEL_DIRECTIVE = "_openrouter_model";
  * here reaches both sides by construction.
  */
 export const RECORD_TYPE_DIRECTIVES = {
-	parameters: [FORCE_DIRECTIVE],
+	parameters: [FORCE_DIRECTIVE, FIM_TEMPLATE_DIRECTIVE],
 	capabilities: [FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE],
 } as const satisfies Readonly<Record<string, readonly string[]>>;
 

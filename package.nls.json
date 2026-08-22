@@ -48,6 +48,8 @@
 	"litellm.walkthrough.fineTune.description": "Timeouts, model list caching, prompt caching, custom headers, and per-model request parameters live in the extension settings.\n[Open Settings](command:workbench.action.openSettings?%5B%22@ext:vivswan.litellm-vscode-chat%22%5D)",
 	"litellm.walkthrough.generateCommit.title": "Generate commit messages",
 	"litellm.walkthrough.generateCommit.description": "Enable commit message generation and pick the model that drafts them; a sparkle button then appears in the Source Control title bar, and the command drafts a message from your staged changes into the commit box.\n[Open Settings](command:workbench.action.openSettings?%5B%22litellm-vscode-chat.commitGeneration%22%5D)",
+	"litellm.walkthrough.inlineCompletions.title": "Get inline completions",
+	"litellm.walkthrough.inlineCompletions.description": "Enable inline completions and pick a completions-capable (FIM) model; suggestions then appear as ghost text while you type, in whichever languages you allow.\n[Open Settings](command:workbench.action.openSettings?%5B%22litellm-vscode-chat.inlineCompletions%22%5D)",
 	"litellm.config.section.servers": "Servers",
 	"litellm.config.section.models": "Models",
 	"litellm.config.section.chat": "Chat",

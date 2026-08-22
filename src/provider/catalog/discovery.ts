@@ -635,6 +635,10 @@ const NON_CHAT_MODES: readonly string[] = [
 	"audio_transcription",
 	"rerank",
 	"moderation",
+	// Text-completion models serve /completions, not chat: they are the
+	// inline-completions feature's targets and must not appear in the chat
+	// picker as models that cannot chat.
+	"completion",
 ];
 
 /**

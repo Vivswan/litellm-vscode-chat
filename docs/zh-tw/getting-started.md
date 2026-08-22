@@ -2,7 +2,7 @@
 
 [English](../getting-started.md) | [简体中文](../zh-cn/getting-started.md) | 繁體中文
 
-安裝延伸模組, 把它指向一個 LiteLLM 代理, 其模型就會出現在 GitHub Copilot Chat 的模型選擇器中。本頁把這條路徑從頭到尾走一遍, 然後給出六個簡短配方, 涵蓋最常見的後續步驟。
+安裝延伸模組, 把它指向一個 LiteLLM 代理, 其模型就會出現在 GitHub Copilot Chat 的模型選擇器中。本頁把這條路徑從頭到尾走一遍, 然後給出七個簡短配方, 涵蓋最常見的後續步驟。
 
 ## 需求
 
@@ -55,7 +55,7 @@ LiteLLM 狀態列項目 (右下角) 一眼呈現連線狀態 - 勾號 (`$(check)
 
 ## 接下來做什麼
 
-六個配方, 依人們通常需要的順序排列。每個都展示完整的修法; 連結的頁面有深入內容。
+七個配方, 依人們通常需要的順序排列。每個都展示完整的修法; 連結的頁面有深入內容。
 
 ### 修正伺服器回報錯誤的能力
 
@@ -135,6 +135,36 @@ Answer with the commit message text only: no markdown fences, no surrounding quo
 ```
 
 隱私與成本和聊天一致: 差異和未追蹤檔案名稱只在您明確叫用時送到您設定的 LiteLLM 伺服器, 請求計入與其他請求相同的[用量追蹤與預算警示](usage.md)。
+
+### 用 LiteLLM 模型取得內嵌補全
+
+編輯器裡的幽靈文字, 由您自己 Proxy 上的模型寫出。兩個設定即可開啟 - 選擇加入開關和明確的模型選擇, 與上一個配方相同的 `{ "server", "model" }` 形狀:
+
+```jsonc
+"litellm-vscode-chat.inlineCompletions.enabled": true,
+"litellm-vscode-chat.inlineCompletions.model": { "server": "local", "model": "qwen2.5-coder-fim" },
+"litellm-vscode-chat.inlineCompletions.blockedLanguages": ["markdown", "plaintext"]
+```
+
+沒有需要執行的命令: 這個功能完全由設定驅動。關閉時不註冊任何內容, 也不會自動送出請求 (唯一的例外是儀表板上明確的「測試補全」按鈕, 無論功能是否開啟, 點擊都會發送一次探測請求); 開啟但未指定模型時, 功能保持閒置。
+
+**要選補全模型, 不是聊天模型。** 內嵌補全會 POST 到 `/v1/completions`, 因此模型必須是您的 LiteLLM 伺服器在 `model_info` 中宣告為 `mode: completion` 的那一種 - 一個中間填充 (FIM) 模型。這類模型刻意不出現在聊天模型選擇器裡, 所以模型 ID 要從 Proxy 的設定檔取得, 而不是從選擇器取得。
+
+另外兩個設定決定它在哪裡執行。`inlineCompletions.allowedLanguages` 與 `inlineCompletions.blockedLanguages` 存放精確的 VS Code 語言 ID; 允許清單留空表示所有語言, 同時出現在兩份清單的語言仍被封鎖。您不必手動編輯它們: 功能啟用後, 編輯器的 `{}` 語言狀態選單 (右下角) 會出現一列「LiteLLM inline suggestions」, 它的開關會替您把目前語言寫進這些清單。
+
+請求的形狀是固定的, 不可調整: 游標之前最多 8000 個字元 (從左側截斷)、之後最多 4000 個字元, 停止輸入 200 毫秒後才送出請求, `max_tokens` 為 256, 逾時 15 秒。一個小型的記憶體快取讓相同的上下文不會被問第二次。失敗依設計靜默 - 逾時、401 或格式錯誤的回應都只是不出現建議, 絕不會跳出視窗打斷您輸入。
+
+在您想動用比對鍵之前有一條規則要知道: `models.parameters` 記錄不適用於內嵌補全和提交訊息產生的請求。唯一的例外是 `_fim_template` 指示詞, 它塑造 FIM 提示, 而且從不送到伺服器。當您的後端沒有原生的中間填充處理、需要把兩半內容拼進單一提示時使用它:
+
+```jsonc
+"litellm-vscode-chat.models.parameters": {
+  "qwen2.5-coder-fim": { "_fim_template": "<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>" }
+}
+```
+
+樣板生效時, 提示由樣板建構, 線路上的 `suffix` 欄位會被省略; 缺少 `{prefix}` 或 `{suffix}` 佔位符的值會退回普通的 prompt 加 suffix 要求主體。參考: [設定: 記錄指示詞](settings.md#記錄指示詞)。
+
+隱私這一段值得讀兩遍: 內嵌補全會在您輸入時自動把游標周圍的檔案內容送到您設定的 LiteLLM 伺服器。這與聊天是同一個信任邊界 - 您自己的伺服器, 沒有第三方 - 但少了您逐次請求的動作, 這正是該功能預設關閉並要求明確指定模型的原因。這些請求走與其他請求相同的伺服器連線, 因此同樣計入現有的[用量與支出追蹤和預算警示](usage.md)。
 
 ## 命令
 

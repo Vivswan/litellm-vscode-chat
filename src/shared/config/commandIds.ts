@@ -69,6 +69,7 @@ export const INTERNAL_CMD = {
 	openOutput: "litellm.openOutput",
 	openSettingKey: "litellm.openSettingKey",
 	openUsage: "litellm.openUsage",
+	toggleInlineCompletionsLanguage: "litellm.toggleInlineCompletionsLanguage",
 } as const;
 
 /** Any command ID this extension registers, contributed or internal. */

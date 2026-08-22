@@ -10,6 +10,7 @@ import type { DraftConnection } from "../../../extension/dashboard/testDraftConn
 import type { DeclaredServer } from "../../../extension/servers/serverSync";
 import { acceptedEntry, inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync";
 import { resolveOwnedSecrets } from "../../../extension/servers/serverSync/secrets";
+import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import type { NonSecretOptionalFields } from "../../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { recordFromKeys } from "../../../shared/util/json";
@@ -145,6 +146,9 @@ export interface RecordedEnv {
 	probes: DraftConnection[];
 	probeResult: readonly string[];
 	probeError?: Error;
+	/** Every probeFimCompletion call's model ref; fimProbeResult/probeError shape the outcome. */
+	fimProbes: FeatureModelRef[];
+	fimProbeResult: string | undefined;
 	/** Every hideGroup call. */
 	hidden: { label: string; baseUrl: string }[];
 	/** Every unhideGroup call; unhideResult is what the fake reports back. */
@@ -178,6 +182,8 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		externalLookups: [],
 		probes: [],
 		probeResult: [],
+		fimProbes: [],
+		fimProbeResult: undefined,
 		hidden: [],
 		unhidden: [],
 		unhideResult: true,
@@ -279,6 +285,13 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 					throw recorded.probeError;
 				}
 				return recorded.probeResult;
+			},
+			probeFimCompletion: async (model) => {
+				recorded.fimProbes.push(model);
+				if (recorded.probeError !== undefined) {
+					throw recorded.probeError;
+				}
+				return recorded.fimProbeResult;
 			},
 			log: (message, data) => {
 				recorded.logs.push([message, data]);

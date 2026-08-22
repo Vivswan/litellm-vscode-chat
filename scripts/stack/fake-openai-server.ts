@@ -13,6 +13,9 @@
 //   GET  /v1/models               the consolidated fake- upstream ids
 //                                 (blocked deployments excluded)
 //   POST /v1/chat/completions     command dispatch, else the fixed reply
+//   POST /v1/completions          deterministic prompt-derived echo for the
+//                                 FIM (mode: completion) model; no command
+//                                 grammar, always non-streaming JSON
 //   POST /oauth/token             client-credentials grant for the fixed fake
 //                                 credentials (src/test/fakeStack/oauth.ts)
 //   *    /authed/...              bearer-guarded mirror: a live token strips
@@ -23,6 +26,7 @@
 //                                 (src/test/fakeStack/noDiscovery.ts)
 //   PUT  /_test/custom-scenario   registers {name, config} at runtime (<= 1 MiB)
 //   GET  /_test/last-request      last parsed chat completion body
+//   GET  /_test/last-completion-request  last parsed text completion body
 //   GET  /_test/oauth-stats       { issued, rejected, live }
 //   POST /_test/oauth-revoke      revoke all live tokens
 //   GET  /_test/nodiscovery-stats per-bearer counts of the blanked discovery GETs
@@ -68,6 +72,8 @@ const VERBOSE = process.env.FAKE_VERBOSE === "1";
 
 const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
 let lastRequest: Record<string, unknown> | null = null;
+/** Its own slot: a reader of either route must never wonder which arm wrote what it sees. */
+let lastCompletionRequest: Record<string, unknown> | null = null;
 const oauthState = createOAuthProviderState();
 const noDiscoveryState = createNoDiscoveryState();
 
@@ -160,6 +166,18 @@ function logChatExchange(context: CommandContext, result: CommandResult, stream:
 	console.log(`chat-response ${JSON.stringify(sent)}`);
 }
 
+/**
+ * The text-completions (FIM) reply: a pure echo of the context nearest the
+ * cursor, so identical requests always get identical bytes and every
+ * assertion can derive the expected text from the request alone. Deliberately
+ * grammar-free (the chat command grammar routes nothing here) and free of
+ * clocks and randomness - a pure function of the prompt needs no seed at all.
+ */
+function fimCompletionText(prompt: string, suffix: string): string {
+	const head = prompt.slice(-24);
+	return suffix === "" ? `fim(${head})` : `fim(${head}|${suffix.slice(0, 12)})`;
+}
+
 const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
 	const rawUrl = req.url || "/";
 	// Checked on the RAW request line, before URL parsing: new URL() folds
@@ -245,6 +263,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 		return sendJson(res, 200, lastRequest || {});
 	}
 
+	if (req.method === "GET" && pathname === "/_test/last-completion-request") {
+		return sendJson(res, 200, lastCompletionRequest || {});
+	}
+
 	if (req.method === "PUT" && pathname === "/_test/custom-scenario") {
 		const oversized = { error: { message: "Custom scenario body exceeds 1 MiB" } };
 		// Fast path on the declared length; the bounded read below still guards
@@ -275,6 +297,41 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 		}
 		scenarios.set(name, record.config);
 		return sendJson(res, 200, { scenario: name });
+	}
+
+	if (req.method === "POST" && pathname === "/v1/completions") {
+		const raw = await readBody(req);
+		let body: Record<string, unknown>;
+		try {
+			const parsed: unknown = raw ? JSON.parse(raw) : {};
+			body = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+		} catch {
+			return sendJson(res, 400, { error: { message: "Invalid JSON" } });
+		}
+		// The completions-side observation point: the docker suites' only proof
+		// of what actually reached the wire (no injected params, no underscore
+		// directives, stream: false).
+		lastCompletionRequest = body;
+		const prompt = typeof body.prompt === "string" ? body.prompt : "";
+		const suffix = typeof body.suffix === "string" ? body.suffix : "";
+		const text = fimCompletionText(prompt, suffix);
+		const promptTokens = Math.max(1, Math.ceil((prompt.length + suffix.length) / 4));
+		const completionTokens = Math.max(1, Math.ceil(text.length / 4));
+		// Always a plain JSON body: the extension's FIM requests are
+		// non-streaming by contract, so a stream flag is ignored rather than
+		// answered with a second SSE grammar.
+		return sendJson(res, 200, {
+			id: "cmpl-fake",
+			object: "text_completion",
+			created: 0,
+			model: typeof body.model === "string" ? body.model : "fake-fim",
+			choices: [{ index: 0, text, logprobs: null, finish_reason: "stop" }],
+			usage: {
+				prompt_tokens: promptTokens,
+				completion_tokens: completionTokens,
+				total_tokens: promptTokens + completionTokens,
+			},
+		});
 	}
 
 	if (req.method === "POST" && pathname === "/v1/chat/completions") {

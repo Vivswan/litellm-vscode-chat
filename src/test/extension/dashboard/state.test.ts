@@ -2526,10 +2526,10 @@ suite("extension/dashboard/state", () => {
 
 		test("the keywords lossy flag rides the same rule (the shared normalizedListLossy)", () => {
 			const clean = readSettings(makeReader({ "chat.additionalToolSchemaKeywords": ["propertyNames"] }));
-			assert.strictEqual(clean.chat.additionalToolSchemaKeywordsLossy, false);
+			assert.strictEqual(clean.chat.additionalToolSchemaKeywords.lossy, false);
 			const lossy = readSettings(makeReader({ "chat.additionalToolSchemaKeywords": ["propertyNames", ""] }));
-			assert.strictEqual(lossy.chat.additionalToolSchemaKeywordsLossy, true);
-			assert.deepStrictEqual(lossy.chat.additionalToolSchemaKeywords, ["propertyNames"]);
+			assert.strictEqual(lossy.chat.additionalToolSchemaKeywords.lossy, true);
+			assert.deepStrictEqual(lossy.chat.additionalToolSchemaKeywords.values, ["propertyNames"]);
 		});
 	});
 

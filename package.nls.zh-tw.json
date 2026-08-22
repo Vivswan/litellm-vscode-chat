@@ -48,6 +48,8 @@
 	"litellm.walkthrough.fineTune.description": "逾時、模型清單快取、提示快取、自訂標頭與各模型請求參數都在延伸模組設定中。\n[開啟設定](command:workbench.action.openSettings?%5B%22@ext:vivswan.litellm-vscode-chat%22%5D)",
 	"litellm.walkthrough.generateCommit.title": "產生提交訊息",
 	"litellm.walkthrough.generateCommit.description": "啟用提交訊息產生並選擇負責草擬的模型; 之後原始檔控制標題列會出現一個閃光按鈕, 該命令會依您已暫存的變更草擬訊息並填入提交框。\n[開啟設定](command:workbench.action.openSettings?%5B%22litellm-vscode-chat.commitGeneration%22%5D)",
+	"litellm.walkthrough.inlineCompletions.title": "取得內嵌補全",
+	"litellm.walkthrough.inlineCompletions.description": "啟用內嵌補全並選擇一個補全 (FIM) 模型; 之後建議會在您輸入時以幽靈文字出現, 範圍是您允許的語言。\n[開啟設定](command:workbench.action.openSettings?%5B%22litellm-vscode-chat.inlineCompletions%22%5D)",
 	"litellm.config.section.servers": "伺服器",
 	"litellm.config.section.models": "模型",
 	"litellm.config.section.chat": "聊天",

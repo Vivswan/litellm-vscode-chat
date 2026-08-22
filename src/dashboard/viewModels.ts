@@ -478,16 +478,8 @@ export interface DashboardSettings {
 	readonly chat: {
 		readonly tokenEstimation: TokenEstimationMode;
 		readonly tokenEstimationScope: SettingScope | null;
-		/** The configured chat.additionalToolSchemaKeywords as normalization reads them (non-empty strings, deduplicated). */
-		readonly additionalToolSchemaKeywords: readonly string[];
-		/**
-		 * Whether normalization DROPPED anything from the raw configured value.
-		 * Without this flag the row cannot tell a clean list from one hiding
-		 * entries a dashboard edit would silently destroy, and must fall back to
-		 * read-only instead.
-		 */
-		readonly additionalToolSchemaKeywordsLossy: boolean;
-		readonly additionalToolSchemaKeywordsScope: SettingScope | null;
+		/** The configured chat.additionalToolSchemaKeywords list; see StringListSetting. */
+		readonly additionalToolSchemaKeywords: StringListSetting;
 	};
 	/** The non-scalar usage settings' rows (the enum, the fraction list, and the currency symbol). */
 	readonly usage: {
@@ -512,17 +504,18 @@ export interface DashboardSettings {
 	/** The commitGeneration.prompt row's value; "" means the built-in instruction applies. */
 	readonly commitPrompt: string;
 	readonly commitPromptScope: SettingScope | null;
-	/** The two inline-completions language lists; see LanguageListSetting. */
-	readonly languageLists: Readonly<Record<InlineLanguageListId, LanguageListSetting>>;
+	/** The two inline-completions language lists; see StringListSetting. */
+	readonly languageLists: Readonly<Record<InlineLanguageListId, StringListSetting>>;
 }
 
 /**
- * One inline-completions language list as its settings row renders it: the
- * normalized IDs, plus the lossy flag that forces the row's read-only fallback
- * when normalization dropped or rewrote raw entries a comma-box edit would
- * silently destroy (the additionalToolSchemaKeywords contract).
+ * One normalized string-list setting as its comma-list row renders it (the
+ * schema keywords and the two inline-completions language lists): the
+ * normalized values, plus the lossy flag that forces the row's read-only
+ * fallback when normalization dropped or rewrote raw entries a comma-box edit
+ * would silently destroy.
  */
-export interface LanguageListSetting {
+export interface StringListSetting {
 	readonly values: readonly string[];
 	readonly lossy: boolean;
 	readonly scope: SettingScope | null;

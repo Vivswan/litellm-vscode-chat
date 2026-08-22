@@ -20,8 +20,10 @@ import {
 	resolveCapabilityLayer,
 	resolveModelCapabilities,
 } from "../../../../shared/config/capabilityResolution";
+import type { ParsedParameterRecord } from "../../../../shared/config/parameterResolution";
 import { resolveModelParameters, resolveParameterLayer } from "../../../../shared/config/parameterResolution";
 import type { ResolvedChainField } from "../../../../shared/config/recordResolution";
+import { isFimTemplateValue } from "../../../../shared/config/recordResolution";
 import { ModelResolutionTable } from "../../../../shared/config/resolutionTable";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 
@@ -48,6 +50,8 @@ interface RecordSpec {
 	readonly inheritFrom: "absent" | "all" | "none" | "list";
 	readonly inheritKeys: readonly number[];
 	readonly ghostKey: boolean;
+	/** The parameters side's `_fim_template` directive: absent, a valid template, or a junk value. */
+	readonly fim: "absent" | "valid" | "invalid";
 }
 
 const recordSpecArb: fc.Arbitrary<RecordSpec> = fc.record({
@@ -62,6 +66,10 @@ const recordSpecArb: fc.Arbitrary<RecordSpec> = fc.record({
 	),
 	inheritKeys: fc.array(fc.nat(), { maxLength: 3 }),
 	ghostKey: fc.boolean(),
+	fim: fc.oneof(
+		{ arbitrary: fc.constant<"absent">("absent"), weight: 4 },
+		{ arbitrary: fc.constantFrom<"valid" | "invalid">("valid", "invalid"), weight: 2 }
+	),
 });
 
 interface Scenario {
@@ -98,6 +106,11 @@ function buildRecord(
 		record[markingDirective] = spec.markingList
 			.map((i) => fields[i % Math.max(1, fields.length)])
 			.filter((f) => f !== undefined);
+	}
+	if (markingDirective === "_force" && spec.fim !== "absent") {
+		// Valid templates vary by salt so a winner swap is observable; the
+		// invalid arm covers both wrong-type and missing-placeholder shapes.
+		record._fim_template = spec.fim === "valid" ? `<s${salt}>{prefix}|{suffix}` : salt % 2 === 0 ? 42 : "{prefix} only";
 	}
 	if (spec.inheritFrom === "all") {
 		record._inherit_from = true;
@@ -333,8 +346,16 @@ describe("shared/config recordResolution inheritance fuzzer", () => {
 	test("the parameters chain equals the naive oracle: fields, writers, and markings", () => {
 		fc.assert(
 			fc.property(paramsScenario, ({ id, records }) => {
-				const engine = engineView(resolveParameterLayer(id, records).fields, "_force");
+				const layer = resolveParameterLayer(id, records);
+				const engine = engineView(layer.fields, "_force");
 				assert.deepStrictEqual(engine, naiveResolve(id, records, "_force"));
+				// The `_fim_template` directive belongs to the chain's WINNER alone:
+				// never inherited, never taken from a broader record, and an invalid
+				// value reads as absent (its diagnostic is covered elsewhere).
+				const winnerKey = naiveChain(id, records).at(-1);
+				const winnerValue = winnerKey === undefined ? undefined : (records[winnerKey] as RawRecord)._fim_template;
+				const expected = isFimTemplateValue(winnerValue) ? winnerValue : undefined;
+				assert.strictEqual((layer.winner as ParsedParameterRecord | undefined)?.fimTemplate, expected);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
@@ -417,6 +438,7 @@ describe("shared/config resolutionTable equivalence", () => {
 				});
 				assert.deepStrictEqual(viaTable.params, direct.params);
 				assert.deepStrictEqual(viaTable.forcedParams, direct.forcedParams);
+				assert.strictEqual(viaTable.fimTemplate, direct.fimTemplate, "the directive rides the table unchanged");
 				assert.deepStrictEqual(viaTable.diagnostics, direct.diagnostics);
 				assert.strictEqual(table.resolveParameters("srv", id, inputs), viaTable, "a repeat is a memo hit");
 				// Equal-but-not-identical inputs still hit the memo (fingerprinted).

@@ -154,6 +154,8 @@ type StatePair = StatePairBase &
 const THEME_ROW = '.setting-row:has([id="setting-ui.theme"])';
 /** The inline-completions model-picker row (settings-features.ts), whose dangling warning is a covered-slot tenant. */
 const INLINE_MODEL_ROW = '.setting-row:has([id="setting-inlineCompletions.model"])';
+/** The commit model-picker row (settings-features.ts), at rest wearing the long vanished-server warning. */
+const COMMIT_MODEL_ROW = '.setting-row:has([id="setting-commitGeneration.model"])';
 /** The usage-thresholds row, whose error contract is "the overlay never changes the row's height". */
 const THRESHOLDS_ROW = '.setting-row:has([id="setting-usage.alertThresholds-warning"])';
 /**
@@ -300,8 +302,8 @@ const STATE_PAIRS: readonly StatePair[] = [
 		// The dangling-reference warning on a feature model row is a covered-slot
 		// tenant (the same height-keeping overlay as the scalar rows' errors),
 		// and the configured pair stays in the option list either way, so losing
-		// the served model behind a pick may change NOTHING but the warning: the
-		// row's box and the row below must hold still.
+		// the ref's DECLARED SERVER behind a pick may change NOTHING but the
+		// warning: the row's box and the row below must hold still.
 		name: "feature-model-dangling",
 		fixture: "settings-features.ts",
 		targets: [INLINE_MODEL_ROW],
@@ -309,9 +311,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 		toggle: [
 			`(() => {
 				const push = structuredClone(window.__fixtureMessages.find((message) => message.kind === "push"));
-				push.state.models = push.state.models.filter(
-					(model) => !(model.serverLabel === "prod" && model.rawId === "gpt-5-mini")
-				);
+				push.state.servers = push.state.servers.filter((server) => server.label !== "prod");
 				window.dispatchEvent(new MessageEvent("message", { data: push }));
 			})()`,
 		],
@@ -328,6 +328,87 @@ const STATE_PAIRS: readonly StatePair[] = [
 			// The pick survives the loss with the same rendered text - the
 			// no-new-geometry design the pair exists to prove.
 			`select?.selectedOptions[0]?.textContent === "prod: gpt-5-mini"; })()`,
+	},
+	{
+		// The test-completion probe's landed outcome is a covered-description
+		// tenant (SettingRow's notice slot, the same height-keeping overlay as
+		// the errors), so a finished probe may move neither the row's box nor
+		// the row below.
+		name: "fim-probe-outcome",
+		fixture: "settings-features.ts",
+		targets: [INLINE_MODEL_ROW],
+		siblingOf: INLINE_MODEL_ROW,
+		toggle: [
+			`(() => {
+				const button = Array.from(document.querySelectorAll(${JSON.stringify(`${INLINE_MODEL_ROW} button`)})).find(
+					(candidate) => candidate.textContent === "Test completion"
+				);
+				button.click();
+				const posted = (window.__posted || []).filter((message) => message.method === "testFimCompletion").at(-1);
+				window.dispatchEvent(
+					new MessageEvent("message", {
+						data: {
+							kind: "ack",
+							id: posted.id,
+							method: "testFimCompletion",
+							message: "Completion received - 42 characters",
+						},
+					})
+				);
+			})()`,
+		],
+		restVerify: `document.querySelector(${JSON.stringify(`${INLINE_MODEL_ROW} [role="status"]`)}) === null`,
+		verify:
+			`(() => { const status = document.querySelector(${JSON.stringify(`${INLINE_MODEL_ROW} [role="status"]`)}); ` +
+			`return status !== null && status.textContent.includes("Completion received"); })()`,
+	},
+	{
+		// Custom-entry mode opens a deliberate two-line editor (inputs above,
+		// ranked actions below): a user-initiated reveal, so the row's HEIGHT
+		// change is the intended delta while its x, y, and width hold - the
+		// editor must grow downward in place, never shift the row.
+		name: "feature-model-custom-entry",
+		fixture: "settings-features.ts",
+		targets: [INLINE_MODEL_ROW],
+		intended: { [INLINE_MODEL_ROW]: ["height"] },
+		toggle: [
+			`(() => {
+				const select = document.querySelector('[id="setting-inlineCompletions.model"]');
+				const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+				setter.call(select, "custom");
+				select.dispatchEvent(new Event("change", { bubbles: true }));
+			})()`,
+		],
+		restVerify: `document.querySelector(${JSON.stringify(`${INLINE_MODEL_ROW} input[maxlength]`)}) === null`,
+		verify:
+			`(() => { const input = document.querySelector(${JSON.stringify(`${INLINE_MODEL_ROW} input[maxlength]`)}); ` +
+			`const buttons = Array.from(document.querySelectorAll(${JSON.stringify(`${INLINE_MODEL_ROW} button`)})); ` +
+			`return input !== null && buttons.some((candidate) => candidate.textContent === "Use model"); })()`,
+	},
+	{
+		// The covered slot renders ONE truncated line however long the tenant,
+		// so a standing long warning holds the row; opening its Details
+		// disclosure is the user-initiated reveal whose only intended delta is
+		// the row's height (the full selectable text joins the flow below).
+		name: "covered-slot-details-disclosure",
+		fixture: "settings-features.ts",
+		targets: [COMMIT_MODEL_ROW],
+		intended: { [COMMIT_MODEL_ROW]: ["height"] },
+		toggle: [
+			`(() => {
+				const button = Array.from(document.querySelectorAll(${JSON.stringify(`${COMMIT_MODEL_ROW} button`)})).find(
+					(candidate) => candidate.textContent === "Details"
+				);
+				button.click();
+			})()`,
+		],
+		restVerify:
+			`(() => { const row = document.querySelector(${JSON.stringify(COMMIT_MODEL_ROW)}); ` +
+			`return row !== null && row.querySelector(".setting-detail") === null && ` +
+			`Array.from(row.querySelectorAll("button")).some((candidate) => candidate.textContent === "Details"); })()`,
+		verify:
+			`(() => { const detail = document.querySelector(${JSON.stringify(`${COMMIT_MODEL_ROW} .setting-detail`)}); ` +
+			`return detail !== null && detail.textContent.includes("no longer configured"); })()`,
 	},
 	{
 		// A modified row's hover/focus reveal is opacity through the Reveal

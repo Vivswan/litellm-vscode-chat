@@ -16,7 +16,9 @@
 import type { ModelRecordMap } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
 import {
+	FIM_TEMPLATE_DIRECTIVE,
 	FORCE_DIRECTIVE,
+	isFimTemplateValue,
 	lintRecordMap,
 	parseMarkingDirective,
 	parseSharedDirectives,
@@ -95,16 +97,32 @@ export interface ParameterDiagnostic extends RecordDiagnostic {
 }
 
 /**
+ * One parameters record parsed into the engine's terms, plus the parameters
+ * side's type-specific directive (the capability side's ParsedCapabilityRecord
+ * pattern): a valid `_fim_template`, when the record carries one.
+ * `fimTemplateDeclared` marks that the record SPELLED the directive at all,
+ * valid or not: an invalid spelling must suppress a broader layer's template
+ * (falling back to the native prompt+suffix body, as documented) rather than
+ * silently reaching past to it.
+ */
+export interface ParsedParameterRecord extends ParsedRecord {
+	readonly fimTemplate?: string | undefined;
+	readonly fimTemplateDeclared?: true;
+}
+
+/**
  * Parse one parameters record into the engine's terms: every non-underscore
  * key is a pass-through field (the vocabulary stays open), `_force` marks
  * forced fields (refusing provider-owned and underscore names, and names the
- * record does not set), and the shared inheritance directives parse in
- * recordResolution. The capability side's directives (registry-derived) are
- * diagnosed as the wrong record type; truly unknown underscore keys stay
- * silently ignored for forward compatibility. Exported for the record-level
- * consumers; resolution goes through resolveParameterLayer.
+ * record does not set), `_fim_template` is captured when it is a usable
+ * template (diagnosed as invalid-directive otherwise), and the shared
+ * inheritance directives parse in recordResolution. The capability side's
+ * directives (registry-derived) are diagnosed as the wrong record type; truly
+ * unknown underscore keys stay silently ignored for forward compatibility.
+ * Exported for the record-level consumers; resolution goes through
+ * resolveParameterLayer.
  */
-export function parseParameterRecord(record: Readonly<Record<string, unknown>>): ParsedRecord {
+export function parseParameterRecord(record: Readonly<Record<string, unknown>>): ParsedParameterRecord {
 	const fields: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(record)) {
 		// Underscore keys are directives or reserved, never fields - which also
@@ -121,6 +139,18 @@ export function parseParameterRecord(record: Readonly<Record<string, unknown>>):
 	});
 	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [...force.diagnostics];
 
+	let fimTemplate: string | undefined;
+	let fimTemplateDeclared = false;
+	if (Object.hasOwn(record, FIM_TEMPLATE_DIRECTIVE)) {
+		fimTemplateDeclared = true;
+		const value = record[FIM_TEMPLATE_DIRECTIVE];
+		if (isFimTemplateValue(value)) {
+			fimTemplate = value;
+		} else {
+			diagnostics.push({ kind: "invalid-directive", key: FIM_TEMPLATE_DIRECTIVE });
+		}
+	}
+
 	for (const directive of WRONG_TYPE_DIRECTIVES) {
 		if (Object.hasOwn(record, directive)) {
 			diagnostics.push({ kind: "wrong-record-type", key: directive });
@@ -136,6 +166,8 @@ export function parseParameterRecord(record: Readonly<Record<string, unknown>>):
 		forced: force.marked,
 		fallback: new Set(),
 		inheritFrom: shared.inheritFrom,
+		...(fimTemplate !== undefined ? { fimTemplate } : {}),
+		...(fimTemplateDeclared ? { fimTemplateDeclared: true as const } : {}),
 		diagnostics,
 	};
 }
@@ -213,6 +245,14 @@ export interface ResolvedModelParameters {
 	readonly forcedParams: Readonly<Record<string, unknown>>;
 	/** Attribution per merged key; every own key of `params` has an entry. */
 	readonly sources: ReadonlyMap<string, ResolvedParameterSource>;
+	/**
+	 * The winning `_fim_template`, entry layer over global (a directive belongs
+	 * to a layer's WINNING record only, never inherited - the capability side's
+	 * `_openrouter_model` rule). Valid by construction: the parse captures only
+	 * usable templates. The ONE parameters-record value the /completions path
+	 * reads; the chat request path ignores it.
+	 */
+	readonly fimTemplate?: string | undefined;
 	/** Matcher, directive, and `_force` problems in the matching records, attributed to their layer. */
 	readonly diagnostics: readonly ParameterDiagnostic[];
 }
@@ -301,7 +341,21 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 		...global.diagnostics.map((d) => ({ ...d, layer: "global" as const })),
 	];
 
-	return { params, forcedParams, sources, diagnostics };
+	const entryWinner = entry.winner as ParsedParameterRecord | undefined;
+	const globalWinner = global.winner as ParsedParameterRecord | undefined;
+	// An entry winner that SPELLED the directive owns the outcome outright: a
+	// valid template applies, an invalid one suppresses the global layer's (the
+	// documented invalid-means-native rule). Only an entry silent on the
+	// directive lets the global winner's valid template through.
+	const fimTemplate = entryWinner?.fimTemplateDeclared === true ? entryWinner.fimTemplate : globalWinner?.fimTemplate;
+
+	return {
+		params,
+		forcedParams,
+		sources,
+		...(fimTemplate !== undefined ? { fimTemplate } : {}),
+		diagnostics,
+	};
 }
 
 export type MaxTokensSource = "forced" | "runtime" | "configured" | "declared" | "capped-default";

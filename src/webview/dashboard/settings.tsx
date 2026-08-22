@@ -27,9 +27,9 @@ import type {
 	CatalogStatusView,
 	DashboardModel,
 	DashboardSettings,
-	LanguageListSetting,
 	SettingRowId,
 	SettingScope,
+	StringListSetting,
 	UsageStatusBarModeSetting,
 } from "../../dashboard/viewModels";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
@@ -74,6 +74,7 @@ import {
 	helpUsageThresholds,
 	settingRowHelp,
 } from "./helpText";
+import { useIntentOutcome } from "./hooks";
 import { IconBraces } from "./icons";
 import type { ExternalRecordEdit } from "./recordEditors";
 import {
@@ -290,6 +291,17 @@ function glyphTrail(title: string, help: string | undefined) {
  * Reset for exactly that scope. The filter hides rows via the hidden attribute, never by
  * unmounting: a half-typed draft must survive being filtered away and back.
  */
+/**
+ * Covered text longer than this gets the Details disclosure: the covered slot
+ * renders ONE truncated line (so a long failure, label, or translation can
+ * never overrun the reserved description height into the next row), and the
+ * full selectable text opens as a deliberate detail block below the row -
+ * user-initiated, so the height change is intended (check-geometry registers
+ * the pair). A length threshold rather than measurement: deterministic under
+ * tests with no layout engine.
+ */
+const COVER_DETAILS_THRESHOLD = 80;
+
 function SettingRow({
 	settingId,
 	title,
@@ -299,6 +311,7 @@ function SettingRow({
 	control,
 	error,
 	errorId,
+	notice,
 	defaultText,
 	configuredScope,
 	hidden,
@@ -315,6 +328,14 @@ function SettingRow({
 	/** Replaces the description while it stands, so the row's height never changes as you type. */
 	error?: string | undefined;
 	errorId?: string;
+	/**
+	 * The lowest-precedence covered-slot tenant: a transient tone-styled status
+	 * (the FIM probe's outcome) that rides the same height-keeping overlay as
+	 * the errors, so landing one moves nothing. Tones are the app-wide tone
+	 * text classes (state-ok / state-warn / error), one vocabulary with the
+	 * server form's test result.
+	 */
+	notice?: { readonly text: string; readonly tone: "ok" | "warning" | "error" } | undefined;
 	/** The built-in default, named in the modified note (number rows only). */
 	defaultText?: string | undefined;
 	configuredScope: SettingScope | null;
@@ -342,7 +363,39 @@ function SettingRow({
 		writeFailure === undefined
 			? undefined
 			: l10n.t("The last change did not apply: {0}", statusErrorHeadline(writeFailure.message));
-	const covered = error !== undefined || failureText !== undefined;
+	const covered = error !== undefined || failureText !== undefined || notice !== undefined;
+	// The visible tenant's text and tone, for the one-line cover and its
+	// optional Details disclosure (precedence: error > write failure > notice).
+	const coverText = error ?? (failureText !== undefined && writeFailure !== undefined ? failureText : notice?.text);
+	const coverToneClass =
+		error !== undefined || failureText !== undefined
+			? "error"
+			: notice?.tone === "error"
+				? "error"
+				: notice?.tone === "warning"
+					? "state-warn"
+					: "state-ok";
+	const [detailsOpen, setDetailsOpen] = useState(false);
+	const detailId = useId();
+	// A new tenant closes a stale disclosure: the detail block must never show
+	// yesterday's text under today's headline.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: coverText IS the reset trigger.
+	useEffect(() => {
+		setDetailsOpen(false);
+	}, [coverText]);
+	const needsDetails = coverText !== undefined && coverText.length > COVER_DETAILS_THRESHOLD;
+	const detailsButton = needsDetails ? (
+		<Button
+			size="compact"
+			variant="secondary"
+			className="shrink-0"
+			aria-expanded={detailsOpen}
+			aria-controls={detailId}
+			onClick={() => setDetailsOpen((open) => !open)}
+		>
+			{detailsOpen ? l10n.t("Hide details") : l10n.t("Details")}
+		</Button>
+	) : null;
 	// The resting flow. While covered it renders once more inside the height twin -
 	// visibility-hidden AND aria-hidden, so its copies (notes, the catalog row's controls)
 	// are inert: out of the Tab order, hit-testing, and the accessibility tree. An AT-REST
@@ -394,7 +447,10 @@ function SettingRow({
 			)}
 			{/* The stacked bands' corner reserves under the pinned actions ride the band rules in
 			    dashboard.css: the control cell on the two-column tiers, the title below 560px. */}
-			<div className="setting-control flex flex-wrap items-center gap-2">{control}</div>
+			{/* min-w-0: a grid item's min-width:auto would let one wide control (a
+			    select with a long dangling option) inflate the track past a narrow
+			    pane; controls shrink instead, clipping their own text natively. */}
+			<div className="setting-control flex min-w-0 flex-wrap items-center gap-2">{control}</div>
 			{/* The error COVERS the description: while one stands, the live flow leaves the flow
 			    and overlays the resting text's invisible aria-hidden twin (dashboard.css
 			    .setting-hint), so the cell keeps its height and no row moves while you type. The
@@ -410,7 +466,7 @@ function SettingRow({
 					hintClassName
 				)}
 			>
-				<span className="setting-live">
+				<span className={cn("setting-live", covered && "flex min-w-0 items-start gap-2")}>
 					{/* The slot's visible tenant. The .error span holds ONLY the message and keeps the
 					    id: aria-describedby reads the referenced subtree, and a glyph inside it would
 					    ride every announcement of the field's problem. The write-failure cover is
@@ -418,16 +474,25 @@ function SettingRow({
 					    dedupes to one announcement per seq); the glyph is its sibling and outlives
 					    the remount. */}
 					{error !== undefined ? (
-						<span className="setting-cover">
-							<span className="error" id={errorId}>
+						<span className="setting-cover flex min-w-0 flex-1 items-center gap-2">
+							<span className="error min-w-0 truncate" id={errorId}>
 								{error}
 							</span>
+							{detailsButton}
 						</span>
 					) : failureText !== undefined && writeFailure !== undefined ? (
-						<span key={writeFailure.seq} className="setting-cover">
-							<span className="error" role={writeFailureRole}>
+						<span key={writeFailure.seq} className="setting-cover flex min-w-0 flex-1 items-center gap-2">
+							<span className="error min-w-0 truncate" role={writeFailureRole}>
 								{failureText}
 							</span>
+							{detailsButton}
+						</span>
+					) : notice !== undefined ? (
+						<span className="setting-cover flex min-w-0 flex-1 items-center gap-2">
+							<span className={cn("min-w-0 truncate", coverToneClass)} role="status">
+								{notice.text}
+							</span>
+							{detailsButton}
 						</span>
 					) : (
 						<span className="setting-rest contents">{restingFlow}</span>
@@ -441,6 +506,23 @@ function SettingRow({
 						{glyphTrail(title, help)}
 						{trailingNote}
 					</span>
+				) : null}
+				{covered && detailsOpen && coverText !== undefined ? (
+					// The full selectable text, revealed on request: a deliberate
+					// user-initiated height change (never automatic), so no covered
+					// line has to carry an unreadable tail.
+					<div
+						id={detailId}
+						// overflow-wrap:anywhere, not break-words: min-content sizing
+						// counts anywhere-breaks, so an unbroken URL cannot inflate the
+						// description track past a narrow pane.
+						className={cn(
+							"setting-detail mt-1 min-w-0 select-text whitespace-pre-wrap [overflow-wrap:anywhere]",
+							coverToneClass
+						)}
+					>
+						{coverText}
+					</div>
 				) : null}
 			</div>
 			{/* The row's one actions slot: Reset then the settings.json jump, always last (the
@@ -1368,17 +1450,7 @@ function CommaListRow({
 }
 
 /** The chat.additionalToolSchemaKeywords row over the shared comma-list editor. */
-function ToolSchemaKeywordsRow({
-	values,
-	lossy,
-	configuredScope,
-	hidden,
-}: {
-	values: readonly string[];
-	lossy: boolean;
-	configuredScope: SettingScope | null;
-	hidden: boolean;
-}) {
+function ToolSchemaKeywordsRow({ setting, hidden }: { setting: StringListSetting; hidden: boolean }) {
 	return (
 		<CommaListRow
 			settingId="chat.additionalToolSchemaKeywords"
@@ -1386,13 +1458,13 @@ function ToolSchemaKeywordsRow({
 			description={toolSchemaKeywordsDescription()}
 			help={helpToolSchemaKeywords()}
 			placeholder={l10n.t("e.g. propertyNames, patternProperties")}
-			values={values}
-			lossy={lossy}
+			values={setting.values}
+			lossy={setting.lossy}
 			maxLength={WIRE_LIMITS.schemaKeyword}
 			maxCount={WIRE_LIMITS.schemaKeywords}
 			countProblem={(max) => l10n.t("At most {0} keywords.", max)}
 			lengthProblem={(max) => l10n.t("Keywords run up to {0} characters each.", max)}
-			configuredScope={configuredScope}
+			configuredScope={setting.scope}
 			hidden={hidden}
 			onCommit={(next) => sendRequest("setAdditionalToolSchemaKeywords", { values: next })}
 		/>
@@ -1406,7 +1478,7 @@ function LanguageListRow({
 	hidden,
 }: {
 	list: InlineLanguageListId;
-	setting: LanguageListSetting;
+	setting: StringListSetting;
 	hidden: boolean;
 }) {
 	return (
@@ -1461,6 +1533,13 @@ function modelRefIdentity(ref: FeatureModelRef): string {
 }
 
 /**
+ * The select's custom-entry sentinel: real option values are JSON tuples
+ * (always starting with "[") or the empty not-set value, so this bare word
+ * can never collide with a served pair.
+ */
+const CUSTOM_OPTION = "custom";
+
+/**
  * One feature's model-picker row, rendered for both features. The select offers "Not
  * set" plus every declared entry's served (server, model) pair; a configured ref no
  * offered pair currently backs stays IN the option list (selected, same rendered text),
@@ -1469,34 +1548,93 @@ function modelRefIdentity(ref: FeatureModelRef): string {
  * (check-geometry pins both). A standing write failure for this row outranks the
  * dangling warning: both render in the same covered slot, and the warning never clears
  * on its own, so it must not mask "the last change did not apply".
+ *
+ * "Custom model ID..." swaps the select for a same-height entry cluster (a declared
+ * entry's label plus a free-typed model ID): the escape hatch for models the picker
+ * cannot list - completion-mode (FIM) models never register as chat models, and a
+ * server may serve IDs discovery cannot see. The inline-completions row also carries
+ * the test-completion probe: one button running the exact send pipeline ghost text
+ * runs, its outcome rendered as a short tone-styled status beside it (counts and
+ * classified messages only, never completion text).
  */
 function FeatureModelRow({
 	feature,
 	value,
 	options,
+	declaredLabels,
 	configuredScope,
 	hidden,
 }: {
 	feature: FeatureModelId;
 	value: FeatureModelRef | null;
 	options: readonly FeatureModelRef[];
+	/** The declared entries' labels, for the custom-entry cluster's server pick. */
+	declaredLabels: readonly string[];
 	configuredScope: SettingScope | null;
 	hidden: boolean;
 }) {
-	const dangling = value !== null && !options.some((option) => modelRefIdentity(option) === modelRefIdentity(value));
-	// The dangling ref joins the options so the pick stays visible and keepable;
-	// labels and model IDs are user configuration, safe to render.
-	const allOptions = value !== null && dangling ? [...options, value] : options;
+	// Dangling is judged by the SERVER label alone: the feature resolves a ref
+	// through its declared entry, and a declared server may legitimately serve
+	// IDs the chat catalog never lists (completion-mode FIM models above all),
+	// so absence from the options proves nothing about the model.
+	const dangling = value !== null && !declaredLabels.includes(value.server);
+	// A configured pair the options do not list joins them so the pick stays
+	// visible and keepable; labels and model IDs are user configuration, safe
+	// to render.
+	const listed = value !== null && options.some((option) => modelRefIdentity(option) === modelRefIdentity(value));
+	const allOptions = value !== null && !listed ? [...options, value] : options;
 	const selected = value === null ? "" : modelRefIdentity(value);
 	const settingId = FEATURE_MODEL_SETTING_KEYS[feature];
 	const inputId = `setting-${settingId}`;
 	const errorId = `${inputId}-error`;
+	// Custom-entry draft; undefined means the plain select renders.
+	const [customDraft, setCustomDraft] = useState<{ server: string; model: string } | undefined>(undefined);
+	// The probe's own round trip (hook order is fixed; only the inline row
+	// renders it). The outcome is keyed to the request id AND the tested pair,
+	// so a result can never sit beside a model it did not test.
+	const probe = useIntentOutcome("testFimCompletion");
+	const [probeRequest, setProbeRequest] = useState<{ id: string; model: string } | undefined>(undefined);
+	const probeCurrent = probeRequest !== undefined && value !== null && probeRequest.model === modelRefIdentity(value);
+	const probeOutcome =
+		probeCurrent && probe.outcome !== undefined && probe.outcome.id === probeRequest.id ? probe.outcome : undefined;
+	const probing = probeCurrent && probeOutcome === undefined;
 	// SettingRow shows a write failure only while `error` is empty, so the
 	// standing warning yields to it here; the warning resurfaces once the next
 	// push clears the failure.
 	const writeFailure = useContext(SettingFailuresContext)[settingId];
-	const warningShown = dangling && writeFailure === undefined;
+	const warningShown = dangling && writeFailure === undefined && customDraft === undefined;
+	// The landed probe outcome rides the covered-description slot (the
+	// height-keeping overlay), below the dangling warning and write failures.
+	// The FULL message travels: the cover renders its first truncated line and
+	// the Details disclosure reveals the whole two-part text selectable.
+	const probeNotice =
+		probeOutcome === undefined || warningShown
+			? undefined
+			: {
+					text: probeOutcome.message ?? "",
+					tone:
+						probeOutcome.result === "fail"
+							? ("error" as const)
+							: probeOutcome.tone === "warning"
+								? ("warning" as const)
+								: ("ok" as const),
+				};
+	// Any custom-editor activity clears the landed probe outcome: the editor
+	// exists to change what the probe tested, so a standing result would be a
+	// stale annotation (the Test connection staleness rule).
+	const updateDraft = (draft: { server: string; model: string } | undefined) => {
+		setCustomDraft(draft);
+		setProbeRequest(undefined);
+	};
 	const pick = (next: string) => {
+		if (next === CUSTOM_OPTION) {
+			// Only a declared label may seed the draft: the controlled select
+			// would otherwise DISPLAY its first option while a commit submitted
+			// the stale label underneath.
+			const seed = value !== null && declaredLabels.includes(value.server) ? value.server : (declaredLabels[0] ?? "");
+			updateDraft({ server: seed, model: "" });
+			return;
+		}
 		if (next === selected) {
 			return;
 		}
@@ -1511,6 +1649,81 @@ function FeatureModelRow({
 			sendRequest("setFeatureModel", { feature, value: picked });
 		}
 	};
+	const customCommittable =
+		customDraft !== undefined && declaredLabels.includes(customDraft.server) && customDraft.model.trim() !== "";
+	const commitCustom = () => {
+		if (customDraft === undefined || !customCommittable) {
+			return;
+		}
+		sendRequest("setFeatureModel", { feature, value: { server: customDraft.server, model: customDraft.model.trim() } });
+		updateDraft(undefined);
+	};
+	const picker =
+		customDraft === undefined ? (
+			<Select
+				id={inputId}
+				className="min-w-0 max-w-full"
+				value={selected}
+				aria-invalid={dangling}
+				// Only while the warning element actually renders under errorId; the
+				// write-failure cover that can replace it carries no id.
+				aria-describedby={warningShown ? errorId : undefined}
+				onChange={(event) => pick(event.currentTarget.value)}
+			>
+				<option value="">{l10n.t("Not set")}</option>
+				{allOptions.map((option) => (
+					// Entry labels and raw IDs are the option's identity; the pair is unique by construction.
+					<option key={modelRefIdentity(option)} value={modelRefIdentity(option)}>
+						{`${option.server}: ${option.model}`}
+					</option>
+				))}
+				<option value={CUSTOM_OPTION}>{l10n.t("Custom model ID...")}</option>
+			</Select>
+		) : (
+			// A deliberate two-line editor: the inputs share the first line and
+			// the RANKED actions sit on their own (Use model primary, Cancel one
+			// rank below) - opening it is a user-initiated height change the
+			// geometry registry marks intended.
+			<div className="flex w-full min-w-0 flex-col gap-2">
+				<div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+					<Select
+						id={inputId}
+						aria-label={l10n.t("Server")}
+						className="min-w-0 max-w-48 shrink"
+						value={customDraft.server}
+						onChange={(event) => updateDraft({ ...customDraft, server: event.currentTarget.value })}
+					>
+						{declaredLabels.length === 0 ? <option value="">{l10n.t("No servers configured")}</option> : null}
+						{declaredLabels.map((label) => (
+							<option key={label} value={label}>
+								{label}
+							</option>
+						))}
+					</Select>
+					<Input
+						aria-label={l10n.t("Model ID")}
+						className="w-32 min-w-0 flex-1"
+						placeholder={l10n.t("e.g. codestral-fim")}
+						maxLength={WIRE_LIMITS.modelId}
+						value={customDraft.model}
+						onInput={(event) => updateDraft({ ...customDraft, model: event.currentTarget.value })}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								commitCustom();
+							}
+						}}
+					/>
+				</div>
+				<div className="flex items-center gap-2">
+					<Button size="compact" variant="default" disabled={!customCommittable} onClick={commitCustom}>
+						{l10n.t("Use model")}
+					</Button>
+					<Button size="compact" variant="secondary" onClick={() => updateDraft(undefined)}>
+						{l10n.t("Cancel")}
+					</Button>
+				</div>
+			</div>
+		);
 	return (
 		<SettingRow
 			settingId={settingId}
@@ -1521,32 +1734,33 @@ function FeatureModelRow({
 			error={
 				warningShown
 					? l10n.t(
-							"This model is no longer available from any configured server. Choose another model or update the server entry."
+							'This model cannot be reached because server "{0}" is no longer configured. Choose another model or restore that server under Servers.',
+							value?.server ?? ""
 						)
 					: undefined
 			}
 			errorId={errorId}
+			notice={probeNotice}
 			configuredScope={configuredScope}
 			hidden={hidden}
 			control={
-				<Select
-					id={inputId}
-					className="max-w-full"
-					value={selected}
-					aria-invalid={dangling}
-					// Only while the warning element actually renders under errorId; the
-					// write-failure cover that can replace it carries no id.
-					aria-describedby={warningShown ? errorId : undefined}
-					onChange={(event) => pick(event.currentTarget.value)}
-				>
-					<option value="">{l10n.t("Not set")}</option>
-					{allOptions.map((option) => (
-						// Entry labels and raw IDs are the option's identity; the pair is unique by construction.
-						<option key={modelRefIdentity(option)} value={modelRefIdentity(option)}>
-							{`${option.server}: ${option.model}`}
-						</option>
-					))}
-				</Select>
+				<>
+					{picker}
+					{feature === "inlineCompletions" && customDraft === undefined ? (
+						<Button
+							size="compact"
+							variant="secondary"
+							disabled={value === null || dangling || probing}
+							onClick={() => {
+								if (value !== null) {
+									setProbeRequest({ id: probe.send({ model: value }), model: modelRefIdentity(value) });
+								}
+							}}
+						>
+							{probing ? l10n.t("Testing...") : l10n.t("Test completion")}
+						</Button>
+					) : null}
+				</>
 			}
 		/>
 	);
@@ -1712,7 +1926,7 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 		...Object.values(settings.configuredScopes.numbers),
 		...Object.values(settings.configuredScopes.booleans),
 		settings.chat.tokenEstimationScope,
-		settings.chat.additionalToolSchemaKeywordsScope,
+		settings.chat.additionalToolSchemaKeywords.scope,
 		settings.usage.statusBarScope,
 		settings.usage.thresholdsScope,
 		settings.usage.currencySymbolScope,
@@ -2109,9 +2323,7 @@ export function SettingsSection({
 												hidden={!tokenEstimationVisible}
 											/>
 											<ToolSchemaKeywordsRow
-												values={settings.chat.additionalToolSchemaKeywords}
-												lossy={settings.chat.additionalToolSchemaKeywordsLossy}
-												configuredScope={settings.chat.additionalToolSchemaKeywordsScope}
+												setting={settings.chat.additionalToolSchemaKeywords}
 												hidden={!toolSchemaKeywordsVisible}
 											/>
 										</>
@@ -2166,6 +2378,7 @@ export function SettingsSection({
 												feature="inlineCompletions"
 												value={settings.featureModels.inlineCompletions}
 												options={featureModelOptions}
+												declaredLabels={declaredServerLabels ?? []}
 												configuredScope={settings.featureModelScopes.inlineCompletions}
 												hidden={!inlineModelVisible}
 											/>
@@ -2186,6 +2399,7 @@ export function SettingsSection({
 												feature="commitGeneration"
 												value={settings.featureModels.commitGeneration}
 												options={featureModelOptions}
+												declaredLabels={declaredServerLabels ?? []}
 												configuredScope={settings.featureModelScopes.commitGeneration}
 												hidden={!commitModelVisible}
 											/>

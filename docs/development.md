@@ -58,6 +58,7 @@ The model list is deliberately small and shaped like a real deployment (`src/tes
 | `gpt-5.2-omni` | Audio flags |
 | `deepseek-r2` | Reasoning without tools |
 | `llama-4-scout` | No limits or pricing declared, tools explicitly off |
+| `codestral-fim` | Declared a text-completion model (`mode: completion`); the inline-completions (FIM) target on /v1/completions |
 | `gpt-4-turbo` | Blocked in the config; must never appear in the picker - that absence is itself under test |
 
 Pick any of them in the Copilot model picker and type a command as your message. `%help` lists everything; the ones you will reach for first:

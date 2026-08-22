@@ -76,6 +76,12 @@ export interface FakeModel {
 	 */
 	deployments: readonly FakeDeployment[];
 	pricing?: FakeModelPricing;
+	/**
+	 * Emitted as model_info mode. "completion" declares the alias a
+	 * text-completion model - metadata for clients and health checks, not
+	 * dispatch (LiteLLM routes by the endpoint the client calls).
+	 */
+	mode?: "completion";
 	/** Emitted as model_info blocked: true; the model must never register. */
 	blocked?: boolean;
 }
@@ -154,6 +160,20 @@ const FAKE_MODEL_DEFS = [
 		alias: "llama-4-scout",
 		capabilities: { tools: false },
 		deployments: [{ upstreamModel: "fake-minimal" }],
+	},
+	{
+		// The completions-mode model: mode: completion declares it a
+		// text-completion model, and the inline-completions (FIM) feature calls
+		// it on /v1/completions. Discovery skips completion-mode models, so it
+		// never joins the chat picker and docker-litellm's six survivors stay
+		// six. Tools-false like a real completion endpoint; the alias
+		// deliberately matches nothing in the pinned OpenRouter fixture
+		// (models.test.ts guards it).
+		alias: "codestral-fim",
+		capabilities: { tools: false },
+		deployments: [{ upstreamModel: "fake-fim", maxInputTokens: 32000, maxOutputTokens: 4000 }],
+		pricing: { inputCostPerToken: 2e-7, outputCostPerToken: 6e-7 },
+		mode: "completion",
 	},
 	{
 		// Blocked: must never register. v1.93 forwards blocked: true verbatim in

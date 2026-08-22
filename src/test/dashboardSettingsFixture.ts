@@ -57,9 +57,7 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 		chat: {
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
-			additionalToolSchemaKeywords: [],
-			additionalToolSchemaKeywordsLossy: false,
-			additionalToolSchemaKeywordsScope: null,
+			additionalToolSchemaKeywords: { values: [], lossy: false, scope: null },
 		},
 		usage: {
 			statusBarMode: "always",

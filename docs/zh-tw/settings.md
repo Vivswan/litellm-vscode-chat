@@ -102,6 +102,7 @@
 | `"_openrouter_model": "vendor/id"` | `models.capabilities` | 從 OpenRouter 目錄拉取指名模型的能力資料 - 只有能力, 從不包括定價。由此得到的欄位排在伺服器回報之上 (這條指示詞的含義是: 對這個模型, 伺服器的資料不可信), 但排在同記錄中您明確寫下的欄位之下。離線也能用內建快照運作。完整故事: [模型 - 能力](models.md#能力) |
 | `"_inheritable": true \| ["field", ...]` | 兩種記錄 | 把全部/列出的欄位標記為可被比對得更具體、且未另行聲明的模型繼承。完整故事: [模型 - 比對](models.md#哪筆記錄生效) |
 | `"_inherit_from": true \| false \| ["key", ...]` | 兩種記錄 | 本記錄繼承什麼: 到達它的一切、什麼都不繼承 (`false` - 也是屏障: 任何東西都流不過一筆什麼都不繼承的記錄), 或恰好指名的記錄 (繞過屏障)。完整故事: [模型 - 比對](models.md#哪筆記錄生效) |
+| `"_fim_template": "...{prefix}...{suffix}..."` | `models.parameters` | 在沒有原生中間填充處理的後端上, [內嵌補全](getting-started.md#用-litellm-模型取得內嵌補全)使用的 FIM 提示: `{prefix}` 與 `{suffix}` 會被換成游標周圍的文字, 請求只帶著建好的 prompt, 不再有獨立的 `suffix` 欄位。缺少任一佔位符的值會被忽略, 改用原生的 prompt 加 suffix 要求主體。它只塑造內嵌補全, 也是唯一能到達內嵌補全的 `models.parameters` 欄位 - 聊天會忽略它 |
 
 ```jsonc
 "litellm-vscode-chat.models.capabilities": {

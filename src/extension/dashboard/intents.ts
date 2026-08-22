@@ -19,7 +19,7 @@ import { unitBehavior, zeroModelExplanation } from "../../dashboard/presenters";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import { usableThresholds } from "../../dashboard/spendFormat";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
-import type { NumberSettingId } from "../../shared/config/settingSpec";
+import type { FeatureModelRef, NumberSettingId } from "../../shared/config/settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
@@ -41,6 +41,8 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
+import { transportClassificationOf } from "../../shared/errorClassification";
+import { MirroredError } from "../../shared/mirroredError";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
@@ -147,6 +149,14 @@ export interface IntentEnvironment {
 	 * discovered raw model IDs; throws the transport's classified error.
 	 */
 	probeDraftConnection(connection: DraftConnection): Promise<readonly string[]>;
+	/**
+	 * One FIM probe of a picked (server, model) pair: the exact send pipeline
+	 * ghost text runs (shared connection resolution, `_fim_template`
+	 * application, fixed bounds) over a fixed sample context. Read-only;
+	 * resolves to the completion text or undefined when the 200 body carried
+	 * none; throws the transport's classified error.
+	 */
+	probeFimCompletion(model: FeatureModelRef): Promise<string | undefined>;
 	/**
 	 * Kick one immediate OpenRouter catalog refresh. Fire-and-forget: the
 	 * wiring re-pushes state when the refresh settles, and the row status
@@ -618,6 +628,32 @@ export async function executeDashboardIntent(
 			return outcome.modelCount === 1
 				? l10n.t("Connected - 1 model")
 				: l10n.t("Connected - {0} models", outcome.modelCount);
+		}
+		case "testFimCompletion": {
+			let text: string | undefined;
+			try {
+				text = await env.probeFimCompletion(intent.payload.model);
+			} catch (error) {
+				// The transport's classified errors render at the button like the
+				// draft probe's: the message is the transport's own two-part text,
+				// and the classification drives the row's setup hints.
+				if (error instanceof MirroredError) {
+					throw new DashboardValidationError(error.message, { classification: transportClassificationOf(error) });
+				}
+				throw error;
+			}
+			if (text === undefined || text === "") {
+				// Counts and classifications only: never a completion's text.
+				return {
+					message: l10n.t(
+						"The server answered without a completion. Check that the model is a text-completion (FIM) model served on /completions."
+					),
+					tone: "warning",
+				};
+			}
+			return text.length === 1
+				? l10n.t("Completion received - 1 character")
+				: l10n.t("Completion received - {0} characters", text.length);
 		}
 		case "removeServerSetting": {
 			const entries = rawServerEntries(env.readServersSetting());

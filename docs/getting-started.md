@@ -2,7 +2,7 @@
 
 English | [简体中文](zh-cn/getting-started.md) | [繁體中文](zh-tw/getting-started.md)
 
-Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you five short recipes for the most common next steps.
+Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you seven short recipes for the most common next steps.
 
 ## Requirements
 
@@ -55,7 +55,7 @@ The LiteLLM status bar item (bottom right) shows the connection state at a glanc
 
 ## Where to next
 
-Six recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
+Seven recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
 
 ### Correct a capability the server reports wrong
 
@@ -135,6 +135,36 @@ Answer with the commit message text only: no markdown fences, no surrounding quo
 ```
 
 Privacy and cost work like chat: the diff and untracked file names go only to the LiteLLM server you configured, on your explicit invocation, and the request counts toward the same [usage tracking and budget alerts](usage.md) as everything else.
+
+### Get inline completions from a LiteLLM model
+
+Ghost text in the editor, written by a model on your own proxy. Two settings turn it on - the opt-in and an explicit model choice, the same `{ "server", "model" }` shape as the recipe above:
+
+```jsonc
+"litellm-vscode-chat.inlineCompletions.enabled": true,
+"litellm-vscode-chat.inlineCompletions.model": { "server": "local", "model": "qwen2.5-coder-fim" },
+"litellm-vscode-chat.inlineCompletions.blockedLanguages": ["markdown", "plaintext"]
+```
+
+There is no command to run: the feature is settings-driven end to end. Off, nothing registers and no automatic request is ever made (the dashboard's explicit "Test completion" button is the one exception - it sends a single probe on your click, enabled or not); on but without a model, it stays idle.
+
+**Pick a completions model, not a chat model.** Inline completions POST to `/v1/completions`, so the model has to be one your LiteLLM server declares with `mode: completion` in its `model_info` - a fill-in-the-middle (FIM) model. Those models deliberately stay out of the chat model picker, so take the ID from your proxy's config rather than from the picker.
+
+Two more settings decide where it runs. `inlineCompletions.allowedLanguages` and `inlineCompletions.blockedLanguages` hold exact VS Code language IDs; an empty allow list means every language, and a language on both lists stays blocked. You do not have to edit them by hand: while the feature is enabled, a "LiteLLM inline suggestions" row appears in the editor's `{}` language status menu (bottom right), and its toggle writes the current language into those lists for you.
+
+The request shape is fixed rather than tunable: at most 8000 characters of the text before your cursor (truncated from the left) and 4000 characters after it, a 200 ms pause in typing before anything is sent, `max_tokens` 256, and a 15 second timeout. A small in-memory cache keeps an unchanged context from being asked twice. Failures are silent by design - a timeout, a 401 or a malformed response means no suggestion appears, never a popup interrupting your typing.
+
+One rule worth knowing before you reach for a matcher key: `models.parameters` records do not apply to inline completion or commit-generation requests. The one exception is the `_fim_template` directive, which shapes the FIM prompt and is never sent. Use it for a raw backend that has no native fill-in-the-middle handling and wants both halves inlined into a single prompt:
+
+```jsonc
+"litellm-vscode-chat.models.parameters": {
+  "qwen2.5-coder-fim": { "_fim_template": "<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>" }
+}
+```
+
+When the template applies, the prompt is built from it and the wire `suffix` field is omitted; a value missing its `{prefix}` or `{suffix}` placeholder falls back to the plain prompt-and-suffix body. Reference: [Settings: record directives](settings.md#record-directives).
+
+Privacy is the part to read twice: inline completions send the file content around your cursor to the configured LiteLLM server automatically as you type. It is the same trust boundary as chat - your own server, no third party - but without a per-request action from you, which is why the feature ships off and takes an explicit model. The requests go over the same server connection as everything else, so they are covered by the existing [usage and spend tracking and budget alerts](usage.md).
 
 ## Commands
 

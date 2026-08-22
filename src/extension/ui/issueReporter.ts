@@ -30,9 +30,11 @@ export interface DiagnosticsSnapshot {
 	/** "unknown" when the configurations are VS Code-managed and none were observed yet. */
 	apiKeyConfigured: boolean | "unknown";
 	baseUrlConfigured: boolean;
-	/** The commit-generation opt-in and whether a model ref is set - flags only, never which model or label. */
+	/** The feature opt-ins and whether a model ref is set - flags only, never which model or label. */
 	commitGenerationEnabled: boolean;
 	commitGenerationModelConfigured: boolean;
+	inlineCompletionsEnabled: boolean;
+	inlineCompletionsModelConfigured: boolean;
 	latestError?: ErrorContext | undefined;
 	recentLogs: string[];
 }
@@ -69,6 +71,8 @@ export function reportFingerprint(snapshot: DiagnosticsSnapshot): string {
 		String(snapshot.baseUrlConfigured),
 		String(snapshot.commitGenerationEnabled),
 		String(snapshot.commitGenerationModelConfigured),
+		String(snapshot.inlineCompletionsEnabled),
+		String(snapshot.inlineCompletionsModelConfigured),
 		classification?.kind ?? "-",
 		classification?.status ?? "-",
 		classification?.setupHint ?? "-",
@@ -261,6 +265,8 @@ export class IssueReporter {
 			`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
 			`- Commit generation enabled: ${snapshot.commitGenerationEnabled ? "yes" : "no"}`,
 			`- Commit generation model configured: ${snapshot.commitGenerationModelConfigured ? "yes" : "no"}`,
+			`- Inline completions enabled: ${snapshot.inlineCompletionsEnabled ? "yes" : "no"}`,
+			`- Inline completions model configured: ${snapshot.inlineCompletionsModelConfigured ? "yes" : "no"}`,
 		].filter((l): l is string => l !== null);
 
 		if (snapshot.latestError) {
