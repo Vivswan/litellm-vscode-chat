@@ -9,6 +9,7 @@ Everything about models in one place: how they get into the picker, how configur
 - [Capabilities](#capabilities) - what a model can do: the field vocabulary, overrides, fallbacks, the OpenRouter catalog, pricing, token limits
 - [Parameters](#parameters) - what a request asks for: the pass-through contract, the `max_tokens` exception, forcing, precedence
 - [The picker](#the-picker) - how models surface in Copilot Chat, and the per-model Configure menu
+- [Copilot model slots](#copilot-model-slots) - which of Copilot's own utility, completion, embeddings, and instant-apply slots can point at LiteLLM models
 - [Multimodal input](#multimodal-input) and [what comes back](#thinking-sources-generated-media-and-token-usage) - attachments, thinking, sources, generated media, token usage
 - [Inspectors](#inspectors) - the dashboard views that show which source produced every resolved field
 
@@ -444,6 +445,29 @@ Temperature stays free-form in `models.parameters` on purpose: the Configure men
 - The cheapest/fastest aggregates carry no *server* pricing - there the proxy's routing decides what a request actually costs - though a user cost record matching the aggregate's [suffixed ID](#provider-routes-and-aggregates) still prices it.
 
 What requests actually cost, per server and against budgets, lives in [Usage](usage.md#the-usage-panel).
+
+## Copilot model slots
+
+The chat picker is not the only place Copilot chooses a model. A handful of slots drive its background work - utility tasks, inline completions (ghost text), workspace embeddings, instant apply - and some of them can be repointed at the models this extension registers. One thing to know before touching any of them: **every setting in this section is owned by VS Code or the GitHub Copilot Chat extension, not by this one**. Their IDs, allowed values, and what each slot accepts are version-dependent; this page documents them as observed, and when one does nothing on your build, check its current spelling in the Settings editor first.
+
+| Slot | Setting | LiteLLM models |
+|------|---------|----------------|
+| Utility tasks: chat titles, summaries, settings search | `chat.utilityModel` | Yes, in the dropdown |
+| Small, fast utility tasks: commit messages, rename and branch suggestions | `chat.utilitySmallModel` | Yes, in the dropdown |
+| Inline completions (ghost text) | `github.copilot.selectedCompletionModel` | Version-dependent |
+| Workspace embeddings (semantic search) | `github.copilot.chat.workspace.preferredEmbeddingsModel` | No ([embedding-mode models never register](#what-registers)) |
+| Instant apply: short-context edits | `github.copilot.chat.instantApply.shortContextModelName` | Version-dependent |
+
+The two utility slots are the dependable ones. Their dropdowns in the Settings UI list every model registered outside Copilot itself - this extension's included - and write the chosen model's qualified identifier for you, so set them there rather than typing the value. A fast, inexpensive model is the right pick for `chat.utilitySmallModel`.
+
+The other three take a model identifier string in settings.json, and the vocabulary is different: they expect Copilot's internal model names, not the qualified identifiers the utility dropdowns store - which is much of why they are best-effort at best for models from this extension:
+
+- `github.copilot.selectedCompletionModel` selects the completions model, also reachable through the Copilot menu's "Configure Inline Suggestions" > "Change Completions Model". VS Code's documentation scopes inline completions to Copilot-provided models, so builds differ on whether a model from this extension is accepted here; a silently ignored value is Copilot enforcing that scope, not a failure of the model.
+- `github.copilot.chat.workspace.preferredEmbeddingsModel` names the embeddings model behind semantic search - documented for completeness, since this extension registers chat models only ([embedding-mode models never register](#what-registers)) and the slot therefore cannot point at a LiteLLM model. `github.copilot.chat.instantApply.shortContextModelName` names the short-context model instant apply uses. Both are experiment-backed Copilot Chat settings whose older `github.copilot.chat.advanced.*` spellings still appear in the wild.
+
+A window reload (`Developer: Reload Window`) is often needed before a repointed slot takes effect.
+
+**Where `chat.byokUtilityModelDefault` fits.** This setting decides what handles utility tasks when no explicit utility model is set and the *main* chat model is a BYOK model - which is exactly when you are chatting on a LiteLLM model; it has no effect while the main model is Copilot's own. "Main Agent Model" (`mainAgent`) routes utility flows to the LiteLLM model you are chatting with, keeping them on your proxy and your pricing; "GitHub Copilot" (`copilot`, the default) keeps Copilot's models handling them; "None" (`none`) turns the default off. Either is a legitimate choice - and a model named in `chat.utilityModel` or `chat.utilitySmallModel` always beats this fallback.
 
 ## Multimodal input
 

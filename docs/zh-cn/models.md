@@ -9,6 +9,7 @@
 - [能力](#能力) - 模型能做什么: 字段词汇表、覆盖、回退、OpenRouter 目录、定价、token 限制
 - [参数](#参数) - 请求要求什么: 透传契约、`max_tokens` 例外、强制、优先级
 - [选择器](#选择器) - 模型如何呈现在 Copilot Chat 中, 以及每模型的「配置」菜单
+- [Copilot 模型槽位](#copilot-模型槽位) - Copilot 自己的实用任务、补全、嵌入与即时应用槽位中, 哪些能指向 LiteLLM 模型
 - [多模态输入](#多模态输入)与[返回什么](#思维来源生成媒体与-token-用量) - 附件、思维、来源、生成媒体、token 用量
 - [检查器](#检查器) - 展示每个解析字段出自哪个来源的仪表板视图
 
@@ -444,6 +445,29 @@ temperature 有意留在 `models.parameters` 中自由设置: 配置菜单只能
 - cheapest/fastest 聚合条目不带*服务器*定价 - 在那里, 请求实际花多少由代理的路由决定 - 不过匹配聚合条目[带后缀 ID](#提供方路由与聚合条目) 的用户成本记录仍会为它定价。
 
 请求实际花了多少钱, 按服务器和相对预算, 在[用量](usage.md#用量面板)。
+
+## Copilot 模型槽位
+
+聊天选择器不是 Copilot 唯一选模型的地方。少数几个槽位驱动它的后台工作 - 实用任务、内联补全 (幽灵文本)、工作区嵌入、即时应用 - 其中一些可以改指向本扩展注册的模型。动手之前先知道一件事: **本节的每个设置都属于 VS Code 或 GitHub Copilot Chat 扩展, 不属于本扩展**。这些 ID、允许的取值, 以及每个槽位接受什么都随版本而变; 本页按观察到的现状记录它们, 当某个设置在你的构建上不起作用时, 先在设置编辑器里核对它当前的拼写。
+
+| 槽位 | 设置 | LiteLLM 模型 |
+|------|------|--------------|
+| 实用任务: 聊天标题、摘要、设置搜索 | `chat.utilityModel` | 可以, 在下拉列表中 |
+| 小而快的实用任务: 提交消息、重命名与分支名建议 | `chat.utilitySmallModel` | 可以, 在下拉列表中 |
+| 内联补全 (幽灵文本) | `github.copilot.selectedCompletionModel` | 随版本而定 |
+| 工作区嵌入 (语义搜索) | `github.copilot.chat.workspace.preferredEmbeddingsModel` | 不能 ([嵌入模式的模型从不注册](#哪些模型会注册)) |
+| 即时应用: 短上下文编辑 | `github.copilot.chat.instantApply.shortContextModelName` | 随版本而定 |
+
+两个实用任务槽位最可靠。它们在设置 UI 中的下拉列表会列出 Copilot 自身之外注册的每个模型 - 包括本扩展的 - 并替你写入所选模型的限定标识符, 所以请在那里设置而不要手打取值。`chat.utilitySmallModel` 适合选一个快而便宜的模型。
+
+其余三个在 settings.json 中接受模型标识符字符串, 而且词汇表不同: 它们期待的是 Copilot 内部的模型名称, 而不是实用任务下拉列表存储的限定标识符 - 这在很大程度上解释了为什么对本扩展的模型而言它们至多是尽力而为:
+
+- `github.copilot.selectedCompletionModel` 选择补全模型, 也可以通过 Copilot 菜单的 "Configure Inline Suggestions" > "Change Completions Model" 到达。VS Code 的文档把内联补全限定在 Copilot 提供的模型上, 所以不同构建对是否接受本扩展的模型表现不一; 取值被静默忽略是 Copilot 在执行这一限定, 不是模型的故障。
+- `github.copilot.chat.workspace.preferredEmbeddingsModel` 指定语义搜索背后的嵌入模型 - 记录在此只为完整性, 因为本扩展只注册聊天模型 ([嵌入模式的模型从不注册](#哪些模型会注册)), 这个槽位因此指不到 LiteLLM 模型。`github.copilot.chat.instantApply.shortContextModelName` 指定即时应用使用的短上下文模型。两者都是实验支撑的 Copilot Chat 设置, 旧拼写 `github.copilot.chat.advanced.*` 仍时有出现。
+
+改指向之后, 往往需要重新加载窗口 (`Developer: Reload Window`) 新槽位才会生效。
+
+**`chat.byokUtilityModelDefault` 的定位**。这个设置决定在没有显式设置实用任务模型、且*主*聊天模型是 BYOK 模型时, 由什么来处理实用任务 - 也就是你正用 LiteLLM 模型聊天的时候; 主模型是 Copilot 自己的模型时它没有任何效果。"Main Agent Model" (`mainAgent`) 把实用任务路由到你正在聊天的 LiteLLM 模型, 让它们留在你的代理上、按你的定价计费; "GitHub Copilot" (`copilot`, 默认) 让 Copilot 的模型继续处理它们; "None" (`none`) 关闭这个默认。两种选择都合理 - 而 `chat.utilityModel` 或 `chat.utilitySmallModel` 里指定的模型永远压过这个回退。
 
 ## 多模态输入
 
