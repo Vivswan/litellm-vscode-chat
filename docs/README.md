@@ -18,6 +18,7 @@ The extension connects GitHub Copilot Chat to any number of LiteLLM servers: the
 | Set temperature (or any request parameter) for a model family | [Models: parameters](models.md#parameters) |
 | Understand how `"gpt-5*"` and other matcher keys combine | [Models: model matching](models.md#model-matching) |
 | Use a LiteLLM model for Copilot's commit messages, titles, and other background tasks | [Models: Copilot model slots](models.md#copilot-model-slots) |
+| Generate commit messages with a LiteLLM model of my choice | [Getting started: the commit message recipe](getting-started.md#generate-commit-messages-with-your-own-model) |
 | Set a spending budget and get warned before it runs out | [Usage: budgets](usage.md#budgets) and [alerts](usage.md#alerts) |
 | See why a model's parameter or capability has the value it has | [Models: the inspectors](models.md#inspectors) |
 | Figure out why something is red or yellow in the status bar | [Troubleshooting: status bar](troubleshooting.md#status-bar) |

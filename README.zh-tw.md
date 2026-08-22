@@ -73,7 +73,7 @@ bun run compile
 
 ## 隱私
 
-您的提示與完成內容只在 VS Code 與您設定的 LiteLLM 伺服器之間傳輸。一個預設開啟的例外: 延伸模組約每週從 `https://openrouter.ai/api/v1/models` 重新整理一次內建的模型能力目錄, 這是一份公開、無需驗證的模型清單 - 該請求不帶提示、不帶用量, 也不帶任何關於您或您伺服器的資訊。把 `litellm-vscode-chat.models.openRouterCatalog` 設為 `false` 可關閉重新整理與自動比對; 明確的 `_openrouter_model` 指示詞繼續離線使用內建快照。詳細資料參閱[模型能力](docs/zh-tw/models.md#openrouter-目錄)與[隱私與資料](docs/zh-tw/troubleshooting.md#隱私與資料)。
+您的提示與完成內容只在 VS Code 與您設定的 LiteLLM 伺服器之間傳輸。當您叫用提交訊息產生時, 已暫存或工作區的差異以及未追蹤檔案的名稱會送到您為它設定的 LiteLLM 伺服器 - 僅在您明確叫用時送出, 並計入與聊天相同的用量追蹤和預算警示。一個預設開啟的例外: 延伸模組約每週從 `https://openrouter.ai/api/v1/models` 重新整理一次內建的模型能力目錄, 這是一份公開、無需驗證的模型清單 - 該請求不帶提示、不帶用量, 也不帶任何關於您或您伺服器的資訊。把 `litellm-vscode-chat.models.openRouterCatalog` 設為 `false` 可關閉重新整理與自動比對; 明確的 `_openrouter_model` 指示詞繼續離線使用內建快照。詳細資料參閱[模型能力](docs/zh-tw/models.md#openrouter-目錄)與[隱私與資料](docs/zh-tw/troubleshooting.md#隱私與資料)。
 
 ## 誌謝
 

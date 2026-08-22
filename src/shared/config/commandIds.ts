@@ -27,6 +27,7 @@ export const CMD = {
 	exportSettings: "litellm.exportSettings",
 	importSettings: "litellm.importSettings",
 	undoLastImport: "litellm.undoLastImport",
+	generateCommitMessage: "litellm.generateCommitMessage",
 } as const;
 
 /**
@@ -46,6 +47,11 @@ export function syncModelsCommandTitle(): string {
 /** CMD.refreshUsage's palette title; same call-time-resolution contract. */
 export function refreshUsageCommandTitle(): string {
 	return l10n.t("LiteLLM: Refresh Usage Now");
+}
+
+/** CMD.generateCommitMessage's palette title; same call-time-resolution contract. */
+export function generateCommitMessageCommandTitle(): string {
+	return l10n.t("LiteLLM: Generate Commit Message");
 }
 
 /**

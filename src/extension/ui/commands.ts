@@ -1,6 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../provider/catalog/groupModels";
+import type { OneShotClient } from "../../provider/transport/oneShotClient";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { ErrorRecorder, Logger } from "../../shared/logger";
@@ -12,6 +13,8 @@ import { unexpectedFailureCount } from "../../shared/servers";
 import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { DashboardController } from "../dashboard/panel";
+import type { GenerateCommitDeps } from "../scm/generateCommitCommand";
+import { runGenerateCommitMessage } from "../scm/generateCommitCommand";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { ServerSyncEngine } from "../servers/serverSync";
 import { updateServerSecret } from "../servers/serverSync";
@@ -532,6 +535,24 @@ export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext)
 			);
 			await choice?.run();
 		})
+	);
+}
+
+/**
+ * Commit message generation: the handler is registered unconditionally (the
+ * SCM-title and palette surfaces hide behind the enable when-clause, but
+ * executeCommand and keybindings do not), and the run function answers a
+ * disabled invocation with the enable hint.
+ */
+export function registerGenerateCommitMessageCommand(
+	context: vscode.ExtensionContext,
+	oneShot: OneShotClient,
+	deps: GenerateCommitDeps
+): void {
+	context.subscriptions.push(
+		vscode.commands.registerCommand(CMD.generateCommitMessage, (commandArg?: unknown) =>
+			runGenerateCommitMessage(oneShot, deps, commandArg)
+		)
 	);
 }
 

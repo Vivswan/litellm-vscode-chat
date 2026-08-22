@@ -174,6 +174,7 @@ export default defineConfig({
 				"out/test/extension/*.test.js",
 				"out/test/extension/dashboard/*.test.js",
 				"out/test/extension/migrations/*.test.js",
+				"out/test/extension/scm/*.test.js",
 				"out/test/extension/servers/*.test.js",
 				"out/test/extension/servers/usage/*.test.js",
 				"out/test/extension/settingsTransfer/*.test.js",

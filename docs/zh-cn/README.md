@@ -18,6 +18,7 @@
 | 为一个模型家族设置 temperature (或任何请求参数) | [模型: 参数](models.md#参数) |
 | 理解 `"gpt-5*"` 等匹配键如何组合 | [模型: 模型匹配](models.md#模型匹配) |
 | 用 LiteLLM 模型处理 Copilot 的提交消息、标题等后台任务 | [模型: Copilot 模型槽位](models.md#copilot-模型槽位) |
+| 用我选择的 LiteLLM 模型生成提交消息 | [快速入门: 提交消息配方](getting-started.md#用你自己的模型生成提交消息) |
 | 设置支出预算并在耗尽前收到提醒 | [用量: 预算](usage.md#预算)与[警报](usage.md#警报) |
 | 查看模型的某个参数或能力为什么是这个值 | [模型: 检查器](models.md#检查器) |
 | 弄清状态栏里某个东西为什么是红色或黄色 | [故障排除: 状态栏](troubleshooting.md#状态栏) |

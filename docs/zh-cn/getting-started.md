@@ -2,7 +2,7 @@
 
 [English](../getting-started.md) | 简体中文 | [繁體中文](../zh-tw/getting-started.md)
 
-安装扩展, 把它指向一个 LiteLLM 代理, 它的模型就会出现在 GitHub Copilot Chat 的模型选择器中。本页把这条路径从头到尾走一遍, 然后给出五个简短配方, 覆盖最常见的后续步骤。
+安装扩展, 把它指向一个 LiteLLM 代理, 它的模型就会出现在 GitHub Copilot Chat 的模型选择器中。本页把这条路径从头到尾走一遍, 然后给出六个简短配方, 覆盖最常见的后续步骤。
 
 ## 要求
 
@@ -55,7 +55,7 @@ LiteLLM 状态栏项 (右下角) 一眼展示连接状态 - 对勾 (`$(check) Li
 
 ## 接下来做什么
 
-五个配方, 按人们通常需要的顺序排列。每个都展示完整的修复; 链接的页面有深入内容。
+六个配方, 按人们通常需要的顺序排列。每个都展示完整的修复; 链接的页面有深入内容。
 
 ### 纠正服务器报告错误的能力
 
@@ -114,6 +114,28 @@ LiteLLM 状态栏项 (右下角) 一眼展示连接状态 - 对勾 (`$(check) Li
 
 当几个匹配键、一个服务器条目和选择器都有各自的意见时, 靠猜是最慢的办法。打开仪表板的模型页面, 对某个模型点「检查」: 面板列出每个生效的参数和能力, 以及设置它的确切来源 - 哪个匹配键、哪个服务器条目、服务器自己的报告, 还是 OpenRouter 目录。详情: [模型: 检查器](models.md#检查器)。
 
+### 用你自己的模型生成提交消息
+
+两个设置即可开启 - 选择加入开关和显式的模型选择 (`servers` 条目的标签加上它的一个原始模型 ID):
+
+```jsonc
+"litellm-vscode-chat.commitGeneration.enabled": true,
+"litellm-vscode-chat.commitGeneration.model": { "server": "local", "model": "gpt-4o-mini" }
+```
+
+源代码管理标题栏会出现一个闪光按钮, 命令面板也会新增 "LiteLLM: Generate Commit Message"。两者都会把你已暂存的差异 (未暂存任何内容时则是工作区差异加上未跟踪文件名) 发送给该模型, 并把起草的消息写入提交框。你最近五条提交主题会作为风格示例一同发送, 因此草稿会遵循你仓库的惯例。
+
+这与把 Copilot 自己的 `chat.utilitySmallModel` 槽位指向 LiteLLM 模型 ([Copilot 模型槽位](models.md#copilot-模型槽位)) 不同: 它不需要 Copilot 订阅, 指令文本由你修改, 风格示例来自你仓库的历史。内置指令如下 (面向模型的文本, 保持英文), `litellm-vscode-chat.commitGeneration.prompt` 中的任何内容都会整体替换它:
+
+```text
+Write a commit message for the change in the diff below.
+Use the Conventional Commits form: one subject line like "type(scope): summary" (types such as feat, fix, docs, refactor, test, chore), at most about 72 characters, in the imperative mood.
+When the change needs explanation, add a blank line and a short body of one to three sentences saying what changed and why.
+Answer with the commit message text only: no markdown fences, no surrounding quotes, no commentary.
+```
+
+隐私和成本与聊天一致: 差异和未跟踪文件名只在你显式调用时发送到你配置的 LiteLLM 服务器, 请求计入与其他请求相同的[用量跟踪与预算警报](usage.md)。
+
 ## 命令
 
 扩展能按需做的一切都是命令面板命令 (`Ctrl+Shift+P` / `Cmd+Shift+P`, 然后输入 "LiteLLM"):
@@ -131,5 +153,6 @@ LiteLLM 状态栏项 (右下角) 一眼展示连接状态 - 对勾 (`$(check) Li
 | LiteLLM: Export Settings... | 把扩展的设置保存为 JSON 文件, 明确选择包含还是不含存储的密钥 |
 | LiteLLM: Import Settings... | 合并之前导出的设置文件, 每个冲突的服务器都会询问 |
 | LiteLLM: Undo Last Settings Import | 把设置和密钥恢复到上次导入前的状态 |
+| LiteLLM: Generate Commit Message | 根据你已暂存的更改起草提交消息并填入源代码管理输入框 (选择加入; 见[配方](#用你自己的模型生成提交消息)) |
 | LiteLLM: Report Issue | 打开预填好的 GitHub Issue; 见[它收集什么](troubleshooting.md#报告问题) |
 | LiteLLM: Help & Feedback | 文档、Bug 报告和功能请求的快捷入口 |

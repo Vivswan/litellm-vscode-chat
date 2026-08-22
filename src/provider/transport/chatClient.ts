@@ -26,8 +26,9 @@ import type { GroupServer, LiteLLMModelInfo } from "../catalog/groupModels";
 import { groupClientId, parseModelMetadata } from "../catalog/groupModels";
 import { requestParamsFromModelConfiguration } from "../catalog/modelConfiguration";
 import { type OAuthConfig, type OAuthErrorSurface, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
+import { applyAuthOverlay, invalidateRejectedOAuthToken } from "./authOverlay";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
-import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
+import { mapSdkError, timeoutRequestError } from "./errorMapping";
 import { buildRequestBody, resolveMaxTokens } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
@@ -194,17 +195,19 @@ export class ChatClient {
 				...(headers !== undefined ? { headers } : {}),
 			});
 		} catch (error) {
-			this.invalidateRejectedToken(server.oauth, error, sentOAuthToken);
+			invalidateRejectedOAuthToken(this.oauthTokens, server.oauth, error, sentOAuthToken);
 			throw error;
 		}
 	}
 
 	/**
 	 * Per-request credentials the cached SDK client cannot carry statically:
-	 * the OAuth bearer token and the virtual-key header. The token exchange is
-	 * bounded by the discovery timeout on every surface (it is auth plumbing,
-	 * not a chat call) and additionally by `signal` when the triggering call
-	 * carries one, so user cancellation and the chat timeout interrupt it too.
+	 * the OAuth bearer token and the virtual-key header, applied by the shared
+	 * overlay (authOverlay.ts) that also serves the plain-fetch transports. The
+	 * token exchange is bounded by the discovery timeout on every surface (it
+	 * is auth plumbing, not a chat call) and additionally by `signal` when the
+	 * triggering call carries one, so user cancellation and the chat timeout
+	 * interrupt it too.
 	 *
 	 * `sentOAuthToken` is the bearer token the returned headers actually carry,
 	 * captured here so a later 401 never has to re-parse it out of the
@@ -218,39 +221,13 @@ export class ChatClient {
 		signal?: AbortSignal
 	): Promise<{ headers: Record<string, string> | undefined; sentOAuthToken: string | undefined }> {
 		const headers: Record<string, string> = {};
-		let sentOAuthToken: string | undefined;
-		// A virtual key naming the Authorization header (any casing; HTTP header
-		// names are case-insensitive) owns it outright, so the token exchange is
-		// skipped: an unreachable identity provider must not fail a request that
-		// would not carry the token anyway.
-		const authorizationOverridden = credentials.virtualKey?.header.toLowerCase() === "authorization";
-		if (credentials.oauth && !authorizationOverridden) {
-			sentOAuthToken = await this.oauthTokens.getToken(credentials.oauth, surface, discoveryTimeout, signal);
-			headers.Authorization = `Bearer ${sentOAuthToken}`;
-		}
-		if (credentials.virtualKey) {
-			headers[credentials.virtualKey.header] = credentials.virtualKey.value;
-		}
+		const sentOAuthToken = await applyAuthOverlay(headers, credentials, {
+			tokens: this.oauthTokens,
+			surface,
+			timeoutMs: discoveryTimeout,
+			signal,
+		});
 		return { headers: Object.keys(headers).length > 0 ? headers : undefined, sentOAuthToken };
-	}
-
-	/**
-	 * A 401 means the server no longer accepts the bearer token the call sent,
-	 * so the next request must perform a fresh exchange. The rejected call
-	 * itself is never retried (chat completions never retry). Keyed on the
-	 * token that actually went out, so a straggling 401 cannot discard a token
-	 * that already replaced the rejected one, and a request whose Authorization
-	 * header the virtual key replaced invalidates nothing.
-	 */
-	private invalidateRejectedToken(
-		oauth: OAuthConfig | undefined,
-		error: unknown,
-		sentOAuthToken: string | undefined
-	): void {
-		if (!oauth || sentOAuthToken === undefined || !(error instanceof RequestError) || error.kind !== "auth") {
-			return;
-		}
-		this.oauthTokens.invalidate(oauth, sentOAuthToken);
 	}
 
 	/**
@@ -482,7 +459,7 @@ export class ChatClient {
 				throw timeoutRequestError(errorContext, err);
 			}
 			const mapped = mapSdkError(err, errorContext);
-			this.invalidateRejectedToken(connection.oauth, mapped, sentOAuthToken);
+			invalidateRejectedOAuthToken(this.oauthTokens, connection.oauth, mapped, sentOAuthToken);
 			throw mapped;
 		} finally {
 			cancelListener.dispose();

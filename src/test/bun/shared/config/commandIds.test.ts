@@ -4,12 +4,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
 	CMD,
+	generateCommitMessageCommandTitle,
 	INTERNAL_CMD,
 	manageCommandTitle,
 	refreshUsageCommandTitle,
 	syncModelsCommandTitle,
 	VENDOR_ID,
 } from "../../../../shared/config/commandIds";
+import type { BooleanSettingId } from "../../../../shared/config/settingSpec";
+import { CONFIG_SECTION } from "../../../../shared/config/settingSpec";
 import { resolveNls } from "../../../util/nls";
 import { REPO_ROOT } from "../../../util/repoRoot";
 
@@ -21,6 +24,7 @@ import { REPO_ROOT } from "../../../util/repoRoot";
 interface PackageJson {
 	readonly contributes: {
 		readonly commands: readonly { readonly command: string; readonly title?: string }[];
+		readonly menus?: Readonly<Record<string, readonly { readonly command: string; readonly when?: string }[]>>;
 		readonly languageModelChatProviders: readonly [{ readonly vendor: string }];
 		readonly walkthroughs?: unknown;
 	};
@@ -64,6 +68,31 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 		const entry = readPackageJson().contributes.commands.find((candidate) => candidate.command === CMD.refreshUsage);
 		assert.ok(entry?.title !== undefined, "the refresh-usage command is contributed with a title");
 		assert.strictEqual(resolveNls(entry.title), refreshUsageCommandTitle());
+	});
+
+	test("the generate-commit-message command is contributed under generateCommitMessageCommandTitle()", () => {
+		const entry = readPackageJson().contributes.commands.find(
+			(candidate) => candidate.command === CMD.generateCommitMessage
+		);
+		assert.ok(entry?.title !== undefined, "the generate-commit-message command is contributed with a title");
+		assert.strictEqual(resolveNls(entry.title), generateCommitMessageCommandTitle());
+	});
+
+	test("the generate-commit-message menus are gated on the enable setting", () => {
+		// The command surfaces are opt-in by contribution: both menu items hide
+		// until the boolean flips, and the SCM button only shows on git repos.
+		// The key is typed so a rename in BOOLEAN_SETTING_SPECS breaks this
+		// compile instead of leaving the manifest gating a dead setting.
+		const enabledKey: BooleanSettingId = "commitGeneration.enabled";
+		const enabledClause = `config.${CONFIG_SECTION}.${enabledKey}`;
+		const menus = readPackageJson().contributes.menus;
+		assert.ok(menus !== undefined, "the manifest contributes menus");
+		const scmTitle = menus["scm/title"]?.find((item) => item.command === CMD.generateCommitMessage);
+		assert.ok(scmTitle !== undefined, "the SCM title bar carries the command");
+		assert.strictEqual(scmTitle.when, `${enabledClause} && scmProvider == git`);
+		const palette = menus.commandPalette?.find((item) => item.command === CMD.generateCommitMessage);
+		assert.ok(palette !== undefined, "the palette visibility is contributed explicitly");
+		assert.strictEqual(palette.when, enabledClause);
 	});
 
 	test("the docs and walkthrough prose name the manage command by its contributed title", () => {

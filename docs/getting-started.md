@@ -55,7 +55,7 @@ The LiteLLM status bar item (bottom right) shows the connection state at a glanc
 
 ## Where to next
 
-Five recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
+Six recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
 
 ### Correct a capability the server reports wrong
 
@@ -114,6 +114,28 @@ With the default `usage.alertThresholds` of `[0.8, 0.95]`, you get one notificat
 
 When several matcher keys, a server entry, and the picker all have opinions, guessing is the slow way. Open the dashboard's Models section and Inspect a model: the panel lists every effective parameter and capability with the exact source that set it - which matcher key, which server entry, the server's own report, or the OpenRouter catalog. Details: [Models: the inspectors](models.md#inspectors).
 
+### Generate commit messages with your own model
+
+Two settings turn it on - the opt-in and an explicit model choice (the label of a `servers` entry plus one of its raw model IDs):
+
+```jsonc
+"litellm-vscode-chat.commitGeneration.enabled": true,
+"litellm-vscode-chat.commitGeneration.model": { "server": "local", "model": "gpt-4o-mini" }
+```
+
+A sparkle button appears in the Source Control title bar, and "LiteLLM: Generate Commit Message" appears in the palette. Either one sends your staged diff - or the working-tree diff plus untracked file names when nothing is staged - to that model and writes the drafted message into the commit box. Your last five commit subjects ride along as style examples, so the draft follows your repository's conventions.
+
+This differs from pointing Copilot's own `chat.utilitySmallModel` slot at a LiteLLM model ([Copilot model slots](models.md#copilot-model-slots)): it needs no Copilot subscription, the instruction text is yours to change, and the style examples come from your repository's history. The built-in instruction, replaced wholesale by anything you put in `litellm-vscode-chat.commitGeneration.prompt`:
+
+```text
+Write a commit message for the change in the diff below.
+Use the Conventional Commits form: one subject line like "type(scope): summary" (types such as feat, fix, docs, refactor, test, chore), at most about 72 characters, in the imperative mood.
+When the change needs explanation, add a blank line and a short body of one to three sentences saying what changed and why.
+Answer with the commit message text only: no markdown fences, no surrounding quotes, no commentary.
+```
+
+Privacy and cost work like chat: the diff and untracked file names go only to the LiteLLM server you configured, on your explicit invocation, and the request counts toward the same [usage tracking and budget alerts](usage.md) as everything else.
+
 ## Commands
 
 Everything the extension can do on demand is a Command Palette command (`Ctrl+Shift+P` / `Cmd+Shift+P`, then type "LiteLLM"):
@@ -131,5 +153,6 @@ Everything the extension can do on demand is a Command Palette command (`Ctrl+Sh
 | LiteLLM: Export Settings... | Saves the extension's settings to a JSON file, with an explicit choice to include or exclude stored secrets |
 | LiteLLM: Import Settings... | Merges a previously exported settings file, with a prompt per colliding server |
 | LiteLLM: Undo Last Settings Import | Restores settings and secrets to their state before the last import |
+| LiteLLM: Generate Commit Message | Drafts a commit message from your staged changes into the Source Control input (opt-in; see the [recipe](#generate-commit-messages-with-your-own-model)) |
 | LiteLLM: Report Issue | Opens a prefilled GitHub issue; see [what it collects](troubleshooting.md#reporting-an-issue) |
 | LiteLLM: Help & Feedback | Shortcuts to the documentation, bug reports, and feature requests |

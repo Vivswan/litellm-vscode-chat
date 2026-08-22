@@ -1,6 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { LiteLLMChatModelProvider } from "../../provider";
+import { OneShotClient } from "../../provider/transport/oneShotClient";
 import { CMD } from "../../shared/config/commandIds";
 import { HAS_SHOWN_WELCOME_KEY } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
@@ -12,6 +13,7 @@ import { registerManageCommand } from "../servers/serverManagement";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
 import {
+	registerGenerateCommitMessageCommand,
 	registerHelpAndFeedbackCommand,
 	registerOpenGroupsFileCommand,
 	registerReportIssueCommand,
@@ -186,4 +188,17 @@ export function wireUiCommands(
 		deps.vscodeVersion,
 		deps.issueReporter
 	);
+
+	// Commit message generation: ONE one-shot client for the extension's
+	// lifetime, so OAuth tokens cache across invocations and invalidate on 401
+	// like the chat and usage paths. The User-Agent mirrors the one activation
+	// composes for the provider (activation does not export it).
+	const oneShot = new OneShotClient({
+		userAgent: `litellm-vscode-chat/${deps.extVersion} VSCode/${deps.vscodeVersion}`,
+	});
+	registerGenerateCommitMessageCommand(context, oneShot, {
+		secrets: context.secrets,
+		logger,
+		outputChannel: deps.outputChannel,
+	});
 }

@@ -37,6 +37,8 @@ suite("extension/ui/diagnostics", () => {
 			assert.strictEqual(snapshot.modelCount, 7);
 			assert.strictEqual(snapshot.apiKeyConfigured, "unknown", "unobserved native groups cannot be ruled out");
 			assert.strictEqual(snapshot.baseUrlConfigured, false);
+			assert.strictEqual(snapshot.commitGenerationEnabled, false, "the opt-in defaults off");
+			assert.strictEqual(snapshot.commitGenerationModelConfigured, false, "no model ref is set by default");
 			assert.strictEqual(expectDefined(snapshot.latestError).source, "discovery");
 			assert.strictEqual(expectDefined(snapshot.latestError).message, "fetch exploded");
 			assert.deepStrictEqual(snapshot.recentLogs, ["first log line", "second log line"]);

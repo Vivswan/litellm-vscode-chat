@@ -24,7 +24,11 @@ import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { DISCOVERY_MAX_RETRIES } from "../../../provider/catalog/discovery";
 import type { OAuthConfig, VirtualKeyConfig } from "../../../provider/transport/auth";
 import { OAuthTokenSource } from "../../../provider/transport/auth";
-import { buildDefaultHeaders } from "../../../provider/transport/clients";
+import {
+	applyAuthOverlay,
+	invalidateRejectedOAuthToken,
+	plainFetchBaseHeaders,
+} from "../../../provider/transport/authOverlay";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
@@ -394,54 +398,26 @@ export class UsageClient {
 	 * The request headers for one call: the provider's static precedence over the
 	 * connection's per-entry headers plus the per-request credentials the chat
 	 * path resolves the same way - the OAuth bearer token (skipped when the
-	 * virtual key owns the Authorization header) and the virtual-key header.
-	 * Returns the token that actually went out so a 401 can invalidate exactly
-	 * it.
+	 * virtual key owns the Authorization header) and the virtual-key header,
+	 * both applied by the shared overlay (authOverlay.ts). Returns the token
+	 * that actually went out so a 401 can invalidate exactly it.
 	 */
 	private async resolveHeaders(
 		connection: UsageConnection,
 		timeoutMs: number,
 		signal: AbortSignal
 	): Promise<{ headers: Record<string, string>; sentOAuthToken: string | undefined }> {
-		const base = buildDefaultHeaders({
+		const headers = plainFetchBaseHeaders({
 			apiKey: connection.apiKey,
 			userAgent: this.options.userAgent,
-			customHeaders: { ...connection.headers },
+			customHeaders: connection.headers,
 		});
-		const headers: Record<string, string> = {};
-		for (const [name, value] of Object.entries(base)) {
-			// A value the platform's Headers would reject must never reach fetch:
-			// the thrown TypeError embeds the full plaintext value, and these values
-			// can be secrets.
-			if (value !== null && isValidHeaderValue(value)) {
-				headers[name] = value;
-			}
-		}
-		// Auth headers win conflicts case-insensitively, like the chat path: this
-		// is a plain-object fetch, where two spellings of one header name would
-		// COMBINE into "custom, Bearer ..." instead of replacing.
-		const setAuthHeader = (name: string, value: string) => {
-			for (const existing of Object.keys(headers)) {
-				if (existing.toLowerCase() === name.toLowerCase()) {
-					delete headers[existing];
-				}
-			}
-			headers[name] = value;
-		};
-		if (connection.apiKey && isValidHeaderValue(connection.apiKey)) {
-			// The SDK's bearer auth adds this on the /v1 client; the plain fetch
-			// states it explicitly. X-API-Key already rides in `base`.
-			setAuthHeader("Authorization", `Bearer ${connection.apiKey}`);
-		}
-		let sentOAuthToken: string | undefined;
-		const authorizationOverridden = connection.virtualKey?.header.toLowerCase() === "authorization";
-		if (connection.oauth && !authorizationOverridden) {
-			sentOAuthToken = await this.oauthTokens.getToken(connection.oauth, "discovery", timeoutMs, signal);
-			setAuthHeader("Authorization", `Bearer ${sentOAuthToken}`);
-		}
-		if (connection.virtualKey) {
-			setAuthHeader(connection.virtualKey.header, connection.virtualKey.value);
-		}
+		const sentOAuthToken = await applyAuthOverlay(headers, connection, {
+			tokens: this.oauthTokens,
+			surface: "discovery",
+			timeoutMs,
+			signal,
+		});
 		return { headers, sentOAuthToken };
 	}
 
@@ -508,11 +484,9 @@ export class UsageClient {
 				lastFailure = failure;
 				continue;
 			}
-			if (failure.kind === "auth" && connection.oauth && sentOAuthToken !== undefined) {
-				// The server no longer accepts the token this call sent; the next poll
-				// performs a fresh exchange. This call itself never retries.
-				this.oauthTokens.invalidate(connection.oauth, sentOAuthToken);
-			}
+			// The server no longer accepts the token this call sent; the next poll
+			// performs a fresh exchange. This call itself never retries.
+			invalidateRejectedOAuthToken(this.oauthTokens, connection.oauth, failure, sentOAuthToken);
 			throw failure;
 		}
 

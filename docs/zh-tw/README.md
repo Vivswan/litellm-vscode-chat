@@ -18,6 +18,7 @@
 | 為一個模型家族設定 temperature (或任何請求參數) | [模型: 參數](models.md#參數) |
 | 理解 `"gpt-5*"` 等比對鍵如何組合 | [模型: 模型比對](models.md#模型比對) |
 | 用 LiteLLM 模型處理 Copilot 的提交訊息、標題等背景任務 | [模型: Copilot 模型插槽](models.md#copilot-模型插槽) |
+| 用我選擇的 LiteLLM 模型產生提交訊息 | [入門指南: 提交訊息配方](getting-started.md#用您自己的模型產生提交訊息) |
 | 設定支出預算並在用完前收到警示 | [用量: 預算](usage.md#預算)與[警示](usage.md#警示) |
 | 查看模型的某個參數或能力為什麼是這個值 | [模型: 檢查器](models.md#檢查器) |
 | 弄清狀態列裡某個東西為什麼是紅色或黃色 | [疑難排解: 狀態列](troubleshooting.md#狀態列) |

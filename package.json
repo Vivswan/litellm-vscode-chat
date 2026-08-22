@@ -186,8 +186,28 @@
 			{
 				"command": "litellm.undoLastImport",
 				"title": "%litellm.command.undoLastImport.title%"
+			},
+			{
+				"command": "litellm.generateCommitMessage",
+				"title": "%litellm.command.generateCommitMessage.title%",
+				"icon": "$(sparkle)"
 			}
 		],
+		"menus": {
+			"scm/title": [
+				{
+					"command": "litellm.generateCommitMessage",
+					"when": "config.litellm-vscode-chat.commitGeneration.enabled && scmProvider == git",
+					"group": "navigation"
+				}
+			],
+			"commandPalette": [
+				{
+					"command": "litellm.generateCommitMessage",
+					"when": "config.litellm-vscode-chat.commitGeneration.enabled"
+				}
+			]
+		},
 		"walkthroughs": [
 			{
 				"id": "litellm.gettingStarted",
@@ -247,6 +267,17 @@
 						},
 						"completionEvents": [
 							"onCommand:workbench.action.openSettings"
+						]
+					},
+					{
+						"id": "litellm.walkthrough.generateCommit",
+						"title": "%litellm.walkthrough.generateCommit.title%",
+						"description": "%litellm.walkthrough.generateCommit.description%",
+						"media": {
+							"markdown": "assets/walkthrough/generate-commit.md"
+						},
+						"completionEvents": [
+							"onCommand:litellm.generateCommitMessage"
 						]
 					}
 				]
