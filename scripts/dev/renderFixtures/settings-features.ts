@@ -2,8 +2,9 @@
  * The Settings tab's inline-completions and commit-generation rows: both
  * feature groups with their booleans set, the inline model pick backed by a
  * served model (at rest for the dangling geometry pair), the commit model pick
- * DANGLING (its warning covers the description), a custom commit prompt, and
- * both language lists filled.
+ * DANGLING (its warning covers the description), a custom MULTILINE commit
+ * prompt (the auto-growing textarea's at-rest state), and both language lists
+ * filled.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
@@ -40,7 +41,13 @@ const fixture: RenderFixture = {
 						commitGeneration: { server: "removed-server", model: "claude-4" },
 					},
 					featureModelScopes: { inlineCompletions: "global", commitGeneration: "global" },
-					commitPrompt: "Write a Conventional Commits subject under 60 characters.",
+					// Three lines: the prompt box is a bounded auto-growing textarea, so
+					// the fixture prices a MULTILINE value at rest (between the two-row
+					// floor and the eight-row scroll ceiling) at every sweep width.
+					commitPrompt:
+						"Write a Conventional Commits subject under 60 characters.\n" +
+						"Then one blank line.\n" +
+						"Then a short body explaining why, wrapped at 72 columns.",
 					commitPromptScope: "global",
 					languageLists: {
 						allowedLanguages: { values: ["typescript", "python", "go"], lossy: false, scope: "global" },

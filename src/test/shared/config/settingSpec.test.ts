@@ -51,6 +51,7 @@ interface SettingSchema {
 	readonly additionalProperties?: boolean | { readonly type?: string | readonly string[] };
 	readonly description?: string;
 	readonly markdownDescription?: string;
+	readonly editPresentation?: string;
 	readonly enum?: readonly string[];
 	readonly properties?: Record<string, SettingSchema>;
 	readonly items?: SettingSchema & { readonly properties?: Record<string, SettingSchema> };
@@ -477,6 +478,9 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 		// built-in instruction wholesale; "" means the built-in applies.
 		assert.strictEqual(schema.enum, undefined);
 		assert.strictEqual(schema.default, "");
+		// Prose that may carry newlines: the native Settings UI must offer the
+		// multiline editor, matching the dashboard's textarea.
+		assert.strictEqual(schema.editPresentation, "multilineText");
 	});
 
 	test("the inline-completions language lists are contributed as string arrays defaulting to empty", () => {

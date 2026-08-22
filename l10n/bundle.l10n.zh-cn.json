@@ -581,7 +581,6 @@
 	"Modified in {0} settings": "已在{0}设置中修改",
 	"Modified in {0} settings (default: {1})": "已在{0}设置中修改 (默认值: {1})",
 	"Move your setup to another machine: Export writes your settings to a JSON file, and Import merges such a file back. Export includes secrets only if you ask it to.": "把配置搬到另一台机器: 「导出」会把你的设置写入一个 JSON 文件, 「导入」会把这样的文件合并回来。只有在你明确选择时, 导出才会包含密钥。",
-	"Multi-line prompt - edit in settings.json.": "多行提示词 - 请在 settings.json 中编辑。",
 	"Must be a JSON object, e.g. {0}.": "必须是 JSON 对象, 例如 {0}。",
 	"Must be a number greater than 0": "必须是大于 0 的数字",
 	"Must be a usable http(s) URL": "必须是可用的 http(s) URL",

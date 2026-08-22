@@ -581,7 +581,6 @@
 	"Modified in {0} settings": "已在{0}設定中修改",
 	"Modified in {0} settings (default: {1})": "已在{0}設定中修改 (預設: {1})",
 	"Move your setup to another machine: Export writes your settings to a JSON file, and Import merges such a file back. Export includes secrets only if you ask it to.": "把設定搬到另一台機器: 「匯出」會把您的設定寫入一個 JSON 檔案, 「匯入」會把這樣的檔案合併回來。只有在您明確選擇時, 匯出才會包含祕密。",
-	"Multi-line prompt - edit in settings.json.": "多行提示詞 - 請在 settings.json 中編輯。",
 	"Must be a JSON object, e.g. {0}.": "必須是 JSON 物件, 例如 {0}。",
 	"Must be a number greater than 0": "必須是大於 0 的數字",
 	"Must be a usable http(s) URL": "必須是可用的 http(s) URL",

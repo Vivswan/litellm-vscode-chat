@@ -681,7 +681,6 @@
 	"Modified in {0} settings": "Modified in {0} settings",
 	"Modified in {0} settings (default: {1})": "Modified in {0} settings (default: {1})",
 	"Move your setup to another machine: Export writes your settings to a JSON file, and Import merges such a file back. Export includes secrets only if you ask it to.": "Move your setup to another machine: Export writes your settings to a JSON file, and Import merges such a file back. Export includes secrets only if you ask it to.",
-	"Multi-line prompt - edit in settings.json.": "Multi-line prompt - edit in settings.json.",
 	"Must be a JSON object, e.g. {0}.": "Must be a JSON object, e.g. {0}.",
 	"Must be a number greater than 0": "Must be a number greater than 0",
 	"Must be a usable http(s) URL": "Must be a usable http(s) URL",

@@ -1767,11 +1767,12 @@ function FeatureModelRow({
 }
 
 /**
- * The commitGeneration.prompt row: one free-text input over the instruction. The empty
+ * The commitGeneration.prompt row: one free-text box over the instruction. The empty
  * string is the built-in instruction (the intent resets the setting); a draft past the
- * wire bound shows the bound and never commits, like the currency symbol. A stored
- * MULTILINE prompt renders read-only with the reveal button - a text input strips
- * newlines, so editing it here would silently flatten what settings.json holds.
+ * wire bound shows the bound and never commits, like the currency symbol. The box is a
+ * bounded auto-growing textarea - two rows at rest, eight before it scrolls inside
+ * itself - because the prompt is prose that may carry newlines: plain Enter breaks a
+ * line, so blur and Ctrl/Cmd+Enter commit, and the value round-trips verbatim.
  */
 function CommitPromptRow({
 	value,
@@ -1797,47 +1798,46 @@ function CommitPromptRow({
 			sendRequest("setCommitPrompt", { value: text });
 		}
 	};
-	// Any line separator disqualifies the box: a text input strips CR and LF
-	// alike, so editing here would silently flatten what settings.json holds.
-	const custom = /[\r\n]/.test(value);
 	return (
 		<SettingRow
 			settingId="commitGeneration.prompt"
 			title={l10n.t("Commit message prompt")}
-			titleFor={custom ? undefined : inputId}
+			titleFor={inputId}
 			description={commitPromptDescription()}
 			help={helpCommitPrompt()}
-			error={custom ? undefined : error}
+			error={error}
 			errorId={errorId}
 			configuredScope={configuredScope}
 			hidden={hidden}
 			control={
-				custom ? (
-					<>
-						<span className="font-mono whitespace-pre-wrap">{value}</span>
-						<span className="hint">{l10n.t("Multi-line prompt - edit in settings.json.")}</span>
-					</>
-				) : (
-					<Input
-						id={inputId}
-						type="text"
-						spellCheck={false}
-						// Prose grows sideways like the keyword list; the cap IS the control column.
-						className="w-full max-w-[20rem]"
-						maxLength={WIRE_LIMITS.commitPrompt}
-						placeholder={l10n.t("built-in instruction")}
-						aria-invalid={error !== undefined}
-						aria-describedby={error === undefined ? undefined : errorId}
-						value={text}
-						onChange={(event) => setText(event.currentTarget.value)}
-						onBlur={commit}
-						onKeyDown={(event) => {
-							if (event.key === "Enter") {
-								commit();
-							}
-						}}
-					/>
-				)
+				<textarea
+					id={inputId}
+					rows={2}
+					spellCheck={false}
+					// Prose grows sideways like the keyword list (the cap IS the control
+					// column) and DOWNWARD in place: field-sizing tracks the content
+					// between the two-row floor and the eight-row ceiling, then the box
+					// scrolls internally. 8px = the vertical padding plus the borders.
+					className="w-full max-w-[20rem] resize-none overflow-y-auto [field-sizing:content] min-h-[calc(2lh+8px)] max-h-[calc(8lh+8px)] rounded-(--radius-field) border border-input bg-input-background px-1.5 py-[3px] text-input-foreground placeholder:text-input-placeholder focus:outline-(length:--ring-w) focus:outline-offset-(--ring-offset-inset) focus:outline-ring focus:outline-solid aria-invalid:border-input-invalid"
+					maxLength={WIRE_LIMITS.commitPrompt}
+					placeholder={l10n.t("built-in instruction")}
+					aria-invalid={error !== undefined}
+					aria-describedby={error === undefined ? undefined : errorId}
+					value={text}
+					onChange={(event) => setText(event.currentTarget.value)}
+					onBlur={commit}
+					onKeyDown={(event) => {
+						// Plain Enter is a LINE BREAK here, never a commit: the flattening
+						// bug this box replaced. The modifier chord keeps a keyboard
+						// commit, because the panel dies when hidden and an uncommitted
+						// draft dies with it; preventDefault so the chord commits WITHOUT
+						// also editing the draft it just committed.
+						if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+							event.preventDefault();
+							commit();
+						}
+					}}
+				/>
 			}
 		/>
 	);

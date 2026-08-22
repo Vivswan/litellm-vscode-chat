@@ -754,6 +754,7 @@
 						"type": "string",
 						"maxLength": 8192,
 						"default": "",
+						"editPresentation": "multilineText",
 						"markdownDescription": "%litellm.config.commitGeneration.prompt.description%"
 					}
 				}

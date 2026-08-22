@@ -156,6 +156,10 @@ const THEME_ROW = '.setting-row:has([id="setting-ui.theme"])';
 const INLINE_MODEL_ROW = '.setting-row:has([id="setting-inlineCompletions.model"])';
 /** The commit model-picker row (settings-features.ts), at rest wearing the long vanished-server warning. */
 const COMMIT_MODEL_ROW = '.setting-row:has([id="setting-commitGeneration.model"])';
+/** The commit prompt row (settings-features.ts), whose bounded auto-growing textarea holds a three-line prompt at rest. */
+const COMMIT_PROMPT_ROW = '.setting-row:has([id="setting-commitGeneration.prompt"])';
+/** That row's textarea itself, the box whose growth the prompt pair measures. */
+const COMMIT_PROMPT_BOX = '[id="setting-commitGeneration.prompt"]';
 /** The usage-thresholds row, whose error contract is "the overlay never changes the row's height". */
 const THRESHOLDS_ROW = '.setting-row:has([id="setting-usage.alertThresholds-warning"])';
 /**
@@ -245,7 +249,12 @@ function reactType(selector: string, value: string): string {
 	return `(() => {
 		const input = document.querySelector(${JSON.stringify(selector)});
 		if (input === null) { throw new Error(${marker("SETUP", ": no element matches ")} + ${JSON.stringify(selector)}); }
-		const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+		let proto = Object.getPrototypeOf(input);
+		while (proto !== null && Object.getOwnPropertyDescriptor(proto, "value") === undefined) {
+			proto = Object.getPrototypeOf(proto);
+		}
+		if (proto === null) { throw new Error(${marker("SETUP", ": no value setter on ")} + ${JSON.stringify(selector)}); }
+		const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
 		input.focus({ preventScroll: true });
 		setter.call(input, ${JSON.stringify(value)});
 		input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -384,6 +393,37 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`(() => { const input = document.querySelector(${JSON.stringify(`${INLINE_MODEL_ROW} input[maxlength]`)}); ` +
 			`const buttons = Array.from(document.querySelectorAll(${JSON.stringify(`${INLINE_MODEL_ROW} button`)})); ` +
 			`return input !== null && buttons.some((candidate) => candidate.textContent === "Use model"); })()`,
+	},
+	{
+		// The commit prompt's bounded auto-growing textarea: typing more lines is
+		// the user-initiated change whose only intended delta is HEIGHT - the row
+		// AND the box itself are both held, so the box grows DOWNWARD in place
+		// while its x, y, and width hold. The verify also proves the growth
+		// actually happened AND stopped at the eight-row ceiling (internal scroll
+		// engaged), so a harness where the box cannot size to its content fails
+		// loudly instead of passing an unmoved row. No metricProbe on purpose:
+		// the box's height is lh-derived BY DESIGN, so it moves with font metrics.
+		name: "commit-prompt-textarea-grows",
+		fixture: "settings-features.ts",
+		targets: [COMMIT_PROMPT_ROW, COMMIT_PROMPT_BOX],
+		intended: { [COMMIT_PROMPT_ROW]: ["height"], [COMMIT_PROMPT_BOX]: ["height"] },
+		toggle: [
+			reactType(
+				COMMIT_PROMPT_BOX,
+				Array.from({ length: 12 }, (_, line) => `Keep commit subjects short (rule ${line + 1}).`).join("\n")
+			),
+		],
+		restVerify:
+			`(() => { const box = document.querySelector(${JSON.stringify(COMMIT_PROMPT_BOX)}); ` +
+			`if (box === null) { return false; } ` +
+			`window.__commitPromptRestHeight = box.getBoundingClientRect().height; ` +
+			`return box.value.split("\\n").length === 3 && window.__commitPromptRestHeight > 0; })()`,
+		verify:
+			`(() => { const box = document.querySelector(${JSON.stringify(COMMIT_PROMPT_BOX)}); ` +
+			`if (box === null) { return false; } ` +
+			`return box.value.split("\\n").length === 12 && ` +
+			`box.getBoundingClientRect().height > window.__commitPromptRestHeight + 1 && ` +
+			`box.scrollHeight > box.clientHeight + 1; })()`,
 	},
 	{
 		// The covered slot renders ONE truncated line however long the tenant,
@@ -930,17 +970,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`${JSON_PARAMS_FRAME} .record-json textarea`,
 			`${JSON_PARAMS_FRAME} .toolbar.editor-actions`,
 		],
-		toggle: [
-			`(() => {
-				const box = document.querySelector(${JSON.stringify(`${JSON_PARAMS_FRAME} .record-json textarea`)});
-				if (box === null) { throw new Error(${marker("SETUP", ": no JSON side-door textarea")}); }
-				const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
-				box.focus({ preventScroll: true });
-				setter.call(box, "not json");
-				box.dispatchEvent(new Event("input", { bubbles: true }));
-				box.blur();
-			})()`,
-		],
+		toggle: [reactType(`${JSON_PARAMS_FRAME} .record-json textarea`, "not json")],
 		restVerify: `document.querySelector(${JSON.stringify(`${JSON_PARAMS_FRAME} .json-status.error`)}) === null`,
 		verify:
 			`document.querySelector(${JSON.stringify(`${JSON_PARAMS_FRAME} .json-status.error`)})` +

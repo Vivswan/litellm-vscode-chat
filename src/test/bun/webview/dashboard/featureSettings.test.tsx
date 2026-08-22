@@ -4,6 +4,7 @@
  * language-list rows, and the commit prompt row.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
 import { SettingsSection } from "../../../../webview/dashboard/settings";
 import { makeSettings } from "../../../dashboardSettingsFixture";
 import { makeModel } from "../fixtures";
@@ -12,6 +13,7 @@ import {
 	fireBlur,
 	fireClick,
 	fireInput,
+	fireKeyDown,
 	fireSelect,
 	lastRequest,
 	mount,
@@ -53,6 +55,14 @@ function inputOf(root: ParentNode, settingId: string): HTMLInputElement {
 		throw new Error(`no input for setting ${settingId}`);
 	}
 	return input;
+}
+
+function textareaOf(root: ParentNode, settingId: string): HTMLTextAreaElement {
+	const box = root.querySelector(`#setting-${CSS.escape(settingId)}`);
+	if (!(box instanceof HTMLTextAreaElement)) {
+		throw new Error(`no textarea for setting ${settingId}`);
+	}
+	return box;
 }
 
 function rowOf(element: HTMLElement): HTMLElement {
@@ -232,32 +242,67 @@ test("a lossy stored language list renders read-only instead of being silently c
 test("the commit prompt commits verbatim on blur and clears with the empty string", () => {
 	const settings = makeSettings({ commitPrompt: "Old.", commitPromptScope: "global" });
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
-	const input = inputOf(root, "commitGeneration.prompt");
-	expect(input.value).toBe("Old.");
-	fireInput(input, "Subject only. ");
-	fireBlur(input);
-	fireInput(input, "");
-	fireBlur(input);
+	const box = textareaOf(root, "commitGeneration.prompt");
+	expect(box.value).toBe("Old.");
+	// The bound rides the control itself, so the wire limit cannot be out-typed.
+	expect(box.maxLength).toBe(WIRE_LIMITS.commitPrompt);
+	fireInput(box, "Subject only. ");
+	fireBlur(box);
+	fireInput(box, "");
+	fireBlur(box);
 	expect(postedCalls()).toEqual([
 		{ method: "setCommitPrompt", payload: { value: "Subject only. " } },
 		{ method: "setCommitPrompt", payload: { value: "" } },
 	]);
 });
 
-test("a multiline stored prompt renders read-only: a text input would silently flatten its newlines", () => {
-	// CR and LF both disqualify the box: text inputs strip either separator.
-	for (const prompt of ["Subject line.\nThen a body.", "Subject line.\rThen a body."]) {
-		cleanup();
-		resetPosted();
-		const settings = makeSettings({ commitPrompt: prompt, commitPromptScope: "global" });
-		const root = mount(<SettingsSection settings={settings} models={[]} />);
-		expect(root.querySelector("#setting-commitGeneration\\.prompt")).toBeNull();
-		const row = root.querySelector('.setting-row:has([aria-label="Open Commit message prompt in settings.json"])');
-		expect(row).not.toBeNull();
-		expect(row?.textContent ?? "").toContain("Subject line.");
-		expect(row?.textContent ?? "").toContain("Multi-line prompt");
-		expect(postedCalls()).toEqual([]);
-	}
+test("a multiline prompt renders editable and round-trips its newlines through the wire", () => {
+	// The textarea replaced the old read-only fallback, which existed only
+	// because a single-line text input flattens line separators.
+	const prompt = "Subject line.\nThen a body.";
+	const settings = makeSettings({ commitPrompt: prompt, commitPromptScope: "global" });
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	const box = textareaOf(root, "commitGeneration.prompt");
+	expect(box.value).toBe(prompt);
+	expect(root.textContent ?? "").not.toContain("Multi-line prompt");
+	// The row's title is a real label pointed at the textarea in every state.
+	const label = box.closest(".setting-row")?.querySelector('label[for="setting-commitGeneration.prompt"]');
+	expect(label?.textContent).toBe("Commit message prompt");
+	fireInput(box, `${prompt}\nAnd a closing line.`);
+	fireBlur(box);
+	expect(postedCalls()).toEqual([{ method: "setCommitPrompt", payload: { value: `${prompt}\nAnd a closing line.` } }]);
+});
+
+test("plain Enter never commits the prompt draft; Ctrl/Cmd+Enter keeps a keyboard commit", () => {
+	// Reinstating the old Enter-commits handler would flatten every newline the
+	// user types - the exact bug the textarea replaced - so its absence is pinned.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const box = textareaOf(root, "commitGeneration.prompt");
+	fireInput(box, "Subject.\nBody.");
+	const plain = fireKeyDown(box, "Enter");
+	expect(postedCalls()).toEqual([]);
+	// The line break stays the browser's: an unhandled Enter is not cancelled.
+	expect(plain.defaultPrevented).toBe(false);
+	const chord = fireKeyDown(box, "Enter", { ctrlKey: true });
+	expect(postedCalls()).toEqual([{ method: "setCommitPrompt", payload: { value: "Subject.\nBody." } }]);
+	// The chord is consumed whole: committing must not also edit the draft.
+	expect(chord.defaultPrevented).toBe(true);
+	resetPosted();
+	fireInput(box, "Subject.\nBody.\nMore.");
+	expect(fireKeyDown(box, "Enter", { metaKey: true }).defaultPrevented).toBe(true);
+	expect(postedCalls()).toEqual([{ method: "setCommitPrompt", payload: { value: "Subject.\nBody.\nMore." } }]);
+});
+
+test("a CR-separated stored prompt gets the same editable box: no separator disqualifies it", () => {
+	// The old fallback keyed on /[\r\n]/; both separators must now land in the
+	// textarea (the box may normalize CR to LF, so no byte-exact claim here).
+	const settings = makeSettings({ commitPrompt: "Subject line.\rThen a body.", commitPromptScope: "global" });
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	const box = textareaOf(root, "commitGeneration.prompt");
+	expect(box.value).toContain("Subject line.");
+	expect(box.value).toContain("Then a body.");
+	expect(root.textContent ?? "").not.toContain("Multi-line prompt");
+	expect(postedCalls()).toEqual([]);
 });
 
 test("the two feature groups render after UI in the manifest's order, booleans included", () => {
