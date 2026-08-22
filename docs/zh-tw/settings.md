@@ -44,7 +44,7 @@
 | `litellm-vscode-chat.models.parameters` | `{}` | 按模型的請求參數, 以[比對器](models.md#模型比對)為鍵。只送出您設定的。完整故事: [模型 - 參數](models.md#參數) |
 | `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆寫, 以[比對器](models.md#模型比對)為鍵: token 上限、視覺、工具、推理、定價 - 任何 `model_info` 欄位, 認識與否皆可; 詞彙表是開放的。完整故事: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.models.openRouterCatalog` | `true` | 用每週重新整理的 OpenRouter 公開目錄快照填補缺少的能力; 手動重新整理用 "LiteLLM: Refresh OpenRouter Catalog"。詳情含隱私說明: [模型 - 能力](models.md#能力) |
-| `litellm-vscode-chat.chat.timeout` | `300000` | 單次聊天補全的硬性時間預算, 毫秒。聊天請求從不重試, 所以這是一個請求可占用的總時間, 含串流。最小 1000; 更低的值會被箝制。為長推理運行或緩慢的基礎設施調大它 |
+| `litellm-vscode-chat.chat.timeout` | `300000` | 單次聊天補全呼叫和單次提交訊息產生呼叫的硬性時間預算, 毫秒。聊天請求從不重試, 所以這是一個請求可占用的總時間, 含串流。最小 1000; 更低的值會被箝制。為長推理運行或緩慢的基礎設施調大它 |
 | `litellm-vscode-chat.chat.maxToolsPerRequest` | `128` | 一次聊天請求最多可攜帶的工具數, 超過時延伸模組在本機拒絕該請求而不送出 (多數 OpenAI 相容伺服器強制 128)。調高到超出你的伺服器或模型接受的範圍, 只會把失敗移到伺服器端: 請求會被送出, 然後被伺服器拒絕。最小 1 |
 | `litellm-vscode-chat.chat.additionalToolSchemaKeywords` | `[]` | 工具輸入 schema 中額外保留的 JSON-Schema 關鍵字, 例如 `["propertyNames"]`。送出前工具 schema 會按內建關鍵字允許清單清理; 此處列出的關鍵字也會保留, 其值原樣透傳。內建允許清單始終生效。伺服器或模型不接受的關鍵字可能導致請求失敗或工具呼叫變差 |
 | `litellm-vscode-chat.chat.promptCaching` | `true` | 在宣告支援的模型上, 跨工作階段回合沿用提供者端的提示快取; [詳情見下](#提示快取) |

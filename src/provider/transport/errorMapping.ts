@@ -88,9 +88,11 @@ export interface MapErrorContext {
 	 * "completion" is the inline-completions /completions call: its errors
 	 * degrade silently in the editor, so the texts serve the log surfaces and
 	 * the dashboard's test probe, and they join discovery-style (the "\n" the
-	 * dashboard splits on).
+	 * dashboard splits on). "commitGeneration" is the commit-message
+	 * /chat/completions call, surfaced as a notification by its command
+	 * boundary and joined the same way.
 	 */
-	surface: "chat" | "discovery" | "completion";
+	surface: "chat" | "discovery" | "completion" | "commitGeneration";
 	baseUrl: string;
 	timeoutMs: number;
 }
@@ -207,6 +209,15 @@ export function timeoutMessage(ctx: MapErrorContext): string {
 		// named - advice to raise one would be a lie.
 		return l10n.t("LiteLLM inline completion request timed out after {0}ms.", ctx.timeoutMs);
 	}
+	if (ctx.surface === "commitGeneration") {
+		// The commit call runs under the chat timeout setting, so that IS the
+		// bound to raise - only the wording names the commit call.
+		return l10n.t(
+			'LiteLLM commit message generation timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
+			ctx.timeoutMs,
+			CONFIG_SECTION
+		);
+	}
 	return ctx.surface === "chat"
 		? l10n.t(
 				'LiteLLM request timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
@@ -224,6 +235,9 @@ export function timeoutMessage(ctx: MapErrorContext): string {
 function englishTimeoutMessage(ctx: MapErrorContext): string {
 	if (ctx.surface === "completion") {
 		return `LiteLLM inline completion request timed out after ${ctx.timeoutMs}ms.`;
+	}
+	if (ctx.surface === "commitGeneration") {
+		return `LiteLLM commit message generation timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`;
 	}
 	return ctx.surface === "chat"
 		? `LiteLLM request timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`
@@ -560,6 +574,24 @@ function completionHttpHeadline(cls: HttpErrorClass): LocalizedText {
 	return chatHttpHeadline(cls);
 }
 
+/**
+ * The commit-generation-surface headline: chat's vocabulary except where the
+ * chat advice would mislead a commit call - there is no conversation to trim,
+ * no attachments, and no new chat to start, only the change being described.
+ */
+function commitGenerationHttpHeadline(cls: HttpErrorClass): LocalizedText {
+	if (cls === "context_window_exceeded") {
+		return {
+			display: l10n.t(
+				"The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window."
+			),
+			english:
+				"The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window.",
+		};
+	}
+	return chatHttpHeadline(cls);
+}
+
 /** The discovery-surface headline per error class: what the failure means for the model list. */
 function discoveryHttpHeadline(cls: HttpErrorClass): LocalizedText {
 	switch (cls) {
@@ -701,7 +733,7 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
  * the chat, discovery, and OAuth token-endpoint callers.
  */
 interface SocketFailureContext {
-	endpoint: "chat" | "discovery" | "oauthToken" | "completion";
+	endpoint: "chat" | "discovery" | "oauthToken" | "completion" | "commitGeneration";
 	/** The surface whose two-part join renders the message; the token exchange fails toward its caller's surface. */
 	surface: MapErrorContext["surface"];
 	/** The URL the advice names: the server base URL, or the OAuth token endpoint. */
@@ -830,7 +862,8 @@ function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
 		};
 	}
 	// Discovery keeps its distinct framing of what was lost; the chat wording
-	// serves every other completion-style endpoint (the FIM path included).
+	// serves every other completion-style endpoint (the FIM and commit paths
+	// included).
 	return ctx.endpoint === "discovery"
 		? {
 				display: l10n.t(
@@ -1030,6 +1063,24 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 					englishMessage: texts.englishMessage,
 				});
 			}
+			if (ctx.surface === "commitGeneration") {
+				// Sync Models refreshes the chat catalog, which the commit model
+				// setting never reads - the advice is the setting itself.
+				const headline: LocalizedText = {
+					display: l10n.t(
+						"The server did not recognize this commit message request. Check that the configured commit message model is one the server still serves."
+					),
+					english:
+						"The server did not recognize this commit message request. Check that the configured commit message model is one the server still serves.",
+				};
+				const texts = twoPartTexts("commitGeneration", headline, detail);
+				return new RequestError(texts.message, "http", {
+					status: 404,
+					cause: err,
+					logClassification: "RequestError(http, status 404, commitGeneration)",
+					englishMessage: texts.englishMessage,
+				});
+			}
 			// "LiteLLM: Sync Models Now" is the palette title package.json
 			// contributes (the manageCommandTitle mirror pattern).
 			const headline: LocalizedText = {
@@ -1054,7 +1105,9 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				? discoveryHttpHeadline(cls)
 				: ctx.surface === "completion"
 					? completionHttpHeadline(cls)
-					: chatHttpHeadline(cls);
+					: ctx.surface === "commitGeneration"
+						? commitGenerationHttpHeadline(cls)
+						: chatHttpHeadline(cls);
 		const detail =
 			ctx.surface === "discovery"
 				? discoveryHttpDetail(err.status, err, envelope)
@@ -1131,17 +1184,25 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			const chainText = chainDetail(chain, topMessage);
 			if (ctx.surface !== "discovery") {
 				const detail = `Connection to ${displayUrl(ctx.baseUrl)} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
-				const texts = twoPartTexts(
-					ctx.surface,
-					{
-						display: l10n.t(
-							"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
-						),
-						english:
-							"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
-					},
-					detail
-				);
+				// The commit call is non-streaming, so a dropped connection leaves
+				// no cut-short answer - nothing was generated at all.
+				const headline: LocalizedText =
+					ctx.surface === "commitGeneration"
+						? {
+								display: l10n.t(
+									"The connection dropped before the reply arrived, so no commit message was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
+								),
+								english:
+									"The connection dropped before the reply arrived, so no commit message was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+							}
+						: {
+								display: l10n.t(
+									"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
+								),
+								english:
+									"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+							};
+				const texts = twoPartTexts(ctx.surface, headline, detail);
 				return new RequestError(texts.message, "network", {
 					cause: err,
 					englishMessage: texts.englishMessage,
@@ -1187,7 +1248,10 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	// Arbitrary error text can quote a credentialed URL verbatim; scrubbed by
 	// construction rather than argued unreachable.
 	const text = compactText(redactUrlCredentials(typeof rawText === "string" ? rawText : ""), 300);
-	const detail = `Unexpected ${name} during the ${ctx.surface} request to ${displayUrl(ctx.baseUrl)}${text !== "" ? `: ${text}` : ""}`;
+	// The camelCase surface id stays in logClassification; the detail line is
+	// prose, so the commit surface gets a readable phrase.
+	const surfacePhrase = ctx.surface === "commitGeneration" ? "commit generation" : ctx.surface;
+	const detail = `Unexpected ${name} during the ${surfacePhrase} request to ${displayUrl(ctx.baseUrl)}${text !== "" ? `: ${text}` : ""}`;
 	const tailHeadline: LocalizedText = {
 		display: l10n.t(
 			"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it."

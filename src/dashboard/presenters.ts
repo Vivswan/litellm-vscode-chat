@@ -505,7 +505,7 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "chat.timeout":
 			return {
 				label: l10n.t("Request timeout"),
-				description: l10n.t("Hard bound for one chat completion call."),
+				description: l10n.t("Hard bound for one chat completion or commit-generation call."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 			};
 		case "chat.maxToolsPerRequest":

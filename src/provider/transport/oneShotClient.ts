@@ -17,8 +17,9 @@ import { parseCompletionText } from "./fim";
  * the shared auth overlay for its headers.
  *
  * Error ownership follows the transport-module convention: construct specific
- * errors through the existing chat-surface constructors and throw WITHOUT
- * logging; the caller's boundary logs once. Cancellation surfaces as
+ * errors through the shared error pipeline - each call under its own error
+ * surface ("commitGeneration", "completion") - and throw WITHOUT logging;
+ * the caller's boundary logs once. Cancellation surfaces as
  * vscode.CancellationError and is never logged.
  */
 
@@ -129,7 +130,7 @@ export class OneShotClient {
 			stream: false,
 			...(request.maxTokens !== undefined ? { max_tokens: request.maxTokens } : {}),
 		});
-		return oneShotContentOf(await this.postJson(url, body, connection, "chat", opts));
+		return oneShotContentOf(await this.postJson(url, body, connection, "commitGeneration", opts));
 	}
 
 	/**

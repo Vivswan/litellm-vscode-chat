@@ -123,7 +123,7 @@ Two settings turn it on - the opt-in and an explicit model choice (the label of 
 "litellm-vscode-chat.commitGeneration.model": { "server": "local", "model": "gpt-4o-mini" }
 ```
 
-A sparkle button appears in the Source Control title bar, and "LiteLLM: Generate Commit Message" appears in the palette. Either one sends your staged diff - or the working-tree diff plus untracked file names when nothing is staged - to that model and writes the drafted message into the commit box. Your last five commit subjects ride along as style examples, so the draft follows your repository's conventions.
+A sparkle button appears in the Source Control title bar, and "LiteLLM: Generate Commit Message" appears in the palette. Either one sends your staged diff - or the working-tree diff plus untracked file names when nothing is staged - to that model and writes the drafted message into the commit box. Your last five commit subjects ride along as style examples, so the draft follows your repository's conventions. The request is bounded: the diff is truncated at 80,000 characters, and at most 100 untracked paths are listed, with a count standing in for the rest.
 
 This differs from pointing Copilot's own `chat.utilitySmallModel` slot at a LiteLLM model ([Copilot model slots](models.md#copilot-model-slots)): it needs no Copilot subscription, the instruction text is yours to change, and the style examples come from your repository's history. The built-in instruction, replaced wholesale by anything you put in `litellm-vscode-chat.commitGeneration.prompt`:
 
@@ -134,7 +134,7 @@ When the change needs explanation, add a blank line and a short body of one to t
 Answer with the commit message text only: no markdown fences, no surrounding quotes, no commentary.
 ```
 
-Privacy and cost work like chat: the diff and untracked file names go only to the LiteLLM server you configured, on your explicit invocation, and the request counts toward the same [usage tracking and budget alerts](usage.md) as everything else.
+Privacy and cost work like chat: the diff, untracked file names, and your last five commit subjects go only to the LiteLLM server you configured, on your explicit invocation, and the request counts toward the same [usage tracking and budget alerts](usage.md) as everything else.
 
 ### Get inline completions from a LiteLLM model
 

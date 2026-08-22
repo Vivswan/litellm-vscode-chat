@@ -154,7 +154,7 @@
 }
 ```
 
-扩展用凭据换取一个短期 bearer 令牌, 在发往该服务器的每个请求上作为 `Authorization` 发送, 并在其过期前不久刷新。交换在每个请求上都受 `discovery.timeout` 约束 - 它是身份验证管道, 不是聊天调用, 所以身份提供方缓慢时要调高的是 `discovery.timeout`, 而不是 `chat.timeout`; 在聊天请求上, 交换同时也计入 `chat.timeout` 的整体预算。被拒绝的令牌会被丢弃, 下一个请求会获取新令牌。
+扩展用凭据换取一个短期 bearer 令牌, 在发往该服务器的每个请求上作为 `Authorization` 发送, 并在其过期前不久刷新。在聊天和发现请求上, 交换受 `discovery.timeout` 约束 - 它是身份验证管道, 不是聊天调用, 所以身份提供方缓慢时要调高的是 `discovery.timeout`, 而不是 `chat.timeout`; 在聊天请求上, 交换同时也计入 `chat.timeout` 的整体预算。提交消息生成和内联补全调用则以各自的整体调用预算约束交换 (`chat.timeout` 和内联补全的固定超时)。被拒绝的令牌会被丢弃, 下一个请求会获取新令牌。
 
 **伴随凭据** - 有些企业网关同时检查两个凭据: OAuth bearer 向身份提供方证明你的身份, 而第二个标头中的 LiteLLM 密钥告诉代理该向哪个预算或团队计费。由于 `Authorization` 已被 bearer 占用, 第二个凭据走自己的标头:
 

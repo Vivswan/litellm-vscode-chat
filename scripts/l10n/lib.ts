@@ -123,6 +123,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"createFimSend",
 	"wireInlineCompletions",
 	"completionHttpHeadline",
+	"commitGenerationHttpHeadline",
 	"secretPaletteLabel",
 	"numberSettingPresentation",
 	"booleanSettingPresentation",

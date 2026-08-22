@@ -8,7 +8,7 @@
 
 两种等价的编辑方式:
 
-- **设置 UI / settings.json** - `Ctrl+,` / `Cmd+,`, 搜索 "litellm-vscode-chat"。设置分组为几个区块 (服务器、模型、聊天、发现、用量、UI、内联补全、提交信息生成)。
+- **设置 UI / settings.json** - `Ctrl+,` / `Cmd+,`, 搜索 "litellm-vscode-chat"。设置分组为几个区块 (服务器、模型、聊天、发现、用量、UI、内联补全、提交消息生成)。
 - **仪表板** - "LiteLLM: Open Dashboard", 设置区块。同样的值以表单控件呈现, 验证、单位和默认值就地显示; 已配置的行说明其值存放在哪里, 「重置」清除该作用域。见[仪表板](dashboard.md)。
 
 | 事实 | 细节 |
@@ -44,7 +44,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.models.parameters` | `{}` | 按模型的请求参数, 以[匹配器](models.md#模型匹配)为键。只发送你设置的。完整故事: [模型 - 参数](models.md#参数) |
 | `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆盖, 以[匹配器](models.md#模型匹配)为键: token 限制、视觉、工具、推理、定价 - 任何 `model_info` 字段, 认识与否皆可; 词汇表是开放的。完整故事: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.models.openRouterCatalog` | `true` | 用每周刷新的 OpenRouter 公开目录快照填补缺失的能力; 手动刷新用 "LiteLLM: Refresh OpenRouter Catalog"。详情含隐私说明: [模型 - 能力](models.md#能力) |
-| `litellm-vscode-chat.chat.timeout` | `300000` | 单次聊天补全的硬性时间预算, 毫秒。聊天请求从不重试, 所以这是一个请求可占用的总时间, 含流式传输。最小 1000; 更低的值会被钳制。为长推理运行或缓慢的基础设施调大它 |
+| `litellm-vscode-chat.chat.timeout` | `300000` | 单次聊天补全调用和单次提交消息生成调用的硬性时间预算, 毫秒。聊天请求从不重试, 所以这是一个请求可占用的总时间, 含流式传输。最小 1000; 更低的值会被钳制。为长推理运行或缓慢的基础设施调大它 |
 | `litellm-vscode-chat.chat.maxToolsPerRequest` | `128` | 一次聊天请求最多可携带的工具数, 超过时扩展在本地拒绝该请求而不发送 (多数 OpenAI 兼容服务器强制 128)。调大到超出你的服务器或模型接受的范围, 只会把失败移到服务器端: 请求会被发送, 然后被服务器拒绝。最小 1 |
 | `litellm-vscode-chat.chat.additionalToolSchemaKeywords` | `[]` | 工具输入 schema 中额外保留的 JSON-Schema 关键字, 例如 `["propertyNames"]`。发送前工具 schema 会按内置关键字白名单清理; 此处列出的关键字也会保留, 其值原样透传。内置白名单始终生效。服务器或模型不接受的关键字可能导致请求失败或工具调用变差 |
 | `litellm-vscode-chat.chat.promptCaching` | `true` | 在宣布支持的模型上, 跨会话轮次复用提供方侧的提示缓存; [详情见下](#提示缓存) |
@@ -66,9 +66,9 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.inlineCompletions.model` | `null` | 提供内联补全的模型: `{ "server": "<条目 label>", "model": "<原始模型 ID>" }`, 指向一个 `servers` 条目及其一个模型 ID。模型始终由你显式选择 - 从不自动挑选; `null` 使功能保持闲置 |
 | `litellm-vscode-chat.inlineCompletions.allowedLanguages` | `[]` | 允许内联补全运行的 VS Code 语言 ID (精确匹配), 例如 `["typescript", "python"]`。留空允许所有语言; 同时列在 `blockedLanguages` 中的语言仍被屏蔽 (屏蔽优先于允许) |
 | `litellm-vscode-chat.inlineCompletions.blockedLanguages` | `[]` | 禁止内联补全运行的 VS Code 语言 ID (精确匹配), 例如 `["markdown", "plaintext"]`。留空不屏蔽任何语言; 屏蔽优先于允许 |
-| `litellm-vscode-chat.commitGeneration.enabled` | `false` | 选择启用由 LiteLLM 模型生成提交信息, 随提交信息生成功能一起交付。默认关闭: 启用前命令保持隐藏、不发送任何请求; 只启用而不设置 `commitGeneration.model` 时功能保持闲置 |
-| `litellm-vscode-chat.commitGeneration.model` | `null` | 起草提交信息的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
-| `litellm-vscode-chat.commitGeneration.prompt` | `""` | 生成提交信息时使用的自定义指令, 会整体替换内置指令。留空使用内置指令 (Conventional Commits 主题行加简短正文)。面向模型的文本, 按原样发送 |
+| `litellm-vscode-chat.commitGeneration.enabled` | `false` | 选择启用由 LiteLLM 模型生成提交消息, 随提交消息生成功能一起交付。默认关闭: 启用前命令保持隐藏、不发送任何请求; 只启用而不设置 `commitGeneration.model` 时功能保持闲置 |
+| `litellm-vscode-chat.commitGeneration.model` | `null` | 起草提交消息的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
+| `litellm-vscode-chat.commitGeneration.prompt` | `""` | 生成提交消息时使用的自定义指令, 会整体替换内置指令。留空使用内置指令 (Conventional Commits 主题行加简短正文)。面向模型的文本, 按原样发送 |
 
 有意不提供全局标头设置: 自定义 HTTP 标头描述的是如何与某一个服务器交谈, 所以它们存放在服务器条目上 ([`headers`](servers.md#自定义标头)) - 机器作用域, 在 Settings Sync 够不到的地方, 与全局设置不同。
 

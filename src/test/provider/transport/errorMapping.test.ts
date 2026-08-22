@@ -26,6 +26,7 @@ import { assertShows, assertStartsWith } from "../../pureHelpers";
 
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };
+const commitCtx: MapErrorContext = { surface: "commitGeneration", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 
 /**
  * The cause chain the SDK produces for transport failures: its "Connection
@@ -810,6 +811,14 @@ suite("provider/transport/errorMapping", () => {
 				"the deepest cause stays in the detail line"
 			);
 			assert.strictEqual(mapped.cause, err);
+			// The commit call is non-streaming: no partial answer exists, so the
+			// "cut short" wording would be false there.
+			const commit = expectRequestError(mapSdkError(err, commitCtx), "network");
+			assertStartsWith(
+				commit.message,
+				"The connection dropped before the reply arrived, so no commit message was generated"
+			);
+			assert.ok(!commit.message.includes("cut short"), "a non-streaming call leaves nothing to cut short");
 			const disco = expectRequestError(mapSdkError(err, discoveryCtx), "network");
 			assertStartsWith(disco.message, "The connection to http://litellm.test dropped while fetching models");
 			assert.ok(disco.message.endsWith("\nterminated (cause: other side closed)"), disco.message);
@@ -1178,12 +1187,19 @@ suite("provider/transport/errorMapping", () => {
 			const cases: Error[] = [
 				mapSdkError(new APIConnectionTimeoutError(), chatCtx),
 				mapSdkError(new APIConnectionTimeoutError(), discoveryCtx),
+				mapSdkError(new APIConnectionTimeoutError(), commitCtx),
 				mapSdkError(new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()), chatCtx),
 				mapSdkError(new AuthenticationError(401, upstream401, undefined, new Headers()), chatCtx),
 				mapSdkError(new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()), chatCtx),
 				mapSdkError(new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()), discoveryCtx),
+				mapSdkError(new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()), commitCtx),
+				mapSdkError(
+					new APIError(400, { error: { message: "maximum context length is 8192 tokens" } }, undefined, new Headers()),
+					commitCtx
+				),
 				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), chatCtx),
 				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), discoveryCtx),
+				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), commitCtx),
 				mapSdkError(new APIUserAbortError(), chatCtx),
 				mapSdkError(
 					connectionError(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })),
@@ -1204,6 +1220,12 @@ suite("provider/transport/errorMapping", () => {
 						cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
 					}),
 					discoveryCtx
+				),
+				mapSdkError(
+					Object.assign(new TypeError("terminated"), {
+						cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
+					}),
+					commitCtx
 				),
 				streamErrorFrame({ message: "upstream died" }),
 			];

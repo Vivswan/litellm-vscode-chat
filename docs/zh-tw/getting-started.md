@@ -123,7 +123,7 @@ LiteLLM 狀態列項目 (右下角) 一眼呈現連線狀態 - 勾號 (`$(check)
 "litellm-vscode-chat.commitGeneration.model": { "server": "local", "model": "gpt-4o-mini" }
 ```
 
-原始檔控制標題列會出現一個閃光按鈕, 命令選擇區也會新增 "LiteLLM: Generate Commit Message"。兩者都會把您已暫存的差異 (未暫存任何內容時則是工作區差異加上未追蹤檔案名稱) 送給該模型, 並把草擬的訊息寫入提交框。您最近五筆提交主旨會作為風格範例一同送出, 因此草稿會遵循您儲存庫的慣例。
+原始檔控制標題列會出現一個閃光按鈕, 命令選擇區也會新增 "LiteLLM: Generate Commit Message"。兩者都會把您已暫存的差異 (未暫存任何內容時則是工作區差異加上未追蹤檔案名稱) 送給該模型, 並把草擬的訊息寫入提交框。您最近五筆提交主旨會作為風格範例一同送出, 因此草稿會遵循您儲存庫的慣例。要求有固定上限: 差異在 80,000 個字元處截斷, 未追蹤路徑最多列出 100 條, 其餘以數量標註代替。
 
 這與把 Copilot 自己的 `chat.utilitySmallModel` 插槽指向 LiteLLM 模型 ([Copilot 模型插槽](models.md#copilot-模型插槽)) 不同: 它不需要 Copilot 訂閱, 指令文字由您修改, 風格範例來自您儲存庫的歷史。內建指令如下 (面向模型的文字, 保持英文), `litellm-vscode-chat.commitGeneration.prompt` 中的任何內容都會整體取代它:
 
@@ -134,7 +134,7 @@ When the change needs explanation, add a blank line and a short body of one to t
 Answer with the commit message text only: no markdown fences, no surrounding quotes, no commentary.
 ```
 
-隱私與成本和聊天一致: 差異和未追蹤檔案名稱只在您明確叫用時送到您設定的 LiteLLM 伺服器, 請求計入與其他請求相同的[用量追蹤與預算警示](usage.md)。
+隱私與成本和聊天一致: 差異、未追蹤檔案名稱和您最近五筆提交主旨只在您明確叫用時送到您設定的 LiteLLM 伺服器, 請求計入與其他請求相同的[用量追蹤與預算警示](usage.md)。
 
 ### 用 LiteLLM 模型取得內嵌補全
 

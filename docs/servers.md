@@ -154,7 +154,7 @@ For gateways behind an identity provider that reject static keys:
 }
 ```
 
-The extension exchanges the credentials for a short-lived bearer token, sends it as `Authorization` on every request to the server, and refreshes it shortly before expiry. The exchange is bounded by `discovery.timeout` on every request - it is auth plumbing, not a chat call, so a slow identity provider needs `discovery.timeout` raised, not `chat.timeout`; on chat requests the exchange also counts inside `chat.timeout`'s whole-call budget. A rejected token is discarded so the next request fetches a fresh one.
+The extension exchanges the credentials for a short-lived bearer token, sends it as `Authorization` on every request to the server, and refreshes it shortly before expiry. On chat and discovery requests the exchange is bounded by `discovery.timeout` - it is auth plumbing, not a chat call, so a slow identity provider needs `discovery.timeout` raised, not `chat.timeout`; on chat requests the exchange also counts inside `chat.timeout`'s whole-call budget. Commit-generation and inline-completion calls instead bound the exchange by their own whole-call budget (`chat.timeout` and the fixed inline-completion timeout). A rejected token is discarded so the next request fetches a fresh one.
 
 **Companions** - some corporate gateways check two credentials at once: the OAuth bearer proves you to the identity provider, while a LiteLLM key in a second header tells the proxy which budget or team to bill. Since `Authorization` is already taken by the bearer, the second credential rides its own header:
 

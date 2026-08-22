@@ -33,7 +33,7 @@ const UPSTREAM_AUTH_MESSAGE =
 	"Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.";
 
 const ctxArb: fc.Arbitrary<MapErrorContext> = fc.record({
-	surface: fc.constantFrom("chat", "discovery"),
+	surface: fc.constantFrom<MapErrorContext["surface"]>("chat", "discovery", "completion", "commitGeneration"),
 	baseUrl: fc.constantFrom("http://litellm.test", "https://proxy.internal:4000/v1", "http://localhost:4000/"),
 	timeoutMs: fc.integer({ min: 1, max: 3_600_000 }),
 });
@@ -178,13 +178,18 @@ suite("provider/errorMapping properties", () => {
 					assert.strictEqual(mapped.kind, status === 401 ? "auth" : "http");
 					assert.notStrictEqual(mapped.kind, "network", "a status-bearing error must never classify as network");
 					if (status === 404) {
-						// 404 has its own guidance branch: chat leads with the removed-model
-						// advice, discovery with the base-URL advice that
-						// docs/troubleshooting.md quotes.
+						// 404 has its own guidance branch per surface: chat leads with the
+						// removed-model advice, discovery with the base-URL advice that
+						// docs/troubleshooting.md quotes, and the one-shot surfaces with
+						// their own model-setting advice.
 						const prefix =
 							ctx.surface === "chat"
 								? "The server did not recognize this request"
-								: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404`;
+								: ctx.surface === "completion"
+									? "The server did not recognize this completion request"
+									: ctx.surface === "commitGeneration"
+										? "The server did not recognize this commit message request"
+										: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404`;
 						assert.ok(mapped.message.startsWith(prefix), mapped.message);
 						assert.strictEqual(mapped.setupHint, ctx.surface === "discovery" ? "check-base-url" : undefined);
 					} else if (status !== 401) {
@@ -205,7 +210,9 @@ suite("provider/errorMapping properties", () => {
 							detail = lines[1] ?? "";
 						}
 						const marker =
-							ctx.surface === "chat" ? new RegExp(`^LiteLLM ${status}\\b`) : new RegExp(`^(LiteLLM|HTTP) ${status}\\b`);
+							ctx.surface === "discovery"
+								? new RegExp(`^(LiteLLM|HTTP) ${status}\\b`)
+								: new RegExp(`^LiteLLM ${status}\\b`);
 						assert.match(detail, marker, mapped.message);
 						assert.ok(!detail.includes('{"error"'), `never a re-serialized envelope: ${mapped.message}`);
 					}
@@ -223,7 +230,7 @@ suite("provider/errorMapping properties", () => {
 		// English fallback; the englishMessage leg is locale-independent.
 		fc.assert(
 			fc.property(
-				fc.constantFrom<MapErrorContext["surface"]>("chat", "discovery"),
+				fc.constantFrom<MapErrorContext["surface"]>("chat", "discovery", "completion", "commitGeneration"),
 				fc.string(),
 				fc.string(),
 				fc.string(),
@@ -252,7 +259,17 @@ suite("provider/errorMapping properties", () => {
 				assert.strictEqual(timedOut.status, undefined);
 				assert.strictEqual(timedOut.message, timeoutMessage(ctx));
 				assert.ok(timedOut.message.includes(`${ctx.timeoutMs}ms`));
-				assert.ok(timedOut.message.includes(ctx.surface === "chat" ? "chat.timeout" : "discovery.timeout"));
+				// Per-surface setting advice: the FIM bound is fixed in code, so
+				// the completion surface names no setting; commit generation runs
+				// under chat.timeout like chat itself.
+				if (ctx.surface === "completion") {
+					assert.ok(!timedOut.message.includes("setting"), timedOut.message);
+				} else {
+					assert.ok(
+						timedOut.message.includes(ctx.surface === "discovery" ? "discovery.timeout" : "chat.timeout"),
+						timedOut.message
+					);
+				}
 
 				// This layer maps SDK aborts to kind "aborted"; converting a
 				// cancellation to vscode.CancellationError is the caller's concern.

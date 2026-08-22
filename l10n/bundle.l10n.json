@@ -100,8 +100,8 @@
 	"A deeper reasoning tier above High, on models that offer one": "A deeper reasoning tier above High, on models that offer one",
 	"A default.": "A default.",
 	"A gateway in front of the server could not reach it while listing models.": "A gateway in front of the server could not reach it while listing models.",
-	"A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
-		"message": "A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
+	"A hard bound on the whole chat or commit-generation call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
+		"message": "A hard bound on the whole chat or commit-generation call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
 		"comment": [
 			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
 		]
@@ -415,10 +415,10 @@
 	"Forcing \"{0}\" has no effect: provider-owned and _ fields stay extension-owned.": "Forcing \"{0}\" has no effect: provider-owned and _ fields stay extension-owned.",
 	"Generate Commit Message": "Generate Commit Message",
 	"Generating commit message...": "Generating commit message...",
-	"Generating sends the change diff to your LiteLLM server.": "Generating sends the change diff to your LiteLLM server.",
+	"Generating sends the diff, untracked file names, and your last five commit subjects to your LiteLLM server.": "Generating sends the diff, untracked file names, and your last five commit subjects to your LiteLLM server.",
 	"Ghost text suggestions from a LiteLLM model. Requires enabling this and choosing a model below.": "Ghost text suggestions from a LiteLLM model. Requires enabling this and choosing a model below.",
 	"GitHub repository": "GitHub repository",
-	"Hard bound for one chat completion call.": "Hard bound for one chat completion call.",
+	"Hard bound for one chat completion or commit-generation call.": "Hard bound for one chat completion or commit-generation call.",
 	"Hard bound for one model discovery call.": "Hard bound for one model discovery call.",
 	"Header name": "Header name",
 	"Header value": "Header value",
@@ -464,6 +464,7 @@
 	"Inherits": "Inherits",
 	"Inline completions": "Inline completions",
 	"Inline completions model": "Inline completions model",
+	"Inline completions send nearby file text to your LiteLLM server as you type.": "Inline completions send nearby file text to your LiteLLM server as you type.",
 	"Input tokens": "Input tokens",
 	"Input/Pricing row label: cost of input tokens": {
 		"message": "Input",
@@ -502,6 +503,7 @@
 	"Lets more specific matching records inherit this field, e.g. a * record's temperature reaching gpt-5.6. Unchecked, a more specific record replaces this record wholesale.": "Lets more specific matching records inherit this field, e.g. a * record's temperature reaching gpt-5.6. Unchecked, a more specific record replaces this record wholesale.",
 	"Listed by": "Listed by",
 	"LiteLLM answered {0} with a missing response body ({1})": "LiteLLM answered {0} with a missing response body ({1})",
+	"LiteLLM commit message generation timed out after {0}ms. Increase the \"{1}.chat.timeout\" setting if your model needs more time.": "LiteLLM commit message generation timed out after {0}ms. Increase the \"{1}.chat.timeout\" setting if your model needs more time.",
 	"LiteLLM inline completion request timed out after {0}ms.": "LiteLLM inline completion request timed out after {0}ms.",
 	"LiteLLM inline suggestions: active for {0}": "LiteLLM inline suggestions: active for {0}",
 	"LiteLLM inline suggestions: no model selected": "LiteLLM inline suggestions: no model selected",
@@ -964,7 +966,6 @@
 	"Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value.": "Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value.",
 	"Success rate": "Success rate",
 	"Suggestions": "Suggestions",
-	"Suggestions send nearby file text to your LiteLLM server as you type.": "Suggestions send nearby file text to your LiteLLM server as you type.",
 	"Support": "Support",
 	"Supported parameters": "Supported parameters",
 	"Sync Models Now always asks the servers immediately, whatever this says; type 1h, 30m, or 0 to refresh every time.": "Sync Models Now always asks the servers immediately, whatever this says; type 1h, 30m, or 0 to refresh every time.",
@@ -987,9 +988,11 @@
 	"The built-in Git extension is unavailable, so there is no repository to describe.": "The built-in Git extension is unavailable, so there is no repository to describe.",
 	"The built-in set always applies; keywords your server rejects can fail requests. Unlisted keywords are stripped before sending.": "The built-in set always applies; keywords your server rejects can fail requests. Unlisted keywords are stripped before sending.",
 	"The change was not applied; see the LiteLLM output log.": "The change was not applied; see the LiteLLM output log.",
+	"The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window.": "The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window.",
 	"The commit model setting names server \"{0}\", but no servers entry carries that label. Update the \"{1}\" setting.": "The commit model setting names server \"{0}\", but no servers entry carries that label. Update the \"{1}\" setting.",
 	"The completion was refused: the code context around the cursor is too long for this model.": "The completion was refused: the code context around the cursor is too long for this model.",
 	"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.": "The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+	"The connection dropped before the reply arrived, so no commit message was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server.": "The connection dropped before the reply arrived, so no commit message was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
 	"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.": "The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
 	"The conversation is too long for this model - trim it, remove attachments, or start a new chat.": "The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
 	"The deepest reasoning tier, on models that offer one": "The deepest reasoning tier, on models that offer one",
@@ -1032,6 +1035,7 @@
 	"The server answered but listed no models.": "The server answered but listed no models.",
 	"The server answered with an unexpected error.": "The server answered with an unexpected error.",
 	"The server answered without a completion. Check that the model is a text-completion (FIM) model served on /completions.": "The server answered without a completion. Check that the model is a text-completion (FIM) model served on /completions.",
+	"The server did not recognize this commit message request. Check that the configured commit message model is one the server still serves.": "The server did not recognize this commit message request. Check that the configured commit message model is one the server still serves.",
 	"The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves.": "The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves.",
 	"The server did not recognize this request - the model may have been removed from the proxy. Run \"{0}\" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).": "The server did not recognize this request - the model may have been removed from the proxy. Run \"{0}\" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).",
 	"The server entry \"{0}\" changed while the prompts were open, so nothing was stored. Run the command again.": "The server entry \"{0}\" changed while the prompts were open, so nothing was stored. Run the command again.",

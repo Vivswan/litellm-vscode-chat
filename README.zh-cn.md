@@ -74,7 +74,7 @@ bun run compile
 
 ## 隐私
 
-你的提示和补全只在 VS Code 与你配置的 LiteLLM 服务器之间传输。启用内联补全后, 光标周围的文件内容会在你输入时自动发送到你为它配置的 LiteLLM 服务器 - 与聊天是同一个信任边界, 但少了你逐次请求的动作, 这也正是该功能默认关闭并要求显式指定模型的原因。当你调用提交消息生成时, 已暂存或工作区的差异以及未跟踪文件的名称会发送到你为它配置的 LiteLLM 服务器 - 仅在你显式调用时发送, 并计入与聊天相同的用量跟踪和预算警报。一个默认开启的例外: 扩展约每周从 `https://openrouter.ai/api/v1/models` 刷新一次内置的模型能力目录, 这是一个公开的、无需身份验证的模型列表 - 该请求不携带提示、不携带用量, 也不携带任何关于你或你的服务器的信息。把 `litellm-vscode-chat.models.openRouterCatalog` 设为 `false` 可关闭刷新和自动匹配; 显式的 `_openrouter_model` 指令继续离线工作于内置快照。详情见[模型能力](docs/zh-cn/models.md#openrouter-目录)和[隐私与数据](docs/zh-cn/troubleshooting.md#隐私与数据)。
+你的提示和补全只在 VS Code 与你配置的 LiteLLM 服务器之间传输。启用内联补全后, 光标周围的文件内容会在你输入时自动发送到你为它配置的 LiteLLM 服务器 - 与聊天是同一个信任边界, 但少了你逐次请求的动作, 这也正是该功能默认关闭并要求显式指定模型的原因。当你调用提交消息生成时, 已暂存或工作区的差异、未跟踪文件的名称以及你最近五条提交主题会发送到你为它配置的 LiteLLM 服务器 - 仅在你显式调用时发送, 并计入与聊天相同的用量跟踪和预算警报。一个默认开启的例外: 扩展约每周从 `https://openrouter.ai/api/v1/models` 刷新一次内置的模型能力目录, 这是一个公开的、无需身份验证的模型列表 - 该请求不携带提示、不携带用量, 也不携带任何关于你或你的服务器的信息。把 `litellm-vscode-chat.models.openRouterCatalog` 设为 `false` 可关闭刷新和自动匹配; 显式的 `_openrouter_model` 指令继续离线工作于内置快照。详情见[模型能力](docs/zh-cn/models.md#openrouter-目录)和[隐私与数据](docs/zh-cn/troubleshooting.md#隐私与数据)。
 
 ## 致谢
 

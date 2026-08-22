@@ -188,8 +188,9 @@ suite("provider/transport/oneShotClient", () => {
 		assert.match(upstream.message, /upstream/);
 
 		// The likeliest failure for a feature that ships 80000 characters of
-		// diff: a 400 context-window rejection must render its own headline, not
-		// the generic invalid-request one.
+		// diff: a 400 context-window rejection must render the commit surface's
+		// own headline - there is no conversation to trim and no new chat to
+		// start.
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, () =>
 				HttpResponse.json(
@@ -206,8 +207,35 @@ suite("provider/transport/oneShotClient", () => {
 			),
 			"http"
 		);
-		assert.match(contextWindow.message, /too long for this model/);
+		assert.match(contextWindow.message, /changes are too large for this model/);
+		assert.ok(!contextWindow.message.includes("new chat"), "no chat-flavored advice on a commit call");
 		assert.strictEqual(contextWindow.logClassification, "RequestError(http, status 400, context_window_exceeded)");
+		assert.strictEqual(contextWindow.englishMessage, contextWindow.message);
+	});
+
+	test("a 404 gets the commit surface's own advice, never the chat path's Sync Models hint", async () => {
+		// Sync Models refreshes the chat catalog; the commit model setting never
+		// reads it, so the chat advice would misdirect.
+		mswServer.use(
+			http.post(CHAT_COMPLETIONS_URL, () =>
+				HttpResponse.json({ error: { message: "model not found", type: "invalid_request_error" } }, { status: 404 })
+			)
+		);
+
+		const error = await expectRequestError(
+			client().completeChatOnce(
+				connection(),
+				{ model: "gone-model", messages: [{ role: "user", content: "hi" }] },
+				callOptions()
+			),
+			"http"
+		);
+
+		assert.strictEqual(error.status, 404);
+		assert.match(error.message, /commit message model/);
+		assert.ok(!error.message.includes("Sync Models"), "Sync Models does not touch the commit model setting");
+		assert.strictEqual(error.logClassification, "RequestError(http, status 404, commitGeneration)");
+		assert.strictEqual(error.englishMessage, error.message);
 	});
 
 	test("a header-illegal virtual-key value is dropped fail-closed, never handed to fetch", async () => {
@@ -325,7 +353,7 @@ suite("provider/transport/oneShotClient", () => {
 		assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
 	});
 
-	test("the timeout is a hard whole-call bound naming the caller's budget", async () => {
+	test("the timeout is a hard whole-call bound naming the commit call and its chat.timeout budget", async () => {
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, async () => {
 				await new Promise((resolve) => setTimeout(resolve, 500));
@@ -342,7 +370,11 @@ suite("provider/transport/oneShotClient", () => {
 			"timeout"
 		);
 
-		assert.match(error.message, /timed out after 50ms/);
+		assert.match(error.message, /commit message generation timed out after 50ms/);
+		// chat.timeout IS this call's bound, so unlike the FIM surface the
+		// advice names the setting to raise.
+		assert.match(error.message, /chat\.timeout/);
+		assert.strictEqual(error.englishMessage, error.message);
 	});
 
 	test("cancellation aborts the in-flight request and surfaces as CancellationError", async () => {
