@@ -275,6 +275,8 @@ The extension's logs record classifications of what happened, never text derived
 Your prompts, attachments, and completions travel only between VS Code and the endpoints you configure:
 
 - Chat and model-discovery requests go to your LiteLLM servers' base URLs.
+- Commit message generation, on your explicit invocation only, sends the staged diff - or, when nothing is staged, the working-tree diff plus the paths of untracked files, never their contents - and your last five commit subjects to the LiteLLM server you configured for it ([Getting started](getting-started.md#generate-commit-messages-with-your-own-model)).
+- Inline completions, while enabled with a model chosen, send the file content around your cursor (at most 8000 characters before it and 4000 after) to the LiteLLM server you configured for them, automatically as you type; the dashboard's "Test completion" button sends one small fixed code snippet, never your files ([Getting started](getting-started.md#get-inline-completions-from-a-litellm-model)).
 - OAuth credentials go only to the token endpoint set on the server entry.
 - One default-on exception: about once a week the extension refreshes its bundled OpenRouter model catalog from `https://openrouter.ai/api/v1/models` - a public, unauthenticated model list; the request carries no prompts, no usage, and nothing about you or your servers. Set `litellm-vscode-chat.models.openRouterCatalog` to `false` to stop all catalog network ([Models: capabilities](models.md#capabilities)).
 - Usage polling calls only your own servers' spend endpoints, with the entry's own credentials.
