@@ -19,7 +19,13 @@ import {
 	REVEALABLE_SETTING_IDS,
 } from "../../../dashboard/viewModels";
 import { parseDashboardRequest, secretDirectiveSchema } from "../../../extension/dashboard/intentSchema";
-import { TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES } from "../../../shared/config/settingSpec";
+import {
+	FEATURE_MODEL_IDS,
+	INLINE_LANGUAGE_LISTS,
+	TOKEN_ESTIMATION_MODES,
+	UI_ACCENTS,
+	UI_THEMES,
+} from "../../../shared/config/settingSpec";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
@@ -139,6 +145,21 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	setUiTheme: fc.record({ value: fc.constantFrom(...UI_THEMES) }),
 	setUiAccent: fc.record({ value: fc.constantFrom(...UI_ACCENTS) }),
 	setUsageAlertThresholds: fc.record({ values: fc.array(finiteNumber, { maxLength: 32 }) }),
+	setFeatureModel: fc.record({
+		feature: fc.constantFrom(...FEATURE_MODEL_IDS),
+		value: fc.oneof(
+			fc.record({
+				server: fc.string({ minLength: 1, maxLength: 64 }),
+				model: fc.string({ minLength: 1, maxLength: 64 }),
+			}),
+			fc.constant(null)
+		),
+	}),
+	setCommitPrompt: fc.record({ value: fc.string({ maxLength: 256 }) }),
+	setLanguageList: fc.record({
+		list: fc.constantFrom(...INLINE_LANGUAGE_LISTS),
+		values: fc.array(fc.string({ maxLength: 128 }), { maxLength: 16 }),
+	}),
 	saveServerSetting: serverDraftPayload,
 	testServerDraft: serverDraftPayload,
 	removeServerSetting: fc.record({ label: fc.string() }),

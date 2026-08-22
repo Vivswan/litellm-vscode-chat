@@ -11,11 +11,15 @@ import type { EffectiveCapabilities } from "../shared/config/capabilityResolutio
 import type { EffectiveParametersProjection } from "../shared/config/parameterResolution";
 import type {
 	BooleanSettingId,
+	FeatureModelId,
+	FeatureModelRef,
+	InlineLanguageListId,
 	NumberSettingId,
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
 } from "../shared/config/settingSpec";
+import { FEATURE_MODEL_SETTING_KEYS, INLINE_LANGUAGE_LIST_SETTING_KEYS } from "../shared/config/settingSpec";
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import type {
 	ExpectedFailureCategory,
@@ -78,12 +82,28 @@ export const WIRE_LIMITS = {
 	recordJsonUnits: 1024 * 1024,
 	/** discovery.declared entries per save. */
 	declaredModels: 1024,
+	/** One raw model ID, wherever the wire carries one (declared lists, inspector reads, feature model refs). */
+	modelId: 512,
+	/** One chat.additionalToolSchemaKeywords keyword name. */
+	schemaKeyword: 256,
+	/** Keywords per chat.additionalToolSchemaKeywords write. */
+	schemaKeywords: 64,
+	/** One VS Code language ID in an inline-completions language list. */
+	languageId: 128,
+	/** Entries per inline-completions language list. */
+	languageList: 256,
 	/**
 	 * The usage.currencySymbol display prefix. Unlike the caps above, honest
 	 * input can meet this one, so the settings form pre-gates against it and
 	 * package.json's manifest maxLength mirrors it (pinned by test).
 	 */
 	currencySymbol: 12,
+	/**
+	 * The commitGeneration.prompt instruction text. Honest prompts can be long,
+	 * so the settings row pre-gates against this bound like the currency symbol
+	 * does, and package.json's manifest maxLength mirrors it (pinned by test).
+	 */
+	commitPrompt: 8192,
 } as const;
 
 /**
@@ -196,6 +216,9 @@ export const DASHBOARD_ENDPOINTS = {
 	setUiTheme: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	setUiAccent: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	setUsageAlertThresholds: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setFeatureModel: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setCommitPrompt: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setLanguageList: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	/** Refresh the OpenRouter catalog now; the outcome lands in the next push's catalog status. */
 	refreshCatalog: { outcome: "fire-and-forget", channel: "chained", fail: "log-only" },
 	/** Refresh usage data for every server now; the poller's completion re-pushes state. */
@@ -276,6 +299,20 @@ interface DashboardEndpointIO {
 	setUiAccent: { request: { readonly value: UiAccent } };
 	/** Values must be fractions in (0, 1]; the extension re-validates and refuses out-of-range entries. */
 	setUsageAlertThresholds: { request: { readonly values: readonly number[] } };
+	/**
+	 * Pick or clear one feature's model: a declared entry's label plus a raw
+	 * model ID (user configuration, never a secret); null clears the pick and
+	 * resets the setting. One method for both features - the feature
+	 * discriminant names the setting.
+	 */
+	setFeatureModel: { request: { readonly feature: FeatureModelId; readonly value: FeatureModelRef | null } };
+	/** The commitGeneration.prompt text; the empty string resets the setting (the built-in instruction applies). */
+	setCommitPrompt: { request: { readonly value: string } };
+	/**
+	 * Replace one inline-completions language list whole. Values must be
+	 * non-empty VS Code language IDs; the empty list resets the setting.
+	 */
+	setLanguageList: { request: { readonly list: InlineLanguageListId; readonly values: readonly string[] } };
 	refreshCatalog: { request: null };
 	refreshUsage: { request: null };
 	saveServerSetting: {
@@ -570,6 +607,9 @@ const SETTING_WRITE_ROWS: { readonly [K in SettingWriteMethod]: (payload: Reques
 	setCurrencySymbol: () => "usage.currencySymbol",
 	setUiTheme: () => "ui.theme",
 	setUiAccent: () => "ui.accent",
+	setFeatureModel: (payload) => FEATURE_MODEL_SETTING_KEYS[payload.feature],
+	setCommitPrompt: () => "commitGeneration.prompt",
+	setLanguageList: (payload) => INLINE_LANGUAGE_LIST_SETTING_KEYS[payload.list],
 };
 
 export const SETTING_WRITE_METHODS = Object.keys(SETTING_WRITE_ROWS) as readonly SettingWriteMethod[];

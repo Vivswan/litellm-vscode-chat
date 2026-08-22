@@ -17,7 +17,8 @@ import {
 	RecordStatusSlot,
 } from "../../../../webview/dashboard/recordEditors";
 import { SettingsSection } from "../../../../webview/dashboard/settings";
-import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
+import { makeSettings } from "../../../dashboardSettingsFixture";
+import { makeModel, makeState, statePush } from "../fixtures";
 import {
 	accessibleDescriptionOf,
 	accessibleNameOf,

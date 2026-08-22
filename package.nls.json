@@ -51,6 +51,8 @@
 	"litellm.config.section.discovery": "Discovery",
 	"litellm.config.section.usage": "Usage",
 	"litellm.config.section.ui": "UI",
+	"litellm.config.section.inlineCompletions": "Inline completions",
+	"litellm.config.section.commitGeneration": "Commit message generation",
 	"litellm.config.servers.description": "LiteLLM servers, declared as settings. Machine-scoped: this lives in your user settings only (workspaces cannot override it, and Settings Sync does not carry it to other machines). Each entry syncs to a VS Code language-model provider group automatically, so servers can be managed here or in the LiteLLM dashboard. The `label` is the entry's identity: renaming it creates a new provider group, and removing an entry cannot remove its group (VS Code offers no API for that; to delete a leftover group, remove its object from the JSON array in the profile's `User/chatLanguageModels.json`, then reload the window). Secret-capable fields (`auth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKey.value`, the OAuth companions) may be written inline here - visible in settings files - or omitted and stored in VS Code secret storage instead, via the dashboard or the 'LiteLLM: Set Server Secret' command. Inline values take precedence over stored ones.",
 	"litellm.config.servers.label.description": "Display name and identity of the server; the provider group is named after it.",
 	"litellm.config.servers.baseUrl.description": "LiteLLM server URL, e.g. http://localhost:4000.",
@@ -102,5 +104,14 @@
 	"litellm.config.ui.theme.auto": "Follow the VS Code theme",
 	"litellm.config.ui.theme.light": "Always light",
 	"litellm.config.ui.theme.dark": "Always dark",
-	"litellm.config.ui.accent.description": "The accent color the dashboard uses for primary buttons, selection, focus, and links. Status colors are unaffected."
+	"litellm.config.ui.accent.description": "The accent color the dashboard uses for primary buttons, selection, focus, and links. Status colors are unaffected.",
+	"litellm.config.inlineCompletions.enabled.description": "Opt in to inline (ghost text) completions from a LiteLLM model. Off by default; nothing is registered and no requests are sent until enabled, and the feature stays idle until `#litellm-vscode-chat.inlineCompletions.model#` names a model.",
+	"litellm.config.inlineCompletions.model.description": "The model that serves inline completions, e.g. `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`: the label of a `#litellm-vscode-chat.servers#` entry plus one of its raw model IDs. `null` means no model is picked and the feature stays idle.",
+	"litellm.config.inlineCompletions.allowedLanguages.description": "Exact VS Code language IDs where inline completions may run, e.g. [\"typescript\", \"python\"]. Leave empty to allow every language. A language also listed in `#litellm-vscode-chat.inlineCompletions.blockedLanguages#` stays blocked.",
+	"litellm.config.inlineCompletions.blockedLanguages.description": "Exact VS Code language IDs where inline completions never run, e.g. [\"markdown\", \"plaintext\"]. Leave empty to block none; block beats allow.",
+	"litellm.config.commitGeneration.enabled.description": "Opt in to commit message generation from a LiteLLM model. Off by default; the command stays hidden and no requests are sent until enabled, and the feature stays idle until `#litellm-vscode-chat.commitGeneration.model#` names a model.",
+	"litellm.config.commitGeneration.model.description": "The model that drafts commit messages, e.g. `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`: the label of a `#litellm-vscode-chat.servers#` entry plus one of its raw model IDs. `null` means no model is picked and the feature stays idle.",
+	"litellm.config.commitGeneration.prompt.description": "Custom instruction for the generated commit message, replacing the built-in instruction wholesale. Empty uses the built-in (a Conventional Commits subject plus a short body).",
+	"litellm.config.featureModel.server.description": "The label of the servers entry that serves the model.",
+	"litellm.config.featureModel.model.description": "The raw model ID as that server reports it."
 }

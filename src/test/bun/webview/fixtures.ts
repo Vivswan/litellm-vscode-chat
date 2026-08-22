@@ -6,13 +6,13 @@ import type { ExtensionToWebviewMessage } from "../../../dashboard/endpoints";
 import type {
 	DashboardModel,
 	DashboardServer,
-	DashboardSettings,
 	DashboardState,
 	DashboardUsage,
 	UsageForbiddenServerView,
 	UsageServerView,
 } from "../../../dashboard/viewModels";
 import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
+import { makeSettings } from "../../dashboardSettingsFixture";
 
 type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
 type ExternalServer = Extract<DashboardServer, { origin: "external" }>;
@@ -38,57 +38,6 @@ type ServerOverrides<V extends DashboardServer> = Partial<Omit<V, ServerStateKey
 		| Pick<Extract<V, { state: "error" }>, ServerStateKey>
 		| Pick<Extract<V, { state: "unchecked" }>, ServerStateKey>
 	);
-
-export function makeSettings(overrides: Partial<DashboardSettings> = {}): DashboardSettings {
-	return {
-		numbers: {
-			"chat.timeout": 300000,
-			"chat.maxToolsPerRequest": 128,
-			"discovery.timeout": 30000,
-			"discovery.cacheTtl": 3600000,
-			"discovery.staleServeWindow": 600000,
-			"usage.pollInterval": 300000,
-			"usage.initialRefreshDelay": 5000,
-			"usage.serversChangeRefreshDelay": 2000,
-			"usage.pollingOffFreshnessWindow": 600000,
-		},
-		booleans: { "chat.promptCaching": true, "ui.maskSecretInputs": true, "models.openRouterCatalog": true },
-		configuredScopes: {
-			numbers: {
-				"chat.timeout": null,
-				"chat.maxToolsPerRequest": null,
-				"discovery.timeout": null,
-				"discovery.cacheTtl": null,
-				"discovery.staleServeWindow": null,
-				"usage.pollInterval": null,
-				"usage.initialRefreshDelay": null,
-				"usage.serversChangeRefreshDelay": null,
-				"usage.pollingOffFreshnessWindow": null,
-			},
-			booleans: { "chat.promptCaching": null, "ui.maskSecretInputs": null, "models.openRouterCatalog": null },
-		},
-		modelParameters: { editScope: "global", value: {}, otherScopes: [], effective: {} },
-		modelCapabilities: { editScope: "global", value: {}, otherScopes: [], effective: {} },
-		catalog: { modelCount: 0, lastSuccessAt: undefined, refreshing: false },
-		appearance: { theme: "auto", themeScope: null, accent: "blue", accentScope: null },
-		chat: {
-			tokenEstimation: "auto",
-			tokenEstimationScope: null,
-			additionalToolSchemaKeywords: [],
-			additionalToolSchemaKeywordsLossy: false,
-			additionalToolSchemaKeywordsScope: null,
-		},
-		usage: {
-			statusBarMode: "always",
-			statusBarScope: null,
-			alertThresholds: [0.8, 0.95],
-			thresholdsScope: null,
-			currencySymbol: "$",
-			currencySymbolScope: null,
-		},
-		...overrides,
-	};
-}
 
 /** The Servers page's empty usage snapshot; override per test. */
 export function makeUsage(overrides: Partial<DashboardUsage> = {}): DashboardUsage {

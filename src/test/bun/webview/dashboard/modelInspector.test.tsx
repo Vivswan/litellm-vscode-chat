@@ -11,7 +11,8 @@ import { INHERIT_FROM_DIRECTIVE } from "../../../../shared/config/recordResoluti
 import { App } from "../../../../webview/dashboard/app";
 import type { ModelCapabilitiesResponse, ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../../webview/dashboard/modelInspector";
-import { makeDeclaredServer, makeExternalServer, makeModel, makeSettings, makeState, statePush } from "../fixtures";
+import { makeSettings } from "../../../dashboardSettingsFixture";
+import { makeDeclaredServer, makeExternalServer, makeModel, makeState, statePush } from "../fixtures";
 import {
 	cleanup,
 	fireClick,

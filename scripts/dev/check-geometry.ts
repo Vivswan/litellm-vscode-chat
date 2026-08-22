@@ -152,6 +152,8 @@ type StatePair = StatePairBase &
 
 /** The theme appearance row, the settings row every pair on that page anchors to. */
 const THEME_ROW = '.setting-row:has([id="setting-ui.theme"])';
+/** The inline-completions model-picker row (settings-features.ts), whose dangling warning is a covered-slot tenant. */
+const INLINE_MODEL_ROW = '.setting-row:has([id="setting-inlineCompletions.model"])';
 /** The usage-thresholds row, whose error contract is "the overlay never changes the row's height". */
 const THRESHOLDS_ROW = '.setting-row:has([id="setting-usage.alertThresholds-warning"])';
 /**
@@ -293,6 +295,39 @@ const STATE_PAIRS: readonly StatePair[] = [
 		],
 		restVerify: `!document.querySelector(${JSON.stringify(THEME_ROW)}).classList.contains("modified")`,
 		verify: `document.querySelector(${JSON.stringify(THEME_ROW)}).classList.contains("modified")`,
+	},
+	{
+		// The dangling-reference warning on a feature model row is a covered-slot
+		// tenant (the same height-keeping overlay as the scalar rows' errors),
+		// and the configured pair stays in the option list either way, so losing
+		// the served model behind a pick may change NOTHING but the warning: the
+		// row's box and the row below must hold still.
+		name: "feature-model-dangling",
+		fixture: "settings-features.ts",
+		targets: [INLINE_MODEL_ROW],
+		siblingOf: INLINE_MODEL_ROW,
+		toggle: [
+			`(() => {
+				const push = structuredClone(window.__fixtureMessages.find((message) => message.kind === "push"));
+				push.state.models = push.state.models.filter(
+					(model) => !(model.serverLabel === "prod" && model.rawId === "gpt-5-mini")
+				);
+				window.dispatchEvent(new MessageEvent("message", { data: push }));
+			})()`,
+		],
+		restVerify:
+			`(() => { const hint = document.querySelector(${JSON.stringify(`${INLINE_MODEL_ROW} .setting-hint`)}); ` +
+			`const select = document.querySelector(${JSON.stringify(`${INLINE_MODEL_ROW} select`)}); ` +
+			`return hint !== null && !hint.classList.contains("setting-covered") && ` +
+			`select?.selectedOptions[0]?.textContent === "prod: gpt-5-mini"; })()`,
+		verify:
+			`(() => { const hint = document.querySelector(${JSON.stringify(`${INLINE_MODEL_ROW} .setting-hint`)}); ` +
+			`const select = document.querySelector(${JSON.stringify(`${INLINE_MODEL_ROW} select`)}); ` +
+			`return hint !== null && hint.classList.contains("setting-covered") && ` +
+			`hint.querySelector(".setting-cover .error") !== null && ` +
+			// The pick survives the loss with the same rendered text - the
+			// no-new-geometry design the pair exists to prove.
+			`select?.selectedOptions[0]?.textContent === "prod: gpt-5-mini"; })()`,
 	},
 	{
 		// A modified row's hover/focus reveal is opacity through the Reveal

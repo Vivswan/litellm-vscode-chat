@@ -12,6 +12,7 @@ import type {
 	ServerSecretsView,
 } from "../../../src/dashboard/viewModels.ts";
 import type { SecretFieldId, SecretLocation } from "../../../src/shared/serverEntry.ts";
+import { makeSettings } from "../../../src/test/dashboardSettingsFixture.ts";
 import { RENDER_EPOCH_MS } from "../renderClock.ts";
 
 // The harness freezes the page's clock to the same instant, so every
@@ -501,37 +502,19 @@ export function baseState(overrides: Partial<DashboardState> = {}): DashboardSta
 	// renders (an explicit override still wins), so fixture states stay
 	// producible: the hero's count is the rows' sum in production too.
 	const servers = overrides.servers ?? [PROD_SERVER, GATEWAY_SERVER, EXTERNAL_SERVER];
+	// The screenshot matrix's settings, layered over the ONE shared builder
+	// (src/test/dashboardSettingsFixture.ts) so a DashboardSettings shape
+	// change never needs a second hand-maintained literal here.
+	const settingsDefaults = makeSettings();
 	return {
 		servers,
 		hiddenGroups: [],
 		servedModelCount: servers.reduce((sum, server) => sum + server.servedModelCount, 0),
 		models: [...MODELS],
-		settings: {
-			numbers: {
-				"chat.timeout": 300000,
-				"chat.maxToolsPerRequest": 128,
-				"discovery.timeout": 30000,
-				"discovery.cacheTtl": 3600000,
-				"discovery.staleServeWindow": 600000,
-				"usage.pollInterval": 300000,
-				"usage.initialRefreshDelay": 5000,
-				"usage.serversChangeRefreshDelay": 2000,
-				"usage.pollingOffFreshnessWindow": 600000,
-			},
-			booleans: { "chat.promptCaching": true, "ui.maskSecretInputs": true, "models.openRouterCatalog": true },
+		settings: makeSettings({
 			configuredScopes: {
-				numbers: {
-					"chat.timeout": null,
-					"chat.maxToolsPerRequest": null,
-					"discovery.timeout": null,
-					"discovery.cacheTtl": null,
-					"discovery.staleServeWindow": null,
-					"usage.pollInterval": "global",
-					"usage.initialRefreshDelay": null,
-					"usage.serversChangeRefreshDelay": null,
-					"usage.pollingOffFreshnessWindow": null,
-				},
-				booleans: { "chat.promptCaching": null, "ui.maskSecretInputs": null, "models.openRouterCatalog": null },
+				...settingsDefaults.configuredScopes,
+				numbers: { ...settingsDefaults.configuredScopes.numbers, "usage.pollInterval": "global" },
 			},
 			modelParameters: {
 				editScope: "global",
@@ -562,23 +545,7 @@ export function baseState(overrides: Partial<DashboardState> = {}): DashboardSta
 				},
 			},
 			catalog: { modelCount: 324, lastSuccessAt: minutesAgoMs(60 * 26), refreshing: false },
-			appearance: { theme: "auto", themeScope: null, accent: "blue", accentScope: null },
-			chat: {
-				tokenEstimation: "auto",
-				tokenEstimationScope: null,
-				additionalToolSchemaKeywords: [],
-				additionalToolSchemaKeywordsLossy: false,
-				additionalToolSchemaKeywordsScope: null,
-			},
-			usage: {
-				statusBarMode: "always",
-				statusBarScope: null,
-				alertThresholds: [0.8, 0.95],
-				thresholdsScope: null,
-				currencySymbol: "$",
-				currencySymbolScope: null,
-			},
-		},
+		}),
 		usage: USAGE,
 		diagnostics: [],
 		legacyServerCount: 0,

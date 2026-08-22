@@ -23,7 +23,13 @@ import {
 	RESETTABLE_SETTING_IDS,
 	REVEALABLE_SETTING_IDS,
 } from "../../dashboard/viewModels";
-import { TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
+import {
+	FEATURE_MODEL_IDS,
+	INLINE_LANGUAGE_LISTS,
+	TOKEN_ESTIMATION_MODES,
+	UI_ACCENTS,
+	UI_THEMES,
+} from "../../shared/config/settingSpec";
 import { EXPECTED_FAILURE_CATEGORIES, NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { recordFromKeys } from "../../shared/util/json";
 
@@ -89,7 +95,7 @@ const saveServerSchema = z.strictObject({
 	headers: z
 		.record(z.string().max(256), z.union([z.string().max(4096), z.number(), z.boolean()]))
 		.refine((record) => Object.keys(record).length <= 64),
-	declaredModels: z.array(z.string().max(512)).max(WIRE_LIMITS.declaredModels),
+	declaredModels: z.array(z.string().max(WIRE_LIMITS.modelId)).max(WIRE_LIMITS.declaredModels),
 	budget: z.union([z.number().finite(), z.null()]),
 });
 
@@ -160,12 +166,36 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	setCurrencySymbol: z.strictObject({ value: z.string().max(WIRE_LIMITS.currencySymbol) }),
 	// Bounded like every webview-minted list; the value constraints (non-empty
 	// keyword names) live in executeDashboardIntent.
-	setAdditionalToolSchemaKeywords: z.strictObject({ values: z.array(z.string().max(256)).max(64) }),
+	setAdditionalToolSchemaKeywords: z.strictObject({
+		values: z.array(z.string().max(WIRE_LIMITS.schemaKeyword)).max(WIRE_LIMITS.schemaKeywords),
+	}),
 	setUiTheme: z.strictObject({ value: asEnum(UI_THEMES) }),
 	setUiAccent: z.strictObject({ value: asEnum(UI_ACCENTS) }),
 	// Bounded like every webview-minted list; the value constraints
 	// (fractions in (0, 1]) live in executeDashboardIntent.
 	setUsageAlertThresholds: z.strictObject({ values: z.array(z.number().finite()).max(32) }),
+	// An entry label plus a raw model ID, or null to clear the pick; the
+	// trim-non-empty constraint lives in executeDashboardIntent.
+	setFeatureModel: z.strictObject({
+		feature: asEnum(FEATURE_MODEL_IDS),
+		value: z.union([
+			z.strictObject({
+				server: z.string().min(1).max(WIRE_LIMITS.label),
+				model: z.string().min(1).max(WIRE_LIMITS.modelId),
+			}),
+			z.null(),
+		]),
+	}),
+	// Free text, model-facing user configuration (not a secret; it rides state
+	// pushes like every other setting value); bounded so a hostile page cannot
+	// balloon the setting.
+	setCommitPrompt: z.strictObject({ value: z.string().max(WIRE_LIMITS.commitPrompt) }),
+	// Bounded like every webview-minted list; the value constraints (non-empty
+	// language IDs) live in executeDashboardIntent.
+	setLanguageList: z.strictObject({
+		list: asEnum(INLINE_LANGUAGE_LISTS),
+		values: z.array(z.string().max(WIRE_LIMITS.languageId)).max(WIRE_LIMITS.languageList),
+	}),
 	refreshCatalog: z.null(),
 	refreshUsage: z.null(),
 	saveServerSetting: serverDraftPayloadSchema,
@@ -187,11 +217,11 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	// length-bounded like every webview-minted token.
 	readModelCapabilities: z.strictObject({
 		scopeKey: z.string().min(1).max(REQUEST_ID_MAX_LENGTH),
-		rawId: z.string().min(1).max(512),
+		rawId: z.string().min(1).max(WIRE_LIMITS.modelId),
 	}),
 	readModelParameters: z.strictObject({
 		scopeKey: z.string().min(1).max(REQUEST_ID_MAX_LENGTH),
-		rawId: z.string().min(1).max(512),
+		rawId: z.string().min(1).max(WIRE_LIMITS.modelId),
 	}),
 	readResolvedModels: z.null(),
 	// The catalog picker's search; the query is filter text, bounded so a
@@ -237,6 +267,9 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	setUiTheme: requestSchema("setUiTheme"),
 	setUiAccent: requestSchema("setUiAccent"),
 	setUsageAlertThresholds: requestSchema("setUsageAlertThresholds"),
+	setFeatureModel: requestSchema("setFeatureModel"),
+	setCommitPrompt: requestSchema("setCommitPrompt"),
+	setLanguageList: requestSchema("setLanguageList"),
 	refreshCatalog: requestSchema("refreshCatalog"),
 	refreshUsage: requestSchema("refreshUsage"),
 	saveServerSetting: requestSchema("saveServerSetting"),

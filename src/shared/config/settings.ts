@@ -2,17 +2,27 @@ import * as vscode from "vscode";
 import { z } from "zod";
 import type { HeaderScalar } from "../util/headers";
 import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../util/headers";
-import { isUnsafeRecordKey } from "../util/json";
-import type { BooleanSettingId, NumberSettingId, TokenEstimationMode } from "./settingSpec";
+import { isRecord, isUnsafeRecordKey } from "../util/json";
+import type {
+	BooleanSettingId,
+	FeatureModelId,
+	FeatureModelRef,
+	InlineLanguageListId,
+	NumberSettingId,
+	TokenEstimationMode,
+} from "./settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	BOOLEAN_SETTING_SPECS,
+	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
+	FEATURE_MODEL_SETTING_KEYS,
+	INLINE_LANGUAGE_LIST_SETTING_KEYS,
 	isIntegerSetting,
 	isUsableThreshold,
 	MIN_TIMEOUT_MS,
@@ -424,4 +434,85 @@ export function getMaskSecretInputs(): boolean {
  */
 export function isOpenRouterCatalogEnabled(): boolean {
 	return getBooleanSetting("models.openRouterCatalog");
+}
+
+/** The inline-completions opt-in; false means zero registration and zero traffic. */
+export function isInlineCompletionsEnabled(): boolean {
+	return getBooleanSetting("inlineCompletions.enabled");
+}
+
+/** The commit-generation opt-in; false hides the command surfaces and sends nothing. */
+export function isCommitGenerationEnabled(): boolean {
+	return getBooleanSetting("commitGeneration.enabled");
+}
+
+/**
+ * Narrow a raw `<feature>.model` value to the explicit model choice: an object
+ * whose `server` and `model` are non-empty strings, edge-trimmed like the
+ * entry labels they address. Lenient by design - anything else is advisory-
+ * logged and reads as unset, which keeps the feature fail-closed inert.
+ */
+export function normalizeFeatureModelRef(
+	raw: unknown,
+	feature: FeatureModelId,
+	log?: LogFn
+): FeatureModelRef | undefined {
+	if (raw === undefined || raw === null) {
+		return undefined;
+	}
+	const server = isRecord(raw) && typeof raw.server === "string" ? raw.server.trim() : "";
+	const model = isRecord(raw) && typeof raw.model === "string" ? raw.model.trim() : "";
+	if (server.length === 0 || model.length === 0) {
+		log?.(`Invalid ${FEATURE_MODEL_SETTING_KEYS[feature]} configuration, reading the model as unset`, {
+			configured: typeof raw,
+		});
+		return undefined;
+	}
+	return { server, model };
+}
+
+/** One feature's configured model ref, or undefined while unset or malformed (the feature stays idle). */
+export function getFeatureModelRef(feature: FeatureModelId, log?: LogFn): FeatureModelRef | undefined {
+	return normalizeFeatureModelRef(getConfig().get<unknown>(FEATURE_MODEL_SETTING_KEYS[feature]), feature, log);
+}
+
+/**
+ * Narrow a raw commitGeneration.prompt value: any string passes verbatim
+ * (model-facing text, so no trimming), anything else reads as "" - the empty
+ * string that means "use the built-in instruction".
+ */
+export function normalizeCommitGenerationPrompt(raw: unknown): string {
+	return typeof raw === "string" ? raw : "";
+}
+
+/** The custom commit instruction; "" means the built-in instruction applies. */
+export function getCommitGenerationPrompt(): string {
+	return normalizeCommitGenerationPrompt(getConfig().get<unknown>(COMMIT_GENERATION_PROMPT_SETTING_KEY));
+}
+
+/**
+ * Narrow a raw language-list value to VS Code language IDs: strings only,
+ * edge-trimmed, empties dropped, deduplicated in configuration order. A
+ * non-array reads as the empty list (allow everything / block nothing).
+ */
+export function normalizeLanguageList(raw: unknown, log?: LogFn): readonly string[] {
+	if (!Array.isArray(raw)) {
+		if (raw !== undefined) {
+			log?.("Invalid inline-completions language list configuration, using the empty list", { configured: typeof raw });
+		}
+		return [];
+	}
+	const valid = raw
+		.filter((value): value is string => typeof value === "string")
+		.map((value) => value.trim())
+		.filter((value) => value.length > 0);
+	if (valid.length < raw.length) {
+		log?.("Ignoring language list entries that are not non-empty language IDs", { ignored: raw.length - valid.length });
+	}
+	return [...new Set(valid)];
+}
+
+/** One inline-completions language list, normalized; both lists read through the one pipeline. */
+export function getInlineCompletionsLanguageList(list: InlineLanguageListId, log?: LogFn): readonly string[] {
+	return normalizeLanguageList(getConfig().get<unknown>(INLINE_LANGUAGE_LIST_SETTING_KEYS[list]), log);
 }

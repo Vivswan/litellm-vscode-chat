@@ -9,7 +9,7 @@
 
 import * as l10n from "@vscode/l10n";
 import type { ServerFormField } from "../../dashboard/serverForm";
-import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
+import type { BooleanSettingId, InlineLanguageListId, NumberSettingId } from "../../shared/config/settingSpec";
 
 export function helpServersSection(): string {
 	return l10n.t(
@@ -266,6 +266,28 @@ export function helpUsageThresholds(): string {
 	return l10n.t("Enter a percentage or a fraction, e.g. 80% or 0.8; clear both fields to turn alerts off.");
 }
 
+/** The shared model-picker row's help; the same claim for both features. */
+export function helpFeatureModel(): string {
+	return l10n.t(
+		"Names a servers entry and one of its model IDs, e.g. Team proxy and gpt-4o-mini. Only declared entries qualify - externally managed groups have no servers entry."
+	);
+}
+
+export function helpCommitPrompt(): string {
+	return l10n.t(
+		'Replaces the built-in instruction wholesale, e.g. "One-line imperative subject, no body." Leave empty for the built-in.'
+	);
+}
+
+/** The two language-list rows' help, keyed by list; both quote example IDs (short-example-led). */
+export function helpLanguageList(list: InlineLanguageListId): string {
+	return list === "allowedLanguages"
+		? l10n.t(
+				"Exact VS Code language IDs, e.g. typescript, python. Leave empty to allow every language; block beats allow."
+			)
+		: l10n.t("Exact VS Code language IDs, e.g. markdown, plaintext. Leave empty to block none; block beats allow.");
+}
+
 export function helpCapsInspector(): string {
 	return l10n.t(
 		"Where each effective capability comes from, e.g. context_length 128000 from your settings. Higher precedence levels beat server-reported values."
@@ -303,6 +325,8 @@ export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)
 	"usage.pollInterval",
 	"chat.promptCaching",
 	"models.openRouterCatalog",
+	"inlineCompletions.enabled",
+	"commitGeneration.enabled",
 ];
 
 /** Per-setting help for the ids in SETTING_ROW_HELP_IDS; undefined for rows whose description is enough. */
@@ -350,6 +374,11 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 			return l10n.t(
 				"Fill missing model capabilities from the OpenRouter catalog, refreshed weekly. Off, only explicit _openrouter_model directives read the cached snapshot."
 			);
+		case "inlineCompletions.enabled":
+			// The description states both gates; the tip carries the privacy fact.
+			return l10n.t("Suggestions send nearby file text to your LiteLLM server as you type.");
+		case "commitGeneration.enabled":
+			return l10n.t("Generating sends the change diff to your LiteLLM server.");
 		default:
 			return undefined;
 	}

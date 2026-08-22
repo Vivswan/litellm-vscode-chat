@@ -623,6 +623,98 @@
 						"description": "%litellm.config.ui.accent.description%"
 					}
 				}
+			},
+			{
+				"title": "%litellm.config.section.inlineCompletions%",
+				"properties": {
+					"litellm-vscode-chat.inlineCompletions.enabled": {
+						"type": "boolean",
+						"default": false,
+						"markdownDescription": "%litellm.config.inlineCompletions.enabled.description%"
+					},
+					"litellm-vscode-chat.inlineCompletions.model": {
+						"type": [
+							"object",
+							"null"
+						],
+						"default": null,
+						"required": [
+							"server",
+							"model"
+						],
+						"properties": {
+							"server": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.server.description%"
+							},
+							"model": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.model.description%"
+							}
+						},
+						"additionalProperties": false,
+						"markdownDescription": "%litellm.config.inlineCompletions.model.description%"
+					},
+					"litellm-vscode-chat.inlineCompletions.allowedLanguages": {
+						"type": "array",
+						"maxItems": 256,
+						"items": {
+							"type": "string",
+							"maxLength": 128
+						},
+						"default": [],
+						"markdownDescription": "%litellm.config.inlineCompletions.allowedLanguages.description%"
+					},
+					"litellm-vscode-chat.inlineCompletions.blockedLanguages": {
+						"type": "array",
+						"maxItems": 256,
+						"items": {
+							"type": "string",
+							"maxLength": 128
+						},
+						"default": [],
+						"markdownDescription": "%litellm.config.inlineCompletions.blockedLanguages.description%"
+					}
+				}
+			},
+			{
+				"title": "%litellm.config.section.commitGeneration%",
+				"properties": {
+					"litellm-vscode-chat.commitGeneration.enabled": {
+						"type": "boolean",
+						"default": false,
+						"markdownDescription": "%litellm.config.commitGeneration.enabled.description%"
+					},
+					"litellm-vscode-chat.commitGeneration.model": {
+						"type": [
+							"object",
+							"null"
+						],
+						"default": null,
+						"required": [
+							"server",
+							"model"
+						],
+						"properties": {
+							"server": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.server.description%"
+							},
+							"model": {
+								"type": "string",
+								"description": "%litellm.config.featureModel.model.description%"
+							}
+						},
+						"additionalProperties": false,
+						"markdownDescription": "%litellm.config.commitGeneration.model.description%"
+					},
+					"litellm-vscode-chat.commitGeneration.prompt": {
+						"type": "string",
+						"maxLength": 8192,
+						"default": "",
+						"markdownDescription": "%litellm.config.commitGeneration.prompt.description%"
+					}
+				}
 			}
 		]
 	},

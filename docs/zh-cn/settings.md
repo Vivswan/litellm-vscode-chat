@@ -8,7 +8,7 @@
 
 两种等价的编辑方式:
 
-- **设置 UI / settings.json** - `Ctrl+,` / `Cmd+,`, 搜索 "litellm-vscode-chat"。设置分组为几个区块 (服务器、模型、聊天、发现、用量、UI)。
+- **设置 UI / settings.json** - `Ctrl+,` / `Cmd+,`, 搜索 "litellm-vscode-chat"。设置分组为几个区块 (服务器、模型、聊天、发现、用量、UI、内联补全、提交信息生成)。
 - **仪表板** - "LiteLLM: Open Dashboard", 设置区块。同样的值以表单控件呈现, 验证、单位和默认值就地显示; 已配置的行说明其值存放在哪里, 「重置」清除该作用域。见[仪表板](dashboard.md)。
 
 | 事实 | 细节 |
@@ -62,6 +62,13 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.ui.maskSecretInputs` | `true` | 在输入框提示中输入凭据值时进行遮盖。仪表板的密钥字段始终遮盖, 各带自己的「显示」开关, 与此设置无关 |
 | `litellm-vscode-chat.ui.theme` | `"auto"` | 仪表板如何着色: `"auto"` 跟随你的 VS Code 主题, `"light"` 和 `"dark"` 在编辑器变化时保持不动。[外观说明见下](#外观) |
 | `litellm-vscode-chat.ui.accent` | `"blue"` | 仪表板的强调色: `"blue"`、`"violet"`、`"teal"`、`"amber"`。它标记主要操作、选中、焦点和链接, 仅此而已 - 状态色保持绿、黄、红。[外观说明见下](#外观) |
+| `litellm-vscode-chat.inlineCompletions.enabled` | `false` | 选择启用由 LiteLLM 模型提供的内联(幽灵文本)补全, 随内联补全功能一起交付。默认关闭: 启用前不注册任何内容、不发送任何请求; 只启用而不设置 `inlineCompletions.model` 时功能保持闲置 |
+| `litellm-vscode-chat.inlineCompletions.model` | `null` | 提供内联补全的模型: `{ "server": "<条目 label>", "model": "<原始模型 ID>" }`, 指向一个 `servers` 条目及其一个模型 ID。模型始终由你显式选择 - 从不自动挑选; `null` 使功能保持闲置 |
+| `litellm-vscode-chat.inlineCompletions.allowedLanguages` | `[]` | 允许内联补全运行的 VS Code 语言 ID (精确匹配), 例如 `["typescript", "python"]`。留空允许所有语言; 同时列在 `blockedLanguages` 中的语言仍被屏蔽 (屏蔽优先于允许) |
+| `litellm-vscode-chat.inlineCompletions.blockedLanguages` | `[]` | 禁止内联补全运行的 VS Code 语言 ID (精确匹配), 例如 `["markdown", "plaintext"]`。留空不屏蔽任何语言; 屏蔽优先于允许 |
+| `litellm-vscode-chat.commitGeneration.enabled` | `false` | 选择启用由 LiteLLM 模型生成提交信息, 随提交信息生成功能一起交付。默认关闭: 启用前命令保持隐藏、不发送任何请求; 只启用而不设置 `commitGeneration.model` 时功能保持闲置 |
+| `litellm-vscode-chat.commitGeneration.model` | `null` | 起草提交信息的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
+| `litellm-vscode-chat.commitGeneration.prompt` | `""` | 生成提交信息时使用的自定义指令, 会整体替换内置指令。留空使用内置指令 (Conventional Commits 主题行加简短正文)。面向模型的文本, 按原样发送 |
 
 有意不提供全局标头设置: 自定义 HTTP 标头描述的是如何与某一个服务器交谈, 所以它们存放在服务器条目上 ([`headers`](servers.md#自定义标头)) - 机器作用域, 在 Settings Sync 够不到的地方, 与全局设置不同。
 

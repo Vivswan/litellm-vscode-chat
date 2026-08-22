@@ -184,6 +184,90 @@ suite("extension/dashboard/intents", () => {
 			]);
 		});
 
+		test("setFeatureModel writes the trimmed ref to the feature's own key; null resets instead of writing", async () => {
+			const recorded = makeEnv();
+			await executeDashboardIntent(
+				{
+					method: "setFeatureModel",
+					payload: { feature: "inlineCompletions", value: { server: " Prod ", model: " codestral " } },
+				},
+				recorded.env
+			);
+			await executeDashboardIntent(
+				{
+					method: "setFeatureModel",
+					payload: { feature: "commitGeneration", value: { server: "Gateway", model: "gpt-4o-mini" } },
+				},
+				recorded.env
+			);
+			await executeDashboardIntent(
+				{ method: "setFeatureModel", payload: { feature: "inlineCompletions", value: null } },
+				recorded.env
+			);
+
+			assert.deepStrictEqual(recorded.updates, [
+				["inlineCompletions.model", { server: "Prod", model: "codestral" }],
+				["commitGeneration.model", { server: "Gateway", model: "gpt-4o-mini" }],
+			]);
+			assert.deepStrictEqual(recorded.removals, ["inlineCompletions.model"]);
+		});
+
+		test("setFeatureModel refuses refs whose halves trim away, and writes nothing", async () => {
+			const recorded = makeEnv();
+			for (const value of [
+				{ server: " ", model: "m" },
+				{ server: "s", model: "  " },
+			]) {
+				await assert.rejects(
+					executeDashboardIntent(
+						{ method: "setFeatureModel", payload: { feature: "commitGeneration", value } },
+						recorded.env
+					),
+					/allowed range non-empty server label and model ID/
+				);
+			}
+			assert.deepStrictEqual(recorded.updates, []);
+			assert.deepStrictEqual(recorded.removals, []);
+		});
+
+		test("setCommitPrompt writes the text verbatim; the empty string resets the setting", async () => {
+			const recorded = makeEnv();
+			await executeDashboardIntent({ method: "setCommitPrompt", payload: { value: "Subject only. " } }, recorded.env);
+			await executeDashboardIntent({ method: "setCommitPrompt", payload: { value: "" } }, recorded.env);
+
+			assert.deepStrictEqual(recorded.updates, [["commitGeneration.prompt", "Subject only. "]]);
+			assert.deepStrictEqual(recorded.removals, ["commitGeneration.prompt"]);
+		});
+
+		test("setLanguageList refuses blank IDs, writes trimmed deduplicated lists, and resets on empty", async () => {
+			const recorded = makeEnv();
+			for (const values of [[""], ["typescript", "  "]]) {
+				await assert.rejects(
+					executeDashboardIntent(
+						{ method: "setLanguageList", payload: { list: "allowedLanguages", values } },
+						recorded.env
+					),
+					/allowed range plain non-empty strings/
+				);
+			}
+			assert.deepStrictEqual(recorded.updates, []);
+
+			await executeDashboardIntent(
+				{
+					method: "setLanguageList",
+					payload: { list: "allowedLanguages", values: [" typescript ", "python", "typescript"] },
+				},
+				recorded.env
+			);
+			await executeDashboardIntent(
+				{ method: "setLanguageList", payload: { list: "blockedLanguages", values: [] } },
+				recorded.env
+			);
+
+			assert.deepStrictEqual(recorded.updates, [["inlineCompletions.allowedLanguages", ["typescript", "python"]]]);
+			assert.deepStrictEqual(recorded.removals, ["inlineCompletions.blockedLanguages"]);
+		});
+
 		test("every command ID maps to an allow-listed command", async () => {
 			const recorded = makeEnv();
 			const intents: DashboardIntent[] = [

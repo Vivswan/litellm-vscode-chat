@@ -51,6 +51,8 @@
 	"litellm.config.section.discovery": "探索",
 	"litellm.config.section.usage": "用量",
 	"litellm.config.section.ui": "介面",
+	"litellm.config.section.inlineCompletions": "內嵌補全",
+	"litellm.config.section.commitGeneration": "提交訊息產生",
 	"litellm.config.servers.description": "以設定方式宣告的 LiteLLM 伺服器。機器範圍: 只存在於您的使用者設定 (工作區無法覆寫, 設定同步也不會帶到其他機器)。每個項目會自動同步為一個 VS Code 語言模型提供者群組, 因此伺服器可在此處或 LiteLLM 儀表板中管理。`label` 是項目的身分: 重新命名會建立新的提供者群組, 而移除項目無法移除其群組 (VS Code 沒有提供這樣的 API; 若要刪除殘留的群組, 請從設定檔 (Profile) 的 `User/chatLanguageModels.json` 中的 JSON 陣列移除其物件, 然後重新載入視窗)。可存為祕密的欄位 (`auth.apiKey`、`auth.oauth.clientSecret`、`auth.virtualKey.value` 以及 OAuth 伴隨認證) 可以內嵌寫在這裡 (會出現在設定檔中), 也可以省略並改存於 VS Code 祕密儲存體, 透過儀表板或「LiteLLM: 設定伺服器祕密」命令設定。內嵌值優先於已儲存的值。",
 	"litellm.config.servers.label.description": "伺服器的顯示名稱與身分; 提供者群組會以它命名。",
 	"litellm.config.servers.baseUrl.description": "LiteLLM 伺服器 URL, 例如 http://localhost:4000。",
@@ -102,5 +104,14 @@
 	"litellm.config.ui.theme.auto": "跟隨 VS Code 佈景主題",
 	"litellm.config.ui.theme.light": "永遠淺色",
 	"litellm.config.ui.theme.dark": "永遠深色",
-	"litellm.config.ui.accent.description": "儀表板用於主要按鈕、選取項目、焦點與連結的強調色。狀態顏色不受影響。"
+	"litellm.config.ui.accent.description": "儀表板用於主要按鈕、選取項目、焦點與連結的強調色。狀態顏色不受影響。",
+	"litellm.config.inlineCompletions.enabled.description": "選擇啟用由 LiteLLM 模型提供的內嵌(幽靈文字)補全。預設關閉。啟用前不註冊任何內容、不送出任何要求。在 `#litellm-vscode-chat.inlineCompletions.model#` 指定模型之前此功能保持閒置。",
+	"litellm.config.inlineCompletions.model.description": "提供內嵌補全的模型。寫法如 `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`。server 是某個 `#litellm-vscode-chat.servers#` 項目的 label。model 是該伺服器的一個原始模型 ID。`null` 表示未選擇模型、功能保持閒置。",
+	"litellm.config.inlineCompletions.allowedLanguages.description": "允許內嵌補全執行的 VS Code 語言 ID(精確比對)。例如 [\"typescript\", \"python\"]。留空表示允許所有語言。同時列在 `#litellm-vscode-chat.inlineCompletions.blockedLanguages#` 中的語言仍被封鎖。",
+	"litellm.config.inlineCompletions.blockedLanguages.description": "禁止內嵌補全執行的 VS Code 語言 ID(精確比對)。例如 [\"markdown\", \"plaintext\"]。留空表示不封鎖任何語言。封鎖優先於允許。",
+	"litellm.config.commitGeneration.enabled.description": "選擇啟用由 LiteLLM 模型產生提交訊息。預設關閉。啟用前命令保持隱藏、不送出任何要求。在 `#litellm-vscode-chat.commitGeneration.model#` 指定模型之前此功能保持閒置。",
+	"litellm.config.commitGeneration.model.description": "起草提交訊息的模型。寫法如 `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`。server 是某個 `#litellm-vscode-chat.servers#` 項目的 label。model 是該伺服器的一個原始模型 ID。`null` 表示未選擇模型、功能保持閒置。",
+	"litellm.config.commitGeneration.prompt.description": "產生提交訊息時使用的自訂指示。設定後會整體取代內建指示。留空使用內建指示(Conventional Commits 主旨行加簡短內文)。",
+	"litellm.config.featureModel.server.description": "提供該模型的 servers 項目的 label。",
+	"litellm.config.featureModel.model.description": "該伺服器回報的原始模型 ID。"
 }

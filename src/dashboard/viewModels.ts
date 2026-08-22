@@ -8,6 +8,9 @@ import type { CapabilityLevel } from "../shared/config/capabilityResolution";
 import type { RecordDiagnostic } from "../shared/config/recordResolution";
 import type {
 	BooleanSettingId,
+	FeatureModelId,
+	FeatureModelRef,
+	InlineLanguageListId,
 	NumberSettingId,
 	TokenEstimationMode,
 	UiAccent,
@@ -337,7 +340,12 @@ export type RevealableSettingId =
 	| "usage.statusBar"
 	| "usage.currencySymbol"
 	| "ui.theme"
-	| "ui.accent";
+	| "ui.accent"
+	| "inlineCompletions.model"
+	| "inlineCompletions.allowedLanguages"
+	| "inlineCompletions.blockedLanguages"
+	| "commitGeneration.model"
+	| "commitGeneration.prompt";
 
 /**
  * A readonly list typechecked as naming every member of T: an omitted union
@@ -362,6 +370,11 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 	"usage.currencySymbol",
 	"ui.theme",
 	"ui.accent",
+	"inlineCompletions.model",
+	"inlineCompletions.allowedLanguages",
+	"inlineCompletions.blockedLanguages",
+	"commitGeneration.model",
+	"commitGeneration.prompt",
 ]);
 
 /** The settings the resetSetting intent may name: the scalar rows plus the non-scalar chat, usage, and appearance rows. */
@@ -374,7 +387,12 @@ export type ResettableSettingId =
 	| "usage.alertThresholds"
 	| "usage.currencySymbol"
 	| "ui.theme"
-	| "ui.accent";
+	| "ui.accent"
+	| "inlineCompletions.model"
+	| "inlineCompletions.allowedLanguages"
+	| "inlineCompletions.blockedLanguages"
+	| "commitGeneration.model"
+	| "commitGeneration.prompt";
 
 export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<ResettableSettingId>()([
 	...NUMBER_SETTING_IDS,
@@ -386,6 +404,11 @@ export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<Re
 	"usage.currencySymbol",
 	"ui.theme",
 	"ui.accent",
+	"inlineCompletions.model",
+	"inlineCompletions.allowedLanguages",
+	"inlineCompletions.blockedLanguages",
+	"commitGeneration.model",
+	"commitGeneration.prompt",
 ]);
 
 /**
@@ -480,6 +503,29 @@ export interface DashboardSettings {
 		readonly currencySymbol: string;
 		readonly currencySymbolScope: SettingScope | null;
 	};
+	/**
+	 * Each feature's configured model ref, null while unset or malformed. User
+	 * configuration only - an entry label and a raw model ID, never a secret.
+	 */
+	readonly featureModels: Readonly<Record<FeatureModelId, FeatureModelRef | null>>;
+	readonly featureModelScopes: Readonly<Record<FeatureModelId, SettingScope | null>>;
+	/** The commitGeneration.prompt row's value; "" means the built-in instruction applies. */
+	readonly commitPrompt: string;
+	readonly commitPromptScope: SettingScope | null;
+	/** The two inline-completions language lists; see LanguageListSetting. */
+	readonly languageLists: Readonly<Record<InlineLanguageListId, LanguageListSetting>>;
+}
+
+/**
+ * One inline-completions language list as its settings row renders it: the
+ * normalized IDs, plus the lossy flag that forces the row's read-only fallback
+ * when normalization dropped or rewrote raw entries a comma-box edit would
+ * silently destroy (the additionalToolSchemaKeywords contract).
+ */
+export interface LanguageListSetting {
+	readonly values: readonly string[];
+	readonly lossy: boolean;
+	readonly scope: SettingScope | null;
 }
 
 /**

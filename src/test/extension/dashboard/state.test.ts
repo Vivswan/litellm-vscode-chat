@@ -2472,6 +2472,65 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(settings.modelParameters.effective, { "gpt-4": { temperature: 0.2 } });
 			assert.strictEqual(settings.modelParameters.editScope, "workspace");
 		});
+
+		test("feature model refs snapshot per feature: normalized with scopes, malformed and unset as null", () => {
+			const settings = readSettings(
+				makeReader({
+					"inlineCompletions.model": { server: " Prod ", model: " codestral " },
+					"commitGeneration.model": { server: "Prod" },
+				})
+			);
+			assert.deepStrictEqual(settings.featureModels, {
+				inlineCompletions: { server: "Prod", model: "codestral" },
+				commitGeneration: null,
+			});
+			assert.deepStrictEqual(settings.featureModelScopes, { inlineCompletions: "global", commitGeneration: "global" });
+
+			const unset = readSettings(makeReader({}));
+			assert.deepStrictEqual(unset.featureModels, { inlineCompletions: null, commitGeneration: null });
+			assert.deepStrictEqual(unset.featureModelScopes, { inlineCompletions: null, commitGeneration: null });
+		});
+
+		test("the commit prompt snapshots verbatim; a junk value reads as the built-in marker", () => {
+			const set = readSettings(makeReader({ "commitGeneration.prompt": "Subject only. " }));
+			assert.strictEqual(set.commitPrompt, "Subject only. ");
+			assert.strictEqual(set.commitPromptScope, "global");
+			const junk = readSettings(makeReader({ "commitGeneration.prompt": 7 }));
+			assert.strictEqual(junk.commitPrompt, "");
+			assert.strictEqual(readSettings(makeReader({})).commitPromptScope, null);
+		});
+
+		test("language lists snapshot normalized, and the lossy flag marks exactly the raw values an edit would rewrite", () => {
+			// The flag is what stands between a hand-written settings.json list and
+			// a dashboard edit silently canonicalizing it: any drop, trim, or
+			// dedupe marks the list lossy and its row falls back to read-only.
+			const clean = readSettings(makeReader({ "inlineCompletions.allowedLanguages": ["typescript", "python"] }));
+			assert.deepStrictEqual(clean.languageLists.allowedLanguages, {
+				values: ["typescript", "python"],
+				lossy: false,
+				scope: "global",
+			});
+			assert.deepStrictEqual(clean.languageLists.blockedLanguages, { values: [], lossy: false, scope: null });
+
+			const lossyCases: readonly [string, unknown, readonly string[]][] = [
+				["edge whitespace rewrites", [" typescript "], ["typescript"]],
+				["duplicates collapse", ["ts", "ts"], ["ts"]],
+				["non-strings drop", ["ts", 3], ["ts"]],
+				["a non-array reads as empty", "markdown", []],
+			];
+			for (const [name, raw, values] of lossyCases) {
+				const settings = readSettings(makeReader({ "inlineCompletions.blockedLanguages": raw }));
+				assert.deepStrictEqual(settings.languageLists.blockedLanguages, { values, lossy: true, scope: "global" }, name);
+			}
+		});
+
+		test("the keywords lossy flag rides the same rule (the shared normalizedListLossy)", () => {
+			const clean = readSettings(makeReader({ "chat.additionalToolSchemaKeywords": ["propertyNames"] }));
+			assert.strictEqual(clean.chat.additionalToolSchemaKeywordsLossy, false);
+			const lossy = readSettings(makeReader({ "chat.additionalToolSchemaKeywords": ["propertyNames", ""] }));
+			assert.strictEqual(lossy.chat.additionalToolSchemaKeywordsLossy, true);
+			assert.deepStrictEqual(lossy.chat.additionalToolSchemaKeywords, ["propertyNames"]);
+		});
 	});
 
 	suite("parseDashboardRequest", () => {

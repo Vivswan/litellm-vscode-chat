@@ -24,7 +24,8 @@ import {
 	DOCS_LINK_SERVERS,
 	DOCS_LINK_SETTINGS,
 } from "../../../../webview/dashboard/docsLinks";
-import { declaredWithSecrets, makeDeclaredServer, makeModel, makeSettings, makeState, statePush } from "../fixtures";
+import { makeSettings } from "../../../dashboardSettingsFixture";
+import { declaredWithSecrets, makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
 import { buttonByText, cleanup, fireClick, mount, pushToWebview, resetPosted } from "../harness";
 
 beforeEach(() => {

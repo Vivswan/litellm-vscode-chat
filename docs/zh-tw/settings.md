@@ -8,7 +8,7 @@
 
 兩種等價的編輯方式:
 
-- **設定 UI / settings.json** - `Ctrl+,` / `Cmd+,`, 搜尋 "litellm-vscode-chat"。設定分組為幾個區段 (伺服器、模型、聊天、探索、用量、UI)。
+- **設定 UI / settings.json** - `Ctrl+,` / `Cmd+,`, 搜尋 "litellm-vscode-chat"。設定分組為幾個區段 (伺服器、模型、聊天、探索、用量、UI、內嵌補全、提交訊息產生)。
 - **儀表板** - "LiteLLM: Open Dashboard", 設定區段。同樣的值以表單控制項呈現, 驗證、單位與預設值就地顯示; 已設定的列說明其值存放在哪裡, 「重設」清除該範圍。見[儀表板](dashboard.md)。
 
 | 事實 | 細節 |
@@ -62,6 +62,13 @@
 | `litellm-vscode-chat.ui.maskSecretInputs` | `true` | 在輸入方塊提示中輸入認證值時進行遮罩。儀表板的祕密欄位始終遮罩, 各帶自己的「顯示」切換, 與此設定無關 |
 | `litellm-vscode-chat.ui.theme` | `"auto"` | 儀表板如何著色: `"auto"` 跟隨您的 VS Code 佈景主題, `"light"` 與 `"dark"` 在編輯器變化時保持不動。[外觀說明見下](#外觀) |
 | `litellm-vscode-chat.ui.accent` | `"blue"` | 儀表板的強調色: `"blue"`、`"violet"`、`"teal"`、`"amber"`。它標記主要動作、選取、焦點與連結, 僅此而已 - 狀態色保持綠、黃、紅。[外觀說明見下](#外觀) |
+| `litellm-vscode-chat.inlineCompletions.enabled` | `false` | 選擇啟用由 LiteLLM 模型提供的內嵌(幽靈文字)補全, 隨內嵌補全功能一起交付。預設關閉: 啟用前不註冊任何內容、不送出任何要求; 只啟用而不設定 `inlineCompletions.model` 時功能保持閒置 |
+| `litellm-vscode-chat.inlineCompletions.model` | `null` | 提供內嵌補全的模型: `{ "server": "<項目 label>", "model": "<原始模型 ID>" }`, 指向一個 `servers` 項目及其一個模型 ID。模型永遠由你明確選擇 - 從不自動挑選; `null` 使功能保持閒置 |
+| `litellm-vscode-chat.inlineCompletions.allowedLanguages` | `[]` | 允許內嵌補全執行的 VS Code 語言 ID (精確比對), 例如 `["typescript", "python"]`。留空允許所有語言; 同時列在 `blockedLanguages` 中的語言仍被封鎖 (封鎖優先於允許) |
+| `litellm-vscode-chat.inlineCompletions.blockedLanguages` | `[]` | 禁止內嵌補全執行的 VS Code 語言 ID (精確比對), 例如 `["markdown", "plaintext"]`。留空不封鎖任何語言; 封鎖優先於允許 |
+| `litellm-vscode-chat.commitGeneration.enabled` | `false` | 選擇啟用由 LiteLLM 模型產生提交訊息, 隨提交訊息產生功能一起交付。預設關閉: 啟用前命令保持隱藏、不送出任何要求; 只啟用而不設定 `commitGeneration.model` 時功能保持閒置 |
+| `litellm-vscode-chat.commitGeneration.model` | `null` | 起草提交訊息的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
+| `litellm-vscode-chat.commitGeneration.prompt` | `""` | 產生提交訊息時使用的自訂指示, 會整體取代內建指示。留空使用內建指示 (Conventional Commits 主旨行加簡短內文)。面向模型的文字, 按原樣送出 |
 
 刻意不提供全域標頭設定: 自訂 HTTP 標頭描述的是如何與某一個伺服器交談, 所以它們存放在伺服器項目上 ([`headers`](servers.md#自訂標頭)) - 機器範圍, 在設定同步搆不到的地方, 與全域設定不同。
 

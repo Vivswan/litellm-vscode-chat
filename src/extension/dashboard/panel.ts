@@ -610,6 +610,9 @@ export class DashboardController implements vscode.Disposable {
 		setUiAccent: (payload) => executeDashboardIntent({ method: "setUiAccent", payload }, this.env),
 		setUsageAlertThresholds: (payload) =>
 			executeDashboardIntent({ method: "setUsageAlertThresholds", payload }, this.env),
+		setFeatureModel: (payload) => executeDashboardIntent({ method: "setFeatureModel", payload }, this.env),
+		setCommitPrompt: (payload) => executeDashboardIntent({ method: "setCommitPrompt", payload }, this.env),
+		setLanguageList: (payload) => executeDashboardIntent({ method: "setLanguageList", payload }, this.env),
 		refreshCatalog: (payload) => executeDashboardIntent({ method: "refreshCatalog", payload }, this.env),
 		refreshUsage: (payload) => executeDashboardIntent({ method: "refreshUsage", payload }, this.env),
 		saveServerSetting: (payload) => executeDashboardIntent({ method: "saveServerSetting", payload }, this.env),

@@ -25,7 +25,8 @@ import {
 	serverFieldHelp,
 	settingRowHelp,
 } from "../../../../webview/dashboard/helpText";
-import { declaredWithSecrets, makeModel, makeSettings, makeState, statePush } from "../fixtures";
+import { makeSettings } from "../../../dashboardSettingsFixture";
+import { declaredWithSecrets, makeModel, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,

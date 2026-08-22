@@ -6,7 +6,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
-import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
+import { makeSettings } from "../../../dashboardSettingsFixture";
+import { makeModel, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,

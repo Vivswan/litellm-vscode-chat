@@ -16,8 +16,9 @@ import { AnnounceOnceScope } from "../../../../webview/dashboard/announceOnce";
 import { App } from "../../../../webview/dashboard/app";
 import { settingRowHelp } from "../../../../webview/dashboard/helpText";
 import { parseThresholdBox, SettingsSection } from "../../../../webview/dashboard/settings";
+import { makeSettings } from "../../../dashboardSettingsFixture";
 import { resolveFuzzSeed } from "../../../fuzzStream";
-import { makeSettings, makeState, statePush } from "../fixtures";
+import { makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
@@ -752,7 +753,7 @@ test("the title's stacked flip shares the row grid's threshold, inside the same 
 test("every settings row anchors its actions in one trailing slot: Reset then the settings.json jump", () => {
 	// Fail-closed structural pin behind the "{} renders in two different positions" defect: the slot is the row
 	// template's LAST cell, the jump its LAST child, and no action leaks into the control or hint cells. Counted
-	// against the page's row INVENTORY (every scalar id plus the seven non-scalar rows), so it fails both ways.
+	// against the page's row INVENTORY (every scalar id plus the twelve non-scalar rows), so it fails both ways.
 	const base = makeSettings();
 	const settings = makeSettings({
 		configuredScopes: {
@@ -763,7 +764,7 @@ test("every settings row anchors its actions in one trailing slot: Reset then th
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
 	const rows = Array.from(root.querySelectorAll(".setting-row"));
 	expect(rows.length).toBe(
-		Object.keys(settings.configuredScopes.numbers).length + Object.keys(settings.configuredScopes.booleans).length + 7
+		Object.keys(settings.configuredScopes.numbers).length + Object.keys(settings.configuredScopes.booleans).length + 12
 	);
 	for (const row of rows) {
 		const slots = Array.from(row.children).filter((child) => child.classList.contains("setting-actions"));

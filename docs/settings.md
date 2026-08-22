@@ -8,7 +8,7 @@ The lookup reference for every `litellm-vscode-chat.*` setting and every server-
 
 Two equivalent ways to edit everything:
 
-- **Settings UI / settings.json** - `Ctrl+,` / `Cmd+,`, search "litellm-vscode-chat". The settings are grouped into sections (Servers, Models, Chat, Discovery, Usage, UI).
+- **Settings UI / settings.json** - `Ctrl+,` / `Cmd+,`, search "litellm-vscode-chat". The settings are grouped into sections (Servers, Models, Chat, Discovery, Usage, UI, Inline completions, Commit message generation).
 - **The dashboard** - "LiteLLM: Open Dashboard", the Settings section. Same values as form controls with validation, units, and defaults inline; a configured row says where its value lives, and Reset clears that scope. See [Dashboard](dashboard.md).
 
 | Fact | Detail |
@@ -62,6 +62,13 @@ The file is a versioned envelope (setting keys inside it drop the `litellm-vscod
 | `litellm-vscode-chat.ui.maskSecretInputs` | `true` | Mask credential values while typing them into input-box prompts. The dashboard's secret fields always mask, each behind its own Show toggle, regardless of this setting |
 | `litellm-vscode-chat.ui.theme` | `"auto"` | How the dashboard colors itself: `"auto"` follows your VS Code theme, `"light"` and `"dark"` hold still while the editor changes around them. [Appearance notes below](#appearance) |
 | `litellm-vscode-chat.ui.accent` | `"blue"` | The dashboard's accent hue: `"blue"`, `"violet"`, `"teal"`, `"amber"`. It marks primary actions, selection, focus and links, and nothing else - status colors stay green, yellow and red. [Appearance notes below](#appearance) |
+| `litellm-vscode-chat.inlineCompletions.enabled` | `false` | Opt-in for inline (ghost text) completions from a LiteLLM model, shipping with the inline completions feature. Off by default: nothing is registered and nothing is sent until enabled, and enabling without `inlineCompletions.model` keeps the feature idle |
+| `litellm-vscode-chat.inlineCompletions.model` | `null` | The model that serves inline completions: `{ "server": "<entry label>", "model": "<raw model id>" }`, naming a `servers` entry and one of its model IDs. The model is always your explicit choice - never auto-picked; `null` keeps the feature idle |
+| `litellm-vscode-chat.inlineCompletions.allowedLanguages` | `[]` | Exact VS Code language IDs where inline completions may run, e.g. `["typescript", "python"]`. Leave empty to allow every language; a language also listed in `blockedLanguages` stays blocked (block beats allow) |
+| `litellm-vscode-chat.inlineCompletions.blockedLanguages` | `[]` | Exact VS Code language IDs where inline completions never run, e.g. `["markdown", "plaintext"]`. Leave empty to block none; block beats allow |
+| `litellm-vscode-chat.commitGeneration.enabled` | `false` | Opt-in for commit message generation from a LiteLLM model, shipping with the commit generation feature. Off by default: the command stays hidden and nothing is sent until enabled, and enabling without `commitGeneration.model` keeps the feature idle |
+| `litellm-vscode-chat.commitGeneration.model` | `null` | The model that drafts commit messages; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model` |
+| `litellm-vscode-chat.commitGeneration.prompt` | `""` | Custom instruction for the generated commit message, replacing the built-in instruction wholesale. Empty uses the built-in (a Conventional Commits subject plus a short body). Model-facing text, sent as written |
 
 There is deliberately no global headers setting: custom HTTP headers describe how to talk to one server, so they live on the server entry ([`headers`](servers.md#custom-headers)) - machine-scoped and out of Settings Sync's reach, unlike a global setting.
 

@@ -39,6 +39,11 @@ import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
+	COMMIT_GENERATION_PROMPT_SETTING_KEY,
+	FEATURE_MODEL_IDS,
+	FEATURE_MODEL_SETTING_KEYS,
+	INLINE_LANGUAGE_LIST_SETTING_KEYS,
+	INLINE_LANGUAGE_LISTS,
 	NUMBER_SETTING_SPECS,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
@@ -49,7 +54,10 @@ import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	normalizeAdditionalToolSchemaKeywords,
+	normalizeCommitGenerationPrompt,
 	normalizeCurrencySymbol,
+	normalizeFeatureModelRef,
+	normalizeLanguageList,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
 	normalizeTokenEstimationMode,
@@ -581,21 +589,19 @@ function buildScopedRecord<V>(
 }
 
 /**
- * Whether normalizing chat.additionalToolSchemaKeywords DROPS anything from
- * the raw configured value. The state push carries only the normalized list,
- * so without this flag the dashboard's row cannot tell a clean list from one
- * hiding entries a comma-box edit would silently destroy; the flag forces its
- * read-only fallback instead.
+ * Whether a normalized list DROPPED or rewrote anything from the raw
+ * configured value. The state push carries only the normalized list, so
+ * without this flag a list row cannot tell a clean list from one hiding
+ * entries a comma-box edit would silently destroy; the flag forces the row's
+ * read-only fallback instead. One rule for every normalized list setting (the
+ * schema keywords, both language lists).
  */
-function additionalToolSchemaKeywordsLossy(raw: unknown): boolean {
+function normalizedListLossy(raw: unknown, normalized: readonly string[]): boolean {
 	if (raw === undefined) {
 		return false;
 	}
-	const normalized = normalizeAdditionalToolSchemaKeywords(raw);
 	return (
-		!Array.isArray(raw) ||
-		raw.length !== normalized.length ||
-		normalized.some((keyword, index) => raw[index] !== keyword)
+		!Array.isArray(raw) || raw.length !== normalized.length || normalized.some((value, index) => raw[index] !== value)
 	);
 }
 
@@ -618,6 +624,10 @@ export const EMPTY_USAGE_VIEW: DashboardUsage = {
 };
 
 export function readDashboardSettings(reader: SettingsReader, catalog: CatalogStatusView): DashboardSettings {
+	// Read once, normalize once: the lossy verdict compares the same raw value
+	// the normalized list came from.
+	const rawKeywords = reader.get(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY);
+	const keywords = normalizeAdditionalToolSchemaKeywords(rawKeywords);
 	return {
 		numbers: recordFromKeys(NUMBER_SETTING_IDS, (id) => readNumberSetting(reader, id)),
 		booleans: recordFromKeys(BOOLEAN_SETTING_IDS, (id) => readBooleanSetting(reader, id)),
@@ -645,12 +655,8 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 		chat: {
 			tokenEstimation: normalizeTokenEstimationMode(reader.get(TOKEN_ESTIMATION_SETTING_KEY)),
 			tokenEstimationScope: resolveConfiguredScope(reader.inspect(TOKEN_ESTIMATION_SETTING_KEY)),
-			additionalToolSchemaKeywords: normalizeAdditionalToolSchemaKeywords(
-				reader.get(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY)
-			),
-			additionalToolSchemaKeywordsLossy: additionalToolSchemaKeywordsLossy(
-				reader.get(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY)
-			),
+			additionalToolSchemaKeywords: keywords,
+			additionalToolSchemaKeywordsLossy: normalizedListLossy(rawKeywords, keywords),
 			additionalToolSchemaKeywordsScope: resolveConfiguredScope(
 				reader.inspect(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY)
 			),
@@ -663,6 +669,24 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 			currencySymbol: normalizeCurrencySymbol(reader.get(CURRENCY_SYMBOL_SETTING_KEY)),
 			currencySymbolScope: resolveConfiguredScope(reader.inspect(CURRENCY_SYMBOL_SETTING_KEY)),
 		},
+		featureModels: recordFromKeys(
+			FEATURE_MODEL_IDS,
+			(feature) => normalizeFeatureModelRef(reader.get(FEATURE_MODEL_SETTING_KEYS[feature]), feature) ?? null
+		),
+		featureModelScopes: recordFromKeys(FEATURE_MODEL_IDS, (feature) =>
+			resolveConfiguredScope(reader.inspect(FEATURE_MODEL_SETTING_KEYS[feature]))
+		),
+		commitPrompt: normalizeCommitGenerationPrompt(reader.get(COMMIT_GENERATION_PROMPT_SETTING_KEY)),
+		commitPromptScope: resolveConfiguredScope(reader.inspect(COMMIT_GENERATION_PROMPT_SETTING_KEY)),
+		languageLists: recordFromKeys(INLINE_LANGUAGE_LISTS, (list) => {
+			const raw = reader.get(INLINE_LANGUAGE_LIST_SETTING_KEYS[list]);
+			const normalized = normalizeLanguageList(raw);
+			return {
+				values: normalized,
+				lossy: normalizedListLossy(raw, normalized),
+				scope: resolveConfiguredScope(reader.inspect(INLINE_LANGUAGE_LIST_SETTING_KEYS[list])),
+			};
+		}),
 	};
 }
 

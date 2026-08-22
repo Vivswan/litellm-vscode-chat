@@ -26,6 +26,55 @@ export const USAGE_STATUS_BAR_SETTING_KEY = "usage.statusBar";
 export const CURRENCY_SYMBOL_SETTING_KEY = "usage.currencySymbol";
 export const UI_THEME_SETTING_KEY = "ui.theme";
 export const UI_ACCENT_SETTING_KEY = "ui.accent";
+// These keys are addressed through the FEATURE_MODEL_SETTING_KEYS /
+// INLINE_LANGUAGE_LIST_SETTING_KEYS maps (one pipeline for getters, intents,
+// and rows), so only the maps export.
+const INLINE_COMPLETIONS_MODEL_SETTING_KEY = "inlineCompletions.model";
+const INLINE_COMPLETIONS_ALLOWED_LANGUAGES_SETTING_KEY = "inlineCompletions.allowedLanguages";
+const INLINE_COMPLETIONS_BLOCKED_LANGUAGES_SETTING_KEY = "inlineCompletions.blockedLanguages";
+const COMMIT_GENERATION_MODEL_SETTING_KEY = "commitGeneration.model";
+export const COMMIT_GENERATION_PROMPT_SETTING_KEY = "commitGeneration.prompt";
+
+/**
+ * The features that pick their model through an explicit `<feature>.model`
+ * setting. Both are opt-in and fail-closed: the enabled boolean without a
+ * model ref keeps the feature inert.
+ */
+export const FEATURE_MODEL_IDS = ["inlineCompletions", "commitGeneration"] as const;
+
+export type FeatureModelId = (typeof FEATURE_MODEL_IDS)[number];
+
+/**
+ * A feature's explicit model choice: a `servers` entry's label (the same
+ * identity the sync engine and usage resolution address entries by) plus the
+ * raw model ID that server serves. Never auto-picked; null/unset means the
+ * feature stays idle.
+ */
+export interface FeatureModelRef {
+	readonly server: string;
+	readonly model: string;
+}
+
+/** Each feature's model setting key; the one map the getters, intents, and rows address the pair through. */
+export const FEATURE_MODEL_SETTING_KEYS = {
+	inlineCompletions: INLINE_COMPLETIONS_MODEL_SETTING_KEY,
+	commitGeneration: COMMIT_GENERATION_MODEL_SETTING_KEY,
+} as const satisfies Record<FeatureModelId, string>;
+
+/**
+ * The two inline-completions language lists, named by their setting-key
+ * suffixes. Exact VS Code language IDs; block beats allow, and the empty
+ * allow list means every language.
+ */
+export const INLINE_LANGUAGE_LISTS = ["allowedLanguages", "blockedLanguages"] as const;
+
+export type InlineLanguageListId = (typeof INLINE_LANGUAGE_LISTS)[number];
+
+/** Each language list's setting key; the getters, intents, and rows share this one map. */
+export const INLINE_LANGUAGE_LIST_SETTING_KEYS = {
+	allowedLanguages: INLINE_COMPLETIONS_ALLOWED_LANGUAGES_SETTING_KEY,
+	blockedLanguages: INLINE_COMPLETIONS_BLOCKED_LANGUAGES_SETTING_KEY,
+} as const satisfies Record<InlineLanguageListId, string>;
 
 /**
  * The dashboard's theme choices. "auto" leaves every semantic token mapped
@@ -136,6 +185,10 @@ export const BOOLEAN_SETTING_SPECS = {
 	"chat.promptCaching": { default: true },
 	"models.openRouterCatalog": { default: true },
 	"ui.maskSecretInputs": { default: true },
+	// Both features are opt-in by contract: disabled means zero registration
+	// and zero traffic, and enabling without a model ref stays inert.
+	"inlineCompletions.enabled": { default: false },
+	"commitGeneration.enabled": { default: false },
 } as const satisfies Record<string, BooleanSettingValueSpec>;
 
 export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;
@@ -166,6 +219,11 @@ export const STRUCTURED_SETTING_KEYS = [
 	CURRENCY_SYMBOL_SETTING_KEY,
 	UI_THEME_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
+	INLINE_COMPLETIONS_MODEL_SETTING_KEY,
+	INLINE_COMPLETIONS_ALLOWED_LANGUAGES_SETTING_KEY,
+	INLINE_COMPLETIONS_BLOCKED_LANGUAGES_SETTING_KEY,
+	COMMIT_GENERATION_MODEL_SETTING_KEY,
+	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 ] as const;
 
 /**

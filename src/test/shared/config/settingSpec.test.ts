@@ -5,10 +5,15 @@ import { DEFAULT_MAX_TOKENS_CAP } from "../../../provider/transport/request";
 import {
 	ALL_SETTING_KEYS,
 	BOOLEAN_SETTING_SPECS,
+	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
+	FEATURE_MODEL_IDS,
+	FEATURE_MODEL_SETTING_KEYS,
+	INLINE_LANGUAGE_LIST_SETTING_KEYS,
+	INLINE_LANGUAGE_LISTS,
 	isIntegerSetting,
 	MIN_TIMEOUT_MS,
 	NUMBER_SETTING_SPECS,
@@ -42,6 +47,7 @@ interface SettingSchema {
 	readonly default?: unknown;
 	readonly minimum?: number;
 	readonly scope?: string;
+	readonly required?: readonly string[];
 	readonly additionalProperties?: boolean | { readonly type?: string | readonly string[] };
 	readonly description?: string;
 	readonly markdownDescription?: string;
@@ -112,9 +118,18 @@ function schemaTypes(schema: SettingSchema): readonly string[] {
 }
 
 suite("shared/config/settingSpec: package.json drift guard", () => {
-	test("the configuration contributes exactly the six titled sections, in order", () => {
+	test("the configuration contributes exactly the eight titled sections, in order", () => {
 		const titles = readPackageJson().contributes.configuration.map((section) => resolveNls(section.title));
-		assert.deepStrictEqual(titles, ["Servers", "Models", "Chat", "Discovery", "Usage", "UI"]);
+		assert.deepStrictEqual(titles, [
+			"Servers",
+			"Models",
+			"Chat",
+			"Discovery",
+			"Usage",
+			"UI",
+			"Inline completions",
+			"Commit message generation",
+		]);
 	});
 
 	test("every contributed configuration property lives under the config section", () => {
@@ -251,13 +266,26 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 });
 
 suite("shared/config/settingSpec: docs drift guard", () => {
-	test("every locale's settings-reference table covers every scalar setting and shows the spec's default", () => {
+	test("every locale's settings-reference table covers every scalar and feature setting and shows its default", () => {
 		// Rows look like: | `litellm-vscode-chat.chat.timeout` | `300000` | ... |
 		// In every shipped locale, every spec'd number and boolean setting must have a
 		// row showing its default in the second column; a dropped row fails the compare.
 		const defaults = new Map<string, string>();
 		for (const [id, spec] of [...Object.entries(NUMBER_SETTING_SPECS), ...Object.entries(BOOLEAN_SETTING_SPECS)]) {
 			defaults.set(id, String(spec.default));
+		}
+		// The structured feature settings carry no scalar spec, so their rendered
+		// defaults (`null`, `""`, `[]`) come from the manifest itself: the docs
+		// pin follows a package.json default change automatically instead of
+		// leaving five default columns as unpinned prose.
+		const properties = allProperties();
+		for (const id of [
+			FEATURE_MODEL_SETTING_KEYS.inlineCompletions,
+			FEATURE_MODEL_SETTING_KEYS.commitGeneration,
+			COMMIT_GENERATION_PROMPT_SETTING_KEY,
+			...INLINE_LANGUAGE_LISTS.map((list) => INLINE_LANGUAGE_LIST_SETTING_KEYS[list]),
+		]) {
+			defaults.set(id, JSON.stringify(settingSchema(properties, id).default));
 		}
 		const row = new RegExp(`^\\|\\s*\`${CONFIG_SECTION}\\.([\\w.]+)\`\\s*\\|\\s*\`([^\`]*)\``);
 		for (const docPath of SETTINGS_DOC_PATHS) {
@@ -275,7 +303,7 @@ suite("shared/config/settingSpec: docs drift guard", () => {
 			assert.deepStrictEqual(
 				covered.sort(),
 				[...defaults.keys()].sort(),
-				`the ${docPath} reference table names every scalar setting exactly once`
+				`the ${docPath} reference table names every scalar and feature setting exactly once`
 			);
 		}
 	});
@@ -423,5 +451,41 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 		const budget = entryProperties.budget;
 		assert.ok(budget, "the servers items schema declares no budget property");
 		assert.strictEqual(budget.type, "number");
+	});
+
+	test("the feature model settings are contributed as the closed { server, model } object or null, defaulting to null", () => {
+		const properties = allProperties();
+		for (const feature of FEATURE_MODEL_IDS) {
+			const schema = settingSchema(properties, FEATURE_MODEL_SETTING_KEYS[feature]);
+			assert.deepStrictEqual(schema.type, ["object", "null"], `${feature} model type`);
+			assert.strictEqual(schema.default, null, `${feature} model default`);
+			// Closed shape: the ref addresses an entry and a model, nothing rides
+			// along - and a partial object is not a pick (the reader treats it as
+			// unset), so the manifest requires both halves.
+			assert.strictEqual(schema.additionalProperties, false, `${feature} model additionalProperties`);
+			assert.deepStrictEqual([...(schema.required ?? [])].sort(), ["model", "server"], `${feature} model required`);
+			assert.deepStrictEqual(Object.keys(schema.properties ?? {}).sort(), ["model", "server"]);
+			assert.strictEqual(schema.properties?.server?.type, "string");
+			assert.strictEqual(schema.properties?.model?.type, "string");
+		}
+	});
+
+	test("the commit prompt is contributed as a free string defaulting to the empty built-in marker", () => {
+		const schema = settingSchema(allProperties(), COMMIT_GENERATION_PROMPT_SETTING_KEY);
+		assert.strictEqual(schema.type, "string");
+		// Free text by design: the prompt is model-facing and replaces the
+		// built-in instruction wholesale; "" means the built-in applies.
+		assert.strictEqual(schema.enum, undefined);
+		assert.strictEqual(schema.default, "");
+	});
+
+	test("the inline-completions language lists are contributed as string arrays defaulting to empty", () => {
+		const properties = allProperties();
+		for (const list of INLINE_LANGUAGE_LISTS) {
+			const schema = settingSchema(properties, INLINE_LANGUAGE_LIST_SETTING_KEYS[list]);
+			assert.strictEqual(schema.type, "array", `${list} type`);
+			assert.strictEqual(schema.items?.type, "string", `${list} items`);
+			assert.deepStrictEqual(schema.default, [], `${list} default`);
+		}
 	});
 });

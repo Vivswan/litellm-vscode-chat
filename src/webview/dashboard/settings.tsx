@@ -27,6 +27,7 @@ import type {
 	CatalogStatusView,
 	DashboardModel,
 	DashboardSettings,
+	LanguageListSetting,
 	SettingRowId,
 	SettingScope,
 	UsageStatusBarModeSetting,
@@ -34,12 +35,17 @@ import type {
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
 import type {
 	BooleanSettingId,
+	FeatureModelId,
+	FeatureModelRef,
+	InlineLanguageListId,
 	NumberSettingId,
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
 } from "../../shared/config/settingSpec";
 import {
+	FEATURE_MODEL_SETTING_KEYS,
+	INLINE_LANGUAGE_LIST_SETTING_KEYS,
 	isUsableThreshold,
 	NUMBER_SETTING_SPECS,
 	TOKEN_ESTIMATION_MODES,
@@ -52,8 +58,11 @@ import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { FailureText } from "./failureText";
 import { DocsLink, Help, NoBreakTail } from "./help";
 import {
+	helpCommitPrompt,
 	helpCurrencySymbol,
+	helpFeatureModel,
 	helpImportExportGroup,
+	helpLanguageList,
 	helpModelCapabilitiesSection,
 	helpModelParametersSection,
 	helpSettingsSection,
@@ -151,6 +160,11 @@ const SETTING_GROUPS: readonly {
 		booleans: [],
 	},
 	{ title: () => l10n.t("UI"), numbers: [], booleans: ["ui.maskSecretInputs"] },
+	// The two opt-in feature sections, in the manifest's order; each carries
+	// its non-boolean rows as a tail (the model picker, the language lists,
+	// the prompt).
+	{ title: () => l10n.t("Inline completions"), numbers: [], booleans: ["inlineCompletions.enabled"] },
+	{ title: () => l10n.t("Commit message generation"), numbers: [], booleans: ["commitGeneration.enabled"] },
 ];
 
 /**
@@ -728,6 +742,34 @@ function uiAccentDescription(): string {
 	return l10n.t("Marks primary actions, selection, focus and links.");
 }
 
+/** The model-picker rows' descriptions, keyed by feature; the filter matches this exact text. */
+function featureModelDescription(feature: FeatureModelId): string {
+	return feature === "inlineCompletions"
+		? l10n.t("Which model serves ghost text; Not set keeps the feature idle.")
+		: l10n.t("Which model drafts commit messages; Not set keeps the feature idle.");
+}
+
+/** The model-picker rows' titles, keyed by feature like featureModelDescription. */
+function featureModelTitle(feature: FeatureModelId): string {
+	return feature === "inlineCompletions" ? l10n.t("Inline completions model") : l10n.t("Commit generation model");
+}
+
+function commitPromptDescription(): string {
+	return l10n.t("Custom instruction for generated commit messages; empty uses the built-in.");
+}
+
+/** The language-list rows' descriptions, keyed by list like their help. */
+function languageListDescription(list: InlineLanguageListId): string {
+	return list === "allowedLanguages"
+		? l10n.t("Language IDs where inline completions may run. Leave empty to allow all.")
+		: l10n.t("Language IDs where inline completions never run. Leave empty to block none.");
+}
+
+/** The language-list rows' titles, keyed by list like their descriptions. */
+function languageListTitle(list: InlineLanguageListId): string {
+	return list === "allowedLanguages" ? l10n.t("Allowed languages") : l10n.t("Blocked languages");
+}
+
 /** The usage.statusBar mode names, resolved at call time (no module-level localized constants). */
 function statusBarModeLabel(mode: UsageStatusBarModeSetting): string {
 	switch (mode) {
@@ -1201,30 +1243,48 @@ function CurrencySymbolRow({
 }
 
 /**
- * The intent schema's bounds, mirrored (intentSchema.ts: z.array(z.string().max(256))
- * .max(64)): a paste the host would reject is refused here with a reason instead of
- * surfacing as a generic envelope failure.
+ * The intent schema's list bounds are WIRE_LIMITS entries (both sides of the
+ * wire read the same numbers), so a paste the host would reject is refused
+ * here with a reason instead of surfacing as a generic envelope failure.
+ *
+ * The ONE comma-separated list editor behind the keywords and language-list rows: one
+ * draft (trimmed, empties dropped, deduplicated in order), committed on blur or Enter
+ * when it differs from the stored list; a draft past the wire bounds shows the bound and
+ * never commits; and a stored list the box cannot round-trip (the lossy flag, or an
+ * entry holding a comma or edge whitespace) renders read-only with the reveal button, so
+ * the dashboard never destroys it.
  */
-const TOOL_SCHEMA_KEYWORD_MAX_LENGTH = 256;
-const TOOL_SCHEMA_KEYWORD_MAX_COUNT = 64;
-
-/**
- * The chat.additionalToolSchemaKeywords row: one comma-separated input. A draft past the
- * intent schema's bounds shows the bound and never commits. A stored list the box cannot
- * round-trip (comma or edge whitespace in an entry, or lossy raw values) renders
- * read-only with the reveal button, so the dashboard never destroys it.
- */
-function ToolSchemaKeywordsRow({
+function CommaListRow({
+	settingId,
+	title,
+	description,
+	help,
+	placeholder,
 	values,
 	lossy,
+	maxLength,
+	maxCount,
+	countProblem,
+	lengthProblem,
 	configuredScope,
 	hidden,
+	onCommit,
 }: {
+	settingId: SettingRowId;
+	title: string;
+	description: string;
+	help: string;
+	placeholder: string;
 	values: readonly string[];
-	/** Whether normalization dropped raw entries the push cannot carry; forces the read-only fallback. */
+	/** Whether normalization dropped or rewrote raw entries the push cannot carry; forces the read-only fallback. */
 	lossy: boolean;
+	maxLength: number;
+	maxCount: number;
+	countProblem: (max: number) => string;
+	lengthProblem: (max: number) => string;
 	configuredScope: SettingScope | null;
 	hidden: boolean;
+	onCommit: (values: readonly string[]) => void;
 }) {
 	const externalText = values.join(", ");
 	const [text, setText] = useState(externalText);
@@ -1238,39 +1298,38 @@ function ToolSchemaKeywordsRow({
 		...new Set(
 			text
 				.split(",")
-				.map((keyword) => keyword.trim())
-				.filter((keyword) => keyword.length > 0)
+				.map((entry) => entry.trim())
+				.filter((entry) => entry.length > 0)
 		),
 	];
 	const error =
-		parsed.length > TOOL_SCHEMA_KEYWORD_MAX_COUNT
-			? l10n.t("At most {0} keywords.", TOOL_SCHEMA_KEYWORD_MAX_COUNT)
-			: parsed.some((keyword) => keyword.length > TOOL_SCHEMA_KEYWORD_MAX_LENGTH)
-				? l10n.t("Keywords run up to {0} characters each.", TOOL_SCHEMA_KEYWORD_MAX_LENGTH)
+		parsed.length > maxCount
+			? countProblem(maxCount)
+			: parsed.some((entry) => entry.length > maxLength)
+				? lengthProblem(maxLength)
 				: undefined;
 	const commit = () => {
 		if (error !== undefined) {
 			return;
 		}
 		if (parsed.join(",") !== values.join(",")) {
-			sendRequest("setAdditionalToolSchemaKeywords", { values: parsed });
+			onCommit(parsed);
 		}
 	};
 
-	const title = l10n.t("Extra tool schema keywords");
-	const inputId = "setting-chat.additionalToolSchemaKeywords";
+	const inputId = `setting-${settingId}`;
 	const errorId = `${inputId}-error`;
 	// The comma-separated box cannot round-trip an entry that holds a comma or
 	// edge whitespace, and the lossy flag covers what the normalized push
 	// cannot show at all; only the settings file can write either.
-	const custom = lossy || values.some((keyword) => keyword.includes(",") || keyword !== keyword.trim());
+	const custom = lossy || values.some((entry) => entry.includes(",") || entry !== entry.trim());
 	return (
 		<SettingRow
-			settingId="chat.additionalToolSchemaKeywords"
+			settingId={settingId}
 			title={title}
 			titleFor={custom ? undefined : inputId}
-			description={toolSchemaKeywordsDescription()}
-			help={helpToolSchemaKeywords()}
+			description={description}
+			help={help}
 			error={custom ? undefined : error}
 			errorId={errorId}
 			configuredScope={configuredScope}
@@ -1286,16 +1345,278 @@ function ToolSchemaKeywordsRow({
 						id={inputId}
 						type="text"
 						spellCheck={false}
-						// Full control-column width: keyword lists grow sideways. The 20rem cap IS the control
+						// Full control-column width: lists grow sideways. The 20rem cap IS the control
 						// column, stated on the input so the stacked tier keeps the same width policy (one
 						// track there means max-w-full is the whole pane).
 						className="w-full max-w-[20rem]"
 						aria-invalid={error !== undefined}
 						aria-describedby={error === undefined ? undefined : errorId}
-						placeholder={l10n.t("e.g. propertyNames, patternProperties")}
+						placeholder={placeholder}
 						value={text}
 						onChange={(event) => setText(event.currentTarget.value)}
 						onBlur={() => commit()}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								commit();
+							}
+						}}
+					/>
+				)
+			}
+		/>
+	);
+}
+
+/** The chat.additionalToolSchemaKeywords row over the shared comma-list editor. */
+function ToolSchemaKeywordsRow({
+	values,
+	lossy,
+	configuredScope,
+	hidden,
+}: {
+	values: readonly string[];
+	lossy: boolean;
+	configuredScope: SettingScope | null;
+	hidden: boolean;
+}) {
+	return (
+		<CommaListRow
+			settingId="chat.additionalToolSchemaKeywords"
+			title={l10n.t("Extra tool schema keywords")}
+			description={toolSchemaKeywordsDescription()}
+			help={helpToolSchemaKeywords()}
+			placeholder={l10n.t("e.g. propertyNames, patternProperties")}
+			values={values}
+			lossy={lossy}
+			maxLength={WIRE_LIMITS.schemaKeyword}
+			maxCount={WIRE_LIMITS.schemaKeywords}
+			countProblem={(max) => l10n.t("At most {0} keywords.", max)}
+			lengthProblem={(max) => l10n.t("Keywords run up to {0} characters each.", max)}
+			configuredScope={configuredScope}
+			hidden={hidden}
+			onCommit={(next) => sendRequest("setAdditionalToolSchemaKeywords", { values: next })}
+		/>
+	);
+}
+
+/** One inline-completions language list over the shared comma-list editor, rendered for both lists. */
+function LanguageListRow({
+	list,
+	setting,
+	hidden,
+}: {
+	list: InlineLanguageListId;
+	setting: LanguageListSetting;
+	hidden: boolean;
+}) {
+	return (
+		<CommaListRow
+			settingId={INLINE_LANGUAGE_LIST_SETTING_KEYS[list]}
+			title={languageListTitle(list)}
+			description={languageListDescription(list)}
+			help={helpLanguageList(list)}
+			placeholder={l10n.t("e.g. typescript, python")}
+			values={setting.values}
+			lossy={setting.lossy}
+			maxLength={WIRE_LIMITS.languageId}
+			maxCount={WIRE_LIMITS.languageList}
+			countProblem={(max) => l10n.t("At most {0} language IDs.", max)}
+			lengthProblem={(max) => l10n.t("Language IDs run up to {0} characters each.", max)}
+			configuredScope={setting.scope}
+			hidden={hidden}
+			onCommit={(next) => sendRequest("setLanguageList", { list, values: next })}
+		/>
+	);
+}
+
+/**
+ * The (serverLabel, rawId) pairs of DECLARED entries' models as FeatureModelRef options,
+ * deduplicated in the models table's order. External groups are excluded by construction:
+ * a ref names a servers-entry label, which external groups do not have, so offering their
+ * models would mint picks the feature could never resolve. A multi-claimant model appears
+ * once per claimant label on purpose: each label is a distinct addressable entry.
+ */
+function modelRefOptions(
+	models: readonly DashboardModel[],
+	declaredLabels: ReadonlySet<string>
+): readonly FeatureModelRef[] {
+	const seen = new Set<string>();
+	const options: FeatureModelRef[] = [];
+	for (const model of models) {
+		const option = { server: model.serverLabel, model: model.rawId };
+		const key = modelRefIdentity(option);
+		if (declaredLabels.has(model.serverLabel) && !seen.has(key)) {
+			seen.add(key);
+			options.push(option);
+		}
+	}
+	return options;
+}
+
+/** One (server, model) pair's select-option identity; also the option's React key. */
+function modelRefIdentity(ref: FeatureModelRef): string {
+	// A JSON tuple, so the encoding is collision-safe whatever characters a
+	// label or a discovered model ID contains.
+	return JSON.stringify([ref.server, ref.model]);
+}
+
+/**
+ * One feature's model-picker row, rendered for both features. The select offers "Not
+ * set" plus every declared entry's served (server, model) pair; a configured ref no
+ * offered pair currently backs stays IN the option list (selected, same rendered text),
+ * so the dangling state changes no geometry - its only visible delta is the warning in
+ * the covered description slot, which holds the cell's height by the covering contract
+ * (check-geometry pins both). A standing write failure for this row outranks the
+ * dangling warning: both render in the same covered slot, and the warning never clears
+ * on its own, so it must not mask "the last change did not apply".
+ */
+function FeatureModelRow({
+	feature,
+	value,
+	options,
+	configuredScope,
+	hidden,
+}: {
+	feature: FeatureModelId;
+	value: FeatureModelRef | null;
+	options: readonly FeatureModelRef[];
+	configuredScope: SettingScope | null;
+	hidden: boolean;
+}) {
+	const dangling = value !== null && !options.some((option) => modelRefIdentity(option) === modelRefIdentity(value));
+	// The dangling ref joins the options so the pick stays visible and keepable;
+	// labels and model IDs are user configuration, safe to render.
+	const allOptions = value !== null && dangling ? [...options, value] : options;
+	const selected = value === null ? "" : modelRefIdentity(value);
+	const settingId = FEATURE_MODEL_SETTING_KEYS[feature];
+	const inputId = `setting-${settingId}`;
+	const errorId = `${inputId}-error`;
+	// SettingRow shows a write failure only while `error` is empty, so the
+	// standing warning yields to it here; the warning resurfaces once the next
+	// push clears the failure.
+	const writeFailure = useContext(SettingFailuresContext)[settingId];
+	const warningShown = dangling && writeFailure === undefined;
+	const pick = (next: string) => {
+		if (next === selected) {
+			return;
+		}
+		if (next === "") {
+			sendRequest("setFeatureModel", { feature, value: null });
+			return;
+		}
+		// Total by construction: an option value that resolves to no offered pair
+		// (impossible from an honest select) writes nothing rather than clearing.
+		const picked = allOptions.find((option) => modelRefIdentity(option) === next);
+		if (picked !== undefined) {
+			sendRequest("setFeatureModel", { feature, value: picked });
+		}
+	};
+	return (
+		<SettingRow
+			settingId={settingId}
+			title={featureModelTitle(feature)}
+			titleFor={inputId}
+			description={featureModelDescription(feature)}
+			help={helpFeatureModel()}
+			error={
+				warningShown
+					? l10n.t(
+							"This model is no longer available from any configured server. Choose another model or update the server entry."
+						)
+					: undefined
+			}
+			errorId={errorId}
+			configuredScope={configuredScope}
+			hidden={hidden}
+			control={
+				<Select
+					id={inputId}
+					className="max-w-full"
+					value={selected}
+					aria-invalid={dangling}
+					// Only while the warning element actually renders under errorId; the
+					// write-failure cover that can replace it carries no id.
+					aria-describedby={warningShown ? errorId : undefined}
+					onChange={(event) => pick(event.currentTarget.value)}
+				>
+					<option value="">{l10n.t("Not set")}</option>
+					{allOptions.map((option) => (
+						// Entry labels and raw IDs are the option's identity; the pair is unique by construction.
+						<option key={modelRefIdentity(option)} value={modelRefIdentity(option)}>
+							{`${option.server}: ${option.model}`}
+						</option>
+					))}
+				</Select>
+			}
+		/>
+	);
+}
+
+/**
+ * The commitGeneration.prompt row: one free-text input over the instruction. The empty
+ * string is the built-in instruction (the intent resets the setting); a draft past the
+ * wire bound shows the bound and never commits, like the currency symbol. A stored
+ * MULTILINE prompt renders read-only with the reveal button - a text input strips
+ * newlines, so editing it here would silently flatten what settings.json holds.
+ */
+function CommitPromptRow({
+	value,
+	configuredScope,
+	hidden,
+}: {
+	value: string;
+	configuredScope: SettingScope | null;
+	hidden: boolean;
+}) {
+	const [text, setText] = useState(value);
+	const syncKey = `${value}@${configuredScope ?? "default"}`;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on syncKey alone; the external value is read at sync time, not watched
+	useEffect(() => {
+		setText(value);
+	}, [syncKey]);
+	const inputId = "setting-commitGeneration.prompt";
+	const errorId = `${inputId}-error`;
+	const error =
+		text.length > WIRE_LIMITS.commitPrompt ? l10n.t("At most {0} characters.", WIRE_LIMITS.commitPrompt) : undefined;
+	const commit = () => {
+		if (error === undefined && text !== value) {
+			sendRequest("setCommitPrompt", { value: text });
+		}
+	};
+	// Any line separator disqualifies the box: a text input strips CR and LF
+	// alike, so editing here would silently flatten what settings.json holds.
+	const custom = /[\r\n]/.test(value);
+	return (
+		<SettingRow
+			settingId="commitGeneration.prompt"
+			title={l10n.t("Commit message prompt")}
+			titleFor={custom ? undefined : inputId}
+			description={commitPromptDescription()}
+			help={helpCommitPrompt()}
+			error={custom ? undefined : error}
+			errorId={errorId}
+			configuredScope={configuredScope}
+			hidden={hidden}
+			control={
+				custom ? (
+					<>
+						<span className="font-mono whitespace-pre-wrap">{value}</span>
+						<span className="hint">{l10n.t("Multi-line prompt - edit in settings.json.")}</span>
+					</>
+				) : (
+					<Input
+						id={inputId}
+						type="text"
+						spellCheck={false}
+						// Prose grows sideways like the keyword list; the cap IS the control column.
+						className="w-full max-w-[20rem]"
+						maxLength={WIRE_LIMITS.commitPrompt}
+						placeholder={l10n.t("built-in instruction")}
+						aria-invalid={error !== undefined}
+						aria-describedby={error === undefined ? undefined : errorId}
+						value={text}
+						onChange={(event) => setText(event.currentTarget.value)}
+						onBlur={commit}
 						onKeyDown={(event) => {
 							if (event.key === "Enter") {
 								commit();
@@ -1397,6 +1718,9 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 		settings.usage.currencySymbolScope,
 		settings.appearance.themeScope,
 		settings.appearance.accentScope,
+		...Object.values(settings.featureModelScopes),
+		settings.commitPromptScope,
+		...Object.values(settings.languageLists).map((list) => list.scope),
 	];
 }
 
@@ -1443,6 +1767,7 @@ function recordEditorMatches(
 export function SettingsSection({
 	settings,
 	models,
+	declaredServerLabels,
 	observedModelInfoKeys,
 	now,
 	editRecordRequest,
@@ -1450,6 +1775,12 @@ export function SettingsSection({
 }: {
 	settings: DashboardSettings;
 	models: readonly DashboardModel[];
+	/**
+	 * The declared entries' labels (state.servers, origin "declared"): what the feature
+	 * model pickers may offer, since a ref addresses a servers-entry label and external
+	 * groups have none. Absent offers nothing - fail-closed, never a wrong pick.
+	 */
+	declaredServerLabels?: readonly string[] | undefined;
 	/** The cross-server observed /model/info key union (DashboardState.observedModelInfoKeys), the capability editor's hint evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
 	/** The shared clock tick; the catalog row's "updated N ago" reads it. */
@@ -1459,6 +1790,9 @@ export function SettingsSection({
 	/** The standing scalar-write failures from App's store, for this page to place by owning row. */
 	writeFailures?: Partial<Record<SettingWriteMethod, SettingWriteFailure>> | undefined;
 }) {
+	// Computed once for both picker rows; the same option list is what the
+	// dangling verdict is judged against.
+	const featureModelOptions = modelRefOptions(models, new Set(declaredServerLabels ?? []));
 	const [filter, setFilter] = useState("");
 	const filterId = useId();
 	// A jump must land on a visible editor: a leftover filter that hides the
@@ -1542,6 +1876,37 @@ export function SettingsSection({
 	);
 	const themeVisible = matches(l10n.t("Dashboard theme"), uiThemeDescription(), "ui.theme", helpUiTheme());
 	const accentVisible = matches(l10n.t("Accent color"), uiAccentDescription(), "ui.accent", helpUiAccent());
+	// The feature tails filter by the same rule as every other non-scalar row.
+	const inlineModelVisible = matches(
+		featureModelTitle("inlineCompletions"),
+		featureModelDescription("inlineCompletions"),
+		"inlineCompletions.model",
+		helpFeatureModel()
+	);
+	const commitModelVisible = matches(
+		featureModelTitle("commitGeneration"),
+		featureModelDescription("commitGeneration"),
+		"commitGeneration.model",
+		helpFeatureModel()
+	);
+	const commitPromptVisible = matches(
+		l10n.t("Commit message prompt"),
+		commitPromptDescription(),
+		"commitGeneration.prompt",
+		helpCommitPrompt()
+	);
+	const allowedLanguagesVisible = matches(
+		languageListTitle("allowedLanguages"),
+		languageListDescription("allowedLanguages"),
+		"inlineCompletions.allowedLanguages",
+		helpLanguageList("allowedLanguages")
+	);
+	const blockedLanguagesVisible = matches(
+		languageListTitle("blockedLanguages"),
+		languageListDescription("blockedLanguages"),
+		"inlineCompletions.blockedLanguages",
+		helpLanguageList("blockedLanguages")
+	);
 	// The Import & Export group filters like a scalar row (title and button labels). Its
 	// help stays OUT of the haystack even though row-level help is in: a group matched
 	// through group help would stand with no row in it matching - the reader scans the
@@ -1562,7 +1927,12 @@ export function SettingsSection({
 		!thresholdsVisible &&
 		!currencyVisible &&
 		!themeVisible &&
-		!accentVisible;
+		!accentVisible &&
+		!inlineModelVisible &&
+		!commitModelVisible &&
+		!commitPromptVisible &&
+		!allowedLanguagesVisible &&
+		!blockedLanguagesVisible;
 	const booleanMeta: Partial<Record<BooleanSettingId, ReactNode>> = {
 		"models.openRouterCatalog": (
 			<CatalogMeta catalog={settings.catalog} enabled={settings.booleans["models.openRouterCatalog"]} now={nowMs} />
@@ -1590,6 +1960,16 @@ export function SettingsSection({
 				return themeVisible;
 			case "ui.accent":
 				return accentVisible;
+			case "inlineCompletions.model":
+				return inlineModelVisible;
+			case "commitGeneration.model":
+				return commitModelVisible;
+			case "commitGeneration.prompt":
+				return commitPromptVisible;
+			case "inlineCompletions.allowedLanguages":
+				return allowedLanguagesVisible;
+			case "inlineCompletions.blockedLanguages":
+				return blockedLanguagesVisible;
 			default:
 				return isVisible(row);
 		}
@@ -1670,11 +2050,13 @@ export function SettingsSection({
 				    width for the whole page. */}
 				<div className={SETTING_GRID_TRACKS}>
 					{SETTING_GROUPS.map((group, index) => {
-						// Four groups carry non-scalar tails, mirroring the manifest's grouping.
+						// Six groups carry non-scalar tails, mirroring the manifest's grouping.
 						const isModelsGroup = group.booleans.includes("models.openRouterCatalog");
 						const isChatGroup = group.numbers.includes("chat.timeout");
 						const isUsageGroup = group.numbers.includes("usage.pollInterval");
 						const isUiGroup = group.booleans.includes("ui.maskSecretInputs");
+						const isInlineGroup = group.booleans.includes("inlineCompletions.enabled");
+						const isCommitGroup = group.booleans.includes("commitGeneration.enabled");
 						return (
 							<SettingGroup
 								// biome-ignore lint/suspicious/noArrayIndexKey: the group list is a fixed literal; position is the identity
@@ -1687,7 +2069,9 @@ export function SettingsSection({
 									(isModelsGroup && (paramsVisible || capsVisible)) ||
 									(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible)) ||
 									(isUsageGroup && (statusBarVisible || thresholdsVisible || currencyVisible)) ||
-									(isUiGroup && (themeVisible || accentVisible))
+									(isUiGroup && (themeVisible || accentVisible)) ||
+									(isInlineGroup && (inlineModelVisible || allowedLanguagesVisible || blockedLanguagesVisible)) ||
+									(isCommitGroup && (commitModelVisible || commitPromptVisible))
 								}
 								tail={
 									isModelsGroup ? (
@@ -1774,6 +2158,41 @@ export function SettingsSection({
 												accent={settings.appearance.accent}
 												configuredScope={settings.appearance.accentScope}
 												hidden={!accentVisible}
+											/>
+										</>
+									) : isInlineGroup ? (
+										<>
+											<FeatureModelRow
+												feature="inlineCompletions"
+												value={settings.featureModels.inlineCompletions}
+												options={featureModelOptions}
+												configuredScope={settings.featureModelScopes.inlineCompletions}
+												hidden={!inlineModelVisible}
+											/>
+											<LanguageListRow
+												list="allowedLanguages"
+												setting={settings.languageLists.allowedLanguages}
+												hidden={!allowedLanguagesVisible}
+											/>
+											<LanguageListRow
+												list="blockedLanguages"
+												setting={settings.languageLists.blockedLanguages}
+												hidden={!blockedLanguagesVisible}
+											/>
+										</>
+									) : isCommitGroup ? (
+										<>
+											<FeatureModelRow
+												feature="commitGeneration"
+												value={settings.featureModels.commitGeneration}
+												options={featureModelOptions}
+												configuredScope={settings.featureModelScopes.commitGeneration}
+												hidden={!commitModelVisible}
+											/>
+											<CommitPromptRow
+												value={settings.commitPrompt}
+												configuredScope={settings.commitPromptScope}
+												hidden={!commitPromptVisible}
 											/>
 										</>
 									) : undefined

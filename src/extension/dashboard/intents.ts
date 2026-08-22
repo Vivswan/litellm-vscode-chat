@@ -22,8 +22,11 @@ import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/comma
 import type { NumberSettingId } from "../../shared/config/settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
+	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
+	FEATURE_MODEL_SETTING_KEYS,
+	INLINE_LANGUAGE_LIST_SETTING_KEYS,
 	isIntegerSetting,
 	isUsableThreshold,
 	NUMBER_SETTING_SPECS,
@@ -485,6 +488,65 @@ export async function executeDashboardIntent(
 		case "setUiAccent":
 			await env.updateSetting(UI_ACCENT_SETTING_KEY, intent.payload.value);
 			return undefined;
+		case "setFeatureModel": {
+			const key = FEATURE_MODEL_SETTING_KEYS[intent.payload.feature];
+			if (intent.payload.value === null) {
+				// Clearing the pick resets the setting instead of writing the literal
+				// null: the default IS null, and a written null would mark the row
+				// modified while saying nothing.
+				await env.removeSetting(key);
+				return undefined;
+			}
+			// The getter trims both halves, so the canonical trimmed form is
+			// written; a value that trims away entirely is a bypassing caller.
+			const server = intent.payload.value.server.trim();
+			const model = intent.payload.value.model.trim();
+			if (server.length === 0 || model.length === 0) {
+				throw new DashboardValidationError(
+					`${l10n.t("Pick a server and model, or Not set to clear the pick.")}\n${l10n.t(
+						"setting {0}: allowed range {1}",
+						`${CONFIG_SECTION}.${key}`,
+						"non-empty server label and model ID"
+					)}`
+				);
+			}
+			await env.updateSetting(key, { server, model });
+			return undefined;
+		}
+		case "setCommitPrompt":
+			// Verbatim, like the currency symbol (model-facing text; whitespace can
+			// be intended); the empty string resets the setting so the built-in
+			// instruction applies without a modified mark.
+			if (intent.payload.value.length === 0) {
+				await env.removeSetting(COMMIT_GENERATION_PROMPT_SETTING_KEY);
+			} else {
+				await env.updateSetting(COMMIT_GENERATION_PROMPT_SETTING_KEY, intent.payload.value);
+			}
+			return undefined;
+		case "setLanguageList": {
+			const key = INLINE_LANGUAGE_LIST_SETTING_KEYS[intent.payload.list];
+			// Entries that trim away are refused rather than dropped: the row's
+			// editor already trims empties out, so anything else is a bypassing
+			// caller. Written trimmed and deduplicated in the given order - the
+			// canonical form normalization would produce anyway.
+			const values = intent.payload.values.map((value) => value.trim());
+			if (values.some((value) => value.length === 0)) {
+				throw new DashboardValidationError(
+					`${l10n.t("Language IDs must be plain, non-empty identifiers, e.g. typescript.")}\n${l10n.t(
+						"setting {0}: allowed range {1}",
+						`${CONFIG_SECTION}.${key}`,
+						"plain non-empty strings"
+					)}`
+				);
+			}
+			const unique = [...new Set(values)];
+			if (unique.length === 0) {
+				await env.removeSetting(key);
+			} else {
+				await env.updateSetting(key, unique);
+			}
+			return undefined;
+		}
 		case "setUsageAlertThresholds": {
 			// Out-of-range values are refused rather than silently dropped: the
 			// dashboard's editor validates the same rule, so anything else is a

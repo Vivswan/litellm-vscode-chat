@@ -18,9 +18,12 @@ import {
 	DEFAULT_DISCOVERY_TIMEOUT_MS,
 	DEFAULT_REQUEST_TIMEOUT_MS,
 	getAdditionalToolSchemaKeywords,
+	getCommitGenerationPrompt,
 	getCurrencySymbol,
 	getDiscoveryCacheTtl,
 	getDiscoveryTimeout,
+	getFeatureModelRef,
+	getInlineCompletionsLanguageList,
 	getMaxToolsPerRequest,
 	getModelCapabilitiesConfig,
 	getRequestTimeout,
@@ -31,12 +34,17 @@ import {
 	getUsagePollIntervalMs,
 	getUsagePollingOffFreshnessWindowMs,
 	getUsageServersChangeRefreshDelayMs,
+	isCommitGenerationEnabled,
+	isInlineCompletionsEnabled,
 	MIN_TIMEOUT_MS,
 	MIN_USAGE_POLL_INTERVAL_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	normalizeAdditionalToolSchemaKeywords,
+	normalizeCommitGenerationPrompt,
 	normalizeCurrencySymbol,
 	normalizeCustomHeaders,
+	normalizeFeatureModelRef,
+	normalizeLanguageList,
 	normalizeModelCapabilities,
 	normalizeTokenEstimationMode,
 	normalizeUiAccent,
@@ -427,6 +435,161 @@ suite("shared/config/settings currency symbol getter", () => {
 		});
 		await withConfig({ [CURRENCY_SYMBOL_SETTING_KEY]: 42 }, () => {
 			assert.strictEqual(getCurrencySymbol(), DEFAULT_CURRENCY_SYMBOL);
+		});
+	});
+});
+
+suite("shared/config/settings feature model refs", () => {
+	test("a well-formed ref passes with both halves edge-trimmed", () => {
+		const logged: unknown[] = [];
+		assert.deepStrictEqual(
+			normalizeFeatureModelRef({ server: " Prod ", model: " gpt-4o-mini " }, "inlineCompletions", () =>
+				logged.push(true)
+			),
+			{ server: "Prod", model: "gpt-4o-mini" }
+		);
+		assert.strictEqual(logged.length, 0);
+	});
+
+	test("unset and null read as unset without logging", () => {
+		const logged: unknown[] = [];
+		assert.strictEqual(
+			normalizeFeatureModelRef(undefined, "inlineCompletions", () => logged.push(true)),
+			undefined
+		);
+		assert.strictEqual(
+			normalizeFeatureModelRef(null, "commitGeneration", () => logged.push(true)),
+			undefined
+		);
+		assert.strictEqual(logged.length, 0);
+	});
+
+	test("malformed values advisory-log and read as unset (the feature stays fail-closed)", () => {
+		const junkValues: unknown[] = [
+			"Prod/gpt",
+			3,
+			true,
+			[],
+			{},
+			{ server: "Prod" },
+			{ model: "gpt" },
+			{ server: "", model: "m" },
+			{ server: " ", model: "m" },
+			{ server: "s", model: 4 },
+		];
+		for (const junk of junkValues) {
+			const logged: string[] = [];
+			assert.strictEqual(
+				normalizeFeatureModelRef(junk, "commitGeneration", (message) => logged.push(message)),
+				undefined,
+				JSON.stringify(junk) ?? "undefined"
+			);
+			assert.strictEqual(logged.length, 1, JSON.stringify(junk) ?? "undefined");
+			assert.ok(logged[0]?.includes("commitGeneration.model"), "the advisory names the setting");
+		}
+	});
+
+	test("extra keys are ignored, not refused: the schema flags them, the reader stays lenient", () => {
+		assert.deepStrictEqual(normalizeFeatureModelRef({ server: "Prod", model: "m", junk: 1 }, "inlineCompletions"), {
+			server: "Prod",
+			model: "m",
+		});
+	});
+
+	test("the getter reads each feature's own setting key", async () => {
+		await withConfig(
+			{
+				"inlineCompletions.model": { server: "Prod", model: "codestral" },
+				"commitGeneration.model": { server: "Gateway", model: "gpt-4o-mini" },
+			},
+			() => {
+				assert.deepStrictEqual(getFeatureModelRef("inlineCompletions"), { server: "Prod", model: "codestral" });
+				assert.deepStrictEqual(getFeatureModelRef("commitGeneration"), { server: "Gateway", model: "gpt-4o-mini" });
+			}
+		);
+		await withConfig({}, () => {
+			assert.strictEqual(getFeatureModelRef("inlineCompletions"), undefined);
+			assert.strictEqual(getFeatureModelRef("commitGeneration"), undefined);
+		});
+	});
+});
+
+suite("shared/config/settings commit prompt getter", () => {
+	test("any string passes verbatim - whitespace and the empty built-in marker included", () => {
+		// Model-facing text: no trimming, and "" is the real "use the built-in
+		// instruction" value rather than a fallback.
+		for (const prompt of ["", " ", "One line.", "line\nline"]) {
+			assert.strictEqual(normalizeCommitGenerationPrompt(prompt), prompt);
+		}
+	});
+
+	test("a non-string settings.json value reads as the built-in marker", () => {
+		for (const junk of [3, null, undefined, {}, ["p"], true]) {
+			assert.strictEqual(normalizeCommitGenerationPrompt(junk), "", JSON.stringify(junk) ?? "undefined");
+		}
+	});
+
+	test("the getter reads the setting through the normalizer", async () => {
+		await withConfig({ "commitGeneration.prompt": "Subject only." }, () => {
+			assert.strictEqual(getCommitGenerationPrompt(), "Subject only.");
+		});
+		await withConfig({ "commitGeneration.prompt": 42 }, () => {
+			assert.strictEqual(getCommitGenerationPrompt(), "");
+		});
+	});
+});
+
+suite("shared/config/settings language lists", () => {
+	test("trims, drops non-strings and empties, and deduplicates in order", () => {
+		const logged: string[] = [];
+		assert.deepStrictEqual(
+			normalizeLanguageList([" typescript ", "python", 3, "", "   ", "typescript", null], (message) =>
+				logged.push(message)
+			),
+			["typescript", "python"]
+		);
+		assert.strictEqual(logged.length, 1);
+	});
+
+	test("a non-array reads as the empty list; only a configured non-array logs", () => {
+		const logged: string[] = [];
+		assert.deepStrictEqual(
+			normalizeLanguageList(undefined, (message) => logged.push(message)),
+			[]
+		);
+		assert.strictEqual(logged.length, 0);
+		for (const junk of ["typescript", 3, {}, null]) {
+			assert.deepStrictEqual(
+				normalizeLanguageList(junk, (message) => logged.push(message)),
+				[]
+			);
+		}
+		assert.strictEqual(logged.length, 4);
+	});
+
+	test("the one getter reads both lists through the normalizer", async () => {
+		await withConfig(
+			{
+				"inlineCompletions.allowedLanguages": ["typescript", " python "],
+				"inlineCompletions.blockedLanguages": "markdown",
+			},
+			() => {
+				assert.deepStrictEqual(getInlineCompletionsLanguageList("allowedLanguages"), ["typescript", "python"]);
+				assert.deepStrictEqual(getInlineCompletionsLanguageList("blockedLanguages"), []);
+			}
+		);
+	});
+});
+
+suite("shared/config/settings feature opt-in getters", () => {
+	test("both default to false and read a configured true", async () => {
+		await withConfig({}, () => {
+			assert.strictEqual(isInlineCompletionsEnabled(), false);
+			assert.strictEqual(isCommitGenerationEnabled(), false);
+		});
+		await withConfig({ "inlineCompletions.enabled": true, "commitGeneration.enabled": true }, () => {
+			assert.strictEqual(isInlineCompletionsEnabled(), true);
+			assert.strictEqual(isCommitGenerationEnabled(), true);
 		});
 	});
 });

@@ -629,6 +629,20 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 				// not filtered: this key and the tip's translate independently.
 				description: l10n.t("Fill missing model capabilities from the OpenRouter catalog, refreshed weekly."),
 			};
+		case "inlineCompletions.enabled":
+			return {
+				label: l10n.t("Enable inline completions"),
+				description: l10n.t(
+					"Ghost text suggestions from a LiteLLM model. Requires enabling this and choosing a model below."
+				),
+			};
+		case "commitGeneration.enabled":
+			return {
+				label: l10n.t("Enable commit message generation"),
+				description: l10n.t(
+					"Drafts the commit message from your changes with a LiteLLM model. Requires enabling this and choosing a model below."
+				),
+			};
 	}
 }
 

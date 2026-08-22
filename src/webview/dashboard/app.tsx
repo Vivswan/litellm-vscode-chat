@@ -751,6 +751,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						<SettingsSection
 							settings={state.settings}
 							models={state.models}
+							declaredServerLabels={state.servers
+								.filter((server) => server.origin === "declared")
+								.map((server) => server.label)}
 							observedModelInfoKeys={state.observedModelInfoKeys}
 							now={now}
 							editRecordRequest={editRecordRequest}
