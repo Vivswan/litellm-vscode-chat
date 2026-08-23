@@ -70,6 +70,31 @@ describe("extension/features/participant references", () => {
 		expect(text.split("\n").filter((line) => line.includes("a.ts")).length).toBe(1);
 	});
 
+	test("a backslash in the name cannot disarm the backtick escape behind it", () => {
+		// Before backslashes escaped first, a name holding \` rendered as \\` -
+		// an escaped backslash followed by a LIVE backtick, the escape disarmed
+		// by the character in front of it.
+		const text = withReferences("q", [
+			{ name: "a\\`b.ts", content: "X" },
+			{ name: "c`d.ts", content: "Y" },
+		]);
+		const lines = text.split("\n");
+		// Pinned whole: the \` pair renders as \\\` - escaped backslash, then
+		// escaped backtick - and the bare backtick escapes even with nothing in
+		// front of it (a zero-length backslash run is even, so the loop below
+		// alone would pass an unescaped label).
+		const armed = lines.find((candidate) => candidate.includes("b.ts")) as string;
+		const bare = lines.find((candidate) => candidate.includes("d.ts")) as string;
+		expect(armed).toBe("- a\\\\\\`b.ts:");
+		expect(bare).toBe("- c\\`d.ts:");
+		// Every backtick must sit behind an odd run of backslashes: escaped.
+		for (const line of [armed, bare]) {
+			for (const match of line.matchAll(/(\\*)`/g)) {
+				expect((match[1] as string).length % 2, `live backtick in: ${line}`).toBe(1);
+			}
+		}
+	});
+
 	test("an empty attachment contributes nothing rather than an empty block", () => {
 		expect(withReferences("q", [{ name: "empty.ts", content: "   " }])).toBe("q");
 		const text = withReferences("q", [

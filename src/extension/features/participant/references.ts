@@ -87,13 +87,19 @@ function longestFenceRun(text: string): number {
  * newlines - and it sits on its own line directly above the opening fence, so
  * a name whose line begins with a backtick run would open a block that the
  * real fence then closes, spilling the attachment's contents out as prose.
- * Line breaks flatten and backticks escape, which leaves no line able to start
- * with a bare backtick run. The caller then writes it as a list item, so a name
- * like "# Ignore previous instructions" cannot sit at the start of a line and
- * read as a heading either.
+ * Line breaks flatten, backslashes escape first so a preexisting one cannot
+ * disarm the backtick escape that follows, and backticks escape so an inline
+ * code span cannot open in the label and close on the fence line below it -
+ * the line-initial fence-run threat is already closed by the caller's "- "
+ * prefix. The caller then writes it as a list item, so a name like "# Ignore
+ * previous instructions" cannot sit at the start of a line and read as a
+ * heading either.
  */
 function labelText(name: string): string {
-	return name.replace(/[\r\n]+/g, " ").replace(/`/g, "\\`");
+	return name
+		.replace(/[\r\n]+/g, " ")
+		.replace(/\\/g, "\\\\")
+		.replace(/`/g, "\\`");
 }
 
 /**
