@@ -7,8 +7,9 @@ import {
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, getInlineLanguageFilter } from "../../../shared/config/settings";
+import type { Logger } from "../../../shared/logger";
+import { errorLabel } from "../../../shared/util/errorLabel";
 import { createSettingsAccess } from "../../settingsAccess";
-import { errorLabel } from "../errorLabel";
 import { languageAllowed } from "./languageFilter";
 
 /**
@@ -50,16 +51,26 @@ async function toggleLanguage(languageId: string, log: (message: string, data?: 
 /**
  * THE ONE CREATION POINT for this extension's language status row: at most
  * one live row per host, self-healing like the status bar's slot registry (a
- * double construction disposes the stale holder and logs the replacement).
+ * double construction disposes the stale holder and logs the replacement
+ * through `logger.log` - a slot conflict is a real once-per-session bug
+ * signal, so it keeps the issue-report buffer like the status bar's twin).
+ * The refresh path instead reads settings through `logger.advisory`: refresh
+ * runs on every editor switch, so a malformed setting would otherwise write a
+ * buffer line per switch and evict real errors from the issue-report ring.
  */
 export class InlineLanguageStatusRow implements vscode.Disposable {
 	private readonly item: vscode.LanguageStatusItem;
 	private readonly subscriptions: vscode.Disposable[] = [];
 	private disposed = false;
 
-	constructor(private readonly log: (message: string, data?: unknown) => void) {
+	/** The refresh path's channel-only settings sink; see the class doc. */
+	private readonly advisory = (message: string, data?: unknown): void => {
+		this.logger.advisory(message, data);
+	};
+
+	constructor(private readonly logger: Pick<Logger, "log" | "advisory">) {
 		if (liveRow !== undefined) {
-			this.log("language-status slot replaced");
+			this.logger.log("language-status slot replaced");
 			liveRow.dispose();
 		}
 		liveRow = this;
@@ -81,7 +92,7 @@ export class InlineLanguageStatusRow implements vscode.Disposable {
 		if (this.disposed) {
 			return;
 		}
-		const modelConfigured = getFeatureModelRef("inlineCompletions", this.log) !== undefined;
+		const modelConfigured = getFeatureModelRef("inlineCompletions", this.advisory) !== undefined;
 		if (!modelConfigured) {
 			// Enabled without a model is fail-closed inert; the row says so and
 			// its action opens the model setting instead of toggling.
@@ -102,7 +113,7 @@ export class InlineLanguageStatusRow implements vscode.Disposable {
 			this.item.command = undefined;
 			return;
 		}
-		const filter = getInlineLanguageFilter(this.log);
+		const filter = getInlineLanguageFilter(this.advisory);
 		const active = languageAllowed(languageId, filter);
 		this.item.severity = vscode.LanguageStatusSeverity.Information;
 		this.item.text = active

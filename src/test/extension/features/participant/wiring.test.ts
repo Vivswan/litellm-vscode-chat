@@ -232,7 +232,17 @@ suite("extension/features/participant wiring", () => {
 		(vscode.chat as Record<string, unknown>).createChatParticipant = () => {
 			throw new Error("id already registered");
 		};
-		const { logger, lines } = quietLogger();
+		const lines: string[] = [];
+		const buffered: string[] = [];
+		const logger = new Logger(
+			{
+				info(message: string) {
+					lines.push(message);
+				},
+				error() {},
+			},
+			{ appendLog: (line) => buffered.push(line), recordError: () => {} }
+		);
 		let wiring: ReturnType<typeof wireChatParticipant> | undefined;
 		try {
 			await withConfig({}, () => {
@@ -246,6 +256,13 @@ suite("extension/features/participant wiring", () => {
 		assert.ok(
 			lines.some((line) => line.includes("chat participant registration failed")),
 			"the refusal is classified, not swallowed"
+		);
+		// Channel-only by design: applyEnablement reruns on every configuration
+		// change, and a host that keeps refusing must not evict real errors from
+		// the issue-report ring.
+		assert.ok(
+			buffered.every((line) => !line.includes("chat participant registration failed")),
+			"the refusal advisory never reaches the issue-report buffer"
 		);
 		// The case the enable SETTING cannot see: it says on, and @litellm still
 		// cannot answer. A predicate that read the setting would say true here and

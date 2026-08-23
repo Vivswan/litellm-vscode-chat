@@ -8,6 +8,7 @@ import { getModelParametersConfig, isFeatureEnabled } from "../../../shared/conf
 import type { Logger } from "../../../shared/logger";
 import { entryConnectionFor } from "../../servers/entryConnection";
 import { noEntryForConfiguredServer } from "../modelSettingError";
+import { withProbeToken } from "../probeToken";
 import { CompletionCache } from "./completionCache";
 import type { InlineCompletionSend } from "./inlineCompletionProvider";
 import { createInlineCompletionProvider } from "./inlineCompletionProvider";
@@ -65,22 +66,15 @@ function createFimSend(
  * whose natural completion any code model can produce.
  */
 export function createFimProbe(fimSend: InlineCompletionSend): (model: FeatureModelRef) => Promise<string | undefined> {
-	return async (model) => {
-		// The source exists only to satisfy the send's token seam (the fixed
-		// FIM timeout bounds the call); dispose it deterministically so probes
-		// cannot accumulate live sources across dashboard sessions.
-		const source = new vscode.CancellationTokenSource();
-		try {
-			return await fimSend({
+	return (model) =>
+		withProbeToken((token) =>
+			fimSend({
 				modelRef: model,
 				prefix: "function add(a, b) {\n\treturn ",
 				suffix: ";\n}\n",
-				token: source.token,
-			});
-		} finally {
-			source.dispose();
-		}
-	};
+				token,
+			})
+		);
 }
 
 /**
@@ -116,7 +110,10 @@ export function wireInlineCompletions(
 			// provider filters per invocation (zero requests for filtered
 			// languages) and the status row explains the decision.
 			registration = vscode.languages.registerInlineCompletionItemProvider({ pattern: "**" }, provider);
-			statusRow = new InlineLanguageStatusRow(log);
+			// The row splits its sinks itself: refresh advisories stay channel-only
+			// (they recur per editor switch), while a slot conflict keeps the
+			// issue-report buffer like the status bar's slot registry.
+			statusRow = new InlineLanguageStatusRow(logger);
 		} else if (!enabled && registration !== undefined) {
 			registration.dispose();
 			registration = undefined;

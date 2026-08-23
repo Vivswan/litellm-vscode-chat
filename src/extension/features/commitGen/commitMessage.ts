@@ -1,4 +1,4 @@
-import { stripMarkdownFences, truncateKeepingHead } from "../../../shared/util/text";
+import { stripMarkdownFences, truncateHeadWithMarker, truncationMarker } from "../../../shared/util/text";
 import type { Commit, Repository } from "../gitApi";
 
 /**
@@ -79,10 +79,9 @@ export interface CommitPromptArgs {
  */
 export function buildCommitPrompt(args: CommitPromptArgs): string {
 	const instruction = args.customPrompt.trim() === "" ? BUILT_IN_COMMIT_INSTRUCTION : args.customPrompt;
-	const diff =
-		args.diff.length > DIFF_CHAR_LIMIT
-			? `${truncateKeepingHead(args.diff, DIFF_CHAR_LIMIT)}\n[diff truncated]`
-			: args.diff;
+	// The marker rides inside the limit (the shared wrapper's contract), so the
+	// diff section never exceeds the stated bound.
+	const diff = truncateHeadWithMarker(args.diff, DIFF_CHAR_LIMIT, truncationMarker("diff"));
 	const sections = [instruction];
 	if (args.recentSubjects.length > 0) {
 		const examples = args.recentSubjects.map((subject) => `- ${subject}`).join("\n");

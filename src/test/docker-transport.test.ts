@@ -3,7 +3,6 @@ import * as vscode from "vscode";
 import { createTitleAndDescriptionProvider } from "../extension/features/prGen/provider";
 import { FIM_MAX_TOKENS, FIM_TIMEOUT_MS } from "../provider/transport/fim";
 import { OneShotClient } from "../provider/transport/oneShotClient";
-import { StreamProcessor } from "../provider/transport/streaming";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
@@ -628,39 +627,6 @@ function fimCompletionSuite(): void {
 }
 
 /**
- * The one-shot streaming path end to end: completeChatStream through the real
- * LiteLLM proxy, its raw SSE body driven through the real StreamProcessor into
- * a plain structural sink. The %echo command makes the streamed text a pure
- * function of the request, so the assertion is exact.
- */
-function oneShotStreamSuite(): void {
-	suite("Docker one-shot chat stream (proxy end to end)", () => {
-		test("completeChatStream returns the raw SSE body and the processor renders the echoed text", async function () {
-			this.timeout(30000);
-			const client = new OneShotClient({ userAgent: "litellm-vscode-chat-docker-test" });
-			const token = new vscode.CancellationTokenSource().token;
-			const stream = await client.completeChatStream(
-				{ baseUrl: BASE_URL, apiKey: API_KEY, headers: {} },
-				{
-					model: "gpt-5.2-mini",
-					messages: [{ role: "user", content: `${COMMAND_SIGIL}echo:one-shot streamed reply` }],
-				},
-				"chat",
-				{ timeoutMs: 30000, token }
-			);
-			const parts: vscode.LanguageModelResponsePart[] = [];
-			const processor = new StreamProcessor({ next: () => 1 }, () => {});
-			await processor.processStreamingResponse(stream, { report: (part) => parts.push(part) }, token);
-			const text = parts
-				.filter((part): part is vscode.LanguageModelTextPart => part instanceof vscode.LanguageModelTextPart)
-				.map((part) => part.value)
-				.join("");
-			assert.strictEqual(text, "one-shot streamed reply");
-		});
-	});
-}
-
-/**
  * The PR generation path end to end: the real prompt assembly, one
  * non-streaming completeChatOnce through the real LiteLLM proxy under the
  * prGeneration error surface, and the real lenient parse of what comes back.
@@ -726,7 +692,6 @@ if (!BASE_URL) {
 	errorMappingSuite("Docker error mapping and timeouts (direct)", true);
 	wrongMasterKeySuite();
 	fimCompletionSuite();
-	oneShotStreamSuite();
 	prGenerationSuite();
 	bufferSecrecySuite();
 }

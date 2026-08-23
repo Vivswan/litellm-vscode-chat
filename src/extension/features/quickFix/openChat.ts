@@ -8,13 +8,12 @@ import {
 	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_MODEL_SETTING_KEYS,
 } from "../../../shared/config/settingSpec";
-import { getFeatureModelRef, getRequestTimeout, isFeatureEnabled } from "../../../shared/config/settings";
+import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { entryConnectionFor } from "../../servers/entryConnection";
+import { errorLabel } from "../../../shared/util/errorLabel";
 import type { MessageAction } from "../../ui/notifier";
 import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
-import { errorLabel } from "../errorLabel";
-import { noEntryForConfiguredServer } from "../modelSettingError";
+import { featureChatSend } from "../featureChatSend";
 import type { QuickFixChatArgs } from "./actionsProvider";
 import type { QuickFixMode } from "./query";
 import { buildChatQuery, buildFallbackPrompt, selectDiagnostics } from "./query";
@@ -146,8 +145,9 @@ function parseArgs(raw: unknown): QuickFixChatArgs | undefined {
 }
 
 /**
- * Resolve the configured label to its entry's connection and send the prompt
- * as one non-streaming request. Exported because the dashboard's test probe
+ * Send the prompt as one non-streaming request through the features' shared
+ * send composition (featureChatSend: connection resolution, the quickFix error
+ * surface, the chat timeout). Exported because the dashboard's test probe
  * sends through it too, so the probe proves exactly what the fallback would do
  * - connection, credentials, surface, and bound included.
  */
@@ -159,16 +159,7 @@ export async function sendFallbackPrompt(
 	token: vscode.CancellationToken,
 	log: (message: string, data?: unknown) => void
 ): Promise<string> {
-	const resolved = await entryConnectionFor(secrets, ref.server);
-	if (resolved === undefined) {
-		throw noEntryForConfiguredServer("quickFix", ref.server);
-	}
-	return oneShot.completeChatOnce(
-		resolved.connection,
-		{ model: ref.model, messages: [{ role: "user", content: prompt }] },
-		"quickFix",
-		{ timeoutMs: getRequestTimeout(log), token }
-	);
+	return featureChatSend("quickFix", { oneShot, secrets }, ref, [{ role: "user", content: prompt }], token, log);
 }
 
 /**

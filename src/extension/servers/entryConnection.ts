@@ -22,10 +22,14 @@ export interface EntryConnection {
 	 * The verdict rides ALONGSIDE the connection rather than gating it, because
 	 * the callers disagree on purpose: the MCP publisher refuses the pairing (it
 	 * hands credentials to the editor, which then talks to the server itself,
-	 * so there is no request of ours to read a 401 from), while commit
-	 * generation and inline completions send and let the server's own 401 tell
-	 * the story, as they always have. Making them refuse is a behavior change
-	 * for shipped features and belongs in its own commit.
+	 * so there is no request of ours to read a 401 from), while all six
+	 * one-shot feature sends - commit generation, inline completions, the
+	 * consult tool, PR generation, the quick-fix fallback, and review comments
+	 * (the chat features through the shared featureChatSend, inline completions
+	 * through its FIM send) - knowingly send anyway and let the server's own
+	 * 401 tell the story, as the original two always have. Making them refuse
+	 * is a behavior change for shipped features and stays parked as its own
+	 * task.
 	 */
 	readonly refusedSecrets: readonly SecretFieldId[];
 }
@@ -33,12 +37,12 @@ export interface EntryConnection {
 /**
  * The one label-to-connection resolution for extension-side features that
  * address a declared servers entry by its label (the entry identity the sync
- * engine and usage resolution use): commit message generation, inline
- * completions, and the MCP publisher all send through this. Secrets resolve
- * like the usage path - inline settings values outrank the label's
- * SecretStorage blob. Undefined when no servers entry carries the label; each
- * caller shapes its own advice for that, since the fix lives in a different
- * setting per feature.
+ * engine and usage resolution use): the shared featureChatSend (the five chat
+ * features), the inline-completions FIM send, and the MCP publisher all
+ * resolve through this. Secrets resolve like the usage path - inline settings
+ * values outrank the label's SecretStorage blob. Undefined when no servers
+ * entry carries the label; each caller shapes its own advice for that, since
+ * the fix lives in a different setting per feature.
  */
 export async function entryConnectionFor(
 	secrets: vscode.SecretStorage,

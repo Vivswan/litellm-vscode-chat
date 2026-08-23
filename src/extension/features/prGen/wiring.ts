@@ -3,13 +3,13 @@ import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CMD, prGenerationProviderTitle } from "../../../shared/config/commandIds";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
-import { getFeatureModelRef, getRequestTimeout, isFeatureEnabled } from "../../../shared/config/settings";
+import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { entryConnectionFor } from "../../servers/entryConnection";
-import { errorLabel } from "../errorLabel";
+import { errorLabel } from "../../../shared/util/errorLabel";
+import { featureChatSend } from "../featureChatSend";
 import { resolveGitApi } from "../gitAccess";
 import type { API, Branch } from "../gitApi";
-import { noEntryForConfiguredServer } from "../modelSettingError";
+import { withProbeToken } from "../probeToken";
 import { ghprCommitOrder, oldestFirstMessages } from "./branchContext";
 import { runGeneratePrDescription } from "./generatePrCommand";
 import type { GitHubPullRequestsApi, TitleAndDescriptionProvider } from "./githubPullRequestsApi";
@@ -43,28 +43,18 @@ export type PrGenerationModelSend = (
 ) => Promise<string>;
 
 /**
- * The one PR-generation send pipeline: label-to-connection through the shared
- * entryConnectionFor, then one non-streaming chat request under the
- * prGeneration error surface. models.parameters records deliberately do NOT
- * apply here - this is not the chat path.
+ * The one PR-generation send pipeline: the features' shared send composition
+ * (featureChatSend: connection resolution, the prGeneration error surface, the
+ * chat timeout) over one user turn. models.parameters records deliberately do
+ * NOT apply here - this is not the chat path.
  */
 function createPrSend(
 	secrets: vscode.SecretStorage,
 	oneShot: Pick<OneShotClient, "completeChatOnce">,
 	log: (message: string, data?: unknown) => void
 ): PrGenerationModelSend {
-	return async (model, prompt, token) => {
-		const resolved = await entryConnectionFor(secrets, model.server);
-		if (resolved === undefined) {
-			throw noEntryForConfiguredServer("prGeneration", model.server);
-		}
-		return oneShot.completeChatOnce(
-			resolved.connection,
-			{ model: model.model, messages: [{ role: "user", content: prompt }] },
-			"prGeneration",
-			{ timeoutMs: getRequestTimeout(log), token }
-		);
-	};
+	return (model, prompt, token) =>
+		featureChatSend("prGeneration", { oneShot, secrets }, model, [{ role: "user", content: prompt }], token, log);
 }
 
 /**
@@ -76,19 +66,12 @@ function createPrSend(
  * surfaces as the empty-answer warning instead of a false success.
  */
 export function createPrProbe(send: PrGenerationModelSend): (model: FeatureModelRef) => Promise<string | undefined> {
-	return async (model) => {
-		// The source exists only to satisfy the send's token seam (the chat
-		// timeout bounds the call); dispose it deterministically so probes
-		// cannot accumulate live sources across dashboard sessions.
-		const source = new vscode.CancellationTokenSource();
-		try {
-			const provider = createTitleAndDescriptionProvider((prompt, token) => send(model, prompt, token));
-			const result = await provider.provideTitleAndDescription(PROBE_CONTEXT, source.token);
+	return (model) =>
+		withProbeToken(async (token) => {
+			const provider = createTitleAndDescriptionProvider((prompt, cancellation) => send(model, prompt, cancellation));
+			const result = await provider.provideTitleAndDescription(PROBE_CONTEXT, token);
 			return result?.title;
-		} finally {
-			source.dispose();
-		}
-	};
+		});
 }
 
 /**
@@ -206,12 +189,11 @@ export function createGhprProvider(
  * model: its exports are unreadable until it activates, and it is the
  * extension the user is asking us to integrate with.
  *
- * `reportActivationFailure` is the caller's once-per-wiring sink rather than
- * module state: the decision reruns on every settings change and every
- * extension change, and the log feeds public issue reports, so a broken
- * install must not evict real history from the buffer. Keeping the latch in
- * the WIRING's closure also stops one activation's flag from silencing
- * another's - a module-level flag leaks across wirings in a shared test host.
+ * `reportActivationFailure` is the caller's channel-only advisory sink
+ * (Logger.advisory): the decision reruns on every settings change and every
+ * extension change, and the issue-report buffer is a small ring, so a broken
+ * install must not evict real history from it - the channel keeps every
+ * occurrence instead.
  */
 async function resolveGhprApi(
 	reportActivationFailure: (message: string) => void
@@ -338,21 +320,22 @@ export function wirePrGeneration(
 		)
 	);
 
-	// One line per wiring, not per re-decision: see resolveGhprApi.
-	let activationFailureLogged = false;
+	// Channel-only, not once-latched: see resolveGhprApi.
 	const reportActivationFailure = (message: string): void => {
-		if (!activationFailureLogged) {
-			activationFailureLogged = true;
-			log(message);
-		}
+		logger.advisory(message);
 	};
 	const registrar = createGhprRegistrar({
-		// Deliberately no log sink: this decision reruns on every settings change
-		// and every extension change, and a half-written model ref would other-
-		// wise evict real history from the 50-entry issue-report ring. The same
-		// malformed setting still reports on a real invocation - the command and
-		// the provider both read it with the logger attached.
-		wanted: () => isFeatureEnabled("prGeneration") && getFeatureModelRef("prGeneration") !== undefined,
+		// The channel-only advisory sink, because this decision reruns on every
+		// settings change and every extension change: a half-written model ref
+		// stays visible in the output channel without evicting real history from
+		// the 50-entry issue-report ring. A real invocation still reports the
+		// same malformed setting with the buffer-logging sink attached - the
+		// command and the provider both read it that way.
+		wanted: () =>
+			isFeatureEnabled("prGeneration") &&
+			getFeatureModelRef("prGeneration", (message, data) => {
+				logger.advisory(message, data);
+			}) !== undefined,
 		resolveApi: () => resolveGhprApi(reportActivationFailure),
 		// Never a title containing "Copilot": that extension selects a provider by
 		// case-insensitive substring, and that word is the search term of a slot

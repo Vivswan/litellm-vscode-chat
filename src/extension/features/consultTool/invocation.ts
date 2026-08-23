@@ -5,7 +5,7 @@
  * tokenization options and owns every host surface.
  */
 
-import { truncateKeepingHead } from "../../../shared/util/text";
+import { appendTruncationMarker, truncateKeepingHead } from "../../../shared/util/text";
 
 /** The tool's input as the calling model provides it (the contribution's JSON schema mirrors this). */
 export interface ConsultToolInput {
@@ -87,10 +87,6 @@ export function assembleConsultPrompt(question: string, context: string | undefi
 	return sections.join("\n\n");
 }
 
-function withMarker(prefix: string, marker: string): string {
-	return prefix === "" ? marker : `${prefix}\n${marker}`;
-}
-
 type PrefixSearch =
 	| { readonly fits: true; readonly prompt: string }
 	| { readonly fits: false; readonly floorPrompt: string; readonly floorTokens: number };
@@ -168,7 +164,10 @@ export async function fitConsultPrompt(
 		const cutContext = await largestFittingCandidate(
 			context,
 			(chars) =>
-				assembleConsultPrompt(question, withMarker(truncateKeepingHead(context, chars), CONTEXT_TRUNCATION_MARKER)),
+				assembleConsultPrompt(
+					question,
+					appendTruncationMarker(truncateKeepingHead(context, chars), CONTEXT_TRUNCATION_MARKER)
+				),
 			options
 		);
 		if (cutContext.fits) {
@@ -184,7 +183,10 @@ export async function fitConsultPrompt(
 	const cutQuestion = await largestFittingCandidate(
 		question,
 		(chars) =>
-			assembleConsultPrompt(withMarker(truncateKeepingHead(question, chars), QUESTION_TRUNCATION_MARKER), undefined),
+			assembleConsultPrompt(
+				appendTruncationMarker(truncateKeepingHead(question, chars), QUESTION_TRUNCATION_MARKER),
+				undefined
+			),
 		options
 	);
 	if (cutQuestion.fits) {
@@ -250,7 +252,7 @@ export async function fitConsultReply(reply: string, options: ConsultTokenizatio
 	}
 	const cut = await largestFittingCandidate(
 		reply,
-		(chars) => withMarker(truncateKeepingHead(reply, chars), REPLY_TRUNCATION_MARKER),
+		(chars) => appendTruncationMarker(truncateKeepingHead(reply, chars), REPLY_TRUNCATION_MARKER),
 		options
 	);
 	return { text: cut.fits ? cut.prompt : "", truncated: true };

@@ -5,6 +5,7 @@ import { CONFIG_SECTION, type FeatureModelRef } from "../../../shared/config/set
 import { isFeatureEnabled } from "../../../shared/config/settings";
 import { REVIEW_COMMENT_THREADS_KEY } from "../../../shared/config/storageKeys";
 import type { Logger } from "../../../shared/logger";
+import { withProbeToken } from "../probeToken";
 import type { ReviewCommandDeps } from "./commands";
 import {
 	deleteReviewThread,
@@ -70,22 +71,15 @@ const PROBE_LINE_COUNT = 7;
 export function createReviewProbe(
 	send: (ref: FeatureModelRef, prompt: string, token: vscode.CancellationToken) => Promise<string>
 ): (model: FeatureModelRef) => Promise<string | undefined> {
-	return async (model) => {
-		// The source exists only to satisfy the send's token seam; dispose it
-		// deterministically so probes cannot accumulate live sources across
-		// dashboard sessions.
-		const source = new vscode.CancellationTokenSource();
-		try {
-			const answer = await send(model, buildDiffReviewPrompt({ path: "average.js", diff: PROBE_DIFF }), source.token);
+	return (model) =>
+		withProbeToken(async (token) => {
+			const answer = await send(model, buildDiffReviewPrompt({ path: "average.js", diff: PROBE_DIFF }), token);
 			const parsed = parsePlacements(answer, PROBE_LINE_COUNT);
 			if (parsed.placements.length > 0) {
 				return parsed.placements.map((placement) => placement.body).join("\n");
 			}
 			return parsed.sawNoFindings ? NO_FINDINGS_REPLY : undefined;
-		} finally {
-			source.dispose();
-		}
-	};
+		});
 }
 
 export function wireReviewComments(

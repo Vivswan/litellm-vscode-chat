@@ -3,7 +3,7 @@ import type { API, GitExtension, Repository } from "./gitApi";
 
 /**
  * The features' shared entry into the built-in Git extension. At the features/
- * root like gitApi.d.ts and errorLabel.ts, because features may not import
+ * root like gitApi.d.ts and featureChatSend.ts, because features may not import
  * each other (Biome-enforced) and every git-backed feature needs the same two
  * things: the API handle, and the repository one invocation targets. Copy per
  * feature is what this exists to prevent - the repository-picking rules

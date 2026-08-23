@@ -65,4 +65,53 @@ describe("extension/features cross-feature import ban", () => {
 			}
 		}
 	});
+
+	test("exactly one features/-root file bridges into a feature directory", () => {
+		// The features/ root sits outside every per-feature biome override, so a
+		// root file CAN import from a feature tree - which is how the one
+		// declared cross-feature bridge (quickFixChatCommands.ts, teaching the
+		// participant /fix and /explain) works at all. That reachability must
+		// not become a habit: everything else outside features/<feature>/
+		// reaches a feature only through its wiring module, so a second bridge
+		// fails here until it is a deliberate, named decision.
+		const featuresDir = path.join(REPO_ROOT, "src", "extension", "features");
+		const entries = readdirSync(featuresDir, { withFileTypes: true });
+		const featureDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+		const rootFiles = entries
+			.filter((entry) => entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts"))
+			.map((entry) => entry.name)
+			.sort();
+		expect(rootFiles.length).toBeGreaterThan(1);
+		const importsFeatureDir = (file: string): boolean => {
+			const source = readFileSync(path.join(featuresDir, file), "utf8");
+			return featureDirs.some((dir) => new RegExp(`from\\s+"\\./${dir}/`).test(source));
+		};
+		const bridges = rootFiles.filter(importsFeatureDir);
+		expect(bridges).toEqual(["quickFixChatCommands.ts"]);
+	});
+
+	test("outside the features tree, only a feature's wiring module is imported from its directory", () => {
+		// The documented convention: everything outside features/<feature>/
+		// reaches a feature only through its wiring module. Biome cannot express
+		// this (the per-feature overrides govern the feature trees themselves),
+		// so this leg walks every shipped source file outside the features tree
+		// and fails on any import reaching features/<dir>/<module> where the
+		// module is not the wiring seam.
+		const srcDir = path.join(REPO_ROOT, "src");
+		const featuresDir = path.join(srcDir, "extension", "features");
+		const featureDirs = readdirSync(featuresDir, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => entry.name);
+		const walk = (dir: string): string[] =>
+			readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+				const full = path.join(dir, entry.name);
+				if (entry.isDirectory()) {
+					return full === featuresDir || full.startsWith(path.join(srcDir, "test")) ? [] : walk(full);
+				}
+				return /\.(ts|tsx)$/.test(entry.name) ? [full] : [];
+			});
+		const deepImport = new RegExp(`from\\s+"[^"]*/features/(${featureDirs.join("|")})/(?!wiring")[^"]+"`);
+		const offenders = walk(srcDir).filter((file) => deepImport.test(readFileSync(file, "utf8")));
+		expect(offenders.map((file) => path.relative(REPO_ROOT, file))).toEqual([]);
+	});
 });

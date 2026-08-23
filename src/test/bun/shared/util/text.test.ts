@@ -1,6 +1,13 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import { stripMarkdownFences, truncateKeepingHead, truncateKeepingTail } from "../../../../shared/util/text";
+import {
+	appendTruncationMarker,
+	stripMarkdownFences,
+	truncateHeadWithMarker,
+	truncateKeepingHead,
+	truncateKeepingTail,
+	truncationMarker,
+} from "../../../../shared/util/text";
 
 // Drift pins for the consolidated text helpers: these cases are ported from
 // the consumers' suites (commitGen's fence edge cases, fim's surrogate
@@ -103,5 +110,52 @@ describe("shared/util/text truncateKeepingHead", () => {
 		assert.strictEqual(truncateKeepingHead("abc", Number.NaN), "");
 		assert.strictEqual(truncateKeepingHead("abc", 0.5), "");
 		assert.strictEqual(truncateKeepingHead("abcdef", 2.5), "ab");
+	});
+});
+
+describe("shared/util/text truncation markers", () => {
+	test("truncationMarker is the one bracketed-label shape", () => {
+		assert.strictEqual(truncationMarker("diff"), "[diff truncated]");
+		assert.strictEqual(truncationMarker("commit messages"), "[commit messages truncated]");
+	});
+
+	test("appendTruncationMarker joins on its own line; an empty prefix is the bare marker", () => {
+		assert.strictEqual(appendTruncationMarker("kept", "[x truncated]"), "kept\n[x truncated]");
+		assert.strictEqual(appendTruncationMarker("", "[x truncated]"), "[x truncated]");
+	});
+
+	test("truncateHeadWithMarker passes text at or under the budget verbatim, marker-free", () => {
+		assert.strictEqual(truncateHeadWithMarker("abc", 3, "[t truncated]"), "abc");
+		assert.strictEqual(truncateHeadWithMarker("abc", 100, "[t truncated]"), "abc");
+	});
+
+	test("a cut result - head, line break, and marker - never exceeds the budget", () => {
+		const marker = truncationMarker("diff");
+		for (const budget of [30, 40, 100]) {
+			const cut = truncateHeadWithMarker("d".repeat(budget + 1), budget, marker);
+			assert.strictEqual(cut.length, budget);
+			assert.ok(cut.endsWith(`\n${marker}`));
+			assert.strictEqual(cut, `${"d".repeat(budget - marker.length - 1)}\n${marker}`);
+		}
+	});
+
+	test("a budget too small to keep any text still holds the bound: the marker fits or is itself cut", () => {
+		const marker = "[t truncated]";
+		assert.strictEqual(truncateHeadWithMarker("x".repeat(50), marker.length + 1, marker), marker);
+		assert.strictEqual(truncateHeadWithMarker("x".repeat(50), marker.length, marker), marker);
+		assert.strictEqual(truncateHeadWithMarker("x".repeat(50), 3, marker), "[t ");
+		for (const budget of [0, 3, marker.length, marker.length + 1]) {
+			assert.ok(truncateHeadWithMarker("x".repeat(50), budget, marker).length <= budget);
+		}
+	});
+
+	test("the cut is surrogate-safe: an astral character straddling the cut vanishes whole", () => {
+		const marker = "[t truncated]"; // 13 units; the cut keeps budget - 14
+		const budget = 20;
+		const text = `${"a".repeat(budget - marker.length - 2)}\u{1F600}${"b".repeat(budget)}`;
+		const cut = truncateHeadWithMarker(text, budget, marker);
+		assert.ok(cut.isWellFormed());
+		assert.ok(!cut.includes("\u{1F600}"));
+		assert.ok(cut.length <= budget);
 	});
 });

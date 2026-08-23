@@ -140,9 +140,9 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		zhTw: '內嵌補全的執行範圍: mode 為 `"block"` 時在列出的 VS Code 語言 ID (精確比對) 之外的所有語言中執行, `"allow"` 時僅在列出的語言中執行 (允許清單為空則不在任何語言中執行), 例如 `{ "mode": "block", "languages": ["markdown", "plaintext"] }`。預設不封鎖任何語言',
 	},
 	"commitGeneration.enabled": {
-		en: "Opt-in for commit message generation from a LiteLLM model, shipping with the commit generation feature. Off by default: the command stays hidden and nothing is sent until enabled, and enabling without `commitGeneration.model` keeps the feature idle",
-		zhCn: "选择启用由 LiteLLM 模型生成提交消息, 随提交消息生成功能一起交付。默认关闭: 启用前命令保持隐藏、不发送任何请求; 只启用而不设置 `commitGeneration.model` 时功能保持闲置",
-		zhTw: "選擇啟用由 LiteLLM 模型產生提交訊息, 隨提交訊息產生功能一起交付。預設關閉: 啟用前命令保持隱藏、不送出任何要求; 只啟用而不設定 `commitGeneration.model` 時功能保持閒置",
+		en: 'Opt-in for commit message generation from a LiteLLM model, shipping with the commit generation feature. Off by default: the command stays hidden and nothing is sent until enabled, except the dashboard\'s explicit "Test model" button, and enabling without `commitGeneration.model` keeps the feature idle',
+		zhCn: "选择启用由 LiteLLM 模型生成提交消息, 随提交消息生成功能一起交付。默认关闭: 启用前命令保持隐藏、不发送任何请求, 仪表板中显式的「测试模型」按钮除外; 只启用而不设置 `commitGeneration.model` 时功能保持闲置",
+		zhTw: "選擇啟用由 LiteLLM 模型產生提交訊息, 隨提交訊息產生功能一起交付。預設關閉: 啟用前命令保持隱藏、不送出任何要求, 儀表板中明確的「測試模型」按鈕除外; 只啟用而不設定 `commitGeneration.model` 時功能保持閒置",
 	},
 	"commitGeneration.model": {
 		en: 'The model that drafts commit messages; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model`',

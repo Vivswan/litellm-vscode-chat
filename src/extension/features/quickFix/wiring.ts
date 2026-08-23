@@ -5,6 +5,7 @@ import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
+import { withProbeToken } from "../probeToken";
 import { createQuickFixActionsProvider, QUICK_FIX_METADATA } from "./actionsProvider";
 import { runQuickFixChat, sendFallbackPrompt } from "./openChat";
 import { buildFallbackPrompt } from "./query";
@@ -69,17 +70,7 @@ export function createQuickFixProbe(
 	oneShot: OneShotClient,
 	log: (message: string, data?: unknown) => void
 ): (model: FeatureModelRef) => Promise<string | undefined> {
-	return async (model) => {
-		// The source exists only to satisfy the send's token seam (the chat
-		// timeout bounds the call); disposed deterministically so probes cannot
-		// accumulate live sources across dashboard sessions.
-		const source = new vscode.CancellationTokenSource();
-		try {
-			return await sendFallbackPrompt(oneShot, secrets, model, probePrompt(), source.token, log);
-		} finally {
-			source.dispose();
-		}
-	};
+	return (model) => withProbeToken((token) => sendFallbackPrompt(oneShot, secrets, model, probePrompt(), token, log));
 }
 
 export function wireQuickFix(

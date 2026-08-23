@@ -12,6 +12,7 @@
  */
 
 import type { UsageEndpointId } from "../../../dashboard/usageEndpoints";
+import { errorLabel } from "../../../shared/util/errorLabel";
 import type { BudgetStatus } from "./budget";
 import type { DailyUsage, KeyUsage, UsageUnavailableReason, UserUsage } from "./spendClient";
 
@@ -157,7 +158,7 @@ export class UsageStore {
 			try {
 				listener(event);
 			} catch (error) {
-				this.log?.("Usage store listener failed", { error: error instanceof Error ? error.name : typeof error });
+				this.log?.("Usage store listener failed", { error: errorLabel(error) });
 			}
 		}
 	}

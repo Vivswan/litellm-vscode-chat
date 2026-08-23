@@ -13,6 +13,7 @@ import {
 	registerToggleInlineLanguageCommand,
 } from "../../../../extension/features/inline/languageStatus";
 import { INTERNAL_CMD } from "../../../../shared/config/commandIds";
+import type { Logger } from "../../../../shared/logger";
 import { withConfig } from "../../../testUtils";
 
 interface FakeStatusItem {
@@ -88,6 +89,11 @@ async function withStatusSpies<T>(fn: (spies: StatusSpies) => T | Promise<T>): P
 	}
 }
 
+/** Silent log-and-advisory sinks for rows whose logging is not under test. */
+function quietSinks(): { log: () => void; advisory: () => void } {
+	return { log: () => {}, advisory: () => {} };
+}
+
 const MODEL_REF = { server: "Main", model: "codestral-fim" };
 
 suite("extension/features/inline languageStatus", () => {
@@ -99,7 +105,7 @@ suite("extension/features/inline languageStatus", () => {
 					"inlineCompletions.languageFilter": { mode: "block", languages: ["markdown"] },
 				},
 				() => {
-					const row = new InlineLanguageStatusRow(() => {});
+					const row = new InlineLanguageStatusRow(quietSinks());
 					const item = spies.items[0];
 					assert.ok(item !== undefined);
 					assert.strictEqual(item.text, "LiteLLM inline suggestions: active for typescript");
@@ -119,7 +125,7 @@ suite("extension/features/inline languageStatus", () => {
 	test("enabled without a model reads no-model and the action opens the model setting instead of toggling", async () => {
 		await withStatusSpies(async (spies) => {
 			await withConfig({}, () => {
-				const row = new InlineLanguageStatusRow(() => {});
+				const row = new InlineLanguageStatusRow(quietSinks());
 				const item = spies.items[0];
 				assert.ok(item !== undefined);
 				assert.strictEqual(item.text, "LiteLLM inline suggestions: no model selected");
@@ -134,15 +140,77 @@ suite("extension/features/inline languageStatus", () => {
 		await withStatusSpies(async (spies) => {
 			await withConfig({ "inlineCompletions.model": MODEL_REF }, () => {
 				const logs: string[] = [];
-				const first = new InlineLanguageStatusRow(() => {});
-				const second = new InlineLanguageStatusRow((message) => {
-					logs.push(message);
+				const advisories: string[] = [];
+				const first = new InlineLanguageStatusRow(quietSinks());
+				const second = new InlineLanguageStatusRow({
+					log: (message) => {
+						logs.push(message);
+					},
+					advisory: (message) => {
+						advisories.push(message);
+					},
 				});
 				assert.strictEqual(spies.items[0]?.disposed, true, "the stale holder is disposed");
+				// The slot conflict is a real bug signal, so it goes through log (the
+				// buffer-fed sink), never the channel-only advisory path.
 				assert.ok(logs.some((line) => line.includes("slot replaced")));
+				assert.ok(!advisories.some((line) => line.includes("slot replaced")));
 				first.dispose();
 				second.dispose();
 			});
+		});
+	});
+
+	test("refresh reads malformed settings through the channel-only advisory sink, never the buffer log", async () => {
+		// Refresh runs on every editor switch, so a malformed setting logged
+		// through the buffer-fed sink would write one issue-report line per
+		// switch; this pins the split so the reads cannot quietly revert to log.
+		// Two scenarios, because the malformed-model read returns before the
+		// filter is ever consulted: the filter's own diagnostic needs a valid
+		// model in front of it.
+		const capture = (): { logs: string[]; advisories: string[]; sinks: Pick<Logger, "log" | "advisory"> } => {
+			const logs: string[] = [];
+			const advisories: string[] = [];
+			return {
+				logs,
+				advisories,
+				sinks: {
+					log: (message) => {
+						logs.push(message);
+					},
+					advisory: (message) => {
+						advisories.push(message);
+					},
+				},
+			};
+		};
+		await withStatusSpies(async () => {
+			await withConfig({ "inlineCompletions.model": "not-a-ref" }, () => {
+				const captured = capture();
+				const row = new InlineLanguageStatusRow(captured.sinks);
+				assert.ok(
+					captured.advisories.some((line) => line.includes("Invalid inlineCompletions.model")),
+					"the malformed model setting reports through advisory"
+				);
+				assert.strictEqual(captured.logs.length, 0, "nothing from refresh reaches the buffer-fed log");
+				row.dispose();
+			});
+			await withConfig(
+				{
+					"inlineCompletions.model": MODEL_REF,
+					"inlineCompletions.languageFilter": { mode: "bogus" },
+				},
+				() => {
+					const captured = capture();
+					const row = new InlineLanguageStatusRow(captured.sinks);
+					assert.ok(
+						captured.advisories.some((line) => line.includes("Invalid inlineCompletions.languageFilter")),
+						"the malformed filter setting reports through advisory"
+					);
+					assert.strictEqual(captured.logs.length, 0, "nothing from refresh reaches the buffer-fed log");
+					row.dispose();
+				}
+			);
 		});
 	});
 

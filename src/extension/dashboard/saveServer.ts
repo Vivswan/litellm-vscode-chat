@@ -9,6 +9,7 @@ import * as l10n from "@vscode/l10n";
 import type { ReplacedEntryIdentity, RequestPayload, SecretDirective } from "../../dashboard/endpoints";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { errorLabel } from "../../shared/util/errorLabel";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServer } from "../servers/serverSync";
 import { acceptedEntry, inlineSecretValues, secretLocations } from "../servers/serverSync";
@@ -517,7 +518,7 @@ export async function applySaveServerSetting(
 			// are webview-legal; neither reaches the log, which stays
 			// classification-only.
 			env.log("A failed save left a secure value unrestored", {
-				error: error instanceof Error ? error.name : typeof error,
+				error: errorLabel(error),
 			});
 			// A sync is requested because the failed settings write fires no
 			// configuration event (the clean-rollback rethrow below stays

@@ -1,5 +1,5 @@
 import * as l10n from "@vscode/l10n";
-import { errorLabel } from "../errorLabel";
+import { errorLabel } from "../../../shared/util/errorLabel";
 import {
 	type ChatMessage,
 	type HistoryTurn,

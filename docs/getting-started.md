@@ -144,7 +144,7 @@ When the change needs explanation, add a blank line and a short body of one to t
 Answer with the commit message text only: no markdown fences, no surrounding quotes, no commentary.
 ```
 
-Privacy and cost work like chat: the diff, untracked file names, and your last five commit subjects go only to the LiteLLM server you configured, on your explicit invocation, and the request counts toward the same [usage tracking and budget alerts](usage.md) as everything else.
+Privacy and cost work like chat: the diff, untracked file names, and your last five commit subjects go only to the LiteLLM server you configured, on your explicit invocation, and the request counts toward the same [usage tracking and budget alerts](usage.md) as everything else. The dashboard's explicit "Test model" button is the one exception to the opt-in: it sends a single canned sample diff with canned style subjects on your click, enabled or not, never your repository.
 
 ### Generate pull request descriptions with your own model
 

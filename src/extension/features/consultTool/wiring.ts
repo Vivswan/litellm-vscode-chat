@@ -4,11 +4,11 @@ import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CONSULT_TOOL_READY_CONTEXT_KEY, TOOL_NAME } from "../../../shared/config/commandIds";
 import type { BooleanSettingId, FeatureModelRef } from "../../../shared/config/settingSpec";
 import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
-import { getFeatureModelRef, getRequestTimeout, isFeatureEnabled } from "../../../shared/config/settings";
+import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { localizedError } from "../../../shared/mirroredError";
-import { entryConnectionFor } from "../../servers/entryConnection";
-import { noEntryForConfiguredServer } from "../modelSettingError";
+import { featureChatSend } from "../featureChatSend";
+import { withProbeToken } from "../probeToken";
 import type { ConsultTokenizationOptions, ConsultToolInput } from "./invocation";
 import {
 	EMPTY_REPLY_TEXT,
@@ -97,30 +97,24 @@ function boundTokenization(
 }
 
 /**
- * The one consultation pipeline: label-to-connection through the shared
- * entryConnectionFor, the core's prompt assembly under the fixed outgoing
- * bound, and one non-streaming /chat/completions call under the consultTool
- * error surface. models.parameters records deliberately do NOT apply here -
- * like the other one-shot feature paths, the body is exactly what
- * OneShotChatRequest declares, and no max_tokens rides along, so the consulted
- * model's own default bounds the answer.
+ * The one consultation pipeline: the core's prompt assembly under the fixed
+ * outgoing bound, then the features' shared send composition (featureChatSend:
+ * connection resolution, the consultTool error surface, the chat timeout).
  */
 function createConsultSend(secrets: vscode.SecretStorage, oneShot: OneShotClient, log: LogFn): ConsultSend {
 	return async ({ modelRef, input, token }) => {
-		const resolved = await entryConnectionFor(secrets, modelRef.server);
-		if (resolved === undefined) {
-			throw noEntryForConfiguredServer("consultTool", modelRef.server);
-		}
 		const fit = await fitConsultPrompt(input, PROMPT_BUDGET);
 		if (fit.contextTruncated || fit.questionTruncated) {
 			// A classification, never the question or the context text.
 			log("Consult tool: the question and context exceeded the outgoing prompt limit and were cut");
 		}
-		return oneShot.completeChatOnce(
-			resolved.connection,
-			{ model: modelRef.model, messages: [{ role: "user", content: fit.prompt }] },
+		return featureChatSend(
 			"consultTool",
-			{ timeoutMs: getRequestTimeout(log), token }
+			{ oneShot, secrets },
+			modelRef,
+			[{ role: "user", content: fit.prompt }],
+			token,
+			log
 		);
 	};
 }
@@ -140,20 +134,11 @@ export const PROBE_QUESTION = "Reply with one short sentence confirming that you
  * replies the tool would call empty.
  */
 export function createConsultProbe(send: ConsultSend): (model: FeatureModelRef) => Promise<string | undefined> {
-	return async (model) => {
-		// The source exists only to satisfy the send's token seam (the chat
-		// timeout bounds the call); dispose it deterministically so probes cannot
-		// accumulate live sources across dashboard sessions.
-		const source = new vscode.CancellationTokenSource();
-		try {
-			const shaped = shapeConsultResult(
-				await send({ modelRef: model, input: { question: PROBE_QUESTION }, token: source.token })
-			);
+	return (model) =>
+		withProbeToken(async (token) => {
+			const shaped = shapeConsultResult(await send({ modelRef: model, input: { question: PROBE_QUESTION }, token }));
 			return shaped.value === EMPTY_REPLY_TEXT ? "" : shaped.value;
-		} finally {
-			source.dispose();
-		}
-	};
+		});
 }
 
 /**
@@ -295,9 +280,17 @@ export function wireConsultTool(
 	const consultSend = createConsultSend(context.secrets, deps.oneShot, log);
 	const tool = new ConsultTool(consultSend, logger);
 
+	// The enablement decision reruns on every configuration change, so its
+	// malformed-setting advisory goes to the channel only (Logger.advisory) - a
+	// recurring informational line must not evict real errors from the
+	// issue-report buffer. A real invocation still reads the setting with the
+	// buffer-logging sink attached (ConsultTool.invoke).
+	const advisory: LogFn = (message, data) => {
+		logger.advisory(message, data);
+	};
 	let registration: vscode.Disposable | undefined;
 	const applyEnablement = (): void => {
-		const active = isFeatureEnabled("consultTool") && getFeatureModelRef("consultTool", log) !== undefined;
+		const active = isFeatureEnabled("consultTool") && getFeatureModelRef("consultTool", advisory) !== undefined;
 		if (active && registration === undefined) {
 			registration = vscode.lm.registerTool(TOOL_NAME, tool);
 		} else if (!active && registration !== undefined) {

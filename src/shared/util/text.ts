@@ -66,3 +66,45 @@ export function truncateKeepingHead(text: string, budget: number): string {
 	const last = head.charCodeAt(head.length - 1);
 	return last >= 0xd800 && last <= 0xdbff ? head.slice(0, -1) : head;
 }
+
+/**
+ * The one truncation-marker shape for model-facing prompt text: a bracketed
+ * label line, e.g. "[diff truncated]". Model-facing English by policy, so it
+ * never localizes; every prompt site derives its marker here so the vocabulary
+ * cannot fork per feature.
+ */
+export function truncationMarker(what: string): string {
+	return `[${what} truncated]`;
+}
+
+/**
+ * Attach a truncation marker to the kept prefix on its own line; a fully-cut
+ * prefix is just the marker, never a dangling line break. The seam the
+ * measured-fit sites (the consult tool's token bisection) share with the
+ * char-budget wrapper below, so a cut is marked the same way everywhere.
+ */
+export function appendTruncationMarker(prefix: string, marker: string): string {
+	return prefix === "" ? marker : `${prefix}\n${marker}`;
+}
+
+/**
+ * Head-truncate to `budget` with the marker riding INSIDE the budget: text at
+ * or under the budget passes verbatim (no marker), and a cut result - the kept
+ * head, the line break, and the marker - never exceeds it, so the stated limit
+ * is the bound the caller's prompt actually obeys. The cut itself is
+ * truncateKeepingHead, so a severed surrogate pair never reaches a JSON
+ * request body; a budget too small to keep any text degrades to the marker,
+ * itself head-cut when even it does not fit - the bound wins over the marker.
+ */
+export function truncateHeadWithMarker(text: string, budget: number, marker: string): string {
+	const units = Math.floor(budget);
+	if (text.length <= units) {
+		return text;
+	}
+	if (marker.length >= units) {
+		// Not even the marker plus a kept character fits; unreachable at the
+		// shipped budgets, but the bound must hold for any caller.
+		return truncateKeepingHead(marker, units);
+	}
+	return appendTruncationMarker(truncateKeepingHead(text, units - marker.length - 1), marker);
+}

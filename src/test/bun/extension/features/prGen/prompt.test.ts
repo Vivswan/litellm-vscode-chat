@@ -177,19 +177,22 @@ describe("extension/features/prGen buildPrPrompt", () => {
 		expect(buildPrPrompt(context({ patches: [""] }))).not.toContain("Patches:");
 	});
 
-	test("the joined patches are head-truncated at exactly PATCHES_CHAR_LIMIT characters", () => {
+	test("the joined patches are head-truncated with the marker riding inside PATCHES_CHAR_LIMIT", () => {
 		const atLimit = "a".repeat(PATCHES_CHAR_LIMIT);
 		const untruncated = buildPrPrompt(context({ patches: [atLimit] }));
 		expect(untruncated).toContain(atLimit);
 		expect(untruncated).not.toContain("[patches truncated]");
 
+		// The kept head, the line break, and the marker together sit exactly at
+		// the stated bound - the marker fits INSIDE the cap.
+		const kept = PATCHES_CHAR_LIMIT - "\n[patches truncated]".length;
 		const overByOne = buildPrPrompt(context({ patches: [`${atLimit}Z`] }));
-		expect(overByOne).toContain(atLimit);
+		expect(overByOne).toContain(`${"a".repeat(kept)}\n[patches truncated]`);
+		expect(overByOne).not.toContain("a".repeat(kept + 1));
 		expect(overByOne).not.toContain("aZ");
-		expect(overByOne).toContain("[patches truncated]");
 
 		const truncated = buildPrPrompt(context({ patches: [atLimit, "TAIL-BEYOND-THE-LIMIT"] }));
-		expect(truncated).toContain(atLimit);
+		expect(truncated).toContain("a".repeat(kept));
 		expect(truncated).not.toContain("TAIL-BEYOND-THE-LIMIT");
 		expect(truncated).toContain("[patches truncated]");
 	});

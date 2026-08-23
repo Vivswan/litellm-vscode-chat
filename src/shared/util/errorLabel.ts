@@ -1,7 +1,8 @@
 /**
- * The features' shared log-safe error classifier. At the features/ root (like
- * gitApi.d.ts) because features may not import each other (Biome-enforced):
- * every feature's log boundary names failures through this ONE classifier
+ * The shared log-safe error classifier. Pure string logic in src/shared/util,
+ * the one tree every layer may import: each log boundary that names a failed
+ * action - the feature boundaries, the servers and usage subsystems, the
+ * dashboard's host side, the migrations - names it through this ONE classifier
  * instead of carrying unpinnable copies.
  */
 

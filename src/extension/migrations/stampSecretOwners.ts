@@ -28,6 +28,7 @@ import * as vscode from "vscode";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { Logger } from "../../shared/logger";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { errorLabel } from "../../shared/util/errorLabel";
 import type { SecretStore } from "../servers/serverSync/secrets";
 import { readServerSecretsRecord, secretDestination, stampServerSecretOwner } from "../servers/serverSync/secrets";
 import { parseServersSetting } from "../servers/serverSync/setting";
@@ -51,7 +52,7 @@ export async function stampSecretOwnersFor(
 			// Classification only: a SecretStorage error could echo what it was
 			// handed, and log lines feed the public issue-report buffer.
 			logger.log("Reading a blob to stamp secret ownership failed; retrying on next activation", {
-				error: error instanceof Error ? error.name : typeof error,
+				error: errorLabel(error),
 			});
 			continue;
 		}
@@ -69,7 +70,7 @@ export async function stampSecretOwnersFor(
 			} catch (error) {
 				failures += 1;
 				logger.log("Stamping a stored secret's ownership failed; retrying on next activation", {
-					error: error instanceof Error ? error.name : typeof error,
+					error: errorLabel(error),
 				});
 			}
 		}

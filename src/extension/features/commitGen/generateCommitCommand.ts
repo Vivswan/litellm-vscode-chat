@@ -4,18 +4,12 @@ import { statusErrorTexts } from "../../../provider/transport/errorMapping";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import type { BooleanSettingId } from "../../../shared/config/settingSpec";
 import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
-import {
-	getCommitGenerationPrompt,
-	getFeatureModelRef,
-	getRequestTimeout,
-	isFeatureEnabled,
-} from "../../../shared/config/settings";
+import { getCommitGenerationPrompt, getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { entryConnectionFor } from "../../servers/entryConnection";
 import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
+import { featureChatSend } from "../featureChatSend";
 import { pickRepository, resolveGitApi } from "../gitAccess";
 import type { API } from "../gitApi";
-import { noEntryForConfiguredServer } from "../modelSettingError";
 import type { CommitModelRef } from "./commitMessage";
 import { generateCommitMessage } from "./commitMessage";
 
@@ -43,11 +37,14 @@ const ENABLED_SETTING_ID = `${CONFIG_SECTION}.${ENABLED_SETTING_KEY}`;
 const MODEL_SETTING_ID = `${CONFIG_SECTION}.${FEATURE_MODEL_SETTING_KEYS.commitGeneration}`;
 
 /**
- * Resolve the configured server label to its declared entry's connection and
- * send the prompt as one non-streaming request. Connection resolution is the
- * shared entryConnectionFor; only the no-such-label advice is this command's.
+ * Send the prompt as one non-streaming request through the features' shared
+ * send composition (featureChatSend: connection resolution, the
+ * commitGeneration error surface, the chat timeout). Exported because the
+ * dashboard's test probe sends through it too, so the probe proves exactly
+ * what a generation would do - connection, credentials, surface, and bound
+ * included.
  */
-async function sendCommitPrompt(
+export async function sendCommitPrompt(
 	oneShot: OneShotClient,
 	secrets: vscode.SecretStorage,
 	ref: CommitModelRef,
@@ -55,15 +52,13 @@ async function sendCommitPrompt(
 	token: vscode.CancellationToken,
 	log: (message: string, data?: unknown) => void
 ): Promise<string> {
-	const resolved = await entryConnectionFor(secrets, ref.server);
-	if (resolved === undefined) {
-		throw noEntryForConfiguredServer("commitGeneration", ref.server);
-	}
-	return oneShot.completeChatOnce(
-		resolved.connection,
-		{ model: ref.model, messages: [{ role: "user", content: prompt }] },
+	return featureChatSend(
 		"commitGeneration",
-		{ timeoutMs: getRequestTimeout(log), token }
+		{ oneShot, secrets },
+		ref,
+		[{ role: "user", content: prompt }],
+		token,
+		log
 	);
 }
 

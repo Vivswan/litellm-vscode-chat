@@ -160,9 +160,16 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"createPrSend",
 	"wirePrGeneration",
 	"runGeneratePrDescription",
-	// src/extension/features/modelSettingError (the features' one no-such-server sentence).
-	"featureNaming",
+	// src/extension/features/modelSettingError (the features' one no-such-server sentence)
+	// and the shared send composition that throws it.
 	"noEntryForConfiguredServer",
+	"featureChatSend",
+	"createCommitProbe",
+	// src/dashboard/featureNames (the features' one display-name registry).
+	"featureNameEntry",
+	"featureDisplayName",
+	"featureEnglishName",
+	"featureLogSurface",
 	// src/extension/features/reviewComments (the comment surface and its commands).
 	"reviewChangesCommandTitle",
 	"reviewFileCommandTitle",
@@ -273,7 +280,6 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"discoveryHttpHeadline",
 	"httpHeadline",
 	"bodylessResponseError",
-	"mappedBodyStream",
 	"streamErrorFrame",
 	"mapSdkError",
 	"expiredCertificateHeadline",
@@ -481,7 +487,6 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"currencySymbolDescription",
 	"featureModelDescription",
 	"featureModelTitle",
-	"featureSectionTitle",
 	"comingSoonMarker",
 	"featuresComingHint",
 	"commitPromptDescription",

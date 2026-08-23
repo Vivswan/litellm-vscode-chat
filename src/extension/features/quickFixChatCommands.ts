@@ -7,7 +7,7 @@
  * ...", which only works if the participant answers those names. The
  * sibling-import ban is per-feature-directory, so a bridge between two features
  * can live in neither of them; the features/ root is where such shared code
- * goes (the gitApi.d.ts and errorLabel.ts precedent), and the composition root
+ * goes (the gitApi.d.ts and featureChatSend.ts precedent), and the composition root
  * (wiring/features.ts) is what calls the registration.
  *
  * Registration is unconditional, unlike the code actions: the commands cost

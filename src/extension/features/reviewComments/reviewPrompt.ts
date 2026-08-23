@@ -14,16 +14,17 @@
  * see, not against counting it must do itself - while diff mode anchors on
  * the hunk headers the diff already carries.
  *
- * Each mode has a stated char budget, head-truncated with an inline marker
- * appended only when actually over (the same idiom as the commit prompt's
- * DIFF_CHAR_LIMIT): a review of the head of an oversized input still has
- * value, and an unbounded prompt has a failure mode instead of a budget.
+ * Each mode has a stated char budget, head-truncated through the shared
+ * truncateHeadWithMarker (the marker rides inside the budget, the same
+ * contract as the commit prompt's DIFF_CHAR_LIMIT): a review of the head of
+ * an oversized input still has value, and an unbounded prompt has a failure
+ * mode instead of a budget.
  *
  * Pure and vscode-free.
  */
 
 import type { OneShotChatMessage } from "../../../provider/transport/oneShotClient";
-import { truncateKeepingHead } from "../../../shared/util/text";
+import { truncateHeadWithMarker, truncationMarker } from "../../../shared/util/text";
 import { LINE_BREAK_PATTERN, NO_FINDINGS_REPLY } from "./placements";
 
 /** Head-truncation bound for a file's working-tree diff inside the prompt. */
@@ -51,7 +52,7 @@ export interface DiffReviewPromptArgs {
 
 /** Build the prompt reviewing one file's working-tree diff. */
 export function buildDiffReviewPrompt(args: DiffReviewPromptArgs): string {
-	const diff = headTruncate(args.diff, REVIEW_DIFF_CHAR_LIMIT, "[diff truncated]");
+	const diff = truncateHeadWithMarker(args.diff, REVIEW_DIFF_CHAR_LIMIT, truncationMarker("diff"));
 	return [
 		REVIEW_FORMAT_INSTRUCTION,
 		"Line numbers refer to the file after the change: anchor each finding on the new-file line numbers from the @@ hunk headers.",
@@ -105,7 +106,7 @@ function numberedHead(content: string): string {
 		lineNumber += 1;
 	}
 	const numbered = parts.join("\n");
-	return headTruncate(numbered, REVIEW_FILE_CHAR_LIMIT, "[file truncated]");
+	return truncateHeadWithMarker(numbered, REVIEW_FILE_CHAR_LIMIT, truncationMarker("file"));
 }
 
 /** Head-truncation bound for the code a thread anchors, quoted back as context for a reply. */
@@ -149,7 +150,7 @@ export interface ReplyPromptArgs {
  * neither a long comment nor a long thread can grow the request without bound.
  */
 export function buildReplyMessages(args: ReplyPromptArgs): readonly OneShotChatMessage[] {
-	const snippet = headTruncate(args.snippet, REVIEW_SNIPPET_CHAR_LIMIT, "[snippet truncated]");
+	const snippet = truncateHeadWithMarker(args.snippet, REVIEW_SNIPPET_CHAR_LIMIT, truncationMarker("snippet"));
 	const range = args.startLine === args.endLine ? `line ${args.startLine}` : `lines ${args.startLine}-${args.endLine}`;
 	const context = snippet.trim() === "" ? "" : `\n\nThe lines under discussion:\n${snippet}`;
 	const system = [
@@ -162,18 +163,7 @@ export function buildReplyMessages(args: ReplyPromptArgs): readonly OneShotChatM
 		{ role: "system" as const, content: `${system}${context}` },
 		...args.turns.slice(-REVIEW_REPLY_TURN_LIMIT).map((turn) => ({
 			role: turn.author === "model" ? ("assistant" as const) : ("user" as const),
-			content: headTruncate(turn.body, REVIEW_COMMENT_CHAR_LIMIT, "[truncated]"),
+			content: truncateHeadWithMarker(turn.body, REVIEW_COMMENT_CHAR_LIMIT, truncationMarker("comment")),
 		})),
 	];
-}
-
-/**
- * The budgeted head plus this module's inline marker, appended only when the
- * text was actually over the bound. The cut itself is the shared
- * truncateKeepingHead, so an astral character at the boundary cannot leave a
- * lone surrogate in the JSON body; the marker stays caller-side, like the
- * commit prompt does it.
- */
-function headTruncate(text: string, limit: number, marker: string): string {
-	return text.length > limit ? `${truncateKeepingHead(text, limit)}\n${marker}` : text;
 }

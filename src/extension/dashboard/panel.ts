@@ -52,6 +52,7 @@ import type { TransportErrorClassification } from "../../shared/errorClassificat
 import type { Logger } from "../../shared/logger";
 import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { errorLabel } from "../../shared/util/errorLabel";
 import {
 	DASHBOARD_BUNDLE_FILENAME,
 	DASHBOARD_STYLESHEET_FILENAME,
@@ -705,7 +706,7 @@ export class DashboardController implements vscode.Disposable {
 				message = l10n.t("The change was not applied; see the LiteLLM output log.");
 				this.env.log("Dashboard intent failed", {
 					method: request.method,
-					error: error instanceof Error ? error.name : typeof error,
+					error: errorLabel(error),
 				});
 			}
 			// A refused scalar write names its owning settings row, derived from the

@@ -79,7 +79,7 @@ describe("extension/features/commitGen buildCommitPrompt", () => {
 		expect(prompt).not.toContain(BUILT_IN_COMMIT_INSTRUCTION);
 	});
 
-	test("the diff is head-truncated at exactly DIFF_CHAR_LIMIT characters", () => {
+	test("the diff is head-truncated with the marker riding inside DIFF_CHAR_LIMIT", () => {
 		const atLimit = "a".repeat(DIFF_CHAR_LIMIT);
 		const untruncated = buildCommitPrompt({ customPrompt: "", diff: atLimit, recentSubjects: [], untrackedPaths: [] });
 		expect(untruncated).toContain(atLimit);
@@ -87,9 +87,12 @@ describe("extension/features/commitGen buildCommitPrompt", () => {
 
 		const overLimit = `${atLimit}TAIL-BEYOND-THE-LIMIT`;
 		const truncated = buildCommitPrompt({ customPrompt: "", diff: overLimit, recentSubjects: [], untrackedPaths: [] });
-		expect(truncated).toContain(atLimit);
+		// The kept head, the line break, and the marker together sit exactly at
+		// the stated bound - the marker fits INSIDE the cap.
+		const kept = DIFF_CHAR_LIMIT - "\n[diff truncated]".length;
+		expect(truncated).toContain(`${"a".repeat(kept)}\n[diff truncated]`);
+		expect(truncated).not.toContain("a".repeat(kept + 1));
 		expect(truncated).not.toContain("TAIL-BEYOND-THE-LIMIT");
-		expect(truncated).toContain("[diff truncated]");
 	});
 
 	test("a diff cut landing inside a surrogate pair drops the severed half instead of sending it", () => {

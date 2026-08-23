@@ -66,7 +66,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.inlineCompletions.enabled` | `false` | 选择启用由 LiteLLM 模型提供的内联(幽灵文本)补全, 随内联补全功能一起交付。默认关闭: 启用前不注册任何内容、不发送任何请求, 仪表板中显式的「测试模型」按钮除外; 只启用而不设置 `inlineCompletions.model` 时功能保持闲置 |
 | `litellm-vscode-chat.inlineCompletions.model` | `null` | 提供内联补全的模型: `{ "server": "<条目 label>", "model": "<原始模型 ID>" }`, 指向一个 `servers` 条目及其一个模型 ID。模型始终由你显式选择 - 从不自动挑选; `null` 使功能保持闲置 |
 | `litellm-vscode-chat.inlineCompletions.languageFilter` | `{"mode":"block","languages":[]}` | 内联补全的运行范围: mode 为 `"block"` 时在列出的 VS Code 语言 ID (精确匹配) 之外的所有语言中运行, `"allow"` 时仅在列出的语言中运行 (允许列表为空则不在任何语言中运行), 例如 `{ "mode": "block", "languages": ["markdown", "plaintext"] }`。默认不屏蔽任何语言 |
-| `litellm-vscode-chat.commitGeneration.enabled` | `false` | 选择启用由 LiteLLM 模型生成提交消息, 随提交消息生成功能一起交付。默认关闭: 启用前命令保持隐藏、不发送任何请求; 只启用而不设置 `commitGeneration.model` 时功能保持闲置 |
+| `litellm-vscode-chat.commitGeneration.enabled` | `false` | 选择启用由 LiteLLM 模型生成提交消息, 随提交消息生成功能一起交付。默认关闭: 启用前命令保持隐藏、不发送任何请求, 仪表板中显式的「测试模型」按钮除外; 只启用而不设置 `commitGeneration.model` 时功能保持闲置 |
 | `litellm-vscode-chat.commitGeneration.model` | `null` | 起草提交消息的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
 | `litellm-vscode-chat.commitGeneration.prompt` | `""` | 生成提交消息时使用的自定义指令, 会整体替换内置指令。留空使用内置指令 (Conventional Commits 主题行加简短正文)。面向模型的文本, 按原样发送 |
 | `litellm-vscode-chat.prGeneration.enabled` | `false` | 选择启用由 LiteLLM 模型生成拉取请求标题和描述。关闭时命令保持隐藏、不发送任何请求, 仪表板中显式的「测试模型」按钮除外 ([配方](getting-started.md#用你自己的模型生成拉取请求描述)) |

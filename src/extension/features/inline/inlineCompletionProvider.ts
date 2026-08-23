@@ -16,7 +16,7 @@ import {
 } from "../../../provider/transport/fim";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, getInlineLanguageFilter } from "../../../shared/config/settings";
-import { errorLabel } from "../errorLabel";
+import { errorLabel } from "../../../shared/util/errorLabel";
 import type { CompletionCache } from "./completionCache";
 import { languageAllowed } from "./languageFilter";
 
@@ -67,7 +67,14 @@ function isCancellation(error: unknown): boolean {
 }
 
 class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
-	/** Advisory classes already logged; every line below goes through adviseOnce, so none can recur per keystroke. */
+	/**
+	 * Advisory classes already logged; every line below goes through adviseOnce,
+	 * so none can recur per keystroke. Deliberately a once-latch rather than
+	 * Logger.advisory: advisory() only protects the issue-report buffer, and a
+	 * provider running on every keystroke would still flood the CHANNEL with one
+	 * line per keystroke - while a send failure is a real once-per-session error
+	 * that belongs in the buffer exactly once per failure class.
+	 */
 	private readonly advised = new Set<string>();
 
 	constructor(private readonly deps: InlineCompletionProviderDeps) {}

@@ -4,13 +4,12 @@ import { statusErrorTexts } from "../../../provider/transport/errorMapping";
 import type { OneShotChatMessage, OneShotClient } from "../../../provider/transport/oneShotClient";
 import type { BooleanSettingId, FeatureModelRef } from "../../../shared/config/settingSpec";
 import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
-import { getFeatureModelRef, getRequestTimeout, isFeatureEnabled } from "../../../shared/config/settings";
+import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { entryConnectionFor } from "../../servers/entryConnection";
 import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
+import { featureChatSend } from "../featureChatSend";
 import { documentLabel, pickRepository, repositoryRelativePath, resolveGitApi } from "../gitAccess";
 import type { API, Change, Repository } from "../gitApi";
-import { noEntryForConfiguredServer } from "../modelSettingError";
 import type { ReviewCommentController } from "./controller";
 import type { ReviewPlacement } from "./placements";
 import type { ReviewRunOutcome, ReviewUnit } from "./review";
@@ -144,9 +143,10 @@ async function openGate(deps: ReviewCommandDeps): Promise<OpenGate | undefined> 
 }
 
 /**
- * Resolve the configured server label to its declared entry's connection and
- * send one non-streaming request. Connection resolution is the shared
- * entryConnectionFor; only the no-such-label advice is this feature's.
+ * Send one non-streaming request through the features' shared send composition
+ * (featureChatSend: connection resolution, the reviewComments error surface,
+ * the chat timeout, and the shared no-such-label advice naming this feature's
+ * model setting).
  */
 export async function sendReviewMessages(
 	deps: Pick<ReviewCommandDeps, "oneShot" | "secrets">,
@@ -155,14 +155,7 @@ export async function sendReviewMessages(
 	token: vscode.CancellationToken,
 	log: (message: string, data?: unknown) => void
 ): Promise<string> {
-	const resolved = await entryConnectionFor(deps.secrets, ref.server);
-	if (resolved === undefined) {
-		throw noEntryForConfiguredServer("reviewComments", ref.server);
-	}
-	return deps.oneShot.completeChatOnce(resolved.connection, { model: ref.model, messages }, "reviewComments", {
-		timeoutMs: getRequestTimeout(log),
-		token,
-	});
+	return featureChatSend("reviewComments", deps, ref, messages, token, log);
 }
 
 /** The review commands' one prompt-to-answer call; a review prompt is a single user turn. */

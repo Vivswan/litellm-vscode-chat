@@ -294,13 +294,18 @@ suite("extension/features/prGen activation-failure logging", () => {
 	}
 
 	/**
-	 * The latch is per-WIRING, not per module: it exists so a broken GitHub
-	 * install cannot evict real history from the 50-entry issue-report ring on
-	 * every settings change, and it must not silence a second wiring's first
-	 * failure (a shared test host wires more than once).
+	 * The advisory contract: the registration decision reruns on every settings
+	 * change, so its failure line is channel-only (Logger.advisory) - visible in
+	 * the output channel on every re-decision, and NEVER in the issue-report
+	 * buffer, whose 50-entry ring a broken GitHub install must not evict real
+	 * history from. `run` executes while the failing-GHPR stubs are live, so a
+	 * fired configuration change re-consults the broken install.
 	 */
-	async function wireAgainstFailingGhpr(): Promise<{ lines: string[]; fireConfigChange: () => Promise<void> }> {
+	async function withFailingGhpr(
+		run: (harness: { lines: string[]; buffered: string[]; fireConfigChange: () => Promise<void> }) => Promise<void>
+	): Promise<void> {
 		const lines: string[] = [];
+		const buffered: string[] = [];
 		const listeners: ((event: vscode.ConfigurationChangeEvent) => void)[] = [];
 		const originalRegisterCommand = vscode.commands.registerCommand;
 		const originalOnDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration;
@@ -320,43 +325,47 @@ suite("extension/features/prGen activation-failure logging", () => {
 				: undefined;
 		try {
 			await withConfig(MODEL_CONFIG, async () => {
-				wirePrGeneration(fakeContext(), new Logger({ info: (line) => lines.push(line), error: () => {} }), {
-					oneShot: {} as never,
-					outputChannel: { appendLine() {} } as unknown as vscode.OutputChannel,
-				});
+				wirePrGeneration(
+					fakeContext(),
+					new Logger(
+						{ info: (line) => lines.push(line), error: () => {} },
+						{ appendLog: (line) => buffered.push(line), recordError: () => {} }
+					),
+					{
+						oneShot: {} as never,
+						outputChannel: { appendLine() {} } as unknown as vscode.OutputChannel,
+					}
+				);
 				await settle();
+				await run({
+					lines,
+					buffered,
+					fireConfigChange: async () => {
+						for (const listener of listeners) {
+							listener({ affectsConfiguration: () => true });
+						}
+						await settle();
+					},
+				});
 			});
 		} finally {
 			(vscode.commands as Record<string, unknown>).registerCommand = originalRegisterCommand;
 			(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = originalOnDidChangeConfiguration;
 			(vscode.extensions as Record<string, unknown>).getExtension = originalGetExtension;
 		}
-		return {
-			lines,
-			fireConfigChange: async () => {
-				for (const listener of listeners) {
-					listener({ affectsConfiguration: () => true });
-				}
-				await settle();
-			},
-		};
 	}
 
 	const failures = (lines: readonly string[]): number =>
 		lines.filter((line) => line.includes("failed to activate")).length;
 
-	test("a broken GitHub install logs its activation failure once per wiring, not once per settings change", async () => {
-		const first = await wireAgainstFailingGhpr();
-		assert.strictEqual(failures(first.lines), 1, "the first decision reports");
-		await first.fireConfigChange();
-		await first.fireConfigChange();
-		assert.strictEqual(failures(first.lines), 1, "re-deciding must not repeat the line into the report buffer");
-	});
-
-	test("a second wiring reports its own first failure - the latch is not module-wide", async () => {
-		await wireAgainstFailingGhpr();
-		const second = await wireAgainstFailingGhpr();
-		assert.strictEqual(failures(second.lines), 1, "module-level state would have silenced this one");
+	test("a broken GitHub install reports to the channel on every decision and never to the issue buffer", async () => {
+		await withFailingGhpr(async (wired) => {
+			assert.strictEqual(failures(wired.lines), 1, "the first decision reports to the channel");
+			await wired.fireConfigChange();
+			await wired.fireConfigChange();
+			assert.strictEqual(failures(wired.lines), 3, "advisory lines recur per re-decision in the channel");
+			assert.strictEqual(failures(wired.buffered), 0, "the issue-report buffer never carries the advisory");
+		});
 	});
 });
 

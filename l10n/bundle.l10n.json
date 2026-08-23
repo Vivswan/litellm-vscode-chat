@@ -1311,6 +1311,7 @@
 	"bundled snapshot": "bundled snapshot",
 	"caching": "caching",
 	"catalog": "catalog",
+	"chat participant": "chat participant",
 	"cl100k_base tokenizer (GPT-4 era)": "cl100k_base tokenizer (GPT-4 era)",
 	"commit generation": "commit generation",
 	"consult tool": "consult tool",

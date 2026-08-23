@@ -18,6 +18,7 @@ import type {
 } from "../../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { errorLabel } from "../../../shared/util/errorLabel";
 import { fingerprint } from "../../../shared/util/fingerprint";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
 import type { StoredSecretsRecord, StoredServerSecrets } from "./secrets";
@@ -571,7 +572,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				syncErrorClass = "secretsUnreadable";
 				this.env.log("Reading a server entry's stored secrets failed", {
 					label: entry.label,
-					error: error instanceof Error ? error.name : typeof error,
+					error: errorLabel(error),
 				});
 			}
 			const args = buildGroupArgs(entry, stored);
@@ -728,7 +729,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 						syncErrorClass = "upsertFailed";
 						this.env.log("Provider group upsert failed", {
 							label: entry.label,
-							error: error instanceof Error ? error.name : typeof error,
+							error: errorLabel(error),
 						});
 					}
 				}

@@ -1,4 +1,4 @@
-import { truncateKeepingHead } from "../../../shared/util/text";
+import { truncateHeadWithMarker, truncationMarker } from "../../../shared/util/text";
 import type { TitleAndDescriptionProvider } from "./githubPullRequestsApi";
 
 /**
@@ -45,15 +45,6 @@ export const BUILT_IN_PR_INSTRUCTION = [
 	"Description:",
 	"<the description>",
 ].join("\n");
-
-/**
- * Head-truncate at `limit` characters, marking the cut with a bracketed label
- * line. The cut itself is the shared truncateKeepingHead, so a severed
- * surrogate pair never reaches the JSON request body.
- */
-function headTruncated(text: string, limit: number, label: string): string {
-	return text.length > limit ? `${truncateKeepingHead(text, limit)}\n[${label} truncated]` : text;
-}
 
 /**
  * The longest common directory prefix (through its final slash) of the object
@@ -174,8 +165,10 @@ function charBoundedMessages(messages: readonly string[]): string[] {
 		return [...messages];
 	}
 	// The marker a cut message carries must fit INSIDE its share, or the limit
-	// would not be the bound this function claims.
-	const marker = "\n[commit messages truncated]".length;
+	// would not be the bound this function claims - the shared wrapper enforces
+	// exactly that, so a cut message's stored cap is its whole share.
+	const marker = truncationMarker("commit messages");
+	const markerCost = marker.length + "\n".length;
 	const caps = new Array<number>(messages.length).fill(0);
 	const shortestFirst = messages
 		.map((_message, index) => index)
@@ -187,12 +180,12 @@ function charBoundedMessages(messages: readonly string[]): string[] {
 		const length = messages[index]?.length ?? 0;
 		// A message that fits its share whole costs exactly itself; one that must
 		// be cut pays for its own marker out of the same share.
-		const take = length <= share ? length : Math.max(0, share - marker);
+		const take = length <= share ? length : Math.max(0, share - markerCost) + markerCost;
 		caps[index] = take;
-		left -= length <= share ? length : take + marker;
+		left -= take;
 		unassigned -= 1;
 	}
-	return messages.map((message, index) => headTruncated(message, caps[index] ?? 0, "commit messages"));
+	return messages.map((message, index) => truncateHeadWithMarker(message, caps[index] ?? 0, marker));
 }
 
 /**
@@ -205,7 +198,7 @@ export function buildPrPrompt(context: TitleAndDescriptionContext): string {
 	const template = context.template ?? "";
 	if (template.trim() !== "") {
 		sections.push(
-			`Structure the description to follow this pull request template:\n${headTruncated(template, TEMPLATE_CHAR_LIMIT, "template")}`
+			`Structure the description to follow this pull request template:\n${truncateHeadWithMarker(template, TEMPLATE_CHAR_LIMIT, truncationMarker("template"))}`
 		);
 	}
 	const branch = context.compareBranch ?? "";
@@ -221,12 +214,12 @@ export function buildPrPrompt(context: TitleAndDescriptionContext): string {
 	const issues = (context.issues ?? []).map((issue) => `${issue.reference}:\n${issue.content}`);
 	if (issues.length > 0) {
 		sections.push(
-			`Issues referenced by the change:\n${headTruncated(issues.join("\n\n"), ISSUES_CHAR_LIMIT, "issues")}`
+			`Issues referenced by the change:\n${truncateHeadWithMarker(issues.join("\n\n"), ISSUES_CHAR_LIMIT, truncationMarker("issues"))}`
 		);
 	}
 	const patches = patchBlocks(context.patches).join("\n\n");
 	if (patches.trim() !== "") {
-		sections.push(`Patches:\n${headTruncated(patches, PATCHES_CHAR_LIMIT, "patches")}`);
+		sections.push(`Patches:\n${truncateHeadWithMarker(patches, PATCHES_CHAR_LIMIT, truncationMarker("patches"))}`);
 	}
 	return sections.join("\n\n");
 }

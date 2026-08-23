@@ -3,7 +3,7 @@ import { PARTICIPANT_ID } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { errorLabel } from "../errorLabel";
+import { errorLabel } from "../../../shared/util/errorLabel";
 import { participantFollowups } from "./followups";
 import { handleParticipantTurn, type ParticipantRequest } from "./handler";
 import type { ChatMessage, HistoryTurn } from "./historyConversion";
@@ -12,6 +12,11 @@ import type { SlashCommandRegistry } from "./slashCommands";
 import { createSlashCommandRegistry } from "./slashCommands";
 import type { SnapshotSource } from "./snapshots";
 import { participantSnapshots } from "./snapshots";
+
+// Part of the wiring's declared surface: the composition root passes the
+// provider's snapshot sources through this seam, and everything outside
+// features/<feature>/ reaches a feature only through its wiring module.
+export type { SnapshotSource } from "./snapshots";
 
 /**
  * The @litellm participant's wiring: it adapts the host's ChatRequestHandler
@@ -243,7 +248,11 @@ export function wireChatParticipant(
 				};
 				participant = created;
 			} catch (error) {
-				logger.log(`chat participant registration failed: ${errorLabel(error)}`);
+				// Channel-only (Logger.advisory): applyEnablement reruns on every
+				// configuration change, so a host that keeps refusing would write a
+				// buffer line per change and evict real errors from the issue-report
+				// ring; the channel keeps every occurrence.
+				logger.advisory(`chat participant registration failed: ${errorLabel(error)}`);
 			}
 		} else if (!enabled && participant !== undefined) {
 			participant.dispose();

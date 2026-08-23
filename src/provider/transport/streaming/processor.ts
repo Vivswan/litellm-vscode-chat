@@ -14,6 +14,7 @@ import {
 	thinkingPartCtor,
 } from "../../../shared/conversion/thinkingPart";
 import { chatErrorMessage, localizedError } from "../../../shared/mirroredError";
+import { errorLabel } from "../../../shared/util/errorLabel";
 import { tryParseJSONObject } from "../../../shared/util/json";
 import { streamErrorFrame } from "../errorMapping";
 import type { TextParseResult, TextToolCall } from "../textToolCallParser";
@@ -211,7 +212,7 @@ export class StreamProcessor {
 					// message (V8 embeds an input excerpt) may reach the logs.
 					this._log("Skipping malformed SSE line", {
 						length: data.length,
-						errorClass: e instanceof Error ? e.name : typeof e,
+						errorClass: errorLabel(e),
 					});
 					continue;
 				}

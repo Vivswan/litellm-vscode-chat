@@ -18,6 +18,7 @@ import { PRE_IMPORT_SNAPSHOT_SECRET } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { errorLabel } from "../../shared/util/errorLabel";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { ServerSyncEngine } from "../servers/serverSync/engine";
 import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
@@ -317,11 +318,6 @@ export function createSettingsTransferEnv(
 	};
 }
 
-/** The classification the English log records for a caught error; never its message text. */
-function errorClass(error: unknown): string {
-	return error instanceof Error ? error.name : typeof error;
-}
-
 /** The toast action that runs the undo flow (same env, same behavior as the palette command). */
 function undoImportAction(env: SettingsTransferEnv): MessageAction {
 	return { label: l10n.t("Undo Import"), run: () => runUndoLastImportFlow(env) };
@@ -413,7 +409,7 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			{ label: l10n.t("Reveal File"), run: () => env.revealFile(target) },
 		]);
 	} catch (error) {
-		env.log("Settings export failed", { error: errorClass(error) });
+		env.log("Settings export failed", { error: errorLabel(error) });
 		await env.prompts.notify("error", l10n.t("LiteLLM: The settings export failed; the file was not written."));
 	}
 }
@@ -490,7 +486,7 @@ async function applyServersUnit(
 			}
 		}
 		if (unrestoredLabels.size > 0) {
-			env.log("Settings import failed and left a stored secret unrestored", { error: errorClass(error) });
+			env.log("Settings import failed and left a stored secret unrestored", { error: errorLabel(error) });
 			// An unrestored secret is the IMPORTED credential, which belongs to
 			// its entry in serversValue, while the live entries are still
 			// pre-import (the servers write lands last). Withholding the wake
@@ -520,7 +516,7 @@ async function applyServersUnit(
 			return "rollback-failed";
 		}
 		env.log("Settings import: the servers write failed; secret changes were rolled back", {
-			error: errorClass(error),
+			error: errorLabel(error),
 		});
 		env.requestServerSync();
 		const message = l10n.t(
@@ -695,7 +691,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				}
 			} catch (error) {
 				env.log("Restoring the previous undo snapshot after a landed-nothing import failed", {
-					error: errorClass(error),
+					error: errorLabel(error),
 				});
 			}
 		};
@@ -712,7 +708,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			try {
 				await env.writeSnapshotSlot(JSON.stringify(snapshot));
 			} catch (error) {
-				env.log("Settings import cancelled: the undo snapshot could not be saved", { error: errorClass(error) });
+				env.log("Settings import cancelled: the undo snapshot could not be saved", { error: errorLabel(error) });
 				await env.prompts.notify(
 					"error",
 					l10n.t("LiteLLM: The import was cancelled because the undo snapshot could not be saved; nothing was changed.")
@@ -827,7 +823,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			writesNothing || !landedAnything ? [] : [undoImportAction(env)]
 		);
 	} catch (error) {
-		env.log("Settings import failed", { error: errorClass(error) });
+		env.log("Settings import failed", { error: errorLabel(error) });
 		await env.prompts.notify("error", l10n.t("LiteLLM: The settings import failed."));
 	}
 }
@@ -995,7 +991,7 @@ async function clearMismatchedBlobs(
 			await env.deleteServerSecrets(label);
 		} catch (error) {
 			failures += 1;
-			env.log(failureLog, { error: errorClass(error) });
+			env.log(failureLog, { error: errorLabel(error) });
 		}
 	}
 	return failures;
@@ -1156,7 +1152,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		}
 		await env.prompts.notify("info", summary.join(" "));
 	} catch (error) {
-		env.log("Undo import failed", { error: errorClass(error) });
+		env.log("Undo import failed", { error: errorLabel(error) });
 		await env.prompts.notify("error", l10n.t("LiteLLM: The undo failed; the snapshot was kept."));
 	}
 }

@@ -117,6 +117,7 @@ suite("extension/wiring features", () => {
 			// Test button. A key added here must come with a real probe; a key
 			// dropped here silently removes the button.
 			assert.deepStrictEqual(Object.keys(featureProbes).sort(), [
+				"commitGeneration",
 				"consultTool",
 				"inlineCompletions",
 				"prGeneration",
@@ -124,6 +125,7 @@ suite("extension/wiring features", () => {
 				"reviewComments",
 			]);
 			assert.strictEqual(typeof featureProbes.inlineCompletions, "function");
+			assert.strictEqual(typeof featureProbes.commitGeneration, "function");
 			assert.strictEqual(typeof featureProbes.consultTool, "function");
 			assert.strictEqual(typeof featureProbes.prGeneration, "function");
 			assert.strictEqual(typeof featureProbes.quickFix, "function");

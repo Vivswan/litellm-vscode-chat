@@ -2,12 +2,11 @@ import type * as vscode from "vscode";
 import { OneShotClient } from "../../provider/transport/oneShotClient";
 import type { Logger } from "../../shared/logger";
 import type { FeatureProbes } from "../dashboard/intents";
-import { wireCommitGeneration } from "../features/commitGen/wiring";
+import { createCommitProbe, wireCommitGeneration } from "../features/commitGen/wiring";
 import { createConsultProbe, wireConsultTool } from "../features/consultTool/wiring";
 import { createFimProbe, wireInlineCompletions } from "../features/inline/wiring";
 import { wireMcpServers } from "../features/mcp/wiring";
-import type { SnapshotSource } from "../features/participant/snapshots";
-import type { ChatParticipantWiring } from "../features/participant/wiring";
+import type { ChatParticipantWiring, SnapshotSource } from "../features/participant/wiring";
 import { wireChatParticipant } from "../features/participant/wiring";
 import { createPrProbe, wirePrGeneration } from "../features/prGen/wiring";
 import { createQuickFixProbe, wireQuickFix } from "../features/quickFix/wiring";
@@ -59,6 +58,7 @@ export function wireFeatures(
 	return {
 		featureProbes: {
 			inlineCompletions: createFimProbe(inline.fimSend),
+			commitGeneration: createCommitProbe(context.secrets, oneShot, log),
 			consultTool: createConsultProbe(consult.consultSend),
 			prGeneration: createPrProbe(prGen.prSend),
 			quickFix: createQuickFixProbe(context.secrets, oneShot, log),

@@ -131,7 +131,7 @@
 	"litellm.config.inlineCompletions.languageFilter.description": "內嵌補全的執行範圍。例如 `{ \"mode\": \"block\", \"languages\": [\"markdown\"] }` 表示除 markdown 外到處執行。mode 為 `\"block\"` 時補全在列出的 VS Code 語言 ID (精確比對) 之外的所有語言中執行。`\"allow\"` 時僅在列出的語言中執行 (清單為空則不在任何語言中執行)。",
 	"litellm.config.inlineCompletions.languageFilter.mode.description": "\"block\" 表示補全在列出的語言之外的所有語言中執行。\"allow\" 表示僅在列出的語言中執行。",
 	"litellm.config.inlineCompletions.languageFilter.languages.description": "VS Code 語言 ID (精確比對)。例如 \"typescript\"。",
-	"litellm.config.commitGeneration.enabled.description": "選擇啟用由 LiteLLM 模型產生提交訊息。預設關閉。啟用前命令保持隱藏、不送出任何要求。在 `#litellm-vscode-chat.commitGeneration.model#` 指定模型之前此功能保持閒置。",
+	"litellm.config.commitGeneration.enabled.description": "選擇啟用由 LiteLLM 模型產生提交訊息。預設關閉。啟用前命令保持隱藏、不送出任何要求, 儀表板中明確的「測試模型」按鈕是唯一的例外。在 `#litellm-vscode-chat.commitGeneration.model#` 指定模型之前此功能保持閒置。",
 	"litellm.config.commitGeneration.model.description": "起草提交訊息的模型。寫法如 `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`。server 是某個 `#litellm-vscode-chat.servers#` 項目的 label。model 是該伺服器的一個原始模型 ID。`null` 表示未選擇模型、功能保持閒置。",
 	"litellm.config.commitGeneration.prompt.description": "產生提交訊息時使用的自訂指示。設定後會整體取代內建指示。留空使用內建指示 (Conventional Commits 主旨行加簡短內文)。",
 	"litellm.config.featureModel.server.description": "提供該模型的 servers 項目的 label。",

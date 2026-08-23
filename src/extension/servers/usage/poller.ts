@@ -22,6 +22,7 @@ import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { errorLabel } from "../../../shared/util/errorLabel";
 import type { Clock, Timer } from "../../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../../shared/util/timer";
 import type { StoredSecretsRecord, StoredServerSecrets } from "../serverSync/secrets";
@@ -384,7 +385,7 @@ export class UsagePoller {
 				listener();
 			} catch (error) {
 				this.env.log("Usage refresh start listener failed", {
-					error: error instanceof Error ? error.name : typeof error,
+					error: errorLabel(error),
 				});
 			}
 		}
@@ -405,7 +406,7 @@ export class UsagePoller {
 				try {
 					listener();
 				} catch (error) {
-					this.env.log("Usage refresh listener failed", { error: error instanceof Error ? error.name : typeof error });
+					this.env.log("Usage refresh listener failed", { error: errorLabel(error) });
 				}
 			}
 			if (queued !== undefined) {
@@ -427,7 +428,7 @@ export class UsagePoller {
 			// Per-server failures are handled inside the pass; this catches the
 			// stores themselves misbehaving. Never rethrown: refreshes run from
 			// timers and commands.
-			this.env.log("Usage refresh pass failed", { error: error instanceof Error ? error.name : typeof error });
+			this.env.log("Usage refresh pass failed", { error: errorLabel(error) });
 		}
 		if (outcome !== undefined) {
 			// Only a pass that ran to completion counts for staleness; an
@@ -542,7 +543,7 @@ export class UsagePoller {
 			secretsUnreadable = true;
 			this.env.log("Reading a server entry's stored secrets failed; usage refresh skipped", {
 				label: entry.label,
-				error: error instanceof Error ? error.name : typeof error,
+				error: errorLabel(error),
 			});
 		}
 		if (stored !== undefined) {
@@ -836,7 +837,7 @@ export class UsagePoller {
 			this.env.log("Usage endpoint request failed; retrying on the next poll", {
 				label,
 				endpoint,
-				error: error instanceof Error ? error.name : typeof error,
+				error: errorLabel(error),
 				...(status !== undefined ? { status } : {}),
 			});
 		}

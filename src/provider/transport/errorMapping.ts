@@ -2,7 +2,7 @@ import * as l10n from "@vscode/l10n";
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from "openai";
 import { CancellationError, LanguageModelError } from "vscode";
 import { manageCommandTitle, syncModelsCommandTitle } from "../../shared/config/commandIds";
-import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { CONFIG_SECTION, type FeatureModelId } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorClassification, TransportErrorKind } from "../../shared/errorClassification";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import type { LogSafeErrorText } from "../../shared/logger";
@@ -100,6 +100,23 @@ export type TransportErrorSurface =
 	| "quickFix"
 	| "reviewComments";
 
+/**
+ * Each model-picking feature's transport error surface, fail-closed by the
+ * total Record: a new FeatureModelId does not compile until it names its
+ * surface here. Five features share their surface's name; inlineCompletions is
+ * the /completions FIM path, so it maps to "completion". The features' shared
+ * send helper derives its surface from this table, so a feature cannot send
+ * under another feature's error copy.
+ */
+export const FEATURE_ERROR_SURFACE: Record<FeatureModelId, TransportErrorSurface> = {
+	inlineCompletions: "completion",
+	commitGeneration: "commitGeneration",
+	prGeneration: "prGeneration",
+	consultTool: "consultTool",
+	quickFix: "quickFix",
+	reviewComments: "reviewComments",
+};
+
 export interface MapErrorContext {
 	/**
 	 * "completion" is the inline-completions /completions call: its errors
@@ -114,6 +131,8 @@ export interface MapErrorContext {
 	 * PR title-and-description call, surfaced like commit generation.
 	 * "quickFix" is the quick-fix fallback's /chat/completions call, surfaced as
 	 * a notification by its command boundary, so it joins chat-style as well.
+	 * "reviewComments" is the review commands' /chat/completions call, surfaced
+	 * as a notification by its command boundary, so it joins chat-style too.
 	 */
 	surface: TransportErrorSurface;
 	baseUrl: string;

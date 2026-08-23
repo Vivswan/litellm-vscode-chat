@@ -8,6 +8,7 @@ import {
 } from "../shared/config/settings";
 import { DEV_SEED_FILENAME, type DevSeed, type DevSeedEntry, type DevSeedModels } from "../shared/devSeed";
 import type { Logger } from "../shared/logger";
+import { errorLabel } from "../shared/util/errorLabel";
 import { isRecord } from "../shared/util/json";
 import { updateServerSecret } from "./servers/serverSync";
 import { createSettingsAccess } from "./settingsAccess";
@@ -270,10 +271,7 @@ export async function consumeDevSeed(
 	} catch (error) {
 		// Error severity, classification-only payload: this catch spans the
 		// SecretStorage write, and the log buffer feeds public issue reports.
-		logger.error(
-			"Dev seed could not write the server configuration; configure the server by hand",
-			error instanceof Error ? error.name : typeof error
-		);
+		logger.error("Dev seed could not write the server configuration; configure the server by hand", errorLabel(error));
 	}
 	return seed;
 }

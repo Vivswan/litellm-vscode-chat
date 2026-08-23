@@ -14,6 +14,7 @@ import type { ReactNode } from "react";
 import { useContext, useEffect, useId, useState } from "react";
 import type { SettingWriteMethod } from "../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../dashboard/endpoints";
+import { featureDisplayName } from "../../dashboard/featureNames";
 import type {
 	DashboardModel,
 	DashboardSettings,
@@ -94,26 +95,6 @@ function featureModelTitle(feature: FeatureModelId): string {
 			return l10n.t("Quick fix model");
 		case "reviewComments":
 			return l10n.t("Review comments model");
-	}
-}
-
-/** Each feature section's heading, in the registry's render order. */
-function featureSectionTitle(feature: FeatureId): string {
-	switch (feature) {
-		case "inlineCompletions":
-			return l10n.t("Inline completions");
-		case "commitGeneration":
-			return l10n.t("Commit message generation");
-		case "prGeneration":
-			return l10n.t("PR description generation");
-		case "consultTool":
-			return l10n.t("Consult tool");
-		case "quickFix":
-			return l10n.t("Quick fixes");
-		case "reviewComments":
-			return l10n.t("Review comments");
-		case "chatParticipant":
-			return l10n.t("Chat participant (@litellm)");
 	}
 }
 
@@ -835,7 +816,7 @@ export function FeaturesSection({
 						return (
 							<SettingGroup
 								key={feature}
-								title={() => featureSectionTitle(feature)}
+								title={() => featureDisplayName(feature, "title")}
 								note={descriptor.shipped ? undefined : comingSoonMarker}
 								numbers={[]}
 								booleans={[enableId]}

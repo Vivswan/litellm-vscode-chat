@@ -13,6 +13,7 @@ import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import type { OptionalEntryFieldId, OptionalEntryFields, SecretFieldId } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { errorLabel } from "../../shared/util/errorLabel";
 import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView } from "../servers/serverSync";
 import { secretDestination } from "../servers/serverSync/secrets";
@@ -225,7 +226,7 @@ export async function applyAdoptServer(
 			// A secure value under this label may no longer match its
 			// pre-adoption state, so this must not read as "nothing landed".
 			env.log("A failed adoption left a secure value unrestored", {
-				error: error instanceof Error ? error.name : typeof error,
+				error: errorLabel(error),
 			});
 			env.requestServerSync();
 			throw new DashboardOperationError(

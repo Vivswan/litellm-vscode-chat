@@ -6,7 +6,7 @@ import { OAuthTokenSource } from "./auth";
 import { applyAuthOverlay, invalidateRejectedOAuthToken, plainFetchBaseHeaders, setOwnedHeader } from "./authOverlay";
 import { chatCompletionsUrl, completionsUrl } from "./clients";
 import type { MapErrorContext, TransportErrorSurface } from "./errorMapping";
-import { bodylessResponseError, mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
+import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
 import { parseCompletionText } from "./fim";
 
 /**
@@ -16,9 +16,8 @@ import { parseCompletionText } from "./fim";
  * shares: header composition through the shared auth overlay, the whole-call
  * timeout, the one error pipeline (mapSdkError), and OAuth invalidation on a
  * rejected token. On top of it sit the completion helpers: completeChatOnce
- * (one non-streaming reply string), completeFim (one completion text), and
- * completeChatStream (the raw SSE body for the streaming machinery). No SDK
- * client cache, no retries (completions never retry).
+ * (one non-streaming reply string) and completeFim (one completion text). No
+ * SDK client cache, no retries (completions never retry).
  *
  * Error ownership follows the transport-module convention: construct specific
  * errors through the shared error pipeline - each call under its caller's
@@ -34,10 +33,9 @@ export interface OneShotChatMessage {
 
 /**
  * The request fields a one-shot chat call sends, and nothing else: the body is
- * exactly model/messages/stream (false for completeChatOnce, true for
- * completeChatStream), plus max_tokens only when the caller sets it - the
- * pass-through invariant's "never inject what the user did not set" applied
- * to a provider-owned surface.
+ * exactly model/messages/stream:false, plus max_tokens only when the caller
+ * sets it - the pass-through invariant's "never inject what the user did not
+ * set" applied to a provider-owned surface.
  */
 export interface OneShotChatRequest {
 	readonly model: string;
@@ -106,8 +104,8 @@ interface CallScope {
 /**
  * Keep user cancellation aborting an in-flight response whose body outlives
  * the call: postJson's own call-scoped bridge dies in its finally, so a
- * consumer handing the body outward (sendJson, completeChatStream) arms this
- * second bridge. It disposes itself when the combined signal fires - the
+ * consumer handing the body outward (sendJson) arms this second bridge. It
+ * disposes itself when the combined signal fires - the
  * whole-call timeout always does - so nothing dangles past the call's hard
  * bound, and its closures hold `scope` (see CallScope) for the body's
  * lifetime.
@@ -122,50 +120,6 @@ function armOutlivingCancelBridge(scope: CallScope, token: vscode.CancellationTo
 		return;
 	}
 	scope.requestSignal.addEventListener("abort", () => bridge.dispose(), { once: true });
-}
-
-/**
- * Forward the raw SSE body while attributing terminal read failures through
- * the call's own error pipeline: cancellation surfaces as
- * vscode.CancellationError, the whole-call timeout as the surface's timeout
- * error, and anything else through mapSdkError - the same catch shape as
- * postJson's. The wrapper is what crosses the API boundary, and the combined
- * signal is private to this call, so without it a post-header timeout would
- * reach the consumer as a raw AbortError nothing downstream can classify.
- * Cancelling the wrapper propagates to the raw body, and its closures hold
- * `scope` strongly for the stream's lifetime (see CallScope).
- */
-function mappedBodyStream(
-	body: ReadableStream<Uint8Array>,
-	scope: CallScope,
-	token: vscode.CancellationToken,
-	errorContext: MapErrorContext
-): ReadableStream<Uint8Array> {
-	const reader = body.getReader();
-	return new ReadableStream<Uint8Array>({
-		async pull(controller) {
-			let result: Awaited<ReturnType<typeof reader.read>>;
-			try {
-				result = await reader.read();
-			} catch (err) {
-				if (token.isCancellationRequested) {
-					throw new vscode.CancellationError();
-				}
-				if (scope.timeoutSignal.aborted) {
-					throw timeoutRequestError(errorContext, err);
-				}
-				throw mapSdkError(err, errorContext);
-			}
-			if (result.done) {
-				controller.close();
-				return;
-			}
-			controller.enqueue(result.value);
-		},
-		async cancel(reason: unknown) {
-			await reader.cancel(reason);
-		},
-	});
 }
 
 /**
@@ -244,45 +198,6 @@ export class OneShotClient {
 			this.readBodyText(response, scope.requestSignal)
 		);
 		return oneShotContentOf(payload);
-	}
-
-	/**
-	 * POST one streaming /chat/completions request and return the SSE body for
-	 * the streaming machinery (sseFrames + StreamProcessor). The whole-call
-	 * timeout stays armed on the returned stream - a stall or an abandoned body
-	 * is reclaimed at the hard bound, the chat transport's own semantics - and
-	 * user cancellation aborts the in-flight response for as long as that bound
-	 * runs. Read failures reach the consumer already classified (see
-	 * mappedBodyStream); what the STREAMED PAYLOAD means - in-band error
-	 * frames, malformed lines - stays the processor's and the consumer
-	 * boundary's business (the chatClient.send pattern).
-	 */
-	async completeChatStream(
-		connection: OneShotConnection,
-		request: OneShotChatRequest,
-		surface: TransportErrorSurface,
-		opts: OneShotCallOptions
-	): Promise<ReadableStream<Uint8Array>> {
-		const url = chatCompletionsUrl(connection.baseUrl, connection.apiVersion);
-		const body = JSON.stringify({
-			model: request.model,
-			messages: request.messages,
-			stream: true,
-			...(request.maxTokens !== undefined ? { max_tokens: request.maxTokens } : {}),
-		});
-		return this.postJson(url, body, connection, surface, opts, async (response, scope) => {
-			if (response.body === null) {
-				// The shared bodyless-200 constructor (also the streaming chat
-				// path's), joined per this call's surface.
-				throw bodylessResponseError(surface, response.status, connection.baseUrl);
-			}
-			armOutlivingCancelBridge(scope, opts.token);
-			return mappedBodyStream(response.body, scope, opts.token, {
-				surface,
-				baseUrl: connection.baseUrl,
-				timeoutMs: opts.timeoutMs,
-			});
-		});
 	}
 
 	/**
