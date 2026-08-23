@@ -21,7 +21,7 @@ const OLLAMA_ROW: DashboardServer = {
 	hasOAuth: false,
 	state: "ok",
 	modelInfoUnsupported: "timeout",
-	lastChecked: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+	lastChecked: Date.now() - 3 * 60 * 1000,
 	config: { secrets: provenSecrets() },
 };
 
@@ -38,7 +38,7 @@ const LISTING_UNSERVED_ROW: DashboardServer = {
 	errorEnglish:
 		'The models listing failed, but this server answers. If it never serves the models listing, declare that on the "bare-gateway" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".\nGET https://gateway.example.com/v1/models answered HTTP 404; model info answered',
 	classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
-	lastChecked: new Date(Date.now() - 60 * 1000).toISOString(),
+	lastChecked: Date.now() - 60 * 1000,
 	config: { secrets: provenSecrets({ apiKey: "secure" }) },
 };
 

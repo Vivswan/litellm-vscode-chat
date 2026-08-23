@@ -14,6 +14,7 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabilityOverrides";
 import { applyCapabilityOverrides } from "../../../provider/catalog/capabilityOverrides";
+import { normalizeModelItem } from "../../../provider/catalog/discovery";
 import type { PreAttachModelInfo } from "../../../provider/catalog/groupModels";
 import type { PerTokenCosts } from "../../../provider/catalog/modelCatalog";
 import type { ModelPricing } from "../../../provider/catalog/registration";
@@ -431,7 +432,9 @@ function coreProjection(fields: Readonly<Record<string, EffectiveCapabilityField
 
 // --- Seam scenario: real discovery shapes through the real registration path.
 
-const limitValue = fc.option(fc.oneof(validNumber, fc.constant<null>(null)), { nil: undefined });
+// Post-ingest limits are positive numbers or undefined by construction
+// (discovery narrows them at the mapping sites); no null survives to here.
+const limitValue = fc.option(validNumber, { nil: undefined });
 const flagValue = fc.option(fc.oneof(fc.boolean(), fc.constant<null>(null)), { nil: undefined });
 const providerCost = fc.option(fc.oneof(fc.constantFrom(0, -0, 0.000003, 0.000015), fc.constant<null>(null)), {
 	nil: undefined,
@@ -872,18 +875,19 @@ suite("provider/catalog capability cross-layer properties", () => {
 	});
 
 	test("the catalog never prices: no costs anywhere means no pricing, and unjustified pricing strips", () => {
-		// Providers carry no usable costs (absent, or the LiteLLM 0/0 stamp) and
+		// Providers carry no costs at all - the post-ingest shape of both "the
+		// server declared nothing" and LiteLLM's 0/0 stamp, which discovery maps
+		// to undefined at the mapping sites (pinned in discovery.test.ts) - and
 		// every record is cost-stripped while the catalog stays rich: no served
 		// model may carry pricing. And a stale copy carrying price fields the walk
 		// does not derive strips on re-serve, then settles.
-		const stampArb = fc.boolean();
 		fc.assert(
-			fc.property(seamScenario, stampArb, fc.boolean(), (s, zeroStamp, addDirective) => {
+			fc.property(seamScenario, fc.boolean(), (s, addDirective) => {
 				const costFree = (provider: LiteLLMProvider): LiteLLMProvider => ({
 					...provider,
-					input_cost_per_token: zeroStamp ? 0 : undefined,
-					output_cost_per_token: zeroStamp ? -0 : undefined,
-					cache_read_input_token_cost: zeroStamp ? 0.0000003 : undefined,
+					input_cost_per_token: undefined,
+					output_cost_per_token: undefined,
+					cache_read_input_token_cost: undefined,
 					cache_creation_input_token_cost: undefined,
 					long_context_input_cost_per_token: undefined,
 					long_context_output_cost_per_token: undefined,
@@ -995,7 +999,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 					}
 					// Production prices with the ambient usage.currencySymbol, so the
 					// expectation reads the same getter rather than assuming a default.
-					const expected = pricingFromCosts(merged, getCurrencySymbol(), { zeroPairMeansUndeclared: false });
+					const expected = pricingFromCosts(merged, getCurrencySymbol());
 					for (const key of MODEL_PRICING_KEYS) {
 						assert.ok(
 							Object.is(info[key], expected[key]),
@@ -1033,26 +1037,28 @@ suite("provider/catalog capability cross-layer properties", () => {
 						assert.strictEqual(info.priceCategory, "low", `${info.id}: the free pair carries the cheapest badge`);
 					}
 				} else {
-					// The server stamps the pair (LiteLLM's undeclared-pricing shape):
-					// no pricing fields anywhere.
-					const stamped = (provider: LiteLLMProvider): LiteLLMProvider => ({
-						...provider,
-						input_cost_per_token: zin,
-						output_cost_per_token: zout,
-						cache_read_input_token_cost: 0.0000003,
-					});
-					const items = s.items.map((item) => ({
-						...item,
-						shape:
-							item.shape.kind === "deployment"
-								? { kind: "deployment" as const, provider: stamped(item.shape.provider) }
-								: item.shape.kind === "group"
-									? {
-											kind: "group" as const,
-											providers: item.shape.providers.map(stamped) as [LiteLLMProvider, ...LiteLLMProvider[]],
-										}
-									: item.shape,
-					}));
+					// The server stamps the pair on the WIRE (LiteLLM's
+					// undeclared-pricing shape): the production ingest
+					// (normalizeModelItem) maps every cost field to undefined, so no
+					// pricing appears anywhere downstream.
+					const items = s.items.map((item) =>
+						normalizeModelItem(
+							{
+								id: item.id,
+								providers: [
+									{
+										provider: "openai",
+										status: "ok",
+										supports_tools: true,
+										input_cost_per_token: zin,
+										output_cost_per_token: zout,
+										cache_read_input_token_cost: 0.0000003,
+									},
+								],
+							},
+							() => {}
+						)
+					);
 					const opts: CapabilityOverrideOptions = {
 						globalCapabilities: withoutCostFields(s.globalCapabilities) ?? {},
 						entryCapabilities: withoutCostFields(s.entryCapabilities),

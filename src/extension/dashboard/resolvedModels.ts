@@ -23,7 +23,6 @@ import type {
 	ResolvedModelsView,
 	ResolvedParamCell,
 } from "../../dashboard/viewModels";
-import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import type {
 	CapabilityCatalogLookup,
@@ -52,7 +51,7 @@ import {
 	normalizeModelParameters,
 } from "../../shared/config/settings";
 import type { DeclaredServerView } from "../servers/serverSync";
-import { modelScopeKey } from "./adoptHandle";
+import { locateModel, modelScopeKey } from "./adoptHandle";
 import { labeledSnapshots } from "./declaredJoin";
 import type { EntryCapabilitiesRecord, EntryParametersResolution, SettingsReader } from "./state";
 
@@ -152,16 +151,12 @@ export function resolveModelRecordChains(
 	scopeKey: string,
 	rawId: string
 ): readonly RecordChainView[] {
-	const labeled = labeledSnapshots(query.snapshots).find(
-		(entry) => modelScopeKey(entry.snapshot.status.serverId) === scopeKey
-	);
-	if (labeled === undefined) {
+	const located = locateModel(query.snapshots, scopeKey, rawId);
+	if (located === undefined) {
 		return [];
 	}
+	const labeled = located.labeled;
 	const serverId = labeled.snapshot.status.serverId;
-	if (!labeled.snapshot.models.some((info) => rawModelIdFromExposed(info.id, serverId) === rawId)) {
-		return [];
-	}
 	const [globalRecords, entryRecords, entryLabel, parse] =
 		kind === "parameters"
 			? (() => {
@@ -326,7 +321,7 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 			serverId,
 			serverLabel: label,
 			scopeKey,
-			rawId: rawModelIdFromExposed(info.id, serverId),
+			rawId: info.litellm.rawModelId,
 			entryLabel: entry?.entryLabel ?? (entryCapabilities !== undefined ? snapshot.status.label : undefined),
 			entryParameters: entry?.entryParameters,
 			entryCapabilities,

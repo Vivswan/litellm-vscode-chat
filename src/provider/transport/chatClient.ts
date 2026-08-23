@@ -21,7 +21,7 @@ import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
 import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/discovery";
 import { fetchModels } from "../catalog/discovery";
-import type { GroupServer, LiteLLMModelInfo } from "../catalog/groupModels";
+import type { LiteLLMModelInfo, ParsedModelMetadata } from "../catalog/groupModels";
 import { groupClientId, parseModelMetadata } from "../catalog/groupModels";
 import { requestParamsFromModelConfiguration } from "../catalog/modelConfiguration";
 import {
@@ -246,15 +246,20 @@ export class ChatClient {
 	 * boundary in a state this provider never served (most likely a stale model
 	 * object from before a refresh) and fails loudly with a classified error
 	 * instead of an undefined route; the terse classification keeps the model ID
-	 * out of public logs.
+	 * out of public logs. The routed model ID is the mint-stamped raw ID the
+	 * metadata parse resolved, never re-derived from the exposed one.
 	 */
-	private resolveConnection(model: LiteLLMModelInfo, groupServer: GroupServer | undefined): ResolvedConnection {
+	private resolveConnection(
+		model: LiteLLMModelInfo,
+		metadata: Pick<ParsedModelMetadata, "server" | "rawModelId">
+	): ResolvedConnection {
+		const groupServer = metadata.server;
 		if (groupServer) {
 			return {
 				serverId: groupClientId(groupServer),
 				baseUrl: groupServer.baseUrl,
 				apiKey: groupServer.apiKey,
-				rawModelId: model.id,
+				rawModelId: metadata.rawModelId,
 				// The configured group label only; an unlabeled group resolves no
 				// entry configuration (its display label is a URL-host fallback).
 				entryLabel: groupServer.label,
@@ -278,7 +283,7 @@ export class ChatClient {
 		// The one parse of the model object's LiteLLM metadata; everything below
 		// reads the parsed result instead of re-narrowing the host round trip.
 		const metadata = parseModelMetadata(model, this.log);
-		const connection = this.resolveConnection(model, metadata.server);
+		const connection = this.resolveConnection(model, metadata);
 
 		const promptCachingEnabled = isPromptCachingEnabled();
 		const customHeaders = this.customHeadersFor(connection.entryLabel, connection.baseUrl);

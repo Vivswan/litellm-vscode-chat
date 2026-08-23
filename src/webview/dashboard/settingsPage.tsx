@@ -133,10 +133,7 @@ function catalogStatusParts(
 	if (!enabled) {
 		return { off: l10n.t("Catalog off: no refreshes and no implicit ID matching.") };
 	}
-	const updated =
-		catalog.lastSuccessAt !== undefined
-			? (relativeTime(new Date(catalog.lastSuccessAt).toISOString(), now) ?? l10n.t("just now"))
-			: undefined;
+	const updated = catalog.lastSuccessAt !== undefined ? relativeTime(catalog.lastSuccessAt, now) : undefined;
 	const count = catalog.modelCount === 1 ? l10n.t("1 catalog model") : l10n.t("{0} catalog models", catalog.modelCount);
 	const age = updated !== undefined ? l10n.t("updated {0}", updated) : l10n.t("bundled snapshot");
 	return {

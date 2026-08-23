@@ -3,6 +3,7 @@ import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { defaultHostRefreshDeadlineMs, hostRefreshDeadlineMs } from "../../provider";
+import { mapModelInfoEntry, parseModelInfoItem } from "../../provider/catalog/discovery";
 import { DiscoveryCache } from "../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../provider/catalog/groupDiscovery";
 import { attachGroupServer } from "../../provider/catalog/groupModels";
@@ -519,17 +520,26 @@ suite("provider", () => {
 						},
 					},
 					{
+						// The stamp must arrive through the production /model/info ingest:
+						// discovery maps a raw 0/0 pair (and every cost beside it, tiered
+						// keys included) to undefined, so registration prices nothing.
 						id: "stamped",
 						shape: {
 							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0,
-								output_cost_per_token: 0,
-								cache_read_input_token_cost: 0.0000003,
-								long_context_input_cost_per_token: 0.00001,
-							},
+							provider: mapModelInfoEntry(
+								expectDefined(
+									parseModelInfoItem({
+										model_name: "stamped",
+										model_info: {
+											litellm_provider: "openai",
+											input_cost_per_token: 0,
+											output_cost_per_token: 0,
+											cache_read_input_token_cost: 0.0000003,
+											input_cost_per_token_above_200k_tokens: 0.00001,
+										},
+									})
+								)
+							).provider,
 						},
 					},
 					{
@@ -791,16 +801,28 @@ suite("provider", () => {
 						architecture: { input_modalities: ["text", "image", "pdf"] },
 					},
 					{
+						// Built through the production ingest: the wire 0/0 stamp maps to
+						// undefined costs before registration ever sees the provider.
 						id: "stamped",
 						shape: {
 							kind: "deployment",
-							provider: {
-								...groq,
-								provider: "openai",
-								input_cost_per_token: 0,
-								output_cost_per_token: 0,
-								cache_read_input_token_cost: 0.0000003,
-							},
+							provider: mapModelInfoEntry(
+								expectDefined(
+									parseModelInfoItem({
+										model_name: "stamped",
+										model_info: {
+											litellm_provider: "openai",
+											supports_function_calling: true,
+											supports_prompt_caching: true,
+											supports_response_schema: true,
+											supported_openai_params: ["temperature", "reasoning_effort"],
+											input_cost_per_token: 0,
+											output_cost_per_token: 0,
+											cache_read_input_token_cost: 0.0000003,
+										},
+									})
+								)
+							).provider,
 						},
 					},
 					{

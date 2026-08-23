@@ -16,7 +16,7 @@ import {
 	EXTERNAL_SERVER,
 	GATEWAY_SERVER,
 	MISCONFIGURED_SERVER,
-	minutesAgoIso,
+	minutesAgoMs,
 	PROD_SERVER,
 } from "./shared.ts";
 
@@ -25,7 +25,7 @@ const RESEARCH_SERVER: DashboardServer = {
 	label: "research",
 	baseUrl: "https://research.example.com",
 	servedModelCount: 2,
-	lastChecked: minutesAgoIso(25),
+	lastChecked: minutesAgoMs(25),
 };
 
 const SANDBOX_SERVER: DashboardServer = {
@@ -34,7 +34,7 @@ const SANDBOX_SERVER: DashboardServer = {
 	baseUrl: "http://localhost:4000",
 	servedModelCount: 1,
 	credentials: "absent",
-	lastChecked: minutesAgoIso(2),
+	lastChecked: minutesAgoMs(2),
 };
 
 const LOCKED_SERVER: DashboardServer = {
@@ -42,7 +42,7 @@ const LOCKED_SERVER: DashboardServer = {
 	label: "locked-down",
 	baseUrl: "https://locked.example.com",
 	servedModelCount: 4,
-	lastChecked: minutesAgoIso(4),
+	lastChecked: minutesAgoMs(4),
 };
 
 const fixture: RenderFixture = {

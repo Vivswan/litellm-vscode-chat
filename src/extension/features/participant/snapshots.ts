@@ -11,20 +11,21 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import { rawModelIdFromExposed } from "../../../provider/catalog/modelCatalog";
 import { isHiddenGroupServerStatus } from "../../../shared/servers";
 import { compactTokenCount } from "../../../shared/util/tokenCount";
 import type { ProviderSnapshot, SnapshotModel } from "./modelsMarkdown";
 
 /**
- * One model as the status window holds it: the EXPOSED id (namespaced with the
- * server id when several servers are registered) plus the registration-time
- * capability values. Everything past the id is optional here even where the
- * host's own type requires it, because a snapshot round-trips through the host
- * and a missing field must render as "not reported" rather than throw.
+ * One model as the status window holds it: the exposed id, the mint-stamped
+ * raw-ID metadata, and the registration-time capability values. Everything
+ * past the id is optional here even where the host's own type requires it,
+ * because a snapshot round-trips through the host and a missing field must
+ * render as "not reported" rather than throw.
  */
 interface SnapshotSourceModel {
 	readonly id: string;
+	/** The mint-stamped raw model ID; a copy that lost it falls back to the exposed id, which group mints keep raw. */
+	readonly litellm?: { readonly rawModelId?: string | undefined } | undefined;
 	readonly maxInputTokens?: number | undefined;
 	readonly capabilities?:
 		| {
@@ -36,9 +37,9 @@ interface SnapshotSourceModel {
 }
 
 /**
- * One provider group's snapshot. The status carries the label, the id the
- * exposed model ids are namespaced with, and the two fields that decide
- * whether the group belongs in the answer at all - see isHiddenGroupServerStatus.
+ * One provider group's snapshot. The status carries the label, the group's
+ * server id, and the two fields that decide whether the group belongs in the
+ * answer at all - see isHiddenGroupServerStatus.
  */
 export interface SnapshotSource {
 	readonly status: {
@@ -96,7 +97,7 @@ export function participantSnapshots(sources: readonly SnapshotSource[]): Provid
 		.filter((source) => !isHiddenGroupServerStatus(source.status))
 		.map((source) => {
 			const models: SnapshotModel[] = source.models.map((model) => ({
-				id: rawModelIdFromExposed(model.id, source.status.serverId),
+				id: model.litellm?.rawModelId ?? model.id,
 				capabilities: capabilitySummary(model),
 			}));
 			return { label: source.status.label, models };

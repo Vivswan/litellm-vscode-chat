@@ -29,9 +29,9 @@ function mountSection(servers: readonly ReturnType<typeof makeDeclaredServer>[])
 	);
 }
 
-test("relativeTime rounds to the coarsest readable unit and tolerates clock drift and garbage", () => {
+test("relativeTime rounds to the coarsest readable unit and tolerates clock drift", () => {
 	const now = Date.parse("2026-07-30T12:00:00Z");
-	const at = (offsetSeconds: number) => new Date(now - offsetSeconds * 1000).toISOString();
+	const at = (offsetSeconds: number) => now - offsetSeconds * 1000;
 	expect(relativeTime(at(0), now)).toBe("just now");
 	expect(relativeTime(at(-20), now)).toBe("just now"); // webview clock behind the host's
 	expect(relativeTime(at(44), now)).toBe("just now");
@@ -41,11 +41,10 @@ test("relativeTime rounds to the coarsest readable unit and tolerates clock drif
 	expect(relativeTime(at(7500), now)).toBe("2 h ago");
 	expect(relativeTime(at(86400), now)).toBe("1 day ago");
 	expect(relativeTime(at(86400 * 3), now)).toBe("3 days ago");
-	expect(relativeTime("not a timestamp", now)).toBeUndefined();
 });
 
 test("each server state renders its pill tone, verdict, and relative check time", () => {
-	const justChecked = new Date(Date.now() - 5000).toISOString();
+	const justChecked = Date.now() - 5000;
 	const root = mountSection([
 		makeDeclaredServer({ label: "Fine", state: "ok", lastChecked: justChecked }),
 		makeDeclaredServer({

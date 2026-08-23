@@ -1,13 +1,17 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
-import type { BooleanSettingId } from "../../../shared/config/settingSpec";
-import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
 import { getCommitGenerationPrompt, getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { openSettingsAction, showActionableMessage } from "../../ui/notifier";
 import { reportCommandFailure } from "../commandFailure";
 import { featureChatSend } from "../featureChatSend";
+import {
+	featureDisabledMessage,
+	featureEnableSettingId,
+	featureModelSettingId,
+	featureNoModelMessage,
+} from "../featureGate";
 import { pickRepository, resolveGitApi } from "../gitAccess";
 import type { API } from "../gitApi";
 import type { CommitModelRef } from "./commitMessage";
@@ -25,16 +29,6 @@ export interface GenerateCommitDeps {
 	readonly logger: Logger;
 	readonly outputChannel: vscode.OutputChannel;
 }
-
-/**
- * The enable key, typed so a rename in BOOLEAN_SETTING_SPECS breaks this
- * compile instead of leaving the hint pointing at a dead setting.
- */
-const ENABLED_SETTING_KEY: BooleanSettingId = "commitGeneration.enabled";
-
-/** The full setting IDs the command's hints point at. */
-const ENABLED_SETTING_ID = `${CONFIG_SECTION}.${ENABLED_SETTING_KEY}`;
-const MODEL_SETTING_ID = `${CONFIG_SECTION}.${FEATURE_MODEL_SETTING_KEYS.commitGeneration}`;
 
 /**
  * Send the prompt as one non-streaming request through the features' shared
@@ -75,11 +69,9 @@ export async function runGenerateCommitMessage(
 	resolveGit: () => Promise<API | undefined> = resolveGitApi
 ): Promise<void> {
 	if (!isFeatureEnabled("commitGeneration")) {
-		await showActionableMessage(
-			"info",
-			l10n.t('Commit message generation is off. Enable "{0}" in settings to use it.', ENABLED_SETTING_ID),
-			[openSettingsAction(ENABLED_SETTING_ID)]
-		);
+		await showActionableMessage("info", featureDisabledMessage("commitGeneration"), [
+			openSettingsAction(featureEnableSettingId("commitGeneration")),
+		]);
 		return;
 	}
 	const git = await resolveGit();
@@ -131,14 +123,9 @@ export async function runGenerateCommitMessage(
 				await vscode.commands.executeCommand("workbench.view.scm");
 				return;
 			case "noModel":
-				await showActionableMessage(
-					"warning",
-					l10n.t(
-						'No model is configured for commit message generation. Pick one via the "{0}" setting or the LiteLLM dashboard.',
-						MODEL_SETTING_ID
-					),
-					[openSettingsAction(MODEL_SETTING_ID)]
-				);
+				await showActionableMessage("warning", featureNoModelMessage("commitGeneration"), [
+					openSettingsAction(featureModelSettingId("commitGeneration")),
+				]);
 				return;
 			case "noChanges":
 				await showActionableMessage("info", l10n.t("There are no changes to describe."), []);

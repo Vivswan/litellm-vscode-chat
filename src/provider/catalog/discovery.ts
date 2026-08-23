@@ -64,6 +64,58 @@ const LONG_CONTEXT_FIELDS = {
 
 const TIERED_COST_KEY = new RegExp(`^(${Object.values(LONG_CONTEXT_FIELDS).join("|")})_above_(\\d+)k_tokens$`);
 
+/** The 8 per-token cost fields discovery authors onto every provider entry. */
+type ServerCosts = Pick<
+	LiteLLMProvider,
+	| "input_cost_per_token"
+	| "output_cost_per_token"
+	| "cache_read_input_token_cost"
+	| "cache_creation_input_token_cost"
+	| keyof LongContextCosts
+>;
+
+/** Every ServerCosts field explicitly absent, so spreading it still overrides look-alike pass-through keys. */
+const NO_SERVER_COSTS: ServerCosts = {
+	input_cost_per_token: undefined,
+	output_cost_per_token: undefined,
+	cache_read_input_token_cost: undefined,
+	cache_creation_input_token_cost: undefined,
+	long_context_input_cost_per_token: undefined,
+	long_context_output_cost_per_token: undefined,
+	long_context_cache_read_input_token_cost: undefined,
+	long_context_cache_creation_input_token_cost: undefined,
+};
+
+/**
+ * The one reading of a server report's cost fields, shared by both mapping
+ * sites (/v1/models provider entries and /v1/model/info entries). LiteLLM
+ * stamps input/output_cost_per_token: 0 onto entries that declare no pricing
+ * at all, so a raw ZERO PAIR maps every cost field to undefined right here at
+ * ingest: downstream, a present server cost means declared by construction,
+ * and no consumer re-detects the stamp. A user-written 0/0 capability record
+ * still prices as genuinely free - records never pass through this mapping.
+ * Models genuinely priced 0/0 by the server lose their $0 display under this
+ * rule; behind LiteLLM that shape is indistinguishable from the stamp, and
+ * unknown-as-free is the worse failure. All fields come back explicitly
+ * (undefined when absent) so spreading the result always overrides look-alike
+ * keys on lenient pass-through entries.
+ */
+function serverCostsOf(entry: unknown): ServerCosts {
+	const record = isRecord(entry) ? entry : {};
+	const input = normalizeCostPerToken(record.input_cost_per_token);
+	const output = normalizeCostPerToken(record.output_cost_per_token);
+	if (input === 0 && output === 0) {
+		return NO_SERVER_COSTS;
+	}
+	return {
+		input_cost_per_token: input,
+		output_cost_per_token: output,
+		cache_read_input_token_cost: normalizeCostPerToken(record.cache_read_input_token_cost),
+		cache_creation_input_token_cost: normalizeCostPerToken(record.cache_creation_input_token_cost),
+		...longContextCosts(entry),
+	};
+}
+
 /**
  * Read a model's long-context tier costs from LiteLLM's threshold-suffixed
  * keys, e.g. input_cost_per_token_above_200k_tokens. VS Code's pricing
@@ -106,17 +158,19 @@ export function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["l
 			// Pass-through entries keep their raw keys, but every field another
 			// stage trusts is authored after the spread: the internal
 			// `output_limit_source` marker is cleared so a wire entry cannot forge
-			// it, the four base costs are re-narrowed, and the long-context tier
-			// costs are synthesized.
+			// it, the four token limits are narrowed to positive numbers (numeric
+			// strings and null degrade to undefined, so downstream reads take the
+			// fields as-is), the 8 costs are authored under the zero-pair rule, and
+			// the long-context tier costs are synthesized.
 			providers.push({
 				...entry,
 				output_limit_source: undefined,
 				reasoning_effort_levels: reasoningEffortLevelsFromFlags(entry),
-				input_cost_per_token: normalizeCostPerToken(entry.input_cost_per_token),
-				output_cost_per_token: normalizeCostPerToken(entry.output_cost_per_token),
-				cache_read_input_token_cost: normalizeCostPerToken(entry.cache_read_input_token_cost),
-				cache_creation_input_token_cost: normalizeCostPerToken(entry.cache_creation_input_token_cost),
-				...longContextCosts(entry),
+				context_length: normalizePositiveNumber(entry.context_length),
+				max_tokens: normalizePositiveNumber(entry.max_tokens),
+				max_input_tokens: normalizePositiveNumber(entry.max_input_tokens),
+				max_output_tokens: normalizePositiveNumber(entry.max_output_tokens),
+				...serverCostsOf(entry),
 			});
 		} else {
 			log("Skipping malformed provider entry", { modelId: raw.id, entry: truncateForLog(entry) });
@@ -178,11 +232,7 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo {
 		supports_pdf_input: item.model_info?.supports_pdf_input ?? null,
 		supported_openai_params: item.model_info?.supported_openai_params ?? null,
 		reasoning_effort_levels: reasoningEffortLevelsFromFlags(item.model_info) ?? null,
-		input_cost_per_token: normalizeCostPerToken(item.model_info?.input_cost_per_token),
-		output_cost_per_token: normalizeCostPerToken(item.model_info?.output_cost_per_token),
-		cache_read_input_token_cost: normalizeCostPerToken(item.model_info?.cache_read_input_token_cost),
-		cache_creation_input_token_cost: normalizeCostPerToken(item.model_info?.cache_creation_input_token_cost),
-		...longContextCosts(item.model_info),
+		...serverCostsOf(item.model_info),
 	};
 
 	const inputModalities: string[] = [];
@@ -248,8 +298,11 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
  * and the param lists intersect. Pricing carries over only when every
  * deployment advertises the identical per-field cost - routing decides which
  * deployment serves a request, so advertising either differing number would lie.
- * Non-constraint metadata follows the first deployment, so a merged model's
- * family is its first deployment's litellm_provider.
+ * Two deployments that both carried LiteLLM's 0/0 no-pricing stamp cannot
+ * false-agree into declared-free here: serverCostsOf already mapped each
+ * stamped pair to undefined at ingest, and agreedCost reads undefined as no
+ * declaration. Non-constraint metadata follows the first deployment, so a
+ * merged model's family is its first deployment's litellm_provider.
  */
 export function mergeModelDeployments(deployments: ModelDeployments): MappedModelInfo {
 	const [first, ...rest] = deployments;

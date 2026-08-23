@@ -143,7 +143,11 @@ function declaredRow(status: ServerStatus, notices?: readonly DeclaredServerNoti
 		servedModelCount: status.servedModelCount,
 		credentials: "absent",
 		hasOAuth: false,
-		lastChecked: status.lastChecked,
+		// Mirrors state.ts's checkedAtMs (the push's one ISO-to-epoch-ms owner)
+		// without its ""-sentinel branch: every status here carries a real
+		// instant (CHECKED_AT), so a sentinel reaching this mirror fails the
+		// host suite's equality pin loudly instead of mapping to absent.
+		lastChecked: new Date(status.lastChecked).getTime(),
 		config: { secrets: NO_SECRETS },
 		...(notices !== undefined && notices.length > 0 ? { notices } : {}),
 	} as const;
@@ -203,7 +207,7 @@ function syncFailedRow(name: string, message: string, live?: ServerStatus): Dash
 		servedModelCount: live?.servedModelCount ?? 0,
 		credentials: "absent",
 		hasOAuth: false,
-		...(live !== undefined ? { lastChecked: live.lastChecked } : {}),
+		...(live !== undefined ? { lastChecked: new Date(live.lastChecked).getTime() } : {}),
 		state: "error",
 		error: message,
 		config: { secrets: NO_SECRETS },

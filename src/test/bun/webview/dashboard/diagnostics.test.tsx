@@ -105,7 +105,7 @@ function copyDiagnostics(root: ParentNode): string {
 test("the per-server outcome grid is gone: the server rows own every fact it repeated", () => {
 	const root = mountDiagnostics({
 		servers: [
-			makeDeclaredServer({ label: "Prod", servedModelCount: 2, lastChecked: new Date().toISOString() }),
+			makeDeclaredServer({ label: "Prod", servedModelCount: 2, lastChecked: Date.now() }),
 			makeDeclaredServer({
 				label: "Broken",
 				baseUrl: "http://localhost:4001",
@@ -134,7 +134,7 @@ test("the per-server outcome grid is gone: the server rows own every fact it rep
 });
 
 test("Copy diagnostics puts the connection block on the clipboard as plain text and flashes a check", () => {
-	const lastChecked = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+	const lastChecked = Date.now() - 5 * 60 * 1000;
 	const root = mountDiagnostics({
 		servers: [
 			makeDeclaredServer({ label: "Prod", servedModelCount: 2, lastChecked }),

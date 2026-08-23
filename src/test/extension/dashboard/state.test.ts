@@ -151,7 +151,21 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers[0]?.config, undefined);
 			assert.strictEqual(state.servers[1]?.credentials, "present");
 			assert.strictEqual(state.servers[1]?.baseUrl, "http://prod.test");
-			assert.strictEqual(state.servers[1]?.lastChecked, "2026-07-26T00:00:00.000Z");
+			assert.strictEqual(
+				state.servers[1]?.lastChecked,
+				new Date("2026-07-26T00:00:00.000Z").getTime(),
+				"the push carries epoch ms, converted from the status's ISO string"
+			);
+		});
+
+		test('the "" never-checked sentinel maps to a deliberate absent lastChecked, never NaN', () => {
+			// restoreServerStatus and syncFailureOverlay's synthetic statuses write
+			// "" for a server no discovery pass has stamped; the push states absence.
+			const state = buildState(
+				[{ status: makeServerStatus({ serverId: "g1", label: "Prod", lastChecked: "" }), models: [] }],
+				makeReader({})
+			);
+			assert.strictEqual(state.servers[0]?.lastChecked, undefined);
 		});
 
 		test("an external row's credential kind follows the group's report, so OAuth never wears the API key badge", () => {
@@ -1276,6 +1290,7 @@ suite("extension/dashboard/state", () => {
 				capabilities: { toolCalling: true, imageInput: true },
 				configurationSchema: REASONING_EFFORT_SCHEMA,
 				litellm: {
+					rawModelId: "claude",
 					supportsPromptCaching: true,
 					outputLimitSource: "provider",
 					serverDeclared: { kind: "discovered", values: {}, outputDeclared: true },
@@ -1534,18 +1549,33 @@ suite("extension/dashboard/state", () => {
 	});
 
 	suite("buildDashboardState: request scopes", () => {
-		test("models carry the raw ID with the legacy multi-server namespace stripped", () => {
+		test("models carry the mint-stamped raw ID beside the exposed row identity", () => {
 			const state = buildState(
 				[
 					{
 						status: makeServerStatus({ serverId: "srv1" }),
-						models: [makeModelInfo({ id: "srv1/gpt-4", name: "gpt-4" })],
+						models: [
+							makeModelInfo({
+								id: "gpt-4:cheapest",
+								name: "gpt-4 (cheapest)",
+								litellm: {
+									rawModelId: "gpt-4:cheapest",
+									supportsPromptCaching: false,
+									outputLimitSource: "defaults",
+									serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+								},
+							}),
+						],
 					},
 				],
 				makeReader({})
 			);
-			assert.strictEqual(state.models[0]?.id, "srv1/gpt-4", "the exposed ID stays the row identity");
-			assert.strictEqual(state.models[0]?.rawId, "gpt-4", "the raw ID is what requests and prefixes match");
+			assert.strictEqual(state.models[0]?.id, "gpt-4:cheapest", "the exposed ID stays the row identity");
+			assert.strictEqual(
+				state.models[0]?.rawId,
+				"gpt-4:cheapest",
+				"the raw ID is the stamped litellm.rawModelId, what requests and prefixes match"
+			);
 		});
 
 		test("group models are already raw, and outputLimitDeclared mirrors the litellm provenance", () => {
@@ -1559,6 +1589,7 @@ suite("extension/dashboard/state", () => {
 								id: "claude",
 								name: "b",
 								litellm: {
+									rawModelId: "claude",
 									supportsPromptCaching: false,
 									outputLimitSource: "provider",
 									serverDeclared: { kind: "discovered", values: {}, outputDeclared: true },
@@ -1892,6 +1923,7 @@ suite("extension/dashboard/state", () => {
 								id: "my-model",
 								name: "b",
 								litellm: {
+									rawModelId: "my-model",
 									supportsPromptCaching: false,
 									outputLimitSource: "defaults",
 									declared: true,
@@ -2055,6 +2087,7 @@ suite("extension/dashboard/state", () => {
 							id: "gpt-4",
 							name: "gpt-4",
 							litellm: {
+								rawModelId: "gpt-4",
 								supportsPromptCaching: false,
 								outputLimitSource: "provider",
 								serverDeclared: {

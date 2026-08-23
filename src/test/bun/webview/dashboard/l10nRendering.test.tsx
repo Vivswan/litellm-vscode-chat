@@ -56,7 +56,7 @@ test("Copy diagnostics stays English under a configured bundle while the server 
 	};
 	Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true });
 
-	const lastChecked = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+	const lastChecked = Date.now() - 5 * 60 * 1000;
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(

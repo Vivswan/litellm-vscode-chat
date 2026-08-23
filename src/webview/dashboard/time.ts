@@ -1,7 +1,8 @@
 /**
  * Relative-time rendering, rounded to the coarsest unit that still reads as current:
  * the dashboard answers "is this fresh?", not "when exactly?" - Diagnostics carries
- * the precise timestamp.
+ * the precise timestamp. Takes epoch milliseconds, the push's one timestamp
+ * vocabulary; absence is the caller's branch, so the render is total.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -11,12 +12,8 @@ const MINUTE = 60;
 const HOUR = 3600;
 const DAY = 86400;
 
-export function relativeTime(iso: string, nowMs: number): string | undefined {
-	const then = new Date(iso).getTime();
-	if (Number.isNaN(then)) {
-		return undefined;
-	}
-	const seconds = Math.round((nowMs - then) / 1000);
+export function relativeTime(thenMs: number, nowMs: number): string {
+	const seconds = Math.round((nowMs - thenMs) / 1000);
 	// Small negative drift (host and webview clocks disagree) reads as now.
 	if (seconds < 45) {
 		return l10n.t("just now");

@@ -8,6 +8,7 @@
 import * as assert from "node:assert";
 import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabilityOverrides";
 import { applyCapabilityOverrides, synthesizeDeclaredModels } from "../../../provider/catalog/capabilityOverrides";
+import { mapModelInfoEntry, parseModelInfoItem } from "../../../provider/catalog/discovery";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { buildModelInfos, pricingFromCosts } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem } from "../../../provider/catalog/schemas";
@@ -374,18 +375,34 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(pricingFromCosts(costs, "").pricing, "3 in / 15 out per 1M tokens");
 		});
 
-		test("the server's 0/0 stamp stays undeclared: a rebuild adds no pricing fields", () => {
+		test("the server's 0/0 stamp dies at ingest: registration and rebuilds see no cost fields at all", () => {
+			// The stamp is handled at the discovery mapping sites (serverCostsOf),
+			// so this drives the production ingest instead of hand-building a
+			// provider shape ingest can no longer produce.
+			const parsed = parseModelInfoItem({
+				model_name: "gpt-test",
+				model_info: {
+					litellm_provider: "openai",
+					supports_function_calling: true,
+					max_input_tokens: 180000,
+					max_output_tokens: 32000,
+					input_cost_per_token: 0,
+					output_cost_per_token: 0,
+					cache_read_input_token_cost: 0.0000003,
+				},
+			});
+			assert.ok(parsed !== undefined);
+			const mapped = mapModelInfoEntry(parsed);
+			assert.strictEqual(mapped.provider.input_cost_per_token, undefined, "the stamp maps to undefined at ingest");
+			assert.strictEqual(mapped.provider.output_cost_per_token, undefined);
+			assert.strictEqual(
+				mapped.provider.cache_read_input_token_cost,
+				undefined,
+				"the stray cache cost beside the stamp drops too"
+			);
 			const stamped: LiteLLMModelItem = {
 				id: "gpt-test",
-				shape: {
-					kind: "deployment",
-					provider: {
-						...DEPLOYMENT_PROVIDER,
-						input_cost_per_token: 0,
-						output_cost_per_token: 0,
-						cache_read_input_token_cost: 0.0000003,
-					},
-				},
+				shape: { kind: "deployment", provider: mapped.provider },
 			};
 			const infos = [registered(stamped)];
 			// An unrelated override forces the rebuild path; the stamp (and the

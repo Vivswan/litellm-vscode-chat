@@ -1,13 +1,18 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { OneShotChatMessage, OneShotClient } from "../../../provider/transport/oneShotClient";
-import type { BooleanSettingId, FeatureModelRef } from "../../../shared/config/settingSpec";
-import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
+import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { openSettingsAction, showActionableMessage } from "../../ui/notifier";
 import { reportCommandFailure } from "../commandFailure";
 import { featureChatSend } from "../featureChatSend";
+import {
+	featureDisabledMessage,
+	featureEnableSettingId,
+	featureModelSettingId,
+	featureNoModelMessage,
+} from "../featureGate";
 import { documentLabel, pickRepository, resolveGitApi } from "../gitAccess";
 import type { API, Change, Repository } from "../gitApi";
 import { repositoryRelativePath } from "../gitPaths";
@@ -43,16 +48,6 @@ export interface ReviewCommandDeps {
 }
 
 /**
- * The enable key, typed so a rename in BOOLEAN_SETTING_SPECS breaks this
- * compile instead of leaving the hint pointing at a dead setting.
- */
-const ENABLED_SETTING_KEY: BooleanSettingId = "reviewComments.enabled";
-
-/** The full setting IDs the commands' hints point at. */
-const ENABLED_SETTING_ID = `${CONFIG_SECTION}.${ENABLED_SETTING_KEY}`;
-const MODEL_SETTING_ID = `${CONFIG_SECTION}.${FEATURE_MODEL_SETTING_KEYS.reviewComments}`;
-
-/**
  * One file this layer reviews: the generic unit plus the document version the
  * prompt described. The version is what makes a stale answer detectable - it
  * is a vscode concept, so it lives here rather than in the pure loop.
@@ -77,11 +72,9 @@ interface OpenGate {
 async function openFeatureGate(deps: ReviewCommandDeps): Promise<ReviewCommentController | undefined> {
 	const controller = deps.controller();
 	if (!isFeatureEnabled("reviewComments") || controller === undefined) {
-		await showActionableMessage(
-			"info",
-			l10n.t('Review comments are off. Enable "{0}" in settings to use them.', ENABLED_SETTING_ID),
-			[openSettingsAction(ENABLED_SETTING_ID)]
-		);
+		await showActionableMessage("info", featureDisabledMessage("reviewComments"), [
+			openSettingsAction(featureEnableSettingId("reviewComments")),
+		]);
 		return undefined;
 	}
 	return controller;
@@ -109,14 +102,9 @@ function reviewModelGate(deps: ReviewCommandDeps): ModelGate {
 	return {
 		ref: undefined,
 		notice: () =>
-			showActionableMessage(
-				"warning",
-				l10n.t(
-					'No model is configured for review comments. Pick one via the "{0}" setting or the LiteLLM dashboard.',
-					MODEL_SETTING_ID
-				),
-				[openSettingsAction(MODEL_SETTING_ID)]
-			),
+			showActionableMessage("warning", featureNoModelMessage("reviewComments"), [
+				openSettingsAction(featureModelSettingId("reviewComments")),
+			]),
 	};
 }
 

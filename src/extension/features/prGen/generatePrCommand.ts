@@ -1,12 +1,17 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import type { BooleanSettingId, FeatureModelRef } from "../../../shared/config/settingSpec";
-import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
+import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { truncateKeepingHead } from "../../../shared/util/text";
 import { openSettingsAction, showActionableMessage } from "../../ui/notifier";
 import { reportCommandFailure } from "../commandFailure";
+import {
+	featureDisabledMessage,
+	featureEnableSettingId,
+	featureModelSettingId,
+	featureNoModelMessage,
+} from "../featureGate";
 import { pickRepository, resolveGitApi } from "../gitAccess";
 import type { API } from "../gitApi";
 import { collectBranchContext } from "./branchContext";
@@ -34,16 +39,6 @@ export interface GeneratePrDeps {
 	 */
 	readonly copy?: (text: string) => Thenable<void>;
 }
-
-/**
- * The enable key, typed so a rename in BOOLEAN_SETTING_SPECS breaks this
- * compile instead of leaving the hint pointing at a dead setting.
- */
-const ENABLED_SETTING_KEY: BooleanSettingId = "prGeneration.enabled";
-
-/** The full setting IDs the command's hints point at. */
-const ENABLED_SETTING_ID = `${CONFIG_SECTION}.${ENABLED_SETTING_KEY}`;
-const MODEL_SETTING_ID = `${CONFIG_SECTION}.${FEATURE_MODEL_SETTING_KEYS.prGeneration}`;
 
 /**
  * How much of a title the notification renders. The clipboard always receives
@@ -76,11 +71,9 @@ export async function runGeneratePrDescription(
 	resolveGit: () => Promise<API | undefined> = resolveGitApi
 ): Promise<void> {
 	if (!isFeatureEnabled("prGeneration")) {
-		await showActionableMessage(
-			"info",
-			l10n.t('Pull request description generation is off. Enable "{0}" in settings to use it.', ENABLED_SETTING_ID),
-			[openSettingsAction(ENABLED_SETTING_ID)]
-		);
+		await showActionableMessage("info", featureDisabledMessage("prGeneration"), [
+			openSettingsAction(featureEnableSettingId("prGeneration")),
+		]);
 		return;
 	}
 	const log = (message: string, data?: unknown): void => {
@@ -115,14 +108,9 @@ export async function runGeneratePrDescription(
 		}
 		const modelRef = getFeatureModelRef("prGeneration", log);
 		if (modelRef === undefined) {
-			await showActionableMessage(
-				"warning",
-				l10n.t(
-					'No model is configured for pull request description generation. Pick one via the "{0}" setting or the LiteLLM dashboard.',
-					MODEL_SETTING_ID
-				),
-				[openSettingsAction(MODEL_SETTING_ID)]
-			);
+			await showActionableMessage("warning", featureNoModelMessage("prGeneration"), [
+				openSettingsAction(featureModelSettingId("prGeneration")),
+			]);
 			return;
 		}
 		const outcome = await vscode.window.withProgress(

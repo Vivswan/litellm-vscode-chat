@@ -22,7 +22,7 @@ import { getCurrencySymbol } from "../../shared/config/settings";
 import type { ServerConfig } from "../../shared/servers";
 import type { PreAttachModelInfo } from "./groupModels";
 import type { PerTokenCosts } from "./modelCatalog";
-import { buildExposedModelId, rawModelIdFromExposed } from "./modelCatalog";
+import { buildExposedModelId } from "./modelCatalog";
 import { effectiveReasoningLevels, reasoningEffortPickerValues, reasoningEffortSchema } from "./modelConfiguration";
 import type { ModelPricing } from "./registration";
 import { COMMON_MODEL_FIELDS, pricingFromCosts, serverDisplayContext } from "./registration";
@@ -101,10 +101,10 @@ const REGISTRATION_CONSUMED_FIELDS: readonly string[] = [
  * Rebuild the picker's pricing block from the effective cost fields, through
  * the SAME converter registration used, so a rebuild over untouched server
  * costs re-derives byte-identical pricing - which is what lets
- * advertisesEffective compare exactly and keeps rebuilds idempotent.
- * zeroPairMeansUndeclared is off because the server's 0/0 stamp never enters
- * the walk: a raw zero pair here is user-written on at least one side, so it
- * prices as genuinely free on purpose.
+ * advertisesEffective compare exactly and keeps rebuilds idempotent. A raw
+ * zero pair here is user-written on at least one side (the server's 0/0
+ * no-pricing stamp died at discovery ingest and never enters the walk), and
+ * pricingFromCosts prices it as genuinely free on purpose.
  */
 export function pricingFieldsFromEffective(fields: EffectiveCapabilityFields, currencySymbol: string): ModelPricing {
 	const costs: { -readonly [K in keyof PerTokenCosts]?: number } = {};
@@ -114,7 +114,7 @@ export function pricingFieldsFromEffective(fields: EffectiveCapabilityFields, cu
 			costs[name] = value;
 		}
 	}
-	return pricingFromCosts(costs, currencySymbol, { zeroPairMeansUndeclared: false });
+	return pricingFromCosts(costs, currencySymbol);
 }
 
 /** Walk order as ranks for reasoningGate's which-field-wins comparison, derived from the walk's own order declaration. */
@@ -282,7 +282,7 @@ export function applyCapabilityOverrides(
 	// compare, so the verified fast path itself heals stale labels here.
 	const currencySymbol = getCurrencySymbol();
 	const out = infos.map((info) => {
-		const rawModelId = rawModelIdFromExposed(info.id, server.id);
+		const rawModelId = info.litellm.rawModelId;
 		const effective = opts.resolution.resolveCapabilities(server.id, rawModelId, {
 			globalCapabilities: opts.globalCapabilities,
 			entryCapabilities: opts.entryCapabilities,
@@ -403,6 +403,7 @@ export function synthesizeDeclaredModels(
 				? { configurationSchema: reasoningEffortSchema(effectiveReasoningLevels(fields)) }
 				: {}),
 			litellm: {
+				rawModelId: spec.rawId,
 				supportsPromptCaching: promptCachingFrom(fields),
 				outputLimitSource: effective.outputLimitSource,
 				supportsAudioInput: fields.supports_audio_input.value,

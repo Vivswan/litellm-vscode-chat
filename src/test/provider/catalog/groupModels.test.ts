@@ -393,6 +393,7 @@ suite("provider/catalog/groupModels", () => {
 			const audioModel = attachGroupServer(
 				makeModelInfo({
 					litellm: {
+						rawModelId: "test-model",
 						supportsPromptCaching: false,
 						outputLimitSource: "defaults",
 						supportsAudioInput: true,

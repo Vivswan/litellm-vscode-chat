@@ -174,8 +174,13 @@ const SNAPSHOTS: readonly SnapshotSource[] = [
 	{
 		status: { label: "Team proxy", serverId: "srv-1", state: "ok" },
 		models: [
-			{ id: "srv-1/gpt-4o-mini", maxInputTokens: 128000, capabilities: { toolCalling: true, imageInput: true } },
-			{ id: "srv-1/tiny", maxInputTokens: 4096, capabilities: {} },
+			{
+				id: "gpt-4o-mini",
+				litellm: { rawModelId: "gpt-4o-mini" },
+				maxInputTokens: 128000,
+				capabilities: { toolCalling: true, imageInput: true },
+			},
+			{ id: "tiny", litellm: { rawModelId: "tiny" }, maxInputTokens: 4096, capabilities: {} },
 		],
 	},
 ];
@@ -587,10 +592,10 @@ suite("extension/features/participant wiring", () => {
 			assert.strictEqual(sends.length, 0, "/models must not reach a model");
 			const markdown = reported.join("");
 			assert.ok(markdown.includes("### Team proxy"), "the group's label heads its section");
-			// The exposed id was namespaced with the server id; the answer shows
-			// the RAW id, which is what the user writes in settings.
+			// The answer shows the mint-stamped RAW id, which is what the user
+			// writes in settings.
 			assert.ok(markdown.includes("`gpt-4o-mini`"), `raw model id missing from:\n${markdown}`);
-			assert.ok(!markdown.includes("srv-1/"), "the host-namespaced id must not leak into the answer");
+			assert.ok(!markdown.includes("srv-1/"), "no server-namespaced id may leak into the answer");
 			assert.ok(
 				markdown.includes("128k context"),
 				`the capability summary should carry the context window:\n${markdown}`

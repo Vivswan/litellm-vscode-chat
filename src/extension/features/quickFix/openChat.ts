@@ -1,12 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
-import type { BooleanSettingId, FeatureModelRef } from "../../../shared/config/settingSpec";
-import {
-	CONFIG_SECTION,
-	FEATURE_ENABLE_SETTING_KEYS,
-	FEATURE_MODEL_SETTING_KEYS,
-} from "../../../shared/config/settingSpec";
+import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { errorLabel } from "../../../shared/util/errorLabel";
@@ -14,6 +9,7 @@ import type { MessageAction } from "../../ui/notifier";
 import { openSettingsAction, showActionableMessage } from "../../ui/notifier";
 import { reportCommandFailure } from "../commandFailure";
 import { featureChatSend } from "../featureChatSend";
+import { featureDisabledMessage, featureEnableSettingId, featureModelSettingId } from "../featureGate";
 import { documentLabel } from "../gitAccess";
 import type { QuickFixChatArgs } from "./actionsProvider";
 import type { QuickFixMode } from "./query";
@@ -39,11 +35,9 @@ import { buildChatQuery, buildFallbackPrompt, selectDiagnostics } from "./query"
  * failure is recorded exactly once here.
  */
 
-/** Typed so a rename in BOOLEAN_SETTING_SPECS breaks this compile instead of leaving a hint on a dead setting. */
-const ENABLED_SETTING_KEY: BooleanSettingId = "quickFix.enabled";
-const ENABLED_SETTING_ID = `${CONFIG_SECTION}.${ENABLED_SETTING_KEY}`;
-const MODEL_SETTING_ID = `${CONFIG_SECTION}.${FEATURE_MODEL_SETTING_KEYS.quickFix}`;
-const PARTICIPANT_SETTING_ID = `${CONFIG_SECTION}.${FEATURE_ENABLE_SETTING_KEYS.chatParticipant}`;
+/** The full setting IDs the dual-reason advice names, derived by the shared gate; sentences stay this feature's own. */
+const MODEL_SETTING_ID = featureModelSettingId("quickFix");
+const PARTICIPANT_SETTING_ID = featureEnableSettingId("chatParticipant");
 
 export interface QuickFixChatDeps {
 	readonly secrets: vscode.SecretStorage;
@@ -287,11 +281,9 @@ export async function runQuickFixChat(oneShot: OneShotClient, deps: QuickFixChat
 		return;
 	}
 	if (!isFeatureEnabled("quickFix")) {
-		await showActionableMessage(
-			"info",
-			l10n.t('Quick fixes are off. Enable "{0}" in settings to use them.', ENABLED_SETTING_ID),
-			[openSettingsAction(ENABLED_SETTING_ID)]
-		);
+		await showActionableMessage("info", featureDisabledMessage("quickFix"), [
+			openSettingsAction(featureEnableSettingId("quickFix")),
+		]);
 		return;
 	}
 	// The chat path is only worth taking while @litellm can actually answer.

@@ -19,10 +19,6 @@ import { RENDER_EPOCH_MS } from "../renderClock.ts";
 // relative and absolute time label renders identically on every run.
 const NOW = RENDER_EPOCH_MS;
 
-export function minutesAgoIso(minutes: number): string {
-	return new Date(NOW - minutes * 60_000).toISOString();
-}
-
 export function minutesAgoMs(minutes: number): number {
 	return NOW - minutes * 60_000;
 }
@@ -45,7 +41,7 @@ export const PROD_SERVER: DashboardServer = {
 	credentials: "present",
 	hasOAuth: false,
 	state: "ok",
-	lastChecked: minutesAgoIso(2),
+	lastChecked: minutesAgoMs(2),
 	config: {
 		secrets: provenSecrets({ apiKey: "secure" }),
 		headers: { "x-routing-env": "prod" },
@@ -66,7 +62,7 @@ export const GATEWAY_SERVER: DashboardServer = {
 	errorEnglish: "Model listing failed: 404",
 	expected: true,
 	declaredModelCount: 1,
-	lastChecked: minutesAgoIso(9),
+	lastChecked: minutesAgoMs(9),
 	config: {
 		secrets: provenSecrets({ oauthClientSecret: "secure", virtualKeyValue: "secure" }),
 		oauthTokenUrl: "https://idp.example.com/oauth2/token",
@@ -103,7 +99,7 @@ export const EXTERNAL_SERVER: DashboardServer = {
 	// row is the matrix's external-OAuth specimen.
 	hasOAuth: true,
 	state: "ok",
-	lastChecked: minutesAgoIso(5),
+	lastChecked: minutesAgoMs(5),
 	adoptHandle: "handle-fixture",
 	hideable: true,
 };
@@ -118,7 +114,7 @@ export const EXTERNAL_KEYED_SERVER: DashboardServer = {
 	credentials: "present",
 	hasOAuth: false,
 	state: "ok",
-	lastChecked: minutesAgoIso(12),
+	lastChecked: minutesAgoMs(12),
 	adoptHandle: "handle-fixture-keyed",
 	hideable: true,
 };

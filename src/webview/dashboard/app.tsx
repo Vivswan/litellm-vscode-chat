@@ -209,7 +209,7 @@ export function overallState(
 
 function lastSync(servers: readonly DashboardServer[], now: number): string | undefined {
 	const checkedMs = latestCheckedMs(servers);
-	return checkedMs === undefined ? undefined : relativeTime(new Date(checkedMs).toISOString(), now);
+	return checkedMs === undefined ? undefined : relativeTime(checkedMs, now);
 }
 
 /**

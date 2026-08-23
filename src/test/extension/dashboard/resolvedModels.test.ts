@@ -170,6 +170,7 @@ suite("extension/dashboard/resolvedModels", () => {
 									id: "gpt-4",
 									name: "gpt-4",
 									litellm: {
+										rawModelId: "gpt-4",
 										supportsPromptCaching: false,
 										outputLimitSource: "defaults",
 										serverDeclared: {

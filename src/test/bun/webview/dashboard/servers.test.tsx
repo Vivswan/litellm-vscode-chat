@@ -2209,9 +2209,9 @@ test("a nested overlay hears Esc alone: it closes, the form beneath survives and
 test("Retry says it is working, and only its own ack releases it - no push, of any age, does", () => {
 	// Only the sync's own ack releases the button; no push does, whatever check time it carries.
 	// Fixed instants, not offsets from now: two calls to a now-relative helper differ by the ms between them.
-	const BEFORE = new Date(Date.now() - 10 * 60_000).toISOString();
-	const AFTER = new Date(Date.now() - 60_000).toISOString();
-	const failing = (lastChecked: string) =>
+	const BEFORE = Date.now() - 10 * 60_000;
+	const AFTER = Date.now() - 60_000;
+	const failing = (lastChecked: number) =>
 		makeDeclaredServer({ label: "Prod", state: "error", error: "refused", lastChecked });
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [failing(BEFORE)] })));
@@ -2350,7 +2350,7 @@ test("the list carries one polite live region, so a sync's outcome is announced"
 	pushToWebview(
 		statePush(
 			makeState({
-				servers: [makeDeclaredServer({ label: "Prod", state: "ok", lastChecked: new Date().toISOString() })],
+				servers: [makeDeclaredServer({ label: "Prod", state: "ok", lastChecked: Date.now() })],
 			})
 		)
 	);

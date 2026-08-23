@@ -329,9 +329,7 @@ export function serverOutcomeText(server: DashboardServer): string {
 
 /** The most recent lastChecked across the servers, as epoch milliseconds; undefined while nothing was checked. */
 export function latestCheckedMs(servers: readonly Pick<DashboardServer, "lastChecked">[]): number | undefined {
-	const times = servers
-		.map((server) => (server.lastChecked === undefined ? Number.NaN : new Date(server.lastChecked).getTime()))
-		.filter((time) => !Number.isNaN(time));
+	const times = servers.map((server) => server.lastChecked).filter((time) => time !== undefined);
 	return times.length > 0 ? Math.max(...times) : undefined;
 }
 

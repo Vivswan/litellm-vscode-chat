@@ -53,6 +53,7 @@ const model = {
 	maxOutputTokens: 8000,
 	capabilities: {},
 	litellm: {
+		rawModelId: "test-model",
 		supportsPromptCaching: false,
 		outputLimitSource: "defaults",
 		// The attached group connection, as every served model carries it; the
@@ -112,6 +113,44 @@ suite("provider/transport/chatClient", () => {
 				for (const id of all) {
 					assert.match(id, /^call_\d+$/);
 				}
+			}
+		);
+	});
+
+	test("the request's model field is the stamped rawModelId, never the exposed ID", async () => {
+		// Group mints register raw IDs today, so most fixtures have the two equal;
+		// this one diverges them on purpose to pin the route: the wire `model`
+		// must come from litellm.rawModelId, not from the exposed model.id.
+		const body = controllableStream();
+		let wireBody: unknown;
+		await withFetch(
+			async (_url, init) => {
+				wireBody = JSON.parse(String(init?.body));
+				return new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+			},
+			async () => {
+				const client = new ChatClient({ userAgent: "test-agent" });
+				const diverged = {
+					...model,
+					id: "picker-alias/gpt-4:cheapest",
+					litellm: { ...model.litellm, rawModelId: "gpt-4:cheapest" },
+				} satisfies LiteLLMModelInfo;
+				const send = client.send({
+					model: diverged,
+					messages,
+					options,
+					progress: { report: () => {} },
+					token: new vscode.CancellationTokenSource().token,
+				});
+				body.push("data: [DONE]\n\n");
+				body.close();
+				await send;
+				assert.ok(typeof wireBody === "object" && wireBody !== null, "the request carried a JSON body");
+				assert.strictEqual(
+					(wireBody as { model?: unknown }).model,
+					"gpt-4:cheapest",
+					"the route reads the mint-stamped raw ID"
+				);
 			}
 		);
 	});

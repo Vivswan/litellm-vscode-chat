@@ -498,16 +498,12 @@ describe("dashboard/presenters renderers", () => {
 		test("undefined while nothing was checked; otherwise the most recent timestamp", () => {
 			assert.strictEqual(latestCheckedMs([]), undefined);
 			assert.strictEqual(latestCheckedMs([{ lastChecked: undefined }]), undefined);
-			const older = "2026-07-26T01:02:03.000Z";
-			const newer = "2026-07-27T05:06:07.000Z";
+			const older = new Date("2026-07-26T01:02:03.000Z").getTime();
+			const newer = new Date("2026-07-27T05:06:07.000Z").getTime();
 			assert.strictEqual(
 				latestCheckedMs([{ lastChecked: older }, { lastChecked: undefined }, { lastChecked: newer }]),
-				new Date(newer).getTime()
+				newer
 			);
-		});
-
-		test("unparseable timestamps are ignored instead of poisoning the maximum", () => {
-			assert.strictEqual(latestCheckedMs([{ lastChecked: "not a date" }]), undefined);
 		});
 	});
 

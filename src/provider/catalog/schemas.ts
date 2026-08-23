@@ -14,19 +14,27 @@ export type OutputLimitSource = "provider" | "defaults";
 /**
  * A single underlying provider (e.g. together, groq) for a model: capability
  * metadata read from the LiteLLM API - what the model CAN do, not what we ask
- * it to do. Only `provider` is validated on the wire; discovery re-narrows the
- * four base cost fields and authors the internal markers, and the remaining
- * fields are typed reads of the passed-through entry.
+ * it to do. Only `provider` is validated on the wire; discovery authors the
+ * internal markers and narrows the four token-limit fields (positive numbers
+ * or undefined, by construction) and the 8 cost fields (under the zero-pair
+ * no-pricing rule), and the remaining fields are typed reads of the
+ * passed-through entry.
  */
 export interface LiteLLMProvider {
 	provider: string;
 	status: string;
 	/** Wire pass-throughs may carry null; supportsTools treats only an explicit false as a veto. */
 	supports_tools?: boolean | null | undefined;
+	/**
+	 * The four token-limit fields are narrowed at the discovery mapping sites
+	 * (normalizePositiveNumber: numeric strings parse, null and junk degrade to
+	 * undefined), so every constructed provider carries positive numbers or
+	 * undefined and downstream reads take them as-is.
+	 */
 	context_length?: number | undefined;
-	max_tokens?: number | null | undefined;
-	max_input_tokens?: number | null | undefined;
-	max_output_tokens?: number | null | undefined;
+	max_tokens?: number | undefined;
+	max_input_tokens?: number | undefined;
+	max_output_tokens?: number | undefined;
 	/**
 	 * Set by deployment merging, which stores effective (possibly
 	 * defaults-derived) limits back into max_tokens/max_output_tokens; they

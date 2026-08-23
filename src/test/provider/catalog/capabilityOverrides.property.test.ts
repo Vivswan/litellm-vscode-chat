@@ -17,7 +17,7 @@ import {
 	synthesizeDeclaredModels,
 } from "../../../provider/catalog/capabilityOverrides";
 import type { PreAttachModelInfo } from "../../../provider/catalog/groupModels";
-import { rawModelIdFromExposed } from "../../../provider/catalog/modelCatalog";
+import { buildExposedModelId } from "../../../provider/catalog/modelCatalog";
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem, LiteLLMProvider } from "../../../provider/catalog/schemas";
 import type {
@@ -46,7 +46,9 @@ const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
 const modelId = fc.string({ unit: idChar, minLength: 1, maxLength: 10 });
 
 const validNumber = fc.integer({ min: 1, max: 1_000_000 });
-const limitValue = fc.option(fc.oneof(validNumber, fc.constant<null>(null)), { nil: undefined });
+// Post-ingest limits are positive numbers or undefined by construction
+// (discovery narrows them at the mapping sites); no null survives to here.
+const limitValue = fc.option(validNumber, { nil: undefined });
 const flagValue = fc.option(fc.oneof(fc.boolean(), fc.constant<null>(null)), { nil: undefined });
 
 const providerArb: fc.Arbitrary<LiteLLMProvider> = fc.record(
@@ -288,7 +290,7 @@ const scenario: fc.Arbitrary<Scenario> = fc
 /** The walk every served model must agree with, over the baseline the model itself carries. */
 function effectiveFor(info: PreAttachModelInfo, s: Scenario): EffectiveCapabilities {
 	return resolveModelCapabilities({
-		rawModelId: rawModelIdFromExposed(info.id, SERVER.id),
+		rawModelId: info.litellm.rawModelId,
 		globalCapabilities: s.globalCapabilities,
 		entryCapabilities: s.entryCapabilities,
 		catalog: s.catalog,
@@ -369,12 +371,41 @@ suite("provider/catalog capabilityOverrides properties", () => {
 				const reserved = new Set(served.map((info) => info.id));
 				const declared = synthesizeDeclaredModels(discovered, reserved, SERVER, s.serverCount, s.opts);
 				for (const info of declared) {
-					const rawId = rawModelIdFromExposed(info.id, SERVER.id);
+					const rawId = info.litellm.rawModelId;
 					assert.ok(!discovered.has(rawId), "a discovered ID must stay inert");
 					assert.ok(!reserved.has(info.id), "a reserved exposed ID must be suppressed");
 					assert.strictEqual(info.litellm.declared, true);
 					assert.deepStrictEqual(info.litellm.serverDeclared, { kind: "declared" });
 					assertAdvertisesEffective(info, effectiveFor(info, s));
+				}
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+
+	test("every mint stamps the raw ID its exposed ID was built from", () => {
+		// The fail-closed replacement for the retired exposed-ID inverter's
+		// round-trip property: re-minting the exposed ID from the stamped raw ID
+		// must reproduce it exactly, so a mint that stamps the wrong ID (say m.id
+		// on a ":cheapest" variant) fails here instead of routing chat requests
+		// to a model the proxy rejects.
+		fc.assert(
+			fc.property(scenario, (s) => {
+				const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {});
+				const served = applyCapabilityOverrides(infos, SERVER, s.opts);
+				const declared = synthesizeDeclaredModels(
+					new Set(s.items.map((item) => item.id)),
+					new Set(served.map((info) => info.id)),
+					SERVER,
+					s.serverCount,
+					s.opts
+				);
+				for (const info of [...infos, ...served, ...declared]) {
+					assert.strictEqual(
+						buildExposedModelId(info.litellm.rawModelId, SERVER.id, s.serverCount),
+						info.id,
+						`${info.id}: the stamped raw ID must re-mint the exposed ID exactly`
+					);
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

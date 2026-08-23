@@ -853,6 +853,7 @@ suite("provider/request contract", () => {
 				createConfiguredProvider(),
 				makeModelInfo({
 					litellm: {
+						rawModelId: "test-model",
 						supportsPromptCaching: false,
 						outputLimitSource: "defaults",
 						supportsAudioInput: true,
@@ -976,6 +977,7 @@ suite("provider/request contract", () => {
 					makeModelInfo({
 						maxOutputTokens: 32000,
 						litellm: {
+							rawModelId: "test-model",
 							supportsPromptCaching: false,
 							outputLimitSource: "user",
 							serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },

@@ -1,6 +1,6 @@
 import type { ServerCapabilityValues, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
 import { FLOOR_CONTEXT_LENGTH, FLOOR_MAX_OUTPUT_TOKENS } from "../../shared/config/capabilityResolution";
-import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
+import { normalizeCostPerToken } from "../../shared/util/numbers";
 import type { LiteLLMProvider, OutputLimitSource } from "./schemas";
 
 export function buildExposedModelId(rawModelId: string, serverId: string, serverCount: number): string {
@@ -8,18 +8,6 @@ export function buildExposedModelId(rawModelId: string, serverId: string, server
 		return rawModelId;
 	}
 	return `${serverId}/${rawModelId}`;
-}
-
-/**
- * Invert buildExposedModelId without knowing the registration-time server
- * count: strip the "<serverId>/" namespace when the ID carries it, else the
- * ID is already raw. The one ambiguity is a raw ID that itself begins with
- * "<serverId>/" registered at count <= 1 - no LiteLLM route mints such IDs,
- * and the round-trip property test pins the exact contract.
- */
-export function rawModelIdFromExposed(exposedId: string, serverId: string): string {
-	const prefix = `${serverId}/`;
-	return exposedId.startsWith(prefix) ? exposedId.slice(prefix.length) : exposedId;
 }
 
 export interface TokenConstraints {
@@ -47,21 +35,21 @@ function combinedOutputLimitSource(constraints: readonly TokenConstraints[]): Ou
  * The effective token constraints a provider entry advertises. The single
  * home of the fallback rules: an unreported limit falls back to the built-in
  * floor (the same FLOOR_* literals the capability walk floors to), and a
- * missing input limit derives from context minus output.
+ * missing input limit derives from context minus output. The limit fields are
+ * read as-is: discovery narrowed them to positive numbers or undefined at the
+ * mapping sites, so no per-read re-normalization exists here.
  */
 export function deriveTokenConstraints(provider: LiteLLMProvider | undefined): TokenConstraints {
-	const declaredOutputTokens =
-		normalizePositiveNumber(provider?.max_output_tokens) ?? normalizePositiveNumber(provider?.max_tokens);
+	const declaredOutputTokens = provider?.max_output_tokens ?? provider?.max_tokens;
 	const maxOutputTokens = declaredOutputTokens ?? FLOOR_MAX_OUTPUT_TOKENS;
 	// Only an exact "defaults" marker demotes, so a passed-through wire field
 	// can never promote a floor-derived limit to server-declared.
 	const outputLimitSource: OutputLimitSource =
 		declaredOutputTokens !== undefined && provider?.output_limit_source !== "defaults" ? "provider" : "defaults";
 
-	const contextLength = normalizePositiveNumber(provider?.context_length) ?? FLOOR_CONTEXT_LENGTH;
+	const contextLength = provider?.context_length ?? FLOOR_CONTEXT_LENGTH;
 
-	const maxInputTokens =
-		normalizePositiveNumber(provider?.max_input_tokens) ?? Math.max(1, contextLength - maxOutputTokens);
+	const maxInputTokens = provider?.max_input_tokens ?? Math.max(1, contextLength - maxOutputTokens);
 
 	return { maxOutputTokens, outputLimitSource, contextLength, maxInputTokens };
 }
@@ -88,7 +76,7 @@ export function collapseTokenConstraints(
 
 /** A contributor's own output limit, before any floor fill; the same field priority deriveTokenConstraints uses. */
 function reportedOutputTokens(provider: LiteLLMProvider): number | undefined {
-	return normalizePositiveNumber(provider.max_output_tokens) ?? normalizePositiveNumber(provider.max_tokens);
+	return provider.max_output_tokens ?? provider.max_tokens;
 }
 
 /** Which token-limit fields any contributor actually reported. */
@@ -106,8 +94,8 @@ export interface ReportedLimits {
  * one field differently.
  */
 export function reportedLimits(providers: readonly LiteLLMProvider[]): ReportedLimits {
-	const context = providers.some((p) => normalizePositiveNumber(p.context_length) !== undefined);
-	const input = providers.some((p) => normalizePositiveNumber(p.max_input_tokens) !== undefined);
+	const context = providers.some((p) => p.context_length !== undefined);
+	const input = providers.some((p) => p.max_input_tokens !== undefined);
 	const output = providers.some((p) => reportedOutputTokens(p) !== undefined);
 	return { context, input, output, any: context || input || output };
 }
@@ -138,22 +126,15 @@ const SERVER_COST_FIELDS = Object.keys({
 } satisfies Record<keyof PerTokenCosts, true>) as readonly (keyof PerTokenCosts)[];
 
 /**
- * The cost fields of one baseline, normalized. LiteLLM stamps
- * input/output_cost_per_token: 0 onto /model/info entries that declare no
- * pricing at all, so a zero PAIR reads as undeclared and drops every cost
- * field, exactly like pricingFromCosts' display rule - the walk's server level
- * must never carry a price registration refused to advertise. Otherwise each
- * field some contributor declared with a usable cost is stored
- * (normalizeCostPerToken canonicalizes -0 to +0, so a stored zero cannot ride
- * a negative sign into the per-million conversion).
+ * The cost fields of one baseline, normalized. Server costs are
+ * present-means-declared by construction: discovery's serverCostsOf already
+ * mapped LiteLLM's 0/0 no-pricing stamp to undefined at ingest, so every cost
+ * a provider entry still carries was declared and each field with a usable
+ * cost is stored (normalizeCostPerToken canonicalizes -0 to +0, so a stored
+ * zero cannot ride a negative sign into the per-million conversion; merged
+ * entries carry null for disagreeing costs, which reads as absent here).
  */
 function serverCostValues(costs: PerTokenCosts): Partial<ServerCapabilityValues> {
-	if (
-		normalizeCostPerToken(costs.input_cost_per_token) === 0 &&
-		normalizeCostPerToken(costs.output_cost_per_token) === 0
-	) {
-		return {};
-	}
 	const values: { -readonly [K in keyof PerTokenCosts]?: number } = {};
 	for (const field of SERVER_COST_FIELDS) {
 		const cost = normalizeCostPerToken(costs[field]);
@@ -245,8 +226,9 @@ export interface DiscoveredBaselineInput {
  * advertises them, so the baseline can never say more than the entry
  * advertised; the supported-params and reasoning_effort_levels lists are each
  * present only when every contributor carries one and hold their
- * intersection; costs appear only for pricing-eligible shapes under
- * serverCostValues' zero-pair rule.
+ * intersection; costs appear only for pricing-eligible shapes, and only the
+ * costs the server declared - discovery's serverCostsOf already mapped the
+ * 0/0 no-pricing stamp to undefined at ingest.
  */
 export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): ServerDeclaredCapabilities {
 	const { providers, modalities, toolCalling, reasoning } = input;

@@ -6,7 +6,7 @@
  * its header carries no auth badge while the proven row keeps its "API key".
  */
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, minutesAgoIso, provenSecrets } from "./shared.ts";
+import { baseState, minutesAgoMs, provenSecrets } from "./shared.ts";
 
 const fixture: RenderFixture = {
 	messages: [
@@ -32,7 +32,7 @@ const fixture: RenderFixture = {
 						credentials: "present",
 						hasOAuth: false,
 						state: "ok",
-						lastChecked: minutesAgoIso(3),
+						lastChecked: minutesAgoMs(3),
 						config: { secrets: provenSecrets({ apiKey: "secure" }) },
 					},
 				],

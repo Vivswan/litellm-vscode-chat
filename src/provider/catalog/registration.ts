@@ -110,30 +110,18 @@ function configurationSchemaFor(
  * picker hover's numeric cost table is entitlement-gated, so for a typical
  * LiteLLM user the label is the only cost line that hover can show.
  *
- * `zeroPairMeansUndeclared` (default true) is the one semantic knob, for
- * capabilityOverrides' rebuild from EFFECTIVE fields: there a raw zero pair
- * can only be user-written configuration ("this model is genuinely free"), so
- * under `false` the pair prices as $0/$0 with the cheapest badge instead of
- * reading as undeclared. A pair that merely ROUNDS to 0/0 still gets neither
- * label nor badge under either setting, so a server-derived rebuild stays
- * byte-identical to registration's output.
+ * A raw 0/0 input/output pair prices as genuinely free here: LiteLLM's 0/0
+ * no-pricing stamp never reaches this converter, because discovery's
+ * serverCostsOf maps it to undefined at ingest, so the only raw zero pair a
+ * caller can still hand over is user-written configuration (a
+ * capabilityOverrides rebuild over effective cost fields).
  */
-export function pricingFromCosts(
-	costs: PerTokenCosts,
-	currencySymbol: string,
-	opts?: { readonly zeroPairMeansUndeclared?: boolean }
-): ModelPricing {
-	// LiteLLM stamps input/output_cost_per_token: 0 onto /model/info entries
-	// that declare no pricing at all, so a zero pair is "undeclared", not
-	// "free": rendering $0 would mislead the picker and any cost-based choice.
-	// Models genuinely priced 0/0 lose their $0 display under this rule; behind
-	// LiteLLM that shape is indistinguishable from the stamp, and
-	// unknown-as-free is the worse failure.
+export function pricingFromCosts(costs: PerTokenCosts, currencySymbol: string): ModelPricing {
+	// The raw zero pair, before the per-million rounding: pairs that merely
+	// ROUND to 0/0 must not borrow its genuinely-free display (see the badge
+	// gate below).
 	const zeroPair =
 		normalizeCostPerToken(costs.input_cost_per_token) === 0 && normalizeCostPerToken(costs.output_cost_per_token) === 0;
-	if (zeroPair && (opts?.zeroPairMeansUndeclared ?? true)) {
-		return {};
-	}
 	const fields: { -readonly [K in keyof ModelPricing]?: ModelPricing[K] } = {};
 	const toPerMillion = (perToken: unknown): number | undefined => {
 		const cost = normalizeCostPerToken(perToken);
@@ -173,10 +161,11 @@ export function pricingFromCosts(
 	// price (one-sided pricing is an incomplete signal) and derive from the
 	// base tier only: the longContext* costs describe an opt-in regime, not the
 	// headline cost. A pair that BOTH rounded to 0 gets neither label nor badge:
-	// it slipped past the raw 0/0 undeclared check on sub-unit dust, and "$0 in
-	// / $0 out" plus a "low" badge would present it as free. The `zeroPair`
-	// disjunct is reachable only under zeroPairMeansUndeclared: false, where a
-	// raw zero pair is user-written "free" and carries both on purpose.
+	// on sub-unit dust, "$0 in / $0 out" plus a "low" badge would present it as
+	// free. The `zeroPair` disjunct is what keeps a RAW zero pair - which can
+	// only be user-written "this model is genuinely free" (the server's stamp
+	// died at ingest) - carrying both on purpose; deleting it would strip the
+	// free label exactly from the models priced free deliberately.
 	if (
 		fields.inputCost !== undefined &&
 		fields.outputCost !== undefined &&
@@ -287,6 +276,7 @@ export function buildModelInfos(
 						...pricingFromCosts(provider, currencySymbol),
 						...configurationSchemaFor([provider]),
 						litellm: {
+							rawModelId: m.id,
 							supportsPromptCaching: provider.supports_prompt_caching === true,
 							outputLimitSource: constraints.outputLimitSource,
 							supportsAudioInput: audioInput,
@@ -318,6 +308,7 @@ export function buildModelInfos(
 							imageInput: vision,
 						},
 						litellm: {
+							rawModelId: m.id,
 							supportsPromptCaching: false,
 							outputLimitSource: constraints.outputLimitSource,
 							supportsAudioInput: audioInput,
@@ -340,6 +331,8 @@ export function buildModelInfos(
 					// strictest provider's standalone constraints.
 					const constraints = collapseTokenConstraints([firstTool, ...restTools]);
 					const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
+					// Everything the two aggregates share; each one stamps its own
+					// routed raw ID beside it.
 					const aggregateMetadata = {
 						supportsPromptCaching: aggregatePromptCaching,
 						outputLimitSource: constraints.outputLimitSource,
@@ -367,7 +360,7 @@ export function buildModelInfos(
 						maxOutputTokens: constraints.maxOutputTokens,
 						capabilities: aggregateCapabilities,
 						...aggregateConfigurationSchema,
-						litellm: aggregateMetadata,
+						litellm: { rawModelId: cheapestRaw, ...aggregateMetadata },
 					} satisfies PreAttachModelInfo);
 
 					entries.push({
@@ -380,7 +373,7 @@ export function buildModelInfos(
 						maxOutputTokens: constraints.maxOutputTokens,
 						capabilities: aggregateCapabilities,
 						...aggregateConfigurationSchema,
-						litellm: aggregateMetadata,
+						litellm: { rawModelId: fastestRaw, ...aggregateMetadata },
 					} satisfies PreAttachModelInfo);
 				}
 
@@ -403,6 +396,7 @@ export function buildModelInfos(
 						...pricingFromCosts(p, currencySymbol),
 						...configurationSchemaFor([p]),
 						litellm: {
+							rawModelId: rawId,
 							supportsPromptCaching: p.supports_prompt_caching === true,
 							outputLimitSource: constraints.outputLimitSource,
 							supportsAudioInput: audioInput,
@@ -434,6 +428,7 @@ export function buildModelInfos(
 						},
 						...configurationSchemaFor(providers),
 						litellm: {
+							rawModelId: m.id,
 							supportsPromptCaching: providers.every((p) => p.supports_prompt_caching === true),
 							outputLimitSource: constraints.outputLimitSource,
 							supportsAudioInput: audioInput,

@@ -2,12 +2,18 @@ import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CONSULT_TOOL_READY_CONTEXT_KEY, TOOL_NAME } from "../../../shared/config/commandIds";
-import type { BooleanSettingId, FeatureModelRef } from "../../../shared/config/settingSpec";
-import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
+import type { FeatureModelRef } from "../../../shared/config/settingSpec";
+import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { localizedError } from "../../../shared/mirroredError";
 import { featureChatSend } from "../featureChatSend";
+import {
+	featureDisabledMessage,
+	featureDisabledMessageEnglish,
+	featureNoModelMessage,
+	featureNoModelMessageEnglish,
+} from "../featureGate";
 import { withProbeToken } from "../probeToken";
 import type { ConsultTokenizationOptions, ConsultToolInput } from "./invocation";
 import {
@@ -36,16 +42,6 @@ import {
  */
 
 type LogFn = (message: string, data?: unknown) => void;
-
-/**
- * The enable key, typed so a rename in BOOLEAN_SETTING_SPECS breaks this
- * compile instead of leaving the advice pointing at a dead setting.
- */
-const ENABLED_SETTING_KEY: BooleanSettingId = "consultTool.enabled";
-
-/** The full setting IDs the tool's advice points at. */
-const ENABLED_SETTING_ID = `${CONFIG_SECTION}.${ENABLED_SETTING_KEY}`;
-const MODEL_SETTING_ID = `${CONFIG_SECTION}.${FEATURE_MODEL_SETTING_KEYS.consultTool}`;
 
 /**
  * One consultation, from the caller's input to the consulted model's reply
@@ -180,16 +176,16 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 		// the ones it happened to be registered under.
 		if (!isFeatureEnabled("consultTool")) {
 			throw localizedError(
-				l10n.t('The consult tool is off. Enable "{0}" in settings to use it.', ENABLED_SETTING_ID),
-				`The consult tool is off. Enable "${ENABLED_SETTING_ID}" in settings to use it.`,
+				featureDisabledMessage("consultTool"),
+				featureDisabledMessageEnglish("consultTool"),
 				"ConsultTool(disabled)"
 			);
 		}
 		const ref = getFeatureModelRef("consultTool", this.log);
 		if (ref === undefined) {
 			throw localizedError(
-				l10n.t('No model is configured for the consult tool. Pick one via the "{0}" setting.', MODEL_SETTING_ID),
-				`No model is configured for the consult tool. Pick one via the "${MODEL_SETTING_ID}" setting.`,
+				featureNoModelMessage("consultTool"),
+				featureNoModelMessageEnglish("consultTool"),
 				"ConsultTool(no model configured)"
 			);
 		}

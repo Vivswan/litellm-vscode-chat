@@ -1305,7 +1305,7 @@ function UsageFacts({
 					<Absent reason={neverUpdated === spendReason ? undefined : neverUpdated} />
 				) : (
 					<span className={server.fresh ? undefined : "text-warn"}>
-						{relativeTime(new Date(server.lastUpdatedAt).toISOString(), now) ?? l10n.t("just now")}
+						{relativeTime(server.lastUpdatedAt, now)}
 						{staleness !== undefined ? <Why text={staleness} /> : null}
 					</span>
 				)}
@@ -1450,7 +1450,7 @@ function ServerDrawer({
 				</Fact>
 				<Fact label={l10n.t("Discovery last checked")}>
 					{server.lastChecked !== undefined && server.state !== "unchecked" ? (
-						(relativeTime(server.lastChecked, now) ?? l10n.t("just now"))
+						relativeTime(server.lastChecked, now)
 					) : (
 						<Absent reason={l10n.t("no discovery pass has seen it yet - run Sync models to check it now")} />
 					)}

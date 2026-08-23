@@ -5,7 +5,7 @@
  * server's fault.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, minutesAgoIso, provenSecrets } from "./shared.ts";
+import { baseState, minutesAgoMs, provenSecrets } from "./shared.ts";
 
 const fixture: RenderFixture = {
 	messages: [
@@ -21,7 +21,7 @@ const fixture: RenderFixture = {
 						credentials: "present",
 						hasOAuth: false,
 						state: "ok",
-						lastChecked: minutesAgoIso(2),
+						lastChecked: minutesAgoMs(2),
 						config: { secrets: provenSecrets({ apiKey: "secure" }) },
 					},
 				],

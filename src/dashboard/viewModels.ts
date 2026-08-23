@@ -126,8 +126,12 @@ interface DashboardServerBase {
 	 * still serving stale-window or declared models carries their count here.
 	 */
 	readonly servedModelCount: number;
-	/** ISO timestamp of the last discovery attempt; absent while unchecked. */
-	readonly lastChecked?: string | undefined;
+	/**
+	 * The last discovery attempt as epoch milliseconds, the push's one
+	 * timestamp vocabulary; absent while unchecked (the host maps its ""
+	 * never-checked sentinel and any unparseable stored value to absent).
+	 */
+	readonly lastChecked?: number | undefined;
 	/**
 	 * Whether the server has credentials configured anywhere; never the
 	 * credentials themselves. Three-valued because a declared row's "none" is a

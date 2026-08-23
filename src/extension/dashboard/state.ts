@@ -24,7 +24,6 @@ import type {
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
 import type { PreAttachModelInfo } from "../../provider/catalog/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
-import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import type { CapabilityCatalogLookup, EffectiveCapabilities } from "../../shared/config/capabilityResolution";
 import {
@@ -82,7 +81,7 @@ import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSyn
 import { declaredPresentation } from "../servers/syncFailureOverlay";
 import type { SettingsInspection } from "../settingsAccess";
 import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
-import { adoptSourceHandle, modelScopeKey } from "./adoptHandle";
+import { adoptSourceHandle, locateModel, modelScopeKey } from "./adoptHandle";
 import type { LabeledSnapshot } from "./declaredJoin";
 import { joinDeclared, labeledSnapshots } from "./declaredJoin";
 
@@ -113,6 +112,22 @@ export interface SettingsReader {
 	inspect(key: string): SettingsInspection | undefined;
 }
 
+/**
+ * The push's one timestamp conversion: ServerStatus.lastChecked (an ISO
+ * string internally and in persisted status) becomes epoch milliseconds on
+ * the wire, the same vocabulary every other pushed timestamp uses. The ""
+ * never-checked sentinel (syncFailureOverlay's synthetic statuses,
+ * restoreServerStatus) maps to a DELIBERATE absent value, as does anything
+ * unparseable, so no consumer ever NaN-guards a timestamp again.
+ */
+function checkedAtMs(lastChecked: string | undefined): number | undefined {
+	if (lastChecked === undefined || lastChecked === "") {
+		return undefined;
+	}
+	const ms = new Date(lastChecked).getTime();
+	return Number.isNaN(ms) ? undefined : ms;
+}
+
 function buildServer(
 	snapshot: ServerModelsSnapshot,
 	label: string,
@@ -123,7 +138,7 @@ function buildServer(
 	const base = {
 		label,
 		baseUrl: status.baseUrl,
-		lastChecked: status.lastChecked,
+		lastChecked: checkedAtMs(status.lastChecked),
 		// The live group's own report is the verdict here: an external row has
 		// no declared secrets whose locations could still be unread, and the
 		// report carries the credential kind alongside the presence.
@@ -422,7 +437,7 @@ function buildServers(
 		servers.push({
 			label: view.label,
 			baseUrl: view.baseUrl,
-			lastChecked: matched?.snapshot.status.lastChecked,
+			lastChecked: checkedAtMs(matched?.snapshot.status.lastChecked),
 			credentials: knownPresent ? "present" : secrets.kind === "proven" ? "absent" : "unknown",
 			hasOAuth: view.oauthTokenUrl !== undefined && view.oauthClientId !== undefined,
 			origin: "declared",
@@ -486,13 +501,12 @@ function buildServers(
 	};
 }
 
-function buildModel(info: PreAttachModelInfo, serverLabel: string, serverId: string, scopeKey: string): DashboardModel {
+function buildModel(info: PreAttachModelInfo, serverLabel: string, scopeKey: string): DashboardModel {
 	return {
 		id: info.id,
-		// The request's `model` field: group registrations expose raw IDs already,
-		// legacy multi-server ones namespace them with the server ID, which the
-		// shared strip inverts.
-		rawId: rawModelIdFromExposed(info.id, serverId),
+		// The request's `model` field: the raw ID the mint stamped onto the
+		// model's litellm metadata, never re-derived from the exposed ID.
+		rawId: info.litellm.rawModelId,
 		scopeKey,
 		name: info.name,
 		family: info.family,
@@ -895,9 +909,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 		models: labeled
 			.flatMap(({ snapshot, label }, index) =>
 				(snapshotLabels[index] ?? [label]).flatMap((serverLabel) =>
-					snapshot.models.map((info) =>
-						buildModel(info, serverLabel, snapshot.status.serverId, modelScopeKey(snapshot.status.serverId))
-					)
+					snapshot.models.map((info) => buildModel(info, serverLabel, modelScopeKey(snapshot.status.serverId)))
 				)
 			)
 			.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.name.localeCompare(b.name)),
@@ -941,20 +953,15 @@ export function resolveDashboardModelCapabilities(
 	scopeKey: string,
 	rawId: string
 ): EffectiveCapabilities | undefined {
-	// Scope keys hash the server ID (modelScopeKey), so a stale key resolves to
-	// nothing rather than to another server.
-	const labeled = labeledSnapshots(query.snapshots).find(
-		(entry) => modelScopeKey(entry.snapshot.status.serverId) === scopeKey
-	);
-	if (labeled === undefined) {
+	// locateModel owns the de-resolution: scope keys hash the server ID, so a
+	// stale key resolves to nothing rather than to another server.
+	const located = locateModel(query.snapshots, scopeKey, rawId);
+	if (located === undefined) {
 		return undefined;
 	}
-	const { snapshot } = labeled;
+	const { snapshot } = located.labeled;
 	const serverId = snapshot.status.serverId;
-	const info = snapshot.models.find((model) => rawModelIdFromExposed(model.id, serverId) === rawId);
-	if (info === undefined) {
-		return undefined;
-	}
+	const info = located.info;
 	const inputs = {
 		globalCapabilities: normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY)),
 		entryCapabilities: query.resolveEntryCapabilities(serverId),
@@ -1007,18 +1014,12 @@ export function resolveDashboardModelParameters(
 	scopeKey: string,
 	rawId: string
 ): EffectiveParametersProjection | undefined {
-	const labeled = labeledSnapshots(query.snapshots).find(
-		(entry) => modelScopeKey(entry.snapshot.status.serverId) === scopeKey
-	);
-	if (labeled === undefined) {
+	const located = locateModel(query.snapshots, scopeKey, rawId);
+	if (located === undefined) {
 		return undefined;
 	}
-	const { snapshot } = labeled;
-	const serverId = snapshot.status.serverId;
-	const info = snapshot.models.find((model) => rawModelIdFromExposed(model.id, serverId) === rawId);
-	if (info === undefined) {
-		return undefined;
-	}
+	const serverId = located.labeled.snapshot.status.serverId;
+	const info = located.info;
 	const entry = query.resolveEntryParameters(serverId);
 	const inputs = {
 		globalParameters: normalizeModelParameters(query.reader.get(MODEL_PARAMETERS_SETTING_KEY)),

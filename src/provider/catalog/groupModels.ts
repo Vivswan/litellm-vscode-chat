@@ -37,6 +37,14 @@ export interface GroupServer {
 
 /** The LiteLLM facts every model object carries, with or without a server attached. */
 interface LiteLLMModelMetadataBase {
+	/**
+	 * The raw LiteLLM model ID this entry routes to (the request's `model`
+	 * field), stamped by the mints (registration and declared-model synthesis),
+	 * which are the only places that know it: synthetic variants like
+	 * `foo:cheapest` and `foo:groq` carry their routed ID here, so no consumer
+	 * ever re-derives a raw ID from the exposed one.
+	 */
+	readonly rawModelId: string;
 	readonly supportsPromptCaching: boolean;
 	/**
 	 * Where maxOutputTokens came from: server-declared ("provider") and
@@ -301,6 +309,7 @@ export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer)
 	return {
 		...rest,
 		litellm: {
+			rawModelId: info.litellm.rawModelId,
 			supportsPromptCaching: modelSupportsPromptCaching(info),
 			outputLimitSource: modelOutputLimitSource(info),
 			supportsAudioInput: modelSupportsAudioInput(info),
@@ -345,6 +354,12 @@ export interface ParsedModelMetadata {
 	 * loudly on.
 	 */
 	readonly server: GroupServer | undefined;
+	/**
+	 * The raw LiteLLM model ID the request's `model` field carries, from the
+	 * stamped metadata; a model object whose round trip lost the stamp falls
+	 * back to its exposed ID, which group registrations mint raw anyway.
+	 */
+	readonly rawModelId: string;
 	readonly supportsPromptCaching: boolean;
 	readonly supportsAudioInput: boolean;
 	/** The registered imageInput capability, re-narrowed like the litellm fields; gates image message conversion. */
@@ -361,8 +376,10 @@ export interface ParsedModelMetadata {
  * narrowing as the group configuration: malformed ones degrade to absent.
  */
 export function parseModelMetadata(model: LiteLLMModelInfo, log?: NarrowLog): ParsedModelMetadata {
+	const rawModelId = model.litellm?.rawModelId;
 	return {
 		server: parseAttachedServer(model.litellm?.server, log),
+		rawModelId: typeof rawModelId === "string" && rawModelId.length > 0 ? rawModelId : model.id,
 		supportsPromptCaching: modelSupportsPromptCaching(model),
 		supportsAudioInput: modelSupportsAudioInput(model),
 		imageInput: model.capabilities?.imageInput === true,

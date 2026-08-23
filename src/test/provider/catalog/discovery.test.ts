@@ -155,6 +155,75 @@ suite("provider/catalog/discovery", () => {
 		});
 	});
 
+	suite("ingest narrowing", () => {
+		test("providers-array token limits narrow at ingest: numeric strings parse, junk degrades to undefined", () => {
+			const routed = normalizeModelItem(
+				{
+					id: "routed",
+					providers: [
+						{
+							provider: "openrouter",
+							status: "ok",
+							context_length: "128000",
+							max_tokens: null,
+							max_input_tokens: "not-a-number",
+							max_output_tokens: -5,
+						},
+					],
+				},
+				() => {}
+			);
+			const [provider] = expectShape(routed, "group").providers;
+			assert.strictEqual(provider.context_length, 128000, "a numeric string parses to a number at ingest");
+			assert.strictEqual(provider.max_tokens, undefined, "null degrades to undefined, so reads take the field as-is");
+			assert.strictEqual(provider.max_input_tokens, undefined);
+			assert.strictEqual(provider.max_output_tokens, undefined, "a non-positive limit degrades to undefined");
+		});
+
+		test("a raw 0/0 cost pair on a providers-array entry maps every cost field to undefined at ingest", () => {
+			const stamped = normalizeModelItem(
+				{
+					id: "stamped",
+					providers: [
+						{
+							provider: "openrouter",
+							status: "ok",
+							input_cost_per_token: 0,
+							output_cost_per_token: 0,
+							cache_read_input_token_cost: 0.0000003,
+							input_cost_per_token_above_200k_tokens: 0.000006,
+						},
+					],
+				},
+				() => {}
+			);
+			const [provider] = expectShape(stamped, "group").providers;
+			assert.strictEqual(provider.input_cost_per_token, undefined, "the stamp reads as undeclared, not free");
+			assert.strictEqual(provider.output_cost_per_token, undefined);
+			assert.strictEqual(provider.cache_read_input_token_cost, undefined, "the stray cache cost drops with it");
+			assert.strictEqual(
+				provider.long_context_input_cost_per_token,
+				undefined,
+				"the long-context tier drops with the stamp too"
+			);
+
+			// One declared side keeps the pair out of the stamp rule: 0 input with a
+			// real output cost is a genuine declaration, not LiteLLM's stamp.
+			const halfFree = normalizeModelItem(
+				{
+					id: "half-free",
+					providers: [
+						{ provider: "openrouter", status: "ok", input_cost_per_token: 0, output_cost_per_token: 0.000015 },
+					],
+				},
+				() => {}
+			);
+			const [half] = expectShape(halfFree, "group").providers;
+			assert.strictEqual(half.input_cost_per_token, 0);
+			assert.strictEqual(half.output_cost_per_token, 0.000015);
+		});
+	});
+
 	suite("fetchModels", () => {
 		test("observedModelInfoKeys unions the model_info keys of a successful listing, sorted", async () => {
 			mswServer.use(
@@ -1250,6 +1319,32 @@ suite("provider/catalog/discovery", () => {
 		test("a single deployment passes through unchanged", () => {
 			const sole = deployment({ max_output_tokens: 8000, supports_prompt_caching: true, supports_vision: true });
 			assert.strictEqual(mergeModelDeployments([sole]), sole);
+		});
+
+		test("two deployments both carrying LiteLLM's 0/0 stamp cannot false-agree into declared-free", () => {
+			// Each stamped pair already mapped to undefined at ingest, so the merge
+			// sees no declarations to agree on: the merged entry must price nothing
+			// and its baseline must carry no cost fields for lower walk levels.
+			const merged = mergeModelDeployments([
+				deployment({ input_cost_per_token: 0, output_cost_per_token: 0 }),
+				deployment({ input_cost_per_token: 0, output_cost_per_token: 0 }),
+			]);
+			assert.strictEqual(merged.provider.input_cost_per_token, null, "no declaration ever agreed");
+			assert.strictEqual(merged.provider.output_cost_per_token, null);
+			const { infos } = buildModelInfos(
+				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider } }],
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				1,
+				() => {}
+			);
+			const info = expectDefined(infos[0]);
+			for (const key of ["inputCost", "outputCost", "priceCategory", "pricing"] as const) {
+				assert.ok(!(key in info), `a stamped-everywhere merge must register with no ${key}`);
+			}
+			const declared = info.litellm.serverDeclared;
+			assert.ok(declared.kind === "discovered");
+			assert.ok(!("input_cost_per_token" in declared.values), "the baseline carries no cost the merge refused");
+			assert.ok(!("output_cost_per_token" in declared.values));
 		});
 
 		test("disjoint per-level reasoning flags collapse to no signal, never an empty menu", () => {

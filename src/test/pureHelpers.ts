@@ -91,8 +91,11 @@ export async function withFetch<T>(mock: FetchMock, fn: () => Promise<T>): Promi
 }
 
 export function makeModelInfo(overrides: Partial<PreAttachModelInfo> = {}): PreAttachModelInfo {
+	// The default raw-ID stamp follows the overridden exposed id: group mints
+	// register raw IDs, so the two agree for every non-synthetic entry.
+	const id = overrides.id ?? "test-model";
 	return {
-		id: "test-model",
+		id,
 		name: "test-model",
 		family: "litellm",
 		version: "1.0.0",
@@ -100,6 +103,7 @@ export function makeModelInfo(overrides: Partial<PreAttachModelInfo> = {}): PreA
 		maxOutputTokens: 8000,
 		capabilities: {},
 		litellm: {
+			rawModelId: id,
 			supportsPromptCaching: false,
 			outputLimitSource: "defaults",
 			serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
