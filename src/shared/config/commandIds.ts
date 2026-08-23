@@ -23,6 +23,13 @@ export const VENDOR_ID = "litellm";
 export const PARTICIPANT_ID = "litellm.participant";
 /** The languageModelTools contribution's name (the consult tool). */
 export const TOOL_NAME = "litellm_consult";
+/**
+ * The context key the consult tool's contribution gates on. The wiring sets it
+ * to whether the tool is REGISTERED - both the enable boolean and a model ref -
+ * so the agent's tool picker never advertises the half-configured state, where
+ * every call could only fail. A setting-only when-clause could not express that.
+ */
+export const CONSULT_TOOL_READY_CONTEXT_KEY = "litellm.consultToolReady";
 /** The mcpServerDefinitionProviders contribution's id. */
 export const MCP_PROVIDER_ID = "litellm.mcpServers";
 

@@ -1355,6 +1355,23 @@ suite("provider/transport/errorMapping", () => {
 				serverErrorDetail: "LiteLLM 500: upstream exploded",
 				phrase: "commit generation",
 			},
+			consultTool: {
+				join: "details",
+				timeout:
+					'The consulted model did not answer within 5000ms, so there is no second opinion. Increase the "litellm-vscode-chat.chat.timeout" setting if it needs more time.',
+				notFound:
+					"The server did not recognize this consultation request. Check that the configured consult tool model is one the server still serves.",
+				notFoundHint: undefined,
+				contextWindow:
+					"The question and its context are too long for the consulted model - ask with less context, or pick a consult tool model with a larger context window.",
+				dropped:
+					"The connection dropped before the reply arrived, so the consultation returned nothing. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+				droppedDetail: "Connection to http://litellm.test closed mid-response: terminated (cause: other side closed)",
+				serverError:
+					"The LiteLLM server hit an internal error - try again, and check the server's logs if it persists.",
+				serverErrorDetail: "LiteLLM 500: upstream exploded",
+				phrase: "consultation",
+			},
 		};
 
 		// Derived from the copy table, with the pin table's own keys pinned

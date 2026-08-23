@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
 	CMD,
+	CONSULT_TOOL_READY_CONTEXT_KEY,
 	generateCommitMessageCommandTitle,
 	INTERNAL_CMD,
 	MCP_PROVIDER_ID,
@@ -31,7 +32,16 @@ interface PackageJson {
 		readonly languageModelChatProviders: readonly [{ readonly vendor: string }];
 		readonly walkthroughs?: unknown;
 		readonly chatParticipants?: readonly { readonly id?: string }[];
-		readonly languageModelTools?: readonly { readonly name?: string }[];
+		readonly languageModelTools?: readonly {
+			readonly name?: string;
+			readonly toolReferenceName?: string;
+			readonly canBeReferencedInPrompt?: boolean;
+			readonly when?: string;
+			readonly inputSchema?: {
+				readonly properties?: Readonly<Record<string, unknown>>;
+				readonly required?: readonly string[];
+			};
+		}[];
 		readonly mcpServerDefinitionProviders?: readonly { readonly id?: string }[];
 	};
 }
@@ -160,6 +170,33 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 				assert.strictEqual(id, pin.constant, `${pin.section} must contribute exactly the shared constant`);
 			}
 		}
+	});
+
+	test("the consult tool contribution is gated on readiness, not on the enable setting alone", () => {
+		// The when-clause must express what REGISTRATION expresses - the enable
+		// boolean AND a model ref - so the agent's tool picker never advertises
+		// the half-configured state, where every call could only fail. A
+		// `config.` clause cannot say that, so the wiring publishes a context key
+		// and the manifest reads it; the two spellings live in one constant.
+		const [tool] = readPackageJson().contributes.languageModelTools ?? [];
+		assert.ok(tool !== undefined, "the consult tool is contributed");
+		assert.strictEqual(tool.when, CONSULT_TOOL_READY_CONTEXT_KEY);
+		assert.notStrictEqual(
+			tool.when,
+			`config.${CONFIG_SECTION}.consultTool.enabled`,
+			"the enable setting alone is not the gate"
+		);
+		assert.strictEqual(tool.canBeReferencedInPrompt, true, "the tool is #-referenceable in prompts");
+		assert.ok(
+			typeof tool.toolReferenceName === "string" && tool.toolReferenceName.length > 0,
+			"a #-referenceable tool needs its reference name"
+		);
+		// The schema is the model's whole contract with the core's input shape:
+		// the required question plus the optional context, and nothing else. It
+		// documents rather than enforces - the host forwards a missing required
+		// property as-is - so readConsultInput parses it again at invoke.
+		assert.deepStrictEqual(Object.keys(tool.inputSchema?.properties ?? {}).sort(), ["context", "question"]);
+		assert.deepStrictEqual(tool.inputSchema?.required, ["question"]);
 	});
 
 	test("walkthrough command: and onCommand: deep-links use registered command IDs", () => {

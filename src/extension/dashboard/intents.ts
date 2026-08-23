@@ -381,6 +381,51 @@ function entryHasLabel(entry: unknown, label: string): entry is Record<string, u
 }
 
 /**
+ * What a probe that answered NOTHING says, per feature. The probes run
+ * different wire paths, so the advice must name the right cause: an empty
+ * /completions answer is the classic symptom of a chat model configured where
+ * a fill-in-the-middle one belongs, while an empty /chat/completions answer is
+ * just a model that said nothing. Total over FeatureModelId by exhaustive
+ * switch - a new model-picking feature must choose which reading it gets.
+ */
+function probeEmptyAnswerText(feature: FeatureModelId): string {
+	switch (feature) {
+		case "inlineCompletions":
+			return l10n.t(
+				"The server answered without a completion. Check that the model is a text-completion (FIM) model served on /completions."
+			);
+		case "commitGeneration":
+		case "prGeneration":
+		case "consultTool":
+		case "quickFix":
+		case "reviewComments":
+			return l10n.t("The model answered with no text. Try again, or pick a different model.");
+	}
+}
+
+/**
+ * What a probe that DID answer says: the count and the vocabulary of what came
+ * back, never the text itself. Exhaustive like its sibling above, so a new
+ * model-picking feature has to choose its vocabulary rather than inherit one.
+ */
+function probeAnswerText(feature: FeatureModelId, characters: number): string {
+	switch (feature) {
+		case "inlineCompletions":
+			return characters === 1
+				? l10n.t("Completion received - 1 character")
+				: l10n.t("Completion received - {0} characters", characters);
+		case "commitGeneration":
+		case "prGeneration":
+		case "consultTool":
+		case "quickFix":
+		case "reviewComments":
+			return characters === 1
+				? l10n.t("Reply received - 1 character")
+				: l10n.t("Reply received - {0} characters", characters);
+	}
+}
+
+/**
  * One declared entry's inline secret values, for the edit form's on-demand
  * prefill (the readInlineSecrets request). The entry resolves through
  * acceptedEntry and must still match the DISPLAYED identity the form sends:
@@ -686,17 +731,10 @@ export async function executeDashboardIntent(
 				throw error;
 			}
 			if (text === undefined || text === "") {
-				// Counts and classifications only: never a completion's text.
-				return {
-					message: l10n.t(
-						"The server answered without a completion. Check that the model is a text-completion (FIM) model served on /completions."
-					),
-					tone: "warning",
-				};
+				// Counts and classifications only: never a probe's reply text.
+				return { message: probeEmptyAnswerText(intent.payload.feature), tone: "warning" };
 			}
-			return text.length === 1
-				? l10n.t("Completion received - 1 character")
-				: l10n.t("Completion received - {0} characters", text.length);
+			return probeAnswerText(intent.payload.feature, text.length);
 		}
 		case "removeServerSetting": {
 			const entries = rawServerEntries(env.readServersSetting());

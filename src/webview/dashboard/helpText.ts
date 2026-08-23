@@ -338,6 +338,7 @@ export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)
 	"models.openRouterCatalog",
 	"inlineCompletions.enabled",
 	"commitGeneration.enabled",
+	"consultTool.enabled",
 	"chatParticipant.enabled",
 ];
 
@@ -392,6 +393,12 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 		case "commitGeneration.enabled":
 			return l10n.t(
 				"Generating sends the diff, untracked file names, and your last five commit subjects to your LiteLLM server."
+			);
+		case "consultTool.enabled":
+			// The description states both gates; the tip carries the fact the
+			// description no longer spells out - WHO decides, and what leaves.
+			return l10n.t(
+				"The agent decides when to consult, sending the question and background it writes to your LiteLLM server."
 			);
 		case "chatParticipant.enabled":
 			// Its own row has no model picker, so the tip carries the one fact that

@@ -32,7 +32,7 @@ export const COMMIT_GENERATION_PROMPT_SETTING_KEY = "commitGeneration.prompt";
 /**
  * The features that pick their model through an explicit `<feature>.model`
  * setting. Every one is opt-in and fail-closed: the enabled boolean without a
- * model ref keeps the feature inert. prGeneration, consultTool, quickFix, and
+ * model ref keeps the feature inert. prGeneration, quickFix, and
  * reviewComments are registered vocabulary ahead of their features shipping -
  * their settings exist and persist, and nothing consumes them yet.
  */
@@ -224,16 +224,17 @@ export const BOOLEAN_SETTING_SPECS = {
 	"ui.maskSecretInputs": { default: true },
 	// The model-picking features are opt-in by contract: disabled means zero
 	// registration and zero traffic, and enabling without a model ref stays
-	// inert. The last four are registered vocabulary for features that have not
-	// shipped yet (the settings persist; nothing consumes them).
+	// inert. prGeneration, quickFix and reviewComments are registered
+	// vocabulary for features that have not shipped yet (the settings persist;
+	// nothing consumes them).
 	"inlineCompletions.enabled": { default: false },
 	"commitGeneration.enabled": { default: false },
 	"prGeneration.enabled": { default: false },
 	"consultTool.enabled": { default: false },
 	"quickFix.enabled": { default: false },
 	"reviewComments.enabled": { default: false },
-	// The participant is on by default (it costs nothing until invoked and uses
-	// the chat request's own model); inert until the feature ships.
+	// The participant is on by default: it costs nothing until invoked and uses
+	// the chat request's own model, so it has no model key.
 	"chatParticipant.enabled": { default: true },
 } as const satisfies Record<string, BooleanSettingValueSpec>;
 

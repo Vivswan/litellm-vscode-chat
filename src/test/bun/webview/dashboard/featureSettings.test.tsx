@@ -471,11 +471,12 @@ test("every FeatureId renders its section in registry order, enable rows include
 	expect(root.querySelector("#setting-chatParticipant\\.model")).toBeNull();
 	// Which sections still wear the badge, BY NAME rather than by count: a
 	// shipped feature that kept it, or a section that lost it before its wiring
-	// landed, both name themselves here instead of moving a number.
+	// landed, both name themselves here instead of moving a number. The consult
+	// tool is absent because its wiring ships in this change.
 	const marked = [...root.querySelectorAll(".settings-group-head")]
 		.filter((head) => head.querySelector('[data-slot="badge"]')?.textContent === "Coming soon")
 		.map((head) => head.querySelector(".settings-group-title")?.textContent);
-	expect(marked).toEqual(["PR description generation", "Consult tool", "Quick fixes", "Review comments"]);
+	expect(marked).toEqual(["PR description generation", "Quick fixes", "Review comments"]);
 	// The consequence is said ONCE for the page, not once per section: headings
 	// each wearing the same sentence was the defect this replaced.
 	const hints = [...root.querySelectorAll("p.hint")].filter((hint) => (hint.textContent ?? "").includes("Coming soon"));

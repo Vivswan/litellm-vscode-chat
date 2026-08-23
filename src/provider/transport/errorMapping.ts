@@ -90,7 +90,7 @@ export class RequestError extends MirroredError {
  * until its copy exists, and the per-surface test suites derive their lists
  * from the table's keys.
  */
-export type TransportErrorSurface = "chat" | "discovery" | "completion" | "commitGeneration";
+export type TransportErrorSurface = "chat" | "discovery" | "completion" | "commitGeneration" | "consultTool";
 
 export interface MapErrorContext {
 	/**
@@ -100,7 +100,9 @@ export interface MapErrorContext {
 	 * dashboard splits on). "commitGeneration" is the commit-message
 	 * /chat/completions call, surfaced as a VS Code notification by its command
 	 * boundary - notifications flatten newlines, so it joins chat-style with
-	 * the "Details:" lead-in.
+	 * the "Details:" lead-in. "consultTool" is the consult tool's
+	 * /chat/completions call: its failure is thrown back into the chat view
+	 * that invoked the tool, so it joins chat-style too.
 	 */
 	surface: TransportErrorSurface;
 	baseUrl: string;
@@ -697,6 +699,55 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			detail: midResponseDroppedDetail,
 		},
 		phrase: "commit generation",
+	},
+	consultTool: {
+		join: "detailsLeadIn",
+		httpVocabulary: "request",
+		// The consultation runs under the chat timeout setting, so that IS the
+		// bound to raise - only the wording names the consulted model.
+		timeout: (timeoutMs) => ({
+			display: l10n.t(
+				'The consulted model did not answer within {0}ms, so there is no second opinion. Increase the "{1}.chat.timeout" setting if it needs more time.',
+				timeoutMs,
+				CONFIG_SECTION
+			),
+			english: `The consulted model did not answer within ${timeoutMs}ms, so there is no second opinion. Increase the "${CONFIG_SECTION}.chat.timeout" setting if it needs more time.`,
+		}),
+		notFound: {
+			// Sync Models refreshes the chat catalog, which the consult tool's
+			// model setting never reads - the advice is the setting itself.
+			headline: () => ({
+				display: l10n.t(
+					"The server did not recognize this consultation request. Check that the configured consult tool model is one the server still serves."
+				),
+				english:
+					"The server did not recognize this consultation request. Check that the configured consult tool model is one the server still serves.",
+			}),
+			detail: standardNotFoundDetail,
+		},
+		// The tool is called by another model mid-task: there is no conversation
+		// of the user's to trim and no new chat to start, only the question and
+		// the context the caller passed.
+		contextWindow: () => ({
+			display: l10n.t(
+				"The question and its context are too long for the consulted model - ask with less context, or pick a consult tool model with a larger context window."
+			),
+			english:
+				"The question and its context are too long for the consulted model - ask with less context, or pick a consult tool model with a larger context window.",
+		}),
+		dropped: {
+			// The consultation is non-streaming, so a dropped connection leaves no
+			// cut-short answer - nothing came back at all.
+			headline: () => ({
+				display: l10n.t(
+					"The connection dropped before the reply arrived, so the consultation returned nothing. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
+				),
+				english:
+					"The connection dropped before the reply arrived, so the consultation returned nothing. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+			}),
+			detail: midResponseDroppedDetail,
+		},
+		phrase: "consultation",
 	},
 };
 

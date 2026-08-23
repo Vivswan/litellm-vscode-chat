@@ -651,7 +651,9 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 		case "consultTool.enabled":
 			return {
 				label: l10n.t("Enable the consult tool"),
-				description: l10n.t("Lets a chat agent ask a second LiteLLM model through a tool call."),
+				description: l10n.t(
+					"Lets a chat agent ask a second LiteLLM model for another opinion. Requires enabling this and choosing a model below."
+				),
 			};
 		case "quickFix.enabled":
 			return {

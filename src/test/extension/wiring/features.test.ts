@@ -63,7 +63,7 @@ async function withCommandSpy<T>(fn: (commandIds: string[]) => T | Promise<T>): 
 }
 
 suite("extension/wiring features", () => {
-	test("wireFeatures wires every feature and registers exactly the inline probe", async () => {
+	test("wireFeatures wires every feature and registers exactly the shipped probes", async () => {
 		await withCommandSpy(async (commandIds) => {
 			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
 			const { featureProbes } = wireFeatures(fakeContext(), quietLogger(), {
@@ -71,9 +71,10 @@ suite("extension/wiring features", () => {
 				outputChannel,
 				getSnapshots: () => [],
 			});
-			// Both features' wirings ran: the inline toggle command and the commit
-			// command are their observable registrations (the inline provider
-			// itself is enablement-gated and covered by its own wiring suite).
+			// Every feature's wiring ran: the inline toggle command and the commit
+			// command are their observable registrations (the inline provider and
+			// the consult tool are enablement-gated and covered by their own
+			// wiring suites; with the defaults both stay unregistered here).
 			assert.ok(
 				commandIds.includes(INTERNAL_CMD.toggleInlineCompletionsLanguage),
 				"the inline feature wiring did not run"
@@ -82,8 +83,9 @@ suite("extension/wiring features", () => {
 			// The probe registry: exactly the features whose model rows carry a
 			// Test button. A key added here must come with a real probe; a key
 			// dropped here silently removes the button.
-			assert.deepStrictEqual(Object.keys(featureProbes).sort(), ["inlineCompletions"]);
+			assert.deepStrictEqual(Object.keys(featureProbes).sort(), ["consultTool", "inlineCompletions"]);
 			assert.strictEqual(typeof featureProbes.inlineCompletions, "function");
+			assert.strictEqual(typeof featureProbes.consultTool, "function");
 		});
 	});
 

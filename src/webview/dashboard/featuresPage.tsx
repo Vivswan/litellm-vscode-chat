@@ -656,7 +656,7 @@ interface FeatureTailContext {
  * fails compilation until it declares its section here, which is what makes a
  * feature a table-row addition instead of a page edit.
  */
-const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } = {
+export const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } = {
 	inlineCompletions: {
 		shipped: true,
 		tail: {
@@ -696,7 +696,7 @@ const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } = {
 		},
 	},
 	prGeneration: { shipped: false },
-	consultTool: { shipped: false },
+	consultTool: { shipped: true },
 	quickFix: { shipped: false },
 	reviewComments: { shipped: false },
 	chatParticipant: { shipped: true },

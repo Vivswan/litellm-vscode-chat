@@ -2,7 +2,7 @@
 
 English | [简体中文](zh-cn/getting-started.md) | [繁體中文](zh-tw/getting-started.md)
 
-Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you seven short recipes for the most common next steps.
+Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you nine short recipes for the most common next steps.
 
 ## Requirements
 
@@ -55,7 +55,7 @@ The LiteLLM status bar item (bottom right) shows the connection state at a glanc
 
 ## Where to next
 
-Seven recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
+Nine recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
 
 ### Correct a capability the server reports wrong
 
@@ -181,6 +181,25 @@ Three slash commands come with it. `/tests` and `/docs` put a fixed instruction 
 Whatever you attach comes with it: the editor selection, the file you have open, and every `#file:` you add are read and sent below your text, so "write tests for this" means the code in front of you. Attachments are capped at 40,000 characters in total, and anything cut or left out is labeled as such rather than passed off as whole.
 
 Asking with an empty prompt lists the commands instead of sending an empty request - an open file alone is not a question. Earlier turns ride along as context up to 80,000 characters, with the oldest messages dropping off first, so a long thread stays bounded and no single message is ever cut mid-sentence.
+
+### Let an agent ask a second model
+
+Copilot's agent mode works through tools, and this one hands the agent a second opinion: a model on your own proxy that it can put a question to mid-task. Useful when you want a different model to sanity-check a plan, a diagnosis, or an argument you are not sure about. Two settings turn it on, the same shape as the recipes above:
+
+```jsonc
+"litellm-vscode-chat.consultTool.enabled": true,
+"litellm-vscode-chat.consultTool.model": { "server": "local", "model": "gpt-4o-mini" }
+```
+
+Both halves are required. With the switch on but no model picked, nothing registers and agents never see the tool at all. Once both are set, "Consult a LiteLLM model" joins the tool list in agent mode, and you can also aim a single prompt at it with `#litellmConsult`.
+
+**The agent decides when to call it**, which is the part to weigh before enabling. That is what makes it a tool rather than a command: once it is on, the agent may consult on its own initiative, sending whatever question and background it judges the other model needs. The tool itself is read-only - it asks a model and hands the answer back as text, and cannot read files, run commands, or change anything - but the text it sends is the agent's choice, not yours.
+
+Nothing is attached automatically. The consulted model gets only what the agent writes into the call - the question and an optional `context` - never your chat history, your open files, or your workspace as such. Read that precisely: the agent is *told* to put the relevant code, errors, and background into `context`, so material it has read from your workspace can end up there. What reaches the other model is whatever the agent chose to type, and nothing else.
+
+The outgoing prompt is capped at 60,000 characters, a fixed limit like the commit recipe's diff cap; past it the context is trimmed first, with a marker so the consulted model knows material was cut, and the question is only shortened once the context is gone. Coming back, the reply is fitted to whatever token budget the calling model advertised, again with a marker. The request runs under the same `chat.timeout` setting as chat and sends no `max_tokens`, so the consulted model's own default bounds the answer.
+
+Privacy is the same trust boundary as chat - your own server, no third party - but, like inline completions, without a per-request action from you, and with the agent rather than you choosing what to send, which is why this ships off and takes an explicit model. The question and context the agent writes go to the LiteLLM server you named for the tool, and the requests count toward the same [usage and spend tracking and budget alerts](usage.md) as everything else. The dashboard's "Test model" button is the one exception: it sends a single fixed question on your click, never anything of yours.
 
 ## Commands
 

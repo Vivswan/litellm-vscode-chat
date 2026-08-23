@@ -21,6 +21,7 @@ The extension connects GitHub Copilot Chat to any number of LiteLLM servers: the
 | Generate commit messages with a LiteLLM model of my choice | [Getting started: the commit message recipe](getting-started.md#generate-commit-messages-with-your-own-model) |
 | Get ghost-text completions in the editor from one of my own models | [Getting started: the inline completions recipe](getting-started.md#get-inline-completions-from-a-litellm-model) |
 | Ask a question in chat and have one of my own models answer | [Getting started: the @litellm chat recipe](getting-started.md#chat-with-litellm) |
+| Let a chat agent ask one of my models for a second opinion | [Getting started: the consult tool recipe](getting-started.md#let-an-agent-ask-a-second-model) |
 | Set a spending budget and get warned before it runs out | [Usage: budgets](usage.md#budgets) and [alerts](usage.md#alerts) |
 | See why a model's parameter or capability has the value it has | [Models: the inspectors](models.md#inspectors) |
 | Figure out why something is red or yellow in the status bar | [Troubleshooting: status bar](troubleshooting.md#status-bar) |
@@ -33,7 +34,7 @@ The extension connects GitHub Copilot Chat to any number of LiteLLM servers: the
 
 In reading order:
 
-1. [Getting started](getting-started.md) - install, the first server, the first chat, and eight short recipes for the most common next steps.
+1. [Getting started](getting-started.md) - install, the first server, the first chat, and nine short recipes for the most common next steps.
 2. [Servers](servers.md) - the `servers` setting in full: entry fields, the three auth forms, secret storage, per-server model configuration, the sync lifecycle, adoption, and Settings Sync.
 3. [Models](models.md) - how models appear in the picker, matcher keys and inheritance, capabilities, parameters, the per-model picker configuration, and the effective-values inspectors.
 4. [Usage](usage.md) - spend and budget tracking: where budgets come from, alerts, the status bar item, and the dashboard's usage panel.

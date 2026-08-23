@@ -3,6 +3,7 @@ import { OneShotClient } from "../../provider/transport/oneShotClient";
 import type { Logger } from "../../shared/logger";
 import type { FeatureProbes } from "../dashboard/intents";
 import { wireCommitGeneration } from "../features/commitGen/wiring";
+import { createConsultProbe, wireConsultTool } from "../features/consultTool/wiring";
 import { createFimProbe, wireInlineCompletions } from "../features/inline/wiring";
 import type { SnapshotSource } from "../features/participant/snapshots";
 import type { ChatParticipantWiring } from "../features/participant/wiring";
@@ -27,9 +28,16 @@ export function wireFeatures(
 	const oneShot = new OneShotClient({ userAgent: deps.ua });
 	const inline = wireInlineCompletions(context, logger, { oneShot });
 	wireCommitGeneration(context, logger, { oneShot, outputChannel: deps.outputChannel });
+	const consult = wireConsultTool(context, logger, { oneShot });
 	// Surfaced rather than consumed here: the quick-fix feature registers /fix
 	// and /explain through this seam when it lands (a declared cross-feature
 	// edit; features may not import each other, so the seam is the only route).
 	const chatParticipant = wireChatParticipant(context, logger, { getSnapshots: deps.getSnapshots });
-	return { featureProbes: { inlineCompletions: createFimProbe(inline.fimSend) }, chatParticipant };
+	return {
+		featureProbes: {
+			inlineCompletions: createFimProbe(inline.fimSend),
+			consultTool: createConsultProbe(consult.consultSend),
+		},
+		chatParticipant,
+	};
 }

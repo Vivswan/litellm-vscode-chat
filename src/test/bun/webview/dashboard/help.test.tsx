@@ -7,8 +7,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { SERVER_FORM_FIELD_ORDER } from "../../../../dashboard/serverForm";
 import type { DashboardSectionId } from "../../../../dashboard/viewModels";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
+import { FEATURE_ENABLE_SETTING_KEYS, FEATURE_IDS } from "../../../../shared/config/settingSpec";
 import { DEFAULT_API_VERSION } from "../../../../shared/util/baseUrl";
 import { App } from "../../../../webview/dashboard/app";
+import { FEATURE_REGISTRY } from "../../../../webview/dashboard/featuresPage";
 import { Help } from "../../../../webview/dashboard/help";
 import * as helpText from "../../../../webview/dashboard/helpText";
 import {
@@ -81,6 +83,21 @@ test("SETTING_ROW_HELP_IDS names exactly the settings whose settingRowHelp answe
 	expect([...SETTING_ROW_HELP_IDS]).toEqual(
 		[...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].filter((id) => settingRowHelp(id) !== undefined)
 	);
+});
+
+test("every SHIPPED feature's enable row carries help, derived from the registry", () => {
+	// The pin above ties the id list to the switch, so a feature left out of
+	// BOTH still passes - which is exactly how the consult tool shipped without
+	// the "?" its three shipped siblings carry. This derives the obligation
+	// from FEATURE_REGISTRY instead: shipping is what makes the tip owed, so
+	// the NEXT feature cannot repeat the miss by simply going unmentioned here.
+	const shipped = FEATURE_IDS.filter((feature) => FEATURE_REGISTRY[feature].shipped);
+	expect(shipped.length).toBeGreaterThan(0);
+	for (const feature of shipped) {
+		const id = FEATURE_ENABLE_SETTING_KEYS[feature];
+		expect(SETTING_ROW_HELP_IDS, `${feature} ships but its enable row is not in SETTING_ROW_HELP_IDS`).toContain(id);
+		expect(settingRowHelp(id), `${feature} ships but settingRowHelp answers nothing for ${id}`).toBeTruthy();
+	}
 });
 
 test("every help string is short, printable ASCII, and free of template interpolation", () => {

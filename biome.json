@@ -136,6 +136,46 @@
 			}
 		},
 		{
+			"includes": ["src/extension/features/commitGen/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/consultTool/**", "**/inline/**", "**/participant/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/consultTool/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/commitGen/**", "**/inline/**", "**/participant/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
 			"includes": ["src/extension/features/inline/**"],
 			"linter": {
 				"rules": {
@@ -145,7 +185,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/commitGen/**", "**/participant/**"],
+										"group": ["**/commitGen/**", "**/consultTool/**", "**/participant/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
 									}
 								]
@@ -165,27 +205,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/extension/features/commitGen/**"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["**/inline/**", "**/participant/**"],
+										"group": ["**/commitGen/**", "**/consultTool/**", "**/inline/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
 									}
 								]

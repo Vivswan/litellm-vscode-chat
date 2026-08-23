@@ -213,6 +213,34 @@
 				]
 			}
 		],
+		"languageModelTools": [
+			{
+				"name": "litellm_consult",
+				"toolReferenceName": "litellmConsult",
+				"displayName": "%litellm.tool.consult.displayName%",
+				"userDescription": "%litellm.tool.consult.userDescription%",
+				"modelDescription": "Ask a second, independently configured LiteLLM model for its opinion, and get its answer back as text. Reach for it when you want a second opinion before committing to an approach, when you want a plan, a diagnosis or a piece of reasoning sanity-checked, or when a model with different strengths than yours is likely to know better. The other model sees NOTHING of this conversation: send a question that stands on its own, and put the code, errors, or background it needs into 'context'. It only answers - it cannot read files, run commands, or change anything - so act on its answer yourself, and treat it as one opinion rather than as fact.",
+				"canBeReferencedInPrompt": true,
+				"icon": "$(comment-discussion)",
+				"when": "litellm.consultToolReady",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"question": {
+							"type": "string",
+							"description": "The self-contained question to ask. State what you want to know and what a useful answer would look like; the other model sees only this and 'context'."
+						},
+						"context": {
+							"type": "string",
+							"description": "Optional background the question depends on: the relevant code, an error message, the constraints, what you already tried. Include what a colleague would need to answer without asking follow-up questions."
+						}
+					},
+					"required": [
+						"question"
+					]
+				}
+			}
+		],
 		"commands": [
 			{
 				"command": "litellm.manage",

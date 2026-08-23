@@ -70,7 +70,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.commitGeneration.prompt` | `""` | 生成提交消息时使用的自定义指令, 会整体替换内置指令。留空使用内置指令 (Conventional Commits 主题行加简短正文)。面向模型的文本, 按原样发送 |
 | `litellm-vscode-chat.prGeneration.enabled` | `false` | 选择启用由 LiteLLM 模型生成 PR 标题和描述。先于功能注册: 设置会保留, 待功能发布后生效 |
 | `litellm-vscode-chat.prGeneration.model` | `null` | 起草 PR 描述的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
-| `litellm-vscode-chat.consultTool.enabled` | `false` | 选择启用咨询工具 (聊天代理向另一个 LiteLLM 模型提问)。先于功能注册: 设置会保留, 待功能发布后生效 |
+| `litellm-vscode-chat.consultTool.enabled` | `false` | 选择启用咨询工具, 它让聊天代理向第二个 LiteLLM 模型征求意见。默认关闭: 启用前不会注册任何内容, 也不会发送任何请求; 启用但未设置 `consultTool.model` 时, 工具保持未注册。两者都设置后, 代理会自行决定何时调用 |
 | `litellm-vscode-chat.consultTool.model` | `null` | 咨询工具询问的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
 | `litellm-vscode-chat.quickFix.enabled` | `false` | 选择启用针对诊断的修复/解释快速修复。先于功能注册: 设置会保留, 待功能发布后生效 |
 | `litellm-vscode-chat.quickFix.model` | `null` | 快速修复后备路径使用的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |

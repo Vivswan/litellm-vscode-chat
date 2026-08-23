@@ -45,6 +45,21 @@ function auth401(body: unknown): AuthenticationError {
 	return new AuthenticationError(401, body as Record<string, unknown> | undefined, undefined, new Headers());
 }
 
+/**
+ * How a surface joins headline and detail, DERIVED from twoPartTexts itself
+ * rather than listed here: the copy table owns that choice per surface, and a
+ * list in this file would silently mis-assert the day a surface is added. The
+ * exact per-surface texts are pinned by equality in errorMapping.test.ts,
+ * whose pin table is fail-closed over the same surface union.
+ */
+function joinDetail(surface: MapErrorContext["surface"], headline: string, detail: string): string {
+	if (detail === "") {
+		return headline;
+	}
+	const probe = twoPartTexts(surface, { display: "H", english: "H" }, "D");
+	return probe.message === "H\n\nDetails: D" ? `${headline}\n\nDetails: ${detail}` : `${headline}\n${detail}`;
+}
+
 interface Auth401Case {
 	body: unknown;
 	marker: string;
@@ -181,30 +196,21 @@ suite("provider/errorMapping properties", () => {
 					assert.strictEqual(mapped.kind, status === 401 ? "auth" : "http");
 					assert.notStrictEqual(mapped.kind, "network", "a status-bearing error must never classify as network");
 					if (status === 404) {
-						// 404 has its own guidance branch per surface: chat leads with the
-						// removed-model advice, discovery with the base-URL advice that
-						// docs/troubleshooting.md quotes, and the one-shot surfaces with
-						// their own model-setting advice.
-						const prefix =
-							ctx.surface === "chat"
-								? "The server did not recognize this request"
-								: ctx.surface === "completion"
-									? "The server did not recognize this completion request"
-									: ctx.surface === "commitGeneration"
-										? "The server did not recognize this commit message request"
-										: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404`;
-						assert.ok(mapped.message.startsWith(prefix), mapped.message);
+						// 404 carries per-surface guidance (pinned exactly, per surface,
+						// in errorMapping.test.ts); what is invariant here is that the
+						// base-URL advice is claimed for discovery ALONE - on every other
+						// surface a 404 usually means the model went away, so
+						// "check the base URL" would be wrong advice for a healthy server.
 						assert.strictEqual(mapped.setupHint, ctx.surface === "discovery" ? "check-base-url" : undefined);
+						assert.strictEqual(mapped.logClassification, `RequestError(http, status 404, ${ctx.surface})`);
 					} else if (status !== 401) {
 						// Two-part shape: a headline, then one compact detail line keeping
-						// the status greppable, never a re-serialized envelope. The
-						// newline-flattened surfaces (chat's error block, the commit
-						// notification) separate the parts with a blank line and
-						// "Details:"; discovery and completion keep the single newline
-						// the dashboard splits on.
+						// the status greppable, never a re-serialized envelope. Which join
+						// a surface uses is the copy table's own choice, so it is derived
+						// rather than listed (see joinDetail).
 						const lines = mapped.message.split("\n");
 						let detail: string;
-						if (ctx.surface === "chat" || ctx.surface === "commitGeneration") {
+						if (joinDetail(ctx.surface, "H", "D") === "H\n\nDetails: D") {
 							assert.strictEqual(lines.length, 3, mapped.message);
 							assert.strictEqual(lines[1], "", mapped.message);
 							const lead = lines[2] ?? "";
@@ -242,14 +248,8 @@ suite("provider/errorMapping properties", () => {
 				fc.string(),
 				(surface, display, english, detail) => {
 					const texts = twoPartTexts(surface, { display, english }, detail);
-					const join = (headline: string) =>
-						detail === ""
-							? headline
-							: surface === "chat" || surface === "commitGeneration"
-								? `${headline}\n\nDetails: ${detail}`
-								: `${headline}\n${detail}`;
-					assert.strictEqual(texts.message, join(display));
-					assert.strictEqual(texts.englishMessage, join(english));
+					assert.strictEqual(texts.message, joinDetail(surface, display, detail));
+					assert.strictEqual(texts.englishMessage, joinDetail(surface, english, detail));
 				}
 			),
 			{ numRuns: NUM_RUNS, seed: SEED }
