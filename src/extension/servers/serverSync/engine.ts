@@ -10,24 +10,22 @@ import type * as vscode from "vscode";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
 import type {
-	ExpectedFailureCategory,
-	McpOptIn,
+	EntryViewFields,
 	NonSecretOptionalFields,
 	SecretFieldId,
 	SecretLocation,
 } from "../../../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields } from "../../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS, pickEntryViewFields, pickNonSecretOptionalFields } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { fingerprint } from "../../../shared/util/fingerprint";
-import { isUnsafeRecordKey } from "../../../shared/util/json";
 import type { StoredSecretsRecord, StoredServerSecrets } from "./secrets";
 import { inlineSecretValues, resolveOwnedSecrets, secretLocations } from "./secrets";
-import type { DeclaredServer, EntryModelCapabilities, EntryModelParameters } from "./setting";
+import type { DeclaredServer } from "./setting";
 import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "./setting";
 
 /**
- * Which failure class produced a view's syncError. "upsertFailed": the add
+ * Which failure class produced a view's syncFailure. "upsertFailed": the add
  * failed outright (non-duplicate), so no live group was created for the entry's
  * configuration. "blocked": a group with the name exists and the host refused
  * the duplicate. The three skip classes say WHY the pass left the entry alone,
@@ -44,30 +42,22 @@ import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "./setting";
  */
 type SyncErrorClass = "upsertFailed" | "blocked" | "secretsUnreadable" | "secretsMismatched" | "saltUnavailable";
 
+/**
+ * One entry's sync failure: the class and its classified user-facing message,
+ * one value so a class without a message (or the reverse) is unrepresentable.
+ * Constructed only by syncFailureOf, which derives the message from the class,
+ * so a mispaired class/message cannot be built either.
+ */
+export interface SyncFailure {
+	readonly class: SyncErrorClass;
+	readonly message: string;
+}
+
 /** The non-secret view of a declared server the dashboard renders; secret values stay out. */
-export interface DeclaredServerView extends NonSecretOptionalFields {
+export interface DeclaredServerView extends NonSecretOptionalFields, EntryViewFields {
 	readonly label: string;
 	readonly baseUrl: string;
-	/**
-	 * The entry's apiVersion override; the edit form's prefill. "" is a real
-	 * value (append nothing to the base URL), distinct from absent (auto-detect).
-	 */
-	readonly apiVersion?: string | undefined;
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
-	/** The entry's custom HTTP headers (non-secret user configuration); the edit form's prefill. */
-	readonly headers?: Readonly<Record<string, string>> | undefined;
-	/** The entry's per-entry models.parameters record (non-secret user configuration); the edit form's prefill. */
-	readonly modelParameters?: EntryModelParameters | undefined;
-	/** The entry's per-entry models.capabilities record (non-secret user configuration); the edit form's prefill. */
-	readonly modelCapabilities?: EntryModelCapabilities | undefined;
-	/** The discovery-failure categories the entry expects; non-secret, like the records above. */
-	readonly expectedFailures?: readonly ExpectedFailureCategory[] | undefined;
-	/** The entry's discovery.declared model IDs; non-secret, like the records above. */
-	readonly declaredModels?: readonly string[] | undefined;
-	/** The entry's manual usage budget in USD (non-secret user configuration); the usage surfaces read it. */
-	readonly budget?: number | undefined;
-	/** The entry's MCP opt-in, when it carries one; the MCP publisher and the edit form's prefill read it. */
-	readonly mcp?: McpOptIn | undefined;
 	/**
 	 * The group client ID the entry's resolved configuration produces: the same
 	 * identity the provider stamps on its status snapshots, so the dashboard can
@@ -86,10 +76,8 @@ export interface DeclaredServerView extends NonSecretOptionalFields {
 	 * non-secret handling rules as expectedClientId.
 	 */
 	readonly expectedConnectionId?: string | undefined;
-	/** The label's last upsert failure, cleared by the next success. */
-	readonly syncError?: string | undefined;
-	/** The failure class behind syncError; always set together with it. */
-	readonly syncErrorClass?: SyncErrorClass | undefined;
+	/** The label's last sync failure, cleared by the next success. */
+	readonly syncFailure?: SyncFailure | undefined;
 }
 
 /** One identity the setting currently declares: the entry label and its normalized base URL. */
@@ -131,7 +119,9 @@ export interface ServerSyncEnv {
 	 * map (see ServerSyncEngine.fingerprints), and re-read per entry
 	 * presence-only - as positive confirmation on the duplicate-rejection path,
 	 * and as the preservation fallback when a pass leaves an entry unsynced (see
-	 * carryLastGood).
+	 * carryLastGood). Implementations validate at the read boundary: a returned
+	 * map never carries a reserved (prototype-mutating) key or a non-string
+	 * value, so the engine can assign its labels into plain records unguarded.
 	 */
 	getFingerprints(): Readonly<Record<string, string>>;
 	setFingerprints(map: Readonly<Record<string, string>>): Promise<void>;
@@ -141,9 +131,10 @@ export interface ServerSyncEnv {
 	 * group pointed at, so it is what a removal's tombstone stands on. Like the
 	 * fingerprints it is subject to stale storage reads, so the engine seeds a
 	 * session copy from the first read and treats later reads as presence-only
-	 * gap fillers (see ServerSyncEngine.ledger). Unlike the fingerprints it
-	 * carries no credential material and no salt dependence, so writes go out
-	 * unguarded.
+	 * gap fillers (see ServerSyncEngine.ledger), and its reads carry the same
+	 * boundary validation (no reserved keys, no non-string values). Unlike the
+	 * fingerprints it carries no credential material and no salt dependence, so
+	 * writes go out unguarded.
 	 */
 	getEntryBaseUrls(): Readonly<Record<string, string>>;
 	setEntryBaseUrls(map: Readonly<Record<string, string>>): Promise<void>;
@@ -253,6 +244,22 @@ export const SECRET_OWNERSHIP_MISMATCH_MESSAGE =
  */
 export const SALT_UNAVAILABLE_MESSAGE =
 	"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session.";
+
+/**
+ * The one SyncFailure constructor: the message derives from the class, so the
+ * pairing is right by construction at every producer site. The total Record
+ * makes a new class a compile error until it names its message.
+ */
+function syncFailureOf(failureClass: SyncErrorClass): SyncFailure {
+	const messages: Readonly<Record<SyncErrorClass, string>> = {
+		upsertFailed: GROUP_UPSERT_FAILED_MESSAGE,
+		blocked: GROUP_UPDATE_UNAVAILABLE_MESSAGE,
+		secretsUnreadable: SECRETS_READ_FAILED_MESSAGE,
+		secretsMismatched: SECRET_OWNERSHIP_MISMATCH_MESSAGE,
+		saltUnavailable: SALT_UNAVAILABLE_MESSAGE,
+	};
+	return { class: failureClass, message: messages[failureClass] };
+}
 
 /**
  * Whether the host refused the add because a group with that name already
@@ -547,12 +554,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 			let stored: StoredServerSecrets = {};
 			let refusedFields: readonly SecretFieldId[] = [];
 			let secretsUnreadable = false;
-			// The entry's user-facing message for THIS pass: exactly one branch
+			// The entry's user-facing failure for THIS pass: exactly one branch
 			// below decides it, and only this iteration's view reads it. What
-			// survives between passes is the retry state, which the message is
+			// survives between passes is the retry state, which the failure is
 			// recomputed from.
-			let syncError: string | undefined;
-			let syncErrorClass: SyncErrorClass | undefined;
+			let syncFailure: SyncFailure | undefined;
 			try {
 				// The ownership check runs at the read boundary, before any branch
 				// (a forced pass included): a stored value stamped for a different
@@ -568,8 +574,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// renders the classified error and degrades the secret locations to
 				// the inline-only reading.
 				secretsUnreadable = true;
-				syncError = SECRETS_READ_FAILED_MESSAGE;
-				syncErrorClass = "secretsUnreadable";
+				syncFailure = syncFailureOf("secretsUnreadable");
 				this.env.log("Reading a server entry's stored secrets failed", {
 					label: entry.label,
 					error: errorLabel(error),
@@ -593,8 +598,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// forced passes too - an activation force-sync is exactly where a
 				// delete-failure residual would otherwise pair a surviving blob
 				// with a re-declared label at another host.
-				syncError = SECRET_OWNERSHIP_MISMATCH_MESSAGE;
-				syncErrorClass = "secretsMismatched";
+				syncFailure = syncFailureOf("secretsMismatched");
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 				this.env.log("A stored secret is stamped for a different destination; entry not synced", {
 					label: entry.label,
@@ -606,8 +610,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// later session, so no group may be added on their account and no
 				// record may change; last-known-good carries and the next session,
 				// keyed by the stored salt, syncs normally.
-				syncError = SALT_UNAVAILABLE_MESSAGE;
-				syncErrorClass = "saltUnavailable";
+				syncFailure = syncFailureOf("saltUnavailable");
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else if (
 				!force &&
@@ -627,16 +630,14 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// and offers no update path; retrying without a user gesture would
 				// just hammer the command. The last-known-good fingerprint is
 				// carried so a later revert of the entry can still match it.
-				syncError = GROUP_UPDATE_UNAVAILABLE_MESSAGE;
-				syncErrorClass = "blocked";
+				syncFailure = syncFailureOf("blocked");
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else if (!(await this.confirmSaltDurable())) {
 				// Re-confirmed immediately before the irreversible host call, not
 				// just at pass start: a store mutation mid-pass must stop further
 				// adds, because a group created now could only be proven by a
 				// fingerprint no later session can recompute.
-				syncError = SALT_UNAVAILABLE_MESSAGE;
-				syncErrorClass = "saltUnavailable";
+				syncFailure = syncFailureOf("saltUnavailable");
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else if (!(await this.entryStillCurrent(entry.label, printed))) {
 				// Re-read immediately before the irreversible add, for the same
@@ -708,8 +709,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 							// stale group natively.
 							this.carryLastGood(entry.label, previous, next, storeRecord);
 							this.retry.set(entry.label, { kind: "blocked", fingerprint: printed });
-							syncError = GROUP_UPDATE_UNAVAILABLE_MESSAGE;
-							syncErrorClass = "blocked";
+							syncFailure = syncFailureOf("blocked");
 							this.env.log("Provider group exists and the host has no update path", { label: entry.label });
 						}
 					} else {
@@ -725,8 +725,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 						// arguments would leak them into public issue reports.
 						this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 						this.retry.set(entry.label, { kind: "upsertFailed", fingerprint: printed });
-						syncError = GROUP_UPSERT_FAILED_MESSAGE;
-						syncErrorClass = "upsertFailed";
+						syncFailure = syncFailureOf("upsertFailed");
 						this.env.log("Provider group upsert failed", {
 							label: entry.label,
 							error: errorLabel(error),
@@ -746,19 +745,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 				label: entry.label,
 				baseUrl: entry.baseUrl,
 				...pickNonSecretOptionalFields(entry),
-				...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
-				...(entry.headers !== undefined ? { headers: entry.headers } : {}),
-				...(entry.modelParameters !== undefined ? { modelParameters: entry.modelParameters } : {}),
-				...(entry.modelCapabilities !== undefined ? { modelCapabilities: entry.modelCapabilities } : {}),
-				...(entry.expectedFailures !== undefined ? { expectedFailures: entry.expectedFailures } : {}),
-				...(entry.declaredModels !== undefined ? { declaredModels: entry.declaredModels } : {}),
-				...(entry.budget !== undefined ? { budget: entry.budget } : {}),
-				...(entry.mcp !== undefined ? { mcp: entry.mcp } : {}),
+				...pickEntryViewFields(entry),
 				secrets: secretLocations(entry, stored),
 				expectedClientId,
 				expectedConnectionId,
-				syncError,
-				syncErrorClass,
+				syncFailure,
 			});
 		}
 
@@ -801,8 +792,9 @@ export class ServerSyncEngine implements vscode.Disposable {
 		// carry a mid-edit malformed entry would shed its fingerprint (wedging the
 		// repaired entry on an unrecognizable duplicate) and its ledger record
 		// (blinding a later real removal). Fingerprints carry with carryLastGood's
-		// asymmetry. Reserved keys are skipped: a corrupt store could hand one
-		// back, and assigning it would ride into the prototype.
+		// asymmetry. Reserved (prototype-mutating) keys cannot reach these loops:
+		// the env filters them at its read boundary, and the parser rejects them
+		// as labels.
 		const storeRecords = this.env.getFingerprints();
 		// The session ledger is the truth for this pass (see the field's doc);
 		// the fresh store read merges underneath it, presence-only.
@@ -811,7 +803,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 		const ledger: Readonly<Record<string, string>> = { ...storedLedger, ...this.ledger };
 		const carriedLedger: Record<string, string> = {};
 		for (const label of new Set([...Object.keys(previous), ...Object.keys(storeRecords)])) {
-			if (currentLabels.has(label) || !labelStillPresent(label) || isUnsafeRecordKey(label)) {
+			if (currentLabels.has(label) || !labelStillPresent(label)) {
 				continue;
 			}
 			const carried = previous[label] ?? storeRecords[label];
@@ -820,7 +812,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 		}
 		for (const [label, url] of Object.entries(ledger)) {
-			if (!currentLabels.has(label) && labelStillPresent(label) && !isUnsafeRecordKey(label)) {
+			if (!currentLabels.has(label) && labelStillPresent(label)) {
 				carriedLedger[label] = url;
 			}
 		}

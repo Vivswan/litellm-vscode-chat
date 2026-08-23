@@ -11,10 +11,12 @@ import {
 	executeDashboardIntent,
 	readInlineSecretValues,
 } from "../../../extension/dashboard/intents";
+import { declaredViewsFromSetting } from "../../../extension/dashboard/panel";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { acceptedEntry, parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import { stripEntrySecrets } from "../../../extension/settingsTransfer/secretSurgery";
 import { RequestError } from "../../../provider/transport/errorMapping";
+import { ENTRY_VIEW_FIELD_IDS, pickNonSecretOptionalFields } from "../../../shared/serverEntry";
 import { isRecord } from "../../../shared/util/json";
 import {
 	displayedReplace,
@@ -343,6 +345,60 @@ suite("extension/dashboard/intents", () => {
 			]);
 			assert.strictEqual(recorded.syncRequests, 1);
 			assert.deepStrictEqual(recorded.secretOps, []);
+		});
+
+		test("a fallback-window edit round-trips every registered entry field losslessly", async () => {
+			// The window before the first sync pass lands: the edit form prefills
+			// from declaredViewsFromSetting's views, and applySaveServerSetting
+			// rebuilds the WHOLE entry from the form's payload (any field the
+			// payload lacks is deleted by the save). Building the payload from the
+			// fallback view therefore pins the loss end to end: a field the view
+			// drops (mcp once was) arrives as its cleared sentinel and the save
+			// strips the user's setting.
+			const raw = {
+				label: "Prod",
+				baseUrl: "http://prod.test",
+				apiVersion: "v2",
+				auth: { apiKey: "sk-inline" },
+				headers: { "x-team": "ops" },
+				models: {
+					parameters: { "gpt-4": { temperature: 0.2 } },
+					capabilities: { "gpt-4": { supports_vision: true } },
+				},
+				discovery: { expectedFailures: ["modelInfo"], declared: ["gpt-4"] },
+				budget: 25,
+				mcp: { url: "https://gateway.internal/mcp" },
+			};
+			const recorded = makeEnv([raw]);
+			const view = declaredViewsFromSetting(recorded.env.readServersSetting()).views[0];
+			assert.ok(view);
+			// Registry-driven and fail-closed: a field added to ENTRY_VIEW_FIELD_SET
+			// does not pass until this fixture exercises it through the round trip.
+			for (const field of ENTRY_VIEW_FIELD_IDS) {
+				assert.notStrictEqual(view[field], undefined, `the fixture must exercise the registered field "${field}"`);
+			}
+			await save(recorded, {
+				server: {
+					label: view.label,
+					baseUrl: view.baseUrl,
+					...pickNonSecretOptionalFields(view),
+					...(view.apiVersion !== undefined ? { apiVersion: view.apiVersion } : {}),
+					...(view.modelParameters !== undefined ? { modelParameters: view.modelParameters } : {}),
+					modelCapabilities: view.modelCapabilities ?? {},
+					expectedFailures: view.expectedFailures ?? [],
+					headers: view.headers ?? {},
+					declaredModels: view.declaredModels ?? [],
+					budget: view.budget ?? null,
+					mcp: view.mcp ?? null,
+				},
+				replace: await displayedReplace(recorded, "Prod"),
+			});
+
+			assert.deepStrictEqual(
+				recorded.serverWrites,
+				[[raw]],
+				"an unchanged save from the fallback view must write the entry back losslessly"
+			);
 		});
 
 		test("a secure-side set stamps the value with the entry's destination", async () => {

@@ -206,7 +206,9 @@ async function waitForDeclared(
 			return;
 		}
 		if (Date.now() >= deadline) {
-			const seen = views.map((view) => `${view.label}${view.syncError ? ` (${view.syncError})` : ""}`).join(", ");
+			const seen = views
+				.map((view) => `${view.label}${view.syncFailure?.message ? ` (${view.syncFailure?.message})` : ""}`)
+				.join(", ");
 			throw new Error(`Timeout (${timeoutMs}ms) waiting for ${description}. Declared: ${seen || "(none)"}`);
 		}
 		await sleep(200);
@@ -225,7 +227,7 @@ export async function writeServerEntry(entry: ServerSettingEntry, timeoutMs = 20
 	const kept = entries.filter((item) => !entryLabelIs(item, entry.label));
 	await config.update(SERVERS_SETTING_KEY, [...kept, entry], vscode.ConfigurationTarget.Global);
 	await waitForDeclared(
-		(views) => views.some((view) => view.label === entry.label && view.syncError === undefined),
+		(views) => views.some((view) => view.label === entry.label && view.syncFailure?.message === undefined),
 		timeoutMs,
 		`entry "${entry.label}" to sync without error`
 	);

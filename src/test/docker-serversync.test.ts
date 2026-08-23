@@ -256,7 +256,7 @@ suite("Docker server sync", () => {
 		proxyGroups += 1;
 		const models = await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_INLINE);
-		assert.strictEqual(view.syncError, undefined, "the group add must succeed");
+		assert.strictEqual(view.syncFailure?.message, undefined, "the group add must succeed");
 		assert.strictEqual(view.secrets.apiKey, "settings", "an inline key reads as settings-stored");
 		const model = expectDefined(models.find((candidate) => candidate.id === ALIAS));
 		assert.strictEqual(await chat(model, `${COMMAND_SIGIL}echo:serversync inline`), "serversync inline");
@@ -272,7 +272,7 @@ suite("Docker server sync", () => {
 		proxyGroups += 1;
 		await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_STORED);
-		assert.strictEqual(view.syncError, undefined);
+		assert.strictEqual(view.syncFailure?.message, undefined);
 		assert.strictEqual(view.secrets.apiKey, "secure", "the stored blob is the key's reported location");
 	});
 
@@ -418,7 +418,7 @@ suite("Docker server sync", () => {
 		await writeServersSetting(entries);
 		await syncNow();
 		const blocked = await declaredFor(LABEL_INLINE);
-		assert.strictEqual(blocked.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+		assert.strictEqual(blocked.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
 		// The original group keeps serving through the name conflict.
 		const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
 		assert.ok(countModels(models, ALIAS) >= proxyGroups, "existing groups must keep their models");
@@ -427,7 +427,11 @@ suite("Docker server sync", () => {
 		await writeServersSetting(entries);
 		await syncNow();
 		const reverted = await declaredFor(LABEL_INLINE);
-		assert.strictEqual(reverted.syncError, undefined, "reverting to the live group's content clears the error");
+		assert.strictEqual(
+			reverted.syncFailure?.message,
+			undefined,
+			"reverting to the live group's content clears the error"
+		);
 	});
 
 	test("scenario 7: removing an entry hides the surviving group's models; re-declaring restores them", async function () {
@@ -464,7 +468,11 @@ suite("Docker server sync", () => {
 		await declareServer({ label: LABEL_STORED, baseUrl: BASE_URL });
 		await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_STORED);
-		assert.strictEqual(view.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE, "the re-add hits the add-only rejection");
+		assert.strictEqual(
+			view.syncFailure?.message,
+			GROUP_UPDATE_UNAVAILABLE_MESSAGE,
+			"the re-add hits the add-only rejection"
+		);
 		assert.strictEqual(view.secrets.apiKey, "secure", "the re-added label reads its kept SecretStorage blob");
 	});
 
@@ -572,7 +580,7 @@ suite("Docker server sync", () => {
 			"the input limit derives from the declared context length minus the output limit"
 		);
 		const view = await declaredFor(LABEL_EXPECTED);
-		assert.strictEqual(view.syncError, undefined, "the group add must succeed");
+		assert.strictEqual(view.syncFailure?.message, undefined, "the group add must succeed");
 
 		// The status window records the TRUE outcome - an error - tagged expected with the declared count riding
 		// along; the presentation layers derive the ok-with-note verdict from those fields.
@@ -645,7 +653,7 @@ suite("Docker server sync", () => {
 		const model = expectDefined(models.find((candidate) => candidate.id === UNEXPECTED_DECLARED_MODEL));
 		assert.strictEqual(model.maxInputTokens, 123000, "the declared max_input_tokens drives registration");
 		const view = await declaredFor(LABEL_DECLARED_UNEXPECTED);
-		assert.strictEqual(view.syncError, undefined, "the group add must succeed");
+		assert.strictEqual(view.syncFailure?.message, undefined, "the group add must succeed");
 		const statuses = (await vscode.commands.executeCommand("litellm._test.getServerStatuses")) as ServerStatus[];
 		const status = expectDefined(
 			statuses.find((candidate) => candidate.label === LABEL_DECLARED_UNEXPECTED),

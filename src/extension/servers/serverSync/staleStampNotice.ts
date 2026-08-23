@@ -97,7 +97,7 @@ export class StaleStampNotice {
 	/** One sweep over the last pass's views; exposed so tests can await what the listener fires. */
 	async scan(): Promise<void> {
 		for (const view of this.engine.getDeclared()) {
-			if (view.syncErrorClass !== "secretsMismatched") {
+			if (view.syncFailure?.class !== "secretsMismatched") {
 				continue;
 			}
 			try {

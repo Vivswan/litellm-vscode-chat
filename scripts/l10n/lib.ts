@@ -188,9 +188,10 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"announce",
 	"reportText",
 	"reviewedSentence",
-	"reportCommandFailure",
 	"wireReviewComments",
 	"secretPaletteLabel",
+	// src/extension/features/commandFailure (the command features' one failure boundary at the features/ root).
+	"reportCommandFailure",
 	// src/extension/servers/serverSync/vscodeEnv (the stale-stamp consent notification).
 	"askStaleSecretStamp",
 	"numberSettingPresentation",

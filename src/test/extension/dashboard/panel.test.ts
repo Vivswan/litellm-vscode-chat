@@ -16,9 +16,10 @@ import type {
 	SettingsReader,
 } from "../../../extension/dashboard/state";
 import { EMPTY_CATALOG_STATUS, EMPTY_USAGE_VIEW } from "../../../extension/dashboard/state";
-import { entryModelParametersFor } from "../../../extension/servers/serverSync";
+import { entryModelParametersFor, parseServersSetting } from "../../../extension/servers/serverSync";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
+import { ENTRY_VIEW_FIELD_IDS } from "../../../shared/serverEntry";
 import { makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
 import { serverPayload } from "./recordedEnv";
@@ -463,29 +464,41 @@ suite("extension/dashboard/panel", () => {
 			assert.ok(!JSON.stringify(views).includes("sk-inline"), "the view carries locations, never values");
 		});
 
-		test("carries the entry's record fields, matching the engine's post-sync view", () => {
+		test("carries every registered entry field, matching the engine's post-sync view", () => {
 			// The fallback covers the window before the first sync pass lands;
-			// dropping these fields there would blank the edit form's prefill
-			// (and, for a saved-through draft, silently delete them).
-			const { views } = declaredViewsFromSetting([
-				{
-					label: "Prod",
-					baseUrl: "http://a.test",
-					models: {
-						parameters: { "gpt-4": { temperature: 0.2 } },
-						capabilities: { "gpt-4": { supports_vision: true } },
-					},
-					discovery: { expectedFailures: ["modelInfo"] },
+			// dropping a field there would blank the edit form's prefill (and,
+			// for a saved-through draft, silently DELETE it from the setting -
+			// mcp was lost exactly this way). The walk is registry-driven and
+			// fail-closed: a field added to ENTRY_VIEW_FIELD_SET does not pass
+			// until this fixture exercises it.
+			const raw = {
+				label: "Prod",
+				baseUrl: "http://a.test",
+				apiVersion: "v2",
+				headers: { "x-team": "ops" },
+				models: {
+					parameters: { "gpt-4": { temperature: 0.2 } },
+					capabilities: { "gpt-4": { supports_vision: true } },
 				},
-				{ label: "Bare", baseUrl: "http://b.test" },
-			]);
+				discovery: { expectedFailures: ["modelInfo"], declared: ["gpt-4"] },
+				budget: 25,
+				mcp: { url: "https://gateway.internal/mcp" },
+			};
+			const { views } = declaredViewsFromSetting([raw, { label: "Bare", baseUrl: "http://b.test" }]);
+			const entry = parseServersSetting([raw]).entries[0];
+			assert.ok(entry);
 
-			assert.deepStrictEqual(views[0]?.modelParameters, { "gpt-4": { temperature: 0.2 } });
-			assert.deepStrictEqual(views[0]?.modelCapabilities, { "gpt-4": { supports_vision: true } });
-			assert.deepStrictEqual(views[0]?.expectedFailures, ["modelInfo"]);
+			const view = views[0];
+			assert.ok(view);
+			for (const field of ENTRY_VIEW_FIELD_IDS) {
+				assert.notStrictEqual(view[field], undefined, `the fixture must exercise the registered field "${field}"`);
+				assert.deepStrictEqual(view[field], entry[field], `the fallback view must carry "${field}" as parsed`);
+			}
 			const bare = views[1];
 			assert.ok(bare);
-			assert.ok(!("modelParameters" in bare) && !("modelCapabilities" in bare) && !("expectedFailures" in bare));
+			for (const field of ENTRY_VIEW_FIELD_IDS) {
+				assert.ok(!(field in bare), `an entry without "${field}" must omit it`);
+			}
 		});
 
 		test("junk settings read as empty", () => {

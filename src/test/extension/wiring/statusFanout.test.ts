@@ -21,8 +21,7 @@ function failedView(label: string): DeclaredServerView {
 		label,
 		baseUrl: `http://${label}.test`,
 		secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
-		syncError: UPSERT_FAILED,
-		syncErrorClass: "upsertFailed",
+		syncFailure: { class: "upsertFailed", message: UPSERT_FAILED },
 	};
 }
 

@@ -45,24 +45,22 @@ function errorStatus(overrides: { serverId: string; servedModelCount: number; er
 function view(overrides: {
 	label: string;
 	expectedClientId?: string;
-	syncError?: string;
-	syncErrorClass?: DeclaredServerView["syncErrorClass"];
+	syncFailure?: DeclaredServerView["syncFailure"];
 }): DeclaredServerView {
 	return {
 		label: overrides.label,
 		baseUrl: `http://${overrides.label}.test`,
 		secrets: NO_SECRETS,
 		...(overrides.expectedClientId !== undefined ? { expectedClientId: overrides.expectedClientId } : {}),
-		...(overrides.syncError !== undefined ? { syncError: overrides.syncError } : {}),
-		...(overrides.syncErrorClass !== undefined ? { syncErrorClass: overrides.syncErrorClass } : {}),
+		...(overrides.syncFailure !== undefined ? { syncFailure: overrides.syncFailure } : {}),
 	};
 }
 
-test("a sync error outranks a live ok status while the served count stays the live truth", () => {
+test("a sync failure outranks a live ok status while the served count stays the live truth", () => {
 	const live = okStatus({ serverId: "live", servedModelCount: 4 });
 	const overlaid = applySyncFailures(
 		[live],
-		[view({ label: "live", expectedClientId: "live", syncError: "blocked message", syncErrorClass: "blocked" })]
+		[view({ label: "live", expectedClientId: "live", syncFailure: { class: "blocked", message: "blocked message" } })]
 	);
 	expect(overlaid.length).toBe(1);
 	const status = overlaid[0];
@@ -79,9 +77,12 @@ test("a sync error outranks a live ok status while the served count stays the li
 	expect(status?.hasApiKey).toBe(true);
 });
 
-test("a sync error outranks a live error's text and drops its classification", () => {
+test("a sync failure outranks a live error's text and drops its classification", () => {
 	const live = errorStatus({ serverId: "gw", servedModelCount: 3, error: "boom" });
-	const overlaid = applySyncFailures([live], [view({ label: "gw", expectedClientId: "gw", syncError: "sync failed" })]);
+	const overlaid = applySyncFailures(
+		[live],
+		[view({ label: "gw", expectedClientId: "gw", syncFailure: { class: "blocked", message: "sync failed" } })]
+	);
 	const status = overlaid[0];
 	expect(status?.state).toBe("error");
 	expect(status?.error).toBe("sync failed");
@@ -94,7 +95,7 @@ test("a sync error outranks a live error's text and drops its classification", (
 test("an upsertFailed entry discovery never saw becomes an error serving nothing", () => {
 	const overlaid = applySyncFailures(
 		[],
-		[view({ label: "pending", syncError: "upsert failed", syncErrorClass: "upsertFailed" })]
+		[view({ label: "pending", syncFailure: { class: "upsertFailed", message: "upsert failed" } })]
 	);
 	expect(overlaid.length).toBe(1);
 	const status = overlaid[0];
@@ -110,24 +111,24 @@ test("a blocked or skipped entry with no live status synthesizes nothing: its gr
 	// The skip classes mean the pass left live groups serving; a synthesized
 	// dead error would race the first discovery report red.
 	expect(
-		applySyncFailures([], [view({ label: "held", syncError: "name conflict", syncErrorClass: "blocked" })])
+		applySyncFailures([], [view({ label: "held", syncFailure: { class: "blocked", message: "name conflict" } })])
 	).toEqual([]);
 	expect(
 		applySyncFailures(
 			[],
-			[view({ label: "skipped", syncError: "salt unavailable", syncErrorClass: "saltUnavailable" })]
+			[view({ label: "skipped", syncFailure: { class: "saltUnavailable", message: "salt unavailable" } })]
 		)
 	).toEqual([]);
 	expect(
 		applySyncFailures(
 			[],
-			[view({ label: "unread", syncError: "secrets unreadable", syncErrorClass: "secretsUnreadable" })]
+			[view({ label: "unread", syncFailure: { class: "secretsUnreadable", message: "secrets unreadable" } })]
 		)
 	).toEqual([]);
 	expect(
 		applySyncFailures(
 			[],
-			[view({ label: "mismatched", syncError: "ownership refused", syncErrorClass: "secretsMismatched" })]
+			[view({ label: "mismatched", syncFailure: { class: "secretsMismatched", message: "ownership refused" } })]
 		)
 	).toEqual([]);
 });
@@ -140,8 +141,7 @@ test("claimants sharing one live snapshot overlay it once, keeping the live serv
 		baseUrl: "http://shared.test",
 		secrets: NO_SECRETS,
 		expectedConnectionId: "shared",
-		syncError: "blocked message",
-		syncErrorClass: "blocked" as const,
+		syncFailure: { class: "blocked", message: "blocked message" } as const,
 	});
 	const result = applySyncFailures([shared], [sharedView("Prod"), sharedView("Staging")]);
 	expect(result.length).toBe(1);
@@ -149,7 +149,7 @@ test("claimants sharing one live snapshot overlay it once, keeping the live serv
 	expect(result[0]?.servedModelCount).toBe(3);
 });
 
-test("entries without a sync error change nothing: statuses pass through untouched", () => {
+test("entries without a sync failure change nothing: statuses pass through untouched", () => {
 	const live = okStatus({ serverId: "live", servedModelCount: 2 });
 	// An unchecked healthy entry stays out of the window too, exactly as before.
 	const result = applySyncFailures(
@@ -167,7 +167,7 @@ test("an unrelated neighbor passes through by reference beside a sync failure", 
 		[healthy, live],
 		[
 			view({ label: "fine", expectedClientId: "fine" }),
-			view({ label: "live", expectedClientId: "live", syncError: "blocked" }),
+			view({ label: "live", expectedClientId: "live", syncFailure: { class: "blocked", message: "blocked" } }),
 		]
 	);
 	expect(result.length).toBe(2);
@@ -175,16 +175,17 @@ test("an unrelated neighbor passes through by reference beside a sync failure", 
 	expect(result[1]?.state).toBe("error");
 });
 
-test("declaredPresentation owns the precedence: sync error first, then live, then unchecked", () => {
-	expect(declaredPresentation({ servedModelCount: 7 }, "blocked")).toEqual({
+test("declaredPresentation owns the precedence: sync failure first, then live, then unchecked", () => {
+	const failure = { class: "blocked", message: "blocked" } as const;
+	expect(declaredPresentation({ servedModelCount: 7 }, failure)).toEqual({
 		kind: "sync-failed",
 		servedModelCount: 7,
-		error: "blocked",
+		failure,
 	});
-	expect(declaredPresentation(undefined, "blocked")).toEqual({
+	expect(declaredPresentation(undefined, failure)).toEqual({
 		kind: "sync-failed",
 		servedModelCount: 0,
-		error: "blocked",
+		failure,
 	});
 	expect(declaredPresentation({ servedModelCount: 7 }, undefined)).toEqual({ kind: "live" });
 	expect(declaredPresentation(undefined, undefined)).toEqual({ kind: "unchecked" });

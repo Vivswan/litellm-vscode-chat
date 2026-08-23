@@ -13,7 +13,13 @@
  * a secret: labels, base URLs, and has-credential booleans at most.
  */
 
-export type { DeclaredEntryIdentity, DeclaredServerView, RemovedEntryEvent, ServerSyncEnv } from "./engine";
+export type {
+	DeclaredEntryIdentity,
+	DeclaredServerView,
+	RemovedEntryEvent,
+	ServerSyncEnv,
+	SyncFailure,
+} from "./engine";
 export {
 	buildGroupArgs,
 	GROUP_UPDATE_UNAVAILABLE_MESSAGE,

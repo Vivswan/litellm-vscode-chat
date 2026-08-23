@@ -52,14 +52,14 @@ export interface WindowStateRow {
 	/**
 	 * Declared entries whose provider-group sync failed, by entry label: the
 	 * sync-failure overlay's input beside the window. The host suite feeds them
-	 * to the bar and notifier as declared views carrying syncError and its
-	 * class (the class gates the overlay's no-live-status synthesis).
+	 * to the bar and notifier as declared views carrying syncFailure (whose
+	 * class gates the overlay's no-live-status synthesis).
 	 */
 	readonly syncFailures?: readonly {
 		readonly label: string;
 		readonly message: string;
 		/** Derived from the engine union, so a new class can never leave this registry silently narrower. */
-		readonly failureClass: NonNullable<DeclaredServerView["syncErrorClass"]>;
+		readonly failureClass: NonNullable<DeclaredServerView["syncFailure"]>["class"];
 	}[];
 	/** The merged count reportMerged would derive from the window (asserted, not assumed). */
 	readonly totalModels: number;

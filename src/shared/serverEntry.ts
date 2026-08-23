@@ -3,11 +3,14 @@
  * settings parser, the sync engine, and the dashboard protocol. Every field
  * list elsewhere derives from here, so adding a field means extending
  * OPTIONAL_ENTRY_FIELDS and following the compile errors. The entry's
- * extension-side-only fields (headers, models.*, discovery.*, budget) stay out
- * of the descriptor because they must never reach the provider-group args or
- * their fingerprint.
+ * extension-side-only fields (headers, models.*, discovery.*, budget, mcp)
+ * stay out of the descriptor because they must never reach the provider-group
+ * args or their fingerprint; they get the deliberately separate sibling
+ * registry at the bottom of this file (ENTRY_VIEW_FIELD_SET), whose order is
+ * NOT load-bearing.
  */
 
+import type { ModelRecordMap } from "./config/modelMatcher";
 import { normalizeBaseUrl } from "./util/baseUrl";
 
 /**
@@ -115,3 +118,90 @@ export function isExpectedFailureCategory(value: unknown): value is ExpectedFail
  * consumes the vocabulary, it does not own it.
  */
 export type McpOptIn = true | { readonly url?: string | undefined };
+
+/**
+ * One model-record map (matcher key to field record): the canonical
+ * ModelRecordMap shape the per-entry models.parameters and models.capabilities
+ * records share on every view and payload - aliased, not redeclared, so the
+ * two cannot drift. Type-only, so nothing extra rides into the webview bundle.
+ */
+type EntryModelRecordMap = ModelRecordMap;
+
+/**
+ * The value each extension-side entry field carries: the sibling registry to
+ * OPTIONAL_ENTRY_FIELDS for everything an entry declares BEYOND label,
+ * baseUrl, and the flat credential fields. These fields are read
+ * extension-side only and must never reach the provider-group args or their
+ * fingerprint (buildGroupArgs walks OPTIONAL_ENTRY_FIELDS alone), so unlike
+ * that descriptor this registry's order is NOT load-bearing. One table drives
+ * the parsed entry type, the sync engine's views, the dashboard's fallback
+ * views, and the state push's config, via EntryViewFields and
+ * pickEntryViewFields: a field added here rides every copy site by
+ * construction, and a field added to only one half of the registry (this
+ * table or ENTRY_VIEW_FIELD_SET below) does not compile.
+ */
+export interface EntryViewFieldValues {
+	/** What apiRootOf appends to the base URL: "" is a real value (append nothing), absent means auto-detect. */
+	readonly apiVersion: string;
+	/** The entry's custom HTTP headers, sent on every request to its server; auth headers win conflicts. */
+	readonly headers: Readonly<Record<string, string>>;
+	/** The entry's per-entry models.parameters record: model matcher to request parameters, like the global setting. */
+	readonly modelParameters: EntryModelRecordMap;
+	/** The entry's per-entry models.capabilities record: model matcher to capability record, like the global setting. */
+	readonly modelCapabilities: EntryModelRecordMap;
+	/** The discovery-failure categories the entry expects. */
+	readonly expectedFailures: readonly ExpectedFailureCategory[];
+	/** Exact model IDs to register when discovery does not list them (discovery.declared). */
+	readonly declaredModels: readonly string[];
+	/** The entry's manual usage budget in USD; the usage surfaces read it. */
+	readonly budget: number;
+	/** The entry's MCP opt-in; the MCP publisher and the edit form's prefill read it. */
+	readonly mcp: McpOptIn;
+}
+
+/**
+ * The registry's id half; `satisfies` pins it to the value table both ways
+ * (a missing key fails the Record, an extra key fails excess-property
+ * checking), so the iterable list below can never drift from the type.
+ */
+const ENTRY_VIEW_FIELD_SET = {
+	apiVersion: true,
+	headers: true,
+	modelParameters: true,
+	modelCapabilities: true,
+	expectedFailures: true,
+	declaredModels: true,
+	budget: true,
+	mcp: true,
+} as const satisfies Readonly<Record<keyof EntryViewFieldValues, true>>;
+
+/** Any extension-side entry field beyond label, baseUrl, and the credential fields. */
+export type EntryViewFieldId = keyof typeof ENTRY_VIEW_FIELD_SET;
+
+export const ENTRY_VIEW_FIELD_IDS = Object.keys(ENTRY_VIEW_FIELD_SET) as readonly EntryViewFieldId[];
+
+/** The extension-side fields as parsed entries and views carry them: present only with usable content. */
+export type EntryViewFields = { readonly [K in EntryViewFieldId]?: EntryViewFieldValues[K] | undefined };
+
+/** The mutable builder shape the settings parser assembles an entry's fields into. */
+export type MutableEntryViewFields = { -readonly [K in EntryViewFieldId]?: EntryViewFieldValues[K] };
+
+/** Copy the extension-side fields that are present; absent ones stay omitted. */
+export function pickEntryViewFields(source: EntryViewFields): EntryViewFields {
+	const picked: MutableEntryViewFields = {};
+	for (const field of ENTRY_VIEW_FIELD_IDS) {
+		copyPresentField(picked, field, source[field]);
+	}
+	return picked;
+}
+
+/** The per-field copy, generic so the assignment stays typed to the field's own value. */
+function copyPresentField<K extends EntryViewFieldId>(
+	target: MutableEntryViewFields,
+	field: K,
+	value: EntryViewFieldValues[K] | undefined
+): void {
+	if (value !== undefined) {
+		target[field] = value;
+	}
+}

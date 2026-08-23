@@ -18,15 +18,17 @@
  * entry works and the server's 401 tells the story.
  */
 
-import type { ModelCapabilitiesRecord } from "../../../shared/config/capabilityResolution";
 import {
 	normalizeCustomHeaders,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
 } from "../../../shared/config/settings";
 import type {
+	EntryViewFields,
+	EntryViewFieldValues,
 	ExpectedFailureCategory,
 	McpOptIn,
+	MutableEntryViewFields,
 	NonSecretOptionalFields,
 	OptionalEntryFieldId,
 	OptionalEntryFields,
@@ -37,45 +39,25 @@ import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 
 /** An entry's per-entry models.parameters record: model matcher to request parameters, like the global setting. */
-export type EntryModelParameters = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+export type EntryModelParameters = EntryViewFieldValues["modelParameters"];
 
 /** An entry's per-entry models.capabilities record: model matcher to capability record, like the global setting. */
-export type EntryModelCapabilities = ModelCapabilitiesRecord;
+export type EntryModelCapabilities = EntryViewFieldValues["modelCapabilities"];
 
 /**
  * One parsed servers-setting entry: label and baseUrl usable, credential fields
  * flattened from the entry's `auth` object (present only with usable inline
  * text; values resting in SecretStorage stay absent here and resolve at
- * group-args time). The remaining optional fields are present only when the raw
- * entry carries usable content; they are read extension-side and never enter
- * the group configuration or its fingerprint.
+ * group-args time). The remaining optional fields are the shared registry's
+ * EntryViewFields (present only when the raw entry carries usable content);
+ * they are read extension-side and never enter the group configuration or its
+ * fingerprint.
  */
 export type DeclaredServer = {
 	readonly label: string;
 	readonly baseUrl: string;
-	/**
-	 * What apiRootOf appends to the base URL: absent means auto (keep a version
-	 * segment already in the URL, else /v1), "" means append nothing. Resolved
-	 * into the transport per request, like headers; never part of the group
-	 * configuration.
-	 */
-	readonly apiVersion?: string;
-	/** The entry's custom HTTP headers, sent on every request to this server; auth headers win conflicts. */
-	readonly headers?: Readonly<Record<string, string>>;
-	readonly modelParameters?: EntryModelParameters;
-	readonly modelCapabilities?: EntryModelCapabilities;
-	readonly expectedFailures?: readonly ExpectedFailureCategory[];
-	/** Exact model IDs to register when discovery does not list them (discovery.declared). */
-	readonly declaredModels?: readonly string[];
-	/** The entry's manual usage budget in USD (non-secret user configuration); the usage surfaces read it. */
-	readonly budget?: number;
-	/**
-	 * The entry's MCP opt-in, when it carries one: the MCP publisher publishes
-	 * exactly the entries that do. Extension-side only, like the fields above -
-	 * it never reaches the provider-group args or their fingerprint.
-	 */
-	readonly mcp?: McpOptIn;
-} & OptionalEntryFields;
+} & EntryViewFields &
+	OptionalEntryFields;
 
 /**
  * Whether an entry still matches the non-secret half of a destination
@@ -428,15 +410,8 @@ function acceptEntries(
 		const entry: {
 			label: string;
 			baseUrl: string;
-			apiVersion?: string;
-			headers?: Readonly<Record<string, string>>;
-			modelParameters?: EntryModelParameters;
-			modelCapabilities?: EntryModelCapabilities;
-			expectedFailures?: readonly ExpectedFailureCategory[];
-			declaredModels?: readonly string[];
-			budget?: number;
-			mcp?: McpOptIn;
-		} & FlatAuthFields = {
+		} & MutableEntryViewFields &
+			FlatAuthFields = {
 			label,
 			baseUrl,
 			...auth.fields,

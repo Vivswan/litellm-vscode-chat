@@ -39,7 +39,7 @@ const EMPTY_READER: SettingsReader = { get: () => undefined, inspect: () => ({ d
 /**
  * The row's declared rows as sync-engine views: what the state builder joins
  * and what the bar's and notifier's overlay reads, with the row's sync
- * failures riding as syncError - the same one input on every surface.
+ * failures riding as syncFailure - the same one input on every surface.
  */
 function declaredViews(row: WindowStateRow): DeclaredServerView[] {
 	return row.rows
@@ -51,8 +51,7 @@ function declaredViews(row: WindowStateRow): DeclaredServerView[] {
 				baseUrl: server.baseUrl,
 				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const,
 				expectedClientId: row.window.find((status) => status.label === server.label)?.serverId,
-				syncError: failure?.message,
-				syncErrorClass: failure?.failureClass,
+				syncFailure: failure !== undefined ? { class: failure.failureClass, message: failure.message } : undefined,
 			};
 		});
 }

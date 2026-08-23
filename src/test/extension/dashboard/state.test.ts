@@ -212,7 +212,7 @@ suite("extension/dashboard/state", () => {
 					},
 				],
 				makeReader({}),
-				[makeDeclared({ syncError: "sync failed", syncErrorClass: "upsertFailed" })]
+				[makeDeclared({ syncFailure: { class: "upsertFailed", message: "sync failed" } })]
 			);
 			assert.strictEqual(synced.servers[0]?.error, "sync failed", "the sync error still masks the live error");
 			assert.strictEqual(
@@ -271,7 +271,7 @@ suite("extension/dashboard/state", () => {
 					},
 				],
 				makeReader({}),
-				[makeDeclared({ syncError: "sync failed", syncErrorClass: "upsertFailed" })]
+				[makeDeclared({ syncFailure: { class: "upsertFailed", message: "sync failed" } })]
 			);
 			assert.strictEqual(synced.servers[0]?.error, "sync failed");
 			const syncedRow = synced.servers[0];
@@ -590,8 +590,7 @@ suite("extension/dashboard/state", () => {
 						label: "Staging",
 						baseUrl: "http://x.test",
 						expectedConnectionId: "group:fp-shared:http://x.test",
-						syncError: "The host rejected the provider group upsert",
-						syncErrorClass: "upsertFailed",
+						syncFailure: { class: "upsertFailed", message: "The host rejected the provider group upsert" },
 					}),
 				]
 			);
@@ -639,8 +638,7 @@ suite("extension/dashboard/state", () => {
 						label: "Staging",
 						baseUrl: "http://x.test",
 						expectedConnectionId: "group:fp-shared:http://x.test",
-						syncError: "A provider group with this name already exists",
-						syncErrorClass: "blocked",
+						syncFailure: { class: "blocked", message: "A provider group with this name already exists" },
 					}),
 				]
 			);
@@ -672,8 +670,7 @@ suite("extension/dashboard/state", () => {
 						label: "Prod",
 						baseUrl: "http://x.test",
 						expectedConnectionId: "group:fp-shared:http://x.test",
-						syncError: "The host rejected the provider group upsert",
-						syncErrorClass: "upsertFailed",
+						syncFailure: { class: "upsertFailed", message: "The host rejected the provider group upsert" },
 					}),
 				]
 			);
@@ -910,7 +907,11 @@ suite("extension/dashboard/state", () => {
 		test("a declared entry no discovery pass has seen renders unchecked; a sync failure renders as its error", () => {
 			const state = buildState([], makeReader({}), [
 				makeDeclared({ label: "New", baseUrl: "http://new.test" }),
-				makeDeclared({ label: "Broken", baseUrl: "http://broken.test", syncError: "upsert refused" }),
+				makeDeclared({
+					label: "Broken",
+					baseUrl: "http://broken.test",
+					syncFailure: { class: "upsertFailed", message: "upsert refused" },
+				}),
 			]);
 
 			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
@@ -933,7 +934,13 @@ suite("extension/dashboard/state", () => {
 					},
 				],
 				makeReader({}),
-				[makeDeclared({ label: "Prod", baseUrl: "http://prod.test", syncError: "group update unavailable" })]
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						syncFailure: { class: "blocked", message: "group update unavailable" },
+					}),
+				]
 			);
 
 			assert.strictEqual(state.servers.length, 1);
@@ -1088,7 +1095,7 @@ suite("extension/dashboard/state", () => {
 
 			test("an engine view whose own blob read failed is as blind as the fallback: unproven", () => {
 				// The engine substitutes an empty blob when SecretStorage refuses the
-				// read (syncErrorClass "secretsUnreadable"), so its "none" is the same
+				// read (syncFailure class "secretsUnreadable"), so its "none" is the same
 				// guess the fallback makes; the engine tag alone must not prove it.
 				const state = buildDashboardState({
 					snapshots: [],
@@ -1098,8 +1105,7 @@ suite("extension/dashboard/state", () => {
 						views: [
 							makeDeclared({
 								secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
-								syncError: SECRETS_READ_FAILED_MESSAGE,
-								syncErrorClass: "secretsUnreadable",
+								syncFailure: { class: "secretsUnreadable", message: SECRETS_READ_FAILED_MESSAGE },
 							}),
 						],
 					},
@@ -1120,8 +1126,7 @@ suite("extension/dashboard/state", () => {
 						views: [
 							makeDeclared({
 								secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
-								syncError: SALT_UNAVAILABLE_MESSAGE,
-								syncErrorClass: "saltUnavailable",
+								syncFailure: { class: "saltUnavailable", message: SALT_UNAVAILABLE_MESSAGE },
 							}),
 						],
 					},
@@ -1142,8 +1147,7 @@ suite("extension/dashboard/state", () => {
 						views: [
 							makeDeclared({
 								secrets: { apiKey: "settings", oauthClientSecret: "settings", virtualKeyValue: "settings" },
-								syncError: SECRETS_READ_FAILED_MESSAGE,
-								syncErrorClass: "secretsUnreadable",
+								syncFailure: { class: "secretsUnreadable", message: SECRETS_READ_FAILED_MESSAGE },
 							}),
 							// An upsert failure happens AFTER a successful blob read, so
 							// its locations stay proven facts.
@@ -1151,8 +1155,7 @@ suite("extension/dashboard/state", () => {
 								label: "Upsert",
 								baseUrl: "http://upsert.test",
 								secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
-								syncError: "upsert refused",
-								syncErrorClass: "upsertFailed",
+								syncFailure: { class: "upsertFailed", message: "upsert refused" },
 							}),
 						],
 					},

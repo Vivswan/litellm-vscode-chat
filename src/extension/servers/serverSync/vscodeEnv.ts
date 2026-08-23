@@ -13,6 +13,7 @@ import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../
 import type { Logger } from "../../../shared/logger";
 import type { ExpectedFailureCategory, SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { isUnsafeRecordKey } from "../../../shared/util/json";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import { showActionableMessage } from "../../ui/notifier";
 import type { GroupRemovalStore } from "../groupRemovals";
@@ -120,14 +121,18 @@ export function createServerSyncEnv(
 		confirmFingerprintsDurable: async () => (await fingerprintSalt.confirmDurable()) === "durable",
 		getFingerprints: () => {
 			// Validated at the trust boundary: the key is engine-owned and only ever
-			// written with strings, so a non-string value is corruption and must not
-			// ride into the session map behind an unchecked cast.
+			// written with string values under parser-accepted labels, so a
+			// non-string value or a reserved (prototype-mutating) key is corruption
+			// and must not ride into the session map behind an unchecked cast - the
+			// engine assigns these keys into plain records unguarded.
 			const stored = context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY);
 			if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
 				return {};
 			}
 			return Object.fromEntries(
-				Object.entries(stored).filter((field): field is [string, string] => typeof field[1] === "string")
+				Object.entries(stored).filter(
+					(field): field is [string, string] => typeof field[1] === "string" && !isUnsafeRecordKey(field[0])
+				)
 			);
 		},
 		setFingerprints: async (map) => {
@@ -143,13 +148,15 @@ export function createServerSyncEnv(
 		},
 		getEntryBaseUrls: () => {
 			// Validated like the fingerprints: the key is engine-owned, but a
-			// corrupt value must not ride behind a cast.
+			// corrupt value or reserved key must not ride behind a cast.
 			const stored = context.globalState.get<unknown>(SYNCED_ENTRY_BASE_URLS_KEY);
 			if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
 				return {};
 			}
 			return Object.fromEntries(
-				Object.entries(stored).filter((field): field is [string, string] => typeof field[1] === "string")
+				Object.entries(stored).filter(
+					(field): field is [string, string] => typeof field[1] === "string" && !isUnsafeRecordKey(field[0])
+				)
 			);
 		},
 		setEntryBaseUrls: async (map) => {

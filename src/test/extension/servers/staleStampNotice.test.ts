@@ -39,8 +39,7 @@ function mismatchedView(label: string): DeclaredServerView {
 		label,
 		baseUrl: "http://new.test",
 		secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
-		syncError: "mismatch",
-		syncErrorClass: "secretsMismatched",
+		syncFailure: { class: "secretsMismatched", message: "mismatch" },
 	} as DeclaredServerView;
 }
 
@@ -305,8 +304,11 @@ suite("serverSync stale-stamp notice", () => {
 		const world = makeWorld();
 		await seedMismatch(world);
 		world.views = [
-			{ ...mismatchedView("Prod"), syncError: "upsert failed", syncErrorClass: "upsertFailed" } as DeclaredServerView,
-			{ ...mismatchedView("Prod"), syncError: undefined, syncErrorClass: undefined } as DeclaredServerView,
+			{
+				...mismatchedView("Prod"),
+				syncFailure: { class: "upsertFailed", message: "upsert failed" },
+			} as DeclaredServerView,
+			{ ...mismatchedView("Prod"), syncFailure: undefined } as DeclaredServerView,
 		];
 		await world.notice.scan();
 		assert.deepStrictEqual(world.asks, []);

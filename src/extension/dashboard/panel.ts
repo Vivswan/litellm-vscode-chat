@@ -50,7 +50,7 @@ import {
 import { PARKED_GLOBAL_HEADERS_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { Logger } from "../../shared/logger";
-import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
+import { pickEntryViewFields, pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
 import {
@@ -833,14 +833,12 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServersInput {
 		return {
 			label: entry.label,
 			baseUrl: entry.baseUrl,
+			// The same two registry picks the engine's views ride, so an entry
+			// field cannot exist that the fallback window silently drops (a
+			// dropped field would prefill the edit form empty and a save would
+			// then DELETE it from the setting; mcp was lost exactly this way).
 			...pickNonSecretOptionalFields(entry),
-			...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
-			...(entry.headers !== undefined ? { headers: entry.headers } : {}),
-			...(entry.modelParameters !== undefined ? { modelParameters: entry.modelParameters } : {}),
-			...(entry.modelCapabilities !== undefined ? { modelCapabilities: entry.modelCapabilities } : {}),
-			...(entry.expectedFailures !== undefined ? { expectedFailures: entry.expectedFailures } : {}),
-			...(entry.declaredModels !== undefined ? { declaredModels: entry.declaredModels } : {}),
-			...(entry.budget !== undefined ? { budget: entry.budget } : {}),
+			...pickEntryViewFields(entry),
 			secrets,
 		};
 	});

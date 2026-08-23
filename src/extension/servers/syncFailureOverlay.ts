@@ -11,26 +11,26 @@
 import { markLogSafe } from "../../shared/logger";
 import type { ServerStatus } from "../../shared/servers";
 import { joinDeclared, labeledSnapshots } from "../dashboard/declaredJoin";
-import type { DeclaredServerView } from "./serverSync";
+import type { DeclaredServerView, SyncFailure } from "./serverSync";
 
 /**
  * What a declared entry presents, decided from its live status and its sync
- * error. A sync error outranks the live status - even a healthy one, since the
- * group the host serves is the entry's OLD configuration - while the served
+ * failure. A sync failure outranks the live status - even a healthy one, since
+ * the group the host serves is the entry's OLD configuration - while the served
  * count stays the live truth (the group keeps serving what it had); an entry
  * with no live status at all has no group behind it, so nothing serves.
  */
 export type DeclaredPresentation =
-	| { readonly kind: "sync-failed"; readonly servedModelCount: number; readonly error: string }
+	| { readonly kind: "sync-failed"; readonly servedModelCount: number; readonly failure: SyncFailure }
 	| { readonly kind: "live" }
 	| { readonly kind: "unchecked" };
 
 export function declaredPresentation(
 	status: Pick<ServerStatus, "servedModelCount"> | undefined,
-	syncError: string | undefined
+	syncFailure: SyncFailure | undefined
 ): DeclaredPresentation {
-	if (syncError !== undefined) {
-		return { kind: "sync-failed", servedModelCount: status?.servedModelCount ?? 0, error: syncError };
+	if (syncFailure !== undefined) {
+		return { kind: "sync-failed", servedModelCount: status?.servedModelCount ?? 0, failure: syncFailure };
 	}
 	return status === undefined ? { kind: "unchecked" } : { kind: "live" };
 }
@@ -39,12 +39,12 @@ export function declaredPresentation(
  * A sync failure as a window-shaped error status. The display text is the
  * engine's classified message; the log rendering is rebuilt from the failure
  * CLASS alone (enum ids, so it stays log-legal by construction even if a
- * future engine text ever embeds entry-derived detail).
+ * future engine text ever embeds entry-derived detail). The failure carries
+ * both by construction, so no fallback classification exists here.
  */
 function syncFailureStatus(
 	identity: Pick<ServerStatus, "serverId" | "label" | "baseUrl" | "lastChecked" | "hasApiKey">,
-	presentation: Extract<DeclaredPresentation, { kind: "sync-failed" }>,
-	syncErrorClass: DeclaredServerView["syncErrorClass"]
+	presentation: Extract<DeclaredPresentation, { kind: "sync-failed" }>
 ): ServerStatus {
 	return {
 		serverId: identity.serverId,
@@ -53,8 +53,8 @@ function syncFailureStatus(
 		lastChecked: identity.lastChecked,
 		...(identity.hasApiKey !== undefined ? { hasApiKey: identity.hasApiKey } : {}),
 		state: "error",
-		error: presentation.error,
-		logSafeError: markLogSafe(`provider group sync failed (${syncErrorClass ?? "unclassified"})`),
+		error: presentation.failure.message,
+		logSafeError: markLogSafe(`provider group sync failed (${presentation.failure.class})`),
 		servedModelCount: presentation.servedModelCount,
 	};
 }
@@ -78,7 +78,7 @@ export function applySyncFailures(
 	statuses: readonly ServerStatus[],
 	declared: readonly DeclaredServerView[]
 ): ServerStatus[] {
-	if (!declared.some((view) => view.syncError !== undefined)) {
+	if (!declared.some((view) => view.syncFailure !== undefined)) {
 		return [...statuses];
 	}
 	const labeled = labeledSnapshots(statuses.map((status) => ({ status, models: [], discoveredRawIds: [] })));
@@ -87,13 +87,13 @@ export function applySyncFailures(
 	const unseen: ServerStatus[] = [];
 	declared.forEach((view, declaredIndex) => {
 		const live = matchedByDeclared.get(declaredIndex)?.entry.snapshot.status;
-		const presentation = declaredPresentation(live, view.syncError);
+		const presentation = declaredPresentation(live, view.syncFailure);
 		if (presentation.kind !== "sync-failed") {
 			return;
 		}
 		if (live !== undefined) {
-			overlaid.set(live, syncFailureStatus(live, presentation, view.syncErrorClass));
-		} else if (view.syncErrorClass === "upsertFailed") {
+			overlaid.set(live, syncFailureStatus(live, presentation));
+		} else if (presentation.failure.class === "upsertFailed") {
 			unseen.push(
 				syncFailureStatus(
 					// "" is the established missing-value sentinel for both fields
@@ -101,8 +101,7 @@ export function applySyncFailures(
 					// no group client ID, so group-scoped consumers skip the synthetic
 					// status.
 					{ serverId: "", label: view.label, baseUrl: view.baseUrl, lastChecked: "" },
-					presentation,
-					view.syncErrorClass
+					presentation
 				)
 			);
 		}

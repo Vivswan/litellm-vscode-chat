@@ -853,7 +853,11 @@ export class MonkeySession {
 			);
 		}
 		const view = await this.declaredView(label);
-		assert.strictEqual(view.syncError, this.expectedSyncError(label), `declare(${credential}) sync outcome diverged`);
+		assert.strictEqual(
+			view.syncFailure?.message,
+			this.expectedSyncError(label),
+			`declare(${credential}) sync outcome diverged`
+		);
 		if (extras?.headers) {
 			assert.deepStrictEqual(view.headers, entry.headers, "the entry's headers must ride into the declared view");
 		}
@@ -972,7 +976,7 @@ export class MonkeySession {
 				// add-only error otherwise.
 				const expected = this.expectedSyncError(real);
 				assert.notStrictEqual(expected, undefined, "the oracle must expect a redeclare to be refused");
-				assert.strictEqual(view.syncError, expected, "a redeclared label must surface the derived refusal");
+				assert.strictEqual(view.syncFailure?.message, expected, "a redeclared label must surface the derived refusal");
 				// The mutated base URL no longer identifies the live group, so the
 				// entry's configuration stops reaching it and the declared model must
 				// leave the host list; the group keeps serving what it discovered.
@@ -1049,7 +1053,7 @@ export class MonkeySession {
 				await this.syncNow();
 				const view = await this.declaredView(real);
 				assert.strictEqual(view.secrets[action.field], this.expectedSecretLocation(real, action.field));
-				assert.strictEqual(view.syncError, this.expectedSyncError(real), "set-secret sync outcome diverged");
+				assert.strictEqual(view.syncFailure?.message, this.expectedSyncError(real), "set-secret sync outcome diverged");
 				return;
 			}
 			case "clear-secret": {
@@ -1067,7 +1071,11 @@ export class MonkeySession {
 				await this.syncNow();
 				const view = await this.declaredView(real);
 				assert.strictEqual(view.secrets[action.field], this.expectedSecretLocation(real, action.field));
-				assert.strictEqual(view.syncError, this.expectedSyncError(real), "clear-secret sync outcome diverged");
+				assert.strictEqual(
+					view.syncFailure?.message,
+					this.expectedSyncError(real),
+					"clear-secret sync outcome diverged"
+				);
 				return;
 			}
 			case "sync-now":
@@ -1404,7 +1412,11 @@ export class MonkeySession {
 			"declared view labels diverged from the oracle"
 		);
 		for (const view of views) {
-			assert.strictEqual(view.syncError, this.expectedSyncError(view.label), `syncError diverged for ${view.label}`);
+			assert.strictEqual(
+				view.syncFailure?.message,
+				this.expectedSyncError(view.label),
+				`syncFailure diverged for ${view.label}`
+			);
 			for (const field of ["apiKey", "oauthClientSecret", "virtualKeyValue"] as const) {
 				assert.strictEqual(
 					view.secrets[field],

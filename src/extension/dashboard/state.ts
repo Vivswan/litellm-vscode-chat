@@ -74,7 +74,7 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
 import type { TransportErrorClassification, UnservedEndpointEvidence } from "../../shared/errorClassification";
-import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { pickEntryViewFields, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
@@ -166,7 +166,7 @@ function buildServer(
  */
 function declaredOutcome(
 	status: ServerStatus | undefined,
-	syncError: string | undefined,
+	syncFailure: DeclaredServerView["syncFailure"],
 	labelServes: boolean
 ):
 	| {
@@ -184,7 +184,7 @@ function declaredOutcome(
 			declaredModelCount?: number | undefined;
 	  }
 	| { state: "unchecked"; servedModelCount: number } {
-	const presentation = declaredPresentation(status, syncError);
+	const presentation = declaredPresentation(status, syncFailure);
 	if (presentation.kind === "sync-failed") {
 		return {
 			state: "error",
@@ -192,7 +192,7 @@ function declaredOutcome(
 			// (snapshotLabels drops its label), so the live count would claim
 			// models the tables do not show; the count follows the rendered rows.
 			servedModelCount: labelServes ? presentation.servedModelCount : 0,
-			error: presentation.error,
+			error: presentation.failure.message,
 		};
 	}
 	// The second test is what narrows `status` below: "unchecked" already means
@@ -249,7 +249,7 @@ export type DeclaredServersInput =
  * must say unproven instead of denying a secure blob nobody read.
  */
 function secretsView(view: DeclaredServerView, source: DeclaredServersInput["source"]): ServerSecretsView {
-	const locationsGuessed = view.syncErrorClass === "secretsUnreadable";
+	const locationsGuessed = view.syncFailure?.class === "secretsUnreadable";
 	if (
 		(source === "engine" && !locationsGuessed) ||
 		SECRET_FIELD_IDS.every((field) => view.secrets[field] === "settings")
@@ -352,7 +352,7 @@ function buildServers(
 		const matched = matchedByDeclared.get(declaredIndex)?.entry;
 		if (matched !== undefined) {
 			const claimed = claimants.get(matched) ?? { labels: [], fallback: view.label };
-			if (view.syncErrorClass !== "upsertFailed") {
+			if (view.syncFailure?.class !== "upsertFailed") {
 				claimed.labels.push(view.label);
 			}
 			claimants.set(matched, claimed);
@@ -401,7 +401,7 @@ function buildServers(
 		}
 		const outcome = declaredOutcome(
 			matched?.snapshot.status,
-			view.syncError,
+			view.syncFailure,
 			matched === undefined || labelsRenderedFor(matched).includes(view.label)
 		);
 		if (outcome.state === "error" && outcome.expected === true && outcome.servedModelCount === 0) {
@@ -430,20 +430,13 @@ function buildServers(
 				? { observedModelInfoKeys: matched.snapshot.observedModelInfoKeys }
 				: {}),
 			config: {
+				// Both registries ride whole: the parser only ever emits present,
+				// non-empty fields, so no per-field emptiness re-checks here - a
+				// field registered in ENTRY_VIEW_FIELD_SET reaches the edit form's
+				// prefill by construction.
 				...pickNonSecretOptionalFields(view),
-				...(view.apiVersion !== undefined ? { apiVersion: view.apiVersion } : {}),
+				...pickEntryViewFields(view),
 				secrets,
-				...(view.modelParameters !== undefined ? { modelParameters: view.modelParameters } : {}),
-				...(view.modelCapabilities !== undefined ? { modelCapabilities: view.modelCapabilities } : {}),
-				...(view.expectedFailures !== undefined && view.expectedFailures.length > 0
-					? { expectedFailures: view.expectedFailures }
-					: {}),
-				...(view.headers !== undefined && Object.keys(view.headers).length > 0 ? { headers: view.headers } : {}),
-				...(view.declaredModels !== undefined && view.declaredModels.length > 0
-					? { declaredModels: view.declaredModels }
-					: {}),
-				...(view.budget !== undefined ? { budget: view.budget } : {}),
-				...(view.mcp !== undefined ? { mcp: view.mcp } : {}),
 			},
 			...(notices.length > 0 ? { notices } : {}),
 			// The webview's declare offers key on the classification itself, since
