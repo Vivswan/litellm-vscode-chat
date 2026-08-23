@@ -1,9 +1,11 @@
 /**
  * Ambient augmentation of the "vscode" module with Language Model provider
  * API surface that exists at runtime for published extensions but is not in
- * the published @types/vscode typings (latest is 1.125). Every member below
- * was verified against the VS Code sources when it was added: the extension
- * host passes or reads them without an API-proposal gate
+ * the installed @types/vscode typings: an exact pin the guard keeps at or
+ * below the engines.vscode floor (scripts/ci/check-vscode-types.ts gates
+ * the ceiling; picking the newest such release is convention). Every member
+ * below was verified against the VS Code sources when it was added: the
+ * extension host passes or reads them without an API-proposal gate
  * (src/vs/workbench/api/common/extHostLanguageModels.ts in the
  * microsoft/vscode repository).
  *
@@ -11,7 +13,7 @@
  * languageModelPricing) character for character so a future @types/vscode
  * release merges as identical declarations instead of silently diverging
  * under skipLibCheck. Delete each declaration (and this file, eventually)
- * once a published @types/vscode declares it.
+ * once the pinned @types/vscode declares it.
  *
  * Do not add `capabilities.editTools` here: the host throws for extensions
  * that set it without the chatProvider proposal enabled. `priceCategory`,

@@ -55,25 +55,8 @@ jobs:
         run: bun run l10n:check
 
       - name: Verify @types/vscode does not exceed engines.vscode
-        run: |
-          node -e "
-          const parse = (value, label) => {
-            const m = /^(\d+)\.(\d+)\.(\d+)/.exec(String(value).replace(/^[~^>=\s]+/, ''));
-            if (!m) {
-              console.error('Cannot parse ' + label + ': ' + value);
-              process.exit(1);
-            }
-            return [Number(m[1]), Number(m[2])];
-          };
-          const engines = parse(require('./package.json').engines.vscode, 'engines.vscode');
-          const installed = require('@types/vscode/package.json').version;
-          const types = parse(installed, 'installed @types/vscode');
-          if (types[0] !== engines[0] || types[1] > engines[1]) {
-            console.error('Installed @types/vscode (' + installed + ') must not be newer than engines.vscode (' + require('./package.json').engines.vscode + '): newer typings would allow APIs the minimum supported host lacks');
-            process.exit(1);
-          }
-          console.log('Installed @types/vscode ' + installed + ' is within engines.vscode ' + require('./package.json').engines.vscode);
-          "
+        # The same script .husky/pre-commit runs, so a local green predicts this gate.
+        run: bun scripts/ci/check-vscode-types.ts
 
       # The dev compile puts out/ on disk first, so this proves .vscodeignore
       # excludes it rather than passing because the files were never built.

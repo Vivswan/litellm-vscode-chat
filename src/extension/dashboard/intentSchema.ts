@@ -190,12 +190,16 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	// pushes like every other setting value); bounded so a hostile page cannot
 	// balloon the setting.
 	setCommitPrompt: z.strictObject({ value: z.string().max(WIRE_LIMITS.commitPrompt) }),
-	// Bounded like every webview-minted list; the value constraints (non-empty
-	// language IDs, at least one field named) live in executeDashboardIntent.
-	setLanguageFilter: z.strictObject({
-		mode: asEnum(LANGUAGE_FILTER_MODES).optional(),
-		languages: z.array(z.string().max(WIRE_LIMITS.languageId)).max(WIRE_LIMITS.languageList).optional(),
-	}),
+	// Bounded like every webview-minted list. Each dashboard row patches only
+	// its own half, so the wire shape is exactly one field per request - a
+	// payload naming both fields or neither is malformed, not a merge. The
+	// value constraints (non-empty language IDs) live in executeDashboardIntent.
+	setLanguageFilter: z.union([
+		z.strictObject({ mode: asEnum(LANGUAGE_FILTER_MODES) }),
+		z.strictObject({
+			languages: z.array(z.string().max(WIRE_LIMITS.languageId)).max(WIRE_LIMITS.languageList),
+		}),
+	]),
 	refreshCatalog: z.null(),
 	refreshUsage: z.null(),
 	saveServerSetting: serverDraftPayloadSchema,

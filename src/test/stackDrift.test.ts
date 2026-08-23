@@ -147,6 +147,35 @@ suite("stack drift guard: bun version pin", () => {
 	});
 });
 
+suite("stack drift guard: vscode typings floor", () => {
+	test("the hook and the format-check workflow run the one typings-floor script, over an exact pin", () => {
+		// The class this pins away: the hook once ran its own inline check
+		// against the DECLARED range while CI checked the INSTALLED version, so
+		// a caret range resolving past engines.vscode was green locally and red
+		// on main. One script, both callers - matched as whole active lines, so
+		// a commented-out invocation fails - and the script must exist at the
+		// invoked path, so a rename or move that misses a caller fails here.
+		assert.ok(
+			fs.existsSync(path.join(repoRoot, "scripts/ci/check-vscode-types.ts")),
+			"the typings-floor script exists"
+		);
+		assert.match(
+			read(".husky/pre-commit"),
+			/^bun scripts\/ci\/check-vscode-types\.ts$/m,
+			"pre-commit runs the shared typings-floor script"
+		);
+		assert.match(
+			read(".github/workflows/format-check-reusable.yml"),
+			/^\s+run: bun scripts\/ci\/check-vscode-types\.ts$/m,
+			"format-check runs the shared typings-floor script"
+		);
+		// An exact pin keeps installed == declared, so a range can never again
+		// resolve past the floor between a local run and CI.
+		const { devDependencies } = JSON.parse(read("package.json")) as { devDependencies: Record<string, string> };
+		assert.match(devDependencies["@types/vscode"] ?? "", /^\d+\.\d+\.\d+$/, "@types/vscode is an exact version pin");
+	});
+});
+
 suite("stack drift guard: README", () => {
 	test("the requirements line states engines.vscode's minimum", () => {
 		const { engines } = JSON.parse(read("package.json")) as { engines: { vscode: string } };

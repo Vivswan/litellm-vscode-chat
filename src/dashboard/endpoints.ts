@@ -319,12 +319,15 @@ interface DashboardEndpointIO {
 	setCommitPrompt: { request: { readonly value: string } };
 	/**
 	 * Patch the inline-completions language filter: each settings row sends
-	 * only its own half (the mode select a mode, the list row languages), and
-	 * the extension merges the patch onto the STORED filter on the chained
-	 * channel - so two quick writes from different rows can never revert each
-	 * other. Language entries must be non-empty VS Code language IDs; a merged
-	 * result of block mode with the empty list resets the setting (it IS the
-	 * default), and an empty patch is refused.
+	 * only its own half (the mode select a mode, the list row languages), so
+	 * the wire shape is exactly one field per request - the schema refuses a
+	 * payload naming both or neither - and the extension merges the patch onto
+	 * the STORED filter on the chained channel, so two quick writes from
+	 * different rows can never revert each other. Language entries must be
+	 * non-empty VS Code language IDs; a merged result of block mode with the
+	 * empty list resets the setting (it IS the default). The type stays the
+	 * handler-facing optional pair so executeDashboardIntent keeps its own
+	 * bypassing-caller refusal of the empty patch.
 	 */
 	setLanguageFilter: {
 		request: {

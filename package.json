@@ -969,7 +969,7 @@
 		"@types/node": "^26.1.1",
 		"@types/react": "^19.2.0",
 		"@types/react-dom": "^19.2.0",
-		"@types/vscode": "^1.129.0",
+		"@types/vscode": "1.125.0",
 		"@vscode/l10n-dev": "^0.0.35",
 		"@vscode/test-cli": "^0.0.15",
 		"@vscode/test-electron": "^3.1.0",

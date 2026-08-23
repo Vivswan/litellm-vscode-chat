@@ -156,3 +156,28 @@ export interface MigrationCorpusEntry {
 }
 
 export const MIGRATION_FUZZ_CORPUS: MigrationCorpusEntry[] = [];
+
+/**
+ * Corpus for the dashboard request-schema fuzzer: webview envelopes that
+ * parseDashboardRequest once ACCEPTED and must refuse, replayed by the schema
+ * property suite before its random mutation runs so the hole stays covered
+ * after the generators change. To add one, take the shrunken counterexample's
+ * mutant request from the failure report and append it with a name
+ * referencing the seed or issue.
+ */
+export interface RefusedDashboardRequestEntry {
+	name: string;
+	/** The full envelope, exactly as the mutation run posted it. */
+	request: unknown;
+}
+
+export const REFUSED_DASHBOARD_REQUESTS: RefusedDashboardRequestEntry[] = [
+	{
+		// Seed -1876246623: a setLanguageFilter patch naming both fields. Each
+		// dashboard row sends only its own half, so the wire shape is exactly
+		// one field per patch; the optional-fields schema this slipped through
+		// also admitted the empty patch.
+		name: "setLanguageFilter-both-fields",
+		request: { kind: "request", id: " ", method: "setLanguageFilter", payload: { mode: "block", languages: [] } },
+	},
+];

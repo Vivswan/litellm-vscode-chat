@@ -32,6 +32,7 @@ import {
 	SECRET_FIELD_IDS,
 } from "../../../shared/serverEntry";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
+import { REFUSED_DASHBOARD_REQUESTS } from "../../fuzzCorpus";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
@@ -156,10 +157,12 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 		),
 	}),
 	setCommitPrompt: fc.record({ value: fc.string({ maxLength: 256 }) }),
-	setLanguageFilter: fc.record({
-		mode: fc.constantFrom(...LANGUAGE_FILTER_MODES),
-		languages: fc.array(fc.string({ maxLength: 128 }), { maxLength: 16 }),
-	}),
+	// One field per patch, like the dashboard rows: each sends only its own
+	// half, and the schema refuses a payload naming both fields or neither.
+	setLanguageFilter: fc.oneof(
+		fc.record({ mode: fc.constantFrom(...LANGUAGE_FILTER_MODES) }),
+		fc.record({ languages: fc.array(fc.string({ maxLength: 128 }), { maxLength: 16 }) })
+	),
 	saveServerSetting: serverDraftPayload,
 	testServerDraft: serverDraftPayload,
 	testFeatureModel: fc.record({
@@ -260,6 +263,11 @@ suite("extension/dashboard/state webview request schema properties", () => {
 	});
 
 	test("a single mutation of a valid request is refused", () => {
+		// The corpus replays first: every request a past fuzz run found accepted
+		// stays refused after the generators or the mutation model change.
+		for (const entry of REFUSED_DASHBOARD_REQUESTS) {
+			assert.strictEqual(parseDashboardRequest(entry.request).success, false, `corpus entry ${entry.name}`);
+		}
 		fc.assert(
 			fc.property(
 				validRequest,
@@ -289,10 +297,14 @@ suite("extension/dashboard/state webview request schema properties", () => {
 							const record = payload as Record<string, unknown>;
 							const keys = Object.keys(record);
 							const key = keys[pick % keys.length] ?? "label";
-							// setUsageAlertThresholds.values and the schema-keywords list
-							// legally hold any bounded array of their element type, so the
-							// array junk is not a wrong type there; NaN still is.
-							mutant.payload = { ...record, [key]: key === "values" && Array.isArray(junk) ? Number.NaN : junk };
+							// setUsageAlertThresholds.values, the schema-keywords list, and
+							// the language filter's languages patch legally hold any bounded
+							// array of their element type, so the array junk is not a wrong
+							// type there; NaN still is.
+							mutant.payload = {
+								...record,
+								[key]: (key === "values" || key === "languages") && Array.isArray(junk) ? Number.NaN : junk,
+							};
 						}
 					} else {
 						// Every request carries the envelope id; the adopt and hide
