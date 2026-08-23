@@ -5,12 +5,15 @@ import { DEFAULT_MAX_TOKENS_CAP } from "../../../provider/transport/request";
 import {
 	ALL_SETTING_KEYS,
 	BOOLEAN_SETTING_SPECS,
+	type BooleanSettingId,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
+	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_MODEL_IDS,
+	FEATURE_MODEL_SETTING_KEY_LIST,
 	FEATURE_MODEL_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	isIntegerSetting,
@@ -314,6 +317,32 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 		// panel and dev seed read and write the Global scope on that basis.
 		const schema = settingSchema(allProperties(), SERVERS_SETTING_KEY);
 		assert.strictEqual(schema.scope, "machine");
+	});
+
+	test("every setting carries exactly its ruled scope tier", () => {
+		// Load-bearing (see AGENTS.md, Storage): every feature's enable boolean and
+		// model ref decide whether requests happen and which server and model they
+		// reach, and the catalog toggle causes OpenRouter fetches, so they are
+		// machine-overridable - per-machine, skipped by Settings Sync, overridden
+		// by a workspace only through its own explicit entry. Everything else but
+		// the machine-scoped servers setting stays ordinary window scope. Total
+		// over ALL_SETTING_KEYS, and both feature key maps are total over
+		// FeatureId, so the next feature or setting cannot ship an unruled scope.
+		const catalogKey: BooleanSettingId = "models.openRouterCatalog";
+		const machineOverridable = new Set<string>([
+			...Object.values(FEATURE_ENABLE_SETTING_KEYS),
+			...FEATURE_MODEL_SETTING_KEY_LIST,
+			catalogKey,
+		]);
+		const properties = allProperties();
+		for (const key of ALL_SETTING_KEYS) {
+			const expected = machineOverridable.has(key)
+				? "machine-overridable"
+				: key === SERVERS_SETTING_KEY
+					? "machine"
+					: undefined;
+			assert.strictEqual(settingSchema(properties, key).scope, expected, `${key} scope`);
+		}
 	});
 
 	test("a servers entry declares the nested auth object with exactly the three forms", () => {

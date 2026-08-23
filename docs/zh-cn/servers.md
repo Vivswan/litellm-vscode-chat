@@ -327,4 +327,4 @@ LiteLLM 代理可以通过 Model Context Protocol 提供工具。条目的 `mcp`
 ## 多台机器与 Settings Sync
 
 - `servers` 设置是机器作用域的; Settings Sync 从不携带它。密钥存储中的值同样不同步。在第二台机器上, 重新添加服务器及其密钥。
-- 其他每个 `litellm-vscode-chat.*` 设置都正常同步 - 包括 `models.parameters` 和 `models.capabilities`, 所以你的模型配置会跟着你走。在服务器尚未重新添加的机器上, 这些同步来的记录只是没有模型可匹配 - 它们静静待命, 服务器一到位就立即生效。任何绑定服务器的东西 (凭据、自定义标头、预算) 都存放在条目上, 按设计留在原地。
+- 除机器可覆盖的功能开关与模型选择外 ([作用域](settings.md#设置如何工作)), 其他每个 `litellm-vscode-chat.*` 设置都正常同步 - 包括 `models.parameters` 和 `models.capabilities`, 所以你的模型配置会跟着你走。在服务器尚未重新添加的机器上, 这些同步来的记录只是没有模型可匹配 - 它们静静待命, 服务器一到位就立即生效。任何绑定服务器的东西 (凭据、自定义标头、预算) 都存放在条目上, 按设计留在原地。
