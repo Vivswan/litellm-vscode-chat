@@ -6,7 +6,7 @@ import { OAuthTokenSource } from "./auth";
 import { applyAuthOverlay, invalidateRejectedOAuthToken, plainFetchBaseHeaders, setOwnedHeader } from "./authOverlay";
 import { chatCompletionsUrl, completionsUrl } from "./clients";
 import type { MapErrorContext, TransportErrorSurface } from "./errorMapping";
-import { bodylessResponseError, mapSdkError, timeoutRequestError } from "./errorMapping";
+import { bodylessResponseError, mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
 import { parseCompletionText } from "./fim";
 
 /**
@@ -333,6 +333,63 @@ export class OneShotClient {
 	}
 
 	/**
+	 * The credential headers a request to this server would carry, composed
+	 * without sending one. The MCP publisher hands these to the editor, which
+	 * then talks to the server's MCP endpoint itself; sharing this client
+	 * shares its OAuth token cache, so publishing costs no extra exchange when
+	 * a chat feature already holds a live token. There is no 401 invalidation
+	 * counterpart here - the editor owns those responses - so a token the
+	 * server stops accepting is corrected by the next exchange after expiry
+	 * rather than by a rejection.
+	 *
+	 * Deliberately NO whole-call timeout of its own: the only thing that can
+	 * block here is the token exchange, and a second bound sharing that budget
+	 * would race the exchange's own and win, re-attributing the failure to
+	 * whatever the surface calls a timed-out request - "model discovery timed
+	 * out" for an MCP session start - instead of the OAuth-specific message
+	 * that names the setting to raise.
+	 *
+	 * One caveat this inherits rather than introduces: when an exchange for the
+	 * same credentials is already in flight for another feature, getToken JOINS
+	 * it, and the join carries the ORIGINATOR's bound and surface (auth.ts). So
+	 * a joined call can outlast this one's `timeoutMs` and report the
+	 * originator's timeout advice. Cancellation still releases the waiter.
+	 */
+	async authHeaders(
+		connection: OneShotConnection,
+		surface: TransportErrorSurface,
+		opts: OneShotCallOptions
+	): Promise<Record<string, string>> {
+		const cancelController = new AbortController();
+		const cancelListener = opts.token.onCancellationRequested(() => cancelController.abort());
+		try {
+			const headers = plainFetchBaseHeaders({
+				apiKey: connection.apiKey,
+				userAgent: this.options.userAgent,
+				customHeaders: connection.headers,
+			});
+			await applyAuthOverlay(headers, connection, {
+				tokens: this.oauthTokens,
+				surface,
+				timeoutMs: opts.timeoutMs,
+				signal: cancelController.signal,
+			});
+			return headers;
+		} catch (err) {
+			if (opts.token.isCancellationRequested) {
+				throw new vscode.CancellationError();
+			}
+			// The exchange already classifies its own failures under `surface`;
+			// anything else reaches the shared pipeline like a request's would.
+			throw err instanceof RequestError
+				? err
+				: mapSdkError(err, { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeoutMs });
+		} finally {
+			cancelListener.dispose();
+		}
+	}
+
+	/**
 	 * The shared HTTP core of every one-shot call: header composition through
 	 * the shared overlay, the whole-call timeout, and the one error pipeline
 	 * (mapSdkError via the SDK's own error factory). `consume` runs INSIDE the
@@ -365,6 +422,9 @@ export class OneShotClient {
 				userAgent: this.options.userAgent,
 				customHeaders: connection.headers,
 			});
+			// Before the overlay, so a virtual key named Content-Type still owns
+			// that header the way it always has: what a credential displaces is
+			// not this refactor's to change.
 			setOwnedHeader(headers, "Content-Type", "application/json");
 			sentOAuthToken = await applyAuthOverlay(headers, connection, {
 				tokens: this.oauthTokens,

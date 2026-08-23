@@ -70,6 +70,7 @@ describe("shared/serverEntry: package.json drift guard", () => {
 			"models",
 			"discovery",
 			"budget",
+			"mcp",
 		]);
 	});
 

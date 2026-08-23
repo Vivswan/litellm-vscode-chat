@@ -506,6 +506,7 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 		headers: {},
 		declaredModels: [],
 		budget: null,
+		mcp: null,
 	});
 
 	// An ack for some other intent must not close it.
@@ -1031,6 +1032,7 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 		headers: {},
 		declaredModels: [],
 		budget: null,
+		mcp: null,
 	});
 	expect(posted.payload.secrets).toEqual({
 		apiKey: { action: "keep" },

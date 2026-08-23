@@ -401,6 +401,22 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-1"));
 		});
 
+		test("an entry's non-secret fields ride through verbatim, the mcp opt-in included", () => {
+			// Secret surgery rewrites the auth object and nothing else: a new
+			// per-entry field must survive an export/import round trip without
+			// joining any allow-list, or a user moving machines would silently
+			// lose it.
+			const incoming = [
+				server("Derived", { auth: { apiKey: "sk-1" }, mcp: true, budget: 25 }),
+				server("Named", { mcp: { url: "https://gw.example/tools/mcp" } }),
+			];
+			const application = resolveImportPlan(planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined), {});
+			assert.deepStrictEqual(application.serversValue, [
+				server("Derived", { mcp: true, budget: 25 }),
+				server("Named", { mcp: { url: "https://gw.example/tools/mcp" } }),
+			]);
+		});
+
 		test("a pre-redesign flat entry lands restructured, its flat secrets moved to secret storage", () => {
 			// Old-format export files (flat credential fields, envelope v1) must
 			// keep importing AND work immediately: the entry lands in the current

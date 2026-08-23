@@ -5,6 +5,7 @@ import type { FeatureProbes } from "../dashboard/intents";
 import { wireCommitGeneration } from "../features/commitGen/wiring";
 import { createConsultProbe, wireConsultTool } from "../features/consultTool/wiring";
 import { createFimProbe, wireInlineCompletions } from "../features/inline/wiring";
+import { wireMcpServers } from "../features/mcp/wiring";
 import type { SnapshotSource } from "../features/participant/snapshots";
 import type { ChatParticipantWiring } from "../features/participant/wiring";
 import { wireChatParticipant } from "../features/participant/wiring";
@@ -29,6 +30,7 @@ export function wireFeatures(
 	const inline = wireInlineCompletions(context, logger, { oneShot });
 	wireCommitGeneration(context, logger, { oneShot, outputChannel: deps.outputChannel });
 	const consult = wireConsultTool(context, logger, { oneShot });
+	wireMcpServers(context, logger, { oneShot });
 	// Surfaced rather than consumed here: the quick-fix feature registers /fix
 	// and /explain through this seam when it lands (a declared cross-feature
 	// edit; features may not import each other, so the seam is the only route).

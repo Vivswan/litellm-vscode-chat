@@ -98,6 +98,16 @@ export const PARKED_GLOBAL_HEADERS_KEY = "litellm.parkedGlobalHeaders";
  */
 export const LAST_ISSUE_REPORT_KEY = "litellm.lastIssueReport";
 
+/**
+ * globalState: label -> credential-rotation counter for the MCP publisher. The
+ * number rides each published definition as its version, so the editor is told
+ * that a server's tools may answer differently now; it counts observed
+ * rotations and nothing else, so no credential material is derivable from it.
+ * Persisted because a counter that reset on every restart would announce a
+ * rotation that never happened.
+ */
+export const MCP_ENTRY_VERSIONS_KEY = "litellm.mcpEntryVersions";
+
 /** SecretStorage: API key for one registered server. */
 export function apiKeySecret(serverId: string): string {
 	return `litellm.apiKey.${serverId}`;

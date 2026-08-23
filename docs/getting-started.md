@@ -110,6 +110,16 @@ Give the entry a budget in the server's billing currency; alerts and the status 
 
 With the default `usage.alertThresholds` of `[0.8, 0.95]`, you get one notification at 80% of $50 and another at 95%, and the usage status bar item shows the spend percentage - plain while you are under, on a warning background past 80%, on an error background past 95%. If your key already carries a LiteLLM `max_budget`, that works without any entry field at all. One requirement: spend tracking needs a LiteLLM server backed by a database ([requirements](usage.md#requirements)); on a proxy without one, the usage surfaces stay hidden and the `budget` field changes nothing. Details: [Usage: budgets](usage.md#budgets) and [alerts](usage.md#alerts).
 
+### Use your proxy's own MCP tools in chat
+
+If your LiteLLM server serves tools over the Model Context Protocol, one field on the entry makes them available in chat:
+
+```jsonc
+{ "label": "prod", "baseUrl": "https://litellm.example.com", "auth": { "apiKey": "sk-..." }, "mcp": true }
+```
+
+`true` uses the server's own endpoint at `<baseUrl>/mcp`; write `"mcp": { "url": "..." }` when it lives somewhere else. The tools appear in chat's tool picker under the entry's label, and the extension attaches this entry's credentials - the same key, virtual key, or OAuth token your chats use - at the moment the editor starts a session, never before. Details: [Servers: MCP tools](servers.md#mcp-tools).
+
 ### See why a value is what it is
 
 When several matcher keys, a server entry, and the picker all have opinions, guessing is the slow way. Open the dashboard's Models section and Inspect a model: the panel lists every effective parameter and capability with the exact source that set it - which matcher key, which server entry, the server's own report, or the OpenRouter catalog. Details: [Models: the inspectors](models.md#inspectors).

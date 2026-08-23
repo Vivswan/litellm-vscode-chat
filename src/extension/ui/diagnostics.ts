@@ -8,6 +8,7 @@ import { FEATURE_IDS, isFeatureModelId } from "../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../shared/config/settings";
 import type { ServerStatus } from "../../shared/servers";
 import { recordFromKeys } from "../../shared/util/json";
+import { mcpEnabledEntryCount } from "../features/mcp/wiring";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DiagnosticsSnapshot, IssueReporter } from "./issueReporter";
 import type { ConnectionStatus } from "./status";
@@ -72,6 +73,9 @@ export async function buildDiagnosticsSnapshot(
 			enabled: isFeatureEnabled(feature),
 			...(isFeatureModelId(feature) ? { modelConfigured: getFeatureModelRef(feature) !== undefined } : {}),
 		})),
+		// A count of opted-in entries, never their labels or endpoints: the MCP
+		// opt-in is a per-entry field, so it has no FeatureId row to ride.
+		mcpEntryCount: mcpEnabledEntryCount(),
 		latestError: issueReporter.getLatestError(),
 		recentLogs: issueReporter.getRecentLogs(),
 	};

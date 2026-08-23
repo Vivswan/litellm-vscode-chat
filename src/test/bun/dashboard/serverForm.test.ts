@@ -16,6 +16,7 @@ import {
 	changedServerFormFields,
 	EMPTY_SERVER_FORM,
 	isUsableHttpUrl,
+	mcpDraftOf,
 	parseServerForm,
 	parseServerFormForTest,
 	SERVER_FORM_FIELD_ORDER,
@@ -260,6 +261,7 @@ describe("dashboard/serverForm", () => {
 				headers: {},
 				declaredModels: [],
 				budget: null,
+				mcp: null,
 			});
 			assert.strictEqual(intent.replace, undefined);
 		});
@@ -582,12 +584,13 @@ describe("dashboard/serverForm", () => {
 			});
 		});
 
-		test("CONNECTION_FIELDS is exactly the field catalog minus label and the record, list, and budget fields", () => {
+		test("CONNECTION_FIELDS is exactly the field catalog minus label and the record, list, budget, and mcp fields", () => {
 			// A new connection-shaped field must join CONNECTION_FIELDS or this
 			// fails. modelCapabilities, expectedFailures, declaredModels, and
 			// budget stay out by design: they shape the probe's OUTCOME
-			// presentation, never the connection it tests. The auth-form pick and
-			// the header rows ARE connection-shaped: the probe sends what they say.
+			// presentation, never the connection it tests, and mcp names a second
+			// endpoint the probe never dials. The auth-form pick and the header
+			// rows ARE connection-shaped: the probe sends what they say.
 			const expected = SERVER_FORM_FIELD_ORDER.filter(
 				(field) =>
 					field !== "label" &&
@@ -595,7 +598,8 @@ describe("dashboard/serverForm", () => {
 					field !== "modelCapabilities" &&
 					field !== "expectedFailures" &&
 					field !== "declaredModels" &&
-					field !== "budget"
+					field !== "budget" &&
+					field !== "mcp"
 			);
 			assert.deepStrictEqual([...CONNECTION_FIELDS].sort(), [...expected].sort());
 		});
@@ -888,6 +892,71 @@ describe("dashboard/serverForm", () => {
 			});
 			assert.deepStrictEqual(intentOf(padded).server.modelCapabilities, intentOf(rows).server.modelCapabilities);
 			assert.deepStrictEqual(changedServerFormFields(padded, rows), ["modelCapabilities"]);
+		});
+	});
+	describe("the MCP control", () => {
+		test("off writes no opt-in", () => {
+			assert.strictEqual(intentOf(draft()).server.mcp, null);
+		});
+
+		test("on with no URL publishes the derived endpoint; a usable URL names another one", () => {
+			assert.strictEqual(intentOf(draft({ mcp: { enabled: true, url: "" } })).server.mcp, true);
+			assert.strictEqual(intentOf(draft({ mcp: { enabled: true, url: "   " } })).server.mcp, true);
+			assert.deepStrictEqual(intentOf(draft({ mcp: { enabled: true, url: " https://gw.example/mcp " } })).server.mcp, {
+				url: "https://gw.example/mcp",
+			});
+		});
+
+		test("an unusable URL blocks the save, naming the field", () => {
+			assert.deepStrictEqual(problemsOf(draft({ mcp: { enabled: true, url: "not a url" } })), {
+				mcp: "Must be a usable http(s) URL",
+			});
+			// Off, the same text is inert: the parse never reads a control the
+			// user turned off.
+			assert.deepStrictEqual(problemsOf(draft({ mcp: { enabled: false, url: "not a url" } })), {});
+		});
+
+		test("the draft-test intent carries no opt-in: a probe is a connection check, not a save", () => {
+			const parse = parseServerFormForTest(draft({ mcp: { enabled: true, url: "https://gw.example/mcp" } }));
+			assert.ok(parse.ok);
+			assert.strictEqual(parse.intent.server.mcp, null);
+		});
+
+		test("an unusable URL does not block the probe: the endpoint is not a connection field", () => {
+			const parse = parseServerFormForTest(draft({ mcp: { enabled: true, url: "not a url" } }));
+			assert.ok(parse.ok);
+		});
+
+		test("the save bar counts what Save would write, so leftover text under an off switch stays quiet", () => {
+			const off = draft();
+			assert.deepStrictEqual(
+				changedServerFormFields(draft({ mcp: { enabled: false, url: "https://x.test" } }), off),
+				[]
+			);
+			assert.deepStrictEqual(changedServerFormFields(draft({ mcp: { enabled: true, url: "" } }), off), ["mcp"]);
+			assert.deepStrictEqual(changedServerFormFields(draft({ mcp: { enabled: true, url: " https://x.test " } }), off), [
+				"mcp",
+			]);
+			// Padding alone is not an edit; a blocking URL still counts, or the
+			// bar would go quiet on an edit that refuses to save.
+			const url = draft({ mcp: { enabled: true, url: "https://x.test" } });
+			assert.deepStrictEqual(
+				changedServerFormFields(draft({ mcp: { enabled: true, url: " https://x.test " } }), url),
+				[]
+			);
+			assert.deepStrictEqual(changedServerFormFields(draft({ mcp: { enabled: true, url: "nope" } }), url), ["mcp"]);
+		});
+
+		test("the prefill round-trips every stored shape", () => {
+			assert.deepStrictEqual(mcpDraftOf(undefined), { enabled: false, url: "" });
+			assert.deepStrictEqual(mcpDraftOf(true), { enabled: true, url: "" });
+			assert.deepStrictEqual(mcpDraftOf({ url: "https://gw.example/mcp" }), {
+				enabled: true,
+				url: "https://gw.example/mcp",
+			});
+			for (const stored of [true, { url: "https://gw.example/mcp" }] as const) {
+				assert.deepStrictEqual(intentOf(draft({ mcp: mcpDraftOf(stored) })).server.mcp, stored);
+			}
 		});
 	});
 });

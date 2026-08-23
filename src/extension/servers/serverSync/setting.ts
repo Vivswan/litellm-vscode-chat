@@ -2,10 +2,10 @@
  * Parsing the litellm-vscode-chat.servers setting: the acceptance rules for
  * declared entries live here and nowhere else.
  *
- * The settings shape is nested (auth / headers / models / discovery / budget);
- * the parsed DeclaredServer keeps the flat credential fields the rest of the
- * extension consumes, so the wire shape of the provider-group args - and with
- * it every stored sync fingerprint - is unchanged by the restructure.
+ * The settings shape is nested (auth / headers / models / discovery / budget /
+ * mcp); the parsed DeclaredServer keeps the flat credential fields the rest of
+ * the extension consumes, so the wire shape of the provider-group args - and
+ * with it every stored sync fingerprint - is unchanged by the restructure.
  *
  * Auth grammar: exactly one form per entry, ranked oauth > apiKey >
  * virtualKey. A form may carry companions of strictly lower primacy only:
@@ -26,6 +26,7 @@ import {
 } from "../../../shared/config/settings";
 import type {
 	ExpectedFailureCategory,
+	McpOptIn,
 	NonSecretOptionalFields,
 	OptionalEntryFieldId,
 	OptionalEntryFields,
@@ -68,6 +69,12 @@ export type DeclaredServer = {
 	readonly declaredModels?: readonly string[];
 	/** The entry's manual usage budget in USD (non-secret user configuration); the usage surfaces read it. */
 	readonly budget?: number;
+	/**
+	 * The entry's MCP opt-in, when it carries one: the MCP publisher publishes
+	 * exactly the entries that do. Extension-side only, like the fields above -
+	 * it never reaches the provider-group args or their fingerprint.
+	 */
+	readonly mcp?: McpOptIn;
 } & OptionalEntryFields;
 
 /**
@@ -103,6 +110,42 @@ function usableString(value: unknown): string | undefined {
 /** An entry's manual usage budget in USD: finite and above zero (a zero budget could only read as fully spent). */
 function usableBudget(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * An entry's `mcp` opt-in. `true` opts in at the derived endpoint and `false`
+ * opts out (an explicit off switch, not a mistake, so it reports nothing); the
+ * object form opts in and may name the endpoint URL. Like every other
+ * non-auth field, malformed content is reported and ignored rather than
+ * rejecting the entry: an unusable `url` still leaves the entry opted in at
+ * the derived endpoint, so a typo costs the custom address, never the server.
+ * The URL itself is taken as written beyond trimming - the dashboard's write
+ * path is where http(s) shape is enforced, exactly as it is for `baseUrl`.
+ */
+function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn | undefined {
+	if (raw === true) {
+		return true;
+	}
+	if (raw === false) {
+		return undefined;
+	}
+	if (!isRecord(raw)) {
+		report("has an mcp value that is not true, false, or an object, ignored");
+		return undefined;
+	}
+	// Named on purpose, like the unknown auth and discovery keys: a typo silently
+	// reading as "the default endpoint" would be invisible.
+	for (const key of Object.keys(raw)) {
+		if (key !== "url") {
+			report(`has an unknown mcp key "${key}", ignored`);
+		}
+	}
+	if (raw.url !== undefined && typeof raw.url !== "string") {
+		report("has an mcp.url that is not a string, ignored");
+		return true;
+	}
+	const url = usableString(raw.url);
+	return url !== undefined ? { url } : true;
 }
 
 /** The flat credential fields an entry's auth object parses to; every value is usable inline text. */
@@ -392,6 +435,7 @@ function acceptEntries(
 			expectedFailures?: readonly ExpectedFailureCategory[];
 			declaredModels?: readonly string[];
 			budget?: number;
+			mcp?: McpOptIn;
 		} & FlatAuthFields = {
 			label,
 			baseUrl,
@@ -489,6 +533,13 @@ function acceptEntries(
 				report("has a budget that is not a number greater than 0, ignored");
 			} else {
 				entry.budget = budget;
+			}
+		}
+
+		if (record.mcp !== undefined) {
+			const mcp = parseMcpOptIn(record.mcp, report);
+			if (mcp !== undefined) {
+				entry.mcp = mcp;
 			}
 		}
 		accepted.push({ index, entry });

@@ -34,6 +34,7 @@ suite("IssueReporter", () => {
 				reviewComments: { enabled: false, modelConfigured: false },
 				chatParticipant: { enabled: true },
 			},
+			mcpEntryCount: 0,
 			recentLogs: [],
 			...overrides,
 		};
@@ -686,13 +687,14 @@ suite("IssueReporter", () => {
 				recentLogs: ["log-line-MARKER", "another log-line-MARKER"],
 			});
 			// Exact equality pins the composition: any new field joining the
-			// fingerprint must be reviewed here for content hygiene. The pairs
-			// after baseUrlConfigured are enabled|modelConfigured per FEATURE_IDS
-			// entry: six model features all off, then the participant's true and
-			// its "-" no-model-key marker, then the classification tail.
+			// fingerprint must be reviewed here for content hygiene. After
+			// baseUrlConfigured comes the MCP-enabled entry count, then the pairs
+			// enabled|modelConfigured per FEATURE_IDS entry: six model features
+			// all off, then the participant's true and its "-" no-model-key
+			// marker, then the classification tail.
 			assert.strictEqual(
 				reportFingerprint(snapshot),
-				"v2|0.2.3|connected|5|true|true|false|false|false|false|false|false|false|false|false|false|false|false|true|-|http|502|-"
+				"v3|0.2.3|connected|5|true|true|0|false|false|false|false|false|false|false|false|false|false|false|false|true|-|http|502|-"
 			);
 		});
 

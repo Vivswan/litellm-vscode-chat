@@ -8,6 +8,7 @@
 import * as l10n from "@vscode/l10n";
 import type {
 	ExpectedFailureCategory,
+	McpOptIn,
 	NonSecretOptionalFieldId,
 	SecretFieldId,
 	SecretLocation,
@@ -60,6 +61,25 @@ export function apiVersionDraftOf(value: string | undefined): ApiVersionDraft {
 	return value === "" ? { mode: "none", custom: "" } : { mode: "custom", custom: value };
 }
 
+/**
+ * The MCP control: an opt-in switch plus the optional endpoint URL, kept apart
+ * so "opted in, no custom URL yet" stays representable instead of collapsing
+ * into "opted out". Maps onto the entry's `mcp`: off writes no key, on with no
+ * URL writes `true`, on with a URL writes `{ url }`.
+ */
+export interface McpDraft {
+	readonly enabled: boolean;
+	readonly url: string;
+}
+
+/** The edit form's prefill from a stored entry's mcp: absent is off, `true` is on, the object form fills the URL. */
+export function mcpDraftOf(value: McpOptIn | undefined): McpDraft {
+	if (value === undefined) {
+		return { enabled: false, url: "" };
+	}
+	return { enabled: true, url: value === true ? "" : (value.url ?? "") };
+}
+
 /** The whole draft, its field set derived from the entry descriptor. */
 export type ServerFormDraft = {
 	readonly label: string;
@@ -69,6 +89,7 @@ export type ServerFormDraft = {
 	readonly headers: readonly HeaderRow[];
 	readonly declaredModels: string;
 	readonly budget: string;
+	readonly mcp: McpDraft;
 	readonly modelParameters: readonly PrefixGroup[];
 	readonly modelCapabilities: readonly PrefixGroup[];
 	readonly expectedFailures: readonly ExpectedFailureCategory[];
@@ -92,6 +113,7 @@ export const EMPTY_SERVER_FORM: ServerFormDraft = {
 	headers: [],
 	declaredModels: "",
 	budget: "",
+	mcp: { enabled: false, url: "" },
 	modelParameters: [],
 	modelCapabilities: [],
 	expectedFailures: [],
@@ -118,6 +140,7 @@ export const SERVER_FORM_FIELD_ORDER: readonly ServerFormField[] = [
 	"expectedFailures",
 	"headers",
 	"budget",
+	"mcp",
 ];
 
 /**
@@ -155,6 +178,8 @@ export function serverFormFieldLabel(field: ServerFormField): string {
 			return l10n.t("Declared models");
 		case "budget":
 			return l10n.t("Budget");
+		case "mcp":
+			return l10n.t("MCP server");
 		case "modelParameters":
 			return l10n.t("Model parameters");
 		case "modelCapabilities":
@@ -208,6 +233,9 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 		}
 		if (field === "budget") {
 			return !sameBudget(parseBudgetText(draft.budget), parseBudgetText(baseline.budget));
+		}
+		if (field === "mcp") {
+			return !sameMcp(parseMcpDraft(draft.mcp), parseMcpDraft(baseline.mcp));
 		}
 		if (field === "declaredModels") {
 			return (
@@ -387,6 +415,37 @@ function sameBudget(a: BudgetParse, b: BudgetParse): boolean {
 }
 
 /**
+ * The MCP control parsed once: off clears (null), on with no URL publishes the
+ * derived endpoint (true), on with a usable http(s) URL publishes that URL, and
+ * anything else blocks while keeping its trimmed text. The URL rule is the
+ * form's, not the settings parser's - the setting takes a URL as written and
+ * reports an unusable one, exactly as it does for `baseUrl`, while the guided
+ * path refuses to write one it can see is broken.
+ */
+type McpParse = { readonly ok: true; readonly value: McpOptIn | null } | { readonly ok: false; readonly text: string };
+
+function parseMcpDraft(draft: McpDraft): McpParse {
+	if (!draft.enabled) {
+		return { ok: true, value: null };
+	}
+	const url = draft.url.trim();
+	if (url.length === 0) {
+		return { ok: true, value: true };
+	}
+	return isUsableHttpUrl(url) ? { ok: true, value: { url } } : { ok: false, text: url };
+}
+
+function sameMcp(a: McpParse, b: McpParse): boolean {
+	if (!a.ok || !b.ok) {
+		return !a.ok && !b.ok && a.text === b.text;
+	}
+	if (a.value === null || b.value === null || a.value === true || b.value === true) {
+		return a.value === b.value;
+	}
+	return a.value.url === b.value.url;
+}
+
+/**
  * Which auth form a saved entry's configuration reads as, for the edit form's
  * initial selector state: oauth when the token URL and client ID pair is
  * configured, else apiKey when a key is stored anywhere, else virtualKey when
@@ -535,6 +594,7 @@ interface ServerConnectionValues {
 interface ServerFormValues extends ServerConnectionValues {
 	readonly modelParameters: Record<string, Record<string, unknown>>;
 	readonly budget: number | null;
+	readonly mcp: McpOptIn | null;
 }
 
 /**
@@ -692,6 +752,16 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		problems.budget = l10n.t("Must be a number greater than 0");
 	}
 
+	// MCP: off clears (the payload's null); on publishes the derived endpoint
+	// unless a usable URL names another one.
+	const mcpParse = parseMcpDraft(draft.mcp);
+	let mcp: McpOptIn | null = null;
+	if (mcpParse.ok) {
+		mcp = mcpParse.value;
+	} else {
+		problems.mcp = l10n.t("Must be a usable http(s) URL");
+	}
+
 	// Only the active form's text fields reach the payload: an inactive form's
 	// leftover text is excluded exactly like an empty input.
 	const optionalText: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
@@ -721,6 +791,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 				modelCapabilities: capabilitiesParse.value,
 				modelParameters: groupsParse.value,
 				budget,
+				mcp,
 			},
 			modelCapabilityIssues: capabilitiesParse.issues,
 			modelParameterHints: groupsParse.hints,
@@ -793,6 +864,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		headers: values.headers,
 		declaredModels: parseDeclaredModelsText(draft.declaredModels),
 		budget: values.budget,
+		mcp: values.mcp,
 	};
 	return {
 		ok: true,
@@ -842,6 +914,7 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 		headers: values.headers,
 		declaredModels: parseDeclaredModelsText(draft.declaredModels),
 		budget: null,
+		mcp: null,
 	};
 	return {
 		ok: true,

@@ -94,8 +94,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const { statusBar, notifier } = wireStatusSurfaces(context, logger, hasConfiguredServers, () =>
 		servers.syncEngine.getDeclared()
 	);
-	// The features (inline completions, commit generation, the @litellm chat
-	// participant): each is opt-in by construction except the participant,
+	// The features (inline completions, commit generation, the MCP publisher,
+	// the @litellm chat participant): each is opt-in by construction except
+	// the participant,
 	// which is on by default and idle until invoked, and all share one one-shot
 	// client. Before the dashboard so its test probes reuse the features' exact
 	// send pipelines.

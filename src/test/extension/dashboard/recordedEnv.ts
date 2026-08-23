@@ -97,6 +97,7 @@ export function serverPayload(
 		headers: {},
 		declaredModels: [],
 		budget: null,
+		mcp: null,
 		...fields,
 	};
 }

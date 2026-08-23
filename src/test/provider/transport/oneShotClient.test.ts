@@ -863,4 +863,71 @@ suite("provider/transport/oneShotClient", () => {
 			);
 		});
 	});
+	suite("authHeaders", () => {
+		test("composes what a request would carry, without making one", async () => {
+			// No msw handler is registered for the server: any request would fail
+			// the suite through onUnhandledRequest: "error".
+			const headers = await client().authHeaders(
+				connection({ headers: { "x-routing-env": "prod" }, virtualKey: { header: "x-litellm-key", value: "vk-1" } }),
+				"discovery",
+				callOptions()
+			);
+			assert.strictEqual(headers.Authorization, "Bearer sk-test");
+			assert.strictEqual(headers["X-API-Key"], "sk-test");
+			assert.strictEqual(headers["x-litellm-key"], "vk-1");
+			assert.strictEqual(headers["x-routing-env"], "prod");
+			// No body goes out, so no Content-Type is invented for one.
+			assert.strictEqual(headers["Content-Type"], undefined);
+		});
+
+		test("a token-exchange timeout keeps the OAuth-specific message, not the surface's request wording", async () => {
+			// The call has no whole-call bound of its own precisely so the
+			// exchange's own bound wins: a second timer sharing the budget would
+			// race it and re-attribute the failure to "model discovery timed out".
+			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
+			const error = await expectRequestError(
+				client().authHeaders(
+					connection({ oauth: { tokenUrl: TOKEN_URL, clientId: "c", clientSecret: "s" } }),
+					"discovery",
+					callOptions(60)
+				),
+				"timeout"
+			);
+			assert.ok(error.message.startsWith("OAuth token request to"), error.message);
+		});
+
+		test("cancellation surfaces as a CancellationError", async () => {
+			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
+			const source = new vscode.CancellationTokenSource();
+			const pending = client().authHeaders(
+				connection({ oauth: { tokenUrl: TOKEN_URL, clientId: "c", clientSecret: "s" } }),
+				"discovery",
+				{ timeoutMs: 5000, token: source.token }
+			);
+			source.cancel();
+			await assert.rejects(() => pending, vscode.CancellationError);
+		});
+	});
+
+	suite("header precedence", () => {
+		test("a virtual key named Content-Type still owns that header, as it always has", async () => {
+			// The overlay runs AFTER the body's Content-Type is set, so what a
+			// credential displaces stays the overlay's decision. Nonsensical
+			// placement, but changing it is not the transport refactor's call.
+			let seen: string | null = null;
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+					seen = request.headers.get("content-type");
+					return chatJson("ok");
+				})
+			);
+			await client().completeChatOnce(
+				connection({ virtualKey: { header: "Content-Type", value: "application/vnd.litellm" } }),
+				{ model: "m", messages: [{ role: "user", content: "hi" }] },
+				"chat",
+				callOptions()
+			);
+			assert.strictEqual(seen, "application/vnd.litellm");
+		});
+	});
 });

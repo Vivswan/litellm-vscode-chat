@@ -9,14 +9,20 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { wireFeatures } from "../../../extension/wiring/features";
-import { CMD, INTERNAL_CMD, PARTICIPANT_ID } from "../../../shared/config/commandIds";
+import { CMD, INTERNAL_CMD, MCP_PROVIDER_ID, PARTICIPANT_ID } from "../../../shared/config/commandIds";
 import { Logger } from "../../../shared/logger";
 import { REPO_ROOT } from "../../util/repoRoot";
 
 function fakeContext(): vscode.ExtensionContext {
 	return {
 		subscriptions: [] as vscode.Disposable[],
-		secrets: { get: async () => undefined, store: async () => {}, delete: async () => {} },
+		secrets: {
+			get: async () => undefined,
+			store: async () => {},
+			delete: async () => {},
+			onDidChange: () => new vscode.Disposable(() => {}),
+		},
+		globalState: { keys: () => [], get: () => undefined, update: async () => {} },
 		extensionUri: vscode.Uri.file(REPO_ROOT),
 	} as unknown as vscode.ExtensionContext;
 }
@@ -41,45 +47,56 @@ function contributedSlashCommandNames(): string[] {
  * would collide across tests. The participant registration is stubbed for the
  * same reason - two live participants sharing one id is a host-level conflict.
  */
-async function withCommandSpy<T>(fn: (commandIds: string[]) => T | Promise<T>): Promise<Awaited<T>> {
-	const commandIds: string[] = [];
+async function withCommandSpy<T>(fn: (registeredIds: string[]) => T | Promise<T>): Promise<Awaited<T>> {
+	const registeredIds: string[] = [];
 	const originalRegisterCommand = vscode.commands.registerCommand;
 	const originalOnDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration;
 	const originalCreateChatParticipant = vscode.chat.createChatParticipant;
+	const originalRegisterMcpProvider = vscode.lm.registerMcpServerDefinitionProvider;
 	(vscode.commands as Record<string, unknown>).registerCommand = (id: string) => {
-		commandIds.push(id);
+		registeredIds.push(id);
 		return new vscode.Disposable(() => {});
 	};
 	(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = () => new vscode.Disposable(() => {});
 	(vscode.chat as Record<string, unknown>).createChatParticipant = (id: string) =>
 		({ id, dispose: () => {} }) as unknown as vscode.ChatParticipant;
+	// The MCP provider registers unconditionally, so a real registration here
+	// would linger in the shared host for every later suite.
+	(vscode.lm as Record<string, unknown>).registerMcpServerDefinitionProvider = (id: string) => {
+		registeredIds.push(id);
+		return new vscode.Disposable(() => {});
+	};
 	try {
-		return await fn(commandIds);
+		return await fn(registeredIds);
 	} finally {
 		(vscode.commands as Record<string, unknown>).registerCommand = originalRegisterCommand;
 		(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = originalOnDidChangeConfiguration;
 		(vscode.chat as Record<string, unknown>).createChatParticipant = originalCreateChatParticipant;
+		(vscode.lm as Record<string, unknown>).registerMcpServerDefinitionProvider = originalRegisterMcpProvider;
 	}
 }
 
 suite("extension/wiring features", () => {
 	test("wireFeatures wires every feature and registers exactly the shipped probes", async () => {
-		await withCommandSpy(async (commandIds) => {
+		await withCommandSpy(async (registeredIds) => {
 			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
 			const { featureProbes } = wireFeatures(fakeContext(), quietLogger(), {
 				ua: "test-agent",
 				outputChannel,
 				getSnapshots: () => [],
 			});
-			// Every feature's wiring ran: the inline toggle command and the commit
-			// command are their observable registrations (the inline provider and
-			// the consult tool are enablement-gated and covered by their own
-			// wiring suites; with the defaults both stay unregistered here).
+			// Every feature's wiring ran: the inline toggle command, the commit
+			// command, and the MCP provider registration are their observable
+			// registrations here (the inline provider and the consult tool are
+			// enablement-gated and covered by their own wiring suites, so with the
+			// defaults both stay unregistered; the participant is proven by the
+			// slash-command test below).
 			assert.ok(
-				commandIds.includes(INTERNAL_CMD.toggleInlineCompletionsLanguage),
+				registeredIds.includes(INTERNAL_CMD.toggleInlineCompletionsLanguage),
 				"the inline feature wiring did not run"
 			);
-			assert.ok(commandIds.includes(CMD.generateCommitMessage), "the commit feature wiring did not run");
+			assert.ok(registeredIds.includes(CMD.generateCommitMessage), "the commit feature wiring did not run");
+			assert.ok(registeredIds.includes(MCP_PROVIDER_ID), "the MCP feature wiring did not run");
 			// The probe registry: exactly the features whose model rows carry a
 			// Test button. A key added here must come with a real probe; a key
 			// dropped here silently removes the button.

@@ -1210,6 +1210,47 @@ const STATE_PAIRS: readonly StatePair[] = [
 			return box.width > 0 && count.scrollWidth <= count.clientWidth + 0.5;
 		})()`,
 	},
+	{
+		// The MCP endpoint's problem takes the hint's place (the server form's
+		// one-line-per-row idiom), so a URL Save refuses must move neither the
+		// input it marks, the Budget row above it, nor the page. Without that the
+		// rows would jump on the first bad keystroke, mid-typing.
+		name: "form-mcp-endpoint-error",
+		fixture: "form-apikey.ts",
+		targets: ["#server-mcp-url", "#server-budget", "#server-edit-page"],
+		toggle: [reactType("#server-mcp-url", "not a url")],
+		// The id belongs to the hint CELL, which is always mounted (it reserves the
+		// line); the problem is the overlay inside it.
+		restVerify: `document.querySelector("#server-mcp-url-error .error") === null`,
+		verify: `(() => {
+			const error = document.querySelector("#server-mcp-url-error .error");
+			return error !== null && error.textContent.trim().length > 0;
+		})()`,
+	},
+	{
+		// The MCP opt-in reveals its endpoint row BELOW itself (the API version
+		// idiom), so the page's HEIGHT legitimately follows the row in and out.
+		// That one dimension is the intended delta and is named as such rather
+		// than dropping the surface - the page's x, y and width have no business
+		// moving either. Everything the reveal decorates above it holds outright:
+		// the Budget row keeps its place, so the endpoint opening never jogs the
+		// section it belongs to. The fixture rests REVEALED, so the toggle here
+		// closes the row; the claim is symmetric.
+		name: "form-mcp-endpoint-reveal",
+		fixture: "form-apikey.ts",
+		targets: ["#server-budget", "#server-edit-page"],
+		intended: { "#server-edit-page": ["height"] },
+		toggle: [
+			`(() => {
+				const box = [...document.querySelectorAll("#server-edit-page input[type=checkbox]")]
+					.find((input) => input.closest("label")?.textContent.includes("MCP tools available in chat"));
+				if (box === undefined) { throw new Error(${marker("SETUP", ": no MCP opt-in checkbox on the form")}); }
+				box.click();
+			})()`,
+		],
+		restVerify: `document.querySelector("#server-mcp-url") !== null`,
+		verify: `document.querySelector("#server-mcp-url") === null`,
+	},
 ];
 
 interface WidthSurface {

@@ -59,6 +59,19 @@ export function helpDiscoverySection(): string {
 	);
 }
 
+export function helpMcpSection(): string {
+	return l10n.t(
+		"Makes this server's own MCP tools available in chat, e.g. a proxy that exposes search or database tools. Credentials attach when a session starts, and only on this server's own origin."
+	);
+}
+
+/** The endpoint row's own help: the empty-means-derived rule, which the hint states concretely per entry. */
+export function helpMcpEndpoint(): string {
+	return l10n.t(
+		"Where this server serves MCP, for a proxy that does not serve it at the default path. Leave it empty unless yours moved it."
+	);
+}
+
 export function helpAdoptionSection(): string {
 	return l10n.t(
 		"Writes this VS Code-managed group into the litellm-vscode-chat.servers setting so it becomes editable here. Its credentials are copied inside the extension and never pass through this page."
@@ -135,6 +148,10 @@ export function serverFieldHelp(field: ServerFormField): string {
 		case "budget":
 			return l10n.t(
 				"A manual budget, e.g. 50, in the server's own billing currency, driving usage alerts. Outranks the key's own max_budget; the server row's drawer shows both."
+			);
+		case "mcp":
+			return l10n.t(
+				"Publishes this server to chat as an MCP server, so its tools appear in the tool picker. Credentials go out only when a session starts."
 			);
 	}
 }

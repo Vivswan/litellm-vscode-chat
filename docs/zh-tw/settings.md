@@ -96,6 +96,7 @@
 | `discovery.declared` | 字串陣列 | 探索列不出時也要註冊的精確模型 ID; [伺服器 - 宣告的模型](servers.md#宣告的模型) |
 | `discovery.expectedFailures` | 字串陣列 | 此處預期失敗的探索端點 (`"modelListing"`、`"modelInfo"`): 一次嘗試, info 層級記錄, 不算故障 |
 | `budget` | 數字 | 手動預算, 以伺服器自身的計費貨幣計, 大於 0; 在[用量警示](usage.md#預算)中優先於金鑰自身的 `max_budget`; 兩者都顯示 |
+| `mcp` | `true` 或物件 | 讓此伺服器自身的 MCP 工具可在聊天中使用; `true` 發布 `<baseUrl>/mcp`, `{ "url": "..." }` 指定另一個端點 (僅在與項目同源時帶上認證); [伺服器 - MCP 工具](servers.md#mcp-工具) |
 
 可作祕密的欄位 (`auth.apiKey`、`auth.oauth.clientSecret`、`auth.virtualKey.value`、OAuth 附隨認證) 可以存放在 VS Code 祕密儲存體而非設定檔中: [伺服器 - 祕密](servers.md#祕密與祕密儲存體)。
 

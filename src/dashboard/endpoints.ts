@@ -26,6 +26,7 @@ import {
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import type {
 	ExpectedFailureCategory,
+	McpOptIn,
 	NonSecretOptionalFields,
 	SecretFieldId,
 	SecretLocation,
@@ -170,6 +171,15 @@ export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly declaredModels: readonly string[];
 	/** The entry's manual usage budget in USD; null means none (clearing any stored budget). */
 	readonly budget: number | null;
+	/**
+	 * The entry's MCP opt-in; null means none (clearing any stored opt-in).
+	 * Deliberately absent from ReplacedEntryIdentity, which re-checks the
+	 * STAMPED destinations a resolved secret may be sent to (the base URL, the
+	 * token URL). An MCP endpoint is not one of those: it receives credentials
+	 * only on the entry's own origin, which `baseUrl` - already in the identity
+	 * - is what pins.
+	 */
+	readonly mcp: McpOptIn | null;
 }
 
 /**

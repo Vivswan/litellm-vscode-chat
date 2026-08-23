@@ -41,6 +41,12 @@ export interface DiagnosticsSnapshot {
 	baseUrlConfigured: boolean;
 	/** Every feature's flags, keyed by FeatureId; featureFlagLines renders them, the fingerprint folds them in. */
 	featureFlags: Readonly<Record<FeatureId, FeatureFlagFacts>>;
+	/**
+	 * How many servers entries opt into the MCP publisher. A count, not a list:
+	 * the MCP opt-in is a per-entry field rather than a FeatureId, so it cannot
+	 * ride featureFlags, and labels and URLs never enter a public report.
+	 */
+	mcpEntryCount: number;
 	latestError?: ErrorContext | undefined;
 	recentLogs: string[];
 }
@@ -106,17 +112,19 @@ export interface LastIssueReport {
  * Deliberately NEVER the error message, stack, source, or log lines - the
  * source strings interpolate server labels and base URLs, and the rest is
  * response-derived - because this string lands in globalState. The feature
- * fields fold in per FEATURE_IDS entry ("v2" versioned the loop's field set).
+ * fields fold in per FEATURE_IDS entry ("v2" versioned the loop's field set,
+ * "v3" the MCP entry count beside it).
  */
 export function reportFingerprint(snapshot: DiagnosticsSnapshot): string {
 	const classification = snapshot.latestError?.classification;
 	return [
-		"v2",
+		"v3",
 		snapshot.extensionVersion,
 		snapshot.connectionState,
 		snapshot.modelCount ?? "-",
 		String(snapshot.apiKeyConfigured),
 		String(snapshot.baseUrlConfigured),
+		String(snapshot.mcpEntryCount),
 		...FEATURE_IDS.flatMap((feature) => {
 			const facts = snapshot.featureFlags[feature];
 			return [String(facts.enabled), String(facts.modelConfigured ?? "-")];
@@ -311,6 +319,7 @@ export class IssueReporter {
 			snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
 			`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
 			`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
+			`- MCP-enabled server entries: ${snapshot.mcpEntryCount}`,
 			...featureFlagLines(snapshot.featureFlags),
 		].filter((l): l is string => l !== null);
 

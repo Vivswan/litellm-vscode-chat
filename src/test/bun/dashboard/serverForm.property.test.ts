@@ -107,6 +107,18 @@ const nonSecretDraft: fc.Arbitrary<ServerFormDraft> = fc
 			.map((value): SecretFieldDraft => ({ ...EMPTY_SERVER_FORM.virtualKeyValue, value })),
 		declaredModels: fc.constantFrom("", "\n \n", "gpt-4", " gpt-4 \ngpt-4", "gpt-4\ngpt-5", "gpt-5\ngpt-4"),
 		budget: fc.constantFrom("", " ", "5", " 5 ", "5.0", "10"),
+		// Off with leftover text, on with none, on with the same URL padded, and
+		// on with a URL Save refuses: the four shapes sameMcp has to tell apart.
+		mcp: fc.constantFrom(
+			{ enabled: false, url: "" },
+			{ enabled: false, url: "https://gw.example/mcp" },
+			{ enabled: true, url: "" },
+			{ enabled: true, url: " " },
+			{ enabled: true, url: "https://gw.example/mcp" },
+			{ enabled: true, url: " https://gw.example/mcp " },
+			{ enabled: true, url: "https://gw2.example/mcp" },
+			{ enabled: true, url: "nope" }
+		),
 	})
 	.map((fields) => ({ ...EMPTY_SERVER_FORM, ...fields }));
 
@@ -118,6 +130,7 @@ const NORMALIZED_FIELDS = [
 	...NON_SECRET_OPTIONAL_FIELD_IDS,
 	"declaredModels",
 	"budget",
+	"mcp",
 ] as const satisfies readonly ServerFormField[];
 
 describe("dashboard/serverForm save-bar properties", () => {

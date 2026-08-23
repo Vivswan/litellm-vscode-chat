@@ -1,4 +1,4 @@
-/** The server form, API-key shape: bearer key + virtual-key companion, headers, discovery, budget. */
+/** The server form, API-key shape: bearer key + virtual-key companion, headers, discovery, budget, MCP. */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, MODELS, PROD_SERVER, provenSecrets } from "./shared.ts";
@@ -15,6 +15,7 @@ const state: DashboardState = baseState({
 				declaredModels: ["deepseek-r1"],
 				expectedFailures: ["modelInfo"],
 				budget: 50,
+				mcp: { url: "https://litellm.example.com/tools/mcp" },
 			},
 		} as DashboardServer,
 	],

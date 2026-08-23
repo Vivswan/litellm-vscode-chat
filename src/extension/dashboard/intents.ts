@@ -344,6 +344,15 @@ export function validateSaveServerSetting(
 			return "budget: must be a number greater than 0";
 		}
 	}
+	// The guided path refuses an MCP endpoint it can see is broken, the same
+	// rule the form applies; the setting itself takes a URL as written and
+	// reports an unusable one, exactly as it does for baseUrl.
+	if (server.mcp !== null && server.mcp !== true) {
+		const url = server.mcp.url?.trim();
+		if (url !== undefined && url.length > 0 && !isUsableHttpUrl(url)) {
+			return "mcp.url: not a usable http(s) URL";
+		}
+	}
 	return undefined;
 }
 

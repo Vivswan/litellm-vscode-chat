@@ -494,6 +494,21 @@ suite("extension/servers/serverSync", () => {
 				"virtualKeyValue",
 			]);
 		});
+
+		test("the mcp opt-in never reaches the group args, so editing it cannot change a fingerprint", () => {
+			// The fingerprint hashes JSON.stringify(these args), so anything that
+			// enters them churns the group. MCP is read extension-side only: turning
+			// it on, pointing it at another URL, and turning it off must all render
+			// byte-identically, or a user toggling tools would silently re-push the
+			// provider group (and, since the host is add-only, could lose it).
+			const base = { label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-1" } as const;
+			const rendered = [undefined, true as const, { url: "https://gateway.internal/tools/mcp" }, { url: "" }].map(
+				(mcp) => JSON.stringify(buildGroupArgs({ ...base, ...(mcp !== undefined ? { mcp } : {}) }, {}))
+			);
+
+			assert.deepStrictEqual(new Set(rendered).size, 1, "every mcp shape renders the same group args");
+			assert.ok(!expectDefined(rendered[0]).includes("mcp"), "the args carry no mcp key at all");
+		});
 	});
 
 	suite("ServerSyncEngine", () => {

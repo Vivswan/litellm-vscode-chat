@@ -86,10 +86,26 @@ const saveServerPayload = fc.record(
 		),
 		declaredModels: fc.array(fc.string({ maxLength: 64 }), { maxLength: 4 }),
 		budget: fc.oneof(finiteNumber, fc.constant(null)),
+		mcp: fc.oneof(
+			fc.constant(true as const),
+			fc.record({ url: fc.string({ maxLength: 64 }) }, { requiredKeys: [] }),
+			fc.constant(null)
+		),
 	},
 	// The always-sent fields are schema-required; only modelParameters and the
 	// non-secret text fields may be absent.
-	{ requiredKeys: ["label", "baseUrl", "modelCapabilities", "expectedFailures", "headers", "declaredModels", "budget"] }
+	{
+		requiredKeys: [
+			"label",
+			"baseUrl",
+			"modelCapabilities",
+			"expectedFailures",
+			"headers",
+			"declaredModels",
+			"budget",
+			"mcp",
+		],
+	}
 );
 
 const secretLocation = fc.constantFrom("settings", "secure", "none");

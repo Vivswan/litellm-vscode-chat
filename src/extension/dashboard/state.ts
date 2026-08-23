@@ -443,6 +443,7 @@ function buildServers(
 					? { declaredModels: view.declaredModels }
 					: {}),
 				...(view.budget !== undefined ? { budget: view.budget } : {}),
+				...(view.mcp !== undefined ? { mcp: view.mcp } : {}),
 			},
 			...(notices.length > 0 ? { notices } : {}),
 			// The webview's declare offers key on the classification itself, since

@@ -96,6 +96,7 @@ Each entry of `litellm-vscode-chat.servers` (all optional except `label` and `ba
 | `discovery.declared` | string[] | Exact model IDs to register when discovery cannot list them; [Servers - Declared models](servers.md#declared-models) |
 | `discovery.expectedFailures` | string[] | Discovery endpoints expected to fail here (`"modelListing"`, `"modelInfo"`): one attempt, info-level log, not an outage |
 | `budget` | number | Manual budget in the server's billing currency, greater than 0; outranks the key's own `max_budget` for [usage alerts](usage.md#budgets); both are shown |
+| `mcp` | `true` or object | Make this server's own MCP tools available in chat; `true` publishes `<baseUrl>/mcp`, `{ "url": "..." }` names another endpoint (credentialed only on the entry's own origin); [Servers - MCP tools](servers.md#mcp-tools) |
 
 Secret-capable fields (`auth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKey.value`, the OAuth companions) can live in VS Code secret storage instead of the settings file: [Servers - Secrets](servers.md#secrets-and-secret-storage).
 

@@ -97,6 +97,9 @@ const saveServerSchema = z.strictObject({
 		.refine((record) => Object.keys(record).length <= 64),
 	declaredModels: z.array(z.string().max(WIRE_LIMITS.modelId)).max(WIRE_LIMITS.declaredModels),
 	budget: z.union([z.number().finite(), z.null()]),
+	// `true` is the derived-endpoint opt-in; the object form may name the URL,
+	// bounded like every other webview-minted string. null clears the opt-in.
+	mcp: z.union([z.literal(true), z.strictObject({ url: z.string().max(WIRE_LIMITS.url).optional() }), z.null()]),
 });
 
 const secretDirectivesSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => secretDirectiveSchema));

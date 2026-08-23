@@ -14,6 +14,7 @@ The extension connects GitHub Copilot Chat to any number of LiteLLM servers: the
 | Authenticate with OAuth, or a key in a custom header | [Servers: authentication](servers.md#authentication) |
 | Attach extra HTTP headers to a server (tracing, routing tags) | [Servers: entry reference](servers.md#entry-reference) |
 | Use a gateway that cannot list its models (no `/v1/models`) | [Servers: declared models](servers.md#declared-models) |
+| Use my LiteLLM proxy's own MCP tools in chat | [Servers: MCP tools](servers.md#mcp-tools) |
 | Fix a wrong context length, or turn on vision for a model | [Models: capabilities](models.md#capabilities) |
 | Set temperature (or any request parameter) for a model family | [Models: parameters](models.md#parameters) |
 | Understand how `"gpt-5*"` and other matcher keys combine | [Models: model matching](models.md#model-matching) |

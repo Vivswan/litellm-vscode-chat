@@ -136,6 +136,26 @@
 			}
 		},
 		{
+			"includes": ["src/extension/features/inline/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/commitGen/**", "**/consultTool/**", "**/participant/**", "**/mcp/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
 			"includes": ["src/extension/features/commitGen/**"],
 			"linter": {
 				"rules": {
@@ -145,7 +165,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/consultTool/**", "**/inline/**", "**/participant/**"],
+										"group": ["**/inline/**", "**/consultTool/**", "**/participant/**", "**/mcp/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
 									}
 								]
@@ -165,27 +185,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/commitGen/**", "**/inline/**", "**/participant/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/extension/features/inline/**"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["**/commitGen/**", "**/consultTool/**", "**/participant/**"],
+										"group": ["**/inline/**", "**/commitGen/**", "**/participant/**", "**/mcp/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
 									}
 								]
@@ -205,7 +205,27 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/commitGen/**", "**/consultTool/**", "**/inline/**"],
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/mcp/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/participant/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
 									}
 								]

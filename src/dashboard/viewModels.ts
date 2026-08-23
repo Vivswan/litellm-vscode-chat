@@ -25,6 +25,7 @@ import {
 import type { TransportErrorClassification, UnservedEndpointEvidence } from "../shared/errorClassification";
 import type {
 	ExpectedFailureCategory,
+	McpOptIn,
 	NonSecretOptionalFields,
 	SecretFieldId,
 	SecretLocation,
@@ -78,6 +79,8 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
 	readonly declaredModels?: readonly string[] | undefined;
 	/** The entry's manual usage budget in USD, when set. */
 	readonly budget?: number | undefined;
+	/** The entry's MCP opt-in, when it carries one; the edit form's prefill. */
+	readonly mcp?: McpOptIn | undefined;
 }
 
 /**

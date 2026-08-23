@@ -241,6 +241,12 @@
 				}
 			}
 		],
+		"mcpServerDefinitionProviders": [
+			{
+				"id": "litellm.mcpServers",
+				"label": "%litellm.mcp.label%"
+			}
+		],
 		"commands": [
 			{
 				"command": "litellm.manage",
@@ -574,6 +580,21 @@
 									"type": "number",
 									"exclusiveMinimum": 0,
 									"description": "%litellm.config.servers.budget.description%"
+								},
+								"mcp": {
+									"type": [
+										"boolean",
+										"object"
+									],
+									"additionalProperties": false,
+									"markdownDescription": "%litellm.config.servers.mcp.description%",
+									"properties": {
+										"url": {
+											"type": "string",
+											"format": "uri",
+											"description": "%litellm.config.servers.mcp.url.description%"
+										}
+									}
 								}
 							}
 						}

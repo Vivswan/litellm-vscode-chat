@@ -82,3 +82,14 @@ export type ExpectedFailureCategory = (typeof EXPECTED_FAILURE_CATEGORIES)[numbe
 export function isExpectedFailureCategory(value: unknown): value is ExpectedFailureCategory {
 	return typeof value === "string" && (EXPECTED_FAILURE_CATEGORIES as readonly string[]).includes(value);
 }
+
+/**
+ * An entry's `mcp` opt-in: `true` publishes the server's MCP endpoint at
+ * <baseUrl>/mcp, and the object form may name the exact endpoint URL instead.
+ * Another extension-side-only field, so it stays out of OPTIONAL_ENTRY_FIELDS
+ * and with it out of the provider-group args and their fingerprint. It lives
+ * here rather than in the MCP feature because the settings parser, the sync
+ * engine's views, and the dashboard's payloads all speak it - the feature
+ * consumes the vocabulary, it does not own it.
+ */
+export type McpOptIn = true | { readonly url?: string | undefined };

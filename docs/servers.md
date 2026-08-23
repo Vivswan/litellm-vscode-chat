@@ -56,6 +56,7 @@ Every property an entry can carry:
 | `discovery.declared` | string[] | Exact model IDs to register even when discovery cannot list them ([below](#declared-models)) |
 | `discovery.expectedFailures` | string[] | Discovery endpoints this server is expected to fail: `"modelListing"` (`/v1/models`), `"modelInfo"` (`/v1/model/info`). Each gets a single attempt and an info-level log line instead of a red error ([below](#discovery-and-expected-failures)) |
 | `budget` | number | Manual budget, in the server's billing currency, for [usage alerts](usage.md#budgets). Outranks the key's own `max_budget`; the dashboard shows both |
+| `mcp` | `true` or object | Make this server's own MCP tools available in chat ([below](#mcp-tools)). `true` publishes `<baseUrl>/mcp`; `{ "url": "..." }` names another endpoint |
 
 A complete entry:
 
@@ -73,7 +74,8 @@ A complete entry:
     "expectedFailures": ["modelListing", "modelInfo"],
     "declared": ["deepseek-r1"]
   },
-  "budget": 50
+  "budget": 50,
+  "mcp": true
 }
 ```
 
@@ -84,6 +86,7 @@ Edge cases the table cannot show:
 - The base URL may carry a path (`https://intranet.example.com/litellm`, a gateway mounted under one); `/v1` is appended after it unless the path already ends in a version segment (like `/v1` or `/v2`), which is used as-is - the `apiVersion` field overrides both (empty string = append nothing). A trailing slash is harmless - it is stripped before the URL is compared or used.
 - Plain `http` works and is the normal choice for a local proxy; over a network it carries your credentials unencrypted, so prefer `https` for anything remote.
 - `budget` must be a number greater than 0 ([Usage - Budgets](usage.md#budgets)).
+- `mcp` accepts `true`, `false` (the same as leaving it out), or an object. A `url` is taken as written, like `baseUrl`: the setting does not second-guess it, while the dashboard's form refuses one it can see is broken. An object carrying no usable `url` publishes the derived endpoint, like `true`.
 - A momentarily malformed entry (a mid-edit settings.json, say) is skipped and reported, but never mistaken for a removal: its provider group is not hidden. [Removal](#lifecycle-renames-removals-hidden-groups) happens only when the label itself disappears from the setting.
 
 ## Authentication
@@ -189,6 +192,35 @@ An entry's `headers` object attaches extra HTTP headers to every request to this
 - Because headers live on the entry, they are machine-scoped and never travel with Settings Sync - a credential-like value here stays on this machine. (There is deliberately no global headers setting for exactly this reason.)
 - Two header names differing only by case are one header (HTTP header names are case-insensitive): the first one in the object wins and the collision is reported as a configuration diagnostic.
 - Header values are plain settings text, not secrets. A value that is truly secret belongs in an [`auth` form](#authentication), which can live in secret storage.
+
+## MCP tools
+
+A LiteLLM proxy can serve tools over the Model Context Protocol. An entry's `mcp` field offers them to chat, so the server you already configured for models is also the server your tools come from - one host, one set of credentials, one place to change them.
+
+```jsonc
+{
+  "label": "prod",
+  "baseUrl": "https://gateway.internal",
+  "auth": { "apiKey": "sk-..." },
+  "mcp": true
+}
+```
+
+`true` publishes the endpoint derived from the base URL, appending `/mcp` to it as written (a base URL ending in `/v1` derives `/v1/mcp`). When the endpoint lives elsewhere, name it:
+
+```jsonc
+"mcp": { "url": "https://gateway.internal/tools/mcp" }
+```
+
+The dashboard's server form carries the same two controls, in its own **MCP** section; leaving the endpoint empty shows you the exact address it will publish.
+
+- **Credentials attach when a session starts, never earlier.** VS Code asks for the published list eagerly, before any chat turn, and that list carries labels and URLs only. The entry's credentials - an API key, a virtual key, or a freshly exchanged OAuth token - are composed only when the editor is about to open a session, and they are exactly the headers a chat request to the same server would carry.
+- Rotating an entry's credentials tells the editor that its tools may now answer differently: the published version changes and VS Code offers to refresh them. Nothing about the credential itself is published - only a count of how many times it has changed.
+- The opt-in is per entry, so two entries pointing at one host publish two MCP servers, each with its own label and its own credentials.
+- **Credentials follow the entry's own origin.** A custom `url` on the same origin as `baseUrl` - any path, which is the case the field exists for - is authenticated like the derived endpoint. A `url` pointing at another origin is still published, but bare: the entry's key was paired with its base URL, and the extension will not forward it to a host nothing paired it with. If a server at another origin needs this key, give it its own entry.
+- **A stored secret must still belong to this server.** Secrets in [secret storage](#secrets-and-secret-storage) remember which destination they were stored for. If you change an entry's `baseUrl` after storing one, its MCP server refuses to start until you store the secret again for the new URL - the same refusal the chat path already makes, applied here before anything is sent rather than after.
+- Removing the field (or setting it to `false`) unpublishes the server.
+- Tool results are ordinary chat content: what a tool returns goes to whichever model answers the turn.
 
 ## Per-server model configuration
 

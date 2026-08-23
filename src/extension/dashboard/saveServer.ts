@@ -359,6 +359,10 @@ export async function applySaveServerSetting(
 	if (intent.server.budget !== null) {
 		newEntry.budget = intent.server.budget;
 	}
+	// `true` and `{ url }` are both real opt-ins; only null omits the key.
+	if (intent.server.mcp !== null) {
+		newEntry.mcp = intent.server.mcp;
+	}
 
 	// The entry's auth object, assembled once by the shared assembler: pairing
 	// (OAuth as one unit, the virtual key pair both-or-neither) is enforced

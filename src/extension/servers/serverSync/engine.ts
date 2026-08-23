@@ -11,6 +11,7 @@ import { groupClientId, parseGroupConfiguration } from "../../../provider/catalo
 import { VENDOR_ID } from "../../../shared/config/commandIds";
 import type {
 	ExpectedFailureCategory,
+	McpOptIn,
 	NonSecretOptionalFields,
 	SecretFieldId,
 	SecretLocation,
@@ -64,6 +65,8 @@ export interface DeclaredServerView extends NonSecretOptionalFields {
 	readonly declaredModels?: readonly string[] | undefined;
 	/** The entry's manual usage budget in USD (non-secret user configuration); the usage surfaces read it. */
 	readonly budget?: number | undefined;
+	/** The entry's MCP opt-in, when it carries one; the MCP publisher and the edit form's prefill read it. */
+	readonly mcp?: McpOptIn | undefined;
 	/**
 	 * The group client ID the entry's resolved configuration produces: the same
 	 * identity the provider stamps on its status snapshots, so the dashboard can
@@ -170,9 +173,9 @@ export interface ServerSyncEnv {
  * configuration property because the host echoes only the configuration back to
  * the provider, never the name; it is what gives entries sharing a base URL and
  * credentials distinct group identities. The entry's headers, modelParameters,
- * modelCapabilities, expectedFailures, declaredModels, and budget deliberately
- * stay out: they are read extension-side, so editing them must not change the
- * fingerprint or churn the group. The parser flattens the nested settings shape
+ * modelCapabilities, expectedFailures, declaredModels, budget, and mcp
+ * deliberately stay out: they are read extension-side, so editing them must
+ * not change the fingerprint or churn the group. The parser flattens the nested settings shape
  * onto these fields, so stored fingerprints stay stable across the entry
  * restructure (serverSync.test.ts pins the stability).
  */
@@ -749,6 +752,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				...(entry.expectedFailures !== undefined ? { expectedFailures: entry.expectedFailures } : {}),
 				...(entry.declaredModels !== undefined ? { declaredModels: entry.declaredModels } : {}),
 				...(entry.budget !== undefined ? { budget: entry.budget } : {}),
+				...(entry.mcp !== undefined ? { mcp: entry.mcp } : {}),
 				secrets: secretLocations(entry, stored),
 				expectedClientId,
 				expectedConnectionId,

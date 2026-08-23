@@ -25,6 +25,7 @@ import {
 	deriveAuthForm,
 	EMPTY_SERVER_FORM,
 	isUsableHttpUrl,
+	mcpDraftOf,
 	parseServerForm,
 	parseServerFormForTest,
 	SERVER_FORM_FIELD_ORDER,
@@ -45,7 +46,7 @@ import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/setting
 import type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
 import type { ExpectedFailureCategory, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import { EXPECTED_FAILURE_CATEGORIES, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { DEFAULT_API_VERSION } from "../../shared/util/baseUrl";
+import { DEFAULT_API_VERSION, mcpEndpointOf } from "../../shared/util/baseUrl";
 import type { DocsUrl } from "./docsLinks";
 import {
 	DOCS_LINK_AUTHENTICATION,
@@ -64,6 +65,8 @@ import {
 	helpConnectionSection,
 	helpDiscoverySection,
 	helpEntryModelParameterPrefix,
+	helpMcpEndpoint,
+	helpMcpSection,
 	helpOauthCompanionApiKey,
 	helpSecretStorage,
 	serverFieldHelp,
@@ -209,6 +212,22 @@ function expectedFailureLabel(category: ExpectedFailureCategory): string {
 	}
 }
 
+/**
+ * What an empty MCP endpoint publishes, said concretely. The entry's own base
+ * URL is right there in the draft, so the hint names the exact address rather
+ * than describing the rule and leaving the reader to apply it. A base URL that
+ * is empty or not yet a usable URL has no derivable answer, so that case falls
+ * back to naming the shape instead of interpolating half a URL.
+ */
+function derivedMcpHint(baseUrl: string): string {
+	const trimmed = baseUrl.trim();
+	// mcpEndpointOf is the publisher's own derivation, so the address named here
+	// is the address that gets published - not a second rendering of the rule.
+	return isUsableHttpUrl(trimmed)
+		? l10n.t("Leave empty to use {0}", mcpEndpointOf(trimmed))
+		: l10n.t("Leave empty to use this server's own /mcp.");
+}
+
 function draftFor(target: ServerFormTarget): ServerFormDraft {
 	if (target.kind === "add") {
 		return EMPTY_SERVER_FORM;
@@ -230,6 +249,7 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 		headers: toHeaderRows(original.config.headers ?? {}),
 		declaredModels: (original.config.declaredModels ?? []).join("\n"),
 		budget: original.config.budget !== undefined ? String(original.config.budget) : "",
+		mcp: mcpDraftOf(original.config.mcp),
 		modelParameters: toGroups(original.config.modelParameters ?? {}),
 		modelCapabilities: toCapabilityGroups(original.config.modelCapabilities ?? {}),
 		expectedFailures: original.config.expectedFailures ?? [],
@@ -408,10 +428,13 @@ function FieldRow({
 				// while a problem stands, holding the reserved height) and the problem overlays the same
 				// box, so a field going invalid never moves anything (the charter's transients clause).
 				// min-height reserves one line for hint-less fields; only visible text is announced.
+				// break-anywhere because a hint may now interpolate USER text - the MCP row names the
+				// derived endpoint - and a long URL offers no break opportunity of its own.
 				<span
 					id={errorId}
 					className={cn(
 						"relative col-start-3 row-start-1 flex min-h-[1lh] items-baseline gap-1.5 text-[11.5px]",
+						"[overflow-wrap:anywhere]",
 						"@max-[700px]/pane:col-start-1 @max-[700px]/pane:col-span-2 @max-[700px]/pane:row-start-3"
 					)}
 				>
@@ -533,6 +556,7 @@ function TextField({
 		| "authForm"
 		| "headers"
 		| "declaredModels"
+		| "mcp"
 		| "modelParameters"
 		| "modelCapabilities"
 		| "expectedFailures"
@@ -741,6 +765,11 @@ function fieldHasContent(draft: ServerFormDraft, field: ServerFormField): boolea
 		// Only a custom mode with text counts: an empty custom surfaces on Save, which marks
 		// every field touched.
 		return draft.apiVersion.mode === "custom" && draft.apiVersion.custom.length > 0;
+	}
+	if (field === "mcp") {
+		// The endpoint text is the only thing that can carry a problem; the
+		// checkbox alone never does.
+		return draft.mcp.enabled && draft.mcp.url.length > 0;
 	}
 	const value = draft[field];
 	return typeof value === "string" ? value.length > 0 : value.value.length > 0;
@@ -1855,6 +1884,48 @@ function ServerForm({
 					/>
 				</FieldRow>
 				<TextField field="budget" narrow={true} placeholder={l10n.t("e.g. 50")} props={props} />
+			</FormSection>
+			<FormSection quiet={true} title={l10n.t("MCP")} aside={l10n.t("optional")} help={helpMcpSection()}>
+				<FieldRow
+					label={serverFormFieldLabel("mcp")}
+					help={<Help text={serverFieldHelp("mcp")} name={l10n.t("Help: {0}", serverFormFieldLabel("mcp"))} />}
+				>
+					<label className="setting-check flex items-center gap-1.5">
+						<Checkbox
+							checked={draft.mcp.enabled}
+							disabled={saving}
+							onChange={(event) => props.patch({ mcp: { ...draft.mcp, enabled: event.currentTarget.checked } })}
+						/>
+						{l10n.t("Make this server's MCP tools available in chat")}
+					</label>
+				</FieldRow>
+				{/* The endpoint row follows the API version's idiom: it exists only while the
+				    choice it belongs to is live, so an opted-out entry shows no dead input. */}
+				{draft.mcp.enabled ? (
+					<FieldRow
+						htmlFor="server-mcp-url"
+						label={l10n.t("MCP endpoint")}
+						help={<Help text={helpMcpEndpoint()} name={l10n.t("Help: {0}", l10n.t("MCP endpoint"))} />}
+						problem={visibleProblems.mcp}
+						errorId="server-mcp-url-error"
+						// The DERIVED default, not an abstract restatement: the form knows the
+						// base URL, so it can show the exact address an empty field publishes.
+						hint={derivedMcpHint(draft.baseUrl)}
+					>
+						<Input
+							id="server-mcp-url"
+							type="text"
+							className="min-w-0 flex-1 font-mono text-[12px]"
+							placeholder={l10n.t("e.g. https://gateway.internal/mcp")}
+							value={draft.mcp.url}
+							disabled={saving}
+							aria-invalid={visibleProblems.mcp !== undefined}
+							aria-describedby="server-mcp-url-error"
+							onChange={(event) => props.patch({ mcp: { ...draft.mcp, url: event.currentTarget.value } })}
+							onBlur={() => props.touch("mcp")}
+						/>
+					</FieldRow>
+				) : null}
 			</FormSection>
 			<div className={COMMIT_BAR_CLASS}>
 				<Button disabled={phase.phase !== "editing"} onClick={save}>
