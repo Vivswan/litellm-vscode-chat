@@ -7,7 +7,13 @@ import { isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
-import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./errorMapping";
+import {
+	type MapErrorContext,
+	RequestError,
+	socketFailureIsTimeout,
+	socketFailureRequestError,
+	twoPartTexts,
+} from "./errorMapping";
 
 /**
  * OAuth2 client-credentials authentication for gateways behind an identity
@@ -91,11 +97,39 @@ export class OAuthTokenSource {
 	 * The cached token while it is not yet due for refresh, otherwise a fresh
 	 * exchange bounded by `timeoutMs` (the calling transport's budget: the
 	 * discovery timeout on the chat and discovery paths, the one-shot callers'
-	 * whole-call budgets) and, when given, by `signal`. A caller that joins an exchange another call started
-	 * shares that call's bounds and surface shape, except that its own signal
-	 * still stops its wait while the shared exchange continues for the others.
+	 * whole-call budgets) and, when given, by `signal`. Concurrent calls for the
+	 * same credentials share ONE live exchange (one network call, one
+	 * invalidation path), but every waiter's bounds and error surface stay its
+	 * own: a caller that joins an exchange another call started waits on ITS
+	 * clock and abandons only its own wait when that clock or its `signal`
+	 * fires - the shared exchange continues untouched for the others - a shared
+	 * failure renders through each waiter's own surface, and an exchange that
+	 * died of its ORIGINATOR's own bounds (its cancellation or its clock) is
+	 * never surfaced to the other waiters: they fall through to a fresh join or
+	 * exchange instead, so no waiter ever renders a bound it did not own. Each
+	 * exchange gets its own fresh `timeoutMs` budget (the per-request-bounds
+	 * rule), so a call that recovers this way can take up to its join wait plus
+	 * one fresh exchange budget.
 	 */
 	async getToken(
+		config: OAuthConfig,
+		surface: OAuthErrorSurface,
+		timeoutMs: number,
+		signal?: AbortSignal
+	): Promise<string> {
+		try {
+			return await this.acquireToken(config, surface, timeoutMs, signal);
+		} catch (error) {
+			// The ONE render boundary: a surface-free exchange failure becomes
+			// this caller's error here, so the carrier cannot escape by
+			// construction; cancellation reasons and already-rendered errors pass
+			// through unchanged.
+			throw error instanceof OAuthExchangeFailure ? error.render(surface) : error;
+		}
+	}
+
+	/** getToken's acquisition walk; exchange failures may leave here as surface-free OAuthExchangeFailure carriers. */
+	private async acquireToken(
 		config: OAuthConfig,
 		surface: OAuthErrorSurface,
 		timeoutMs: number,
@@ -106,23 +140,72 @@ export class OAuthTokenSource {
 		if (cached && Date.now() < cached.refreshAtMs) {
 			return cached.accessToken;
 		}
-		const inFlight = this.pending.get(key);
-		if (inFlight) {
-			return signal !== undefined ? abortableWait(inFlight, signal) : inFlight;
-		}
-		const exchange = (async () => {
-			try {
-				const { accessToken, expiresInSeconds } = await exchangeClientCredentials(config, surface, timeoutMs, signal);
-				const lifetimeMs = expiresInSeconds * 1000;
-				const skewMs = Math.min(REFRESH_SKEW_MS, lifetimeMs / 2);
-				this.tokens.set(key, { accessToken, refreshAtMs: Date.now() + lifetimeMs - skewMs });
-				return accessToken;
-			} finally {
-				this.pending.delete(key);
+		// This waiter's OWN clock and signal. They bound every JOIN wait and gate
+		// every pass of the loop; an exchange this waiter originates runs on its
+		// own fresh budget instead (see getToken's doc). Neither cancels a shared
+		// exchange for its other waiters.
+		const waitTimeout = AbortSignal.timeout(timeoutMs);
+		const waitSignal = signal !== undefined ? AbortSignal.any([waitTimeout, signal]) : waitTimeout;
+		for (;;) {
+			// Re-read on every pass: a fall-through below may find the token a
+			// racing caller cached since this waiter last looked.
+			const fresh = this.tokens.get(key);
+			if (fresh && Date.now() < fresh.refreshAtMs) {
+				return fresh.accessToken;
 			}
-		})();
-		this.pending.set(key, exchange);
-		return exchange;
+			// The caller's own abort outranks its elapsed clock when both have
+			// fired: an abort the caller asked for must not be relabeled a token
+			// timeout (the exchange applies the same rule). Checked ahead of the
+			// join AND the originate branch, so a waiter whose own bounds fired
+			// never starts a fresh exchange either.
+			if (signal?.aborted) {
+				throw abortReason(signal);
+			}
+			if (waitTimeout.aborted) {
+				throw timeoutError(config.tokenUrl, surface, timeoutMs);
+			}
+			const inFlight = this.pending.get(key);
+			if (inFlight === undefined) {
+				const exchange = (async () => {
+					try {
+						const { accessToken, expiresInSeconds } = await exchangeClientCredentials(config, timeoutMs, signal);
+						const lifetimeMs = expiresInSeconds * 1000;
+						const skewMs = Math.min(REFRESH_SKEW_MS, lifetimeMs / 2);
+						this.tokens.set(key, { accessToken, refreshAtMs: Date.now() + lifetimeMs - skewMs });
+						return accessToken;
+					} finally {
+						this.pending.delete(key);
+					}
+				})();
+				this.pending.set(key, exchange);
+				return exchange;
+			}
+			try {
+				return await abortableWait(inFlight, waitSignal);
+			} catch (error) {
+				if (error instanceof OAuthExchangeFailure) {
+					if (!error.originatorBound) {
+						throw error;
+					}
+					// The exchange died of its originator's clock - a bound that was
+					// never this waiter's, so neither the elapsed ms nor any setting
+					// advice would be truthful here. Recover below instead.
+				} else {
+					if (signal?.aborted) {
+						throw abortReason(signal);
+					}
+					if (waitTimeout.aborted) {
+						throw timeoutError(config.tokenUrl, surface, timeoutMs, error);
+					}
+					// The exchange rejects non-carriers only when its originator's
+					// own cancellation interrupted it - and either way, a reason
+					// that is not this waiter's own is not its to surface.
+				}
+				// Fall through: serve the token a racing caller may have cached
+				// since, join a newer exchange, or originate a fresh one - each
+				// pass still gated by this waiter's own bounds above.
+			}
+		}
 	}
 
 	/**
@@ -173,6 +256,27 @@ function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> 
 			}
 		);
 	});
+}
+
+/**
+ * A failed shared exchange before any caller's error surface is chosen: the
+ * exchange itself is surface-free, and every waiter renders the same failure
+ * through its OWN surface via `render` (each call mints a fresh RequestError,
+ * so N waiters never share one error object). `originatorBound` marks a death
+ * by the ORIGINATING caller's clock - the one failure whose elapsed ms and
+ * setting advice are truthful for the originator alone, so joiners recover
+ * instead of rendering it. Module-internal by design: getToken renders it
+ * before anything escapes, so no caller ever sees this type - only
+ * cancellation reasons pass through it unrendered.
+ */
+class OAuthExchangeFailure extends Error {
+	constructor(
+		readonly render: (surface: OAuthErrorSurface) => RequestError,
+		readonly originatorBound: boolean = false
+	) {
+		super("OAuth token exchange failed");
+		this.name = "OAuthExchangeFailure";
+	}
 }
 
 /**
@@ -296,11 +400,7 @@ function tokenLifetimeSeconds(parsed: Record<string, unknown>): number {
 	return Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
 }
 
-function parseTokenResponse(
-	payload: string,
-	tokenUrl: string,
-	surface: OAuthErrorSurface
-): { accessToken: string; expiresInSeconds: number } {
+function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: string; expiresInSeconds: number } {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(payload);
@@ -312,33 +412,37 @@ function parseTokenResponse(
 	// byte-faithful English mirror is what the diagnostics surfaces render.
 	if (!isRecord(parsed) || typeof parsed.access_token !== "string" || parsed.access_token.length === 0) {
 		const detail = `OAuth token endpoint ${displayUrl(tokenUrl)} answered 2xx without JSON containing a non-empty access_token.`;
-		const texts = twoPartTexts(
-			surface,
-			{
-				display: l10n.t(
-					"The identity provider answered but didn't return a usable access token - check that the OAuth token URL points at an OAuth2 token endpoint, not a login or SSO page."
-				),
-				english:
-					"The identity provider answered but didn't return a usable access token - check that the OAuth token URL points at an OAuth2 token endpoint, not a login or SSO page.",
-			},
-			detail
-		);
-		throw new RequestError(texts.message, "http", { englishMessage: texts.englishMessage });
+		throw new OAuthExchangeFailure((surface) => {
+			const texts = twoPartTexts(
+				surface,
+				{
+					display: l10n.t(
+						"The identity provider answered but didn't return a usable access token - check that the OAuth token URL points at an OAuth2 token endpoint, not a login or SSO page."
+					),
+					english:
+						"The identity provider answered but didn't return a usable access token - check that the OAuth token URL points at an OAuth2 token endpoint, not a login or SSO page.",
+				},
+				detail
+			);
+			return new RequestError(texts.message, "http", { englishMessage: texts.englishMessage });
+		});
 	}
 	if (!isValidHeaderValue(parsed.access_token)) {
 		const detail = `OAuth token from ${displayUrl(tokenUrl)} contains characters not allowed in an HTTP header value (control characters or non-Latin-1 text); the token was not sent, and its value is never shown or logged.`;
-		const texts = twoPartTexts(
-			surface,
-			{
-				display: l10n.t(
-					"The identity provider returned an access token the extension can't use - check the OAuth token endpoint configuration for this server."
-				),
-				english:
-					"The identity provider returned an access token the extension can't use - check the OAuth token endpoint configuration for this server.",
-			},
-			detail
-		);
-		throw new RequestError(texts.message, "http", { englishMessage: texts.englishMessage });
+		throw new OAuthExchangeFailure((surface) => {
+			const texts = twoPartTexts(
+				surface,
+				{
+					display: l10n.t(
+						"The identity provider returned an access token the extension can't use - check the OAuth token endpoint configuration for this server."
+					),
+					english:
+						"The identity provider returned an access token the extension can't use - check the OAuth token endpoint configuration for this server.",
+				},
+				detail
+			);
+			return new RequestError(texts.message, "http", { englishMessage: texts.englishMessage });
+		});
 	}
 	return { accessToken: parsed.access_token, expiresInSeconds: tokenLifetimeSeconds(parsed) };
 }
@@ -349,11 +453,14 @@ function parseTokenResponse(
  * is idempotent; `timeoutMs` is a hard bound across all attempts, and an abort
  * of the caller's `signal` interrupts the exchange and is rethrown as-is so
  * the caller attributes it truthfully. Credential rejections (400/401/403) and
- * malformed responses fail immediately with distinct messages.
+ * malformed responses fail immediately with distinct messages. The exchange is
+ * shared by every concurrent getToken caller, so every non-cancellation
+ * failure here is thrown surface-free as an OAuthExchangeFailure and each
+ * waiter renders it toward its own surface; a caller's abort alone is rethrown
+ * raw, as promised above.
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,
-	surface: OAuthErrorSurface,
 	timeoutMs: number,
 	outerSignal?: AbortSignal
 ): Promise<{ accessToken: string; expiresInSeconds: number }> {
@@ -378,7 +485,17 @@ async function exchangeClientCredentials(
 				throw abortReason(outerSignal);
 			}
 			if (timeoutSignal.aborted) {
-				throw timeoutError(config.tokenUrl, surface, timeoutMs, lastFailure);
+				const failure = lastFailure;
+				throw new OAuthExchangeFailure(
+					(surface) =>
+						timeoutError(
+							config.tokenUrl,
+							surface,
+							timeoutMs,
+							failure instanceof OAuthExchangeFailure ? failure.render(surface) : failure
+						),
+					true
+				);
 			}
 		}
 
@@ -397,14 +514,14 @@ async function exchangeClientCredentials(
 				throw error;
 			}
 			if (timeoutSignal.aborted) {
-				throw timeoutError(config.tokenUrl, surface, timeoutMs, error);
+				throw new OAuthExchangeFailure((surface) => timeoutError(config.tokenUrl, surface, timeoutMs, error), true);
 			}
 			lastFailure = error;
 			continue;
 		}
 
 		if (response.ok) {
-			return parseTokenResponse(payload, config.tokenUrl, surface);
+			return parseTokenResponse(payload, config.tokenUrl);
 		}
 		const { status } = response;
 		const idpDetail = oauthErrorDetail(payload, config.clientSecret);
@@ -415,22 +532,24 @@ async function exchangeClientCredentials(
 			const detailLine = collapseWhitespace(
 				`OAuth token endpoint ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
-			const texts = twoPartTexts(
-				surface,
-				{
-					display: l10n.t(
-						"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator."
-					),
-					english:
-						"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator.",
-				},
-				detailLine
-			);
-			lastFailure = new RequestError(texts.message, "http", {
-				status,
-				logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
-				englishMessage: texts.englishMessage,
-				oauthTokenEndpoint: true,
+			lastFailure = new OAuthExchangeFailure((surface) => {
+				const texts = twoPartTexts(
+					surface,
+					{
+						display: l10n.t(
+							"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator."
+						),
+						english:
+							"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator.",
+					},
+					detailLine
+				);
+				return new RequestError(texts.message, "http", {
+					status,
+					logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
+					englishMessage: texts.englishMessage,
+					oauthTokenEndpoint: true,
+				});
 			});
 			continue;
 		}
@@ -439,57 +558,65 @@ async function exchangeClientCredentials(
 			const detailLine = collapseWhitespace(
 				`OAuth ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
-			const texts = twoPartTexts(
-				surface,
-				{
-					display: l10n.t(
-						"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry."
-					),
-					english:
-						"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry.",
-				},
-				detailLine
-			);
-			throw new RequestError(texts.message, "auth", {
-				status,
-				logClassification: `RequestError(auth, status ${status}, oauth token endpoint)`,
-				englishMessage: texts.englishMessage,
-				oauthTokenEndpoint: true,
+			throw new OAuthExchangeFailure((surface) => {
+				const texts = twoPartTexts(
+					surface,
+					{
+						display: l10n.t(
+							"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry."
+						),
+						english:
+							"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry.",
+					},
+					detailLine
+				);
+				return new RequestError(texts.message, "auth", {
+					status,
+					logClassification: `RequestError(auth, status ${status}, oauth token endpoint)`,
+					englishMessage: texts.englishMessage,
+					oauthTokenEndpoint: true,
+				});
 			});
 		}
 		const detailLine = collapseWhitespace(
 			`OAuth token endpoint ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 		);
-		const texts = twoPartTexts(
-			surface,
-			{
-				display: l10n.t(
-					"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings."
-				),
-				english:
-					"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings.",
-			},
-			detailLine
-		);
-		throw new RequestError(texts.message, "http", {
-			status,
-			logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
-			englishMessage: texts.englishMessage,
-			oauthTokenEndpoint: true,
+		throw new OAuthExchangeFailure((surface) => {
+			const texts = twoPartTexts(
+				surface,
+				{
+					display: l10n.t(
+						"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings."
+					),
+					english:
+						"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings.",
+				},
+				detailLine
+			);
+			return new RequestError(texts.message, "http", {
+				status,
+				logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
+				englishMessage: texts.englishMessage,
+				oauthTokenEndpoint: true,
+			});
 		});
 	}
 
-	if (lastFailure instanceof RequestError) {
+	if (lastFailure instanceof OAuthExchangeFailure) {
 		throw lastFailure;
 	}
 	// The shared socket-failure classifier: identical kind and cause-detail
 	// rules as the chat and discovery transports, with token-endpoint advice.
-	// Its timeout arm renders this exchange's own budget message; the exchange's
-	// signal-governed timeouts have already thrown above.
-	throw socketFailureRequestError(
-		lastFailure,
-		lastFailure,
-		{ endpoint: "oauthToken", surface, url: config.tokenUrl },
-		() => timeoutError(config.tokenUrl, surface, timeoutMs, lastFailure)
+	// Its timeout arm renders this exchange's own budget message, a number and
+	// setting only the exchange's originator owns - so a timeout-flavored
+	// failure marks the carrier originatorBound and joiners recover instead.
+	// The exchange's signal-governed timeouts have already thrown above.
+	const failure = lastFailure;
+	throw new OAuthExchangeFailure(
+		(surface) =>
+			socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
+				timeoutError(config.tokenUrl, surface, timeoutMs, failure)
+			),
+		socketFailureIsTimeout(failure)
 	);
 }

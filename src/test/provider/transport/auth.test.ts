@@ -31,6 +31,41 @@ function tokenEndpoint(options: TokenEndpointOptions = {}): { requests: Array<Re
 	return { requests };
 }
 
+/**
+ * A token endpoint that answers only when released, counting requests: the
+ * gate keeps an exchange in flight so tests can attach joiners to it and
+ * decide the shared outcome afterwards.
+ */
+function gatedTokenEndpoint(): {
+	requests: () => number;
+	whenRequested: () => Promise<void>;
+	respond: (response: Response) => void;
+} {
+	let count = 0;
+	const resolvers: Array<(response: Response) => void> = [];
+	mswServer.use(
+		http.post(TOKEN_URL, () => {
+			count += 1;
+			return new Promise<Response>((resolve) => {
+				resolvers.push(resolve);
+			});
+		})
+	);
+	return {
+		requests: () => count,
+		whenRequested: async () => {
+			while (resolvers.length === 0) {
+				await new Promise((resolve) => setTimeout(resolve, 5));
+			}
+		},
+		respond: (response) => {
+			for (const resolve of resolvers.splice(0)) {
+				resolve(response.clone());
+			}
+		},
+	};
+}
+
 async function expectRequestError(promise: Promise<unknown>, kind: RequestError["kind"]): Promise<RequestError> {
 	try {
 		await promise;
@@ -617,6 +652,187 @@ suite("provider/transport/auth", () => {
 
 			await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "auth");
 			assert.strictEqual(await source.getToken(oauthConfig(), "discovery", 5000), "tok-recovered");
+		});
+	});
+
+	suite("joined exchanges", () => {
+		const tokenResponse = () => HttpResponse.json({ access_token: "tok-1", token_type: "Bearer", expires_in: 3600 });
+
+		test("a joiner times out on its own clock while the shared exchange continues and succeeds for the originator", async () => {
+			const endpoint = gatedTokenEndpoint();
+			const source = new OAuthTokenSource();
+
+			const originator = source.getToken(oauthConfig(), "discovery", 20000);
+			const joiner = source.getToken(oauthConfig(), "commitGeneration", 100);
+
+			// Race a 2s fuse instead of awaiting the joiner outright: a joiner that
+			// wrongly inherits the originator's 20000ms bound would otherwise hang
+			// here until the mocha timeout instead of failing an assertion.
+			const outcome = await Promise.race([
+				joiner.then(
+					(token) => ({ token }),
+					(error: unknown) => ({ error })
+				),
+				new Promise<"still-waiting">((resolve) => setTimeout(() => resolve("still-waiting"), 2000)),
+			]);
+			assert.notStrictEqual(outcome, "still-waiting", "the joiner must fail on its own 100ms clock");
+			const error = await expectRequestError(joiner, "timeout");
+			assert.ok(error.message.includes("timed out after 100ms"), `unexpected message: ${error.message}`);
+			assert.ok(error.message.includes("chat.timeout"), "the advice must name the JOINER's bound");
+			assert.ok(!error.message.includes("discovery.timeout"), "the originator's bound is not the joiner's");
+
+			await endpoint.whenRequested();
+			endpoint.respond(tokenResponse());
+			assert.strictEqual(await originator, "tok-1", "the joiner's timeout must not cancel the shared exchange");
+			assert.strictEqual(endpoint.requests(), 1, "the joiner's own clock must not start a second exchange");
+		});
+
+		test("one shared failure renders through each waiter's own surface", async () => {
+			const endpoint = gatedTokenEndpoint();
+			const source = new OAuthTokenSource();
+
+			const discovery = source.getToken(oauthConfig(), "discovery", 5000);
+			const chat = source.getToken(oauthConfig(), "chat", 5000);
+			await endpoint.whenRequested();
+			endpoint.respond(HttpResponse.json({ error: "invalid_client" }, { status: 401 }));
+
+			// The two surfaces' copy rows join differently (errorMapping's table):
+			// chat leads the detail with "Details:", discovery keeps the plain
+			// newline - so each waiter provably rendered through its own surface.
+			const discoveryError = await expectRequestError(discovery, "auth");
+			const chatError = await expectRequestError(chat, "auth");
+			assert.ok(chatError.message.includes(`\n\nDetails: OAuth 401 at ${TOKEN_URL}`), chatError.message);
+			assert.ok(!discoveryError.message.includes("Details:"), discoveryError.message);
+			assert.ok(discoveryError.message.includes(`\nOAuth 401 at ${TOKEN_URL}`), discoveryError.message);
+			assert.notStrictEqual(chatError, discoveryError, "each waiter gets its own error object");
+			assert.strictEqual(endpoint.requests(), 1, "both surfaces were served by one exchange");
+		});
+
+		test("when the exchange dies at the originator's bound, a joiner recovers and fails on its own bound and surface", async () => {
+			let requests = 0;
+			mswServer.use(
+				http.post(TOKEN_URL, () => {
+					requests += 1;
+					return new Promise<Response>(() => {});
+				})
+			);
+			const source = new OAuthTokenSource();
+
+			// completion's fixed bound names no setting; the joiner's surface names
+			// chat.timeout, so inherited rendering is distinguishable per waiter.
+			const originator = source.getToken(oauthConfig(), "completion", 100);
+			const joiner = source.getToken(oauthConfig(), "commitGeneration", 300);
+
+			const originatorError = await expectRequestError(originator, "timeout");
+			assert.ok(originatorError.message.includes("timed out after 100ms"), originatorError.message);
+			assert.ok(!originatorError.message.includes(".timeout"), "no setting can raise the fixed FIM bound");
+
+			// The originator's clock was never the joiner's bound, so the joiner
+			// does not surface it: it re-originates on its own budget, and when
+			// that exchange times out too, every number and every setting in its
+			// message is the joiner's own.
+			const joinerError = await expectRequestError(joiner, "timeout");
+			assert.ok(joinerError.message.includes("timed out after 300ms"), joinerError.message);
+			assert.ok(joinerError.message.includes("chat.timeout"), "the advice must name the JOINER's bound");
+			assert.strictEqual(requests, 2, "the joiner recovers with exactly one fresh exchange");
+		});
+
+		test("a socket failure with a TimeoutError link is the exchange's own budget: a joiner recovers and renders ITS budget", async () => {
+			// The socket classifier's timeout arm quotes the exchange's budget, a
+			// number only the exchange's originator owns - so the carrier is
+			// originator-bound and joiners re-originate instead of quoting it.
+			const realFetch = globalThis.fetch;
+			let calls = 0;
+			globalThis.fetch = () => {
+				calls += 1;
+				return Promise.reject(
+					Object.assign(new TypeError("fetch failed"), {
+						cause: new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+					})
+				);
+			};
+			try {
+				const source = new OAuthTokenSource();
+				const originator = source.getToken(oauthConfig(), "discovery", 5000);
+				const joiner = source.getToken(oauthConfig(), "commitGeneration", 7000);
+
+				const originatorError = await expectRequestError(originator, "timeout");
+				assert.ok(originatorError.message.includes("timed out after 5000ms"), originatorError.message);
+				assert.ok(originatorError.message.includes("discovery.timeout"), originatorError.message);
+
+				const joinerError = await expectRequestError(joiner, "timeout");
+				assert.ok(joinerError.message.includes("timed out after 7000ms"), "the joiner must quote ITS OWN budget");
+				assert.ok(joinerError.message.includes("chat.timeout"), "the advice must name the JOINER's bound");
+				assert.strictEqual(calls, 6, "each of the two exchanges runs its own three socket attempts");
+			} finally {
+				globalThis.fetch = realFetch;
+			}
+		});
+
+		test("cancelling one waiter releases only that waiter; the others still get the shared token", async () => {
+			const endpoint = gatedTokenEndpoint();
+			const source = new OAuthTokenSource();
+
+			const starter = source.getToken(oauthConfig(), "discovery", 5000);
+			const controller = new AbortController();
+			const cancelled = source.getToken(oauthConfig(), "chat", 5000, controller.signal);
+			const patient = source.getToken(oauthConfig(), "commitGeneration", 5000);
+			controller.abort();
+
+			await assert.rejects(cancelled, (error: unknown) => {
+				assert.ok(!(error instanceof RequestError), `the abort must be rethrown as-is, got ${String(error)}`);
+				assert.ok(error instanceof Error && error.name === "AbortError", `expected AbortError, got ${String(error)}`);
+				return true;
+			});
+
+			await endpoint.whenRequested();
+			endpoint.respond(tokenResponse());
+			assert.strictEqual(await starter, "tok-1", "the shared exchange must survive a waiter's abort");
+			assert.strictEqual(await patient, "tok-1", "a sibling waiter must survive another waiter's abort");
+			assert.strictEqual(endpoint.requests(), 1);
+		});
+
+		test("the originator's cancellation is never surfaced to a joiner: the joiner recovers with a fresh exchange", async () => {
+			const endpoint = gatedTokenEndpoint();
+			const source = new OAuthTokenSource();
+
+			const controller = new AbortController();
+			const originator = source.getToken(oauthConfig(), "completion", 5000, controller.signal);
+			const joiner = source.getToken(oauthConfig(), "chat", 5000);
+			await endpoint.whenRequested();
+			controller.abort();
+
+			// The originator's own abort interrupts the exchange and surfaces
+			// as-is to the originator (the pinned semantics)...
+			await assert.rejects(originator, (error: unknown) => {
+				assert.ok(error instanceof Error && error.name === "AbortError", `expected AbortError, got ${String(error)}`);
+				return true;
+			});
+
+			// ...but the joiner, whose caller cancelled nothing, must never see
+			// that foreign abort: it starts a fresh exchange on its own clock.
+			while (endpoint.requests() < 2) {
+				await new Promise((resolve) => setTimeout(resolve, 5));
+			}
+			endpoint.respond(tokenResponse());
+			assert.strictEqual(await joiner, "tok-1", "the joiner must recover from the originator's cancellation");
+			assert.strictEqual(endpoint.requests(), 2, "the recovery is one fresh exchange, not a retry storm");
+		});
+
+		test("N joiners across surfaces and budgets put exactly one token request on the wire", async () => {
+			const endpoint = gatedTokenEndpoint();
+			const source = new OAuthTokenSource();
+
+			const surfaces = ["discovery", "chat", "commitGeneration", "consultTool", "completion"] as const;
+			const waiters = surfaces.map((surface, index) => source.getToken(oauthConfig(), surface, 5000 + index * 1000));
+			await endpoint.whenRequested();
+			endpoint.respond(tokenResponse());
+
+			assert.deepStrictEqual(
+				await Promise.all(waiters),
+				surfaces.map(() => "tok-1")
+			);
+			assert.strictEqual(endpoint.requests(), 1, "one shared exchange serves every joiner");
 		});
 	});
 

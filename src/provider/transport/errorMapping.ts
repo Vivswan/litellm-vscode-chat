@@ -1360,6 +1360,17 @@ function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
 }
 
 /**
+ * Whether a non-HTTP fetch failure is timeout-flavored: its cause chain
+ * carries a TimeoutError link, the arm socketFailureRequestError defers to
+ * `onTimeout`. Exported so the OAuth exchange classifies the SAME failure by
+ * the SAME rule before deciding who may render it: the timeout arm's message
+ * quotes the exchange's own budget, which only the exchange's originator owns.
+ */
+export function socketFailureIsTimeout(root: unknown): boolean {
+	return causeChain(root).some((link) => link.name === "TimeoutError");
+}
+
+/**
  * The one classifier for every non-HTTP fetch failure: the chat and discovery
  * transports (via mapSdkError) and the OAuth token exchange (auth.ts) all
  * classify the same raw socket failures here, so an expired certificate or an
@@ -1379,7 +1390,7 @@ export function socketFailureRequestError(
 ): RequestError {
 	const chain = causeChain(root);
 	const haystack = chain.map((link) => `${link.message} ${link.code ?? ""}`).join(" ");
-	if (chain.some((link) => link.name === "TimeoutError")) {
+	if (socketFailureIsTimeout(root)) {
 		return onTimeout();
 	}
 	const oauthMark = ctx.endpoint === "oauthToken" ? { oauthTokenEndpoint: true as const } : {};

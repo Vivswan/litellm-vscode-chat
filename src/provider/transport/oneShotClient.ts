@@ -264,11 +264,14 @@ export class OneShotClient {
 	 * out" for an MCP session start - instead of the OAuth-specific message
 	 * that names the setting to raise.
 	 *
-	 * One caveat this inherits rather than introduces: when an exchange for the
-	 * same credentials is already in flight for another feature, getToken JOINS
-	 * it, and the join carries the ORIGINATOR's bound and surface (auth.ts). So
-	 * a joined call can outlast this one's `timeoutMs` and report the
-	 * originator's timeout advice. Cancellation still releases the waiter.
+	 * When an exchange for the same credentials is already in flight for
+	 * another feature, getToken JOINS it, and the join stays this call's own:
+	 * it waits under this `timeoutMs`, reports failures through this surface,
+	 * and cancellation releases only this waiter. A join that has to recover -
+	 * the exchange died of its originator's own cancellation or clock - starts
+	 * a fresh exchange on a second full `timeoutMs` budget (auth.ts), which
+	 * nothing here caps: that budget is the exchange's own, per the
+	 * per-request-bounds rule.
 	 */
 	async authHeaders(
 		connection: OneShotConnection,
