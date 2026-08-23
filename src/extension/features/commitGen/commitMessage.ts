@@ -1,13 +1,14 @@
 import { stripMarkdownFences, truncateHeadWithMarker, truncationMarker } from "../../../shared/util/text";
 import type { Commit, Repository } from "../gitApi";
+import { repositoryRelativePath } from "../gitPaths";
 
 /**
  * The commit-message generation core: pure prompt assembly plus one
  * dependency-injected flow, so the whole pipeline typechecks and tests without
  * the settings readers and the command surface that wire it up. No vscode
- * imports beyond the git API types (erased), no UI, no logging: the command
- * that consumes this maps the returned outcomes to progress and notifications
- * and owns the logging boundary.
+ * imports beyond the git API types (erased) and the pure gitPaths helper, no
+ * UI, no logging: the command that consumes this maps the returned outcomes to
+ * progress and notifications and owns the logging boundary.
  */
 
 /** Head-truncation bound for the diff sent to the model; everything past it is noise for a commit subject. */
@@ -122,17 +123,9 @@ const GIT_STATUS_UNTRACKED = 7;
  * hold secrets, so the prompt names them and no more.
  */
 export function untrackedRelativePaths(repo: Pick<Repository, "rootUri" | "state">): string[] {
-	const root = repo.rootUri.fsPath.replace(/[/\\]+$/, "");
 	const paths = [...repo.state.workingTreeChanges, ...repo.state.untrackedChanges]
 		.filter((change) => change.status === GIT_STATUS_UNTRACKED)
-		.map((change) => {
-			const full = change.uri.fsPath;
-			const relative =
-				full.startsWith(`${root}/`) || full.startsWith(`${root}\\`)
-					? full.slice(root.length).replace(/^[/\\]+/, "")
-					: full;
-			return relative.replace(/\\/g, "/");
-		});
+		.map((change) => repositoryRelativePath(repo.rootUri, change.uri));
 	return [...new Set(paths)].sort((a, b) => a.localeCompare(b));
 }
 

@@ -1,6 +1,5 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import { statusErrorTexts } from "../../../provider/transport/errorMapping";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import type { BooleanSettingId, FeatureModelRef } from "../../../shared/config/settingSpec";
 import {
@@ -12,8 +11,10 @@ import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/set
 import type { Logger } from "../../../shared/logger";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import type { MessageAction } from "../../ui/notifier";
-import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
+import { openSettingsAction, showActionableMessage } from "../../ui/notifier";
+import { reportCommandFailure } from "../commandFailure";
 import { featureChatSend } from "../featureChatSend";
+import { documentLabel } from "../gitAccess";
 import type { QuickFixChatArgs } from "./actionsProvider";
 import type { QuickFixMode } from "./query";
 import { buildChatQuery, buildFallbackPrompt, selectDiagnostics } from "./query";
@@ -172,7 +173,10 @@ async function fallbackPromptFor(args: QuickFixChatArgs): Promise<string> {
 	const document = await vscode.workspace.openTextDocument(args.uri);
 	return buildFallbackPrompt({
 		mode: args.mode,
-		path: vscode.workspace.asRelativePath(args.uri),
+		// The shared label pipeline (gitAccess.documentLabel): the raw host API
+		// would ship the absolute path - home directory and user name - for any
+		// file outside the workspace.
+		path: documentLabel(args.uri),
 		languageId: document.languageId,
 		excerpt: document.getText(args.range),
 		diagnostics: args.diagnostics,
@@ -314,14 +318,6 @@ export async function runQuickFixChat(oneShot: OneShotClient, deps: QuickFixChat
 	try {
 		await runFallback(oneShot, deps, args, reason, log);
 	} catch (error) {
-		if (error instanceof vscode.CancellationError) {
-			// User cancellation: never logged, nothing to show.
-			return;
-		}
-		// The feature's single logging boundary; the logger records the English
-		// mirror or classification the thrown error carries.
-		deps.logger.error("Quick fix fallback failed", error);
-		const texts = statusErrorTexts(error);
-		await showActionableMessage("error", texts.error, commandErrorActions(texts.classification, deps.outputChannel));
+		await reportCommandFailure(deps, error, "Quick fix fallback failed");
 	}
 }

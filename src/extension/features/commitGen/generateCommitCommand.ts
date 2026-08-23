@@ -1,12 +1,12 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import { statusErrorTexts } from "../../../provider/transport/errorMapping";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import type { BooleanSettingId } from "../../../shared/config/settingSpec";
 import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
 import { getCommitGenerationPrompt, getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
+import { openSettingsAction, showActionableMessage } from "../../ui/notifier";
+import { reportCommandFailure } from "../commandFailure";
 import { featureChatSend } from "../featureChatSend";
 import { pickRepository, resolveGitApi } from "../gitAccess";
 import type { API } from "../gitApi";
@@ -152,14 +152,6 @@ export async function runGenerateCommitMessage(
 				return;
 		}
 	} catch (error) {
-		if (error instanceof vscode.CancellationError) {
-			// User cancellation: never logged, nothing to show.
-			return;
-		}
-		// The single logging boundary for this command; the logger records the
-		// English mirror or classification the thrown error carries.
-		deps.logger.error("Commit message generation failed", error);
-		const texts = statusErrorTexts(error);
-		await showActionableMessage("error", texts.error, commandErrorActions(texts.classification, deps.outputChannel));
+		await reportCommandFailure(deps, error, "Commit message generation failed");
 	}
 }

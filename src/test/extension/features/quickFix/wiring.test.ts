@@ -11,6 +11,9 @@
  * request.
  */
 import * as assert from "node:assert";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import type { QuickFixChatArgs } from "../../../../extension/features/quickFix/actionsProvider";
@@ -262,6 +265,49 @@ suite("extension/features/quickFix wiring", () => {
 		assert.ok(opened[0]?.getText().includes("## The fix"), "the model's answer is what the editor holds");
 		assert.ok(prompt.includes("Cannot find name 'total'."), "the diagnostic rides the fallback prompt");
 		assert.ok(prompt.includes("return total;"), "so do the claimed lines");
+	});
+
+	test("the fallback prompt labels an outside-workspace file by name, never by its absolute path", async () => {
+		// asRelativePath hands back the ABSOLUTE path for a file no workspace
+		// folder contains, so the fallback prompt used to carry /Users/<name>/...
+		// there; the shared documentLabel pipeline answers the bare name.
+		const dir = await mkdtemp(path.join(tmpdir(), "lvt-label-"));
+		const filePath = path.join(dir, "outside-workspace.ts");
+		await writeFile(filePath, "return total;\n");
+		let prompt = "";
+		mswServer.use(
+			http.post(CHAT_COMPLETIONS_URL, async ({ request }) => {
+				const body = (await request.json()) as { messages: { content: string }[] };
+				prompt = body.messages[0]?.content ?? "";
+				return HttpResponse.json({ choices: [{ message: { role: "assistant", content: "answer" } }] });
+			})
+		);
+		const originalShow = vscode.window.showTextDocument;
+		(vscode.window as Record<string, unknown>).showTextDocument = () => Promise.resolve({} as vscode.TextEditor);
+		try {
+			await withConfig(ENABLED_CONFIG, () =>
+				runQuickFixChat(
+					client(),
+					{ ...deps(), openChat: () => Promise.reject(new Error("no chat extension installed")) },
+					{
+						uri: vscode.Uri.file(filePath),
+						range: new vscode.Range(0, 0, 0, 13),
+						diagnostics: [diagnostic("Cannot find name 'total'.", 0)],
+						mode: "fix",
+					}
+				)
+			);
+		} finally {
+			(vscode.window as Record<string, unknown>).showTextDocument = originalShow;
+			await rm(dir, { recursive: true, force: true });
+		}
+		assert.ok(prompt.includes("outside-workspace.ts"), `the prompt names the file, got:\n${prompt}`);
+		// fsPath is exactly the string the raw host API used to hand back for an
+		// uncontained URI, so this is the leak, verbatim, per platform.
+		assert.ok(
+			!prompt.includes(vscode.Uri.file(filePath).fsPath),
+			`the absolute path must never reach the prompt:\n${prompt}`
+		);
 	});
 
 	test("a disabled invocation answers with the enable hint and reaches neither chat nor a model", async () => {

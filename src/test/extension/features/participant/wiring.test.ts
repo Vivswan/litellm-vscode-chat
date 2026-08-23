@@ -9,6 +9,9 @@
  * any stray request).
  */
 import * as assert from "node:assert";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import * as vscode from "vscode";
 import type { SnapshotSource } from "../../../../extension/features/participant/snapshots";
 import { wireChatParticipant } from "../../../../extension/features/participant/wiring";
@@ -357,6 +360,86 @@ suite("extension/features/participant wiring", () => {
 		});
 	});
 
+	test("an outside-workspace attachment is labeled by its file name, never its absolute path", async () => {
+		// asRelativePath hands back the ABSOLUTE path for a file no workspace
+		// folder contains, so a raw call here used to ship /Users/<name>/... into
+		// the prompt; the shared documentLabel pipeline answers the bare name.
+		const dir = await mkdtemp(path.join(tmpdir(), "lvt-label-"));
+		const filePath = path.join(dir, "outside-workspace.ts");
+		await writeFile(filePath, "const outside = 1;\n");
+		try {
+			await withWiringSpies(async (spies) => {
+				await withConfig({}, () => {
+					wireChatParticipant(fakeContext(), quietLogger().logger, { getSnapshots: () => [] });
+				});
+				const handler = spies.participants[0]?.handler;
+				assert.ok(handler !== undefined);
+				const { request, sends } = fakeRequest({
+					prompt: "explain this file",
+					references: [{ id: "vscode.implicit.file", value: vscode.Uri.file(filePath) } as vscode.ChatPromptReference],
+				});
+				await handler(request, EMPTY_CONTEXT, recordingStream().stream, new vscode.CancellationTokenSource().token);
+				assert.strictEqual(sends.length, 1);
+				const content = String((sends[0]?.messages[0]?.content[0] as { value?: unknown } | undefined)?.value ?? "");
+				assert.ok(content.includes("const outside = 1;"), "the file's content still rides along");
+				assert.ok(content.includes("outside-workspace.ts"), `the label names the file, got:\n${content}`);
+				// fsPath is exactly the string the raw host API used to hand back
+				// for an uncontained URI, so this is the leak, verbatim, per platform.
+				assert.ok(
+					!content.includes(vscode.Uri.file(filePath).fsPath),
+					`the absolute path must never reach the prompt:\n${content}`
+				);
+			});
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("multi-root: same-named attachments in different roots keep distinct labels", async () => {
+		// A faithful stand-in for the host's multi-root asRelativePath: the
+		// workspace-folder name is prepended for contained files unless the caller
+		// opts out. If the shared label pipeline opted out, both attachments below
+		// would collapse into one "src/index.ts" and the model could not tell the
+		// user's two files apart in one turn.
+		const original = vscode.workspace.asRelativePath;
+		(vscode.workspace as Record<string, unknown>).asRelativePath = (
+			pathOrUri: vscode.Uri | string,
+			includeWorkspaceFolder?: boolean
+		) => {
+			const full = typeof pathOrUri === "string" ? pathOrUri : pathOrUri.path;
+			const match = /^\/(root-[ab])\/(.*)$/.exec(full);
+			if (match === null) {
+				return typeof pathOrUri === "string" ? pathOrUri : pathOrUri.fsPath;
+			}
+			return includeWorkspaceFolder === false ? (match[2] ?? full) : `${match[1] ?? ""}/${match[2] ?? ""}`;
+		};
+		try {
+			await withWiringSpies(async (spies) => {
+				await withConfig({}, () => {
+					wireChatParticipant(fakeContext(), quietLogger().logger, { getSnapshots: () => [] });
+				});
+				const handler = spies.participants[0]?.handler;
+				assert.ok(handler !== undefined);
+				// Nonexistent on purpose: the unreadable branch still labels through
+				// the shared pipeline, and it needs no files on disk to prove this.
+				const { request, sends } = fakeRequest({
+					prompt: "compare these",
+					references: [
+						{ id: "file-a", value: vscode.Uri.file("/root-a/src/index.ts") } as vscode.ChatPromptReference,
+						{ id: "file-b", value: vscode.Uri.file("/root-b/src/index.ts") } as vscode.ChatPromptReference,
+					],
+				});
+				await handler(request, EMPTY_CONTEXT, recordingStream().stream, new vscode.CancellationTokenSource().token);
+				assert.strictEqual(sends.length, 1);
+				const content = String((sends[0]?.messages[0]?.content[0] as { value?: unknown } | undefined)?.value ?? "");
+				assert.ok(content.includes("root-a/src/index.ts"), `the first root's file keeps its prefix:\n${content}`);
+				assert.ok(content.includes("root-b/src/index.ts"), `and so does the second root's:\n${content}`);
+			});
+		} finally {
+			(vscode.workspace as Record<string, unknown>).asRelativePath = original;
+		}
+	});
+
 	test("an unreadable attachment is skipped and classified, and the rest of the turn still answers", async () => {
 		await withWiringSpies(async (spies) => {
 			const { logger, lines } = quietLogger();
@@ -381,6 +464,11 @@ suite("extension/features/participant wiring", () => {
 			assert.ok(
 				content.includes("could not be read"),
 				`the model must be told the attachment is missing, got:\n${content}`
+			);
+			assert.ok(content.includes("does-not-exist.ts"), "the unreadable attachment is still named");
+			assert.ok(
+				!content.includes(vscode.Uri.file("/nonexistent/does-not-exist.ts").fsPath),
+				`even an unreadable outside-workspace file is named without its absolute path:\n${content}`
 			);
 			assert.ok(lines.some((line) => line.includes("could not read an attachment")));
 		});

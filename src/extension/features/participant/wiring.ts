@@ -4,6 +4,7 @@ import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { errorLabel } from "../../../shared/util/errorLabel";
+import { documentLabel } from "../gitAccess";
 import { participantFollowups } from "./followups";
 import { handleParticipantTurn, type ParticipantRequest } from "./handler";
 import type { ChatMessage, HistoryTurn } from "./historyConversion";
@@ -80,9 +81,14 @@ function toChatMessage(message: ChatMessage): vscode.LanguageModelChatMessage {
 		: vscode.LanguageModelChatMessage.Assistant(message.content);
 }
 
-/** One attachment's display name: workspace-relative where possible, with the line range when it has one. */
+/**
+ * One attachment's display name, with the line range when it has one. The
+ * shared label pipeline (documentLabel): workspace-relative where possible,
+ * the bare file name outside the workspace - the raw host API would ship the
+ * absolute path, home directory included, into the prompt there.
+ */
 function referenceName(uri: vscode.Uri, range?: vscode.Range): string {
-	const base = vscode.workspace.asRelativePath(uri);
+	const base = documentLabel(uri);
 	// Ranges are zero-based; users count lines from one.
 	return range === undefined ? base : `${base}:${String(range.start.line + 1)}-${String(range.end.line + 1)}`;
 }
@@ -114,9 +120,9 @@ async function readReference(reference: vscode.ChatPromptReference): Promise<Res
 function unreadableName(reference: vscode.ChatPromptReference): string {
 	const value: unknown = reference.value;
 	if (value instanceof vscode.Uri) {
-		return vscode.workspace.asRelativePath(value);
+		return documentLabel(value);
 	}
-	return value instanceof vscode.Location ? vscode.workspace.asRelativePath(value.uri) : reference.id;
+	return value instanceof vscode.Location ? documentLabel(value.uri) : reference.id;
 }
 
 /**

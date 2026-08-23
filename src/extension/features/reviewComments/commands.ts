@@ -1,15 +1,16 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import { statusErrorTexts } from "../../../provider/transport/errorMapping";
 import type { OneShotChatMessage, OneShotClient } from "../../../provider/transport/oneShotClient";
 import type { BooleanSettingId, FeatureModelRef } from "../../../shared/config/settingSpec";
 import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
+import { openSettingsAction, showActionableMessage } from "../../ui/notifier";
+import { reportCommandFailure } from "../commandFailure";
 import { featureChatSend } from "../featureChatSend";
-import { documentLabel, pickRepository, repositoryRelativePath, resolveGitApi } from "../gitAccess";
+import { documentLabel, pickRepository, resolveGitApi } from "../gitAccess";
 import type { API, Change, Repository } from "../gitApi";
+import { repositoryRelativePath } from "../gitPaths";
 import type { ReviewCommentController } from "./controller";
 import type { ReviewPlacement } from "./placements";
 import type { ReviewRunOutcome, ReviewUnit } from "./review";
@@ -562,17 +563,6 @@ function reviewedSentence(findings: number, files: number): string {
 	return files === 1
 		? l10n.t("{0} review comments on 1 file.", findings)
 		: l10n.t("{0} review comments across {1} files.", findings, files);
-}
-
-/** The one failure path every review command shares: cancellation is silent, everything else logs once and shows. */
-async function reportCommandFailure(deps: ReviewCommandDeps, error: unknown, logLine: string): Promise<void> {
-	if (error instanceof vscode.CancellationError) {
-		// User cancellation: never logged, nothing to show.
-		return;
-	}
-	deps.logger.error(logLine, error);
-	const texts = statusErrorTexts(error);
-	await showActionableMessage("error", texts.error, commandErrorActions(texts.classification, deps.outputChannel));
 }
 
 /** What one enumeration pass found; see diffUnits. */

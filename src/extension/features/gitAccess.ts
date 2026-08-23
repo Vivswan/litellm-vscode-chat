@@ -62,32 +62,31 @@ export async function pickRepository(
 }
 
 /**
- * The label a file travels to the model under: its workspace-relative path,
- * or - for a file in no workspace folder, where asRelativePath hands back the
- * absolute filesystem path - the bare file name. Home directories and user
- * names are not part of a code review, and the docs promise a relative path.
+ * The label a file travels to the model under: its workspace-relative path
+ * (host default, so a multi-root window keeps the folder prefix and two
+ * same-named files stay distinct), or - for a file in no workspace folder,
+ * where asRelativePath hands back the absolute filesystem path before the
+ * folder-prefix option is even consulted - the bare file name. Home
+ * directories and user names are not part of a code review, and the docs
+ * promise a relative path. The ONE sanctioned asRelativePath call under
+ * features/ (a bun-tree guard pins that): every model-facing file label goes
+ * through here, because a raw asRelativePath ships the absolute path for any
+ * file outside the workspace. (The sibling repositoryRelativePath, in
+ * gitPaths.ts, is the path git itself is asked about - never a model-facing
+ * label.)
  */
 export function documentLabel(uri: vscode.Uri): string {
-	const relative = vscode.workspace.asRelativePath(uri, false);
+	const relative = vscode.workspace.asRelativePath(uri);
 	// asRelativePath returns the input untouched when nothing contains it; on
-	// Windows that is a drive path, so both separators count.
+	// Windows that is a drive path, so both separators count. A trailing
+	// separator (a folder URI) must not read as an empty name.
 	const outsideWorkspace = relative === uri.fsPath || relative === uri.path;
-	return outsideWorkspace ? (relative.split(/[\\/]/).pop() ?? relative) : relative;
-}
-
-/**
- * A file's path relative to its repository root, slash-normalized - the form
- * git itself speaks, for passing to git commands. NOT the label a model sees:
- * a URI outside the root keeps its full path here rather than being rewritten
- * into a wrong relative one, and documentLabel is what guarantees no absolute
- * path reaches a prompt.
- */
-export function repositoryRelativePath(root: vscode.Uri, uri: vscode.Uri): string {
-	const rootPath = root.fsPath.replace(/[/\\]+$/, "");
-	const full = uri.fsPath;
-	const relative =
-		full.startsWith(`${rootPath}/`) || full.startsWith(`${rootPath}\\`)
-			? full.slice(rootPath.length).replace(/^[/\\]+/, "")
-			: full;
-	return relative.replace(/\\/g, "/");
+	if (!outsideWorkspace) {
+		return relative;
+	}
+	const name = relative
+		.split(/[\\/]/)
+		.filter((part) => part !== "")
+		.pop();
+	return name ?? relative;
 }
