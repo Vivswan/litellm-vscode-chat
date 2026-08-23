@@ -14,6 +14,7 @@ import { Logger } from "../../../shared/logger";
 import { REPO_ROOT } from "../../util/repoRoot";
 
 function fakeContext(): vscode.ExtensionContext {
+	const workspaceStore = new Map<string, unknown>();
 	return {
 		subscriptions: [] as vscode.Disposable[],
 		secrets: {
@@ -24,6 +25,16 @@ function fakeContext(): vscode.ExtensionContext {
 		},
 		globalState: { keys: () => [], get: () => undefined, update: async () => {} },
 		extensionUri: vscode.Uri.file(REPO_ROOT),
+		// Review comments restore their threads from workspaceState at wiring
+		// time, so a context without one is not a context this seam can run on.
+		workspaceState: {
+			get: (key: string) => workspaceStore.get(key),
+			update: (key: string, value: unknown) => {
+				workspaceStore.set(key, value);
+				return Promise.resolve();
+			},
+			keys: () => [...workspaceStore.keys()],
+		},
 	} as unknown as vscode.ExtensionContext;
 }
 
@@ -86,10 +97,11 @@ suite("extension/wiring features", () => {
 				getSnapshots: () => [],
 			});
 			// Every feature's wiring ran: the inline toggle command, the commit
-			// command, the PR command, the MCP provider registration, and the
-			// quick-fix chat command are their observable registrations here (the
-			// inline provider, the consult tool, the PR integration and the
-			// code-action provider are enablement-gated and covered by their own
+			// command, the PR command, the review commands, the MCP provider
+			// registration, and the quick-fix chat command are their observable
+			// registrations here (the inline provider, the consult tool, the PR
+			// integration, the review comment controller and the code-action
+			// provider are enablement-gated and covered by their own
 			// wiring suites, so with the defaults they stay unregistered; the
 			// participant is proven by the slash-command test below).
 			assert.ok(
@@ -98,6 +110,7 @@ suite("extension/wiring features", () => {
 			);
 			assert.ok(registeredIds.includes(CMD.generateCommitMessage), "the commit feature wiring did not run");
 			assert.ok(registeredIds.includes(CMD.generatePrDescription), "the PR feature wiring did not run");
+			assert.ok(registeredIds.includes(CMD.reviewChanges), "the review comments feature wiring did not run");
 			assert.ok(registeredIds.includes(MCP_PROVIDER_ID), "the MCP feature wiring did not run");
 			assert.ok(registeredIds.includes(INTERNAL_CMD.quickFixChat), "the quick-fix feature wiring did not run");
 			// The probe registry: exactly the features whose model rows carry a
@@ -108,11 +121,13 @@ suite("extension/wiring features", () => {
 				"inlineCompletions",
 				"prGeneration",
 				"quickFix",
+				"reviewComments",
 			]);
 			assert.strictEqual(typeof featureProbes.inlineCompletions, "function");
 			assert.strictEqual(typeof featureProbes.consultTool, "function");
 			assert.strictEqual(typeof featureProbes.prGeneration, "function");
 			assert.strictEqual(typeof featureProbes.quickFix, "function");
+			assert.strictEqual(typeof featureProbes.reviewComments, "function");
 			// The render fixtures carry their OWN probe list, and a page rendered
 			// from a stale one under-represents the shipped state - visual review
 			// then judges a page users never see. Pinned to the production set so

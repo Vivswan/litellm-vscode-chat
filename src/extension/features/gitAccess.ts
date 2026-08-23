@@ -60,3 +60,34 @@ export async function pickRepository(
 	);
 	return picked?.repo ?? "dismissed";
 }
+
+/**
+ * The label a file travels to the model under: its workspace-relative path,
+ * or - for a file in no workspace folder, where asRelativePath hands back the
+ * absolute filesystem path - the bare file name. Home directories and user
+ * names are not part of a code review, and the docs promise a relative path.
+ */
+export function documentLabel(uri: vscode.Uri): string {
+	const relative = vscode.workspace.asRelativePath(uri, false);
+	// asRelativePath returns the input untouched when nothing contains it; on
+	// Windows that is a drive path, so both separators count.
+	const outsideWorkspace = relative === uri.fsPath || relative === uri.path;
+	return outsideWorkspace ? (relative.split(/[\\/]/).pop() ?? relative) : relative;
+}
+
+/**
+ * A file's path relative to its repository root, slash-normalized - the form
+ * git itself speaks, for passing to git commands. NOT the label a model sees:
+ * a URI outside the root keeps its full path here rather than being rewritten
+ * into a wrong relative one, and documentLabel is what guarantees no absolute
+ * path reaches a prompt.
+ */
+export function repositoryRelativePath(root: vscode.Uri, uri: vscode.Uri): string {
+	const rootPath = root.fsPath.replace(/[/\\]+$/, "");
+	const full = uri.fsPath;
+	const relative =
+		full.startsWith(`${rootPath}/`) || full.startsWith(`${rootPath}\\`)
+			? full.slice(rootPath.length).replace(/^[/\\]+/, "")
+			: full;
+	return relative.replace(/\\/g, "/");
+}

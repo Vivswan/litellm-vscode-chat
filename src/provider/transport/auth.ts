@@ -176,24 +176,43 @@ function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> 
 }
 
 /**
- * The exchange-timeout advice names the surface's true bound, because
+ * Which setting actually bounds the OAuth exchange on each surface, because
  * `timeoutMs` is whatever the calling transport passed: the chat and discovery
  * paths both bound the exchange by "discovery.timeout" (auth plumbing with its
- * own budget, even when a chat triggers it), the commit call passes its
- * "chat.timeout" whole-call budget through, and the inline-completion call
- * passes the fixed FIM bound no setting can raise - so that surface names none.
+ * own budget, even when a chat triggers it), the one-shot chat callers pass
+ * their "chat.timeout" whole-call budget through, and the inline-completion
+ * call passes the fixed FIM bound no setting can raise - so that surface names
+ * none.
+ *
+ * A total Record rather than a branch ladder: a ladder's fall-through silently
+ * hands a new surface discovery's advice, which is advice to raise a setting
+ * that does not bound it. This does not compile until a new surface says which
+ * bound is its own.
  */
+const OAUTH_EXCHANGE_BOUND: Record<OAuthErrorSurface, "chat" | "discovery" | "fixed"> = {
+	chat: "discovery",
+	discovery: "discovery",
+	completion: "fixed",
+	commitGeneration: "chat",
+	consultTool: "chat",
+	prGeneration: "chat",
+	quickFix: "chat",
+	reviewComments: "chat",
+};
+
+/** The exchange-timeout advice, naming the surface's true bound (see OAUTH_EXCHANGE_BOUND). */
 function timeoutError(tokenUrl: string, surface: OAuthErrorSurface, timeoutMs: number, cause?: unknown): RequestError {
 	const url = displayUrl(tokenUrl);
+	const bound = OAUTH_EXCHANGE_BOUND[surface];
 	// English mirrors ride each construction for the output channel and the
 	// issue-report buffer; the display message localizes.
-	if (surface === "completion") {
+	if (bound === "fixed") {
 		return new RequestError(l10n.t("OAuth token request to {0} timed out after {1}ms.", url, timeoutMs), "timeout", {
 			cause,
 			englishMessage: `OAuth token request to ${url} timed out after ${timeoutMs}ms.`,
 		});
 	}
-	if (surface === "commitGeneration") {
+	if (bound === "chat") {
 		return new RequestError(
 			l10n.t(
 				'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.chat.timeout" setting if your identity provider needs more time.',

@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
 	CMD,
+	COMMENT_CONTROLLER_ID,
 	CONSULT_TOOL_READY_CONTEXT_KEY,
 	generateCommitMessageCommandTitle,
 	generatePrDescriptionCommandTitle,
@@ -13,6 +14,8 @@ import {
 	PARTICIPANT_ID,
 	prGenerationProviderTitle,
 	refreshUsageCommandTitle,
+	reviewChangesCommandTitle,
+	reviewFileCommandTitle,
 	syncModelsCommandTitle,
 	TOOL_NAME,
 	VENDOR_ID,
@@ -27,10 +30,16 @@ import { REPO_ROOT } from "../../../util/repoRoot";
  * palette contributions, the vendor, and the walkthrough deep-links must all
  * use exactly the IDs the code registers.
  */
+/** One menus entry, named so the review pins can annotate their lookups. */
+interface MenuItem {
+	readonly command: string;
+	readonly when?: string;
+}
+
 interface PackageJson {
 	readonly contributes: {
 		readonly commands: readonly { readonly command: string; readonly title?: string }[];
-		readonly menus?: Readonly<Record<string, readonly { readonly command: string; readonly when?: string }[]>>;
+		readonly menus?: Readonly<Record<string, readonly MenuItem[]>>;
 		readonly languageModelChatProviders: readonly [{ readonly vendor: string }];
 		readonly walkthroughs?: unknown;
 		readonly chatParticipants?: readonly { readonly id?: string }[];
@@ -151,6 +160,62 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 		const palette = menus.commandPalette?.find((item) => item.command === CMD.generateCommitMessage);
 		assert.ok(palette !== undefined, "the palette visibility is contributed explicitly");
 		assert.strictEqual(palette.when, enabledClause);
+	});
+
+	test("the review commands are contributed under their shared titles", () => {
+		const commands = readPackageJson().contributes.commands;
+		const pins: readonly [string, string][] = [
+			[CMD.reviewChanges, reviewChangesCommandTitle()],
+			[CMD.reviewFile, reviewFileCommandTitle()],
+		];
+		for (const [command, title] of pins) {
+			const entry = commands.find((candidate) => candidate.command === command);
+			assert.ok(entry?.title !== undefined, `${command} is contributed with a title`);
+			assert.strictEqual(resolveNls(entry.title), title);
+		}
+	});
+
+	test("every review surface is gated on the enable setting and the controller id", () => {
+		// The comment menus must name THIS controller: without the
+		// `commentController ==` clause our actions would appear on every
+		// extension's comment threads. The palette entries for the thread
+		// actions are explicitly hidden - they are meaningless without a thread.
+		const enabledKey: BooleanSettingId = "reviewComments.enabled";
+		const enabledClause = `config.${CONFIG_SECTION}.${enabledKey}`;
+		const controllerClause = `commentController == ${COMMENT_CONTROLLER_ID}`;
+		const menus = readPackageJson().contributes.menus;
+		assert.ok(menus !== undefined, "the manifest contributes menus");
+
+		const scmTitle = menus["scm/title"]?.find((item) => item.command === CMD.reviewChanges);
+		assert.ok(scmTitle !== undefined, "the SCM title bar carries the review command");
+		assert.strictEqual(scmTitle.when, `${enabledClause} && scmProvider == git`);
+
+		for (const [location, command, extra] of [
+			["comments/commentThread/context", CMD.reviewReply, ""],
+			["comments/commentThread/title", CMD.reviewResolveThread, " && commentThread == unresolved"],
+			["comments/commentThread/title", CMD.reviewUnresolveThread, " && commentThread == resolved"],
+			["comments/commentThread/title", CMD.reviewDeleteThread, ""],
+		] as const) {
+			const item: MenuItem | undefined = menus[location]?.find((candidate) => candidate.command === command);
+			assert.ok(item !== undefined, `${command} is contributed to ${location}`);
+			assert.strictEqual(item.when, `${controllerClause}${extra} && ${enabledClause}`, command);
+		}
+
+		for (const command of [CMD.reviewChanges, CMD.reviewFile]) {
+			const palette: MenuItem | undefined = menus.commandPalette?.find((item) => item.command === command);
+			assert.ok(palette !== undefined, `${command} declares its palette visibility`);
+			assert.strictEqual(palette.when, enabledClause, command);
+		}
+		for (const command of [
+			CMD.reviewReply,
+			CMD.reviewResolveThread,
+			CMD.reviewUnresolveThread,
+			CMD.reviewDeleteThread,
+		]) {
+			const palette: MenuItem | undefined = menus.commandPalette?.find((item) => item.command === command);
+			assert.ok(palette !== undefined, `${command} declares its palette visibility`);
+			assert.strictEqual(palette.when, "false", `${command} is meaningless without a thread`);
+		}
 	});
 
 	test("the docs and walkthrough prose name the manage command by its contributed title", () => {

@@ -145,8 +145,8 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/commitGen/**", "**/participant/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/quickFix/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
+										"group": ["**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts, quickFixChatCommands.ts)."
 									}
 								]
 							}
@@ -165,28 +165,8 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/participant/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/quickFix/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/extension/features/participant/**"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/quickFix/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
+										"group": ["**/inline/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts, quickFixChatCommands.ts)."
 									}
 								]
 							}
@@ -205,8 +185,8 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/participant/**", "**/mcp/**", "**/prGen/**", "**/quickFix/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
+										"group": ["**/inline/**", "**/commitGen/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts, quickFixChatCommands.ts)."
 									}
 								]
 							}
@@ -225,8 +205,8 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/participant/**", "**/consultTool/**", "**/prGen/**", "**/quickFix/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts, quickFixChatCommands.ts)."
 									}
 								]
 							}
@@ -236,7 +216,7 @@
 			}
 		},
 		{
-			"includes": ["src/extension/features/quickFix/**"],
+			"includes": ["src/extension/features/participant/**"],
 			"linter": {
 				"rules": {
 					"style": {
@@ -245,8 +225,8 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/commitGen/**", "**/consultTool/**", "**/inline/**", "**/mcp/**", "**/participant/**", "**/prGen/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts, quickFixChatCommands.ts)."
 									}
 								]
 							}
@@ -265,8 +245,48 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/participant/**", "**/consultTool/**", "**/mcp/**", "**/quickFix/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts, quickFixChatCommands.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/quickFix/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts, quickFixChatCommands.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/reviewComments/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts, quickFixChatCommands.ts)."
 									}
 								]
 							}

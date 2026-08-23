@@ -463,25 +463,25 @@ test("every FeatureId renders its section in registry order, enable rows include
 	expect(root.querySelector("#setting-inlineCompletions\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-commitGeneration\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-prGeneration\\.enabled")).not.toBeNull();
-	// The unshipped features render real enable and model rows (registered
-	// vocabulary, writable now) plus the quiet Coming soon badge.
 	expect(root.querySelector("#setting-reviewComments\\.model")).not.toBeNull();
 	expect(root.querySelector("#setting-chatParticipant\\.enabled")).not.toBeNull();
 	// The participant has an enable row and deliberately no model row.
 	expect(root.querySelector("#setting-chatParticipant\\.model")).toBeNull();
-	// Which sections still wear the badge, BY NAME rather than by count: a
-	// shipped feature that kept it, or a section that lost it before its wiring
-	// landed, both name themselves here instead of moving a number. The consult
-	// tool and PR description generation are absent because both have shipped.
+	// Which sections wear the badge, BY NAME rather than by count: a shipped
+	// feature that kept it, or a section that lost it before its wiring landed,
+	// both name themselves here instead of moving a number. Every feature has
+	// now shipped, so the list is empty - the badge machinery stays for the next
+	// one, and this is what proves it is dormant rather than mislabelling a
+	// live feature.
 	const marked = [...root.querySelectorAll(".settings-group-head")]
 		.filter((head) => head.querySelector('[data-slot="badge"]')?.textContent === "Coming soon")
 		.map((head) => head.querySelector(".settings-group-title")?.textContent);
-	expect(marked).toEqual(["Review comments"]);
-	// The consequence is said ONCE for the page, not once per section: headings
-	// each wearing the same sentence was the defect this replaced.
+	expect(marked).toEqual([]);
+	// The page-level hint explains the badge, so with no badge it must be gone
+	// too: a standing sentence about sections that do not exist is the defect
+	// this pairing guards.
 	const hints = [...root.querySelectorAll("p.hint")].filter((hint) => (hint.textContent ?? "").includes("Coming soon"));
-	expect(hints.length).toBe(1);
-	expect(hints[0]?.textContent).toContain("take effect when the feature ships");
+	expect(hints).toEqual([]);
 });
 
 test("custom entry commits a declared label plus a free-typed model ID, and Cancel restores the select", () => {

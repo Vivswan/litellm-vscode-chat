@@ -180,6 +180,7 @@ export default defineConfig({
 				"out/test/extension/features/participant/*.test.js",
 				"out/test/extension/features/prGen/*.test.js",
 				"out/test/extension/features/quickFix/*.test.js",
+				"out/test/extension/features/reviewComments/*.test.js",
 				"out/test/extension/migrations/*.test.js",
 				"out/test/extension/servers/*.test.js",
 				"out/test/extension/servers/usage/*.test.js",

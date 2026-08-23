@@ -152,6 +152,9 @@ export interface RecordedEnv {
 	/** Every inlineCompletions feature-probe call's model ref; fimProbeResult/probeError shape the outcome. */
 	fimProbes: FeatureModelRef[];
 	fimProbeResult: string | undefined;
+	/** The same, for a non-completion feature: the branch every future shipped feature lands in. */
+	reviewProbes: FeatureModelRef[];
+	reviewProbeResult: string | undefined;
 	/** Every hideGroup call. */
 	hidden: { label: string; baseUrl: string }[];
 	/** Every unhideGroup call; unhideResult is what the fake reports back. */
@@ -188,6 +191,8 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		probeResult: [],
 		fimProbes: [],
 		fimProbeResult: undefined,
+		reviewProbes: [],
+		reviewProbeResult: undefined,
 		hidden: [],
 		unhidden: [],
 		unhideResult: true,
@@ -318,6 +323,13 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 						throw recorded.probeError;
 					}
 					return recorded.fimProbeResult;
+				},
+				reviewComments: async (model: FeatureModelRef) => {
+					recorded.reviewProbes.push(model);
+					if (recorded.probeError !== undefined) {
+						throw recorded.probeError;
+					}
+					return recorded.reviewProbeResult;
 				},
 			},
 			log: (message, data) => {

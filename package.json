@@ -340,6 +340,35 @@
 			{
 				"command": "litellm.generatePrDescription",
 				"title": "%litellm.command.generatePrDescription.title%"
+			},
+			{
+				"command": "litellm.reviewChanges",
+				"title": "%litellm.command.reviewChanges.title%",
+				"icon": "$(sparkle)"
+			},
+			{
+				"command": "litellm.reviewFile",
+				"title": "%litellm.command.reviewFile.title%",
+				"icon": "$(sparkle)"
+			},
+			{
+				"command": "litellm.reviewReply",
+				"title": "%litellm.command.reviewReply.title%"
+			},
+			{
+				"command": "litellm.reviewResolveThread",
+				"title": "%litellm.command.reviewResolveThread.title%",
+				"icon": "$(check)"
+			},
+			{
+				"command": "litellm.reviewUnresolveThread",
+				"title": "%litellm.command.reviewUnresolveThread.title%",
+				"icon": "$(circle-outline)"
+			},
+			{
+				"command": "litellm.reviewDeleteThread",
+				"title": "%litellm.command.reviewDeleteThread.title%",
+				"icon": "$(trash)"
 			}
 		],
 		"menus": {
@@ -348,6 +377,35 @@
 					"command": "litellm.generateCommitMessage",
 					"when": "config.litellm-vscode-chat.commitGeneration.enabled && scmProvider == git",
 					"group": "navigation"
+				},
+				{
+					"command": "litellm.reviewChanges",
+					"when": "config.litellm-vscode-chat.reviewComments.enabled && scmProvider == git",
+					"group": "navigation"
+				}
+			],
+			"comments/commentThread/context": [
+				{
+					"command": "litellm.reviewReply",
+					"when": "commentController == litellm.review && config.litellm-vscode-chat.reviewComments.enabled",
+					"group": "inline@1"
+				}
+			],
+			"comments/commentThread/title": [
+				{
+					"command": "litellm.reviewResolveThread",
+					"when": "commentController == litellm.review && commentThread == unresolved && config.litellm-vscode-chat.reviewComments.enabled",
+					"group": "inline@1"
+				},
+				{
+					"command": "litellm.reviewUnresolveThread",
+					"when": "commentController == litellm.review && commentThread == resolved && config.litellm-vscode-chat.reviewComments.enabled",
+					"group": "inline@1"
+				},
+				{
+					"command": "litellm.reviewDeleteThread",
+					"when": "commentController == litellm.review && config.litellm-vscode-chat.reviewComments.enabled",
+					"group": "inline@2"
 				}
 			],
 			"commandPalette": [
@@ -358,6 +416,30 @@
 				{
 					"command": "litellm.generatePrDescription",
 					"when": "config.litellm-vscode-chat.prGeneration.enabled"
+				},
+				{
+					"command": "litellm.reviewChanges",
+					"when": "config.litellm-vscode-chat.reviewComments.enabled"
+				},
+				{
+					"command": "litellm.reviewFile",
+					"when": "config.litellm-vscode-chat.reviewComments.enabled"
+				},
+				{
+					"command": "litellm.reviewReply",
+					"when": "false"
+				},
+				{
+					"command": "litellm.reviewResolveThread",
+					"when": "false"
+				},
+				{
+					"command": "litellm.reviewUnresolveThread",
+					"when": "false"
+				},
+				{
+					"command": "litellm.reviewDeleteThread",
+					"when": "false"
 				}
 			]
 		},
@@ -453,6 +535,17 @@
 						},
 						"completionEvents": [
 							"onSettingChanged:litellm-vscode-chat.inlineCompletions.enabled"
+						]
+					},
+					{
+						"id": "litellm.walkthrough.reviewComments",
+						"title": "%litellm.walkthrough.reviewComments.title%",
+						"description": "%litellm.walkthrough.reviewComments.description%",
+						"media": {
+							"markdown": "assets/walkthrough/review-comments.md"
+						},
+						"completionEvents": [
+							"onCommand:litellm.reviewChanges"
 						]
 					}
 				]

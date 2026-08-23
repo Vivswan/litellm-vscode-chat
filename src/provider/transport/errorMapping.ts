@@ -97,7 +97,8 @@ export type TransportErrorSurface =
 	| "commitGeneration"
 	| "consultTool"
 	| "prGeneration"
-	| "quickFix";
+	| "quickFix"
+	| "reviewComments";
 
 export interface MapErrorContext {
 	/**
@@ -855,6 +856,54 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			detail: midResponseDroppedDetail,
 		},
 		phrase: "quick fix",
+	},
+	reviewComments: {
+		join: "detailsLeadIn",
+		httpVocabulary: "request",
+		// The review call runs under the chat timeout setting, so that IS the
+		// bound to raise; only the wording names the review.
+		timeout: (timeoutMs) => ({
+			display: l10n.t(
+				'LiteLLM code review timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time, or review a smaller change.',
+				timeoutMs,
+				CONFIG_SECTION
+			),
+			english: `LiteLLM code review timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time, or review a smaller change.`,
+		}),
+		notFound: {
+			// Sync Models refreshes the chat catalog, which the review model
+			// setting never reads - the advice is the setting itself.
+			headline: () => ({
+				display: l10n.t(
+					"The server did not recognize this review request. Check that the configured review comments model is one the server still serves."
+				),
+				english:
+					"The server did not recognize this review request. Check that the configured review comments model is one the server still serves.",
+			}),
+			detail: standardNotFoundDetail,
+		},
+		// No conversation and no attachments - the code sent for review is what
+		// was too long, and the user chooses how much of it to send.
+		contextWindow: () => ({
+			display: l10n.t(
+				"The code sent for review is too large for this model - review a single file or a smaller change, or pick a model with a larger context window."
+			),
+			english:
+				"The code sent for review is too large for this model - review a single file or a smaller change, or pick a model with a larger context window.",
+		}),
+		dropped: {
+			// The review call is non-streaming, so a dropped connection leaves no
+			// partial review - this file simply produced no comments.
+			headline: () => ({
+				display: l10n.t(
+					"The connection dropped before the reply arrived, so this file was not reviewed. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
+				),
+				english:
+					"The connection dropped before the reply arrived, so this file was not reviewed. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+			}),
+			detail: midResponseDroppedDetail,
+		},
+		phrase: "code review",
 	},
 };
 

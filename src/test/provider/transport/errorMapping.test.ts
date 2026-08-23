@@ -561,13 +561,16 @@ suite("provider/transport/errorMapping", () => {
 		const URL_UNDER_TEST = "http://litellm.test";
 
 		/** Drive the OAuth exchange's socket-failure tail: fetch rejects with the synthetic failure on every retry. */
-		async function oauthSocketFailure(makeFailure: () => unknown): Promise<RequestError> {
+		async function oauthSocketFailure(
+			makeFailure: () => unknown,
+			surface: MapErrorContext["surface"] = "chat"
+		): Promise<RequestError> {
 			const realFetch = globalThis.fetch;
 			globalThis.fetch = () => Promise.reject(makeFailure());
 			try {
 				await new OAuthTokenSource().getToken(
 					{ tokenUrl: URL_UNDER_TEST, clientId: "client-1", clientSecret: "secret-1" },
-					"chat",
+					surface,
 					5000
 				);
 			} catch (error) {
@@ -752,6 +755,44 @@ suite("provider/transport/errorMapping", () => {
 				oauth.message,
 				'OAuth token request to http://litellm.test timed out after 5000ms. Increase the "litellm-vscode-chat.discovery.timeout" setting if your identity provider needs more time.'
 			);
+		});
+
+		test("the exchange-timeout advice names the bound that is actually the surface's, on every surface", async () => {
+			// The exchange inherits its caller's budget, so the advice has to name
+			// THAT setting. A ladder with a fall-through default silently hands a
+			// new surface discovery's advice - advice to raise a setting that does
+			// not bound it - so every surface is pinned here, derived from the copy
+			// table's own key list.
+			const expected: Record<MapErrorContext["surface"], string> = {
+				chat: 'Increase the "litellm-vscode-chat.discovery.timeout" setting',
+				discovery: 'Increase the "litellm-vscode-chat.discovery.timeout" setting',
+				// The inline-completion bound is fixed in code; naming a setting would be a lie.
+				completion: "",
+				commitGeneration: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
+				consultTool: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
+				prGeneration: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
+				quickFix: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
+				reviewComments: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
+			};
+			assert.deepStrictEqual([...Object.keys(expected)].sort(), [...TRANSPORT_ERROR_SURFACES].sort());
+			for (const surface of TRANSPORT_ERROR_SURFACES) {
+				const timedOut = await oauthSocketFailure(
+					() => fetchFailure(new DOMException("The operation was aborted due to timeout", "TimeoutError")),
+					surface
+				);
+				assert.strictEqual(timedOut.kind, "timeout", surface);
+				assert.ok(
+					timedOut.message.startsWith("OAuth token request to http://litellm.test timed out after 5000ms."),
+					surface
+				);
+				const advice = expected[surface];
+				if (advice === "") {
+					assert.ok(!timedOut.message.includes("setting"), `${surface} must name no setting: ${timedOut.message}`);
+				} else {
+					assert.ok(timedOut.message.includes(advice), `${surface}: ${timedOut.message}`);
+				}
+				assert.strictEqual(timedOut.englishMessage, timedOut.message, surface);
+			}
 		});
 	});
 
@@ -1405,6 +1446,23 @@ suite("provider/transport/errorMapping", () => {
 					"The LiteLLM server hit an internal error - try again, and check the server's logs if it persists.",
 				serverErrorDetail: "LiteLLM 500: upstream exploded",
 				phrase: "quick fix",
+			},
+			reviewComments: {
+				join: "details",
+				timeout:
+					'LiteLLM code review timed out after 5000ms. Increase the "litellm-vscode-chat.chat.timeout" setting if your model needs more time, or review a smaller change.',
+				notFound:
+					"The server did not recognize this review request. Check that the configured review comments model is one the server still serves.",
+				notFoundHint: undefined,
+				contextWindow:
+					"The code sent for review is too large for this model - review a single file or a smaller change, or pick a model with a larger context window.",
+				dropped:
+					"The connection dropped before the reply arrived, so this file was not reviewed. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+				droppedDetail: "Connection to http://litellm.test closed mid-response: terminated (cause: other side closed)",
+				serverError:
+					"The LiteLLM server hit an internal error - try again, and check the server's logs if it persists.",
+				serverErrorDetail: "LiteLLM 500: upstream exploded",
+				phrase: "code review",
 			},
 		};
 

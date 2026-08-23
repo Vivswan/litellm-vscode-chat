@@ -50,6 +50,9 @@ function fakeRepo(parts: FakeRepoParts): Repository {
 		inputBox: { value: "" },
 		state: { HEAD: undefined, indexChanges: [], workingTreeChanges: untrackedChanges, untrackedChanges: [] },
 		diff: (cached?: boolean) => Promise.resolve(cached === true ? (parts.staged ?? "") : (parts.working ?? "")),
+		// Declared by the vendored API subset; the commit flow never calls it.
+		diffWith: ((_ref: string, path?: string) =>
+			Promise.resolve(path === undefined ? [] : "")) as Repository["diffWith"],
 		log: () => Promise.resolve(parts.commits ?? []),
 	};
 }

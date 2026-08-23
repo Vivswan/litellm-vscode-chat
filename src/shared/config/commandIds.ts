@@ -33,6 +33,14 @@ export const CONSULT_TOOL_READY_CONTEXT_KEY = "litellm.consultToolReady";
 /** The mcpServerDefinitionProviders contribution's id. */
 export const MCP_PROVIDER_ID = "litellm.mcpServers";
 
+/**
+ * The review feature's comment controller id. Not a manifest contribution -
+ * the controller is created at runtime - but the comment menus' when-clauses
+ * name it, so it drifts exactly like a contributed identity would and lives
+ * beside the others.
+ */
+export const COMMENT_CONTROLLER_ID = "litellm.review";
+
 /** The commands package.json contributes; the palette and walkthrough deep-links use exactly these. */
 export const CMD = {
 	manage: "litellm.manage",
@@ -50,6 +58,15 @@ export const CMD = {
 	undoLastImport: "litellm.undoLastImport",
 	generateCommitMessage: "litellm.generateCommitMessage",
 	generatePrDescription: "litellm.generatePrDescription",
+	reviewChanges: "litellm.reviewChanges",
+	reviewFile: "litellm.reviewFile",
+	// The review threads' own actions. Contributed because a menus entry may
+	// only name a contributed command, and hidden from the palette by an
+	// explicit `when: false` - they are meaningless without a thread to act on.
+	reviewReply: "litellm.reviewReply",
+	reviewResolveThread: "litellm.reviewResolveThread",
+	reviewUnresolveThread: "litellm.reviewUnresolveThread",
+	reviewDeleteThread: "litellm.reviewDeleteThread",
 } as const;
 
 /**
@@ -92,6 +109,16 @@ export function generatePrDescriptionCommandTitle(): string {
  */
 export function prGenerationProviderTitle(): string {
 	return l10n.t("Generate with LiteLLM");
+}
+
+/** CMD.reviewChanges' palette title; same call-time-resolution contract. */
+export function reviewChangesCommandTitle(): string {
+	return l10n.t("LiteLLM: Review Changes");
+}
+
+/** CMD.reviewFile's palette title; same call-time-resolution contract. */
+export function reviewFileCommandTitle(): string {
+	return l10n.t("LiteLLM: Review This File");
 }
 
 /**

@@ -12,6 +12,7 @@ import { wireChatParticipant } from "../features/participant/wiring";
 import { createPrProbe, wirePrGeneration } from "../features/prGen/wiring";
 import { createQuickFixProbe, wireQuickFix } from "../features/quickFix/wiring";
 import { registerQuickFixSlashCommands } from "../features/quickFixChatCommands";
+import { createReviewProbe, wireReviewComments } from "../features/reviewComments/wiring";
 
 /**
  * The features' composition point: constructs the ONE shared OneShotClient
@@ -38,6 +39,7 @@ export function wireFeatures(
 	const consult = wireConsultTool(context, logger, { oneShot });
 	wireMcpServers(context, logger, { oneShot });
 	const prGen = wirePrGeneration(context, logger, { oneShot, outputChannel: deps.outputChannel });
+	const review = wireReviewComments(context, logger, { oneShot, outputChannel: deps.outputChannel });
 	const chatParticipant = wireChatParticipant(context, logger, { getSnapshots: deps.getSnapshots });
 	wireQuickFix(context, logger, {
 		oneShot,
@@ -60,6 +62,7 @@ export function wireFeatures(
 			consultTool: createConsultProbe(consult.consultSend),
 			prGeneration: createPrProbe(prGen.prSend),
 			quickFix: createQuickFixProbe(context.secrets, oneShot, log),
+			reviewComments: createReviewProbe(review.reviewSend),
 		},
 		chatParticipant,
 	};

@@ -2,7 +2,7 @@
 
 English | [简体中文](zh-cn/getting-started.md) | [繁體中文](zh-tw/getting-started.md)
 
-Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you twelve short recipes for the most common next steps.
+Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you thirteen short recipes for the most common next steps.
 
 ## Requirements
 
@@ -55,7 +55,7 @@ The LiteLLM status bar item (bottom right) shows the connection state at a glanc
 
 ## Where to next
 
-Twelve recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
+Thirteen recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
 
 ### Correct a capability the server reports wrong
 
@@ -228,6 +228,35 @@ The outgoing prompt is capped at 60,000 characters, a fixed limit like the commi
 
 Privacy is the same trust boundary as chat - your own server, no third party - but, like inline completions, without a per-request action from you, and with the agent rather than you choosing what to send, which is why this ships off and takes an explicit model. The question and context the agent writes go to the LiteLLM server you named for the tool, and the requests count toward the same [usage and spend tracking and budget alerts](usage.md) as everything else. The dashboard's "Test model" button is the one exception: it sends a single fixed question on your click, never anything of yours.
 
+### Get review comments on your code
+
+A model reads your code and leaves comments on the lines they are about, in the same threaded UI a pull request review uses. Two settings turn it on - the opt-in and an explicit model choice, the same `{ "server", "model" }` shape as the recipes above:
+
+```jsonc
+"litellm-vscode-chat.reviewComments.enabled": true,
+"litellm-vscode-chat.reviewComments.model": { "server": "local", "model": "gpt-4o-mini" }
+```
+
+Two commands then decide what gets read, and you pick per invocation:
+
+- **LiteLLM: Review Changes** reviews everything uncommitted in a repository - staged and unstaged together, one request per file. A sparkle button in the Source Control title bar runs it too. Untracked files are not included: git has no diff for them, so review them with the other command.
+- **LiteLLM: Review This File** reviews the file you are looking at, whole, whether or not git knows about it.
+
+Both are cancellable while they run, and both are bounded: a changes review sends at most 20 files (the notice says how many it left out), and each request carries at most 80,000 characters of diff or file content.
+
+The comments arrive as threads anchored to line ranges, and a thread is a conversation rather than a verdict:
+
+- **Reply** in the thread and the model answers there, with the anchored lines quoted back to it - so "no, `values.length` is the count" gets a real answer instead of the same comment again.
+- **Resolve** the ones you have dealt with, **Unresolve** if you change your mind, **Delete Review Thread** for the ones you disagree with.
+- Reviewing a file again replaces that file's model-written comments, so a second pass never stacks duplicates, and a file that now reads clean loses them. Threads you have replied in, and ones you started yourself, are kept - those are your words, not the review's.
+- You can also start your own thread anywhere in a file from the gutter and ask about those lines directly.
+
+Threads are saved per workspace and come back when you reopen it, including for files you have not opened. They come back on the lines they were written for: the editor keeps a thread beside its code while the file is open, but a comment restored into a file that was edited in between can sit a few lines off - re-running the review is the fix. Turning the feature off takes the comments off the screen without erasing them; turning it back on brings them back. Threads whose file no longer exists are dropped in the background.
+
+Three things the review will not do quietly. A file with unsaved changes is left out of a changes review - the diff comes from what is on disk, so its comments would land on lines the model never saw - and the notice tells you to save it and review the file on its own. If a file changes while its review is in flight, its findings are dropped for the same reason, and again the notice says so. And if the model answers with something that is not a review at all, that file keeps the comments it already had instead of being cleared as though it came back clean.
+
+Privacy: the diff of each reviewed file - or the whole file's content, in file mode - goes to the LiteLLM server you configured for it, on your explicit invocation, along with the file's path relative to the workspace or repository - just the file name when it belongs to neither, so no absolute path goes out - and, in file mode, its language identifier. Replies send the thread's conversation plus the lines it is anchored to. Nothing is reviewed automatically; the dashboard's "Test model" button is the one request you can make without a review, and it sends a small fixed sample diff, never your files. The requests count toward the same [usage tracking and budget alerts](usage.md) as everything else.
+
 ### Fix or explain a diagnostic
 
 Turn the quick fixes on, and pick the model that answers when the chat view cannot be opened:
@@ -266,5 +295,7 @@ Everything the extension can do on demand is a Command Palette command (`Ctrl+Sh
 | LiteLLM: Undo Last Settings Import | Restores settings and secrets to their state before the last import |
 | LiteLLM: Generate Commit Message | Drafts a commit message from your staged changes into the Source Control input (opt-in; see the [recipe](#generate-commit-messages-with-your-own-model)) |
 | LiteLLM: Generate Pull Request Description | Drafts a pull request title and description from your branch onto the clipboard (opt-in; see the [recipe](#generate-pull-request-descriptions-with-your-own-model)) |
+| LiteLLM: Review Changes | Reviews every uncommitted change in a repository and leaves comments on the lines (opt-in; see the [recipe](#get-review-comments-on-your-code)) |
+| LiteLLM: Review This File | Reviews the file you are looking at, whole, and leaves comments on the lines (same opt-in) |
 | LiteLLM: Report Issue | Opens a prefilled GitHub issue; see [what it collects](troubleshooting.md#reporting-an-issue) |
 | LiteLLM: Help & Feedback | Shortcuts to the documentation, bug reports, and feature requests |

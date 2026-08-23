@@ -46,7 +46,14 @@ export interface Branch {
 }
 
 export interface RepositoryState {
-	/** The checked-out branch, or undefined on a detached HEAD or an unborn branch. */
+	/**
+	 * The checked-out branch, or undefined before the repository state has
+	 * loaded. Present but partial in two states, because upstream builds it
+	 * from `.git/HEAD` first and only then resolves the ref: on an unborn
+	 * branch `name` is set and `commit` is absent (there is no commit to
+	 * resolve, and `git diff HEAD` cannot answer), and on a detached HEAD
+	 * `commit` is set and `name` may be absent.
+	 */
 	readonly HEAD: Branch | undefined;
 	readonly indexChanges: Change[];
 	readonly workingTreeChanges: Change[];
@@ -78,7 +85,13 @@ export interface Repository {
 
 	/** The working-tree diff, or the index diff when `cached` is true. */
 	diff(cached?: boolean): Promise<string>;
-	/** The changed files between `ref` and the working tree; with a path, that one file's unified patch. */
+	/**
+	 * `git diff <ref>`: the files changed against a ref, or one file's diff
+	 * against it. Against HEAD that is every uncommitted change, staged and
+	 * unstaged together - which neither `diff()` overload reports - with
+	 * untracked files excluded by construction (upstream runs
+	 * `--diff-filter=ADMR`). `path` is repository-relative.
+	 */
 	diffWith(ref: string): Promise<Change[]>;
 	diffWith(ref: string, path: string): Promise<string>;
 	log(options?: LogOptions): Promise<Commit[]>;

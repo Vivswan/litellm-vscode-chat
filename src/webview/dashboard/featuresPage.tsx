@@ -698,7 +698,7 @@ export const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } 
 	prGeneration: { shipped: true },
 	consultTool: { shipped: true },
 	quickFix: { shipped: true },
-	reviewComments: { shipped: false },
+	reviewComments: { shipped: true },
 	chatParticipant: { shipped: true },
 };
 

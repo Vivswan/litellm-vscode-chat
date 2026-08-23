@@ -36,9 +36,7 @@ export function helpSettingsSection(): string {
 }
 
 export function helpFeaturesSection(): string {
-	return l10n.t(
-		"The extension's features beyond chat, e.g. inline completions, each with its own opt-in and model. Sections marked not active yet are registered ahead of their feature and take effect when it ships."
-	);
+	return l10n.t("The extension's features beyond chat, e.g. inline completions, each with its own opt-in and model.");
 }
 
 export function helpImportExportGroup(): string {
@@ -358,6 +356,7 @@ export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)
 	"prGeneration.enabled",
 	"consultTool.enabled",
 	"quickFix.enabled",
+	"reviewComments.enabled",
 	"chatParticipant.enabled",
 ];
 
@@ -367,7 +366,7 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 		case "chat.timeout":
 			return l10n.t({
 				message:
-					"A hard bound on the whole chat, commit-message, or pull-request-description call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
+					"A hard bound on the whole chat call, and on each one-shot feature call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
 				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 			});
 		case "chat.maxToolsPerRequest":
@@ -431,6 +430,12 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 			// on the path most people will take.
 			return l10n.t(
 				"Picking Fix or Explain sends the diagnostic and its lines to @litellm, on whichever model the chat picker names."
+			);
+		case "reviewComments.enabled":
+			// Two commands, two scopes; the tip carries what each one sends, since
+			// that is the choice the user makes at invocation time.
+			return l10n.t(
+				"Reviewing sends the diff of each changed file - or, for one file, its whole content - to your LiteLLM server."
 			);
 		case "chatParticipant.enabled":
 			// Its own row has no model picker, so the tip carries the one fact that

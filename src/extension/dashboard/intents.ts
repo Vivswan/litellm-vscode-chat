@@ -409,10 +409,16 @@ function probeEmptyAnswerText(feature: FeatureModelId): string {
 			return l10n.t(
 				"The server answered, but no pull request title could be read from the reply. Check that the model follows instructions well enough to draft a description."
 			);
+		case "reviewComments":
+			// This probe parses before it answers, so an empty result means the
+			// reply carried no readable finding and no no-findings reply, not
+			// merely no text.
+			return l10n.t(
+				"The server answered, but no review comments could be read from the reply. Check that the model follows instructions well enough to report findings line by line."
+			);
 		case "commitGeneration":
 		case "consultTool":
 		case "quickFix":
-		case "reviewComments":
 			return l10n.t("The model answered with no text. Try again, or pick a different model.");
 	}
 }

@@ -1753,6 +1753,64 @@ suite("extension/dashboard/intents", () => {
 			assert.ok(!/text-completion \(FIM\)/.test(warning.message), warning.message);
 		});
 
+		test("a non-completion feature's probe reports a reply count, not a completion count", async () => {
+			// The other side of the probe copy: every shipped feature after inline
+			// completions lands here, and "Completion received" would be the wrong
+			// noun for a model that answered a chat request.
+			const recorded = makeEnv([]);
+			recorded.reviewProbeResult = "LINE 3: reads past the end";
+			const notice = await executeDashboardIntent(
+				{
+					method: "testFeatureModel",
+					payload: { feature: "reviewComments", model: { server: "Main", model: "gpt-test" } },
+				},
+				recorded.env
+			);
+			assert.deepStrictEqual(recorded.reviewProbes, [{ server: "Main", model: "gpt-test" }]);
+			assert.strictEqual(notice, "Reply received - 26 characters");
+		});
+
+		test("an empty answer from a non-completion feature says so without the FIM advice", async () => {
+			for (const result of [undefined, ""]) {
+				const recorded = makeEnv([]);
+				recorded.fimProbeResult = result;
+				const notice = await executeDashboardIntent(
+					{
+						method: "testFeatureModel",
+						payload: { feature: "quickFix", model: { server: "Main", model: "gpt-test" } },
+					},
+					recorded.env
+				);
+				assert.ok(typeof notice === "object" && notice !== null);
+				assert.strictEqual(notice.tone, "warning");
+				assert.match(notice.message, /answered with no text/);
+				assert.doesNotMatch(notice.message, /FIM|\/completions/);
+			}
+		});
+
+		test("the reviewComments probe reports in findings vocabulary, not the generic no-text wording", async () => {
+			// Its probe parses before it answers, so an empty result means the reply
+			// carried nothing the review parser could read - not that the model was
+			// silent. Same shape as the prGeneration case above: this pins that the
+			// review case exists rather than falling through to the generic group.
+			for (const result of [undefined, ""]) {
+				const recorded = makeEnv([]);
+				recorded.reviewProbeResult = result;
+				const notice = await executeDashboardIntent(
+					{
+						method: "testFeatureModel",
+						payload: { feature: "reviewComments", model: { server: "Main", model: "gpt-test" } },
+					},
+					recorded.env
+				);
+				assert.ok(typeof notice === "object" && notice !== null);
+				assert.strictEqual(notice.tone, "warning");
+				assert.match(notice.message, /no review comments could be read/);
+				assert.doesNotMatch(notice.message, /answered with no text/);
+				assert.doesNotMatch(notice.message, /FIM|\/completions/);
+			}
+		});
+
 		test("a classified probe failure surfaces as a validation failure carrying the classification", async () => {
 			const recorded = makeEnv([]);
 			recorded.probeError = new RequestError("LiteLLM inline completion request timed out after 15000ms.", "timeout", {

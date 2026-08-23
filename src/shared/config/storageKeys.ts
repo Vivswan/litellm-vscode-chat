@@ -108,6 +108,14 @@ export const LAST_ISSUE_REPORT_KEY = "litellm.lastIssueReport";
  */
 export const MCP_ENTRY_VERSIONS_KEY = "litellm.mcpEntryVersions";
 
+/**
+ * workspaceState: the review comment threads of this workspace, as the schema
+ * v1 envelope features/reviewComments/persistence.ts encodes. Workspace-scoped
+ * because the threads are anchored to this workspace's files; written on every
+ * thread mutation and read once, at feature init.
+ */
+export const REVIEW_COMMENT_THREADS_KEY = "litellm.reviewCommentThreads";
+
 /** SecretStorage: API key for one registered server. */
 export function apiKeySecret(serverId: string): string {
 	return `litellm.apiKey.${serverId}`;

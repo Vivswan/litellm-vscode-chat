@@ -603,7 +603,7 @@ test("the filter hides rows by label or description match and collapses emptied 
 	expect(editorSection(root, "Model parameters").hidden).toBe(true);
 
 	// Descriptions match too: only the request timeout's mentions the calls it bounds.
-	fireInput(filter, "pull-request-description call");
+	fireInput(filter, "one-shot feature call");
 	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(false);
 	expect(rowOf(settingInput(root, "discovery.timeout")).hidden).toBe(true);
 
