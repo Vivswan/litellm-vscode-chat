@@ -19,6 +19,7 @@ import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
 import { COMPLETIONS_URL, completionJsonResponse, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
+import { withDisposalCount } from "../disposalCount";
 
 interface RecordedRegistration {
 	readonly selector: vscode.DocumentSelector;
@@ -112,8 +113,25 @@ async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): P
 			// Heal the module-scope status-row slot before restoring the fakes: any
 			// test that ends enabled leaves its row live, and liveRow outlives this
 			// file into every later suite in this host (a fresh row self-heals the
-			// slot by disposing the stale holder, then releases it).
-			new InlineLanguageStatusRow({ log: () => {}, advisory: () => {} }).dispose();
+			// slot by disposing the stale holder, then releases it). The heal runs
+			// only when a row actually leaked, and it captures the constructor's
+			// "slot replaced" bug signal instead of silencing it: the deliberate
+			// replacement must fire it exactly once, so a vanished signal or an
+			// unexpected extra fails here rather than washing out as noise.
+			if (liveInlineLanguageStatusRows() > 0) {
+				const slotSignals: string[] = [];
+				new InlineLanguageStatusRow({
+					log: (message) => {
+						slotSignals.push(message);
+					},
+					advisory: () => {},
+				}).dispose();
+				assert.deepStrictEqual(
+					slotSignals,
+					["language-status slot replaced"],
+					"the heal's own replacement fires the slot bug signal exactly once"
+				);
+			}
 		} finally {
 			(vscode.languages as Record<string, unknown>).registerInlineCompletionItemProvider = originalRegister;
 			(vscode.languages as Record<string, unknown>).createLanguageStatusItem = originalCreateStatus;
@@ -298,23 +316,15 @@ suite("extension/features/inline wiring", () => {
 	});
 
 	test("the dashboard probe disposes its cancellation source deterministically, success and failure alike", async () => {
-		const originalDispose = vscode.CancellationTokenSource.prototype.dispose;
-		let disposals = 0;
-		vscode.CancellationTokenSource.prototype.dispose = function (this: vscode.CancellationTokenSource) {
-			disposals += 1;
-			return originalDispose.call(this);
-		};
-		try {
+		await withDisposalCount(async (count) => {
 			const okProbe = createFimProbe(async () => "ok");
 			assert.strictEqual(await okProbe({ server: "Main", model: "codestral-fim" }), "ok");
-			assert.strictEqual(disposals, 1, "a resolved probe releases its source");
+			assert.strictEqual(count(), 1, "a resolved probe releases its source");
 			const failProbe = createFimProbe(async () => {
 				throw new Error("boom");
 			});
 			await assert.rejects(failProbe({ server: "Main", model: "codestral-fim" }));
-			assert.strictEqual(disposals, 2, "a rejected probe releases its source too");
-		} finally {
-			vscode.CancellationTokenSource.prototype.dispose = originalDispose;
-		}
+			assert.strictEqual(count(), 2, "a rejected probe releases its source too");
+		});
 	});
 });

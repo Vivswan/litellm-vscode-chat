@@ -26,6 +26,7 @@ import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
+import { withDisposalCount } from "../disposalCount";
 
 interface GhprRegistration {
 	readonly title: string;
@@ -584,22 +585,14 @@ suite("extension/features/prGen dashboard probe", () => {
 	});
 
 	test("the probe disposes its cancellation source, success and failure alike", async () => {
-		const originalDispose = vscode.CancellationTokenSource.prototype.dispose;
-		let disposals = 0;
-		vscode.CancellationTokenSource.prototype.dispose = function (this: vscode.CancellationTokenSource) {
-			disposals += 1;
-			return originalDispose.call(this);
-		};
-		try {
+		await withDisposalCount(async (count) => {
 			await createPrProbe(() => Promise.resolve("Title: t"))({ server: "alpha", model: "gpt-test" });
-			assert.strictEqual(disposals, 1, "a resolved probe releases its source");
+			assert.strictEqual(count(), 1, "a resolved probe releases its source");
 			await assert.rejects(
 				createPrProbe(() => Promise.reject(new Error("boom")))({ server: "alpha", model: "gpt-test" })
 			);
-			assert.strictEqual(disposals, 2, "a rejected probe releases its source too");
-		} finally {
-			vscode.CancellationTokenSource.prototype.dispose = originalDispose;
-		}
+			assert.strictEqual(count(), 2, "a rejected probe releases its source too");
+		});
 	});
 });
 

@@ -26,6 +26,7 @@ import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
+import { withDisposalCount } from "../disposalCount";
 
 const MODEL_REF = { server: "alpha", model: "gpt-test" };
 const SERVER_ENTRY = { label: "alpha", baseUrl: TEST_BASE_URL, auth: { apiKey: "sk-test" } };
@@ -378,13 +379,7 @@ suite("extension/features/consultTool wiring", () => {
 	});
 
 	test("the dashboard probe sends the fixed question and disposes its source, success and failure alike", async () => {
-		const originalDispose = vscode.CancellationTokenSource.prototype.dispose;
-		let disposals = 0;
-		vscode.CancellationTokenSource.prototype.dispose = function (this: vscode.CancellationTokenSource) {
-			disposals += 1;
-			return originalDispose.call(this);
-		};
-		try {
+		await withDisposalCount(async (count) => {
 			let asked: string | undefined;
 			const okProbe = createConsultProbe(async ({ input }) => {
 				asked = input.question;
@@ -393,15 +388,13 @@ suite("extension/features/consultTool wiring", () => {
 			assert.strictEqual(await okProbe(MODEL_REF), "ok");
 			// A fixed question, never anything of the user's.
 			assert.strictEqual(asked, PROBE_QUESTION);
-			assert.strictEqual(disposals, 1, "a resolved probe releases its source");
+			assert.strictEqual(count(), 1, "a resolved probe releases its source");
 			const failProbe = createConsultProbe(async () => {
 				throw new Error("boom");
 			});
 			await assert.rejects(failProbe(MODEL_REF));
-			assert.strictEqual(disposals, 2, "a rejected probe releases its source too");
-		} finally {
-			vscode.CancellationTokenSource.prototype.dispose = originalDispose;
-		}
+			assert.strictEqual(count(), 2, "a rejected probe releases its source too");
+		});
 	});
 
 	/**

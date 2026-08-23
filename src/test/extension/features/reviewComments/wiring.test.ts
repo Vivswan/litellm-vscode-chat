@@ -16,6 +16,7 @@ import { CMD, COMMENT_CONTROLLER_ID } from "../../../../shared/config/commandIds
 import { REVIEW_COMMENT_THREADS_KEY } from "../../../../shared/config/storageKeys";
 import { Logger } from "../../../../shared/logger";
 import { withConfig } from "../../../testUtils";
+import { withDisposalCount } from "../disposalCount";
 import type { CommentSpies, FakeThread } from "./commentHarness";
 import { fakeReviewContext, withCommentSpies } from "./commentHarness";
 
@@ -258,13 +259,7 @@ suite("extension/features/reviewComments wiring", () => {
 	});
 
 	test("the dashboard probe disposes its cancellation source, success and failure alike", async () => {
-		const originalDispose = vscode.CancellationTokenSource.prototype.dispose;
-		let disposals = 0;
-		vscode.CancellationTokenSource.prototype.dispose = function (this: vscode.CancellationTokenSource) {
-			disposals += 1;
-			return originalDispose.call(this);
-		};
-		try {
+		await withDisposalCount(async (count) => {
 			let seenPrompt = "";
 			const okProbe = createReviewProbe(async (_ref, prompt) => {
 				seenPrompt = prompt;
@@ -272,7 +267,7 @@ suite("extension/features/reviewComments wiring", () => {
 			});
 			// The probe answers with what the PARSER read, not the raw reply.
 			assert.strictEqual(await okProbe({ server: "Main", model: "gpt-test" }), "reads past the end");
-			assert.strictEqual(disposals, 1, "a resolved probe releases its source");
+			assert.strictEqual(count(), 1, "a resolved probe releases its source");
 			// The probe runs the feature's own prompt builder over a canned diff, so
 			// it proves the real pipeline rather than a bare ping.
 			assert.ok(seenPrompt.includes("Working tree diff of average.js:"));
@@ -282,10 +277,8 @@ suite("extension/features/reviewComments wiring", () => {
 				throw new Error("boom");
 			});
 			await assert.rejects(failProbe({ server: "Main", model: "gpt-test" }));
-			assert.strictEqual(disposals, 2, "a rejected probe releases its source too");
-		} finally {
-			vscode.CancellationTokenSource.prototype.dispose = originalDispose;
-		}
+			assert.strictEqual(count(), 2, "a rejected probe releases its source too");
+		});
 	});
 
 	test("the dashboard probe reports prose as no answer, and the no-findings reply as one", async () => {

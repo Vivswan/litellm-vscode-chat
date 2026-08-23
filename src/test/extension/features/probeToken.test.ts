@@ -9,23 +9,9 @@
  * before or during the run fails the pending-count pin, not just the totals.
  */
 import * as assert from "node:assert";
-import * as vscode from "vscode";
+import type * as vscode from "vscode";
 import { withProbeToken } from "../../../extension/features/probeToken";
-
-/** Run `fn` with a live count of CancellationTokenSource disposals process-wide. */
-async function withDisposalCount<T>(fn: (count: () => number) => Promise<T>): Promise<T> {
-	const originalDispose = vscode.CancellationTokenSource.prototype.dispose;
-	let disposals = 0;
-	vscode.CancellationTokenSource.prototype.dispose = function (this: vscode.CancellationTokenSource) {
-		disposals += 1;
-		return originalDispose.call(this);
-	};
-	try {
-		return await fn(() => disposals);
-	} finally {
-		vscode.CancellationTokenSource.prototype.dispose = originalDispose;
-	}
-}
+import { withDisposalCount } from "./disposalCount";
 
 suite("extension/features probeToken", () => {
 	test("the run receives a live token and its resolution passes through untouched", async () => {
