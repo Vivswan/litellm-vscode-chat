@@ -192,9 +192,11 @@ function oneShotContentOf(payload: string): string {
 
 /**
  * Owns the HTTP side of one-shot completions: header composition through the
- * shared overlay and the whole-call timeout. One instance per activation
- * shared across feature wirings, so OAuth tokens cache across calls and
- * invalidate on 401 exactly like the chat and usage paths.
+ * shared overlay and the whole-call timeout. Exactly ONE instance exists per
+ * activation - extension/wiring/features.ts constructs it and hands it to
+ * every feature wiring - so OAuth tokens cache across features and
+ * invalidate on 401 exactly like the chat and usage paths; a second instance
+ * would split that cache.
  */
 export class OneShotClient {
 	private readonly oauthTokens = new OAuthTokenSource();

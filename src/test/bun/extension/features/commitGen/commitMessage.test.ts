@@ -9,7 +9,6 @@ import {
 	DIFF_CHAR_LIMIT,
 	generateCommitMessage,
 	STYLE_EXAMPLE_COUNT,
-	stripMarkdownFences,
 	UNTRACKED_PATHS_LIMIT,
 	untrackedRelativePaths,
 } from "../../../../../extension/features/commitGen/commitMessage";
@@ -90,6 +89,16 @@ describe("extension/features/commitGen buildCommitPrompt", () => {
 		expect(truncated).toContain(atLimit);
 		expect(truncated).not.toContain("TAIL-BEYOND-THE-LIMIT");
 		expect(truncated).toContain("[diff truncated]");
+	});
+
+	test("a diff cut landing inside a surrogate pair drops the severed half instead of sending it", () => {
+		// Pins that the truncation routes through the shared surrogate-safe rule:
+		// the cut at DIFF_CHAR_LIMIT severs the first emoji, and a raw slice
+		// would ship its lone high surrogate in the JSON body.
+		const diff = `${"a".repeat(DIFF_CHAR_LIMIT - 1)}${"\u{1F600}".repeat(2)}`;
+		const prompt = buildCommitPrompt({ customPrompt: "", diff, recentSubjects: [], untrackedPaths: [] });
+		expect(prompt.isWellFormed()).toBe(true);
+		expect(prompt).toContain("[diff truncated]");
 	});
 
 	test("style examples ride along whichever instruction is active, and vanish when there are none", () => {
@@ -192,22 +201,9 @@ describe("extension/features/commitGen commitSubjects", () => {
 	});
 });
 
-describe("extension/features/commitGen stripMarkdownFences", () => {
-	test("removes a fence pair, language tag included", () => {
-		expect(stripMarkdownFences("```\nfeat: x\n```")).toBe("feat: x");
-		expect(stripMarkdownFences("```text\nfeat: x\n\nbody line\n```\n")).toBe("feat: x\n\nbody line");
-	});
-
-	test("removes a lone opening fence", () => {
-		expect(stripMarkdownFences("```\nfeat: x")).toBe("feat: x");
-	});
-
-	test("leaves unfenced text and interior fences alone", () => {
-		expect(stripMarkdownFences("feat: x")).toBe("feat: x");
-		const interior = "feat: x\n\nadds a ```code``` sample";
-		expect(stripMarkdownFences(interior)).toBe(interior);
-	});
-});
+// stripMarkdownFences moved to shared/util/text; its unit pins live in
+// src/test/bun/shared/util/text.test.ts, and the generateCommitMessage suite
+// below keeps the consumer-side fence-stripping integration pin.
 
 describe("extension/features/commitGen generateCommitMessage", () => {
 	test("no configured model is a typed outcome before any git call", async () => {

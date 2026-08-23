@@ -7,6 +7,7 @@
 
 import { isFimTemplateValue } from "../../shared/config/recordResolution";
 import { isRecord } from "../../shared/util/json";
+import { truncateKeepingHead, truncateKeepingTail } from "../../shared/util/text";
 
 /** Document context ahead of the cursor, in UTF-16 code units; the tail is kept (truncated from the left). */
 export const FIM_PREFIX_BUDGET = 8000;
@@ -43,31 +44,18 @@ export interface FimPrompt {
 const TEMPLATE_PLACEHOLDER = /\{(prefix|suffix)\}/g;
 
 /**
- * The prefix's budgeted tail, never starting on the severed low half of a
- * surrogate pair: a cut that splits an astral character drops the lone unit,
- * because an unpaired surrogate in the JSON body is exactly the kind of
- * malformed input a gateway may reject. Untruncated input passes through
- * verbatim - fidelity beats repair for text the user actually wrote.
- * Exported as the one truncation pipeline: the inline provider windows its
- * document reads through this, so its cache key IS the wire prefix.
+ * The prefix's budgeted tail: shared/util/text's surrogate-safe tail rule
+ * bound to FIM_PREFIX_BUDGET. Exported as the one truncation pipeline: the
+ * inline provider windows its document reads through this, so its cache key
+ * IS the wire prefix.
  */
 export function truncateFimPrefix(prefix: string): string {
-	if (prefix.length <= FIM_PREFIX_BUDGET) {
-		return prefix;
-	}
-	const tail = prefix.slice(-FIM_PREFIX_BUDGET);
-	const first = tail.charCodeAt(0);
-	return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
+	return truncateKeepingTail(prefix, FIM_PREFIX_BUDGET);
 }
 
-/** The suffix's budgeted head; the mirror rule drops a severed high surrogate at the cut. */
+/** The suffix's budgeted head; the shared mirror rule bound to FIM_SUFFIX_BUDGET. */
 export function truncateFimSuffix(suffix: string): string {
-	if (suffix.length <= FIM_SUFFIX_BUDGET) {
-		return suffix;
-	}
-	const head = suffix.slice(0, FIM_SUFFIX_BUDGET);
-	const last = head.charCodeAt(head.length - 1);
-	return last >= 0xd800 && last <= 0xdbff ? head.slice(0, -1) : head;
+	return truncateKeepingHead(suffix, FIM_SUFFIX_BUDGET);
 }
 
 /**

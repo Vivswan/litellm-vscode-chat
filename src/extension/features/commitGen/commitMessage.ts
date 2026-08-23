@@ -1,3 +1,4 @@
+import { stripMarkdownFences, truncateKeepingHead } from "../../../shared/util/text";
 import type { Commit, Repository } from "../gitApi";
 
 /**
@@ -79,7 +80,9 @@ export interface CommitPromptArgs {
 export function buildCommitPrompt(args: CommitPromptArgs): string {
 	const instruction = args.customPrompt.trim() === "" ? BUILT_IN_COMMIT_INSTRUCTION : args.customPrompt;
 	const diff =
-		args.diff.length > DIFF_CHAR_LIMIT ? `${args.diff.slice(0, DIFF_CHAR_LIMIT)}\n[diff truncated]` : args.diff;
+		args.diff.length > DIFF_CHAR_LIMIT
+			? `${truncateKeepingHead(args.diff, DIFF_CHAR_LIMIT)}\n[diff truncated]`
+			: args.diff;
 	const sections = [instruction];
 	if (args.recentSubjects.length > 0) {
 		const examples = args.recentSubjects.map((subject) => `- ${subject}`).join("\n");
@@ -101,21 +104,6 @@ export function buildCommitPrompt(args: CommitPromptArgs): string {
 /** The subject lines of a log slice: first line of each message, blanks dropped. Never the bodies. */
 export function commitSubjects(commits: readonly Commit[]): string[] {
 	return commits.map((commit) => (commit.message.split("\n", 1)[0] ?? "").trim()).filter((subject) => subject !== "");
-}
-
-/**
- * Strip a markdown code fence wrapping the whole reply - models add one
- * despite instructions. A fence pair or a lone opening fence is removed; text
- * merely containing fences further in is left alone.
- */
-export function stripMarkdownFences(text: string): string {
-	let message = text.trim();
-	if (message.startsWith("```")) {
-		message = message.replace(/^```[^\n]*\n?/, "");
-		message = message.replace(/\n?```\s*$/, "");
-		message = message.trim();
-	}
-	return message;
 }
 
 /**
