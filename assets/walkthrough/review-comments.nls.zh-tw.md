@@ -2,7 +2,7 @@
 
 兩個設定即可開啟此功能, 都在延伸模組設定中:
 
-- `litellm-vscode-chat.reviewComments.enabled`: 選擇加入開關; 啟用前不會送出任何內容
+- `litellm-vscode-chat.reviewComments.enabled`: 選擇加入開關; 啟用前不會送出任何內容, 儀表板中明確的「測試模型」按鈕除外
 - `litellm-vscode-chat.reviewComments.model`: 撰寫評論的模型, 例如 `{ "server": "Team proxy", "model": "gpt-4o-mini" }`
 
 兩者都設定後會出現兩個命令:「LiteLLM: 審查變更」逐個檔案讀取一個存放庫裡所有未提交的內容,「LiteLLM: 審查此檔案」讀取您正在看的那個檔案。兩種方式的結論都會以評論討論串的形式落在相關的行上, 用的正是提取請求審查那套介面。

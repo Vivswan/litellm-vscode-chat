@@ -2,7 +2,7 @@
 
 English | [简体中文](zh-cn/getting-started.md) | [繁體中文](zh-tw/getting-started.md)
 
-Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you thirteen short recipes for the most common next steps.
+Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you a set of short recipes for the most common next steps.
 
 ## Requirements
 
@@ -55,7 +55,7 @@ The LiteLLM status bar item (bottom right) shows the connection state at a glanc
 
 ## Where to next
 
-Thirteen recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
+The recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
 
 ### Correct a capability the server reports wrong
 

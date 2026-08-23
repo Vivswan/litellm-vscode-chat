@@ -38,7 +38,7 @@ The extension connects GitHub Copilot Chat to any number of LiteLLM servers: the
 
 In reading order:
 
-1. [Getting started](getting-started.md) - install, the first server, the first chat, and thirteen short recipes for the most common next steps.
+1. [Getting started](getting-started.md) - install, the first server, the first chat, and a set of short recipes for the most common next steps.
 2. [Servers](servers.md) - the `servers` setting in full: entry fields, the three auth forms, secret storage, per-server model configuration, the sync lifecycle, adoption, and Settings Sync.
 3. [Models](models.md) - how models appear in the picker, matcher keys and inheritance, capabilities, parameters, the per-model picker configuration, and the effective-values inspectors.
 4. [Usage](usage.md) - spend and budget tracking: where budgets come from, alerts, the status bar item, and the dashboard's usage panel.

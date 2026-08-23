@@ -8,6 +8,7 @@ import { getFeatureModelRef, getRequestTimeout, isFeatureEnabled } from "../../.
 import type { Logger } from "../../../shared/logger";
 import { localizedError } from "../../../shared/mirroredError";
 import { entryConnectionFor } from "../../servers/entryConnection";
+import { noEntryForConfiguredServer } from "../modelSettingError";
 import type { ConsultTokenizationOptions, ConsultToolInput } from "./invocation";
 import {
 	EMPTY_REPLY_TEXT,
@@ -108,15 +109,7 @@ function createConsultSend(secrets: vscode.SecretStorage, oneShot: OneShotClient
 	return async ({ modelRef, input, token }) => {
 		const resolved = await entryConnectionFor(secrets, modelRef.server);
 		if (resolved === undefined) {
-			throw localizedError(
-				l10n.t(
-					'The consult tool model setting names server "{0}", but no servers entry carries that label. Update the "{1}" setting.',
-					modelRef.server,
-					MODEL_SETTING_ID
-				),
-				`The consult tool model setting names server "${modelRef.server}", but no servers entry carries that label. Update the "${MODEL_SETTING_ID}" setting.`,
-				"ConsultTool(configured server label matches no entry)"
-			);
+			throw noEntryForConfiguredServer("consultTool", modelRef.server);
 		}
 		const fit = await fitConsultPrompt(input, PROMPT_BUDGET);
 		if (fit.contextTruncated || fit.questionTruncated) {

@@ -1,16 +1,15 @@
-import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CMD, prGenerationProviderTitle } from "../../../shared/config/commandIds";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
-import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
+import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, getRequestTimeout, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { localizedError } from "../../../shared/mirroredError";
 import { entryConnectionFor } from "../../servers/entryConnection";
 import { errorLabel } from "../errorLabel";
 import { resolveGitApi } from "../gitAccess";
 import type { API, Branch } from "../gitApi";
+import { noEntryForConfiguredServer } from "../modelSettingError";
 import { ghprCommitOrder, oldestFirstMessages } from "./branchContext";
 import { runGeneratePrDescription } from "./generatePrCommand";
 import type { GitHubPullRequestsApi, TitleAndDescriptionProvider } from "./githubPullRequestsApi";
@@ -32,8 +31,6 @@ import { createTitleAndDescriptionProvider } from "./provider";
  * tokens cache across invocations and across features and invalidate on 401
  * like the chat and usage paths.
  */
-
-const MODEL_SETTING_ID = `${CONFIG_SECTION}.${FEATURE_MODEL_SETTING_KEYS.prGeneration}`;
 
 /** The GitHub Pull Requests extension's identifier, as published. */
 const GHPR_EXTENSION_ID = "GitHub.vscode-pull-request-github";
@@ -59,15 +56,7 @@ function createPrSend(
 	return async (model, prompt, token) => {
 		const resolved = await entryConnectionFor(secrets, model.server);
 		if (resolved === undefined) {
-			throw localizedError(
-				l10n.t(
-					'The PR generation model setting names server "{0}", but no servers entry carries that label. Update the "{1}" setting.',
-					model.server,
-					MODEL_SETTING_ID
-				),
-				`The PR generation model setting names server "${model.server}", but no servers entry carries that label. Update the "${MODEL_SETTING_ID}" setting.`,
-				"PrGeneration(configured server label matches no entry)"
-			);
+			throw noEntryForConfiguredServer("prGeneration", model.server);
 		}
 		return oneShot.completeChatOnce(
 			resolved.connection,

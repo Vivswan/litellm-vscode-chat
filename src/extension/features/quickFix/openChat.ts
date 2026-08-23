@@ -10,11 +10,11 @@ import {
 } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, getRequestTimeout, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { localizedError } from "../../../shared/mirroredError";
 import { entryConnectionFor } from "../../servers/entryConnection";
 import type { MessageAction } from "../../ui/notifier";
 import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
 import { errorLabel } from "../errorLabel";
+import { noEntryForConfiguredServer } from "../modelSettingError";
 import type { QuickFixChatArgs } from "./actionsProvider";
 import type { QuickFixMode } from "./query";
 import { buildChatQuery, buildFallbackPrompt, selectDiagnostics } from "./query";
@@ -161,15 +161,7 @@ export async function sendFallbackPrompt(
 ): Promise<string> {
 	const resolved = await entryConnectionFor(secrets, ref.server);
 	if (resolved === undefined) {
-		throw localizedError(
-			l10n.t(
-				'The quick fix model setting names server "{0}", but no servers entry carries that label. Update the "{1}" setting.',
-				ref.server,
-				MODEL_SETTING_ID
-			),
-			`The quick fix model setting names server "${ref.server}", but no servers entry carries that label. Update the "${MODEL_SETTING_ID}" setting.`,
-			"QuickFix(configured server label matches no entry)"
-		);
+		throw noEntryForConfiguredServer("quickFix", ref.server);
 	}
 	return oneShot.completeChatOnce(
 		resolved.connection,

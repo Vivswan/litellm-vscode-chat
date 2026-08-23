@@ -2,7 +2,7 @@
 
 两个设置即可开启此功能, 都在扩展设置中:
 
-- `litellm-vscode-chat.reviewComments.enabled`: 选择加入开关; 启用前不会发送任何内容
+- `litellm-vscode-chat.reviewComments.enabled`: 选择加入开关; 启用前不会发送任何内容, 仪表板中显式的「测试模型」按钮除外
 - `litellm-vscode-chat.reviewComments.model`: 撰写评论的模型, 例如 `{ "server": "Team proxy", "model": "gpt-4o-mini" }`
 
 两者都设置后会出现两个命令:「LiteLLM: 评审改动」逐个文件读取一个仓库里所有未提交的内容,「LiteLLM: 评审此文件」读取你正在看的那个文件。两种方式的结论都会以评论会话的形式落在相关的行上, 用的正是拉取请求评审那套界面。

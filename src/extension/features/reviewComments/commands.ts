@@ -6,11 +6,11 @@ import type { BooleanSettingId, FeatureModelRef } from "../../../shared/config/s
 import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, getRequestTimeout, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { localizedError } from "../../../shared/mirroredError";
 import { entryConnectionFor } from "../../servers/entryConnection";
 import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
 import { documentLabel, pickRepository, repositoryRelativePath, resolveGitApi } from "../gitAccess";
 import type { API, Change, Repository } from "../gitApi";
+import { noEntryForConfiguredServer } from "../modelSettingError";
 import type { ReviewCommentController } from "./controller";
 import type { ReviewPlacement } from "./placements";
 import type { ReviewRunOutcome, ReviewUnit } from "./review";
@@ -157,15 +157,7 @@ export async function sendReviewMessages(
 ): Promise<string> {
 	const resolved = await entryConnectionFor(deps.secrets, ref.server);
 	if (resolved === undefined) {
-		throw localizedError(
-			l10n.t(
-				'The review comments model setting names server "{0}", but no servers entry carries that label. Update the "{1}" setting.',
-				ref.server,
-				MODEL_SETTING_ID
-			),
-			`The review comments model setting names server "${ref.server}", but no servers entry carries that label. Update the "${MODEL_SETTING_ID}" setting.`,
-			"ReviewComments(configured server label matches no entry)"
-		);
+		throw noEntryForConfiguredServer("reviewComments", ref.server);
 	}
 	return deps.oneShot.completeChatOnce(resolved.connection, { model: ref.model, messages }, "reviewComments", {
 		timeoutMs: getRequestTimeout(log),

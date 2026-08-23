@@ -62,7 +62,7 @@
 | `litellm-vscode-chat.ui.maskSecretInputs` | `true` | 在輸入方塊提示中輸入認證值時進行遮罩。儀表板的祕密欄位始終遮罩, 各帶自己的「顯示」切換, 與此設定無關 |
 | `litellm-vscode-chat.ui.theme` | `"auto"` | 儀表板如何著色: `"auto"` 跟隨您的 VS Code 佈景主題, `"light"` 與 `"dark"` 在編輯器變化時保持不動。[外觀說明見下](#外觀) |
 | `litellm-vscode-chat.ui.accent` | `"blue"` | 儀表板的強調色: `"blue"`、`"violet"`、`"teal"`、`"amber"`。它標記主要動作、選取、焦點與連結, 僅此而已 - 狀態色保持綠、黃、紅。[外觀說明見下](#外觀) |
-| `litellm-vscode-chat.inlineCompletions.enabled` | `false` | 選擇啟用由 LiteLLM 模型提供的內嵌(幽靈文字)補全, 隨內嵌補全功能一起交付。預設關閉: 啟用前不註冊任何內容、不送出任何要求; 只啟用而不設定 `inlineCompletions.model` 時功能保持閒置 |
+| `litellm-vscode-chat.inlineCompletions.enabled` | `false` | 選擇啟用由 LiteLLM 模型提供的內嵌(幽靈文字)補全, 隨內嵌補全功能一起交付。預設關閉: 啟用前不註冊任何內容、不送出任何要求, 儀表板中明確的「測試模型」按鈕除外; 只啟用而不設定 `inlineCompletions.model` 時功能保持閒置 |
 | `litellm-vscode-chat.inlineCompletions.model` | `null` | 提供內嵌補全的模型: `{ "server": "<項目 label>", "model": "<原始模型 ID>" }`, 指向一個 `servers` 項目及其一個模型 ID。模型永遠由你明確選擇 - 從不自動挑選; `null` 使功能保持閒置 |
 | `litellm-vscode-chat.inlineCompletions.languageFilter` | `{"mode":"block","languages":[]}` | 內嵌補全的執行範圍: mode 為 `"block"` 時在列出的 VS Code 語言 ID (精確比對) 之外的所有語言中執行, `"allow"` 時僅在列出的語言中執行 (允許清單為空則不在任何語言中執行), 例如 `{ "mode": "block", "languages": ["markdown", "plaintext"] }`。預設不封鎖任何語言 |
 | `litellm-vscode-chat.commitGeneration.enabled` | `false` | 選擇啟用由 LiteLLM 模型產生提交訊息, 隨提交訊息產生功能一起交付。預設關閉: 啟用前命令保持隱藏、不送出任何要求; 只啟用而不設定 `commitGeneration.model` 時功能保持閒置 |
@@ -70,11 +70,11 @@
 | `litellm-vscode-chat.commitGeneration.prompt` | `""` | 產生提交訊息時使用的自訂指示, 會整體取代內建指示。留空使用內建指示 (Conventional Commits 主旨行加簡短內文)。面向模型的文字, 按原樣送出 |
 | `litellm-vscode-chat.prGeneration.enabled` | `false` | 選擇啟用由 LiteLLM 模型產生提取要求標題和描述。關閉時命令保持隱藏、不送出任何要求, 儀表板中明確的「測試模型」按鈕除外 ([配方](getting-started.md#用您自己的模型產生提取要求描述)) |
 | `litellm-vscode-chat.prGeneration.model` | `null` | 起草 PR 描述的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
-| `litellm-vscode-chat.consultTool.enabled` | `false` | 選擇啟用諮詢工具, 它讓聊天代理向第二個 LiteLLM 模型徵求意見。預設關閉: 啟用前不會註冊任何內容, 也不會傳送任何請求; 啟用但未設定 `consultTool.model` 時, 工具保持未註冊。兩者都設定後, 代理會自行決定何時呼叫 |
+| `litellm-vscode-chat.consultTool.enabled` | `false` | 選擇啟用諮詢工具, 它讓聊天代理向第二個 LiteLLM 模型徵求意見。預設關閉: 啟用前不會註冊任何內容, 也不會傳送任何請求, 儀表板中明確的「測試模型」按鈕除外; 啟用但未設定 `consultTool.model` 時, 工具保持未註冊。兩者都設定後, 代理會自行決定何時呼叫 |
 | `litellm-vscode-chat.consultTool.model` | `null` | 諮詢工具詢問的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
 | `litellm-vscode-chat.quickFix.enabled` | `false` | 在診斷上顯示「修復」和「解釋」快速修復。兩者都會開啟聊天檢視並把問題直接傳送給 `@litellm`, 附上診斷及其所在的行; 聊天檢視無法作答時改用 `quickFix.model`。參見[快速修復配方](getting-started.md#修復或解釋一條診斷) |
 | `litellm-vscode-chat.quickFix.model` | `null` | 僅用於快速修復的後備路徑 - 聊天路徑使用聊天選擇器指定的模型。與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則; `null` 表示後備路徑保持閒置 |
-| `litellm-vscode-chat.reviewComments.enabled` | `false` | 選擇啟用對變更的 AI 審查評論。預設關閉; 啟用前不存在任何審查討論串, 也不會送出任何審查請求 ([配方](getting-started.md#讓模型審查您的程式碼)) |
+| `litellm-vscode-chat.reviewComments.enabled` | `false` | 選擇啟用對變更的 AI 審查評論。預設關閉; 啟用前不存在任何審查討論串, 也不會送出任何審查請求, 儀表板中明確的「測試模型」按鈕除外 ([配方](getting-started.md#讓模型審查您的程式碼)) |
 | `litellm-vscode-chat.reviewComments.model` | `null` | 撰寫審查評論的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
 | `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟 |
 

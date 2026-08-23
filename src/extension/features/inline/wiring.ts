@@ -1,14 +1,13 @@
-import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { buildFimPrompt, FIM_MAX_TOKENS, FIM_TIMEOUT_MS } from "../../../provider/transport/fim";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
-import { CONFIG_SECTION, FEATURE_MODEL_SETTING_KEYS } from "../../../shared/config/settingSpec";
+import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getModelParametersConfig, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { localizedError } from "../../../shared/mirroredError";
 import { entryConnectionFor } from "../../servers/entryConnection";
+import { noEntryForConfiguredServer } from "../modelSettingError";
 import { CompletionCache } from "./completionCache";
 import type { InlineCompletionSend } from "./inlineCompletionProvider";
 import { createInlineCompletionProvider } from "./inlineCompletionProvider";
@@ -22,8 +21,6 @@ import { InlineLanguageStatusRow, registerToggleInlineLanguageCommand } from "./
  * the fixed FIM bounds; the dashboard's test probe reuses the same send, so
  * the probe proves exactly what ghost text would do.
  */
-
-const MODEL_SETTING_ID = `${CONFIG_SECTION}.${FEATURE_MODEL_SETTING_KEYS.inlineCompletions}`;
 
 /**
  * The one FIM send pipeline: label-to-connection through the shared
@@ -41,15 +38,7 @@ function createFimSend(
 	return async ({ modelRef, prefix, suffix, token }) => {
 		const resolved = await entryConnectionFor(secrets, modelRef.server);
 		if (resolved === undefined) {
-			throw localizedError(
-				l10n.t(
-					'The inline completions model setting names server "{0}", but no servers entry carries that label. Update the "{1}" setting.',
-					modelRef.server,
-					MODEL_SETTING_ID
-				),
-				`The inline completions model setting names server "${modelRef.server}", but no servers entry carries that label. Update the "${MODEL_SETTING_ID}" setting.`,
-				"InlineCompletions(configured server label matches no entry)"
-			);
+			throw noEntryForConfiguredServer("inlineCompletions", modelRef.server);
 		}
 		const { fimTemplate } = table.resolveParameters(modelRef.server, modelRef.model, {
 			globalParameters: getModelParametersConfig(),

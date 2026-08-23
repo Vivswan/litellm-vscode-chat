@@ -160,6 +160,9 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"createPrSend",
 	"wirePrGeneration",
 	"runGeneratePrDescription",
+	// src/extension/features/modelSettingError (the features' one no-such-server sentence).
+	"featureNaming",
+	"noEntryForConfiguredServer",
 	// src/extension/features/reviewComments (the comment surface and its commands).
 	"reviewChangesCommandTitle",
 	"reviewFileCommandTitle",

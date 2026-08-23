@@ -11,11 +11,11 @@ import {
 	isFeatureEnabled,
 } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { localizedError } from "../../../shared/mirroredError";
 import { entryConnectionFor } from "../../servers/entryConnection";
 import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
 import { pickRepository, resolveGitApi } from "../gitAccess";
 import type { API } from "../gitApi";
+import { noEntryForConfiguredServer } from "../modelSettingError";
 import type { CommitModelRef } from "./commitMessage";
 import { generateCommitMessage } from "./commitMessage";
 
@@ -57,15 +57,7 @@ async function sendCommitPrompt(
 ): Promise<string> {
 	const resolved = await entryConnectionFor(secrets, ref.server);
 	if (resolved === undefined) {
-		throw localizedError(
-			l10n.t(
-				'The commit model setting names server "{0}", but no servers entry carries that label. Update the "{1}" setting.',
-				ref.server,
-				MODEL_SETTING_ID
-			),
-			`The commit model setting names server "${ref.server}", but no servers entry carries that label. Update the "${MODEL_SETTING_ID}" setting.`,
-			"CommitGeneration(configured server label matches no entry)"
-		);
+		throw noEntryForConfiguredServer("commitGeneration", ref.server);
 	}
 	return oneShot.completeChatOnce(
 		resolved.connection,

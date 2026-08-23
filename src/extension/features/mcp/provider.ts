@@ -183,8 +183,15 @@ export function createMcpServerDefinitionProvider(
 		 * publication is re-derived from the setting - before the credential
 		 * reads AND again after them, because an edit can land while the token
 		 * exchange is in flight - and the whole descriptor must still match,
-		 * version included: a rotation mid-exchange means the headers just
-		 * composed are already the previous credential set.
+		 * version included.
+		 *
+		 * That second read narrows the window rather than closing it: the
+		 * rotation counter is written asynchronously while versionOf reads the
+		 * PERSISTED value, so an edit landing mid-exchange can still pass the
+		 * check with pre-edit headers. What the check does guarantee is bounded
+		 * and is the part that matters: same label, same endpoint, same origin,
+		 * all three re-read from the setting. The change event that follows the
+		 * write is what corrects the rest, by making the editor re-resolve.
 		 */
 		resolveMcpServerDefinition: async (server, token) => {
 			// Set by refuse(), which logs its own throw. The class cannot be the
