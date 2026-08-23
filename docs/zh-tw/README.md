@@ -20,6 +20,7 @@
 | 理解 `"gpt-5*"` 等比對鍵如何組合 | [模型: 模型比對](models.md#模型比對) |
 | 用 LiteLLM 模型處理 Copilot 的提交訊息、標題等背景任務 | [模型: Copilot 模型插槽](models.md#copilot-模型插槽) |
 | 用我選擇的 LiteLLM 模型產生提交訊息 | [入門指南: 提交訊息配方](getting-started.md#用您自己的模型產生提交訊息) |
+| 用我選擇的 LiteLLM 模型草擬提取要求標題和描述 | [入門指南: 提取要求描述配方](getting-started.md#用您自己的模型產生提取要求描述) |
 | 在編輯器裡用我自己的模型取得幽靈文字補全 | [入門指南: 內嵌補全配方](getting-started.md#用-litellm-模型取得內嵌補全) |
 | 在聊天裡提問並讓我自己的模型來回答 | [入門指南: @litellm 聊天配方](getting-started.md#用-litellm-聊天) |
 | 讓聊天代理向我的某個模型徵求第二意見 | [入門指南: 諮詢工具配方](getting-started.md#讓代理向第二個模型提問) |

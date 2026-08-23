@@ -14,7 +14,8 @@ import type { Logger } from "../../../shared/logger";
 import { localizedError } from "../../../shared/mirroredError";
 import { entryConnectionFor } from "../../servers/entryConnection";
 import { commandErrorActions, openSettingsAction, showActionableMessage } from "../../ui/notifier";
-import type { API, GitExtension, Repository } from "../gitApi";
+import { pickRepository, resolveGitApi } from "../gitAccess";
+import type { API } from "../gitApi";
 import type { CommitModelRef } from "./commitMessage";
 import { generateCommitMessage } from "./commitMessage";
 
@@ -40,46 +41,6 @@ const ENABLED_SETTING_KEY: BooleanSettingId = "commitGeneration.enabled";
 /** The full setting IDs the command's hints point at. */
 const ENABLED_SETTING_ID = `${CONFIG_SECTION}.${ENABLED_SETTING_KEY}`;
 const MODEL_SETTING_ID = `${CONFIG_SECTION}.${FEATURE_MODEL_SETTING_KEYS.commitGeneration}`;
-
-/**
- * The built-in Git extension's API, activating the extension when needed.
- * Undefined when it is unavailable or disabled (git.enabled: false).
- */
-async function resolveGitApi(): Promise<API | undefined> {
-	const extension = vscode.extensions.getExtension<GitExtension>("vscode.git");
-	if (extension === undefined) {
-		return undefined;
-	}
-	const gitExtension = extension.isActive ? extension.exports : await extension.activate();
-	return gitExtension.enabled ? gitExtension.getAPI(1) : undefined;
-}
-
-/**
- * The repository the invocation targets: the SCM-title button passes its
- * SourceControl (matched by rootUri), the palette gets the single open
- * repository or a picker. Undefined when there is none; "dismissed" when the
- * user backed out of the picker (silence, not advice, is the right answer).
- */
-async function pickRepository(git: API, commandArg: unknown): Promise<Repository | "dismissed" | undefined> {
-	const argRoot =
-		typeof commandArg === "object" && commandArg !== null && "rootUri" in commandArg
-			? (commandArg as { rootUri?: vscode.Uri }).rootUri?.toString()
-			: undefined;
-	if (argRoot !== undefined) {
-		const matched = git.repositories.find((repo) => repo.rootUri.toString() === argRoot);
-		if (matched !== undefined) {
-			return matched;
-		}
-	}
-	if (git.repositories.length <= 1) {
-		return git.repositories[0];
-	}
-	const picked = await vscode.window.showQuickPick(
-		git.repositories.map((repo) => ({ label: repo.rootUri.fsPath, repo })),
-		{ title: l10n.t("Generate Commit Message"), placeHolder: l10n.t("Pick the repository to describe") }
-	);
-	return picked?.repo ?? "dismissed";
-}
 
 /**
  * Resolve the configured server label to its declared entry's connection and
@@ -143,7 +104,10 @@ export async function runGenerateCommitMessage(
 		);
 		return;
 	}
-	const repo = await pickRepository(git, commandArg);
+	const repo = await pickRepository(git, commandArg, {
+		title: l10n.t("Generate Commit Message"),
+		placeHolder: l10n.t("Pick the repository to describe"),
+	});
 	if (repo === "dismissed") {
 		return;
 	}

@@ -602,8 +602,8 @@ test("the filter hides rows by label or description match and collapses emptied 
 	// The record editor does not talk about timeouts.
 	expect(editorSection(root, "Model parameters").hidden).toBe(true);
 
-	// Descriptions match too: only the request timeout's mentions the chat call.
-	fireInput(filter, "chat completion");
+	// Descriptions match too: only the request timeout's mentions the calls it bounds.
+	fireInput(filter, "pull-request-description call");
 	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(false);
 	expect(rowOf(settingInput(root, "discovery.timeout")).hidden).toBe(true);
 

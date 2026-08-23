@@ -505,7 +505,7 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "chat.timeout":
 			return {
 				label: l10n.t("Request timeout"),
-				description: l10n.t("Hard bound for one chat completion or commit-generation call."),
+				description: l10n.t("Hard bound for one chat, commit-message, or pull-request-description call."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 			};
 		case "chat.maxToolsPerRequest":
@@ -646,7 +646,9 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 		case "prGeneration.enabled":
 			return {
 				label: l10n.t("Enable PR description generation"),
-				description: l10n.t("Drafts PR titles and descriptions from your commits with a LiteLLM model."),
+				description: l10n.t(
+					"Drafts PR titles and descriptions from your commits with a LiteLLM model. Requires enabling this and choosing a model below."
+				),
 			};
 		case "consultTool.enabled":
 			return {

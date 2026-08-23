@@ -86,23 +86,39 @@ suite("extension/wiring features", () => {
 				getSnapshots: () => [],
 			});
 			// Every feature's wiring ran: the inline toggle command, the commit
-			// command, and the MCP provider registration are their observable
-			// registrations here (the inline provider and the consult tool are
-			// enablement-gated and covered by their own wiring suites, so with the
-			// defaults both stay unregistered; the participant is proven by the
-			// slash-command test below).
+			// command, the PR command, and the MCP provider registration are their
+			// observable registrations here (the inline provider, the consult tool
+			// and the PR integration are enablement-gated and covered by their own
+			// wiring suites, so with the defaults they stay unregistered; the
+			// participant is proven by the slash-command test below).
 			assert.ok(
 				registeredIds.includes(INTERNAL_CMD.toggleInlineCompletionsLanguage),
 				"the inline feature wiring did not run"
 			);
 			assert.ok(registeredIds.includes(CMD.generateCommitMessage), "the commit feature wiring did not run");
+			assert.ok(registeredIds.includes(CMD.generatePrDescription), "the PR feature wiring did not run");
 			assert.ok(registeredIds.includes(MCP_PROVIDER_ID), "the MCP feature wiring did not run");
 			// The probe registry: exactly the features whose model rows carry a
 			// Test button. A key added here must come with a real probe; a key
 			// dropped here silently removes the button.
-			assert.deepStrictEqual(Object.keys(featureProbes).sort(), ["consultTool", "inlineCompletions"]);
+			assert.deepStrictEqual(Object.keys(featureProbes).sort(), ["consultTool", "inlineCompletions", "prGeneration"]);
 			assert.strictEqual(typeof featureProbes.inlineCompletions, "function");
 			assert.strictEqual(typeof featureProbes.consultTool, "function");
+			assert.strictEqual(typeof featureProbes.prGeneration, "function");
+			// The render fixtures carry their OWN probe list, and a page rendered
+			// from a stale one under-represents the shipped state - visual review
+			// then judges a page users never see. Pinned to the production set so
+			// the next feature cannot drift it silently.
+			// Read as TEXT because the host tsconfig's rootDir is src/: the fixture
+			// lives under scripts/ and cannot be imported from here.
+			const fixtureSource = fs.readFileSync(
+				path.join(REPO_ROOT, "scripts", "dev", "renderFixtures", "shared.ts"),
+				"utf8"
+			);
+			const declared = /featureProbes:\s*\[([^\]]*)\]/.exec(fixtureSource);
+			assert.ok(declared !== null, "the render fixture declares a featureProbes list");
+			const fixtureProbes = [...(declared[1] ?? "").matchAll(/"([^"]+)"/g)].map((match) => match[1] as string);
+			assert.deepStrictEqual(fixtureProbes.sort(), Object.keys(featureProbes).sort());
 		});
 	});
 

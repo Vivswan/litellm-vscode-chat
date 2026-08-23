@@ -9,6 +9,7 @@ import { wireMcpServers } from "../features/mcp/wiring";
 import type { SnapshotSource } from "../features/participant/snapshots";
 import type { ChatParticipantWiring } from "../features/participant/wiring";
 import { wireChatParticipant } from "../features/participant/wiring";
+import { createPrProbe, wirePrGeneration } from "../features/prGen/wiring";
 
 /**
  * The features' composition point: constructs the ONE shared OneShotClient
@@ -31,6 +32,7 @@ export function wireFeatures(
 	wireCommitGeneration(context, logger, { oneShot, outputChannel: deps.outputChannel });
 	const consult = wireConsultTool(context, logger, { oneShot });
 	wireMcpServers(context, logger, { oneShot });
+	const prGen = wirePrGeneration(context, logger, { oneShot, outputChannel: deps.outputChannel });
 	// Surfaced rather than consumed here: the quick-fix feature registers /fix
 	// and /explain through this seam when it lands (a declared cross-feature
 	// edit; features may not import each other, so the seam is the only route).
@@ -39,6 +41,7 @@ export function wireFeatures(
 		featureProbes: {
 			inlineCompletions: createFimProbe(inline.fimSend),
 			consultTool: createConsultProbe(consult.consultSend),
+			prGeneration: createPrProbe(prGen.prSend),
 		},
 		chatParticipant,
 	};

@@ -695,7 +695,7 @@ export const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } 
 			),
 		},
 	},
-	prGeneration: { shipped: false },
+	prGeneration: { shipped: true },
 	consultTool: { shipped: true },
 	quickFix: { shipped: false },
 	reviewComments: { shipped: false },

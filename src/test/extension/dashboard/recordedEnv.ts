@@ -301,6 +301,15 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 					}
 					return recorded.fimProbeResult;
 				},
+				// A second registered probe, so the executor's per-feature outcome
+				// copy can be exercised for a feature other than inline completions.
+				prGeneration: async (model: FeatureModelRef) => {
+					recorded.fimProbes.push(model);
+					if (recorded.probeError !== undefined) {
+						throw recorded.probeError;
+					}
+					return recorded.fimProbeResult;
+				},
 			},
 			log: (message, data) => {
 				recorded.logs.push([message, data]);

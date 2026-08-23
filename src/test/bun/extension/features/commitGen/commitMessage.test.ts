@@ -50,6 +50,7 @@ function fakeRepo(parts: {
 		repo: {
 			rootUri: { fsPath: "/repo" } as Repository["rootUri"],
 			state: {
+				HEAD: undefined,
 				indexChanges: [],
 				workingTreeChanges: parts.workingTreeChanges ?? [],
 				untrackedChanges: parts.untrackedChanges ?? [],
@@ -147,6 +148,7 @@ describe("extension/features/commitGen untrackedRelativePaths", () => {
 		const repo: Pick<Repository, "rootUri" | "state"> = {
 			rootUri: { fsPath: "/repo/" } as Repository["rootUri"],
 			state: {
+				HEAD: undefined,
 				indexChanges: [],
 				workingTreeChanges: [
 					change("/repo/zebra.txt", UNTRACKED),
@@ -164,6 +166,7 @@ describe("extension/features/commitGen untrackedRelativePaths", () => {
 		const repo: Pick<Repository, "rootUri" | "state"> = {
 			rootUri: { fsPath: "/repo" } as Repository["rootUri"],
 			state: {
+				HEAD: undefined,
 				indexChanges: [],
 				workingTreeChanges: [change("/repo/modified.ts", MODIFIED)],
 				untrackedChanges: [change("/repo/separate.txt", UNTRACKED)],
@@ -176,6 +179,7 @@ describe("extension/features/commitGen untrackedRelativePaths", () => {
 		const repo: Pick<Repository, "rootUri" | "state"> = {
 			rootUri: { fsPath: "/repo" } as Repository["rootUri"],
 			state: {
+				HEAD: undefined,
 				indexChanges: [],
 				workingTreeChanges: [
 					change("/repo-backup/file.txt", UNTRACKED),
@@ -191,9 +195,9 @@ describe("extension/features/commitGen untrackedRelativePaths", () => {
 describe("extension/features/commitGen commitSubjects", () => {
 	test("keeps first lines only - a commit body never rides into the prompt", () => {
 		const commits: Commit[] = [
-			{ hash: "a", message: "feat: subject one\n\nSECRET-BODY-DETAIL that stays out" },
-			{ hash: "b", message: "fix: subject two" },
-			{ hash: "c", message: "   \n\nwhitespace-only subject drops" },
+			{ hash: "a", message: "feat: subject one\n\nSECRET-BODY-DETAIL that stays out", parents: [] },
+			{ hash: "b", message: "fix: subject two", parents: [] },
+			{ hash: "c", message: "   \n\nwhitespace-only subject drops", parents: [] },
 		];
 		const subjects = commitSubjects(commits);
 		expect(subjects).toEqual(["feat: subject one", "fix: subject two"]);
@@ -292,7 +296,7 @@ describe("extension/features/commitGen generateCommitMessage", () => {
 			...repo,
 			log: (options) => {
 				seenMaxEntries = options?.maxEntries;
-				return Promise.resolve([{ hash: "a", message: "feat: prior subject\n\nprior body" }]);
+				return Promise.resolve([{ hash: "a", message: "feat: prior subject\n\nprior body", parents: [] }]);
 			},
 		};
 		let seenPrompt = "";

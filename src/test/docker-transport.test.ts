@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { createTitleAndDescriptionProvider } from "../extension/features/prGen/provider";
 import { FIM_MAX_TOKENS, FIM_TIMEOUT_MS } from "../provider/transport/fim";
 import { OneShotClient } from "../provider/transport/oneShotClient";
 import { StreamProcessor } from "../provider/transport/streaming";
@@ -659,6 +660,60 @@ function oneShotStreamSuite(): void {
 	});
 }
 
+/**
+ * The PR generation path end to end: the real prompt assembly, one
+ * non-streaming completeChatOnce through the real LiteLLM proxy under the
+ * prGeneration error surface, and the real lenient parse of what comes back.
+ * The fake backend answers the LAST line of the prompt, and buildPrPrompt puts
+ * the patches last, so a patch that IS a command makes the reply a pure
+ * function of the request.
+ */
+function prGenerationSuite(): void {
+	suite("Docker PR generation (proxy end to end)", () => {
+		test("a generated title and description survive the round trip, and nothing extra rides the body", async function () {
+			this.timeout(30000);
+			const client = new OneShotClient({ userAgent: "litellm-vscode-chat-docker-test" });
+			const provider = createTitleAndDescriptionProvider((prompt, token) =>
+				client.completeChatOnce(
+					{ baseUrl: BASE_URL, apiKey: API_KEY, headers: {} },
+					{ model: "gpt-5.2-mini", messages: [{ role: "user", content: prompt }] },
+					"prGeneration",
+					{ timeoutMs: 30000, token }
+				)
+			);
+			const result = await provider.provideTitleAndDescription(
+				{
+					commitMessages: ["feat: wire the docker leg", "test: cover it"],
+					// The fake backend replies to the last line; %echon decodes \n so
+					// one line produces the two-part answer the parse must read.
+					patches: [`${COMMAND_SIGIL}echon:Title: feat: wire the docker leg\\nDescription:\\nIt reaches the proxy.`],
+					compareBranch: "feature/docker-leg",
+				},
+				new vscode.CancellationTokenSource().token
+			);
+			assert.deepStrictEqual(result, {
+				title: "feat: wire the docker leg",
+				description: "It reaches the proxy.",
+			});
+
+			const observedResponse = await fetch(`${FAKE_URL}/_test/last-request`);
+			assert.ok(observedResponse.ok, `last-request answered ${observedResponse.status}`);
+			const observed = (await observedResponse.json()) as Record<string, unknown>;
+			// This IS the request just sent: the assembled prompt is unmistakable.
+			assert.match(JSON.stringify(observed.messages), /wire the docker leg/, JSON.stringify(observed));
+			// Non-streaming by contract. The proxy re-serializes the body, so a
+			// `stream: false` may reach the backend as an omission; what must never
+			// happen is a streamed one.
+			assert.notStrictEqual(observed.stream, true, `PR generation must not stream: ${JSON.stringify(observed.stream)}`);
+			// The pass-through contract's negative half on a one-shot path: no
+			// max_tokens (this surface sets none) and no injected parameters.
+			for (const key of ["temperature", "top_p", "max_tokens", "tools", "tool_choice"]) {
+				assert.ok(!(key in observed), `unexpected ${key} reached the backend`);
+			}
+		});
+	});
+}
+
 if (!BASE_URL) {
 	suite("Docker LiteLLM transport failures", () => {
 		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
@@ -672,5 +727,6 @@ if (!BASE_URL) {
 	wrongMasterKeySuite();
 	fimCompletionSuite();
 	oneShotStreamSuite();
+	prGenerationSuite();
 	bufferSecrecySuite();
 }

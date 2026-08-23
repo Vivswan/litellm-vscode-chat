@@ -49,6 +49,7 @@ export const CMD = {
 	importSettings: "litellm.importSettings",
 	undoLastImport: "litellm.undoLastImport",
 	generateCommitMessage: "litellm.generateCommitMessage",
+	generatePrDescription: "litellm.generatePrDescription",
 } as const;
 
 /**
@@ -73,6 +74,24 @@ export function refreshUsageCommandTitle(): string {
 /** CMD.generateCommitMessage's palette title; same call-time-resolution contract. */
 export function generateCommitMessageCommandTitle(): string {
 	return l10n.t("LiteLLM: Generate Commit Message");
+}
+
+/** CMD.generatePrDescription's palette title; same call-time-resolution contract. */
+export function generatePrDescriptionCommandTitle(): string {
+	return l10n.t("LiteLLM: Generate Pull Request Description");
+}
+
+/**
+ * The title the GitHub Pull Requests extension lists this generator under in
+ * its create-PR view. It must never contain "Copilot": that extension selects
+ * a provider by case-insensitive substring, and "Copilot" is the search term
+ * its own Copilot slot uses, so a title carrying it would hijack a slot this
+ * extension has no business answering (commandIds.test.ts pins the
+ * rule across every translation). Same call-time-resolution contract as the
+ * palette titles.
+ */
+export function prGenerationProviderTitle(): string {
+	return l10n.t("Generate with LiteLLM");
 }
 
 /**

@@ -462,9 +462,9 @@ test("every FeatureId renders its section in registry order, enable rows include
 	]);
 	expect(root.querySelector("#setting-inlineCompletions\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-commitGeneration\\.enabled")).not.toBeNull();
+	expect(root.querySelector("#setting-prGeneration\\.enabled")).not.toBeNull();
 	// The unshipped features render real enable and model rows (registered
 	// vocabulary, writable now) plus the quiet Coming soon badge.
-	expect(root.querySelector("#setting-prGeneration\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-reviewComments\\.model")).not.toBeNull();
 	expect(root.querySelector("#setting-chatParticipant\\.enabled")).not.toBeNull();
 	// The participant has an enable row and deliberately no model row.
@@ -472,11 +472,11 @@ test("every FeatureId renders its section in registry order, enable rows include
 	// Which sections still wear the badge, BY NAME rather than by count: a
 	// shipped feature that kept it, or a section that lost it before its wiring
 	// landed, both name themselves here instead of moving a number. The consult
-	// tool is absent because its wiring ships in this change.
+	// tool and PR description generation are absent because both have shipped.
 	const marked = [...root.querySelectorAll(".settings-group-head")]
 		.filter((head) => head.querySelector('[data-slot="badge"]')?.textContent === "Coming soon")
 		.map((head) => head.querySelector(".settings-group-title")?.textContent);
-	expect(marked).toEqual(["PR description generation", "Quick fixes", "Review comments"]);
+	expect(marked).toEqual(["Quick fixes", "Review comments"]);
 	// The consequence is said ONCE for the page, not once per section: headings
 	// each wearing the same sentence was the defect this replaced.
 	const hints = [...root.querySelectorAll("p.hint")].filter((hint) => (hint.textContent ?? "").includes("Coming soon"));

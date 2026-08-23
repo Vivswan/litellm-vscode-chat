@@ -1692,6 +1692,38 @@ suite("extension/dashboard/intents", () => {
 			}
 		});
 
+		test("the prGeneration probe reports in TITLE vocabulary, not the generic reply wording", async () => {
+			// Its probe returns the PARSED title, so both outcomes say title. The
+			// copy lives in the executor's per-feature switches; this is what pins
+			// that the PR case exists rather than falling through to the generic
+			// group.
+			const recorded = makeEnv([]);
+			recorded.fimProbeResult = "feat: add a retry";
+			const notice = await executeDashboardIntent(
+				{
+					method: "testFeatureModel",
+					payload: { feature: "prGeneration", model: { server: "Main", model: "gpt-test" } },
+				},
+				recorded.env
+			);
+			assert.strictEqual(notice, "Title received - 17 characters");
+
+			const empty = makeEnv([]);
+			empty.fimProbeResult = "";
+			const warning = await executeDashboardIntent(
+				{
+					method: "testFeatureModel",
+					payload: { feature: "prGeneration", model: { server: "Main", model: "gpt-test" } },
+				},
+				empty.env
+			);
+			assert.ok(typeof warning === "object" && warning !== null);
+			assert.strictEqual(warning.tone, "warning");
+			assert.match(warning.message, /pull request title/);
+			// The FIM advice must never surface for this feature.
+			assert.ok(!/text-completion \(FIM\)/.test(warning.message), warning.message);
+		});
+
 		test("a classified probe failure surfaces as a validation failure carrying the classification", async () => {
 			const recorded = makeEnv([]);
 			recorded.probeError = new RequestError("LiteLLM inline completion request timed out after 15000ms.", "timeout", {

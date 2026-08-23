@@ -20,6 +20,7 @@
 | 理解 `"gpt-5*"` 等匹配键如何组合 | [模型: 模型匹配](models.md#模型匹配) |
 | 用 LiteLLM 模型处理 Copilot 的提交消息、标题等后台任务 | [模型: Copilot 模型槽位](models.md#copilot-模型槽位) |
 | 用我选择的 LiteLLM 模型生成提交消息 | [快速入门: 提交消息配方](getting-started.md#用你自己的模型生成提交消息) |
+| 用我选择的 LiteLLM 模型起草拉取请求标题和描述 | [快速入门: 拉取请求描述配方](getting-started.md#用你自己的模型生成拉取请求描述) |
 | 在编辑器里用我自己的模型获得幽灵文本补全 | [快速入门: 内联补全配方](getting-started.md#用-litellm-模型获得内联补全) |
 | 在聊天里提问并让我自己的模型来回答 | [快速入门: @litellm 聊天配方](getting-started.md#用-litellm-聊天) |
 | 让聊天代理向我的某个模型征求第二意见 | [快速入门: 咨询工具配方](getting-started.md#让代理向第二个模型提问) |

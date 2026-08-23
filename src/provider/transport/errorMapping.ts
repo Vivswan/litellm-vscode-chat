@@ -90,7 +90,13 @@ export class RequestError extends MirroredError {
  * until its copy exists, and the per-surface test suites derive their lists
  * from the table's keys.
  */
-export type TransportErrorSurface = "chat" | "discovery" | "completion" | "commitGeneration" | "consultTool";
+export type TransportErrorSurface =
+	| "chat"
+	| "discovery"
+	| "completion"
+	| "commitGeneration"
+	| "consultTool"
+	| "prGeneration";
 
 export interface MapErrorContext {
 	/**
@@ -102,7 +108,8 @@ export interface MapErrorContext {
 	 * boundary - notifications flatten newlines, so it joins chat-style with
 	 * the "Details:" lead-in. "consultTool" is the consult tool's
 	 * /chat/completions call: its failure is thrown back into the chat view
-	 * that invoked the tool, so it joins chat-style too.
+	 * that invoked the tool, so it joins chat-style too. "prGeneration" is the
+	 * PR title-and-description call, surfaced like commit generation.
 	 */
 	surface: TransportErrorSurface;
 	baseUrl: string;
@@ -748,6 +755,54 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			detail: midResponseDroppedDetail,
 		},
 		phrase: "consultation",
+	},
+	prGeneration: {
+		join: "detailsLeadIn",
+		httpVocabulary: "request",
+		// The PR call runs under the chat timeout setting, like commit
+		// generation, so that IS the bound to raise.
+		timeout: (timeoutMs) => ({
+			display: l10n.t(
+				'LiteLLM pull request description generation timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
+				timeoutMs,
+				CONFIG_SECTION
+			),
+			english: `LiteLLM pull request description generation timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`,
+		}),
+		notFound: {
+			// Sync Models refreshes the chat catalog, which the PR model setting
+			// never reads - the advice is the setting itself.
+			headline: () => ({
+				display: l10n.t(
+					"The server did not recognize this pull request description request. Check that the configured PR generation model is one the server still serves."
+				),
+				english:
+					"The server did not recognize this pull request description request. Check that the configured PR generation model is one the server still serves.",
+			}),
+			detail: standardNotFoundDetail,
+		},
+		// The branch is what was too large: fewer commits or a smaller diff, or
+		// a model that can hold this one.
+		contextWindow: () => ({
+			display: l10n.t(
+				"The branch is too large for this model - compare against a nearer base branch or pick a PR generation model with a larger context window."
+			),
+			english:
+				"The branch is too large for this model - compare against a nearer base branch or pick a PR generation model with a larger context window.",
+		}),
+		dropped: {
+			// Non-streaming like the commit call: a dropped connection leaves no
+			// partial description, it leaves none at all.
+			headline: () => ({
+				display: l10n.t(
+					"The connection dropped before the reply arrived, so no pull request description was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
+				),
+				english:
+					"The connection dropped before the reply arrived, so no pull request description was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+			}),
+			detail: midResponseDroppedDetail,
+		},
+		phrase: "pull request description generation",
 	},
 };
 

@@ -355,6 +355,7 @@ export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)
 	"models.openRouterCatalog",
 	"inlineCompletions.enabled",
 	"commitGeneration.enabled",
+	"prGeneration.enabled",
 	"consultTool.enabled",
 	"chatParticipant.enabled",
 ];
@@ -365,7 +366,7 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 		case "chat.timeout":
 			return l10n.t({
 				message:
-					"A hard bound on the whole chat or commit-generation call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
+					"A hard bound on the whole chat, commit-message, or pull-request-description call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
 				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 			});
 		case "chat.maxToolsPerRequest":
@@ -410,6 +411,12 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 		case "commitGeneration.enabled":
 			return l10n.t(
 				"Generating sends the diff, untracked file names, and your last five commit subjects to your LiteLLM server."
+			);
+		case "prGeneration.enabled":
+			// Same shape as the commit tip: the description states both gates, the
+			// tip says what leaves the machine.
+			return l10n.t(
+				"Generating sends the branch's commits and a patch per changed file to your LiteLLM server; from the GitHub Pull Requests view, your PR template and referenced issues go too, private ones included."
 			);
 		case "consultTool.enabled":
 			// The description states both gates; the tip carries the fact the

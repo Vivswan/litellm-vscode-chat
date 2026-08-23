@@ -145,8 +145,8 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/commitGen/**", "**/consultTool/**", "**/participant/**", "**/mcp/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+										"group": ["**/commitGen/**", "**/participant/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
 									}
 								]
 							}
@@ -165,28 +165,8 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/consultTool/**", "**/participant/**", "**/mcp/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/extension/features/consultTool/**"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/participant/**", "**/mcp/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+										"group": ["**/inline/**", "**/participant/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
 									}
 								]
 							}
@@ -205,8 +185,28 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/consultTool/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/inline/**", "**/commitGen/**", "**/participant/**", "**/mcp/**", "**/prGen/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
 									}
 								]
 							}
@@ -225,8 +225,28 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/participant/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+										"group": ["**/inline/**", "**/commitGen/**", "**/participant/**", "**/consultTool/**", "**/prGen/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/prGen/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/inline/**", "**/commitGen/**", "**/participant/**", "**/consultTool/**", "**/mcp/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, errorLabel.ts)."
 									}
 								]
 							}

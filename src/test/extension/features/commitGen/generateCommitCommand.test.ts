@@ -26,6 +26,18 @@ interface FakeRepoParts {
 	root?: string;
 }
 
+/**
+ * The vendored Repository members the commit flow never touches (they serve
+ * the PR flow). Present so the fake satisfies the API as declared, and
+ * rejecting so a flow that starts reaching for one fails loudly here.
+ */
+const unusedRepositoryMembers = {
+	diffWith: () => Promise.reject(new Error("diffWith is not part of the commit flow")),
+	getBranch: () => Promise.reject(new Error("getBranch is not part of the commit flow")),
+	getBranchBase: () => Promise.reject(new Error("getBranchBase is not part of the commit flow")),
+	getMergeBase: () => Promise.reject(new Error("getMergeBase is not part of the commit flow")),
+} as unknown as Pick<Repository, "diffWith" | "getBranch" | "getBranchBase" | "getMergeBase">;
+
 function fakeRepo(parts: FakeRepoParts): Repository {
 	const root = parts.root ?? "/repo";
 	const untrackedChanges: Change[] = (parts.untracked ?? []).map((path) => ({
@@ -33,9 +45,10 @@ function fakeRepo(parts: FakeRepoParts): Repository {
 		status: 7,
 	}));
 	return {
+		...unusedRepositoryMembers,
 		rootUri: vscode.Uri.file(root),
 		inputBox: { value: "" },
-		state: { indexChanges: [], workingTreeChanges: untrackedChanges, untrackedChanges: [] },
+		state: { HEAD: undefined, indexChanges: [], workingTreeChanges: untrackedChanges, untrackedChanges: [] },
 		diff: (cached?: boolean) => Promise.resolve(cached === true ? (parts.staged ?? "") : (parts.working ?? "")),
 		log: () => Promise.resolve(parts.commits ?? []),
 	};
@@ -102,7 +115,7 @@ suite("extension/features/commitGen generateCommitCommand", () => {
 		const repo = fakeRepo({
 			staged: "+staged line",
 			working: "+working line",
-			commits: [{ hash: "a", message: "feat: earlier subject\n\nbody stays out" }],
+			commits: [{ hash: "a", message: "feat: earlier subject\n\nbody stays out", parents: [] }],
 		});
 
 		await withConfig(ENABLED_CONFIG, () => runGenerateCommitMessage(client(), makeDeps(), undefined, fakeGit(repo)));

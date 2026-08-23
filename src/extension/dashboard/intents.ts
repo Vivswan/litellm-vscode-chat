@@ -403,8 +403,13 @@ function probeEmptyAnswerText(feature: FeatureModelId): string {
 			return l10n.t(
 				"The server answered without a completion. Check that the model is a text-completion (FIM) model served on /completions."
 			);
-		case "commitGeneration":
 		case "prGeneration":
+			// This probe parses before it answers, so an empty result means the
+			// reply carried no readable TITLE, not merely no text.
+			return l10n.t(
+				"The server answered, but no pull request title could be read from the reply. Check that the model follows instructions well enough to draft a description."
+			);
+		case "commitGeneration":
 		case "consultTool":
 		case "quickFix":
 		case "reviewComments":
@@ -423,8 +428,12 @@ function probeAnswerText(feature: FeatureModelId, characters: number): string {
 			return characters === 1
 				? l10n.t("Completion received - 1 character")
 				: l10n.t("Completion received - {0} characters", characters);
-		case "commitGeneration":
 		case "prGeneration":
+			// The PR probe returns the parsed title, so the count is the title's.
+			return characters === 1
+				? l10n.t("Title received - 1 character")
+				: l10n.t("Title received - {0} characters", characters);
+		case "commitGeneration":
 		case "consultTool":
 		case "quickFix":
 		case "reviewComments":

@@ -2,7 +2,7 @@
 
 English | [简体中文](zh-cn/getting-started.md) | [繁體中文](zh-tw/getting-started.md)
 
-Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you nine short recipes for the most common next steps.
+Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page walks that path once, end to end, then hands you ten short recipes for the most common next steps.
 
 ## Requirements
 
@@ -55,7 +55,7 @@ The LiteLLM status bar item (bottom right) shows the connection state at a glanc
 
 ## Where to next
 
-Nine recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
+Ten recipes, in the order people usually need them. Each shows the whole fix; the linked page has the depth.
 
 ### Correct a capability the server reports wrong
 
@@ -146,6 +146,23 @@ Answer with the commit message text only: no markdown fences, no surrounding quo
 
 Privacy and cost work like chat: the diff, untracked file names, and your last five commit subjects go only to the LiteLLM server you configured, on your explicit invocation, and the request counts toward the same [usage tracking and budget alerts](usage.md) as everything else.
 
+### Generate pull request descriptions with your own model
+
+The same two settings as the recipe above, under a different key:
+
+```jsonc
+"litellm-vscode-chat.prGeneration.enabled": true,
+"litellm-vscode-chat.prGeneration.model": { "server": "local", "model": "gpt-4o-mini" }
+```
+
+Off, the command stays hidden and no request is ever made; the dashboard's explicit "Test model" button is the one exception, sending a single canned sample branch on your click, enabled or not. On, "LiteLLM: Generate Pull Request Description" appears in the palette. It works out which branch yours would be merged into, compares the two from their merge base, and sends the branch's commit messages plus one patch per changed file to that model; the drafted title and description land on your clipboard. The request is bounded: at most 20 commit messages and 100 changed files, with the joined patches truncated at 120,000 characters. Merge commits are left out, and uncommitted changes to tracked files are included, because they are part of what the description will cover (untracked files are not: git does not diff them). An over-long commit list is thinned from the middle, so the first and last commits always ride, and the character budget goes needs-first: short messages take only what they need and their surplus goes to the long ones, so no end of the list is cut off to pay for the other.
+
+If the GitHub Pull Requests extension is installed, the feature also registers itself there as "Generate with LiteLLM", so the generate button in its Create Pull Request view fills the title and description in place, with no clipboard step. That extension hands the request to the first generator registered with it, so when Copilot's own generator is installed too, which one answers is that extension's choice rather than ours; the palette command always uses your LiteLLM model. On that path the extension assembles the context, and it sends more than the palette command does: your repository's pull request template and the title and body of every issue your commits reference, private ones included.
+
+Four repository states are advice rather than failures: no checked-out branch, a branch VS Code cannot name a base for (set its upstream, or push it), a branch level with its base, and a branch whose base resolves to its own upstream (check out the feature branch you meant).
+
+Privacy works like the commit recipe: the branch name, its commit messages, and the patches go only to the LiteLLM server you configured, on your explicit invocation, and the request counts toward the same [usage tracking and budget alerts](usage.md) as everything else. Cancelling the progress notification stops the walk before anything is sent.
+
 ### Get inline completions from a LiteLLM model
 
 Ghost text in the editor, written by a model on your own proxy. Two settings turn it on - the opt-in and an explicit model choice, the same `{ "server", "model" }` shape as the recipe above:
@@ -229,5 +246,6 @@ Everything the extension can do on demand is a Command Palette command (`Ctrl+Sh
 | LiteLLM: Import Settings... | Merges a previously exported settings file, with a prompt per colliding server |
 | LiteLLM: Undo Last Settings Import | Restores settings and secrets to their state before the last import |
 | LiteLLM: Generate Commit Message | Drafts a commit message from your staged changes into the Source Control input (opt-in; see the [recipe](#generate-commit-messages-with-your-own-model)) |
+| LiteLLM: Generate Pull Request Description | Drafts a pull request title and description from your branch onto the clipboard (opt-in; see the [recipe](#generate-pull-request-descriptions-with-your-own-model)) |
 | LiteLLM: Report Issue | Opens a prefilled GitHub issue; see [what it collects](troubleshooting.md#reporting-an-issue) |
 | LiteLLM: Help & Feedback | Shortcuts to the documentation, bug reports, and feature requests |

@@ -6,10 +6,12 @@ import {
 	CMD,
 	CONSULT_TOOL_READY_CONTEXT_KEY,
 	generateCommitMessageCommandTitle,
+	generatePrDescriptionCommandTitle,
 	INTERNAL_CMD,
 	MCP_PROVIDER_ID,
 	manageCommandTitle,
 	PARTICIPANT_ID,
+	prGenerationProviderTitle,
 	refreshUsageCommandTitle,
 	syncModelsCommandTitle,
 	TOOL_NAME,
@@ -92,6 +94,46 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 		);
 		assert.ok(entry?.title !== undefined, "the generate-commit-message command is contributed with a title");
 		assert.strictEqual(resolveNls(entry.title), generateCommitMessageCommandTitle());
+	});
+
+	test("the generate-pr-description command is contributed under generatePrDescriptionCommandTitle()", () => {
+		const entry = readPackageJson().contributes.commands.find(
+			(candidate) => candidate.command === CMD.generatePrDescription
+		);
+		assert.ok(entry?.title !== undefined, "the generate-pr-description command is contributed with a title");
+		assert.strictEqual(resolveNls(entry.title), generatePrDescriptionCommandTitle());
+	});
+
+	test("the generate-pr-description palette entry is gated on the enable setting", () => {
+		// Opt-in by contribution: the palette entry hides until the boolean
+		// flips. The key is typed so a rename in BOOLEAN_SETTING_SPECS breaks
+		// this compile instead of leaving the manifest gating a dead setting.
+		const enabledKey: BooleanSettingId = "prGeneration.enabled";
+		const palette = readPackageJson().contributes.menus?.commandPalette?.find(
+			(item) => item.command === CMD.generatePrDescription
+		);
+		assert.ok(palette !== undefined, "the palette visibility is contributed explicitly");
+		assert.strictEqual(palette.when, `config.${CONFIG_SECTION}.${enabledKey}`);
+	});
+
+	test("the GitHub Pull Requests provider title never claims the Copilot slot, in any locale", () => {
+		// That extension picks a provider by case-insensitive substring, and
+		// "Copilot" is the search term of its own slot: a title carrying that
+		// word would hijack a request this extension has no business answering.
+		// Every translation is checked, because the registered title is the
+		// localized one.
+		assert.ok(!/copilot/i.test(prGenerationProviderTitle()));
+		const key = prGenerationProviderTitle();
+		for (const file of ["bundle.l10n.json", "bundle.l10n.zh-cn.json", "bundle.l10n.zh-tw.json"]) {
+			const bundle = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "l10n", file), "utf8")) as Record<
+				string,
+				string | { message: string }
+			>;
+			const entry = bundle[key];
+			assert.ok(entry !== undefined, `${file} carries the provider title key`);
+			const text = typeof entry === "string" ? entry : entry.message;
+			assert.ok(!/copilot/i.test(text), `${file} translates the provider title with a Copilot substring: ${text}`);
+		}
 	});
 
 	test("the generate-commit-message menus are gated on the enable setting", () => {

@@ -304,6 +304,10 @@
 				"command": "litellm.generateCommitMessage",
 				"title": "%litellm.command.generateCommitMessage.title%",
 				"icon": "$(sparkle)"
+			},
+			{
+				"command": "litellm.generatePrDescription",
+				"title": "%litellm.command.generatePrDescription.title%"
 			}
 		],
 		"menus": {
@@ -318,6 +322,10 @@
 				{
 					"command": "litellm.generateCommitMessage",
 					"when": "config.litellm-vscode-chat.commitGeneration.enabled"
+				},
+				{
+					"command": "litellm.generatePrDescription",
+					"when": "config.litellm-vscode-chat.prGeneration.enabled"
 				}
 			]
 		},
@@ -391,6 +399,17 @@
 						},
 						"completionEvents": [
 							"onCommand:litellm.generateCommitMessage"
+						]
+					},
+					{
+						"id": "litellm.walkthrough.generatePr",
+						"title": "%litellm.walkthrough.generatePr.title%",
+						"description": "%litellm.walkthrough.generatePr.description%",
+						"media": {
+							"markdown": "assets/walkthrough/generate-pr.md"
+						},
+						"completionEvents": [
+							"onCommand:litellm.generatePrDescription"
 						]
 					},
 					{

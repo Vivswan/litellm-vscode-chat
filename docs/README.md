@@ -20,6 +20,7 @@ The extension connects GitHub Copilot Chat to any number of LiteLLM servers: the
 | Understand how `"gpt-5*"` and other matcher keys combine | [Models: model matching](models.md#model-matching) |
 | Use a LiteLLM model for Copilot's commit messages, titles, and other background tasks | [Models: Copilot model slots](models.md#copilot-model-slots) |
 | Generate commit messages with a LiteLLM model of my choice | [Getting started: the commit message recipe](getting-started.md#generate-commit-messages-with-your-own-model) |
+| Draft a pull request title and description with a LiteLLM model of my choice | [Getting started: the PR description recipe](getting-started.md#generate-pull-request-descriptions-with-your-own-model) |
 | Get ghost-text completions in the editor from one of my own models | [Getting started: the inline completions recipe](getting-started.md#get-inline-completions-from-a-litellm-model) |
 | Ask a question in chat and have one of my own models answer | [Getting started: the @litellm chat recipe](getting-started.md#chat-with-litellm) |
 | Let a chat agent ask one of my models for a second opinion | [Getting started: the consult tool recipe](getting-started.md#let-an-agent-ask-a-second-model) |
