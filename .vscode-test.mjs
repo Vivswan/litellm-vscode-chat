@@ -173,6 +173,7 @@ export default defineConfig({
 				"out/test/provider/transport/*.test.js",
 				"out/test/extension/*.test.js",
 				"out/test/extension/dashboard/*.test.js",
+				"out/test/extension/features/*.test.js",
 				"out/test/extension/features/commitGen/*.test.js",
 				"out/test/extension/features/consultTool/*.test.js",
 				"out/test/extension/features/inline/*.test.js",

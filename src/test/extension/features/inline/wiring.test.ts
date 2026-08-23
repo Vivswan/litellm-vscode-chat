@@ -9,7 +9,10 @@
 import * as assert from "node:assert";
 import { http } from "msw";
 import * as vscode from "vscode";
-import { liveInlineLanguageStatusRows } from "../../../../extension/features/inline/languageStatus";
+import {
+	InlineLanguageStatusRow,
+	liveInlineLanguageStatusRows,
+} from "../../../../extension/features/inline/languageStatus";
 import { createFimProbe, wireInlineCompletions } from "../../../../extension/features/inline/wiring";
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { Logger } from "../../../../shared/logger";
@@ -105,11 +108,19 @@ async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): P
 			},
 		});
 	} finally {
-		(vscode.languages as Record<string, unknown>).registerInlineCompletionItemProvider = originalRegister;
-		(vscode.languages as Record<string, unknown>).createLanguageStatusItem = originalCreateStatus;
-		(vscode.commands as Record<string, unknown>).registerCommand = originalRegisterCommand;
-		(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = originalOnDidChangeConfiguration;
-		(vscode.window as Record<string, unknown>).onDidChangeActiveTextEditor = originalOnDidChangeActiveTextEditor;
+		try {
+			// Heal the module-scope status-row slot before restoring the fakes: any
+			// test that ends enabled leaves its row live, and liveRow outlives this
+			// file into every later suite in this host (a fresh row self-heals the
+			// slot by disposing the stale holder, then releases it).
+			new InlineLanguageStatusRow({ log: () => {}, advisory: () => {} }).dispose();
+		} finally {
+			(vscode.languages as Record<string, unknown>).registerInlineCompletionItemProvider = originalRegister;
+			(vscode.languages as Record<string, unknown>).createLanguageStatusItem = originalCreateStatus;
+			(vscode.commands as Record<string, unknown>).registerCommand = originalRegisterCommand;
+			(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = originalOnDidChangeConfiguration;
+			(vscode.window as Record<string, unknown>).onDidChangeActiveTextEditor = originalOnDidChangeActiveTextEditor;
+		}
 	}
 }
 

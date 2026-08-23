@@ -10,6 +10,7 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import {
 	InlineLanguageStatusRow,
+	liveInlineLanguageStatusRows,
 	registerToggleInlineLanguageCommand,
 } from "../../../../extension/features/inline/languageStatus";
 import { INTERNAL_CMD } from "../../../../shared/config/commandIds";
@@ -184,6 +185,12 @@ suite("extension/features/inline languageStatus", () => {
 				},
 			};
 		};
+		// Defense in depth, not the fix (wiring.test.ts's harness heals its own
+		// leak at the source): the zero-logs pins below assume a free slot, and a
+		// row leaked live from an earlier suite would make each construction here
+		// log "slot replaced" and fail the refresh assertion for the wrong
+		// reason. Name the polluter instead of miscounting.
+		assert.strictEqual(liveInlineLanguageStatusRows(), 0, "precondition: no live row leaked from an earlier suite");
 		await withStatusSpies(async () => {
 			await withConfig({ "inlineCompletions.model": "not-a-ref" }, () => {
 				const captured = capture();
