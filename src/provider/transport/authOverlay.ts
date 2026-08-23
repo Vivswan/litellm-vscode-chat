@@ -1,5 +1,5 @@
 import { isValidHeaderValue } from "../../shared/util/headers";
-import type { OAuthConfig, OAuthErrorSurface, OAuthTokenSource, VirtualKeyConfig } from "./auth";
+import type { OAuthConfig, OAuthErrorSurface, OAuthTokenSource, TimeoutBudget, VirtualKeyConfig } from "./auth";
 import { buildDefaultHeaders } from "./clients";
 import { RequestError } from "./errorMapping";
 
@@ -26,10 +26,36 @@ export interface AuthOverlayContext {
 	readonly tokens: OAuthTokenSource;
 	/** The error surface a token-exchange failure renders toward. */
 	readonly surface: OAuthErrorSurface;
-	/** Hard bound on the token exchange: the chat and discovery callers pass the discovery timeout (auth plumbing with its own budget), the one-shot callers their whole-call budget. */
-	readonly timeoutMs: number;
+	/**
+	 * Hard bound on the token exchange plus the identity of the setting that
+	 * owns it (exchange-timeout advice renders from that identity): the chat
+	 * and discovery callers pass the discovery timeout (auth plumbing with its
+	 * own budget), the one-shot callers their whole-call budget.
+	 */
+	readonly timeout: TimeoutBudget;
 	/** Interrupts the exchange when the triggering call is aborted or times out. */
 	readonly signal?: AbortSignal | undefined;
+}
+
+/**
+ * What applying the overlay hands back: the invalidation path for the very
+ * token the headers carry, with that token captured inside. The caller's only
+ * remaining duty is to route the request's classified failure through `fail`;
+ * which token to drop, whether one was sent at all, and whether the error is
+ * a token rejection are all decided in here, so no call site can invalidate
+ * the wrong token or forget which one it sent. A fail-closed census
+ * (authOverlayScope.test.ts) pins every shipped call site to its routing.
+ */
+export interface AuthOverlayScope {
+	/**
+	 * Route the failure of the request these headers authenticated: a 401-class
+	 * auth rejection drops exactly the OAuth token that went out, so the next
+	 * request performs a fresh exchange (the rejected call itself is never
+	 * retried); every other error - and any error when the virtual key owned
+	 * the Authorization header, so no token was sent - is a no-op. Safe to call
+	 * with anything a catch block holds.
+	 */
+	readonly fail: (error: unknown) => void;
 }
 
 /**
@@ -89,22 +115,23 @@ export function plainFetchBaseHeaders(config: {
  * token exchange is skipped: an unreachable identity provider must not fail a
  * request that would not carry the token anyway.
  *
- * Returns the bearer token the headers actually carry, so a later 401 never
- * has to re-parse it out of the Authorization header; undefined when the
- * virtual key owns that header and no token was exchanged or sent.
+ * Returns the scope owning the sent token's 401 invalidation; the bearer token
+ * the headers actually carry is captured inside it, so a later rejection never
+ * has to re-parse it out of the Authorization header and no caller ever
+ * handles the token value itself.
  */
 export async function applyAuthOverlay(
 	headers: Record<string, string>,
 	credentials: AuthOverlayCredentials,
 	context: AuthOverlayContext
-): Promise<string | undefined> {
+): Promise<AuthOverlayScope> {
 	const authorizationOverridden = credentials.virtualKey?.header.toLowerCase() === "authorization";
 	let sentOAuthToken: string | undefined;
 	if (credentials.oauth && !authorizationOverridden) {
-		const token = await context.tokens.getToken(credentials.oauth, context.surface, context.timeoutMs, context.signal);
-		// Recorded only when the header really carries it (parseTokenResponse
+		const token = await context.tokens.getToken(credentials.oauth, context.surface, context.timeout, context.signal);
+		// Captured only when the header really carries it (parseTokenResponse
 		// already rejects header-illegal tokens, so the drop cannot fire today,
-		// but the returned claim stays true by construction).
+		// but the scope's claim stays true by construction).
 		if (setOwnedHeader(headers, "Authorization", `Bearer ${token}`)) {
 			sentOAuthToken = token;
 		}
@@ -112,25 +139,18 @@ export async function applyAuthOverlay(
 	if (credentials.virtualKey) {
 		setOwnedHeader(headers, credentials.virtualKey.header, credentials.virtualKey.value);
 	}
-	return sentOAuthToken;
-}
-
-/**
- * A 401 means the server no longer accepts the bearer token the call sent, so
- * the next request must perform a fresh exchange. The rejected call itself is
- * never retried. Keyed on the token that actually went out, so a straggling
- * 401 cannot discard a token that already replaced the rejected one, and a
- * request whose Authorization header the virtual key replaced invalidates
- * nothing.
- */
-export function invalidateRejectedOAuthToken(
-	tokens: OAuthTokenSource,
-	oauth: OAuthConfig | undefined,
-	error: unknown,
-	sentOAuthToken: string | undefined
-): void {
-	if (!oauth || sentOAuthToken === undefined || !(error instanceof RequestError) || error.kind !== "auth") {
-		return;
-	}
-	tokens.invalidate(oauth, sentOAuthToken);
+	const oauth = credentials.oauth;
+	return {
+		fail: (error: unknown): void => {
+			// Keyed on the token that actually went out: a straggling 401 earned by
+			// an old token cannot discard the fresh one that already replaced it
+			// (OAuthTokenSource.invalidate re-checks the same identity), and a
+			// request whose Authorization header the virtual key replaced
+			// invalidates nothing.
+			if (!oauth || sentOAuthToken === undefined || !(error instanceof RequestError) || error.kind !== "auth") {
+				return;
+			}
+			context.tokens.invalidate(oauth, sentOAuthToken);
+		},
+	};
 }

@@ -239,7 +239,7 @@ export function createMcpServerDefinitionProvider(
 				baseUrl = entry.baseUrl;
 				headers = sameOrigin(before.uri, baseUrl)
 					? await deps.oneShot.authHeaders(resolved.connection, MCP_AUTH_SURFACE, {
-							timeoutMs: getDiscoveryTimeout(),
+							timeout: { ms: getDiscoveryTimeout(), setting: "discovery.timeout" },
 							token,
 						})
 					: {};

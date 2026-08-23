@@ -1,6 +1,11 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
-import { type OAuthConfig, OAuthTokenSource, oauthCredentialFingerprint } from "../../../provider/transport/auth";
+import {
+	type OAuthConfig,
+	OAuthTokenSource,
+	oauthCredentialFingerprint,
+	type TimeoutBudget,
+} from "../../../provider/transport/auth";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { mswServer, useMsw } from "../../mocks/handlers";
 
@@ -8,6 +13,22 @@ const TOKEN_URL = "http://idp.test/oauth2/token";
 
 function oauthConfig(overrides: Partial<OAuthConfig> = {}): OAuthConfig {
 	return { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret-1", ...overrides };
+}
+
+// The budget identities the shipped callers mint where they read their
+// numbers: the chat and discovery transports pass the discovery timeout, the
+// one-shot chat features their chat.timeout whole-call budget, and the
+// inline-completion call its fixed FIM bound that names no setting.
+function discoveryBudget(ms = 5000): TimeoutBudget {
+	return { ms, setting: "discovery.timeout" };
+}
+
+function chatBudget(ms: number): TimeoutBudget {
+	return { ms, setting: "chat.timeout" };
+}
+
+function fixedBudget(ms: number): TimeoutBudget {
+	return { ms, setting: undefined };
 }
 
 interface TokenEndpointOptions {
@@ -89,7 +110,7 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
 			const source = new OAuthTokenSource();
 
-			const token = await source.getToken(oauthConfig({ scopes: "read write" }), "discovery", 5000);
+			const token = await source.getToken(oauthConfig({ scopes: "read write" }), "discovery", discoveryBudget());
 
 			assert.strictEqual(token, "tok-1");
 			assert.deepStrictEqual(requests[0], {
@@ -104,7 +125,7 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
 			const source = new OAuthTokenSource();
 
-			await source.getToken(oauthConfig(), "discovery", 5000);
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 
 			assert.ok(requests[0] !== undefined && !("scope" in requests[0]));
 		});
@@ -119,7 +140,7 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "auth");
+			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
 
 			assert.strictEqual(attempts, 1, "credential rejections must not be retried");
 			assert.strictEqual(error.status, 401);
@@ -140,10 +161,13 @@ suite("provider/transport/auth", () => {
 			mswServer.use(http.post(TOKEN_URL, () => HttpResponse.json({ error: "invalid_client" }, { status: 401 })));
 			const source = new OAuthTokenSource();
 
-			const chat = await expectRequestError(source.getToken(oauthConfig(), "chat", 5000), "auth");
+			const chat = await expectRequestError(source.getToken(oauthConfig(), "chat", discoveryBudget()), "auth");
 			assert.ok(chat.message.includes(`\n\nDetails: OAuth 401 at ${TOKEN_URL}`), chat.message);
 
-			const discovery = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "auth");
+			const discovery = await expectRequestError(
+				source.getToken(oauthConfig(), "discovery", discoveryBudget()),
+				"auth"
+			);
 			assert.ok(!discovery.message.includes("Details:"), discovery.message);
 			assert.ok(discovery.message.includes(`\nOAuth 401 at ${TOKEN_URL}`), discovery.message);
 			assert.ok(!discovery.message.includes("\n\n"), discovery.message);
@@ -153,7 +177,7 @@ suite("provider/transport/auth", () => {
 			mswServer.use(http.post(TOKEN_URL, () => HttpResponse.json({ token: "wrong-field" })));
 			const source = new OAuthTokenSource();
 
-			const error = await expectRequestError(source.getToken(oauthConfig(), "chat", 5000), "http");
+			const error = await expectRequestError(source.getToken(oauthConfig(), "chat", discoveryBudget()), "http");
 
 			assert.ok(
 				error.message.includes(`\n\nDetails: OAuth token endpoint ${TOKEN_URL} answered 2xx without JSON`),
@@ -169,7 +193,7 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "auth");
+			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
 
 			assert.ok(error.message.includes("invalid_scope: unknown scope"), `unexpected message: ${error.message}`);
 			// The IdP detail is response-derived (Azure AD puts correlation IDs
@@ -190,7 +214,7 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "auth");
+			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
 
 			assert.ok(!error.message.includes("secret-1"), `the client secret leaked: ${error.message}`);
 			assert.ok(error.message.includes("the secret [REDACTED] does not match"), `unexpected message: ${error.message}`);
@@ -209,7 +233,7 @@ suite("provider/transport/auth", () => {
 			const source = new OAuthTokenSource();
 
 			const error = await expectRequestError(
-				source.getToken(oauthConfig({ clientSecret: secret }), "discovery", 5000),
+				source.getToken(oauthConfig({ clientSecret: secret }), "discovery", discoveryBudget()),
 				"auth"
 			);
 
@@ -233,7 +257,7 @@ suite("provider/transport/auth", () => {
 			const source = new OAuthTokenSource();
 
 			const error = await expectRequestError(
-				source.getToken(oauthConfig({ clientSecret: "alpha beta" }), "discovery", 5000),
+				source.getToken(oauthConfig({ clientSecret: "alpha beta" }), "discovery", discoveryBudget()),
 				"auth"
 			);
 
@@ -245,7 +269,7 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
 			const source = new OAuthTokenSource();
 
-			await source.getToken(oauthConfig({ clientSecret: "" }), "discovery", 5000);
+			await source.getToken(oauthConfig({ clientSecret: "" }), "discovery", discoveryBudget());
 
 			const request = requests[0];
 			assert.ok(request !== undefined && !("client_secret" in request), "public clients send the client ID alone");
@@ -261,7 +285,7 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "network");
+			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "network");
 
 			assert.strictEqual(attempts, 3, "two retries after the initial attempt, matching the discovery GETs");
 			assert.ok(
@@ -285,7 +309,10 @@ suite("provider/transport/auth", () => {
 			try {
 				const source = new OAuthTokenSource();
 
-				const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "connection");
+				const error = await expectRequestError(
+					source.getToken(oauthConfig(), "discovery", discoveryBudget()),
+					"connection"
+				);
 
 				assert.ok(
 					error.message.includes(`Unable to connect to the OAuth token endpoint at ${TOKEN_URL}`),
@@ -314,7 +341,10 @@ suite("provider/transport/auth", () => {
 			try {
 				const source = new OAuthTokenSource();
 
-				const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "network");
+				const error = await expectRequestError(
+					source.getToken(oauthConfig(), "discovery", discoveryBudget()),
+					"network"
+				);
 
 				assert.ok(
 					error.message.includes(`Unable to reach the OAuth token endpoint at ${TOKEN_URL}`),
@@ -339,7 +369,7 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			assert.strictEqual(await source.getToken(oauthConfig(), "discovery", 5000), "tok-after-retry");
+			assert.strictEqual(await source.getToken(oauthConfig(), "discovery", discoveryBudget()), "tok-after-retry");
 			assert.strictEqual(attempts, 2);
 		});
 
@@ -353,7 +383,7 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "http");
+			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "http");
 
 			assert.strictEqual(attempts, 3);
 			assert.strictEqual(error.status, 502);
@@ -373,7 +403,7 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "http");
+			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "http");
 
 			assert.strictEqual(attempts, 1, "a non-5xx failure must not be retried");
 			assert.strictEqual(error.status, 404);
@@ -399,7 +429,7 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "http");
+			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "http");
 			assert.ok(error.message.includes("didn't return a usable access token"), `unexpected message: ${error.message}`);
 			assert.ok(
 				error.message.includes(`OAuth token endpoint ${TOKEN_URL} answered 2xx without JSON`),
@@ -412,7 +442,7 @@ suite("provider/transport/auth", () => {
 			mswServer.use(http.post(TOKEN_URL, () => HttpResponse.json({ access_token: "tok\nInjected: x" })));
 			const source = new OAuthTokenSource();
 
-			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "http");
+			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "http");
 			assert.ok(error.message.includes("not allowed in an HTTP header value"), `unexpected message: ${error.message}`);
 			assert.ok(!error.message.includes("Injected"), "the invalid token value must not appear in the message");
 		});
@@ -421,35 +451,43 @@ suite("provider/transport/auth", () => {
 			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
 			const source = new OAuthTokenSource();
 
-			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 100), "timeout");
+			const error = await expectRequestError(
+				source.getToken(oauthConfig(), "discovery", discoveryBudget(100)),
+				"timeout"
+			);
 
 			assert.ok(error.message.includes("timed out after 100ms"), `unexpected message: ${error.message}`);
 			assert.ok(error.message.includes("discovery.timeout"), "the message must name the governing setting");
 		});
 
-		test("the exchange-timeout advice names each surface's true bound", async () => {
+		test("the exchange-timeout advice names the budget's own setting, never the surface's", async () => {
 			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
 
-			// The chat transport bounds the exchange by the discovery timeout too
-			// (chatClient passes it through; chat.timeout only interrupts via the
-			// outer signal and renders its own message there), so the chat surface
-			// keeps the discovery.timeout advice - naming chat.timeout would point
-			// at a setting that cannot extend this bound.
-			const chat = await expectRequestError(new OAuthTokenSource().getToken(oauthConfig(), "chat", 100), "timeout");
+			// The chat transport bounds the exchange by the discovery timeout
+			// (chat.timeout only interrupts via the outer signal and renders its
+			// own message there), so a chat-surface call carries the
+			// discovery.timeout identity - naming chat.timeout would point at a
+			// setting that cannot extend this bound. The identity rides the budget
+			// from the caller, so the advice cannot drift from the budget choice.
+			const chat = await expectRequestError(
+				new OAuthTokenSource().getToken(oauthConfig(), "chat", discoveryBudget(100)),
+				"timeout"
+			);
 			assert.ok(chat.message.includes("discovery.timeout"), `unexpected message: ${chat.message}`);
+			assert.ok(!chat.message.includes("chat.timeout"), "the chat surface's exchange is not bounded by chat.timeout");
 
-			// The commit call passes its chat.timeout whole-call budget through.
+			// The one-shot chat features pass their chat.timeout whole-call budget through.
 			const commit = await expectRequestError(
-				new OAuthTokenSource().getToken(oauthConfig(), "commitGeneration", 100),
+				new OAuthTokenSource().getToken(oauthConfig(), "commitGeneration", chatBudget(100)),
 				"timeout"
 			);
 			assert.ok(commit.message.includes("chat.timeout"), `unexpected message: ${commit.message}`);
 			assert.ok(!commit.message.includes("discovery.timeout"), "the commit bound is not the discovery timeout");
 
-			// The inline-completion bound is fixed in code (FIM_TIMEOUT_MS), so no
-			// setting is named - advice to raise one would be a lie.
+			// The inline-completion bound is fixed in code (FIM_TIMEOUT_MS), so its
+			// budget names no setting - advice to raise one would be a lie.
 			const completion = await expectRequestError(
-				new OAuthTokenSource().getToken(oauthConfig(), "completion", 100),
+				new OAuthTokenSource().getToken(oauthConfig(), "completion", fixedBudget(100)),
 				"timeout"
 			);
 			assert.ok(completion.message.includes("timed out after 100ms"), `unexpected message: ${completion.message}`);
@@ -467,11 +505,14 @@ suite("provider/transport/auth", () => {
 			const controller = new AbortController();
 			setTimeout(() => controller.abort(), 50);
 
-			await assert.rejects(source.getToken(oauthConfig(), "discovery", 5000, controller.signal), (error: unknown) => {
-				assert.ok(!(error instanceof RequestError), `the abort must be rethrown as-is, got: ${String(error)}`);
-				assert.ok(error instanceof Error && error.name === "AbortError", `expected AbortError, got ${String(error)}`);
-				return true;
-			});
+			await assert.rejects(
+				source.getToken(oauthConfig(), "discovery", discoveryBudget(), controller.signal),
+				(error: unknown) => {
+					assert.ok(!(error instanceof RequestError), `the abort must be rethrown as-is, got: ${String(error)}`);
+					assert.ok(error instanceof Error && error.name === "AbortError", `expected AbortError, got ${String(error)}`);
+					return true;
+				}
+			);
 		});
 	});
 
@@ -480,8 +521,8 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
 			const source = new OAuthTokenSource();
 
-			const first = await source.getToken(oauthConfig(), "discovery", 5000);
-			const second = await source.getToken(oauthConfig(), "discovery", 5000);
+			const first = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			const second = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 
 			assert.strictEqual(first, second);
 			assert.strictEqual(requests.length, 1);
@@ -491,11 +532,11 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
 			const source = new OAuthTokenSource();
 
-			const first = await source.getToken(oauthConfig(), "discovery", 5000);
+			const first = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			const realNow = Date.now;
 			Date.now = () => realNow() + 3600 * 1000;
 			try {
-				const second = await source.getToken(oauthConfig(), "discovery", 5000);
+				const second = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 				assert.notStrictEqual(second, first);
 			} finally {
 				Date.now = realNow;
@@ -507,12 +548,12 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 300 });
 			const source = new OAuthTokenSource();
 
-			await source.getToken(oauthConfig(), "discovery", 5000);
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			const realNow = Date.now;
 			// 250 s in: 50 s of nominal validity left, inside the 60 s skew.
 			Date.now = () => realNow() + 250 * 1000;
 			try {
-				await source.getToken(oauthConfig(), "discovery", 5000);
+				await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			} finally {
 				Date.now = realNow;
 			}
@@ -523,8 +564,8 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 30 });
 			const source = new OAuthTokenSource();
 
-			await source.getToken(oauthConfig(), "discovery", 5000);
-			await source.getToken(oauthConfig(), "discovery", 5000);
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 
 			assert.strictEqual(requests.length, 1, "a 30 s token must serve from cache for its first 15 s");
 		});
@@ -533,8 +574,8 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 0 });
 			const source = new OAuthTokenSource();
 
-			await source.getToken(oauthConfig(), "discovery", 5000);
-			await source.getToken(oauthConfig(), "discovery", 5000);
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 
 			assert.strictEqual(requests.length, 2, "an already-expired token must not be cached for the default lifetime");
 		});
@@ -543,8 +584,8 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint();
 			const source = new OAuthTokenSource();
 
-			await source.getToken(oauthConfig(), "discovery", 5000);
-			await source.getToken(oauthConfig(), "discovery", 5000);
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 
 			assert.strictEqual(requests.length, 1);
 		});
@@ -554,8 +595,8 @@ suite("provider/transport/auth", () => {
 			const source = new OAuthTokenSource();
 
 			const [first, second] = await Promise.all([
-				source.getToken(oauthConfig(), "discovery", 5000),
-				source.getToken(oauthConfig(), "discovery", 5000),
+				source.getToken(oauthConfig(), "discovery", discoveryBudget()),
+				source.getToken(oauthConfig(), "discovery", discoveryBudget()),
 			]);
 
 			assert.strictEqual(first, second);
@@ -575,9 +616,9 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			const starter = source.getToken(oauthConfig(), "discovery", 5000);
+			const starter = source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			const controller = new AbortController();
-			const joiner = source.getToken(oauthConfig(), "discovery", 5000, controller.signal);
+			const joiner = source.getToken(oauthConfig(), "discovery", discoveryBudget(), controller.signal);
 			controller.abort();
 
 			await assert.rejects(joiner, (error: unknown) => {
@@ -596,9 +637,9 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
 			const source = new OAuthTokenSource();
 
-			const first = await source.getToken(oauthConfig(), "discovery", 5000);
+			const first = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			source.invalidate(oauthConfig(), first);
-			const second = await source.getToken(oauthConfig(), "discovery", 5000);
+			const second = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 
 			assert.notStrictEqual(second, first);
 			assert.strictEqual(requests.length, 2);
@@ -608,10 +649,10 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
 			const source = new OAuthTokenSource();
 
-			const fresh = await source.getToken(oauthConfig(), "discovery", 5000);
+			const fresh = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			source.invalidate(oauthConfig(), "tok-stale");
 
-			assert.strictEqual(await source.getToken(oauthConfig(), "discovery", 5000), fresh);
+			assert.strictEqual(await source.getToken(oauthConfig(), "discovery", discoveryBudget()), fresh);
 			assert.strictEqual(requests.length, 1, "the fresh token must survive the stale rejection");
 		});
 
@@ -619,9 +660,9 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
 			const source = new OAuthTokenSource();
 
-			await source.getToken(oauthConfig(), "discovery", 5000);
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			source.invalidate(oauthConfig());
-			await source.getToken(oauthConfig(), "discovery", 5000);
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 
 			assert.strictEqual(requests.length, 2);
 		});
@@ -630,8 +671,8 @@ suite("provider/transport/auth", () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
 			const source = new OAuthTokenSource();
 
-			await source.getToken(oauthConfig(), "discovery", 5000);
-			await source.getToken(oauthConfig({ clientSecret: "rotated" }), "discovery", 5000);
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			await source.getToken(oauthConfig({ clientSecret: "rotated" }), "discovery", discoveryBudget());
 
 			assert.strictEqual(requests.length, 2);
 			assert.strictEqual(requests[1]?.client_secret, "rotated");
@@ -650,8 +691,8 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "auth");
-			assert.strictEqual(await source.getToken(oauthConfig(), "discovery", 5000), "tok-recovered");
+			await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
+			assert.strictEqual(await source.getToken(oauthConfig(), "discovery", discoveryBudget()), "tok-recovered");
 		});
 	});
 
@@ -662,8 +703,8 @@ suite("provider/transport/auth", () => {
 			const endpoint = gatedTokenEndpoint();
 			const source = new OAuthTokenSource();
 
-			const originator = source.getToken(oauthConfig(), "discovery", 20000);
-			const joiner = source.getToken(oauthConfig(), "commitGeneration", 100);
+			const originator = source.getToken(oauthConfig(), "discovery", discoveryBudget(20000));
+			const joiner = source.getToken(oauthConfig(), "commitGeneration", chatBudget(100));
 
 			// Race a 2s fuse instead of awaiting the joiner outright: a joiner that
 			// wrongly inherits the originator's 20000ms bound would otherwise hang
@@ -691,8 +732,8 @@ suite("provider/transport/auth", () => {
 			const endpoint = gatedTokenEndpoint();
 			const source = new OAuthTokenSource();
 
-			const discovery = source.getToken(oauthConfig(), "discovery", 5000);
-			const chat = source.getToken(oauthConfig(), "chat", 5000);
+			const discovery = source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			const chat = source.getToken(oauthConfig(), "chat", discoveryBudget());
 			await endpoint.whenRequested();
 			endpoint.respond(HttpResponse.json({ error: "invalid_client" }, { status: 401 }));
 
@@ -718,10 +759,10 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			// completion's fixed bound names no setting; the joiner's surface names
+			// completion's fixed bound names no setting; the joiner's budget names
 			// chat.timeout, so inherited rendering is distinguishable per waiter.
-			const originator = source.getToken(oauthConfig(), "completion", 100);
-			const joiner = source.getToken(oauthConfig(), "commitGeneration", 300);
+			const originator = source.getToken(oauthConfig(), "completion", fixedBudget(100));
+			const joiner = source.getToken(oauthConfig(), "commitGeneration", chatBudget(300));
 
 			const originatorError = await expectRequestError(originator, "timeout");
 			assert.ok(originatorError.message.includes("timed out after 100ms"), originatorError.message);
@@ -753,8 +794,8 @@ suite("provider/transport/auth", () => {
 			};
 			try {
 				const source = new OAuthTokenSource();
-				const originator = source.getToken(oauthConfig(), "discovery", 5000);
-				const joiner = source.getToken(oauthConfig(), "commitGeneration", 7000);
+				const originator = source.getToken(oauthConfig(), "discovery", discoveryBudget());
+				const joiner = source.getToken(oauthConfig(), "commitGeneration", chatBudget(7000));
 
 				const originatorError = await expectRequestError(originator, "timeout");
 				assert.ok(originatorError.message.includes("timed out after 5000ms"), originatorError.message);
@@ -773,10 +814,10 @@ suite("provider/transport/auth", () => {
 			const endpoint = gatedTokenEndpoint();
 			const source = new OAuthTokenSource();
 
-			const starter = source.getToken(oauthConfig(), "discovery", 5000);
+			const starter = source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			const controller = new AbortController();
-			const cancelled = source.getToken(oauthConfig(), "chat", 5000, controller.signal);
-			const patient = source.getToken(oauthConfig(), "commitGeneration", 5000);
+			const cancelled = source.getToken(oauthConfig(), "chat", discoveryBudget(), controller.signal);
+			const patient = source.getToken(oauthConfig(), "commitGeneration", chatBudget(5000));
 			controller.abort();
 
 			await assert.rejects(cancelled, (error: unknown) => {
@@ -797,8 +838,8 @@ suite("provider/transport/auth", () => {
 			const source = new OAuthTokenSource();
 
 			const controller = new AbortController();
-			const originator = source.getToken(oauthConfig(), "completion", 5000, controller.signal);
-			const joiner = source.getToken(oauthConfig(), "chat", 5000);
+			const originator = source.getToken(oauthConfig(), "completion", fixedBudget(5000), controller.signal);
+			const joiner = source.getToken(oauthConfig(), "chat", discoveryBudget());
 			await endpoint.whenRequested();
 			controller.abort();
 
@@ -824,7 +865,9 @@ suite("provider/transport/auth", () => {
 			const source = new OAuthTokenSource();
 
 			const surfaces = ["discovery", "chat", "commitGeneration", "consultTool", "completion"] as const;
-			const waiters = surfaces.map((surface, index) => source.getToken(oauthConfig(), surface, 5000 + index * 1000));
+			const waiters = surfaces.map((surface, index) =>
+				source.getToken(oauthConfig(), surface, discoveryBudget(5000 + index * 1000))
+			);
 			await endpoint.whenRequested();
 			endpoint.respond(tokenResponse());
 

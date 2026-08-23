@@ -4,7 +4,6 @@ import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../../provider";
 import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../../provider/catalog/groupDiscovery";
-import { groupClientId } from "../../../provider/catalog/groupModels";
 import type { AggregatedStatus } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
@@ -186,33 +185,6 @@ suite("provider/catalog/discoveryCache", () => {
 			cache.lookup("k", Number.MAX_SAFE_INTEGER),
 			undefined,
 			"a result loaded before the invalidate must not be stored after it"
-		);
-	});
-
-	test("dropStored() removes the stored entry but leaves an in-flight load storable", async () => {
-		const cache = new DiscoveryCache<string>(makeClock().now);
-		await cache.fetch("k", async () => "stale");
-		let release: (() => void) | undefined;
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-
-		const reload = cache.fetch("k", async () => {
-			await gate;
-			return "fresh";
-		});
-		// The corrector's move: discard the stale stored value while the fresh reload
-		// is in flight. Unlike invalidate(), the reload keeps its right to cache so
-		// concurrent correctors do not suppress each other.
-		cache.dropStored("k");
-		assert.strictEqual(cache.lookup("k", Number.MAX_SAFE_INTEGER), undefined, "the stored entry is gone");
-		expectDefined(release)();
-
-		assert.strictEqual(await reload, "fresh");
-		assert.strictEqual(
-			cache.lookup("k", Number.MAX_SAFE_INTEGER),
-			"fresh",
-			"the in-flight reload must still store its result"
 		);
 	});
 
@@ -453,15 +425,19 @@ suite("provider group discovery caching", () => {
 		countingHandlers();
 		const oldGroup = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "old-key" };
 		const newGroup = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "new-key" };
-		const internals = provider as unknown as { _discoveryCache: DiscoveryCache<unknown> };
+		// The peek reads through the SAME group+root key composition the serve
+		// and prune paths use, so this pin cannot drift from the real keys.
+		const internals = provider as unknown as {
+			_discoveryCache: DiscoveryCache<unknown>;
+			_discovery: { cacheKeyFor(groupServer: { baseUrl: string; apiKey: string }): string };
+		};
+		const lookup = (group: { baseUrl: string; apiKey: string }) =>
+			internals._discoveryCache.lookup(internals._discovery.cacheKeyFor(group), Number.MAX_SAFE_INTEGER);
 		const groupless = () => provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 
 		await groupless();
 		await provider.provideLanguageModelChatInformation(groupOptions(oldGroup), cancellation());
-		assert.notStrictEqual(
-			internals._discoveryCache.lookup(groupClientId(oldGroup), Number.MAX_SAFE_INTEGER),
-			undefined
-		);
+		assert.notStrictEqual(lookup(oldGroup), undefined);
 
 		// The rotated key stops the old identity from reporting; after its
 		// one-cycle grace the sweep's prune must take the cache entry with it.
@@ -470,14 +446,10 @@ suite("provider group discovery caching", () => {
 		await groupless();
 
 		assert.strictEqual(
-			internals._discoveryCache.lookup(groupClientId(oldGroup), Number.MAX_SAFE_INTEGER),
+			lookup(oldGroup),
 			undefined,
 			"the old key's entry embeds rotated-away credentials and must be pruned"
 		);
-		assert.notStrictEqual(
-			internals._discoveryCache.lookup(groupClientId(newGroup), Number.MAX_SAFE_INTEGER),
-			undefined,
-			"the live key's entry must survive the prune"
-		);
+		assert.notStrictEqual(lookup(newGroup), undefined, "the live key's entry must survive the prune");
 	});
 });

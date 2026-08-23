@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import type { TimeoutBudget } from "../../../provider/transport/auth";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import type { OneShotChatMessage, OneShotConnection } from "../../../provider/transport/oneShotClient";
 import { OneShotClient } from "../../../provider/transport/oneShotClient";
@@ -24,8 +25,10 @@ function connection(overrides: Partial<OneShotConnection> = {}): OneShotConnecti
 	return { baseUrl: TEST_BASE_URL, apiKey: "sk-test", headers: {}, ...overrides };
 }
 
-function callOptions(timeoutMs = 5000): { timeoutMs: number; token: vscode.CancellationToken } {
-	return { timeoutMs, token: new vscode.CancellationTokenSource().token };
+function callOptions(timeoutMs = 5000): { timeout: TimeoutBudget; token: vscode.CancellationToken } {
+	// A representative one-shot budget; the shipped caller-to-setting pairings
+	// are pinned by the mint census in authOverlayScope.test.ts, not here.
+	return { timeout: { ms: timeoutMs, setting: "chat.timeout" }, token: new vscode.CancellationTokenSource().token };
 }
 
 /** A completed non-streaming chat body carrying one assistant message. */
@@ -411,7 +414,7 @@ suite("provider/transport/oneShotClient", () => {
 			connection(),
 			{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
 			"commitGeneration",
-			{ timeoutMs: 5000, token: cts.token }
+			{ timeout: { ms: 5000, setting: "chat.timeout" }, token: cts.token }
 		);
 		setTimeout(() => cts.cancel(), 20);
 
@@ -684,7 +687,7 @@ suite("provider/transport/oneShotClient", () => {
 			const pending = client().authHeaders(
 				connection({ oauth: { tokenUrl: TOKEN_URL, clientId: "c", clientSecret: "s" } }),
 				"discovery",
-				{ timeoutMs: 5000, token: source.token }
+				{ timeout: { ms: 5000, setting: "discovery.timeout" }, token: source.token }
 			);
 			source.cancel();
 			await assert.rejects(() => pending, vscode.CancellationError);

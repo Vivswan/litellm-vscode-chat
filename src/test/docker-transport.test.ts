@@ -603,7 +603,7 @@ function fimCompletionSuite(): void {
 			const text = await client.completeFim(
 				{ baseUrl: BASE_URL, apiKey: API_KEY, headers: {} },
 				{ model: "codestral-fim", prompt, suffix, maxTokens: FIM_MAX_TOKENS },
-				{ timeoutMs: FIM_TIMEOUT_MS, token: new vscode.CancellationTokenSource().token }
+				{ timeout: { ms: FIM_TIMEOUT_MS, setting: undefined }, token: new vscode.CancellationTokenSource().token }
 			);
 			// The fake backend's deterministic echo: fim(<last 24 of prompt>|<first 12 of suffix>).
 			assert.strictEqual(text, `fim(${prompt.slice(-24)}|${suffix.slice(0, 12)})`);
@@ -644,7 +644,7 @@ function prGenerationSuite(): void {
 					{ baseUrl: BASE_URL, apiKey: API_KEY, headers: {} },
 					{ model: "gpt-5.2-mini", messages: [{ role: "user", content: prompt }] },
 					"prGeneration",
-					{ timeoutMs: 30000, token }
+					{ timeout: { ms: 30000, setting: "chat.timeout" }, token }
 				)
 			);
 			const result = await provider.provideTitleAndDescription(

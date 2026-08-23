@@ -54,7 +54,10 @@ function createFimSend(
 				...(wire.suffix !== undefined ? { suffix: wire.suffix } : {}),
 				maxTokens: FIM_MAX_TOKENS,
 			},
-			{ timeoutMs: FIM_TIMEOUT_MS, token }
+			// The FIM bound is fixed in code, so no setting rides the budget:
+			// timeout advice naming one would point at a setting that cannot
+			// raise this bound.
+			{ timeout: { ms: FIM_TIMEOUT_MS, setting: undefined }, token }
 		);
 	};
 }

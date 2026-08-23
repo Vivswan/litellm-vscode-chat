@@ -1,9 +1,10 @@
 import { APIConnectionError, APIError } from "openai";
 import * as vscode from "vscode";
 import { isRecord } from "../../shared/util/json";
-import type { OAuthConfig, VirtualKeyConfig } from "./auth";
+import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "./auth";
 import { OAuthTokenSource } from "./auth";
-import { applyAuthOverlay, invalidateRejectedOAuthToken, plainFetchBaseHeaders, setOwnedHeader } from "./authOverlay";
+import type { AuthOverlayScope } from "./authOverlay";
+import { applyAuthOverlay, plainFetchBaseHeaders, setOwnedHeader } from "./authOverlay";
 import { chatCompletionsUrl, completionsUrl } from "./clients";
 import type { MapErrorContext, TransportErrorSurface } from "./errorMapping";
 import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
@@ -81,8 +82,14 @@ export interface OneShotClientOptions {
 }
 
 export interface OneShotCallOptions {
-	/** Hard whole-call bound, the OAuth exchange and the body read included. */
-	readonly timeoutMs: number;
+	/**
+	 * Hard whole-call bound, the OAuth exchange and the body read included,
+	 * with the identity of the setting that owns it (undefined for fixed bounds
+	 * like the inline-completion timeout). Minted where the caller reads its
+	 * number, so exchange-timeout advice names the setting that really governs
+	 * this call's clock or none.
+	 */
+	readonly timeout: TimeoutBudget;
 	readonly token: vscode.CancellationToken;
 }
 
@@ -266,10 +273,10 @@ export class OneShotClient {
 	 *
 	 * When an exchange for the same credentials is already in flight for
 	 * another feature, getToken JOINS it, and the join stays this call's own:
-	 * it waits under this `timeoutMs`, reports failures through this surface,
-	 * and cancellation releases only this waiter. A join that has to recover -
-	 * the exchange died of its originator's own cancellation or clock - starts
-	 * a fresh exchange on a second full `timeoutMs` budget (auth.ts), which
+	 * it waits under this call's timeout budget, reports failures through this
+	 * surface, and cancellation releases only this waiter. A join that has to
+	 * recover - the exchange died of its originator's own cancellation or
+	 * clock - starts a fresh exchange on a second full budget (auth.ts), which
 	 * nothing here caps: that budget is the exchange's own, per the
 	 * per-request-bounds rule.
 	 */
@@ -286,10 +293,14 @@ export class OneShotClient {
 				userAgent: this.options.userAgent,
 				customHeaders: connection.headers,
 			});
+			// The overlay scope is deliberately dropped: no request of ours goes
+			// out with these headers (the editor sends them), so no rejection ever
+			// comes back here to route through fail - the documented pairless call
+			// site in the authOverlayScope census.
 			await applyAuthOverlay(headers, connection, {
 				tokens: this.oauthTokens,
 				surface,
-				timeoutMs: opts.timeoutMs,
+				timeout: opts.timeout,
 				signal: cancelController.signal,
 			});
 			return headers;
@@ -301,7 +312,7 @@ export class OneShotClient {
 			// anything else reaches the shared pipeline like a request's would.
 			throw err instanceof RequestError
 				? err
-				: mapSdkError(err, { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeoutMs });
+				: mapSdkError(err, { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeout.ms });
 		} finally {
 			cancelListener.dispose();
 		}
@@ -328,11 +339,11 @@ export class OneShotClient {
 		// with the whole-call timeout (the chatClient.send pattern).
 		const cancelController = new AbortController();
 		const cancelListener = opts.token.onCancellationRequested(() => cancelController.abort());
-		const timeoutSignal = AbortSignal.timeout(opts.timeoutMs);
+		const timeoutSignal = AbortSignal.timeout(opts.timeout.ms);
 		const requestSignal = AbortSignal.any([cancelController.signal, timeoutSignal]);
 		const scope: CallScope = { requestSignal, timeoutSignal, abort: () => cancelController.abort() };
-		const errorContext: MapErrorContext = { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeoutMs };
-		let sentOAuthToken: string | undefined;
+		const errorContext: MapErrorContext = { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeout.ms };
+		let auth: AuthOverlayScope | undefined;
 
 		try {
 			const headers = plainFetchBaseHeaders({
@@ -344,10 +355,10 @@ export class OneShotClient {
 			// that header the way it always has: what a credential displaces is
 			// not this refactor's to change.
 			setOwnedHeader(headers, "Content-Type", "application/json");
-			sentOAuthToken = await applyAuthOverlay(headers, connection, {
+			auth = await applyAuthOverlay(headers, connection, {
 				tokens: this.oauthTokens,
 				surface,
-				timeoutMs: opts.timeoutMs,
+				timeout: opts.timeout,
 				signal: requestSignal,
 			});
 			let response: Response;
@@ -390,7 +401,7 @@ export class OneShotClient {
 				throw timeoutRequestError(errorContext, err);
 			}
 			const mapped = mapSdkError(err, errorContext);
-			invalidateRejectedOAuthToken(this.oauthTokens, connection.oauth, mapped, sentOAuthToken);
+			auth?.fail(mapped);
 			throw mapped;
 		} finally {
 			cancelListener.dispose();

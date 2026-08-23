@@ -22,13 +22,10 @@
 import * as l10n from "@vscode/l10n";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { DISCOVERY_MAX_RETRIES } from "../../../provider/catalog/discovery";
-import type { OAuthConfig, VirtualKeyConfig } from "../../../provider/transport/auth";
+import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "../../../provider/transport/auth";
 import { OAuthTokenSource } from "../../../provider/transport/auth";
-import {
-	applyAuthOverlay,
-	invalidateRejectedOAuthToken,
-	plainFetchBaseHeaders,
-} from "../../../provider/transport/authOverlay";
+import type { AuthOverlayScope } from "../../../provider/transport/authOverlay";
+import { applyAuthOverlay, plainFetchBaseHeaders } from "../../../provider/transport/authOverlay";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
@@ -399,26 +396,27 @@ export class UsageClient {
 	 * connection's per-entry headers plus the per-request credentials the chat
 	 * path resolves the same way - the OAuth bearer token (skipped when the
 	 * virtual key owns the Authorization header) and the virtual-key header,
-	 * both applied by the shared overlay (authOverlay.ts). Returns the token
-	 * that actually went out so a 401 can invalidate exactly it.
+	 * both applied by the shared overlay (authOverlay.ts). Returns the overlay
+	 * scope alongside, so a 401 routes through it and invalidates exactly the
+	 * token that went out.
 	 */
 	private async resolveHeaders(
 		connection: UsageConnection,
-		timeoutMs: number,
+		timeout: TimeoutBudget,
 		signal: AbortSignal
-	): Promise<{ headers: Record<string, string>; sentOAuthToken: string | undefined }> {
+	): Promise<{ headers: Record<string, string>; auth: AuthOverlayScope }> {
 		const headers = plainFetchBaseHeaders({
 			apiKey: connection.apiKey,
 			userAgent: this.options.userAgent,
 			customHeaders: connection.headers,
 		});
-		const sentOAuthToken = await applyAuthOverlay(headers, connection, {
+		const auth = await applyAuthOverlay(headers, connection, {
 			tokens: this.oauthTokens,
 			surface: "discovery",
-			timeoutMs,
+			timeout,
 			signal,
 		});
-		return { headers, sentOAuthToken };
+		return { headers, auth };
 	}
 
 	/**
@@ -429,10 +427,14 @@ export class UsageClient {
 	 * as-is so the caller attributes it truthfully.
 	 */
 	private async getJson(connection: UsageConnection, url: string, outerSignal?: AbortSignal): Promise<unknown> {
-		const timeoutMs = this.getTimeoutMs();
+		// Minted at the one read of the clock: this whole-call bound is the
+		// discovery timeout (the class doc's transport convention), so the
+		// exchange-timeout advice names discovery.timeout.
+		const timeout: TimeoutBudget = { ms: this.getTimeoutMs(), setting: "discovery.timeout" };
+		const timeoutMs = timeout.ms;
 		const timeoutSignal = AbortSignal.timeout(timeoutMs);
 		const signal = outerSignal !== undefined ? AbortSignal.any([timeoutSignal, outerSignal]) : timeoutSignal;
-		const { headers, sentOAuthToken } = await this.resolveHeaders(connection, timeoutMs, signal);
+		const { headers, auth } = await this.resolveHeaders(connection, timeout, signal);
 
 		let lastFailure: unknown;
 		for (let attempt = 0; attempt <= DISCOVERY_MAX_RETRIES; attempt += 1) {
@@ -486,7 +488,7 @@ export class UsageClient {
 			}
 			// The server no longer accepts the token this call sent; the next poll
 			// performs a fresh exchange. This call itself never retries.
-			invalidateRejectedOAuthToken(this.oauthTokens, connection.oauth, failure, sentOAuthToken);
+			auth.fail(failure);
 			throw failure;
 		}
 

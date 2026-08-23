@@ -444,6 +444,46 @@ suite("extension/servers/usage spendClient", () => {
 		});
 	});
 
+	suite("OAuth 401 invalidation", () => {
+		test("a usage 401 routes through the overlay scope: the next poll performs a fresh exchange", async () => {
+			let exchanges = 0;
+			let usageCalls = 0;
+			mswServer.use(
+				http.post(TOKEN_URL, () => {
+					exchanges += 1;
+					return HttpResponse.json({ access_token: `tok-${exchanges}`, expires_in: 3600 });
+				}),
+				http.get(KEY_INFO_URL, ({ request }) => {
+					usageCalls += 1;
+					if (usageCalls === 1) {
+						return HttpResponse.json({ error: "key expired" }, { status: 401 });
+					}
+					return request.headers.get("authorization") === "Bearer tok-2"
+						? HttpResponse.json({ info: { spend: 4 } })
+						: HttpResponse.json({ error: "stale token" }, { status: 401 });
+				})
+			);
+			const usage = client();
+			const oauth = { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret-1" };
+			const conn = connection({ apiKey: "", oauth });
+
+			const error = await expectRequestError(usage.fetchKeyInfo(conn), "auth");
+			assert.strictEqual(error.status, 401);
+			assert.strictEqual(usageUnavailabilityOf(error), "forbidden", "a usage-endpoint 401 still reads as forbidden");
+			assert.strictEqual(exchanges, 1, "the rejected poll itself is never retried");
+
+			// The rejected token was dropped, so the next poll exchanges anew and
+			// succeeds with the fresh one.
+			const second = await usage.fetchKeyInfo(conn);
+			assert.strictEqual(exchanges, 2);
+			assert.strictEqual(second.spend, 4);
+
+			// An accepted token stays cached: no third exchange.
+			await usage.fetchKeyInfo(conn);
+			assert.strictEqual(exchanges, 2, "an accepted token must be served from cache, not re-exchanged");
+		});
+	});
+
 	suite("usageUnavailabilityOf", () => {
 		test("an OAuth token-endpoint rejection stays transient instead of reading as forbidden", async () => {
 			mswServer.use(

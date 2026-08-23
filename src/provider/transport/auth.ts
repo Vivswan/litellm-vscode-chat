@@ -49,6 +49,20 @@ export interface VirtualKeyConfig {
 export type OAuthErrorSurface = MapErrorContext["surface"];
 
 /**
+ * A hard time bound together with the identity of the setting that owns it,
+ * minted at the ONE place the number is read from configuration (or fixed in
+ * code) and passed through as a unit. Timeout advice renders from `setting`,
+ * so it can never name a setting that does not govern the elapsed clock -
+ * the drift a caller-side table of budget choices once shipped. `setting` is
+ * required but may be undefined: a fixed bound no setting can raise states
+ * that explicitly instead of omitting it.
+ */
+export interface TimeoutBudget {
+	readonly ms: number;
+	readonly setting: "chat.timeout" | "discovery.timeout" | undefined;
+}
+
+/**
  * Non-secret identity of a credential set: what makes OAuth credentials "the
  * same". Rotating any part (secret included) changes the key, so caches keyed
  * by it self-invalidate. JSON-encoded before hashing: the fields are free-form
@@ -95,9 +109,11 @@ export class OAuthTokenSource {
 
 	/**
 	 * The cached token while it is not yet due for refresh, otherwise a fresh
-	 * exchange bounded by `timeoutMs` (the calling transport's budget: the
-	 * discovery timeout on the chat and discovery paths, the one-shot callers'
-	 * whole-call budgets) and, when given, by `signal`. Concurrent calls for the
+	 * exchange bounded by `budget` (the calling transport's bound plus the
+	 * identity of the setting that owns it - the discovery timeout on the chat
+	 * and discovery paths, the one-shot callers' whole-call budgets; timeout
+	 * advice renders from that identity, so it names the budget's own setting
+	 * or none) and, when given, by `signal`. Concurrent calls for the
 	 * same credentials share ONE live exchange (one network call, one
 	 * invalidation path), but every waiter's bounds and error surface stay its
 	 * own: a caller that joins an exchange another call started waits on ITS
@@ -107,18 +123,18 @@ export class OAuthTokenSource {
 	 * died of its ORIGINATOR's own bounds (its cancellation or its clock) is
 	 * never surfaced to the other waiters: they fall through to a fresh join or
 	 * exchange instead, so no waiter ever renders a bound it did not own. Each
-	 * exchange gets its own fresh `timeoutMs` budget (the per-request-bounds
-	 * rule), so a call that recovers this way can take up to its join wait plus
-	 * one fresh exchange budget.
+	 * exchange gets its own fresh `budget` (the per-request-bounds rule), so a
+	 * call that recovers this way can take up to its join wait plus one fresh
+	 * exchange budget.
 	 */
 	async getToken(
 		config: OAuthConfig,
 		surface: OAuthErrorSurface,
-		timeoutMs: number,
+		budget: TimeoutBudget,
 		signal?: AbortSignal
 	): Promise<string> {
 		try {
-			return await this.acquireToken(config, surface, timeoutMs, signal);
+			return await this.acquireToken(config, budget, signal);
 		} catch (error) {
 			// The ONE render boundary: a surface-free exchange failure becomes
 			// this caller's error here, so the carrier cannot escape by
@@ -129,12 +145,7 @@ export class OAuthTokenSource {
 	}
 
 	/** getToken's acquisition walk; exchange failures may leave here as surface-free OAuthExchangeFailure carriers. */
-	private async acquireToken(
-		config: OAuthConfig,
-		surface: OAuthErrorSurface,
-		timeoutMs: number,
-		signal?: AbortSignal
-	): Promise<string> {
+	private async acquireToken(config: OAuthConfig, budget: TimeoutBudget, signal?: AbortSignal): Promise<string> {
 		const key = oauthCredentialFingerprint(config);
 		const cached = this.tokens.get(key);
 		if (cached && Date.now() < cached.refreshAtMs) {
@@ -144,7 +155,7 @@ export class OAuthTokenSource {
 		// every pass of the loop; an exchange this waiter originates runs on its
 		// own fresh budget instead (see getToken's doc). Neither cancels a shared
 		// exchange for its other waiters.
-		const waitTimeout = AbortSignal.timeout(timeoutMs);
+		const waitTimeout = AbortSignal.timeout(budget.ms);
 		const waitSignal = signal !== undefined ? AbortSignal.any([waitTimeout, signal]) : waitTimeout;
 		for (;;) {
 			// Re-read on every pass: a fall-through below may find the token a
@@ -162,13 +173,13 @@ export class OAuthTokenSource {
 				throw abortReason(signal);
 			}
 			if (waitTimeout.aborted) {
-				throw timeoutError(config.tokenUrl, surface, timeoutMs);
+				throw timeoutError(config.tokenUrl, budget);
 			}
 			const inFlight = this.pending.get(key);
 			if (inFlight === undefined) {
 				const exchange = (async () => {
 					try {
-						const { accessToken, expiresInSeconds } = await exchangeClientCredentials(config, timeoutMs, signal);
+						const { accessToken, expiresInSeconds } = await exchangeClientCredentials(config, budget, signal);
 						const lifetimeMs = expiresInSeconds * 1000;
 						const skewMs = Math.min(REFRESH_SKEW_MS, lifetimeMs / 2);
 						this.tokens.set(key, { accessToken, refreshAtMs: Date.now() + lifetimeMs - skewMs });
@@ -195,7 +206,7 @@ export class OAuthTokenSource {
 						throw abortReason(signal);
 					}
 					if (waitTimeout.aborted) {
-						throw timeoutError(config.tokenUrl, surface, timeoutMs, error);
+						throw timeoutError(config.tokenUrl, budget, error);
 					}
 					// The exchange rejects non-carriers only when its originator's
 					// own cancellation interrupted it - and either way, a reason
@@ -280,70 +291,57 @@ class OAuthExchangeFailure extends Error {
 }
 
 /**
- * Which setting actually bounds the OAuth exchange on each surface, because
- * `timeoutMs` is whatever the calling transport passed: the chat and discovery
- * paths both bound the exchange by "discovery.timeout" (auth plumbing with its
- * own budget, even when a chat triggers it), the one-shot chat callers pass
- * their "chat.timeout" whole-call budget through, and the inline-completion
- * call passes the fixed FIM bound no setting can raise - so that surface names
- * none.
- *
- * A total Record rather than a branch ladder: a ladder's fall-through silently
- * hands a new surface discovery's advice, which is advice to raise a setting
- * that does not bound it. This does not compile until a new surface says which
- * bound is its own.
+ * The exchange-timeout advice, naming the setting that owns the elapsed bound.
+ * The identity rides the TimeoutBudget from the ONE place each caller reads
+ * its number, so the advice cannot drift from the budget choice the way a
+ * per-surface table of "which setting bounds this caller" once did; a budget
+ * whose `setting` is undefined (the fixed inline-completion bound) names none,
+ * because advice to raise a setting that cannot extend the bound is a lie.
+ * An exhaustive switch rather than an if-ladder: a ladder's fall-through
+ * silently hands a new setting another setting's advice, while the
+ * satisfies-never default does not compile until the new member states its own.
  */
-const OAUTH_EXCHANGE_BOUND: Record<OAuthErrorSurface, "chat" | "discovery" | "fixed"> = {
-	chat: "discovery",
-	discovery: "discovery",
-	completion: "fixed",
-	commitGeneration: "chat",
-	consultTool: "chat",
-	prGeneration: "chat",
-	quickFix: "chat",
-	reviewComments: "chat",
-};
-
-/** The exchange-timeout advice, naming the surface's true bound (see OAUTH_EXCHANGE_BOUND). */
-function timeoutError(tokenUrl: string, surface: OAuthErrorSurface, timeoutMs: number, cause?: unknown): RequestError {
+function timeoutError(tokenUrl: string, budget: TimeoutBudget, cause?: unknown): RequestError {
 	const url = displayUrl(tokenUrl);
-	const bound = OAUTH_EXCHANGE_BOUND[surface];
 	// English mirrors ride each construction for the output channel and the
 	// issue-report buffer; the display message localizes.
-	if (bound === "fixed") {
-		return new RequestError(l10n.t("OAuth token request to {0} timed out after {1}ms.", url, timeoutMs), "timeout", {
-			cause,
-			englishMessage: `OAuth token request to ${url} timed out after ${timeoutMs}ms.`,
-		});
-	}
-	if (bound === "chat") {
-		return new RequestError(
-			l10n.t(
-				'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.chat.timeout" setting if your identity provider needs more time.',
-				url,
-				timeoutMs,
-				CONFIG_SECTION
-			),
-			"timeout",
-			{
+	switch (budget.setting) {
+		case undefined:
+			return new RequestError(l10n.t("OAuth token request to {0} timed out after {1}ms.", url, budget.ms), "timeout", {
 				cause,
-				englishMessage: `OAuth token request to ${url} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your identity provider needs more time.`,
-			}
-		);
+				englishMessage: `OAuth token request to ${url} timed out after ${budget.ms}ms.`,
+			});
+		case "chat.timeout":
+			return new RequestError(
+				l10n.t(
+					'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.chat.timeout" setting if your identity provider needs more time.',
+					url,
+					budget.ms,
+					CONFIG_SECTION
+				),
+				"timeout",
+				{
+					cause,
+					englishMessage: `OAuth token request to ${url} timed out after ${budget.ms}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your identity provider needs more time.`,
+				}
+			);
+		case "discovery.timeout":
+			return new RequestError(
+				l10n.t(
+					'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.discovery.timeout" setting if your identity provider needs more time.',
+					url,
+					budget.ms,
+					CONFIG_SECTION
+				),
+				"timeout",
+				{
+					cause,
+					englishMessage: `OAuth token request to ${url} timed out after ${budget.ms}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your identity provider needs more time.`,
+				}
+			);
+		default:
+			return budget.setting satisfies never;
 	}
-	return new RequestError(
-		l10n.t(
-			'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.discovery.timeout" setting if your identity provider needs more time.',
-			url,
-			timeoutMs,
-			CONFIG_SECTION
-		),
-		"timeout",
-		{
-			cause,
-			englishMessage: `OAuth token request to ${url} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your identity provider needs more time.`,
-		}
-	);
 }
 
 /**
@@ -450,7 +448,7 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 /**
  * POST the client-credentials grant to the token endpoint. Network failures
  * and 5xx responses are retried up to the discovery cap because the exchange
- * is idempotent; `timeoutMs` is a hard bound across all attempts, and an abort
+ * is idempotent; `budget.ms` is a hard bound across all attempts, and an abort
  * of the caller's `signal` interrupts the exchange and is rethrown as-is so
  * the caller attributes it truthfully. Credential rejections (400/401/403) and
  * malformed responses fail immediately with distinct messages. The exchange is
@@ -461,10 +459,10 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,
-	timeoutMs: number,
+	budget: TimeoutBudget,
 	outerSignal?: AbortSignal
 ): Promise<{ accessToken: string; expiresInSeconds: number }> {
-	const timeoutSignal = AbortSignal.timeout(timeoutMs);
+	const timeoutSignal = AbortSignal.timeout(budget.ms);
 	const signal = outerSignal !== undefined ? AbortSignal.any([timeoutSignal, outerSignal]) : timeoutSignal;
 	const form = new URLSearchParams({
 		grant_type: "client_credentials",
@@ -490,8 +488,7 @@ async function exchangeClientCredentials(
 					(surface) =>
 						timeoutError(
 							config.tokenUrl,
-							surface,
-							timeoutMs,
+							budget,
 							failure instanceof OAuthExchangeFailure ? failure.render(surface) : failure
 						),
 					true
@@ -514,7 +511,7 @@ async function exchangeClientCredentials(
 				throw error;
 			}
 			if (timeoutSignal.aborted) {
-				throw new OAuthExchangeFailure((surface) => timeoutError(config.tokenUrl, surface, timeoutMs, error), true);
+				throw new OAuthExchangeFailure(() => timeoutError(config.tokenUrl, budget, error), true);
 			}
 			lastFailure = error;
 			continue;
@@ -615,7 +612,7 @@ async function exchangeClientCredentials(
 	throw new OAuthExchangeFailure(
 		(surface) =>
 			socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
-				timeoutError(config.tokenUrl, surface, timeoutMs, failure)
+				timeoutError(config.tokenUrl, budget, failure)
 			),
 		socketFailureIsTimeout(failure)
 	);

@@ -270,11 +270,24 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/**
 	 * Evict per-server state for servers no longer being served: SDK clients
 	 * and cached discovery results move in lockstep, because both embed the
-	 * server's credentials (a rotated key mints a new group client ID).
+	 * server's credentials (a rotated key mints a new group client ID). The
+	 * discovery cache keys compose the group ID with the effective API root
+	 * (GroupDiscovery.cacheKeyFor), so its keep-set is built through the same
+	 * composition: a kept group keeps exactly its current-root entry, and an
+	 * entry a root rotation left unreachable ages out here. A kept ID the
+	 * status window cannot resolve (never observed today: every windowed ID
+	 * carries its group server) contributes no key, which fails safe - the
+	 * worst case is one extra discovery round trip, never a wrongly kept
+	 * credential-bearing entry.
 	 */
 	private pruneServerCaches(keep: readonly string[]): void {
 		this._client.pruneClients(keep);
-		this._discoveryCache.prune(keep);
+		this._discoveryCache.prune(
+			keep.flatMap((serverId) => {
+				const groupServer = this._statusWindow.getGroupServer(serverId);
+				return groupServer !== undefined ? [this._discovery.cacheKeyFor(groupServer)] : [];
+			})
+		);
 		this._resolution.prune(keep);
 	}
 

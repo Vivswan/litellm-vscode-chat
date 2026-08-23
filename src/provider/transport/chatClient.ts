@@ -24,8 +24,15 @@ import { fetchModels } from "../catalog/discovery";
 import type { GroupServer, LiteLLMModelInfo } from "../catalog/groupModels";
 import { groupClientId, parseModelMetadata } from "../catalog/groupModels";
 import { requestParamsFromModelConfiguration } from "../catalog/modelConfiguration";
-import { type OAuthConfig, type OAuthErrorSurface, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
-import { applyAuthOverlay, invalidateRejectedOAuthToken } from "./authOverlay";
+import {
+	type OAuthConfig,
+	type OAuthErrorSurface,
+	OAuthTokenSource,
+	type TimeoutBudget,
+	type VirtualKeyConfig,
+} from "./auth";
+import type { AuthOverlayScope } from "./authOverlay";
+import { applyAuthOverlay } from "./authOverlay";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
 import { bodylessResponseError, mapSdkError, timeoutRequestError } from "./errorMapping";
 import { buildRequestBody, resolveMaxTokens } from "./request";
@@ -181,7 +188,10 @@ export class ChatClient {
 			userAgent: this.userAgent,
 			customHeaders,
 		});
-		const { headers, sentOAuthToken } = await this.resolveAuthHeaders(server, "discovery", discoveryTimeout);
+		const { headers, auth } = await this.resolveAuthHeaders(server, "discovery", {
+			ms: discoveryTimeout,
+			setting: "discovery.timeout",
+		});
 		try {
 			return await fetchModels({
 				client,
@@ -194,7 +204,7 @@ export class ChatClient {
 				...(headers !== undefined ? { headers } : {}),
 			});
 		} catch (error) {
-			invalidateRejectedOAuthToken(this.oauthTokens, server.oauth, error, sentOAuthToken);
+			auth.fail(error);
 			throw error;
 		}
 	}
@@ -202,31 +212,31 @@ export class ChatClient {
 	/**
 	 * Per-request credentials the cached SDK client cannot carry statically:
 	 * the OAuth bearer token and the virtual-key header, applied by the shared
-	 * overlay (authOverlay.ts) that also serves the plain-fetch transports. The
-	 * token exchange is bounded by the discovery timeout on both surfaces this
-	 * client serves (it is auth plumbing, not a chat call) and additionally by
-	 * `signal` when the triggering call carries one, so user cancellation and
-	 * the chat timeout interrupt it too.
+	 * overlay (authOverlay.ts) that also serves the plain-fetch transports. Both
+	 * surfaces this client serves bound the exchange by the discovery timeout
+	 * (it is auth plumbing, not a chat call), so `timeout` arrives minted at the
+	 * caller's getDiscoveryTimeout read; `signal`, when the triggering call
+	 * carries one, additionally interrupts the exchange, so user cancellation
+	 * and the chat timeout cut in too.
 	 *
-	 * `sentOAuthToken` is the bearer token the returned headers actually carry,
-	 * captured here so a later 401 never has to re-parse it out of the
-	 * Authorization header. When the virtual key owns that header no token is
-	 * exchanged or sent, and the field is undefined.
+	 * `auth` is the overlay scope owning 401 invalidation for the very token
+	 * the returned headers carry; the caller routes the request's classified
+	 * failure through `auth.fail`.
 	 */
 	private async resolveAuthHeaders(
 		credentials: { oauth?: OAuthConfig | undefined; virtualKey?: VirtualKeyConfig | undefined },
 		surface: OAuthErrorSurface,
-		discoveryTimeout: number,
+		timeout: TimeoutBudget,
 		signal?: AbortSignal
-	): Promise<{ headers: Record<string, string> | undefined; sentOAuthToken: string | undefined }> {
+	): Promise<{ headers: Record<string, string> | undefined; auth: AuthOverlayScope }> {
 		const headers: Record<string, string> = {};
-		const sentOAuthToken = await applyAuthOverlay(headers, credentials, {
+		const auth = await applyAuthOverlay(headers, credentials, {
 			tokens: this.oauthTokens,
 			surface,
-			timeoutMs: discoveryTimeout,
+			timeout,
 			signal,
 		});
-		return { headers: Object.keys(headers).length > 0 ? headers : undefined, sentOAuthToken };
+		return { headers: Object.keys(headers).length > 0 ? headers : undefined, auth };
 	}
 
 	/**
@@ -406,16 +416,16 @@ export class ChatClient {
 		const timeoutSignal = AbortSignal.timeout(requestTimeout);
 		const requestSignal = AbortSignal.any([cancelController.signal, timeoutSignal]);
 		const errorContext = { surface: "chat" as const, baseUrl: connection.baseUrl, timeoutMs: requestTimeout };
-		let sentOAuthToken: string | undefined;
+		let auth: AuthOverlayScope | undefined;
 
 		try {
 			const resolvedAuth = await this.resolveAuthHeaders(
 				{ oauth: connection.oauth, virtualKey: connection.virtualKey },
 				"chat",
-				getDiscoveryTimeout(this.log),
+				{ ms: getDiscoveryTimeout(this.log), setting: "discovery.timeout" },
 				requestSignal
 			);
-			sentOAuthToken = resolvedAuth.sentOAuthToken;
+			auth = resolvedAuth.auth;
 			const response = await client
 				.post(CHAT_COMPLETIONS_PATH, {
 					body: requestBody,
@@ -446,7 +456,7 @@ export class ChatClient {
 				throw timeoutRequestError(errorContext, err);
 			}
 			const mapped = mapSdkError(err, errorContext);
-			invalidateRejectedOAuthToken(this.oauthTokens, connection.oauth, mapped, sentOAuthToken);
+			auth?.fail(mapped);
 			throw mapped;
 		} finally {
 			cancelListener.dispose();

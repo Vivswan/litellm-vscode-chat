@@ -115,8 +115,9 @@ suite("provider server snapshots", () => {
 	});
 
 	test("an apiVersion edit misses the discovery cache instead of serving the old root's models", async () => {
-		// The cache key (group client ID) deliberately excludes apiVersion, so the
-		// stored entry's apiRoot is what keeps an edit from serving stale models.
+		// The cache key composes the group client ID with the effective API root
+		// (the group configuration alone cannot cover apiVersion), so an edit
+		// lands on a fresh key and the old root's entry is unreachable.
 		let apiVersion: string | undefined;
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryApiVersion: () => apiVersion,
@@ -149,10 +150,10 @@ suite("provider server snapshots", () => {
 	});
 
 	test("a serve that joins an in-flight old-root discovery refetches at the new root", async () => {
-		// Single-flight is keyed by group ID alone: without the post-await root check, a
-		// refresh arriving mid-flight would join the old root's discovery and serve its
-		// models once. Two concurrent joiners pin the dropStored subtlety: the second
-		// corrector must join the first's fresh reload without stripping its right to cache.
+		// Single-flight is keyed by the composed group+root cache key: a refresh
+		// arriving mid-flight after the apiVersion changed resolves a NEW key, so
+		// it can never join the old root's discovery - it starts (or joins) the
+		// corrected root's own fetch, and concurrent joiners share that one.
 		let apiVersion: string | undefined;
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryApiVersion: () => apiVersion,
@@ -186,6 +187,117 @@ suite("provider server snapshots", () => {
 
 		await provider.provideLanguageModelChatInformation(configuration, cancellation());
 		assert.strictEqual(rootHits, 1, "the corrected result must have been cached for the follow-up serve");
+	});
+
+	test("a root-rotated cache entry ages out at the prune instead of lingering with the old root's models", async () => {
+		// The prune keep-set composes through the SAME group+root key the serve
+		// path uses: after an apiVersion edit, the old root's entry is
+		// unreachable, and the next prune must drop it - kept alive, a revert of
+		// the edit would resurrect stale models without a network round trip.
+		let apiVersion: string | undefined;
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getEntryApiVersion: () => apiVersion,
+		});
+		let versionedHits = 0;
+		let rootHits = 0;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => {
+				versionedHits += 1;
+				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			}),
+			http.get(`${TEST_BASE_URL}/model/info`, () => {
+				rootHits += 1;
+				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			})
+		);
+		const configuration = groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k", label: "prod" });
+
+		await provider.provideLanguageModelChatInformation(configuration, cancellation());
+		assert.strictEqual(versionedHits, 1);
+
+		apiVersion = "";
+		await provider.provideLanguageModelChatInformation(configuration, cancellation());
+		assert.strictEqual(rootHits, 1);
+
+		// The group-agnostic sweep prunes with the live window's composed keys:
+		// only the CURRENT root's entry survives for this group.
+		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+		await provider.provideLanguageModelChatInformation(configuration, cancellation());
+		assert.strictEqual(rootHits, 1, "the current root's entry must survive the prune and serve from cache");
+
+		apiVersion = undefined;
+		await provider.provideLanguageModelChatInformation(configuration, cancellation());
+		assert.strictEqual(versionedHits, 2, "the reverted root must refetch: its pre-rotation entry was pruned");
+	});
+
+	test("an old-root fetch finishing late cannot clobber the new root's cache entry", async () => {
+		// The rotation race: a serve starts at the old root, the apiVersion
+		// changes, a serve at the new root completes and caches - then the old
+		// fetch lands. Under one shared per-group key its late store would
+		// overwrite the new entry (forcing the next serve back to the network);
+		// under the composed group+root key it parks unreachable beneath the old
+		// key, the new entry keeps serving, and the next prune clears the parked
+		// store.
+		let apiVersion: string | undefined;
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getEntryApiVersion: () => apiVersion,
+		});
+		let releaseOld = (): void => {};
+		const gate = new Promise<void>((resolve) => {
+			releaseOld = resolve;
+		});
+		const ROOT_PAYLOAD = {
+			data: [
+				{
+					model_name: "root-model",
+					model_info: {
+						id: "root-model",
+						supports_function_calling: true,
+						max_input_tokens: 1000,
+						max_output_tokens: 100,
+					},
+				},
+			],
+		};
+		let rootHits = 0;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, async () => {
+				await gate;
+				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			}),
+			http.get(`${TEST_BASE_URL}/model/info`, () => {
+				rootHits += 1;
+				return HttpResponse.json(ROOT_PAYLOAD);
+			})
+		);
+		const configuration = groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k", label: "prod" });
+
+		const oldServe = provider.provideLanguageModelChatInformation(configuration, cancellation());
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		apiVersion = "";
+		const fresh = await provider.provideLanguageModelChatInformation(configuration, cancellation());
+		assert.strictEqual(expectDefined(fresh[0]).id, "root-model");
+		assert.strictEqual(rootHits, 1);
+
+		releaseOld();
+		const stale = await oldServe;
+		// The pre-edit caller gets the root its call was configured for when it
+		// started; correcting a call mid-flight would serve a config it never read.
+		assert.strictEqual(expectDefined(stale[0]).id, "test-model");
+		// But the shared record is NOT the late serve's to overwrite: the status
+		// window (and with it the stale-serve anchor) must keep the newer root's
+		// models, so the old-root completion yields the record to the current
+		// configuration.
+		const snapshot = expectDefined(provider.getServerSnapshots()[0]);
+		assert.strictEqual(
+			expectDefined(snapshot.models[0]).id,
+			"root-model",
+			"a late old-root record must not overwrite the newer root's status"
+		);
+
+		const followUp = await provider.provideLanguageModelChatInformation(configuration, cancellation());
+		assert.strictEqual(rootHits, 1, "the late old-root store must not evict or replace the new root's entry");
+		assert.strictEqual(expectDefined(followUp[0]).id, "root-model");
 	});
 
 	test("a mid-outage declared ID the last discovery listed stays inert against the stale serve", async () => {

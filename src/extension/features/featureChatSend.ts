@@ -43,7 +43,9 @@ export async function featureChatSend(
 		{ model: ref.model, messages },
 		FEATURE_ERROR_SURFACE[feature],
 		{
-			timeoutMs: getRequestTimeout(log),
+			// Minted where the number is read: this whole-call bound is the chat
+			// request timeout, so timeout advice names chat.timeout.
+			timeout: { ms: getRequestTimeout(log), setting: "chat.timeout" },
 			token,
 		}
 	);

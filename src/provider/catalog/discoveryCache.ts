@@ -2,11 +2,13 @@
  * Single-flight + TTL cache for per-group model discovery: concurrent loads
  * for one key share a single network call.
  *
- * Keys are group client IDs fingerprinting base URL and credentials, so a
- * result fetched with old credentials is never served for new ones. Freshness
- * is decided at read time - a lowered TTL takes effect immediately, and a TTL
- * of 0 disables serving from the store without disabling coalescing - and
- * failed loads are never stored.
+ * Keys are discoveryCacheKey compositions - the group client ID
+ * (fingerprinting base URL and credentials) plus the effective API root - so
+ * a result fetched with old credentials or from a rotated root is never
+ * served for the current configuration. Freshness is decided at read time -
+ * a lowered TTL takes effect immediately, and a TTL of 0 disables serving
+ * from the store without disabling coalescing - and failed loads are never
+ * stored.
  */
 export class DiscoveryCache<T> {
 	private readonly entries = new Map<string, { value: T; storedAt: number }>();
@@ -70,16 +72,6 @@ export class DiscoveryCache<T> {
 		if (pending !== undefined) {
 			pending.guard.storeAllowed = false;
 		}
-	}
-
-	/**
-	 * Drop ONLY the stored result for `key`, leaving in-flight loads storable:
-	 * for callers correcting a COMPLETED load whose result was stale
-	 * configuration, so concurrent correctors converge on one stored fresh
-	 * result instead of suppressing each other's.
-	 */
-	dropStored(key: string): void {
-		this.entries.delete(key);
 	}
 
 	/**

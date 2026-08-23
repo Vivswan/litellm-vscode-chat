@@ -7,7 +7,7 @@ import {
 	AuthenticationError,
 } from "openai";
 import { CancellationError, LanguageModelError } from "vscode";
-import { OAuthTokenSource } from "../../../provider/transport/auth";
+import { OAuthTokenSource, type TimeoutBudget } from "../../../provider/transport/auth";
 import {
 	type MapErrorContext,
 	mapSdkError,
@@ -563,7 +563,8 @@ suite("provider/transport/errorMapping", () => {
 		/** Drive the OAuth exchange's socket-failure tail: fetch rejects with the synthetic failure on every retry. */
 		async function oauthSocketFailure(
 			makeFailure: () => unknown,
-			surface: MapErrorContext["surface"] = "chat"
+			surface: MapErrorContext["surface"] = "chat",
+			budget: TimeoutBudget = { ms: 5000, setting: "discovery.timeout" }
 		): Promise<RequestError> {
 			const realFetch = globalThis.fetch;
 			globalThis.fetch = () => Promise.reject(makeFailure());
@@ -571,7 +572,7 @@ suite("provider/transport/errorMapping", () => {
 				await new OAuthTokenSource().getToken(
 					{ tokenUrl: URL_UNDER_TEST, clientId: "client-1", clientSecret: "secret-1" },
 					surface,
-					5000
+					budget
 				);
 			} catch (error) {
 				assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
@@ -757,37 +758,43 @@ suite("provider/transport/errorMapping", () => {
 			);
 		});
 
-		test("the exchange-timeout advice names the bound that is actually the surface's, on every surface", async () => {
-			// The exchange inherits its caller's budget, so the advice has to name
-			// THAT setting. A ladder with a fall-through default silently hands a
-			// new surface discovery's advice - advice to raise a setting that does
-			// not bound it - so every surface is pinned here, derived from the copy
-			// table's own key list.
-			const expected: Record<MapErrorContext["surface"], string> = {
-				chat: 'Increase the "litellm-vscode-chat.discovery.timeout" setting',
-				discovery: 'Increase the "litellm-vscode-chat.discovery.timeout" setting',
-				// The inline-completion bound is fixed in code; naming a setting would be a lie.
-				completion: "",
-				commitGeneration: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
-				consultTool: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
-				prGeneration: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
-				quickFix: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
-				reviewComments: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
-			};
-			assert.deepStrictEqual([...Object.keys(expected)].sort(), [...TRANSPORT_ERROR_SURFACES].sort());
-			for (const surface of TRANSPORT_ERROR_SURFACES) {
+		test("the exchange-timeout advice follows the budget's setting on every surface, never the surface itself", async () => {
+			// The advice identity rides the TimeoutBudget from the caller that
+			// read the number, so a surface can never smuggle in advice for a
+			// setting that does not bound its exchange. Every surface (derived
+			// from the copy table's own key list, so the sweep stays total when a
+			// row is added) runs under a rotated budget identity: the cross pairs
+			// (a chat-timeout budget on the discovery surface, a fixed budget on a
+			// chat feature's surface) prove the surface plays no part.
+			const budgets: { budget: TimeoutBudget; advice: string }[] = [
+				{
+					budget: { ms: 5000, setting: "discovery.timeout" },
+					advice: 'Increase the "litellm-vscode-chat.discovery.timeout" setting',
+				},
+				{
+					budget: { ms: 5000, setting: "chat.timeout" },
+					advice: 'Increase the "litellm-vscode-chat.chat.timeout" setting',
+				},
+				// A fixed bound names no setting; advice to raise one would be a lie.
+				{ budget: { ms: 5000, setting: undefined }, advice: "" },
+			];
+			for (const [index, surface] of TRANSPORT_ERROR_SURFACES.entries()) {
+				const { budget, advice } = budgets[index % budgets.length] as (typeof budgets)[number];
 				const timedOut = await oauthSocketFailure(
 					() => fetchFailure(new DOMException("The operation was aborted due to timeout", "TimeoutError")),
-					surface
+					surface,
+					budget
 				);
 				assert.strictEqual(timedOut.kind, "timeout", surface);
 				assert.ok(
 					timedOut.message.startsWith("OAuth token request to http://litellm.test timed out after 5000ms."),
 					surface
 				);
-				const advice = expected[surface];
 				if (advice === "") {
-					assert.ok(!timedOut.message.includes("setting"), `${surface} must name no setting: ${timedOut.message}`);
+					assert.ok(
+						!timedOut.message.includes("setting"),
+						`${surface} under a fixed budget must name no setting: ${timedOut.message}`
+					);
 				} else {
 					assert.ok(timedOut.message.includes(advice), `${surface}: ${timedOut.message}`);
 				}

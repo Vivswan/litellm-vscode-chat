@@ -40,19 +40,14 @@ type RecordAndServe = {
  * inertness - the registered infos alone may hold only synthetic variants
  * (`foo:cheapest`) of a discovered `foo`, and a declared `foo` must stay
  * inert. The cache stays configuration-free: overrides and declared models
- * are applied where models are served, never stored.
+ * are applied where models are served, never stored. The effective API root
+ * the models were fetched from is part of the cache KEY (discoveryCacheKey),
+ * not the value, so an entry from a rotated root is unreachable by
+ * construction rather than checked for.
  */
 export interface DiscoveredGroupModels {
 	readonly infos: readonly PreAttachModelInfo[];
 	readonly discoveredRawIds: readonly string[];
-	/**
-	 * The API root the models were fetched from. The cache key (the group
-	 * client ID) does not cover the entry's apiVersion - it lives outside the
-	 * group configuration - so a serve whose effective root differs treats the
-	 * entry as a miss instead of serving models from the old root for the rest
-	 * of the TTL.
-	 */
-	readonly apiRoot: string;
 	/** See FetchModelsResult.observedModelInfoKeys; rides the cache so cached serves re-report it. */
 	readonly observedModelInfoKeys?: readonly string[];
 	/**
@@ -64,6 +59,24 @@ export interface DiscoveredGroupModels {
 	readonly modelInfoUnsupported?: UnservedEndpointEvidence;
 }
 
+/**
+ * The discovery cache key for one group at one effective API root: the group
+ * client ID (base URL plus credentials, so a rotation lands on a fresh entry)
+ * composed with the root the models are actually fetched from (the entry's
+ * apiVersion lives outside the group configuration, so the ID alone cannot
+ * cover it). Every cache touch - lookups, loads, invalidation, and the prune
+ * keep-set - must compose through here: an entry keyed under a rotated root is
+ * unreachable, and pruning by the same composition is what ages it out.
+ * JSON-encoded rather than delimiter-joined: both halves are free-form
+ * strings (the client ID embeds the base URL, the root embeds the user's
+ * apiVersion verbatim), and a delimiter would let content shifted across the
+ * boundary collide - the oauthCredentialFingerprint rule.
+ * Module-private with cacheKeyFor as the one consumer-facing composition.
+ */
+function discoveryCacheKey(groupClientId: string, apiRoot: string): string {
+	return JSON.stringify([groupClientId, apiRoot]);
+}
+
 export interface GroupDiscoveryOptions {
 	/** The transport's model listing; its errors arrive unlogged and are logged once here at the boundary. */
 	client: Pick<ChatClient, "fetchModels">;
@@ -73,9 +86,10 @@ export interface GroupDiscoveryOptions {
 	window: Pick<StatusWindow, "staleServableModels">;
 	decorator: ServedModelDecorator;
 	/**
-	 * The same apiVersion resolver ChatClient consumes, kept here for the
-	 * discovery cache's root check: a cached result carries the API root it
-	 * was fetched from, and a serve resolving to a different root must miss.
+	 * The same apiVersion resolver ChatClient consumes, kept here so the
+	 * discovery cache key can compose the effective API root a serve would
+	 * fetch from: a serve resolving to a different root lands on a different
+	 * key and misses by construction.
 	 */
 	getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
 	/** Per-entry expectedFailures resolver, matched by label and normalized base URL. */
@@ -113,6 +127,25 @@ export class GroupDiscovery {
 	}
 
 	/**
+	 * The cache key this group's discovery results live under right now: the
+	 * group client ID composed with the effective API root, resolved exactly
+	 * the way the transport resolves it (only a labeled group can match an
+	 * entry). The facade builds its prune keep-set through this same method,
+	 * so an entry keyed under a rotated root - unreachable to every serve -
+	 * ages out at the next prune instead of lingering with the old root's
+	 * models.
+	 */
+	cacheKeyFor(groupServer: GroupServer): string {
+		const apiRoot = apiRootOf(
+			groupServer.baseUrl,
+			groupServer.label !== undefined
+				? this._options.getEntryApiVersion(groupServer.label, groupServer.baseUrl)
+				: undefined
+		);
+		return discoveryCacheKey(groupClientId(groupServer), apiRoot);
+	}
+
+	/**
 	 * Resolve one group's models, preferring the discovery cache: a fresh
 	 * cached result is served without a network call but still reports its
 	 * remembered outcome, so the merged status (and the cycle bookkeeping that
@@ -141,14 +174,42 @@ export class GroupDiscovery {
 		};
 		const attach = (infos: readonly PreAttachModelInfo[]): AttachedModelInfo[] =>
 			infos.map((info) => attachGroupServer(info, groupServer));
-		// Every outcome records and serves through here: the reporter gets exactly
+		// The composed cache key covers the effective API root alongside the
+		// group identity, so an apiVersion edit lands on a fresh key: a stored
+		// result from a rotated root is unreachable rather than checked for, and
+		// a serve can never join an in-flight load fetching a different root.
+		// Computed before recordAndServe because it doubles as this serve's
+		// configuration stamp there.
+		const cacheKey = this.cacheKeyFor(groupServer);
+		// Every path records and serves through here: the reporter gets exactly
 		// the served pair the return value carries, and both outcome counts derive
 		// from the same pair, so no branch can record one set and serve another.
+		// The one outcome that serves WITHOUT recording is the rotated-
+		// configuration yield below.
 		const recordAndServe: RecordAndServe = (
 			served: ServedModelSets,
 			outcome: OkServeShape | FailureServeShape,
 			observations: DiscoveryObservations = {}
 		): AttachedServe => {
+			const discovered = attach(served.discovered);
+			const declared = attach(served.declared);
+			// A serve whose configuration rotated while its fetch was in flight
+			// yields the record: composed keys let the old and new roots' fetches
+			// run concurrently (the old join choreography incidentally ordered
+			// them), so a late old-root completion recording here would overwrite
+			// the newer root's models and stale-serve anchor in the status window.
+			// The CALLER still gets the models its call was configured for when it
+			// started; only the shared record defers to the current configuration
+			// (a racing serve already recorded it, or the next sweep will).
+			if (this.cacheKeyFor(groupServer) !== cacheKey) {
+				this._options.log(
+					"Discovery finished for a rotated configuration; leaving the group record to the current one",
+					{
+						baseUrl: server.baseUrl,
+					}
+				);
+				return { served: [...discovered, ...declared], discovered, declared };
+			}
 			// The one served-count derivation: both states record exactly what this
 			// serve hands out, so a failure still serving stale or declared models
 			// stays visible to the merged count and every verdict.
@@ -175,8 +236,6 @@ export class GroupDiscovery {
 					served
 				);
 			}
-			const discovered = attach(served.discovered);
-			const declared = attach(served.declared);
 			return { served: [...discovered, ...declared], discovered, declared };
 		};
 
@@ -191,14 +250,6 @@ export class GroupDiscovery {
 			return recordAndServe({ discovered: [], declared: [] }, { state: "ok", hiddenByRemoval: true }).served;
 		}
 
-		// The effective API root, resolved exactly the way the transport
-		// resolves it (only a labeled group can match an entry). Computed
-		// before the cache read: a cached result from a different root is
-		// stale configuration, not a hit.
-		const effectiveApiRoot = apiRootOf(
-			server.baseUrl,
-			groupServer.label !== undefined ? this._options.getEntryApiVersion(groupServer.label, server.baseUrl) : undefined
-		);
 		// Resolved before the cache read: the ok-path hint below gates on the
 		// entry's CURRENT declarations, cached serve or fresh.
 		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
@@ -210,17 +261,11 @@ export class GroupDiscovery {
 				? { modelInfoUnsupported: discovered.modelInfoUnsupported }
 				: {};
 		if (bypassCache) {
-			this._options.cache.invalidate(server.id);
+			this._options.cache.invalidate(cacheKey);
 		} else {
 			const ttl = getDiscoveryCacheTtl((msg, data) => this._options.log(msg, data));
-			const cached = this._options.cache.lookup(server.id, ttl);
-			if (cached !== undefined && cached.apiRoot !== effectiveApiRoot) {
-				// The entry's apiVersion changed under the same group identity;
-				// the stored models came from the old root. dropStored, not
-				// invalidate: a concurrent serve may already be reloading the
-				// corrected root, and its store must survive.
-				this._options.cache.dropStored(server.id);
-			} else if (cached !== undefined) {
+			const cached = this._options.cache.lookup(cacheKey, ttl);
+			if (cached !== undefined) {
 				const cachedServe = this._options.decorator.decorate(cached, server, groupServer.label);
 				this._options.log("Serving provider group models from the discovery cache", {
 					baseUrl: server.baseUrl,
@@ -247,22 +292,11 @@ export class GroupDiscovery {
 				return {
 					infos: buildModelInfos(models, server, 1, (msg) => this._options.log(msg)).infos,
 					discoveredRawIds: models.map((model) => model.id),
-					apiRoot: effectiveApiRoot,
 					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
 					...(modelInfoUnsupported !== undefined ? { modelInfoUnsupported } : {}),
 				};
 			};
-			let discovered = await this._options.cache.fetch(server.id, load);
-			if (discovered.apiRoot !== effectiveApiRoot) {
-				// Single-flight is keyed by group ID alone, so this serve joined a
-				// load that started before the entry's apiVersion changed. Its
-				// result is the old root's; drop it and load the current root.
-				// dropStored, not invalidate: with several joiners correcting at
-				// once, the first one's fresh reload is already in flight and the
-				// rest must join it WITHOUT stripping its right to cache.
-				this._options.cache.dropStored(server.id);
-				discovered = await this._options.cache.fetch(server.id, load);
-			}
+			const discovered = await this._options.cache.fetch(cacheKey, load);
 			// Overrides and declared models are applied to what is SERVED: the
 			// discovery cache stays configuration-free, so an edit reaches the
 			// very next serve. The status window records both served sets, keeping
