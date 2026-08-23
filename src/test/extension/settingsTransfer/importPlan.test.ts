@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
-import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
+import type { StoredSecretsRecord, StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
 import type {
 	CollisionDecision,
@@ -16,6 +16,7 @@ import type {
 import {
 	planSettingsImport,
 	resolveImportPlan,
+	staleStoredKeyFields,
 	suggestRenamedLabel,
 	USAGE_STATUS_BAR_MODE_VALUES,
 } from "../../../extension/settingsTransfer/importPlan";
@@ -47,7 +48,7 @@ suite("extension/settingsTransfer/importPlan", () => {
 			report: { index: 0, label: "A", baseUrl: "http://a.test", problems: [], accepted: true },
 			skipped: false,
 		};
-		const secretWrite: SecretWrite = { label: "A", secrets: {}, owners: {} };
+		const secretWrite: SecretWrite = { label: "A", secrets: {}, owners: {}, restamps: {}, guardedClears: {} };
 		assert.ok(write && skipped && decision && collision && incoming && secretWrite);
 	});
 
@@ -345,7 +346,13 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.strictEqual(application.serversValue?.[0], current[0]);
 			assert.strictEqual(application.serversValue?.[2], current[2]);
 			assert.deepStrictEqual(application.secretWrites, [
-				{ label: "B", secrets: { apiKey: "sk-new" }, owners: { apiKey: "http://new-b.test" } },
+				{
+					label: "B",
+					secrets: { apiKey: "sk-new" },
+					owners: { apiKey: "http://new-b.test" },
+					restamps: {},
+					guardedClears: {},
+				},
 			]);
 			assert.deepStrictEqual(application.touchedLabels, ["B"]);
 			assert.deepStrictEqual(application.counts, { imported: 0, overwritten: 1, renamed: 0, skipped: 0 });
@@ -395,8 +402,14 @@ suite("extension/settingsTransfer/importPlan", () => {
 			// The empty record still matters at apply time: stale blob fields not
 			// among the writes are cleared.
 			assert.deepStrictEqual(application.secretWrites, [
-				{ label: "Keys", secrets: { apiKey: "sk-1" }, owners: { apiKey: "http://keys.test" } },
-				{ label: "NoKeys", secrets: {}, owners: {} },
+				{
+					label: "Keys",
+					secrets: { apiKey: "sk-1" },
+					owners: { apiKey: "http://keys.test" },
+					restamps: {},
+					guardedClears: {},
+				},
+				{ label: "NoKeys", secrets: {}, owners: {}, restamps: {}, guardedClears: {} },
 			]);
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-1"));
 		});
@@ -430,7 +443,13 @@ suite("extension/settingsTransfer/importPlan", () => {
 			const application = resolveImportPlan(plan, {});
 			assert.deepStrictEqual(application.serversValue, [server("Old")]);
 			assert.deepStrictEqual(application.secretWrites, [
-				{ label: "Old", secrets: { apiKey: "sk-test-flat" }, owners: { apiKey: "http://old.test" } },
+				{
+					label: "Old",
+					secrets: { apiKey: "sk-test-flat" },
+					owners: { apiKey: "http://old.test" },
+					restamps: {},
+					guardedClears: {},
+				},
 			]);
 			assert.strictEqual(application.counts.imported, 1);
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-test-flat"));
@@ -457,6 +476,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 					label: "Old",
 					secrets: { oauthClientSecret: "cs-test-1" },
 					owners: { oauthClientSecret: "http://idp.test/token" },
+					restamps: {},
+					guardedClears: {},
 				},
 			]);
 			assert.ok(!JSON.stringify(application.serversValue).includes("cs-test-1"));
@@ -480,7 +501,9 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.strictEqual(plan.secretFieldCount, 0, "only the representative's inline secrets count");
 			const application = resolveImportPlan(plan, {});
 			assert.deepStrictEqual(application.serversValue, [server("A", { budget: 7 })]);
-			assert.deepStrictEqual(application.secretWrites, [{ label: "A", secrets: {}, owners: {} }]);
+			assert.deepStrictEqual(application.secretWrites, [
+				{ label: "A", secrets: {}, owners: {}, restamps: {}, guardedClears: {} },
+			]);
 			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 1 });
 
 			// With no claiming sibling, the fragment itself still imports.
@@ -489,7 +512,7 @@ suite("extension/settingsTransfer/importPlan", () => {
 			// The fragment has no usable baseUrl, so its secret is stamped for no
 			// destination ("") and stays refused until a deliberate re-pairing.
 			assert.deepStrictEqual(alone.secretWrites, [
-				{ label: "A", secrets: { apiKey: "sk-frag" }, owners: { apiKey: "" } },
+				{ label: "A", secrets: { apiKey: "sk-frag" }, owners: { apiKey: "" }, restamps: {}, guardedClears: {} },
 			]);
 		});
 
@@ -518,7 +541,13 @@ suite("extension/settingsTransfer/importPlan", () => {
 			const application = resolveImportPlan(plan, { A: { action: "rename", newLabel: "  A-new  " } });
 			assert.deepStrictEqual(application.serversValue, [server("A"), { ...server("A"), label: "A-new" }]);
 			assert.deepStrictEqual(application.secretWrites, [
-				{ label: "A-new", secrets: { apiKey: "sk" }, owners: { apiKey: "http://a.test" } },
+				{
+					label: "A-new",
+					secrets: { apiKey: "sk" },
+					owners: { apiKey: "http://a.test" },
+					restamps: {},
+					guardedClears: {},
+				},
 			]);
 			assert.deepStrictEqual(application.touchedLabels, ["A-new"]);
 		});
@@ -541,6 +570,135 @@ suite("extension/settingsTransfer/importPlan", () => {
 			const overwrite = resolveImportPlan(plan, decisions);
 			assert.deepStrictEqual(overwrite.counts, { imported: 0, overwritten: 1, renamed: 0, skipped: 0 });
 			assert.deepStrictEqual(overwrite.touchedLabels, [label]);
+		});
+	});
+
+	suite("staleStoredKeyFields and keepStoredFields", () => {
+		/** A plan whose overwrite of "A" re-points the base URL; the label's blob holds a stamped key. */
+		function repointedPlan(incomingExtra: Record<string, unknown> = {}): ImportPlan {
+			return planSettingsImport(
+				{ [SERVERS_SETTING_KEY]: [{ label: "A", baseUrl: "http://new.test", ...incomingExtra }] },
+				[{ label: "A", baseUrl: "http://old.test" }]
+			);
+		}
+		const stampedRecord: StoredSecretsRecord = {
+			values: { apiKey: "sk-old" },
+			owners: { apiKey: "http://old.test" },
+		};
+
+		test("a stale-stamped stored field the file does not carry is exactly the question's field set", () => {
+			assert.deepStrictEqual(staleStoredKeyFields(repointedPlan(), "A", stampedRecord), ["apiKey"]);
+		});
+
+		test("no question when the file carries the field, the stamp matches, or the value is unstamped", () => {
+			// The file's own value overwrites with a fresh stamp; nothing to ask.
+			const carried = repointedPlan({ auth: { apiKey: "sk-new" } });
+			assert.deepStrictEqual(staleStoredKeyFields(carried, "A", stampedRecord), []);
+			// The stamp already names the imported destination.
+			const matching: StoredSecretsRecord = { values: { apiKey: "sk-old" }, owners: { apiKey: "http://new.test" } };
+			assert.deepStrictEqual(staleStoredKeyFields(repointedPlan(), "A", matching), []);
+			// Unstamped values predate stamping and keep the plan's default clear.
+			const unstamped: StoredSecretsRecord = { values: { apiKey: "sk-old" }, owners: {} };
+			assert.deepStrictEqual(staleStoredKeyFields(repointedPlan(), "A", unstamped), []);
+		});
+
+		test("an incoming entry that does not parse has no derivable destination, so no question", () => {
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [{ label: "A", baseUrl: 42, budget: 1 }] }, [
+				{ label: "A", baseUrl: "http://old.test" },
+			]);
+			assert.deepStrictEqual(staleStoredKeyFields(plan, "A", stampedRecord), []);
+		});
+
+		test("a use-same consent rides the overwrite into a restamp write: imported destination, consent stamp recorded", () => {
+			const plan = repointedPlan();
+			const application = resolveImportPlan(plan, {
+				A: { action: "overwrite", staleKeyConsent: { answer: "use-same", stamps: { apiKey: "http://old.test" } } },
+			});
+			assert.deepStrictEqual(application.secretWrites, [
+				{
+					label: "A",
+					secrets: {},
+					owners: { apiKey: "http://new.test" },
+					restamps: { apiKey: "http://old.test" },
+					guardedClears: {},
+				},
+			]);
+			assert.deepStrictEqual(application.serversValue, [{ label: "A", baseUrl: "http://new.test" }]);
+		});
+
+		test("a clear consent rides as a guarded clear, keyed to the same recorded stamp", () => {
+			const application = resolveImportPlan(repointedPlan(), {
+				A: { action: "overwrite", staleKeyConsent: { answer: "clear", stamps: { apiKey: "http://old.test" } } },
+			});
+			assert.deepStrictEqual(application.secretWrites, [
+				{
+					label: "A",
+					secrets: {},
+					owners: {},
+					restamps: {},
+					guardedClears: { apiKey: "http://old.test" },
+				},
+			]);
+		});
+
+		test("an incoming entry without the virtual key header never asks about a live stored value", () => {
+			// The imported entry cannot send the value (no header names it), so
+			// the documented clear-as-stale stands; declaring the header makes the
+			// question real.
+			const record: StoredSecretsRecord = {
+				values: { virtualKeyValue: "vk-live" },
+				owners: { virtualKeyValue: "http://old.test" },
+			};
+			const current = [{ label: "A", baseUrl: "http://old.test", auth: { virtualKey: { header: "x-key" } } }];
+			const headerless = planSettingsImport(
+				{ [SERVERS_SETTING_KEY]: [{ label: "A", baseUrl: "http://new.test" }] },
+				current
+			);
+			assert.deepStrictEqual(staleStoredKeyFields(headerless, "A", record), []);
+			const headed = planSettingsImport(
+				{
+					[SERVERS_SETTING_KEY]: [
+						{ label: "A", baseUrl: "http://new.test", auth: { virtualKey: { header: "x-key" } } },
+					],
+				},
+				current
+			);
+			assert.deepStrictEqual(staleStoredKeyFields(headed, "A", record), ["virtualKeyValue"]);
+		});
+
+		test("an overwrite without a stale-key consent keeps the default clear-by-omission write", () => {
+			const application = resolveImportPlan(repointedPlan(), { A: { action: "overwrite" } });
+			assert.deepStrictEqual(application.secretWrites, [
+				{ label: "A", secrets: {}, owners: {}, restamps: {}, guardedClears: {} },
+			]);
+		});
+
+		test("a dormant stored value the standing entry never resolved keeps the default clear, unasked", () => {
+			// The stamp names neither the current nor the imported destination:
+			// the overwrite re-points nothing the label was actually serving, so
+			// the documented clear-as-stale stands without a question.
+			const dormant: StoredSecretsRecord = {
+				values: { apiKey: "sk-dormant" },
+				owners: { apiKey: "http://elsewhere.test" },
+			};
+			assert.deepStrictEqual(staleStoredKeyFields(repointedPlan(), "A", dormant), []);
+		});
+
+		test("an incoming entry that does not use the field asks nothing about it", () => {
+			// A stored client secret is live for the current OAuth entry, but the
+			// imported entry has no token URL: nothing to re-pair the value with.
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [{ label: "A", baseUrl: "http://x.test" }] }, [
+				{
+					label: "A",
+					baseUrl: "http://x.test",
+					auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "cid" } },
+				},
+			]);
+			const live: StoredSecretsRecord = {
+				values: { oauthClientSecret: "cs-live" },
+				owners: { oauthClientSecret: "https://idp.test/token" },
+			};
+			assert.deepStrictEqual(staleStoredKeyFields(plan, "A", live), []);
 		});
 	});
 

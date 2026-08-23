@@ -21,7 +21,7 @@ import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { ServerSyncEngine } from "../servers/serverSync/engine";
-import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
+import type { StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
 import {
 	deleteServerSecrets,
 	readServerSecretsRecord,
@@ -33,11 +33,12 @@ import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
 import { parseEnvelope } from "../settingsTransfer/envelope";
 import { buildSettingsExport } from "../settingsTransfer/exportBuild";
-import type { CollisionDecision } from "../settingsTransfer/importPlan";
+import type { CollisionDecision, SecretWrite } from "../settingsTransfer/importPlan";
 import {
 	connectionChangedLabels,
 	planSettingsImport,
 	resolveImportPlan,
+	staleStoredKeyFields,
 	suggestRenamedLabel,
 } from "../settingsTransfer/importPlan";
 import type { PreImportSnapshot, SnapshotBlobEntry, SnapshotEntry } from "../settingsTransfer/snapshot";
@@ -86,6 +87,12 @@ export interface SettingsTransferPrompts {
 	confirmImport(summary: ImportPreviewSummary): Promise<boolean>;
 	/** One label's collision prompt; undefined on dismissal aborts the whole import. */
 	resolveCollision(label: string, connectionChanged: boolean): Promise<"overwrite" | "skip" | "rename" | undefined>;
+	/**
+	 * The stale-key question for an overwrite that re-points a label away from
+	 * its stored secret's stamp (staleStoredKeyFields); undefined on dismissal
+	 * aborts the whole import like every other prompt.
+	 */
+	resolveStaleKey(label: string): Promise<"use-same" | "clear" | undefined>;
 	/** The rename input box; validate returns a localized error or undefined; undefined result aborts the import. */
 	askRenamedLabel(suggested: string, validate: (candidate: string) => string | undefined): Promise<string | undefined>;
 	/** The undo confirmation modal, stating the snapshot time; false on dismissal (silent abort). */
@@ -249,6 +256,22 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 				rename
 			);
 			return choice === overwrite ? "overwrite" : choice === skip ? "skip" : choice === rename ? "rename" : undefined;
+		},
+		resolveStaleKey: async (label) => {
+			const useSame = l10n.t("Use Same Key");
+			const clear = l10n.t("Clear Key");
+			const choice = await vscode.window.showWarningMessage(
+				l10n.t('The imported entry "{0}" points at a different address than its stored key was saved for.', label),
+				{
+					modal: true,
+					detail: l10n.t(
+						"The file carries no replacement. Use Same Key keeps the stored key for the imported address; Clear Key removes the stored value."
+					),
+				},
+				useSame,
+				clear
+			);
+			return choice === useSame ? "use-same" : choice === clear ? "clear" : undefined;
 		},
 		askRenamedLabel: async (suggested, validate) =>
 			vscode.window.showInputBox({
@@ -439,11 +462,7 @@ function parseFailureMessage(reason: "not-json" | "not-an-export" | "newer-versi
 async function applyServersUnit(
 	env: SettingsTransferEnv,
 	serversValue: readonly unknown[],
-	secretWrites: readonly {
-		readonly label: string;
-		readonly secrets: StoredServerSecrets;
-		readonly owners: StoredSecretOwners;
-	}[],
+	secretWrites: readonly SecretWrite[],
 	settingsLanded: boolean
 ): Promise<"landed" | "rolled-back" | "rollback-failed"> {
 	const overwritten: {
@@ -456,9 +475,27 @@ async function applyServersUnit(
 		for (const write of secretWrites) {
 			const storedBefore = await env.readServerSecrets(write.label);
 			for (const field of SECRET_FIELD_IDS) {
-				// An undefined value clears the field: one the imported entry does
-				// not set is stale under this label.
-				const value = write.secrets[field];
+				// A stale-key answer acts only while the standing value still
+				// carries the stamp the consent was given for; a field rotated or
+				// cleared while the prompts sat open is left UNTOUCHED (neither
+				// restamped nor cleared) - the answer concerned a different
+				// pairing, and the sync watcher re-asks about whatever now stands.
+				// "use-same" keeps the standing value under the imported entry's
+				// stamp; "clear" falls through to the delete below. Otherwise an
+				// undefined value clears the field: one the imported entry does not
+				// set is stale under this label.
+				const restampStamp = write.restamps[field];
+				const guardedClearStamp = write.guardedClears[field];
+				const consentStamp = restampStamp ?? guardedClearStamp;
+				let value = write.secrets[field];
+				if (value === undefined && consentStamp !== undefined) {
+					if (storedBefore.values[field] === undefined || storedBefore.owners[field] !== consentStamp) {
+						continue;
+					}
+					if (restampStamp !== undefined) {
+						value = storedBefore.values[field];
+					}
+				}
 				if (value === undefined && storedBefore.values[field] === undefined) {
 					continue;
 				}
@@ -569,8 +606,12 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		// the absence the live entry actually resolves.
 		const prePlan = planSettingsImport(parsed.settings, currentServersRaw);
 		const storedSecrets: Record<string, StoredServerSecrets> = {};
+		// The raw records ride along for the stale-key question below: it compares
+		// STAMPS against the imported destination, which the owned view erases.
+		const storedRecords: Record<string, StoredSecretsRecord> = {};
 		for (const collision of prePlan.collisions) {
 			const record = await env.readServerSecrets(collision.label);
+			storedRecords[collision.label] = record;
 			const standing = acceptedEntry(currentServersRaw, collision.label)?.entry;
 			// No accepted entry means nothing to pair against, so nothing
 			// resolves - the same fail-closed default the save path's keep
@@ -631,6 +672,32 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				return;
 			}
 			if (choice !== "rename") {
+				if (choice === "overwrite") {
+					// An overwrite that re-points the label away from a live stored
+					// secret's stamp asks the stale-key question: keep the stored key
+					// for the imported address (re-stamp), or clear it. A dismissed
+					// prompt aborts like every other one. BOTH answers are recorded
+					// with the stamp the consent was given for, so the apply step can
+					// refuse to re-pair - or delete - a value rotated meanwhile.
+					const record = Object.hasOwn(storedRecords, collision.label)
+						? (storedRecords[collision.label] ?? { values: {}, owners: {} })
+						: { values: {}, owners: {} };
+					const staleFields = staleStoredKeyFields(plan, collision.label, record);
+					if (staleFields.length > 0) {
+						const keyChoice = await env.prompts.resolveStaleKey(collision.label);
+						if (keyChoice === undefined) {
+							return;
+						}
+						decisions[collision.label] = {
+							action: "overwrite",
+							staleKeyConsent: {
+								answer: keyChoice,
+								stamps: Object.fromEntries(staleFields.map((field) => [field, record.owners[field] ?? ""])),
+							},
+						};
+						continue;
+					}
+				}
 				decisions[collision.label] = { action: choice };
 				continue;
 			}

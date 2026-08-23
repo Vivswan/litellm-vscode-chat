@@ -8,6 +8,8 @@
  * their fingerprint.
  */
 
+import { normalizeBaseUrl } from "./util/baseUrl";
+
 /**
  * The optional fields an entry may carry beyond label and baseUrl, secret ones
  * flagged (inline storage is legal for those; a SecretStorage blob is the
@@ -65,6 +67,26 @@ export function pickNonSecretOptionalFields(source: NonSecretOptionalFields): No
 
 /** Where one secret field of a declared server lives. */
 export type SecretLocation = "settings" | "secure" | "none";
+
+/**
+ * The destination one secret field's value is sent to when paired with an
+ * entry: the keys go to the base URL (compared under the shared normalization,
+ * because the transport itself treats a trailing slash there as insignificant)
+ * and the OAuth client secret to the token URL, compared VERBATIM as parsed -
+ * the token exchange fetches the configured URL exactly, so /token and /token/
+ * are different wire requests and must be different stamps ("" when the entry
+ * configures none - a real stamp, so gaining a token URL later still requires
+ * a deliberate re-pairing). This is what ownership stamps record at store time
+ * (serverSync/secrets.ts) and what resolveOwnedSecrets compares at use time;
+ * it lives here so the dashboard's stale-key detection reads the SAME rule the
+ * extension stamps by, instead of a webview-side re-derivation.
+ */
+export function secretDestination(
+	entry: { readonly baseUrl: string; readonly oauthTokenUrl?: string | undefined },
+	field: SecretFieldId
+): string {
+	return field === "oauthClientSecret" ? (entry.oauthTokenUrl ?? "") : normalizeBaseUrl(entry.baseUrl);
+}
 
 /**
  * The discovery-endpoint failure categories an entry's `expectedFailures` may

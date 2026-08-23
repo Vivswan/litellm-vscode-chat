@@ -23,13 +23,7 @@ export {
 	ServerSyncEngine,
 } from "./engine";
 export type { SecretStore, StoredServerSecrets } from "./secrets";
-export {
-	deleteServerSecrets,
-	inlineSecretValues,
-	readServerSecrets,
-	secretLocations,
-	updateServerSecret,
-} from "./secrets";
+export { deleteServerSecrets, inlineSecretValues, secretLocations, updateServerSecret } from "./secrets";
 export type { DeclaredServer, ServerEntryReport } from "./setting";
 export {
 	acceptedEntry,
@@ -48,4 +42,5 @@ export {
 	readEntryModelCapabilities,
 	readEntryModelParameters,
 	registerSetServerSecretCommand,
+	registerStaleSecretStampNotice,
 } from "./vscodeEnv";

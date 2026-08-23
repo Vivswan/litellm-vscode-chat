@@ -376,6 +376,8 @@ suite("extension/dashboard/intents", () => {
 			// The form showed the field as stored and the user saved the entry
 			// around it while re-pointing the host: exactly the deliberate pairing
 			// a stamp records, so the value keeps working at the new destination.
+			// This is the "Use same key" answer of the edit form's stale-key
+			// question (the webview posts the parse unchanged).
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test" }]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-kept" });
 			recorded.storedOwners.set("Prod", { apiKey: "http://old.test" });
@@ -387,6 +389,24 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.secretOps, [["Prod", "apiKey", "sk-kept"]]);
 			assert.deepStrictEqual(recorded.secretOwners, ["http://new.test"]);
 			assert.deepStrictEqual(recorded.storedOwners.get("Prod"), { apiKey: "http://new.test" });
+		});
+
+		test("an edit that re-points the host with a clear directive deletes the stored secret", async () => {
+			// The stale-key question's other answer: "Clear key" posts the same
+			// save with the field's clear directive, and the stored value dies
+			// with its stamp instead of riding to the new host.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test" }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-kept" });
+			recorded.storedOwners.set("Prod", { apiKey: "http://old.test" });
+			await save(recorded, {
+				server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }),
+				secrets: { ...KEEP_ALL, apiKey: { action: "clear" } },
+				replace: await displayedReplace(recorded, "Prod"),
+			});
+
+			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://new.test" }]]);
+			assert.deepStrictEqual(recorded.storedSecrets.get("Prod"), {});
+			assert.deepStrictEqual(recorded.storedOwners.get("Prod"), {});
 		});
 
 		test("a failed settings write rolls a re-stamp back, value and stamp alike", async () => {

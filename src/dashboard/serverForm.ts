@@ -13,7 +13,7 @@ import type {
 	SecretFieldId,
 	SecretLocation,
 } from "../shared/serverEntry";
-import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../shared/serverEntry";
+import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS, secretDestination } from "../shared/serverEntry";
 import type { HeaderScalar } from "../shared/util/headers";
 import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
 import { isUnsafeRecordKey } from "../shared/util/json";
@@ -876,6 +876,35 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		modelCapabilityIssues: analysis.modelCapabilityIssues,
 		modelParameterHints: analysis.modelParameterHints,
 	};
+}
+
+/**
+ * The kept stored secrets a save would re-pair with a moved destination: the
+ * fields whose directive keeps a secure-stored value (its ownership stamp was
+ * written for the destination the form opened on) while the save re-points the
+ * destination that field is sent to - the base URL for the keys, the OAuth
+ * token URL for the client secret, the SAME per-field rule the stamps record
+ * (shared/serverEntry.ts secretDestination, not a webview re-derivation). The
+ * save flow asks before posting such an intent - keeping re-stamps the stored
+ * value for the new destination host-side, clearing deletes it - and posts
+ * without a question when this is empty: no stored secret, an inline value
+ * (already visible in settings.json, no stamp to go stale), or a change the
+ * stamp rule reads as none. Locations stand in for the stamps the webview
+ * deliberately never sees: a field the ownership check refused already
+ * displays as "none", so "secure" here means the stamp matched the displayed
+ * entry (or predates stamping, which the host re-stamps the same way).
+ */
+export function staleKeyFieldsOnSave(intent: ServerFormIntent): readonly SecretFieldId[] {
+	const original = intent.replace;
+	if (original === undefined) {
+		return [];
+	}
+	return SECRET_FIELD_IDS.filter(
+		(field) =>
+			intent.secrets[field].action === "keep" &&
+			original.secrets[field] === "secure" &&
+			secretDestination(intent.server, field) !== secretDestination(original, field)
+	);
 }
 
 /** The testServerDraft intent body a connection-clean draft parses to; the webview adds only the requestId. */

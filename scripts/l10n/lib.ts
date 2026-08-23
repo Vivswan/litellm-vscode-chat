@@ -191,6 +191,8 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"reportCommandFailure",
 	"wireReviewComments",
 	"secretPaletteLabel",
+	// src/extension/servers/serverSync/vscodeEnv (the stale-stamp consent notification).
+	"askStaleSecretStamp",
 	"numberSettingPresentation",
 	"booleanSettingPresentation",
 	"settingScopeLabel",

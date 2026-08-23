@@ -22,7 +22,6 @@ import {
 	GROUP_UPSERT_FAILED_MESSAGE,
 	inlineSecretValues,
 	parseServersSetting,
-	readServerSecrets,
 	SALT_UNAVAILABLE_MESSAGE,
 	SECRETS_READ_FAILED_MESSAGE,
 	ServerSyncEngine,
@@ -209,10 +208,13 @@ suite("extension/servers/serverSync", () => {
 			const store = makeSecretStore();
 			await updateServerSecret(store, "Prod", "apiKey", "sk-1", undefined);
 			await updateServerSecret(store, "Prod", "virtualKeyValue", "vk-1", undefined);
-			assert.deepStrictEqual(await readServerSecrets(store, "Prod"), { apiKey: "sk-1", virtualKeyValue: "vk-1" });
+			assert.deepStrictEqual((await readServerSecretsRecord(store, "Prod")).values, {
+				apiKey: "sk-1",
+				virtualKeyValue: "vk-1",
+			});
 
 			await updateServerSecret(store, "Prod", "apiKey", undefined, undefined);
-			assert.deepStrictEqual(await readServerSecrets(store, "Prod"), { virtualKeyValue: "vk-1" });
+			assert.deepStrictEqual((await readServerSecretsRecord(store, "Prod")).values, { virtualKeyValue: "vk-1" });
 
 			await updateServerSecret(store, "Prod", "virtualKeyValue", undefined, undefined);
 			assert.strictEqual(store.values.has(serverSecretsKey("Prod")), false, "an empty blob leaves no key behind");
@@ -220,7 +222,7 @@ suite("extension/servers/serverSync", () => {
 
 		test("a corrupt blob reads as empty instead of failing the sync", async () => {
 			const store = makeSecretStore({ [serverSecretsKey("Prod")]: "not json" });
-			assert.deepStrictEqual(await readServerSecrets(store, "Prod"), {});
+			assert.deepStrictEqual((await readServerSecretsRecord(store, "Prod")).values, {});
 		});
 
 		test("deleteServerSecrets removes the label's whole blob", async () => {
@@ -237,8 +239,11 @@ suite("extension/servers/serverSync", () => {
 				values: { apiKey: "sk-1", virtualKeyValue: "vk-1" },
 				owners: { apiKey: "http://prod.test" },
 			});
-			// The values-only read is unchanged: old readers ignore the stamp key.
-			assert.deepStrictEqual(await readServerSecrets(store, "Prod"), { apiKey: "sk-1", virtualKeyValue: "vk-1" });
+			// The values half is unchanged: old readers ignore the stamp key.
+			assert.deepStrictEqual((await readServerSecretsRecord(store, "Prod")).values, {
+				apiKey: "sk-1",
+				virtualKeyValue: "vk-1",
+			});
 
 			await updateServerSecret(store, "Prod", "apiKey", undefined, undefined);
 			assert.deepStrictEqual(await readServerSecretsRecord(store, "Prod"), {

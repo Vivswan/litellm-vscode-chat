@@ -12,7 +12,12 @@ import type { DebouncedAction } from "../../shared/util/debounce";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
-import { createServerSyncEnv, registerSetServerSecretCommand, ServerSyncEngine } from "../servers/serverSync";
+import {
+	createServerSyncEnv,
+	registerSetServerSecretCommand,
+	registerStaleSecretStampNotice,
+	ServerSyncEngine,
+} from "../servers/serverSync";
 import { createUsagePollerEnv, registerRefreshUsageCommand, UsagePoller } from "../servers/usage";
 import { createSettingsTransferEnv, registerSettingsTransferCommands } from "../ui/settingsTransferCommands";
 
@@ -93,6 +98,9 @@ export function wireServers(
 	// A palette-stored secret can fix a key the proxy had rejected, so the
 	// usage poller re-probes availability when one changes.
 	registerSetServerSecretCommand(context, syncEngine, logger, () => usagePoller.applyServersChange());
+	// The consent notice for a settings-file URL change over a stored secret:
+	// the engine's "secretsMismatched" skip raises the keep-or-clear question.
+	registerStaleSecretStampNotice(context, syncEngine, logger);
 	registerSettingsTransferCommands(context, createSettingsTransferEnv(context, syncEngine, logger));
 	// Refresh Usage Now: the poller's explicit refresh, availability re-probed,
 	// working whether or not polling is on.

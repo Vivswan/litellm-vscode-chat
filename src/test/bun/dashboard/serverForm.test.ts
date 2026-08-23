@@ -23,6 +23,7 @@ import {
 	saveFailureDisposition,
 	sectionFailureText,
 	serverFormFieldLabel,
+	staleKeyFieldsOnSave,
 } from "../../../dashboard/serverForm";
 
 /** The fields the OAuth form itself renders; problems on a partial OAuth draft may name only these. */
@@ -521,6 +522,118 @@ describe("dashboard/serverForm", () => {
 				location: "secure",
 				value: "sk-inline",
 			});
+		});
+	});
+
+	describe("staleKeyFieldsOnSave", () => {
+		/** An edit identity whose apiKey is stored in secret storage. */
+		function storedIdentity(
+			baseUrl: string,
+			extra: Partial<Omit<ReplacedEntryIdentity, "secrets">> & {
+				secrets?: Partial<ReplacedEntryIdentity["secrets"]>;
+			} = {}
+		) {
+			return {
+				...identity("Prod", baseUrl),
+				...extra,
+				secrets: {
+					apiKey: "secure" as const,
+					oauthClientSecret: "none" as const,
+					virtualKeyValue: "none" as const,
+					...(extra.secrets ?? {}),
+				},
+			};
+		}
+
+		test("a kept secure key under a moved base URL raises the question", () => {
+			const original = storedIdentity("http://old.test");
+			const moved = draft({ authForm: "apiKey", baseUrl: "http://new.test", apiKey: secret({ existing: "secure" }) });
+			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(moved, original)), ["apiKey"]);
+		});
+
+		test("each field compares its OWN destination: a base-URL move takes the keys, not the client secret", () => {
+			// The stamp rule is per field (shared secretDestination): the keys pair
+			// with the base URL, the client secret with the token URL, so a base
+			// URL move with the token URL standing still leaves it out.
+			const original = storedIdentity("http://old.test", {
+				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "client",
+				secrets: { oauthClientSecret: "secure", virtualKeyValue: "secure" },
+			});
+			const moved = draft({
+				authForm: "oauth",
+				baseUrl: "http://new.test",
+				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "client",
+				apiKey: secret({ existing: "secure" }),
+				oauthClientSecret: secret({ existing: "secure" }),
+				virtualKeyHeader: "x-key",
+				virtualKeyValue: secret({ existing: "secure" }),
+			});
+			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(moved, original)), ["apiKey", "virtualKeyValue"]);
+		});
+
+		test("a moved token URL raises the question for the kept client secret alone", () => {
+			const original = storedIdentity("http://old.test", {
+				oauthTokenUrl: "https://idp-a.test/token",
+				oauthClientId: "client",
+				secrets: { oauthClientSecret: "secure" },
+			});
+			const moved = draft({
+				authForm: "oauth",
+				baseUrl: "http://old.test",
+				oauthTokenUrl: "https://idp-b.test/token",
+				oauthClientId: "client",
+				apiKey: secret({ existing: "secure" }),
+				oauthClientSecret: secret({ existing: "secure" }),
+			});
+			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(moved, original)), ["oauthClientSecret"]);
+			// The token URL compares VERBATIM (the exchange fetches it exactly), so
+			// even a trailing slash is a different destination.
+			const slashed = draft({
+				authForm: "oauth",
+				baseUrl: "http://old.test",
+				oauthTokenUrl: "https://idp-a.test/token/",
+				oauthClientId: "client",
+				apiKey: secret({ existing: "secure" }),
+				oauthClientSecret: secret({ existing: "secure" }),
+			});
+			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(slashed, original)), ["oauthClientSecret"]);
+		});
+
+		test("no question without a URL move: unchanged, or changed only by the trailing slash the stamp rule ignores", () => {
+			const original = storedIdentity("http://old.test");
+			const kept = (baseUrl: string) => draft({ authForm: "apiKey", baseUrl, apiKey: secret({ existing: "secure" }) });
+			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(kept("http://old.test"), original)), []);
+			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(kept("http://old.test/"), original)), []);
+		});
+
+		test("no question without a kept stored value: inline location, a typed replacement, a clear, or an add form", () => {
+			const inline = storedIdentity("http://old.test", { secrets: { apiKey: "settings" } });
+			const inlineDraft = draft({
+				authForm: "apiKey",
+				baseUrl: "http://new.test",
+				apiKey: secret({ existing: "settings", location: "settings", value: "sk-inline", prefill: "sk-inline" }),
+			});
+			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(inlineDraft, inline)), []);
+
+			const original = storedIdentity("http://old.test");
+			const typed = draft({
+				authForm: "apiKey",
+				baseUrl: "http://new.test",
+				apiKey: secret({ existing: "secure", value: "sk-rotated" }),
+			});
+			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(typed, original)), [], "a set stamps fresh on its own");
+
+			const cleared = draft({
+				authForm: "apiKey",
+				baseUrl: "http://new.test",
+				apiKey: secret({ existing: "secure", clear: true }),
+			});
+			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(cleared, original)), [], "a clear already answers it");
+
+			const added = draft({ authForm: "apiKey", baseUrl: "http://new.test" });
+			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(added)), [], "an add form shows no credentials");
 		});
 	});
 

@@ -32,6 +32,7 @@ import {
 	saveFailureDisposition,
 	sectionFailureText,
 	serverFormFieldLabel,
+	staleKeyFieldsOnSave,
 	storedInactiveSecrets,
 	validateAdoptLabel,
 } from "../../dashboard/serverForm";
@@ -45,7 +46,12 @@ import { isEditableServer } from "../../dashboard/viewModels";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
 import type { ExpectedFailureCategory, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
-import { EXPECTED_FAILURE_CATEGORIES, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import {
+	EXPECTED_FAILURE_CATEGORIES,
+	pickNonSecretOptionalFields,
+	SECRET_FIELD_IDS,
+	secretDestination,
+} from "../../shared/serverEntry";
 import { DEFAULT_API_VERSION, mcpEndpointOf } from "../../shared/util/baseUrl";
 import type { DocsUrl } from "./docsLinks";
 import {
@@ -84,6 +90,7 @@ import {
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { cn } from "./ui/cn";
+import { ConfirmDialog } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Radio } from "./ui/radio";
 import { SecretInput } from "./ui/secretInput";
@@ -1194,6 +1201,11 @@ function ServerForm({
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
 	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
 	const [testState, setTestState] = useState<TestState>({ kind: "idle" });
+	// The stale-key question a Save raised (staleKeyFieldsOnSave): the save re-points
+	// the base URL while keeping a secure-stored secret stamped for the old one, so
+	// nothing posts until the reader answers. Locations decided it; no stamp or value
+	// ever reaches this page.
+	const [staleKeyFields, setStaleKeyFields] = useState<readonly SecretFieldId[] | undefined>(undefined);
 	// The form's own round trips. Inline-secret values live only in this hook's state and the
 	// draft, both dying with the form instance - a closed form leaves no secret in memory.
 	const saveIntent = useIntentOutcome("saveServerSetting");
@@ -1322,6 +1334,34 @@ function ServerForm({
 	// so it belongs to an edit that actually moves one - not to every open.
 	const connectionEdited = changedFields.some((field) => (CONNECTION_FIELDS as readonly string[]).includes(field));
 
+	const postSave = (intent: Parameters<typeof saveIntent.send>[0]) => {
+		const requestId = saveIntent.send(intent);
+		onSavePosted(requestId);
+		setPhase({ phase: "saving", requestId });
+	};
+
+	// The stale-key dialog's detail line: every stale field's OLD destination
+	// (deduplicated - the keys share the base URL), from the same shared
+	// secretDestination rule the stamps record, over the identity the webview
+	// already holds; a destination-free fallback covers a client secret stored
+	// before the entry had a token URL. Resolved per render, so l10n stays
+	// call-time.
+	const staleKeyDetail = (): string => {
+		const destinations = [
+			...new Set(
+				(staleKeyFields ?? [])
+					.map((field) => (original !== undefined ? secretDestination(original, field) : ""))
+					.filter((destination) => destination !== "")
+			),
+		];
+		return destinations.length > 0
+			? l10n.t(
+					"The stored key was saved for {0}. Clearing the key removes it from secret storage.",
+					destinations.join(", ")
+				)
+			: l10n.t("The stored key was saved for a different address. Clearing the key removes it from secret storage.");
+	};
+
 	const save = () => {
 		if (phase.phase !== "editing") {
 			// Belt and braces behind the disabled button: never post during prefill or save.
@@ -1332,9 +1372,49 @@ function ServerForm({
 			setTouched(new Set(SERVER_FORM_FIELD_ORDER));
 			return;
 		}
-		const requestId = saveIntent.send(parse.intent);
-		onSavePosted(requestId);
-		setPhase({ phase: "saving", requestId });
+		// A save that re-points the URL while keeping a stored key asks first:
+		// the stored value was saved for the old URL, and posting "keep" would
+		// re-pair it with the new one host-side. Both answers post the same
+		// intent shape - keep as parsed, or with those fields cleared.
+		const stale = staleKeyFieldsOnSave(parse.intent);
+		if (stale.length > 0) {
+			setStaleKeyFields(stale);
+			return;
+		}
+		postSave(parse.intent);
+	};
+
+	// The question's three ways out. "Use same key" posts the parse as it stands
+	// (the host re-stamps the kept value for the new URL). "Clear key" marks the
+	// stale fields' Remove checkboxes and posts the re-parse when it is clean;
+	// a clear that breaks a pairing rule (a virtual key's header left naming a
+	// removed value) returns to editing with the problem visible instead.
+	const answerStaleKeyKeep = () => {
+		setStaleKeyFields(undefined);
+		if (parse.ok) {
+			postSave(parse.intent);
+		}
+	};
+	const answerStaleKeyClear = () => {
+		if (staleKeyFields === undefined) {
+			return;
+		}
+		let next = draft;
+		for (const field of staleKeyFields) {
+			next = { ...next, [field]: { ...next[field], clear: true } };
+		}
+		setStaleKeyFields(undefined);
+		setDraft(next);
+		const cleared = parseServerForm(next, {
+			takenLabels: declaredLabels,
+			...(original !== undefined ? { original } : {}),
+			...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
+		});
+		if (cleared.ok) {
+			postSave(cleared.intent);
+		} else {
+			setTouched(new Set(SERVER_FORM_FIELD_ORDER));
+		}
 	};
 
 	// The draft as typed goes out for one extension-side probe; label and model-parameter
@@ -1975,6 +2055,22 @@ function ServerForm({
 				</span>
 			</div>
 			{matcherEditorView}
+			{/* The stale-key question a Save raised: modal like the discard confirm - a
+			    credential decision interrupts the save, it has no in-place anywhere.
+			    Esc/"Keep editing" posts nothing; the two verbs answer the ONE question. */}
+			{staleKeyFields !== undefined ? (
+				<ConfirmDialog
+					question={l10n.t("Keep using the stored key with the new URL?")}
+					detail={staleKeyDetail()}
+					confirmLabel={l10n.t("Clear key")}
+					alternateLabel={l10n.t("Use same key")}
+					cancelLabel={l10n.t("Keep editing")}
+					surfaceId="server-edit-page"
+					onConfirm={answerStaleKeyClear}
+					onAlternate={answerStaleKeyKeep}
+					onCancel={() => setStaleKeyFields(undefined)}
+				/>
+			) : null}
 		</div>
 	);
 }

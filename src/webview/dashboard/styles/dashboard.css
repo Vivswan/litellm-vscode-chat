@@ -2511,6 +2511,14 @@
 		font-size: var(--vscode-font-size);
 		font-weight: 600;
 	}
+	/* The optional short fact under the question; quiet rank so the question
+		   keeps the weight, sized off the host token like its sibling, negative
+		   margin folding the flex gap to a text gap. */
+	.confirm-detail {
+		margin: -10px 0 0;
+		font-size: calc(var(--vscode-font-size) - 1px);
+		color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+	}
 	.confirm-actions {
 		display: flex;
 		align-items: center;
