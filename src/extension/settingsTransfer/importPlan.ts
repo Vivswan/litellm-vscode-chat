@@ -18,7 +18,7 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settingSpec";
 import type { SecretFieldId } from "../../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { entryUsesSecretField, OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { restructureServers } from "../migrations/settingsRedesign/entries";
 import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
@@ -334,33 +334,21 @@ export type CollisionDecision =
 export type CollisionDecisions = Readonly<Record<string, CollisionDecision>>;
 
 /**
- * Whether the imported entry would actually send the field: a stored apiKey
- * activates the bearer on any entry, a virtual key value goes out only through
- * a declared header, and a client secret only through a token exchange. The
- * question must not ask about (or preserve) a value the imported entry could
- * never use - the documented clear-as-stale stands for those.
- */
-function incomingUsesField(entry: DeclaredServer, field: SecretFieldId): boolean {
-	if (field === "virtualKeyValue") {
-		return entry.virtualKeyHeader !== undefined;
-	}
-	return secretDestination(entry, field) !== "";
-}
-
-/**
  * The stored secret fields an overwrite of `label` would re-point away from
  * their stamps: the label's blob holds a value whose stamp names exactly the
  * STANDING entry's destination (the value is live - a dormant leftover the
  * current entry never resolved keeps the plan's default clear, it re-points
  * nothing), the imported entry actually uses the field and pairs it with a
- * different destination (incomingUsesField - no token URL for a client
- * secret, no header for a virtual key value, nothing to re-pair), and the
- * file carries no replacement value (a carried value overwrites with a fresh
- * stamp; an unstamped value predates stamping and keeps the default clear).
- * Non-empty means the import flow asks the stale-key question before folding
- * the answer into the overwrite decision's staleKeyConsent. Empty when either
- * side does not parse - with no derivable destination there is nothing to
- * compare, and the default clear stands.
+ * different destination (entryUsesSecretField, the shared wire-shape rule - no
+ * token exchange for a client secret, no header for a virtual key value,
+ * nothing to re-pair; a stored value's own header-validity stays unjudged, the
+ * safe direction: asking preserves, silence clears), and the file carries no
+ * replacement value (a carried value overwrites with a fresh stamp; an
+ * unstamped value predates stamping and keeps the default clear). Non-empty
+ * means the import flow asks the stale-key question before folding the answer
+ * into the overwrite decision's staleKeyConsent. Empty when either side does
+ * not parse - with no derivable destination there is nothing to compare, and
+ * the default clear stands.
  */
 export function staleStoredKeyFields(
 	plan: ImportPlan,
@@ -384,7 +372,7 @@ export function staleStoredKeyFields(
 			record.values[field] !== undefined &&
 			owner !== undefined &&
 			owner === secretDestination(current, field) &&
-			incomingUsesField(incoming, field) &&
+			entryUsesSecretField(incoming, field) &&
 			owner !== secretDestination(incoming, field) &&
 			stripped.secrets[field] === undefined
 		);

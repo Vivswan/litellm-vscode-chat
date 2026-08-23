@@ -92,6 +92,58 @@ export function secretDestination(
 }
 
 /**
+ * Whether an entry's shape would actually SEND a value in `field`, were one to
+ * resolve (inline or from SecretStorage): the ONE judgment of "this entry uses
+ * this credential field", each arm derived from the wire narrowing in
+ * provider/catalog's parseGroupConfiguration. An entry whose base URL
+ * normalizes to nothing forms no server at all (parseGroupConfiguration
+ * refuses it), so it uses no field. Otherwise: a resolved apiKey is sent on
+ * every entry shape - the transport carries it on each request regardless of
+ * the other auth fields, and a missing key merely means a keyless server; the
+ * OAuth client secret goes out only through an active oauth unit (narrowOAuth
+ * requires BOTH tokenUrl and clientId - the settings parser also rejects one
+ * without the other, so on parsed entries checking both is equivalent to
+ * checking either); a virtual key value goes out only through a declared
+ * header (narrowVirtualKey requires both halves; on a parsed entry the header
+ * NAME's validity is already enforced by the parser).
+ *
+ * Deliberately a judgment of the ENTRY alone, given some value: the VALUE's
+ * own sendability (narrowVirtualKey also drops a header-value-illegal virtual
+ * key) cannot be judged without the value in hand, so a caller holding only a
+ * stored value's existence errs toward "uses it" - the safe direction, since
+ * consumers gate questions about stored values (ask vs. silently clear), not
+ * the send itself. Header-name collisions are value-contingent the same way:
+ * a virtual key displaces another credential (an Authorization-named header
+ * skips the OAuth exchange, an X-API-Key-named one owns that carrier) only
+ * when its own value RESOLVES, which the entry cannot show - so a declared
+ * header never lowers another field's judgment. The dashboard form's activity
+ * ring (serverForm's authFormActivity) is deliberately NOT this rule: it keys
+ * on the picked auth selector so a stored-but-unsent value can still block a
+ * save.
+ */
+export function entryUsesSecretField(
+	entry: {
+		readonly baseUrl: string;
+		readonly oauthTokenUrl?: string | undefined;
+		readonly oauthClientId?: string | undefined;
+		readonly virtualKeyHeader?: string | undefined;
+	},
+	field: SecretFieldId
+): boolean {
+	if (normalizeBaseUrl(entry.baseUrl).length === 0) {
+		return false;
+	}
+	switch (field) {
+		case "apiKey":
+			return true;
+		case "oauthClientSecret":
+			return entry.oauthTokenUrl !== undefined && entry.oauthClientId !== undefined;
+		case "virtualKeyValue":
+			return entry.virtualKeyHeader !== undefined;
+	}
+}
+
+/**
  * The discovery-endpoint failure categories an entry's `expectedFailures` may
  * list: "modelListing" is GET /models, "modelInfo" is GET /model/info. Like
  * the other extension-side-only fields, this one stays out of

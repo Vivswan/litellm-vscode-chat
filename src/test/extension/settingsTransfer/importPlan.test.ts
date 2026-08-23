@@ -700,6 +700,72 @@ suite("extension/settingsTransfer/importPlan", () => {
 			};
 			assert.deepStrictEqual(staleStoredKeyFields(plan, "A", live), []);
 		});
+
+		test("an incoming half-oauth entry is misconfigured, so it cannot parse into a question either", () => {
+			// entryUsesSecretField requires BOTH oauth halves (the wire unit); a
+			// tokenUrl-only incoming entry never even reaches that judgment, because
+			// the parser rejects the incomplete unit and an unparsed side keeps the
+			// default clear. Pins that tightening the rule from token-URL-only to
+			// the full unit cannot change what the import flow asks about.
+			const plan = planSettingsImport(
+				{
+					[SERVERS_SETTING_KEY]: [
+						{ label: "A", baseUrl: "http://x.test", auth: { oauth: { tokenUrl: "https://new-idp.test/token" } } },
+					],
+				},
+				[
+					{
+						label: "A",
+						baseUrl: "http://x.test",
+						auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "cid" } },
+					},
+				]
+			);
+			const live: StoredSecretsRecord = {
+				values: { oauthClientSecret: "cs-live" },
+				owners: { oauthClientSecret: "https://idp.test/token" },
+			};
+			assert.deepStrictEqual(staleStoredKeyFields(plan, "A", live), []);
+		});
+
+		test("a re-pointed token URL asks about the live stored client secret", () => {
+			// The positive oauth twin: the incoming entry carries the full unit at
+			// a NEW token URL and no client secret of its own, so the live stored
+			// value would be silently cleared without the question.
+			const plan = planSettingsImport(
+				{
+					[SERVERS_SETTING_KEY]: [
+						{
+							label: "A",
+							baseUrl: "http://x.test",
+							auth: { oauth: { tokenUrl: "https://new-idp.test/token", clientId: "cid" } },
+						},
+					],
+				},
+				[
+					{
+						label: "A",
+						baseUrl: "http://x.test",
+						auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "cid" } },
+					},
+				]
+			);
+			const live: StoredSecretsRecord = {
+				values: { oauthClientSecret: "cs-live" },
+				owners: { oauthClientSecret: "https://idp.test/token" },
+			};
+			assert.deepStrictEqual(staleStoredKeyFields(plan, "A", live), ["oauthClientSecret"]);
+		});
+
+		test("an incoming base URL that normalizes to nothing forms no server, so no question", () => {
+			// parseGroupConfiguration refuses a normalized-empty base URL outright:
+			// no field of such an entry is ever sent, so there is nothing to
+			// re-pair the stored key with and the default clear stands.
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [{ label: "A", baseUrl: "/" }] }, [
+				{ label: "A", baseUrl: "http://old.test" },
+			]);
+			assert.deepStrictEqual(staleStoredKeyFields(plan, "A", stampedRecord), []);
+		});
 	});
 
 	suite("suggestRenamedLabel", () => {
