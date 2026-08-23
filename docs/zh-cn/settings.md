@@ -76,7 +76,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.quickFix.model` | `null` | 快速修复后备路径使用的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
 | `litellm-vscode-chat.reviewComments.enabled` | `false` | 选择启用对改动的 AI 评审评论。先于功能注册: 设置会保留, 待功能发布后生效 |
 | `litellm-vscode-chat.reviewComments.model` | `null` | 撰写评审评论的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
-| `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天参与者, 使用聊天请求自身的模型作答 (没有模型设置)。默认开启; 先于功能注册, 待功能发布后生效 |
+| `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天参与者, 使用聊天请求自身的模型作答 (没有模型设置)。默认开启 |
 
 有意不提供全局标头设置: 自定义 HTTP 标头描述的是如何与某一个服务器交谈, 所以它们存放在服务器条目上 ([`headers`](servers.md#自定义标头)) - 机器作用域, 在 Settings Sync 够不到的地方, 与全局设置不同。
 

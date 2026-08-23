@@ -469,12 +469,15 @@ test("every FeatureId renders its section in registry order, enable rows include
 	expect(root.querySelector("#setting-chatParticipant\\.enabled")).not.toBeNull();
 	// The participant has an enable row and deliberately no model row.
 	expect(root.querySelector("#setting-chatParticipant\\.model")).toBeNull();
-	const marked = [...root.querySelectorAll(".settings-group-head")].filter(
-		(head) => head.querySelector('[data-slot="badge"]')?.textContent === "Coming soon"
-	);
-	expect(marked.length).toBe(5);
-	// The consequence is said ONCE for the page, not once per section: five
-	// headings wearing the same sentence was the defect this replaced.
+	// Which sections still wear the badge, BY NAME rather than by count: a
+	// shipped feature that kept it, or a section that lost it before its wiring
+	// landed, both name themselves here instead of moving a number.
+	const marked = [...root.querySelectorAll(".settings-group-head")]
+		.filter((head) => head.querySelector('[data-slot="badge"]')?.textContent === "Coming soon")
+		.map((head) => head.querySelector(".settings-group-title")?.textContent);
+	expect(marked).toEqual(["PR description generation", "Consult tool", "Quick fixes", "Review comments"]);
+	// The consequence is said ONCE for the page, not once per section: headings
+	// each wearing the same sentence was the defect this replaced.
 	const hints = [...root.querySelectorAll("p.hint")].filter((hint) => (hint.textContent ?? "").includes("Coming soon"));
 	expect(hints.length).toBe(1);
 	expect(hints[0]?.textContent).toContain("take effect when the feature ships");

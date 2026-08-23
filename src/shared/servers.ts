@@ -115,8 +115,17 @@ export function unexpectedFailureCount(statuses: readonly ServerStatus[]): numbe
 	return unexpectedServerFailures(statuses).length;
 }
 
-/** True for a healthy status whose zero models are explained by an explicit user removal (a hidden group). */
-export function isHiddenGroupServerStatus(status: ServerStatus): boolean {
+/**
+ * True for a healthy status whose zero models are explained by an explicit
+ * user removal (a hidden group). Typed to the two fields it actually reads,
+ * not the whole ServerStatus, so surfaces holding a narrower mirror of a
+ * status - the chat participant's snapshot shape, for one - can hide removed
+ * groups through THIS predicate instead of restating the rule.
+ */
+export function isHiddenGroupServerStatus(status: {
+	readonly state: ServerStatus["state"];
+	readonly hiddenByRemoval?: boolean | undefined;
+}): boolean {
 	return status.state === "ok" && status.hiddenByRemoval === true;
 }
 

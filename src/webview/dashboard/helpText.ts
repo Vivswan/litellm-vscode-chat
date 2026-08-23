@@ -338,6 +338,7 @@ export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)
 	"models.openRouterCatalog",
 	"inlineCompletions.enabled",
 	"commitGeneration.enabled",
+	"chatParticipant.enabled",
 ];
 
 /** Per-setting help for the ids in SETTING_ROW_HELP_IDS; undefined for rows whose description is enough. */
@@ -392,6 +393,10 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 			return l10n.t(
 				"Generating sends the diff, untracked file names, and your last five commit subjects to your LiteLLM server."
 			);
+		case "chatParticipant.enabled":
+			// Its own row has no model picker, so the tip carries the one fact that
+			// explains both the cost and the privacy story: it is a chat turn.
+			return l10n.t("Type @litellm in chat; it answers with the model the picker has selected, and bills like chat.");
 		default:
 			return undefined;
 	}

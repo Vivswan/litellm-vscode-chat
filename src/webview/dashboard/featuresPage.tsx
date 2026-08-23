@@ -699,7 +699,7 @@ const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } = {
 	consultTool: { shipped: false },
 	quickFix: { shipped: false },
 	reviewComments: { shipped: false },
-	chatParticipant: { shipped: false },
+	chatParticipant: { shipped: true },
 };
 
 export function FeaturesSection({

@@ -170,6 +170,8 @@
 	"Apply writes {0} settings - that scope already sets this record.": "Apply writes {0} settings - that scope already sets this record.",
 	"Applying...": "Applying...",
 	"As discovered": "As discovered",
+	"Ask me anything, or pick a command:": "Ask me anything, or pick a command:",
+	"Ask me anything.": "Ask me anything.",
 	"Ask the model to skip reasoning entirely, on models that can turn thinking off": "Ask the model to skip reasoning entirely, on models that can turn thinking off",
 	"At most {0} characters.": "At most {0} characters.",
 	"At most {0} keywords.": "At most {0} keywords.",
@@ -323,6 +325,7 @@
 	"Dismiss": "Dismiss",
 	"Dismiss notification": "Dismiss notification",
 	"Display only - amounts are never converted; they render exactly as the server reports them, whatever its billing currency.": "Display only - amounts are never converted; they render exactly as the server reports them, whatever its billing currency.",
+	"Document this": "Document this",
 	"Documentation": "Documentation",
 	"Documentation, feature requests, bug reports": "Documentation, feature requests, bug reports",
 	"Done": "Done",
@@ -523,6 +526,8 @@
 	"Legacy registry only": "Legacy registry only",
 	"Lets a chat agent ask a second LiteLLM model through a tool call.": "Lets a chat agent ask a second LiteLLM model through a tool call.",
 	"Lets more specific matching records inherit this field, e.g. a * record's temperature reaching gpt-5.6. Unchecked, a more specific record replaces this record wholesale.": "Lets more specific matching records inherit this field, e.g. a * record's temperature reaching gpt-5.6. Unchecked, a more specific record replaces this record wholesale.",
+	"List my models": "List my models",
+	"List the models your LiteLLM servers offer, without a model request": "List the models your LiteLLM servers offer, without a model request",
 	"Listed by": "Listed by",
 	"LiteLLM answered {0} with a missing response body ({1})": "LiteLLM answered {0} with a missing response body ({1})",
 	"LiteLLM commit message generation timed out after {0}ms. Increase the \"{1}.chat.timeout\" setting if your model needs more time.": "LiteLLM commit message generation timed out after {0}ms. Increase the \"{1}.chat.timeout\" setting if your model needs more time.",
@@ -720,6 +725,7 @@
 	"Never shown": "Never shown",
 	"New field value": "New field value",
 	"Next reset": "Next reset",
+	"No LiteLLM servers are connected. Add one from the LiteLLM dashboard to see its models here.": "No LiteLLM servers are connected. Add one from the LiteLLM dashboard to see its models here.",
 	"No configured parameters match this model.": "No configured parameters match this model.",
 	"No corrections.": "No corrections.",
 	"No declared models": "No declared models",
@@ -734,6 +740,7 @@
 	"No models available\n{0}\nClick for details": "No models available\n{0}\nClick for details",
 	"No models discovered yet.": "No models discovered yet.",
 	"No models discovered yet; the table fills once a server syncs.": "No models discovered yet; the table fills once a server syncs.",
+	"No models discovered.": "No models discovered.",
 	"No models match the filter.": "No models match the filter.",
 	"No models yet.": "No models yet.",
 	"No per-server parameters.": "No per-server parameters.",
@@ -983,6 +990,7 @@
 	"Show the {0}": "Show the {0}",
 	"Show {0} hidden groups": "Show {0} hidden groups",
 	"Skip": "Skip",
+	"Something went wrong while talking to the model. Try again; if it keeps failing, check the model's server connection.": "Something went wrong while talking to the model. Try again; if it keeps failing, check the model's server connection.",
 	"Sort": "Sort",
 	"Sort descending": "Sort descending",
 	"Source": "Source",
@@ -1119,6 +1127,7 @@
 	"Troubleshoot": "Troubleshoot",
 	"Troubleshoot: {0}": "Troubleshoot: {0}",
 	"Troubleshooting Docs": "Troubleshooting Docs",
+	"Type @litellm in chat; it answers with the model the picker has selected, and bills like chat.": "Type @litellm in chat; it answers with the model the picker has selected, and bills like chat.",
 	"UI": "UI",
 	"URL must start with http:// or https://": "URL must start with http:// or https://",
 	"Undo Import": "Undo Import",
@@ -1171,12 +1180,18 @@
 	"Which model serves ghost text; Not set keeps the feature idle.": "Which model serves ghost text; Not set keeps the feature idle.",
 	"Which model the consult tool asks; Not set keeps the feature idle.": "Which model the consult tool asks; Not set keeps the feature idle.",
 	"Which model writes review comments; Not set keeps the feature idle.": "Which model writes review comments; Not set keeps the feature idle.",
+	"Which models do my LiteLLM servers offer?": "Which models do my LiteLLM servers offer?",
 	"Which record set each value on each model, e.g. temperature 0.3 from your gpt-5* record. Read-only, and it never leaves this dashboard.": "Which record set each value on each model, e.g. temperature 0.3 from your gpt-5* record. Read-only, and it never leaves this dashboard.",
 	"Which secret?": "Which secret?",
 	"Which server?": "Which server?",
 	"Workspace": "Workspace",
 	"Workspace folder": "Workspace folder",
 	"Workspace settings override {0} in this window; the imported values take effect where no workspace override exists.": "Workspace settings override {0} in this window; the imported values take effect where no workspace override exists.",
+	"Write documentation for the code above.": "Write documentation for the code above.",
+	"Write documentation for the code or behavior you describe": "Write documentation for the code or behavior you describe",
+	"Write tests": "Write tests",
+	"Write tests for the code above.": "Write tests for the code above.",
+	"Write tests for the code or behavior you describe": "Write tests for the code or behavior you describe",
 	"Writes this VS Code-managed group into the litellm-vscode-chat.servers setting so it becomes editable here. Its credentials are copied inside the extension and never pass through this page.": "Writes this VS Code-managed group into the litellm-vscode-chat.servers setting so it becomes editable here. Its credentials are copied inside the extension and never pass through this page.",
 	"Your servers answered but listed no models.": "Your servers answered but listed no models.",
 	"Your settings read cleanly.": "Your settings read cleanly.",
@@ -1260,6 +1275,12 @@
 			"Badge word on a record field whose directive key belongs to the other record type."
 		]
 	},
+	"images//models table cell: the model accepts image input": {
+		"message": "images",
+		"comment": [
+			"/models table cell: the model accepts image input"
+		]
+	},
 	"inheritable fields (default)": "inheritable fields (default)",
 	"inheritable/Checkbox label on a record row; marks the field as inheritable by more specific records.": {
 		"message": "inheritable",
@@ -1315,6 +1336,7 @@
 	"neither this entry nor the key sets one; set one with Edit, or on the key in LiteLLM": "neither this entry nor the key sets one; set one with Edit, or on the key in LiteLLM",
 	"never fresh": "never fresh",
 	"no": "no",
+	"no capabilities reported": "no capabilities reported",
 	"no capabilities resolved": "no capabilities resolved",
 	"no discovery pass has seen it yet - run Sync models to check it now": "no discovery pass has seen it yet - run Sync models to check it now",
 	"no parameters resolved": "no parameters resolved",
@@ -1394,6 +1416,12 @@
 	"this server doesn't report spend": "this server doesn't report spend",
 	"this server doesn't report spend for this key": "this server doesn't report spend for this key",
 	"token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}": "token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}",
+	"tools//models table cell: the model supports tool calling": {
+		"message": "tools",
+		"comment": [
+			"/models table cell: the model supports tool calling"
+		]
+	},
 	"tools/Capability chip: the model supports tool calling.": {
 		"message": "tools",
 		"comment": [
@@ -1427,6 +1455,12 @@
 	"{0} can't read request statistics: this key isn't allowed to. After the key's permissions change, use Refresh now to re-check.": "{0} can't read request statistics: this key isn't allowed to. After the key's permissions change, use Refresh now to re-check.",
 	"{0} catalog models": "{0} catalog models",
 	"{0} context, {1} out": "{0} context, {1} out",
+	"{0} context//models table cell; {0} is a compact token count such as 128k": {
+		"message": "{0} context",
+		"comment": [
+			"/models table cell; {0} is a compact token count such as 128k"
+		]
+	},
 	"{0} days ago": "{0} days ago",
 	"{0} fields": "{0} fields",
 	"{0} for {1}": "{0} for {1}",

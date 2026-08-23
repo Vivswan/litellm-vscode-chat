@@ -134,6 +134,85 @@
 				}
 			}
 		],
+		"chatParticipants": [
+			{
+				"id": "litellm.participant",
+				"name": "litellm",
+				"fullName": "LiteLLM",
+				"description": "%litellm.participant.description%",
+				"when": "config.litellm-vscode-chat.chatParticipant.enabled",
+				"isSticky": true,
+				"sampleRequest": "%litellm.participant.sampleRequest%",
+				"disambiguation": [
+					{
+						"category": "litellm_model_catalog",
+						"description": "%litellm.participant.disambiguation.catalog.description%",
+						"examples": [
+							"%litellm.participant.disambiguation.catalog.example1%",
+							"%litellm.participant.disambiguation.catalog.example2%"
+						]
+					},
+					{
+						"category": "litellm_own_model_answer",
+						"description": "%litellm.participant.disambiguation.ownModel.description%",
+						"examples": [
+							"%litellm.participant.disambiguation.ownModel.example1%",
+							"%litellm.participant.disambiguation.ownModel.example2%"
+						]
+					}
+				],
+				"commands": [
+					{
+						"name": "tests",
+						"description": "%litellm.participant.command.tests.description%",
+						"isSticky": true,
+						"sampleRequest": "%litellm.participant.command.tests.sampleRequest%",
+						"disambiguation": [
+							{
+								"category": "litellm_test_generation",
+								"description": "%litellm.participant.command.tests.disambiguation.description%",
+								"examples": [
+									"%litellm.participant.command.tests.disambiguation.example1%",
+									"%litellm.participant.command.tests.disambiguation.example2%"
+								]
+							}
+						]
+					},
+					{
+						"name": "docs",
+						"description": "%litellm.participant.command.docs.description%",
+						"isSticky": true,
+						"sampleRequest": "%litellm.participant.command.docs.sampleRequest%",
+						"disambiguation": [
+							{
+								"category": "litellm_documentation_writing",
+								"description": "%litellm.participant.command.docs.disambiguation.description%",
+								"examples": [
+									"%litellm.participant.command.docs.disambiguation.example1%",
+									"%litellm.participant.command.docs.disambiguation.example2%"
+								]
+							}
+						]
+					},
+					{
+						"name": "models",
+						"description": "%litellm.participant.command.models.description%",
+						"isSticky": false,
+						"sampleRequest": "%litellm.participant.command.models.sampleRequest%",
+						"disambiguation": [
+							{
+								"category": "litellm_model_listing",
+								"description": "%litellm.participant.command.models.disambiguation.description%",
+								"examples": [
+									"%litellm.participant.command.models.disambiguation.example1%",
+									"%litellm.participant.command.models.disambiguation.example2%"
+								]
+							}
+						]
+					}
+				]
+			}
+		],
 		"commands": [
 			{
 				"command": "litellm.manage",

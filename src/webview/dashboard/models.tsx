@@ -18,6 +18,7 @@ import {
 } from "../../dashboard/modelFilters";
 import type { DashboardModel } from "../../dashboard/viewModels";
 import { capabilityDisplayLabel, costUnitLabel } from "../../shared/config/capabilityDisplay";
+import { compactTokenCount } from "../../shared/util/tokenCount";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { helpModelsSection } from "./helpText";
 import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
@@ -184,21 +185,6 @@ function ModelDetail({
 			{costs ? <p className="model-detail-note">{pricingNote(currencySymbol)}</p> : null}
 		</div>
 	);
-}
-
-/**
- * Token counts at a glance: "128k", not "128,000" - the second line is skimmed, and
- * four exact digits mid-sentence are read rather than seen. The exact figure lives in
- * the row's detail.
- */
-function compactTokens(count: number): string {
-	if (count >= 1_000_000) {
-		return `${Number((count / 1_000_000).toPrecision(3))}M`;
-	}
-	if (count >= 1000) {
-		return `${Math.round(count / 1000)}k`;
-	}
-	return String(count);
 }
 
 /**
@@ -816,8 +802,8 @@ export function ModelsSection({
 													<span className="model-limits">
 														{l10n.t(
 															"{0} context, {1} out",
-															compactTokens(model.maxInputTokens),
-															compactTokens(model.maxOutputTokens)
+															compactTokenCount(model.maxInputTokens),
+															compactTokenCount(model.maxOutputTokens)
 														)}
 													</span>
 													{/* A real separator element, not a CSS ::after: it is text a

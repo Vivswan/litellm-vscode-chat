@@ -76,7 +76,7 @@
 | `litellm-vscode-chat.quickFix.model` | `null` | 快速修復後備路徑使用的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
 | `litellm-vscode-chat.reviewComments.enabled` | `false` | 選擇啟用對變更的 AI 審查評論。先於功能註冊: 設定會保留, 待功能發佈後生效 |
 | `litellm-vscode-chat.reviewComments.model` | `null` | 撰寫審查評論的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
-| `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟; 先於功能註冊, 待功能發佈後生效 |
+| `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟 |
 
 刻意不提供全域標頭設定: 自訂 HTTP 標頭描述的是如何與某一個伺服器交談, 所以它們存放在伺服器項目上 ([`headers`](servers.md#自訂標頭)) - 機器範圍, 在設定同步搆不到的地方, 與全域設定不同。
 

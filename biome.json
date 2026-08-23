@@ -145,7 +145,27 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/commitGen/**"],
+										"group": ["**/commitGen/**", "**/participant/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/participant/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/inline/**", "**/commitGen/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
 									}
 								]
@@ -165,7 +185,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**"],
+										"group": ["**/inline/**", "**/participant/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts)."
 									}
 								]
@@ -202,7 +222,8 @@
 											"!**/shared/util/baseUrl",
 											"!**/shared/util/displayUrl",
 											"!**/shared/util/errorText",
-											"!**/shared/util/json"
+											"!**/shared/util/json",
+											"!**/shared/util/tokenCount"
 										],
 										"message": "Webview code may import the src/dashboard tree, its own tree, and only the allowlisted pure src/shared modules (they ride into the browser bundle); extension-side state stays behind the message protocol."
 									}

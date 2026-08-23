@@ -166,6 +166,22 @@ When the template applies, the prompt is built from it and the wire `suffix` fie
 
 Privacy is the part to read twice: inline completions send the file content around your cursor to the configured LiteLLM server automatically as you type. It is the same trust boundary as chat - your own server, no third party - but without a per-request action from you, which is why the feature ships off and takes an explicit model. The requests go over the same server connection as everything else, so they are covered by the existing [usage and spend tracking and budget alerts](usage.md).
 
+### Chat with @litellm
+
+Type `@litellm` in the chat view and ask. Unlike the recipes above this one is already on - it ships enabled and costs nothing until you invoke it - so the only setting is the one that turns it off:
+
+```jsonc
+"litellm-vscode-chat.chatParticipant.enabled": false
+```
+
+It answers with **whichever model the chat model picker has selected**, and that is the whole model policy: there is no separate model setting to fill in, and pointing the picker at one of your LiteLLM models is what makes the answer come from your own proxy. Every turn is an ordinary chat request, so it goes exactly where that model goes and nowhere else - pick one of your LiteLLM models and it is your own server, covered by the same [usage tracking and budget alerts](usage.md) as any other chat turn; leave a built-in Copilot model selected and the turn goes to Copilot, as that model always does. Either way this adds no path off your machine that chat did not already have.
+
+Three slash commands come with it. `/tests` and `/docs` put a fixed instruction in front of your text and send it to the model. `/models` is the odd one out: it answers from what the extension already knows, listing every connected server with its models, their context windows, and their tool and image support, without touching the network - which is the quick way to get the exact raw model ID to paste into a `servers` entry or a feature's model setting.
+
+Whatever you attach comes with it: the editor selection, the file you have open, and every `#file:` you add are read and sent below your text, so "write tests for this" means the code in front of you. Attachments are capped at 40,000 characters in total, and anything cut or left out is labeled as such rather than passed off as whole.
+
+Asking with an empty prompt lists the commands instead of sending an empty request - an open file alone is not a question. Earlier turns ride along as context up to 80,000 characters, with the oldest messages dropping off first, so a long thread stays bounded and no single message is ever cut mid-sentence.
+
 ## Commands
 
 Everything the extension can do on demand is a Command Palette command (`Ctrl+Shift+P` / `Cmd+Shift+P`, then type "LiteLLM"):

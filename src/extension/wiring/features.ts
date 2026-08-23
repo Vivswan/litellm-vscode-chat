@@ -4,6 +4,9 @@ import type { Logger } from "../../shared/logger";
 import type { FeatureProbes } from "../dashboard/intents";
 import { wireCommitGeneration } from "../features/commitGen/wiring";
 import { createFimProbe, wireInlineCompletions } from "../features/inline/wiring";
+import type { SnapshotSource } from "../features/participant/snapshots";
+import type { ChatParticipantWiring } from "../features/participant/wiring";
+import { wireChatParticipant } from "../features/participant/wiring";
 
 /**
  * The features' composition point: constructs the ONE shared OneShotClient
@@ -14,10 +17,19 @@ import { createFimProbe, wireInlineCompletions } from "../features/inline/wiring
 export function wireFeatures(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	deps: { readonly ua: string; readonly outputChannel: vscode.OutputChannel }
-): { readonly featureProbes: FeatureProbes } {
+	deps: {
+		readonly ua: string;
+		readonly outputChannel: vscode.OutputChannel;
+		/** The provider's per-group snapshots, for the participant's zero-network /models answer. */
+		readonly getSnapshots: () => readonly SnapshotSource[];
+	}
+): { readonly featureProbes: FeatureProbes; readonly chatParticipant: ChatParticipantWiring } {
 	const oneShot = new OneShotClient({ userAgent: deps.ua });
 	const inline = wireInlineCompletions(context, logger, { oneShot });
 	wireCommitGeneration(context, logger, { oneShot, outputChannel: deps.outputChannel });
-	return { featureProbes: { inlineCompletions: createFimProbe(inline.fimSend) } };
+	// Surfaced rather than consumed here: the quick-fix feature registers /fix
+	// and /explain through this seam when it lands (a declared cross-feature
+	// edit; features may not import each other, so the seam is the only route).
+	const chatParticipant = wireChatParticipant(context, logger, { getSnapshots: deps.getSnapshots });
+	return { featureProbes: { inlineCompletions: createFimProbe(inline.fimSend) }, chatParticipant };
 }
