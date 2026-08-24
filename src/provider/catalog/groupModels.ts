@@ -101,23 +101,6 @@ export type LiteLLMModelInfo = PreAttachModelInfo | AttachedModelInfo;
 const GROUP_CLIENT_ID_PREFIX = "group:";
 
 /**
- * The labeled identity form's discriminator segment. It sits where the
- * unlabeled form carries its 32-hex fingerprint, and "labeled" is not a hex
- * string, so no unlabeled identity can spell a labeled-form ID. The separation
- * must stay on the OUTPUT side: the unlabeled plain branch hashes the raw
- * free-form API key, so any input-side encoding could be forged by a bare key
- * that is byte-for-byte that encoding.
- */
-const GROUP_CLIENT_ID_LABELED_SEGMENT = "labeled:";
-
-/**
- * The unlabeled credentialed form's discriminator segment, same output-side
- * separation: "cred" is not a 32-hex string, so no bare API key can spell a
- * credentialed-form ID.
- */
-const GROUP_CLIENT_ID_CRED_SEGMENT = "cred:";
-
-/**
  * Two groups may point at one base URL with different credentials, so group
  * identity includes a non-secret fingerprint over the whole credential
  * material: API key, OAuth client credentials, and virtual key. Two DECLARED
@@ -125,36 +108,29 @@ const GROUP_CLIENT_ID_CRED_SEGMENT = "cred:";
  * joins the identity too - without it both entries would collapse to one
  * status-window identity and the second could never report.
  *
- * Labeled identities live in their own ID namespace
- * (group:labeled:<fingerprint>:<url>), and within a fingerprinted branch the
- * material is JSON-encoded before hashing, since a delimiter join would let
- * two different credential sets serialize identically. The unlabeled plain
- * branch hashes the raw API key so those identities survive credential-field
- * additions unchanged (pinned by test), and the unlabeled credentialed branch
- * carries its own namespace segment so a bare API key spelling that branch's
- * JSON text cannot collide with it. Rotating any part mints a new identity:
- * the group double-counts in the status window for one cycle until the old
- * identity ages out.
+ * The identity is ONE injective encoding: a fixed-arity JSON tuple with one
+ * slot per component, absent components as null - the same
+ * JSON.stringify-composition rule the fingerprint and the discovery cache key
+ * follow. JSON escaping keeps every slot inside its slot, so no free-form
+ * value (the raw API key above all) can spell another component or another
+ * component combination; the pinned injectivity property drives adversarial
+ * JSON-shaped keys through exactly that claim. The tuple is hashed, so no ID
+ * embeds credential material. Rotating any part mints a new identity: the
+ * group double-counts in the status window for one cycle until the old
+ * identity ages out. IDs are derived, never stored (the salted fingerprint
+ * keeps them stable across sessions for unchanged credentials); the one
+ * persisted carrier (the status blob) is version-stamped and restores nothing
+ * from other shapes, so a format change costs one blob reset and nothing else.
  */
 export function groupClientId(server: GroupServer): string {
-	if (server.label !== undefined) {
-		const credentials = JSON.stringify([
-			server.apiKey,
-			server.oauth ? oauthCredentialFingerprint(server.oauth) : null,
-			server.virtualKey ? [server.virtualKey.header, server.virtualKey.value] : null,
-			server.label,
-		]);
-		return `${GROUP_CLIENT_ID_PREFIX}${GROUP_CLIENT_ID_LABELED_SEGMENT}${fingerprint(credentials)}:${server.baseUrl}`;
-	}
-	if (server.oauth || server.virtualKey) {
-		const credentials = JSON.stringify([
-			server.apiKey,
-			server.oauth ? oauthCredentialFingerprint(server.oauth) : null,
-			server.virtualKey ? [server.virtualKey.header, server.virtualKey.value] : null,
-		]);
-		return `${GROUP_CLIENT_ID_PREFIX}${GROUP_CLIENT_ID_CRED_SEGMENT}${fingerprint(credentials)}:${server.baseUrl}`;
-	}
-	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(server.apiKey)}:${server.baseUrl}`;
+	const identity = JSON.stringify([
+		server.baseUrl,
+		server.label ?? null,
+		server.apiKey,
+		server.oauth ? oauthCredentialFingerprint(server.oauth) : null,
+		server.virtualKey ? [server.virtualKey.header, server.virtualKey.value] : null,
+	]);
+	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(identity)}:${server.baseUrl}`;
 }
 
 /**

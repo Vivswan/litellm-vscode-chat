@@ -12,20 +12,13 @@ import { isHiddenGroupServerStatus, unexpectedFailureCount, unexpectedServerFail
 import type { DeclaredServerView } from "../servers/serverSync";
 import { applySyncFailures } from "../servers/syncFailureOverlay";
 
-/** Every connection state, the single source for the union type and the persisted-status schema. */
-const CONNECTION_STATES = ["not-configured", "connecting", "loading", "connected", "degraded", "error"] as const;
-
-type ConnectionState = (typeof CONNECTION_STATES)[number];
-
 /**
  * The status bar's (and diagnostics') view of the world, one variant per state
  * so each carries exactly the facts its rendering needs. The "connecting"
  * variant's `attention` flag is presentation state, not a state of its own: a
  * single empty window is normal cold-start ordering, but a second consecutive
  * empty report is evidence of persistence, so the presentation degrades to a
- * warning with an actionable tooltip. Any report with servers resets it. It
- * rides inside the variant (not a new state string) so statuses persisted by
- * this version still parse under older versions' state enums.
+ * warning with an actionable tooltip. Any report with servers resets it.
  */
 export type ConnectionStatus =
 	| { state: "not-configured"; lastChecked?: string | undefined }
@@ -48,17 +41,6 @@ export type ConnectionStatus =
 			serverStatuses?: readonly ServerStatus[] | undefined;
 			lastChecked?: string | undefined;
 	  };
-
-// The union and CONNECTION_STATES are the same set, checked both ways at
-// compile time: a state in the union but not the list would silently discard
-// every persisted status of that state, and a listed state the union lacks
-// could never be constructed.
-const _connectionStatesMatchUnion: [
-	Exclude<ConnectionStatus["state"], ConnectionState>,
-	Exclude<ConnectionState, ConnectionStatus["state"]>,
-] extends [never, never]
-	? true
-	: never = true;
 
 /** The server statuses a connection status carries; empty for the states without a status window. */
 export function statusServerStatuses(status: ConnectionStatus): readonly ServerStatus[] {
@@ -83,17 +65,6 @@ export function statusTotalModels(status: ConnectionStatus): number | undefined 
 		default:
 			return undefined;
 	}
-}
-
-/**
- * Whether an error status is the synthetic zero-model verdict rather than a
- * transport failure. Only RESTORE consults this: versions before the
- * zero-model state moved to "connected" persisted it as an error, and the
- * normalizing parse rebuilds the honest state. Derived from the carried server
- * statuses, never from the message text.
- */
-function isLegacyZeroModelVerdict(serverStatuses: readonly ServerStatus[]): boolean {
-	return serverStatuses.length > 0 && unexpectedFailureCount(serverStatuses) === 0;
 }
 
 /** What the zero-model judgment renders when it claims the headline; see zeroModelJudgment. */
@@ -149,195 +120,284 @@ function zeroModelStatusTexts(serverStatuses: readonly ServerStatus[]): ZeroMode
  * kind or a non-object drops the whole classification, because a hint is
  * decoration on an error that renders fine without it.
  */
-const persistedClassificationSchema = z
-	.object({
-		kind: z.enum(TRANSPORT_ERROR_KINDS),
-		status: z.number().int().optional().catch(undefined),
-		setupHint: z.enum(SETUP_HINT_KINDS).optional().catch(undefined),
-	})
-	.optional()
-	.catch(undefined);
+const persistedClassificationFields = z.object({
+	kind: z.enum(TRANSPORT_ERROR_KINDS),
+	status: z.number().int().optional().catch(undefined),
+	setupHint: z.enum(SETUP_HINT_KINDS).optional().catch(undefined),
+	unsupportedEndpoint: z.literal("modelListing").optional().catch(undefined),
+});
+
+const persistedClassificationSchema = persistedClassificationFields.optional().catch(undefined);
 
 /**
- * Dropped fields removed rather than left as explicit undefined keys (the
- * per-field catch writes those), so restored statuses stay structurally
- * identical to freshly constructed ones.
+ * The exhaustive-reconstruction guard for the restore path: the `-?` mapping
+ * makes EVERY key of the target type required at the compile level, so a
+ * field the live type or the schema gains cannot be silently omitted from a
+ * restore - the rebuild literal stops compiling until it names the field.
+ * Only keys the target type itself allows to be undefined (its optionals) may
+ * be supplied as undefined; a required key demands a real value, so no call
+ * site can compile its way into dropping one. Undefined-valued keys are then
+ * stripped so restored statuses stay structurally identical to freshly
+ * constructed ones (which build their optionals by conditional spread).
  */
+function restoreTotal<T extends object>(
+	total: {
+		[K in keyof T]-?: undefined extends T[K] ? T[K] | undefined : T[K];
+	}
+): T {
+	const cleaned: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(total)) {
+		if (value !== undefined) {
+			cleaned[key] = value;
+		}
+	}
+	// Sound because `total` carried every key of T, required keys could not be
+	// undefined, and only undefined-valued keys (absent optionals) were dropped.
+	return cleaned as T;
+}
+
+/** A restored classification, total over TransportErrorClassification by construction (restoreTotal). */
 function restoredClassification(
 	parsed: NonNullable<z.infer<typeof persistedClassificationSchema>>
 ): TransportErrorClassification {
-	return {
+	return restoreTotal<TransportErrorClassification>({
 		kind: parsed.kind,
-		...(parsed.status !== undefined ? { status: parsed.status } : {}),
-		...(parsed.setupHint !== undefined ? { setupHint: parsed.setupHint } : {}),
-	};
+		status: parsed.status,
+		setupHint: parsed.setupHint,
+		unsupportedEndpoint: parsed.unsupportedEndpoint,
+	});
 }
 
 /**
- * One persisted status-window element, over only the fields consumers read.
- * Loose, because older extension versions may have persisted extra fields;
- * discriminated, so an "ok" without a model count or an "error" without its
- * message is malformed rather than half-usable.
+ * One persisted status-window element, the current ServerStatus shape field
+ * for field (the key census below fails closed on drift). Loose, so an extra
+ * field never poisons an element; discriminated, so an "ok" without its
+ * served count or an "error" without its two message slots is malformed
+ * rather than half-usable.
  */
+const persistedOkElementSchema = z.looseObject({
+	state: z.literal("ok"),
+	label: z.string(),
+	baseUrl: z.string(),
+	// An ok element without its served count cannot render honestly, so the
+	// count is required: junk in it drops the whole element, while junk in an
+	// optional field below only drops that field (the catch).
+	servedModelCount: z.number().int().nonnegative(),
+	hiddenByRemoval: z.boolean().optional().catch(undefined),
+	modelInfoUnsupported: z.enum(["timeout", "status"]).optional().catch(undefined),
+	serverId: z.string().optional().catch(undefined),
+	lastChecked: z.string().optional().catch(undefined),
+	hasApiKey: z.boolean().optional().catch(undefined),
+	hasOAuth: z.boolean().optional().catch(undefined),
+});
+
+const persistedErrorElementSchema = z.looseObject({
+	state: z.literal("error"),
+	label: z.string(),
+	baseUrl: z.string(),
+	// A message-less (or empty) error element cannot render honestly, and the
+	// log rendering may never be rebuilt from display text, so both message
+	// slots and the served count are required; junk in any of them drops the
+	// whole element, junk in an optional field only drops that field.
+	error: z.string().min(1),
+	logSafeError: z.string().min(1),
+	classification: persistedClassificationSchema,
+	expected: z.boolean().optional().catch(undefined),
+	servedModelCount: z.number().int().nonnegative(),
+	declaredModelCount: z.number().int().nonnegative().optional().catch(undefined),
+	serverId: z.string().optional().catch(undefined),
+	lastChecked: z.string().optional().catch(undefined),
+	hasApiKey: z.boolean().optional().catch(undefined),
+	hasOAuth: z.boolean().optional().catch(undefined),
+});
+
 const persistedServerStatusSchema = z.discriminatedUnion("state", [
-	z.looseObject({
-		state: z.literal("ok"),
-		label: z.string(),
-		baseUrl: z.string(),
-		// The served count under its current name, with the pre-rename modelCount
-		// accepted as the fallback reading; an ok element carrying neither cannot
-		// render honestly, so restoreServerStatus drops it as malformed.
-		servedModelCount: z.number().int().nonnegative().optional().catch(undefined),
-		modelCount: z.number().int().nonnegative().optional().catch(undefined),
-		hiddenByRemoval: z.boolean().optional().catch(undefined),
-		serverId: z.string().optional().catch(undefined),
-		lastChecked: z.string().optional().catch(undefined),
-		hasApiKey: z.boolean().optional().catch(undefined),
-	}),
-	z.looseObject({
-		state: z.literal("error"),
-		label: z.string(),
-		baseUrl: z.string(),
-		// A message-less (or empty) error element cannot render honestly, so it
-		// is malformed and drops; a junk optional field below only drops that
-		// field (the catch), never the whole element.
-		error: z.string().min(1),
-		logSafeError: z.string().min(1).optional().catch(undefined),
-		classification: persistedClassificationSchema,
-		expected: z.boolean().optional().catch(undefined),
-		servedModelCount: z.number().int().nonnegative().optional().catch(undefined),
-		declaredModelCount: z.number().int().nonnegative().optional().catch(undefined),
-		serverId: z.string().optional().catch(undefined),
-		lastChecked: z.string().optional().catch(undefined),
-		hasApiKey: z.boolean().optional().catch(undefined),
-	}),
+	persistedOkElementSchema,
+	persistedErrorElementSchema,
 ]);
 
-/** A persisted element as a real ServerStatus, or undefined for junk the parse drops. */
+// Fail-closed key census, checked both ways at compile time: every field of
+// the live ServerStatus variants and of TransportErrorClassification has a
+// schema field, and the schemas carry no key the types lack, so a new or
+// renamed field fails here until the schema (and restoreServerStatus) learn
+// it instead of being silently dropped on restore. The ok variant's
+// `error?: undefined` never-marker exists only to discriminate the union and
+// is the one exclusion.
+const _persistedShapesMatchLiveTypes: [
+	Exclude<keyof Extract<ServerStatus, { state: "ok" }>, keyof typeof persistedOkElementSchema.shape | "error">,
+	Exclude<keyof typeof persistedOkElementSchema.shape, keyof Extract<ServerStatus, { state: "ok" }>>,
+	Exclude<keyof Extract<ServerStatus, { state: "error" }>, keyof typeof persistedErrorElementSchema.shape>,
+	Exclude<keyof typeof persistedErrorElementSchema.shape, keyof Extract<ServerStatus, { state: "error" }>>,
+	Exclude<keyof TransportErrorClassification, keyof typeof persistedClassificationFields.shape>,
+	Exclude<keyof typeof persistedClassificationFields.shape, keyof TransportErrorClassification>,
+] extends [never, never, never, never, never, never]
+	? true
+	: never = true;
+
+/**
+ * A persisted element as a real ServerStatus, or undefined for junk the parse
+ * drops. Both rebuild literals go through restoreTotal, so every field the
+ * live variants carry must be named here - the schema census guards the
+ * parse side, this guards the reconstruction side.
+ */
 function restoreServerStatus(value: unknown): ServerStatus | undefined {
 	const parsed = persistedServerStatusSchema.safeParse(value);
 	if (!parsed.success) {
 		return undefined;
 	}
 	const element = parsed.data;
-	const common = {
+	if (element.state === "ok") {
+		return restoreTotal<Extract<ServerStatus, { state: "ok" }>>({
+			state: "ok",
+			serverId: element.serverId ?? "",
+			label: element.label,
+			baseUrl: element.baseUrl,
+			lastChecked: element.lastChecked ?? "",
+			servedModelCount: element.servedModelCount,
+			hasApiKey: element.hasApiKey,
+			hasOAuth: element.hasOAuth,
+			hiddenByRemoval: element.hiddenByRemoval,
+			modelInfoUnsupported: element.modelInfoUnsupported,
+			// The union's discriminating never-marker; never a value.
+			error: undefined,
+		});
+	}
+	return restoreTotal<Extract<ServerStatus, { state: "error" }>>({
+		state: "error",
 		serverId: element.serverId ?? "",
 		label: element.label,
 		baseUrl: element.baseUrl,
 		lastChecked: element.lastChecked ?? "",
-		...(element.hasApiKey !== undefined ? { hasApiKey: element.hasApiKey } : {}),
-	};
-	if (element.state === "ok") {
-		const servedModelCount = element.servedModelCount ?? element.modelCount;
-		if (servedModelCount === undefined) {
-			// An ok element without a count under either name is malformed.
-			return undefined;
-		}
-		return {
-			...common,
-			state: "ok",
-			servedModelCount,
-			...(element.hiddenByRemoval !== undefined ? { hiddenByRemoval: element.hiddenByRemoval } : {}),
-		};
-	}
-	return {
-		...common,
-		state: "error",
+		servedModelCount: element.servedModelCount,
+		hasApiKey: element.hasApiKey,
+		hasOAuth: element.hasOAuth,
 		error: element.error,
-		// Pre-rename statuses carried no served count; their declared count was
-		// the whole served set, so it is the honest fallback reading.
-		servedModelCount: element.servedModelCount ?? element.declaredModelCount ?? 0,
-		// A status persisted before logSafeError existed carries a display
-		// message that may embed response text, so the restore fails closed
-		// instead of promoting it to the log-safe slot. A present value was
-		// written by publicErrorText, so re-branding it is sound.
-		logSafeError: element.logSafeError !== undefined ? markLogSafe(element.logSafeError) : RESTORED_ERROR_LOG_TEXT,
-		...(element.classification !== undefined ? { classification: restoredClassification(element.classification) } : {}),
-		...(element.expected !== undefined ? { expected: element.expected } : {}),
-		...(element.declaredModelCount !== undefined ? { declaredModelCount: element.declaredModelCount } : {}),
-	};
+		// Written by publicErrorText last session, so re-branding it is sound.
+		logSafeError: markLogSafe(element.logSafeError),
+		classification: element.classification !== undefined ? restoredClassification(element.classification) : undefined,
+		expected: element.expected,
+		declaredModelCount: element.declaredModelCount,
+	});
 }
 
-/** The fail-closed log rendering for error statuses restored from a version that persisted no logSafeError. */
-const RESTORED_ERROR_LOG_TEXT = markLogSafe(
-	"server error restored from a previous session (message withheld from logs)"
-);
+/**
+ * The persisted blob's shape version, stamped on every write. The restore
+ * accepts exactly this version: any other stamp - including the absent stamp
+ * of every earlier extension version - restores as undefined, and the bar
+ * starts from not-configured (or connecting, once servers are seen) until the
+ * first provider report rewrites the blob, seconds after activation. The blob
+ * is an ephemeral display cache, so that reset IS the migration: bump this
+ * whenever the persisted shape changes, and the change is detected instead of
+ * tolerated by lenient dual readings.
+ */
+const PERSISTED_STATUS_VERSION = 1;
 
-const persistedStatusSchema = z.looseObject({
-	state: z.enum(CONNECTION_STATES),
-	totalModels: z.number().optional(),
-	serverStatuses: z.array(z.unknown()).optional(),
-	// An empty persisted message reads as no message at all, so it takes the
-	// error state's downgrade path below instead of rendering blank text.
-	error: z.string().min(1).optional().catch(undefined),
-	logSafeError: z.string().min(1).optional().catch(undefined),
-	classification: persistedClassificationSchema,
-	lastChecked: z.string().optional(),
+const persistedStatusSchema = z.discriminatedUnion("state", [
+	z.looseObject({ state: z.literal("not-configured"), lastChecked: z.string().optional() }),
+	z.looseObject({ state: z.literal("loading"), lastChecked: z.string().optional() }),
+	z.looseObject({ state: z.literal("connecting"), lastChecked: z.string().optional() }),
+	z.looseObject({
+		state: z.enum(["connected", "degraded"]),
+		totalModels: z.number(),
+		serverStatuses: z.array(z.unknown()),
+		lastChecked: z.string().optional(),
+	}),
+	z.looseObject({
+		state: z.literal("error"),
+		// An empty message (or an empty log rendering) cannot render honestly,
+		// so it is not the current shape and fails the whole restore.
+		error: z.string().min(1),
+		logSafeError: z.string().min(1),
+		classification: persistedClassificationSchema,
+		totalModels: z.number().optional(),
+		serverStatuses: z.array(z.unknown()).optional(),
+		lastChecked: z.string().optional(),
+	}),
+]);
+
+// The persisted schema and the ConnectionStatus union cover the same states,
+// checked both ways at compile time: a union state the schema lacks could
+// never survive a session boundary, and a schema state the union lacks could
+// never be constructed.
+const _persistedStatesMatchUnion: [
+	Exclude<ConnectionStatus["state"], z.infer<typeof persistedStatusSchema>["state"]>,
+	Exclude<z.infer<typeof persistedStatusSchema>["state"], ConnectionStatus["state"]>,
+] extends [never, never]
+	? true
+	: never = true;
+
+/** The version-stamped envelope every write persists; the restore accepts nothing else. */
+const persistedEnvelopeSchema = z.looseObject({
+	v: z.literal(PERSISTED_STATUS_VERSION),
+	status: persistedStatusSchema,
 });
 
 /**
- * The normalizing parse at the persistence trust boundary: statuses may come
- * from other extension versions, so this rebuilds a status the union can vouch
- * for. Malformed serverStatuses elements are dropped, missing counts default
- * to zero, and two staleness rules apply on restore: a "connecting" that
- * survived a session boundary starts in its needs-attention presentation, and
- * an "error" that lost its message downgrades to that same degraded
- * connecting. Anything else unusable restores as undefined and the caller
- * starts from not-configured.
+ * The parse at the persistence trust boundary. The blob is an ephemeral
+ * display cache, so the restore is strict: only the current version-stamped
+ * shape parses, and anything else - an earlier version's blob, a foreign
+ * stamp, junk - restores as undefined and the caller starts from
+ * not-configured until the first provider report. Within a current-shape
+ * blob, junk still drops the smallest thing that contains it: a malformed
+ * serverStatuses element drops, a junk optional field drops that field. One
+ * staleness rule applies on restore: a "connecting" that survived a whole
+ * session boundary starts in its needs-attention presentation.
  */
 function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
-	const parsed = persistedStatusSchema.safeParse(value);
+	const parsed = persistedEnvelopeSchema.safeParse(value);
 	if (!parsed.success) {
 		return undefined;
 	}
-	const raw = parsed.data;
-	const lastChecked = raw.lastChecked !== undefined ? { lastChecked: raw.lastChecked } : {};
-	const serverStatuses = (raw.serverStatuses ?? []).flatMap((element) => {
-		const restored = restoreServerStatus(element);
-		return restored === undefined ? [] : [restored];
-	});
+	const raw = parsed.data.status;
+	// Every branch rebuilds through restoreTotal, so a field a variant gains
+	// cannot be silently dropped on restore.
 	switch (raw.state) {
 		case "not-configured":
-			return { state: "not-configured", ...lastChecked };
+			return restoreTotal<Extract<ConnectionStatus, { state: "not-configured" }>>({
+				state: "not-configured",
+				lastChecked: raw.lastChecked,
+			});
 		case "loading":
-			return { state: "loading", ...lastChecked };
+			return restoreTotal<Extract<ConnectionStatus, { state: "loading" }>>({
+				state: "loading",
+				lastChecked: raw.lastChecked,
+			});
 		case "connecting":
 			// A restored "connecting" is stale by definition (it survived a whole
 			// session boundary without resolving), so it starts degraded.
-			return { state: "connecting", attention: true, ...lastChecked };
+			return restoreTotal<Extract<ConnectionStatus, { state: "connecting" }>>({
+				state: "connecting",
+				attention: true,
+				lastChecked: raw.lastChecked,
+			});
 		case "connected":
 		case "degraded":
-			return { state: raw.state, totalModels: raw.totalModels ?? 0, serverStatuses, ...lastChecked };
+			return restoreTotal<Extract<ConnectionStatus, { state: "connected" | "degraded" }>>({
+				state: raw.state,
+				totalModels: raw.totalModels,
+				serverStatuses: restoreServerStatuses(raw.serverStatuses),
+				lastChecked: raw.lastChecked,
+			});
 		case "error":
-			if (raw.error === undefined) {
-				// An error that lost its message cannot render honestly; it is as
-				// stale as a restored connecting, so it degrades the same way.
-				return { state: "connecting", attention: true, ...lastChecked };
-			}
-			if (isLegacyZeroModelVerdict(serverStatuses)) {
-				if (classifyOverall(serverStatuses) === "needs-declare") {
-					// Every failure expected and nothing declared: the live path
-					// renders this window as the needs-declare warning, so the
-					// restore may not upgrade it to a green connected.
-					return { state: "connecting", attention: true, ...lastChecked };
-				}
-				// A pre-rename session persisted the zero-model verdict as an error;
-				// the state is honestly "connected with nothing to serve" and the
-				// connected renderer derives the same warning from the statuses.
-				return { state: "connected", totalModels: raw.totalModels ?? 0, serverStatuses, ...lastChecked };
-			}
-			return {
+			return restoreTotal<Extract<ConnectionStatus, { state: "error" }>>({
 				state: "error",
 				error: raw.error,
-				// Same fail-closed rule as restoreServerStatus: a pre-upgrade
-				// display message never becomes the log rendering.
-				logSafeError: raw.logSafeError !== undefined ? markLogSafe(raw.logSafeError) : RESTORED_ERROR_LOG_TEXT,
-				...(raw.classification !== undefined ? { classification: restoredClassification(raw.classification) } : {}),
-				serverStatuses,
-				...(raw.totalModels !== undefined ? { totalModels: raw.totalModels } : {}),
-				...lastChecked,
-			};
+				// Written by publicErrorText last session, so re-branding it is sound.
+				logSafeError: markLogSafe(raw.logSafeError),
+				classification: raw.classification !== undefined ? restoredClassification(raw.classification) : undefined,
+				serverStatuses: restoreServerStatuses(raw.serverStatuses ?? []),
+				totalModels: raw.totalModels,
+				lastChecked: raw.lastChecked,
+			});
 	}
+}
+
+/** The persisted window's elements as real ServerStatus values, junk elements dropped. */
+function restoreServerStatuses(elements: readonly unknown[]): ServerStatus[] {
+	return elements.flatMap((element) => {
+		const restored = restoreServerStatus(element);
+		return restored === undefined ? [] : [restored];
+	});
 }
 
 /** One rendered status-bar presentation: everything a status item shows at once; "plain" clears the background. */
@@ -509,6 +569,15 @@ export class StatusBarManager {
 	 * worlds stringify equal.
 	 */
 	private lastJudgedOverlay: string | undefined;
+	/**
+	 * True while the status is still the constructor's restore-less connecting
+	 * seed (a configured install whose blob failed the versioned restore). The
+	 * seed is presentation, not evidence: the empty-report escalation must not
+	 * count it as an already-reported empty window, or the first real empty
+	 * report after a version bump would render the warning. Cleared by the
+	 * first status write; session state only.
+	 */
+	private seededConnecting = false;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -542,6 +611,13 @@ export class StatusBarManager {
 		if (restored !== undefined) {
 			this._connectionStatus = restored;
 			this.lastConnectingAttention = restored.state === "connecting" && restored.attention;
+		} else if (this.hasConfiguredServers()) {
+			// The shared not-configured gate applies to the restore-less start too:
+			// after a version bump resets the blob, a configured install must
+			// render "connecting" until the first report, never claim "not
+			// configured" in the bar, the setup gate, or a diagnostics snapshot.
+			this._connectionStatus = { state: "connecting", attention: false };
+			this.seededConnecting = true;
 		}
 		// Rendering without an argument never persists, so nothing needs awaiting.
 		void this.updateStatusBar();
@@ -563,6 +639,8 @@ export class StatusBarManager {
 
 	async updateStatusBar(status?: ConnectionStatus): Promise<void> {
 		if (status) {
+			// Any real status write retires the constructor's connecting seed.
+			this.seededConnecting = false;
 			this.lastConnectingAttention =
 				status.state === "connecting"
 					? status.attention
@@ -570,7 +648,7 @@ export class StatusBarManager {
 						? this.lastConnectingAttention
 						: false;
 			this._connectionStatus = status;
-			await this.context.globalState.update(LAST_CONNECTION_STATUS_KEY, status);
+			await this.context.globalState.update(LAST_CONNECTION_STATUS_KEY, { v: PERSISTED_STATUS_VERSION, status });
 		}
 
 		const current = this._connectionStatus;
@@ -681,14 +759,16 @@ export class StatusBarManager {
 			// empty before the per-group refreshes arrive.
 			if (this.hasConfiguredServers()) {
 				// Already connecting = a second consecutive empty report; see the
-				// connecting variant's attention flag for why that degrades.
+				// connecting variant's attention flag for why that degrades. The
+				// constructor's restore-less seed is excluded explicitly: it is
+				// presentation, not a reported empty window (seededConnecting).
 				// lastConnectingAttention carries the verdict across the connection
 				// test's transient loading overwrite.
 				const previous = this._connectionStatus;
 				this.logger.log("No server statuses yet; configured servers have not reported");
 				void this.updateStatusBar({
 					state: "connecting",
-					attention: previous.state === "connecting" || this.lastConnectingAttention,
+					attention: (previous.state === "connecting" && !this.seededConnecting) || this.lastConnectingAttention,
 					lastChecked: now,
 				});
 			} else {

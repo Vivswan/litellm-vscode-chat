@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import * as fc from "fast-check";
 import {
 	attachGroupServer,
 	type GroupServer,
@@ -10,10 +11,14 @@ import {
 	parseModelMetadata,
 } from "../../../provider/catalog/groupModels";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
-import { oauthCredentialFingerprint } from "../../../provider/transport/auth";
+import { type OAuthConfig, oauthCredentialFingerprint } from "../../../provider/transport/auth";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
+import { resolveFuzzSeed } from "../../fuzzStream";
 import { expectDefined, makeModelInfo } from "../../pureHelpers";
+
+const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
+const SEED = resolveFuzzSeed();
 
 /** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
@@ -189,8 +194,12 @@ suite("provider/catalog/groupModels", () => {
 	suite("groupClientId", () => {
 		const plain: GroupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "k" };
 
-		test("servers without OAuth or a virtual key keep the pre-OAuth identity format", () => {
-			assert.strictEqual(groupClientId(plain), `group:${fingerprint("k")}:http://litellm.test`);
+		test("one identity format: group:<fingerprint of the identity tuple>:<baseUrl>", () => {
+			// The equality pin of the encoding itself: the fixed-arity tuple with
+			// one slot per component, absent components as null, hashed as one
+			// JSON string. A slot added, dropped, or reordered fails here.
+			const tuple = JSON.stringify(["http://litellm.test", null, "k", null, null]);
+			assert.strictEqual(groupClientId(plain), `group:${fingerprint(tuple)}:http://litellm.test`);
 		});
 
 		test("entries sharing a base URL and every credential get distinct identities from their labels", () => {
@@ -212,41 +221,13 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("a labeled OAuth configuration cannot encode like an unlabeled one", () => {
-			// Labeled identities live in their own group:labeled: namespace, so no
-			// unlabeled encoding can reach them.
+			// The label slot is null or a string, so a labeled identity's tuple can
+			// never equal an unlabeled one's.
 			const unlabeled = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
 			const labeled = expectDefined(
 				parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS, label: "Prod" })
 			);
 			assert.notStrictEqual(groupClientId(labeled), groupClientId(unlabeled));
-		});
-
-		test("an unlabeled API key spelling the labeled encoding never collides with a real labeled entry", () => {
-			// The unlabeled plain branch hashes the raw free-form key, so a bare key
-			// that IS the labeled form's JSON text hashes to the same fingerprint;
-			// only the labeled output namespace keeps the domains apart. A collision
-			// would merge status entries and reuse the wrong discovery cache.
-			const smuggled = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: '["k",null,null,"Prod"]' })
-			);
-			const labeled = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
-			);
-			assert.notStrictEqual(groupClientId(smuggled), groupClientId(labeled));
-		});
-
-		test("an unlabeled API key spelling the credentialed encoding never collides with a real credentialed group", () => {
-			// group:cred: is its own namespace, so a bare key that IS the
-			// credentialed form's JSON text cannot reach it.
-			const credentialed = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
-			const credId = groupClientId(credentialed);
-			const spelledKey = JSON.stringify([
-				"",
-				credentialed.oauth ? oauthCredentialFingerprint(credentialed.oauth) : null,
-				null,
-			]);
-			const smuggled = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: spelledKey }));
-			assert.notStrictEqual(groupClientId(smuggled), credId);
 		});
 
 		test("rotating the client secret mints a new identity", () => {
@@ -335,14 +316,18 @@ suite("provider/catalog/groupModels", () => {
 			assert.notStrictEqual(groupClientId(withOAuth), groupClientId(withKey));
 		});
 
-		test("an API key spelling out delimiter material never collides with a real credential unit", () => {
-			// The API key is free-form, so credential material is JSON-encoded before
-			// hashing: under a delimiter join, a bare key containing the join
-			// sequence could share a key-plus-virtual-key group's cached SDK client.
-			const smuggled = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k\nvirtual-key\nx-vk\nvk-1" })
+		test("an API key spelling another identity's encoding never collides with the identity it spells", () => {
+			// Deterministic regression pairs the seeded property may never sample:
+			// the API key is free-form, so a bare key can be byte-for-byte the JSON
+			// text of another identity's tuple (current format), a retired format's
+			// credential JSON, or raw delimiter material. JSON slot escaping must
+			// keep every such key inside its own slot; a collision would merge
+			// status entries and reuse the wrong discovery cache.
+			const genuineLabeled = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
 			);
-			const genuine = expectDefined(
+			const genuineOAuth = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
+			const genuineWithKey = expectDefined(
 				parseGroupConfiguration({
 					baseUrl: "http://litellm.test",
 					apiKey: "k",
@@ -350,7 +335,100 @@ suite("provider/catalog/groupModels", () => {
 					virtualKeyValue: "vk-1",
 				})
 			);
-			assert.notStrictEqual(groupClientId(smuggled), groupClientId(genuine));
+			const spellings: ReadonlyArray<[string, string, GroupServer]> = [
+				[
+					"the current tuple text of the labeled identity",
+					JSON.stringify(["http://litellm.test", "Prod", "k", null, null]),
+					genuineLabeled,
+				],
+				["the retired labeled form's credential JSON", '["k",null,null,"Prod"]', genuineLabeled],
+				[
+					"the retired credentialed form's credential JSON",
+					JSON.stringify(["", oauthCredentialFingerprint(expectDefined(genuineOAuth.oauth)), null]),
+					genuineOAuth,
+				],
+				["raw delimiter material", "k\nvirtual-key\nx-vk\nvk-1", genuineWithKey],
+			];
+			for (const [name, apiKey, genuine] of spellings) {
+				const smuggled = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey }));
+				assert.notStrictEqual(groupClientId(smuggled), groupClientId(genuine), name);
+			}
+		});
+
+		test("property: one injective encoding covers every identity component the old namespaces guarded (seed-pinned)", () => {
+			// Ground truth is component-wise equality, independent of any string
+			// encoding, so an encoding flaw that let two different identities
+			// serialize identically would fail here. Small domains make component
+			// collisions common, so both directions get real coverage: equal
+			// components must share an ID, and ANY differing component must move
+			// it. The API key domain carries the old smuggling vectors - keys
+			// spelling the JSON text of labeled, credentialed, and current-format
+			// identities, plus raw delimiter material - which the retired
+			// labeled:/cred: namespace segments used to guard.
+			const baseUrlArb = fc.constantFrom(...["http://a.test", "http://b.test"].map((url) => normalizeBaseUrl(url)));
+			const labelArb = fc.option(fc.constantFrom("Prod", "Staging"), { nil: undefined });
+			const apiKeyArb = fc.constantFrom(
+				"",
+				"k",
+				"k2",
+				'["http://a.test","Prod","k",null,null]',
+				'["k",null,null,"Prod"]',
+				'["",null,null]',
+				"k\nvirtual-key\nx-vk\nvk-1"
+			);
+			const oauthArb = fc.option(
+				fc
+					.tuple(
+						fc.constantFrom("http://idp.test/token", "http://idp2.test/token"),
+						fc.constantFrom("client-1", "client-2"),
+						fc.constantFrom("", "secret-1"),
+						fc.option(fc.constantFrom("read", ""), { nil: undefined })
+					)
+					.map(
+						([tokenUrl, clientId, clientSecret, scopes]): OAuthConfig => ({
+							tokenUrl,
+							clientId,
+							clientSecret,
+							...(scopes !== undefined ? { scopes } : {}),
+						})
+					),
+				{ nil: undefined }
+			);
+			const virtualKeyArb = fc.option(
+				fc
+					.tuple(fc.constantFrom("x-vk", "x-vk-2"), fc.constantFrom("vk-1", "vk-2"))
+					.map(([header, value]) => ({ header, value })),
+				{ nil: undefined }
+			);
+			const serverArb = fc.tuple(baseUrlArb, labelArb, apiKeyArb, oauthArb, virtualKeyArb).map(
+				([baseUrl, label, apiKey, oauth, virtualKey]): GroupServer => ({
+					baseUrl,
+					apiKey,
+					...(label !== undefined ? { label } : {}),
+					...(oauth !== undefined ? { oauth } : {}),
+					...(virtualKey !== undefined ? { virtualKey } : {}),
+				})
+			);
+			// OAuth compares by its credential fingerprint, production's own unit of
+			// OAuth identity (scopes "" and absent are the same material there).
+			const sameIdentity = (a: GroupServer, b: GroupServer): boolean =>
+				a.baseUrl === b.baseUrl &&
+				(a.label ?? null) === (b.label ?? null) &&
+				a.apiKey === b.apiKey &&
+				(a.oauth ? oauthCredentialFingerprint(a.oauth) : null) ===
+					(b.oauth ? oauthCredentialFingerprint(b.oauth) : null) &&
+				(a.virtualKey?.header ?? null) === (b.virtualKey?.header ?? null) &&
+				(a.virtualKey?.value ?? null) === (b.virtualKey?.value ?? null);
+			fc.assert(
+				fc.property(serverArb, serverArb, (a, b) => {
+					assert.strictEqual(
+						groupClientId(a) === groupClientId(b),
+						sameIdentity(a, b),
+						`IDs must agree with identities:\n${JSON.stringify(a)}\n${JSON.stringify(b)}`
+					);
+				}),
+				{ seed: SEED, numRuns: NUM_RUNS }
+			);
 		});
 	});
 

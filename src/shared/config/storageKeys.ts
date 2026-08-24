@@ -9,7 +9,15 @@ export const SERVER_REGISTRY_KEY = "litellm.serverRegistry";
 /** globalState: set once the first-run welcome message has been shown. */
 export const HAS_SHOWN_WELCOME_KEY = "litellm.hasShownWelcome";
 
-/** globalState: the last ConnectionStatus, restored into the status bar on activation. */
+/**
+ * globalState: the last ConnectionStatus, restored into the status bar on
+ * activation. An ephemeral display cache rewritten by the first provider
+ * report each session, persisted as a version-stamped envelope
+ * ({ v, status }; see PERSISTED_STATUS_VERSION in extension/ui/status.ts).
+ * The restore accepts exactly the current version's shape; anything else
+ * restores as undefined and the bar starts from scratch - a shape change
+ * bumps the stamp instead of accreting legacy readings.
+ */
 export const LAST_CONNECTION_STATUS_KEY = "litellm.lastConnectionStatus";
 
 /**
