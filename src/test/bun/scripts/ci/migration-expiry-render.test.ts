@@ -1,15 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { MIGRATION_EXPIRY_MARKER, renderMigrationExpiryTable } from "../../../../../scripts/ci/migration-expiry-render";
 import type { MigrationExpiry } from "../../../../extension/migrations/index";
 import { REPO_ROOT } from "../../../util/repoRoot";
 
-// Typed as the REAL registry entry type on purpose: passing these through the
-// renderer is the compile-time pin that MigrationExpiry stays assignable to
-// the renderer's structural MigrationExpiryRow (the scripts tsconfig program
-// cannot import the registry, so the renderer mirrors the shape; this project
-// can, so drift fails typecheck here).
+// Synthetic rows typed as the real registry entry type, taken through the
+// index re-export on purpose: this pins that the re-export stays in place
+// for consumers (the type itself is the leaf's, so it cannot drift).
 const ENTRIES: readonly MigrationExpiry[] = [
 	{ state: "settings-redesign", file: "settingsRedesign/apply.ts", introduced: "2026-08-08", expires: "2026-11-08" },
 	{ state: "expires-today", file: "expiresToday.ts", introduced: "2026-06-01", expires: "2026-09-01" },
@@ -58,20 +57,47 @@ describe("renderMigrationExpiryTable", () => {
 		expect(workflow).toContain(`startswith("${MIGRATION_EXPIRY_MARKER}")`);
 	});
 
-	test("the executable renders the real registry through the vscode stub", () => {
-		// The executable's registry import is deliberately invisible to tsc
-		// (scripts/ci/migration-expiry-table.ts), so this smoke run is what
-		// catches a moved registry or a new named vscode import in its module
-		// graph on the PR instead of on a green main's release run.
-		const result = Bun.spawnSync([process.execPath, join("scripts", "ci", "migration-expiry-table.ts")], {
-			cwd: REPO_ROOT,
-		});
-		expect(result.exitCode).toBe(0);
-		const stdout = result.stdout.toString();
-		expect(stdout.startsWith(`${MIGRATION_EXPIRY_MARKER}\n`)).toBe(true);
-		expect(stdout).toContain("| Migration | Introduced | Expires | Days remaining |");
-		expect(stdout).toMatch(
-			/^\| `[^`]+` \(`src\/extension\/migrations\/[^`]+`\) \| \d{4}-\d{2}-\d{2} \| \d{4}-\d{2}-\d{2} \| -?\d+ \|$/m
-		);
+	test("release-pr-comment.yml runs the executable with --no-install, like the scaffold smoke run", () => {
+		// The workflow has no dependency-install step, and without --no-install
+		// bun silently auto-installs a package import when node_modules is
+		// absent; this pin keeps the flag from being dropped as clutter.
+		const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "release-pr-comment.yml"), "utf8");
+		expect(workflow).toContain("bun --no-install scripts/ci/migration-expiry-table.ts");
+	});
+
+	test("the executable renders the real registry without node_modules", () => {
+		// The release-PR workflow runs the executable with bare bun and no
+		// dependency install, so its runtime graph must stay repo-local with
+		// zero package imports. Running it from a scaffold holding exactly that
+		// graph, with --no-install matching the workflow invocation (without it
+		// bun silently auto-installs a package import when node_modules is
+		// absent), pins the contract: a new import fails here, on the PR that
+		// introduced it, instead of on a release run.
+		const RUNTIME_GRAPH = [
+			join("scripts", "ci", "migration-expiry-table.ts"),
+			join("scripts", "ci", "migration-expiry-render.ts"),
+			join("src", "extension", "migrations", "expiries.ts"),
+		];
+		const scaffold = mkdtempSync(join(tmpdir(), "lvt-expiry-smoke-"));
+		try {
+			for (const file of RUNTIME_GRAPH) {
+				mkdirSync(join(scaffold, dirname(file)), { recursive: true });
+				copyFileSync(join(REPO_ROOT, file), join(scaffold, file));
+			}
+			const result = Bun.spawnSync(
+				[process.execPath, "--no-install", join("scripts", "ci", "migration-expiry-table.ts")],
+				{ cwd: scaffold }
+			);
+			expect(result.stderr.toString()).toBe("");
+			expect(result.exitCode).toBe(0);
+			const stdout = result.stdout.toString();
+			expect(stdout.startsWith(`${MIGRATION_EXPIRY_MARKER}\n`)).toBe(true);
+			expect(stdout).toContain("| Migration | Introduced | Expires | Days remaining |");
+			expect(stdout).toMatch(
+				/^\| `[^`]+` \(`src\/extension\/migrations\/[^`]+`\) \| \d{4}-\d{2}-\d{2} \| \d{4}-\d{2}-\d{2} \| -?\d+ \|$/m
+			);
+		} finally {
+			rmSync(scaffold, { recursive: true, force: true });
+		}
 	});
 });

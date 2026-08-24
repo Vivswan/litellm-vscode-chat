@@ -4,20 +4,7 @@
  * The executable wrapper is migration-expiry-table.ts.
  */
 
-/**
- * Structural mirror of MigrationExpiry (src/extension/migrations/index.ts).
- * Deliberately not imported: a resolvable import would pull the extension
- * module graph into the scripts tsconfig program, which lacks the
- * src/vscodeApi.d.ts ambient augmentations and the root project's flags. The
- * bun test passes real MigrationExpiry entries through the renderer, so
- * assignability drift fails typecheck there.
- */
-export interface MigrationExpiryRow {
-	readonly state: string;
-	readonly file: string;
-	readonly introduced: string;
-	readonly expires: string;
-}
+import type { MigrationExpiry } from "../../src/extension/migrations/expiries";
 
 /**
  * First line of the rendered document and the sticky-comment identity: the
@@ -40,7 +27,7 @@ function daysRemaining(expires: string, today: Date): number {
 }
 
 /** The full markdown document for the sticky comment, marker line first. */
-export function renderMigrationExpiryTable(expiries: readonly MigrationExpiryRow[], today: Date): string {
+export function renderMigrationExpiryTable(expiries: readonly MigrationExpiry[], today: Date): string {
 	const lines = [
 		MIGRATION_EXPIRY_MARKER,
 		"Expired migrations fail the build; delete the migration and move its storage keys into the activation cleanup.",

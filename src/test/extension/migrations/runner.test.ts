@@ -158,7 +158,9 @@ suite("extension/migrations/runner", () => {
 			// migration's own directory, like settingsRedesign/'s, rides its entry).
 			const registeredFiles = MIGRATION_EXPIRIES.map((entry) => entry.file);
 			for (const name of fs.readdirSync(migrationsDir)) {
-				if (name === "index.ts") {
+				// index.ts (the runner and registrations) and expiries.ts (the expiry
+				// registry itself) are registry machinery, not migrations.
+				if (name === "index.ts" || name === "expiries.ts") {
 					continue;
 				}
 				const covered = fs.statSync(path.join(migrationsDir, name)).isDirectory()

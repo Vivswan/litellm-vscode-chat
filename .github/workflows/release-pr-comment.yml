@@ -53,11 +53,13 @@ jobs:
         with:
           bun-version-file: package.json
 
-      - name: Set up development environment
-        run: bash scripts/env/setup-env.sh
-
+      # No dependency install: the script's whole runtime graph is repo-local
+      # TypeScript with zero package imports (the registry is a zero-import
+      # leaf). --no-install enforces that here - without it bun would silently
+      # auto-install a package import when node_modules is absent - and the
+      # bun smoke test runs the executable the same bare way.
       - name: Render the migration-expiry table
-        run: bun scripts/ci/migration-expiry-table.ts > "$RUNNER_TEMP/migration-expiries.md"
+        run: bun --no-install scripts/ci/migration-expiry-table.ts > "$RUNNER_TEMP/migration-expiries.md"
 
       - name: Post or update the sticky comment
         env:
