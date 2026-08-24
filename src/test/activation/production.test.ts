@@ -113,11 +113,10 @@ suite("production activation", () => {
 		// a slow run must never let a live response install a snapshot mid-suite.
 		catalogNetworkGuard = blockCatalogNetwork();
 
-		// A label-scoped modelParameters key under the LEGACY id plus the
-		// persisted label map: the awaited migrations must rewrite the
-		// label scope AND rename the setting before the provider registers.
-		// Seeded through settings.json, since the host refuses value writes to
-		// the uncontributed legacy id.
+		// A modelParameters key under the LEGACY id: the awaited migrations must
+		// rename the setting (starring implicit-prefix keys) before the provider
+		// registers. Seeded through settings.json, since the host refuses value
+		// writes to the uncontributed legacy id.
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 		modelParametersBefore = config.inspect<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY)?.globalValue;
 		await withExternalSettingsEdit(
@@ -132,9 +131,9 @@ suite("production activation", () => {
 			[HAS_SHOWN_WELCOME_KEY]: true,
 			[MIGRATED_SERVER_LABELS_KEY]: { "http://localhost:49997": ["Leftover"] },
 			// Leftover legacy-registry state: the activation-time cleanup must
-			// delete the blob, the completion flag, and the entry's stored secret,
-			// while the label map (the settings-redesign pipeline's read source)
-			// survives.
+			// delete the blob, the completion flag, the label map (the retired
+			// label-scoped expansion's read source, unread since that expansion was
+			// deleted), and the entry's stored secret.
 			[SERVER_REGISTRY_KEY]: {
 				version: 1,
 				servers: [{ id: "srv-prod-1", label: "Leftover", baseUrl: "http://localhost:49997" }],
@@ -264,31 +263,34 @@ suite("production activation", () => {
 		);
 	});
 
-	test("the label-scoped rewrite and the settings rename complete before the provider registers", () => {
-		// The label-copy pass and the settings-redesign rename are awaited before
+	test("the settings rename completes before the provider registers", () => {
+		// The settings-redesign rename is awaited before
 		// registerLanguageModelChatProvider, so the session's first request can
-		// never race them. The label rewrite added the base-URL copy on the
-		// LEGACY id, then the rename moved both keys: the label key star-appended
-		// into an explicit matcher, the URL-scoped copy left verbatim and inert.
+		// never race it: the legacy key arrives star-appended into an explicit
+		// matcher. The deleted label-scoped expansion must add nothing: the
+		// seeded label map produces no base-URL copy.
 		const captured = expectDefined(
 			modelParametersAtRegistration,
 			"the registration stub must have captured the setting"
 		);
-		assert.deepStrictEqual(captured["http://localhost:49997/gpt-4"], { temperature: 0.25 });
 		assert.deepStrictEqual(captured["Leftover/gpt-4*"], { temperature: 0.25 }, "the original key survives, starred");
+		assert.strictEqual(
+			captured["http://localhost:49997/gpt-4"],
+			undefined,
+			"the deleted label-scoped expansion must not resurrect base-URL copies"
+		);
 	});
 
 	test("activation deletes the leftover legacy-registry state and its stored secret", () => {
 		// The one-shot cleanup migration, exercised through the real composed
-		// activation: the seeded blob, the completion flag, and the entry's
-		// per-server secret are gone, while the label map survives as the
-		// settings-redesign pipeline's read source.
+		// activation: the seeded blob, the completion flag, the label map, and
+		// the entry's per-server secret are gone. The label map's deletion is
+		// the inverse of the retired survival pin - its last reader, the
+		// label-scoped expansion, is deleted.
 		assert.strictEqual(storage.memento.get(SERVER_REGISTRY_KEY), undefined);
 		assert.strictEqual(storage.memento.get(GROUP_MIGRATION_COMPLETE_KEY), undefined);
 		assert.strictEqual(storage.secretStore.get(apiKeySecret("srv-prod-1")), undefined);
-		assert.deepStrictEqual(storage.memento.get(MIGRATED_SERVER_LABELS_KEY), {
-			"http://localhost:49997": ["Leftover"],
-		});
+		assert.strictEqual(storage.memento.get(MIGRATED_SERVER_LABELS_KEY), undefined);
 	});
 
 	test("the group-agnostic refresh serves no models", async () => {

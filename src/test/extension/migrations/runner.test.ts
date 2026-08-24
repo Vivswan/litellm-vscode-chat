@@ -122,10 +122,10 @@ suite("extension/migrations/runner", () => {
 
 	suite("expiry registry", () => {
 		const migrationsDir = path.join(REPO_ROOT, "src", "extension", "migrations");
-		// The migration modules that live outside the MIGRATIONS runner: the
-		// bareArrayBlobs read-time view and the labelScopedModelParameters fold.
-		// A new out-of-runner module joins the dead-man switch by joining this set.
-		const OUT_OF_RUNNER_STATES = ["bare-array-blobs", "label-scoped-model-parameters"];
+		// The migration modules that live outside the MIGRATIONS runner: today
+		// only the bareArrayBlobs read-time view. A new out-of-runner module
+		// joins the dead-man switch by joining this set.
+		const OUT_OF_RUNNER_STATES = ["bare-array-blobs"];
 		/** A string is a real calendar date only if Date round-trips it unchanged. */
 		const isRealIsoDate = (value: string): boolean =>
 			/^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;

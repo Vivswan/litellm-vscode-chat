@@ -1428,8 +1428,8 @@ suite("extension/migrations/settingsRedesign: applier", () => {
 		parkedWrites: unknown[];
 		parked: () => unknown;
 	} {
-		// Keyed like a real Memento: the applier also reads (and clears) the
-		// pre-fold entry-copy ledger under its own key.
+		// Keyed like a real Memento, the shape MigrationContext.globalState hands
+		// the applier.
 		const values = new Map<string, unknown>();
 		if (initial !== undefined) {
 			values.set(PARKED_GLOBAL_HEADERS_KEY, initial);

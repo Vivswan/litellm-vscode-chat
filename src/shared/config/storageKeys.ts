@@ -59,18 +59,15 @@ export const PENDING_SECRET_DELETIONS_KEY = "litellm.pendingSecretDeletions";
 
 /**
  * globalState: baseUrl -> labels for servers the retired provider-group
- * migration seeded. NOT a legacy-registry cleanup target: the settings-redesign
- * pipeline's label-scoped-modelParameters expansion reads it forever to decode
- * label-scoped keys; the runtime no longer matches labels itself.
+ * migration seeded, once the retired label-scoped modelParameters expansion's
+ * read source. Nothing reads it; the legacy-registry cleanup deletes it.
  */
 export const MIGRATED_SERVER_LABELS_KEY = "litellm.migratedServerLabels";
 
 /**
- * globalState: [label, prefix] pairs whose label-scoped modelParameters key
- * was already resolved into a declared entry's own record. Each source key
- * migrates into an entry AT MOST ONCE: the sources are copied, never moved, so
- * without this ledger a user deleting the migrated key from the entry would
- * see it resurrected on the next activation.
+ * globalState: [label, prefix] pairs the retired label-scoped modelParameters
+ * expansion had already resolved into a declared entry's own record. Nothing
+ * reads it; the legacy-registry cleanup deletes it.
  */
 export const MIGRATED_ENTRY_PARAMETER_COPIES_KEY = "litellm.migratedEntryParameterCopies";
 

@@ -117,24 +117,24 @@ suite("extension/migrations/legacyRegistryCleanup", () => {
 		assert.deepStrictEqual([...storage.secretStore.keys()], []);
 	});
 
-	test("the settings-redesign pipeline's label map and entry-copy ledger survive", async () => {
-		// MIGRATED_SERVER_LABELS_KEY is the label-scoped expansion's long-term
-		// read source and MIGRATED_ENTRY_PARAMETER_COPIES_KEY its pre-fold ledger
-		// (cleared by the redesign itself, never here); neither is registry
-		// machinery, and deleting the map would strand label-scoped
-		// modelParameters keys forever.
-		const labelMap = { "http://prod.test": ["Prod"] };
-		const ledger = ['["Prod","gpt-4"]'];
-		const storage = makeExtensionStorage({
-			[GROUP_MIGRATION_COMPLETE_KEY]: true,
-			[MIGRATED_SERVER_LABELS_KEY]: labelMap,
-			[MIGRATED_ENTRY_PARAMETER_COPIES_KEY]: ledger,
-		});
+	test("the retired label expansion's label map and entry-copy ledger are purged", async () => {
+		// The inverse of the retired survival pin: MIGRATED_SERVER_LABELS_KEY and
+		// MIGRATED_ENTRY_PARAMETER_COPIES_KEY once outlived this cleanup because
+		// the settings-redesign pipeline's label-scoped expansion read them. That
+		// expansion is deleted, nothing reads either key, and either can be the
+		// sole survivor of an interrupted pass, so each alone must trigger a
+		// purge.
+		const seeds: [string, unknown][] = [
+			[MIGRATED_SERVER_LABELS_KEY, { "http://prod.test": ["Prod"] }],
+			[MIGRATED_ENTRY_PARAMETER_COPIES_KEY, ['["Prod","gpt-4"]']],
+		];
+		for (const [key, value] of seeds) {
+			const storage = makeExtensionStorage({ [key]: value });
 
-		await legacyRegistryCleanupMigration.run(makeMigrationContext(storage));
+			const outcome = await legacyRegistryCleanupMigration.run(makeMigrationContext(storage));
 
-		assert.deepStrictEqual(storage.mementoStore.get(MIGRATED_SERVER_LABELS_KEY), labelMap);
-		assert.deepStrictEqual(storage.mementoStore.get(MIGRATED_ENTRY_PARAMETER_COPIES_KEY), ledger);
-		assert.strictEqual(storage.mementoStore.get(GROUP_MIGRATION_COMPLETE_KEY), undefined);
+			assert.strictEqual(outcome, "migrated", `${key} alone must trigger a cleanup`);
+			assert.strictEqual(storage.mementoStore.get(key), undefined, `${key} must be purged`);
+		}
 	});
 });

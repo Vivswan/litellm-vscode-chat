@@ -5,7 +5,9 @@ import {
 	LEGACY_API_KEY_SECRET,
 	LEGACY_BASE_URL_SECRET,
 	LEGACY_CLEANUP_PENDING_KEY,
+	MIGRATED_ENTRY_PARAMETER_COPIES_KEY,
 	MIGRATED_SERVER_IDS_KEY,
+	MIGRATED_SERVER_LABELS_KEY,
 	PENDING_GROUP_SUBMISSION_KEY,
 	PENDING_SECRET_DELETIONS_KEY,
 	SEEDED_PROVIDER_GROUPS_KEY,
@@ -16,10 +18,8 @@ import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./i
 
 /**
  * Every globalState key the retired legacy server registry and its migrations
- * (the pre-registry single-server import and the registry-to-provider-groups
- * seeding) ever wrote. NOT here: MIGRATED_SERVER_LABELS_KEY and
- * MIGRATED_ENTRY_PARAMETER_COPIES_KEY, which the settings-redesign pipeline
- * still reads.
+ * (the pre-registry single-server import, the registry-to-provider-groups
+ * seeding, and the retired label-scoped modelParameters expansion) ever wrote.
  */
 const LEGACY_STATE_KEYS: readonly string[] = [
 	SERVER_REGISTRY_KEY,
@@ -29,6 +29,8 @@ const LEGACY_STATE_KEYS: readonly string[] = [
 	PENDING_GROUP_SUBMISSION_KEY,
 	PENDING_SECRET_DELETIONS_KEY,
 	MIGRATED_SERVER_IDS_KEY,
+	MIGRATED_SERVER_LABELS_KEY,
+	MIGRATED_ENTRY_PARAMETER_COPIES_KEY,
 	LEGACY_CLEANUP_PENDING_KEY,
 ];
 
@@ -100,7 +102,8 @@ async function cleanUpLegacyRegistryState(ctx: MigrationContext): Promise<Migrat
  * Migrates away from: the registry-backed server storage of v0.2.2 through
  * v0.3.1 and the group migration's own progress markers, which every install
  * that ever activated a post-v0.3.1 build carries (the fresh-install completion
- * flag included).
+ * flag included), plus the retired label-scoped modelParameters expansion's
+ * label map and entry-copy ledger, which nothing reads anymore.
  */
 export const legacyRegistryCleanupMigration: ExtensionMigration = {
 	state: "legacy-registry-state",

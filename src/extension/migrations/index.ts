@@ -47,9 +47,7 @@ export interface ExtensionMigration {
 
 /**
  * Chronological by sourceRelease, ties keeping registration order (a test pins
- * this). Registration order is execution order. The v0.3.1 label-scoped
- * modelParameters rewrite is folded into the settings-redesign pipeline (see
- * labelScopedModelParameters.ts).
+ * this). Registration order is execution order.
  */
 export const MIGRATIONS: readonly ExtensionMigration[] = [
 	legacyRegistryCleanupMigration,
@@ -59,12 +57,11 @@ export const MIGRATIONS: readonly ExtensionMigration[] = [
 
 /**
  * The dead-man switch that keeps migrations from accumulating: every member of
- * MIGRATIONS (plus the out-of-runner migration modules - the bareArrayBlobs
- * read-time view and the labelScopedModelParameters fold) declares the date its
- * legacy state stops being worth carrying - its introduction date plus three
- * months - and a fail-closed test turns the build red once today is past it.
- * The dates are deliberate expiry decisions, free to push out - what is not
- * free is silence.
+ * MIGRATIONS (plus any out-of-runner migration module, today the bareArrayBlobs
+ * read-time view) declares the date its legacy state stops being worth
+ * carrying - its introduction date plus three months - and a fail-closed test
+ * turns the build red once today is past it. The dates are deliberate expiry
+ * decisions, free to push out - what is not free is silence.
  */
 export interface MigrationExpiry {
 	/** The migration's `state` slug, or the registered slug of an out-of-runner module. */
@@ -78,12 +75,6 @@ export interface MigrationExpiry {
 }
 
 export const MIGRATION_EXPIRIES: readonly MigrationExpiry[] = [
-	{
-		state: "label-scoped-model-parameters",
-		file: "labelScopedModelParameters.ts",
-		introduced: "2026-07-30",
-		expires: "2026-10-30",
-	},
 	{ state: "settings-redesign", file: "settingsRedesign/apply.ts", introduced: "2026-08-08", expires: "2026-11-08" },
 	{ state: "unstamped-server-secrets", file: "stampSecretOwners.ts", introduced: "2026-08-19", expires: "2026-11-19" },
 	{ state: "bare-array-blobs", file: "bareArrayBlobs.ts", introduced: "2026-08-23", expires: "2026-11-23" },
