@@ -83,12 +83,12 @@ jobs:
       # The Sigstore bundle ships next to the VSIX so it can be verified
       # against the frozen release without depending on GitHub's attestations
       # API: `gh attestation verify extension.vsix
-      # -R Vivswan/litellm-vscode-chat --bundle extension.vsix.attestation.jsonl`.
+      # -R Vivswan/litellm-vscode-chat --bundle attestation.jsonl`.
       - name: Attach VSIX to the draft release
         run: |
-          cp "$BUNDLE" extension.vsix.attestation.jsonl
+          cp "$BUNDLE" attestation.jsonl
           gh release upload "$RELEASE_TAG" extension.vsix \
-            extension.vsix.attestation.jsonl --clobber
+            attestation.jsonl --clobber
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
