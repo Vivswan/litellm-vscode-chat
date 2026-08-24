@@ -49,19 +49,19 @@ describe("renderMigrationExpiryTable", () => {
 		}
 	});
 
-	test("release-pr-comment.yml's jq filter matches this exact marker literal", () => {
+	test("update-release-pr.yml's jq filter matches this exact marker literal", () => {
 		// The workflow cannot import the constant, so the two literals are pinned
 		// here: change the marker without the jq filter and every release-PR
 		// refresh would POST a fresh comment instead of editing the old one.
-		const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "release-pr-comment.yml"), "utf8");
+		const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "update-release-pr.yml"), "utf8");
 		expect(workflow).toContain(`startswith("${MIGRATION_EXPIRY_MARKER}")`);
 	});
 
-	test("release-pr-comment.yml runs the executable with --no-install, like the scaffold smoke run", () => {
+	test("update-release-pr.yml runs the executable with --no-install, like the scaffold smoke run", () => {
 		// The workflow has no dependency-install step, and without --no-install
 		// bun silently auto-installs a package import when node_modules is
 		// absent; this pin keeps the flag from being dropped as clutter.
-		const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "release-pr-comment.yml"), "utf8");
+		const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "update-release-pr.yml"), "utf8");
 		expect(workflow).toContain("bun --no-install scripts/ci/migration-expiry-table.ts");
 	});
 

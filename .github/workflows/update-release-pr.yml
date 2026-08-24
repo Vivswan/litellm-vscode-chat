@@ -1,50 +1,47 @@
-# Repo-owned (not managed by repo-platform): keeps the release-please release
-# PR annotated with a sticky comment listing every live migration and when its
-# dead-man switch (the MIGRATION_EXPIRIES registry) fires. Runs on the release
-# PR's own pull_request events, so every release-please refresh re-renders the
-# table from the PR's merge ref. scripts/ci/migration-expiry-table.ts prints
-# the document; the marker in its first line identifies the sticky comment.
+# The release-PR hook of the release pipeline: repo-owned, generated once
+# by Vivswan/repo-platform and never overwritten by template sync. The
+# managed release.yml calls this workflow whenever release-please creates
+# or refreshes the release PR (independently of any release cut), so
+# everything this repository wants on that PR happens here. Add jobs
+# freely - releases never wait on this path. Until the managed caller
+# lands via template sync, this file has no trigger: workflow_call only,
+# dormant and harmless.
 #
-# Shared precondition with ci.yml's release-freshness and release-health jobs:
-# these pull_request events fire because REPO_PLATFORM_TOKEN creates and
-# refreshes the release PR. Under the documented GITHUB_TOKEN fallback
-# (release-please.yml's header) the PR emits no events and needs a
-# close/reopen, which degrades this comment exactly as it degrades every other
-# check. The table also re-renders only on PR events, so "Days remaining" on a
-# long-idle release PR lags by however long main sits quiet.
+# Today's one job keeps the release PR annotated with a sticky comment
+# listing every live migration and when its dead-man switch (the
+# MIGRATION_EXPIRIES registry) fires. The caller runs on push to main, so
+# the default checkout below is the main tip: the table renders main's
+# registry, which is what the release ships. The caller's provenance (the
+# release PR's own number and head branch) replaces the old
+# pull_request-triggered workflow's same-repo and branch-prefix guards,
+# and the pipeline's single writer replaces its per-PR concurrency queue.
 
-name: Release PR migration expiries
+name: Update Release PR
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-
-# Queue, never cancel: an in-flight writer finishes before the next starts,
-# so two runs cannot both observe a comment-less PR and double-POST, and a
-# half-finished heal pass is never abandoned mid-delete.
-concurrency:
-  group: release-pr-comment-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
-
-permissions:
-  contents: read
-  # Commenting on a PR through the issues endpoints needs pull-requests write.
-  pull-requests: write
+  workflow_call:
+    inputs:
+      pr_number:
+        description: The release PR's number
+        required: true
+        type: string
+      head_branch:
+        description: The release PR's head branch (push updates back to it)
+        required: true
+        type: string
 
 jobs:
   migration-expiry-comment:
-    # Only release-please's own release PR: the head branch lives in THIS
-    # repository (a fork can name its branch anything, but its head repo
-    # differs and its token stays read-only) and carries the same
-    # release-please-- prefix ci.yml's release-freshness guards match on.
-    # Pushing such a branch here already requires write access, so the prefix
-    # is identification, not a security boundary.
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
-      && startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      # Commenting on a PR through the issues endpoints needs pull-requests write.
+      pull-requests: write
     steps:
+      # Default ref on purpose: main's registry, not the PR head - the
+      # inputs.head_branch provenance is unused here because the expiry
+      # table describes what the release will ship, not the PR's diff.
       - name: Checkout source
         uses: actions/checkout@v7
 
@@ -65,7 +62,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           # The marker is the renderer's first output line
           # (MIGRATION_EXPIRY_MARKER in scripts/ci/migration-expiry-render.ts;

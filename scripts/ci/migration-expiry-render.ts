@@ -1,6 +1,6 @@
 /**
  * Pure renderer for the migration-expiry sticky comment posted on the
- * release-please release PR (.github/workflows/release-pr-comment.yml).
+ * release-please release PR (.github/workflows/update-release-pr.yml).
  * The executable wrapper is migration-expiry-table.ts.
  */
 
@@ -9,7 +9,7 @@ import type { MigrationExpiry } from "../../src/extension/migrations/expiries";
 /**
  * First line of the rendered document and the sticky-comment identity: the
  * release-PR workflow finds its earlier comment by this exact prefix, so this
- * literal and the jq filter in release-pr-comment.yml move together (a bun
+ * literal and the jq filter in update-release-pr.yml move together (a bun
  * test pins them).
  */
 export const MIGRATION_EXPIRY_MARKER = "<!-- migration-expiries -->";
