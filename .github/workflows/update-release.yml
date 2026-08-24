@@ -19,20 +19,47 @@ on:
         type: string
 
 jobs:
+  # Package the released tag and publish it: VSIX to the VS Code
+  # Marketplace (MARKETPLACE_TOKEN is an Azure DevOps PAT, reaching this
+  # workflow through the managed caller's `secrets: inherit`) and as a
+  # draft release asset. vscode:prepublish runs the production typecheck,
+  # the Rolldown bundle, and the ThirdPartyNotices generation. If a step
+  # fails after the Marketplace publish, the release stays an invisible
+  # draft; finish by hand as release.yml's header describes. This job no
+  # longer attests the VSIX itself: the managed publish-release attests
+  # every uploaded asset centrally into the release's attestation.jsonl.
   update-release:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: write # also what makes the draft visible to gh
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout released source
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
-      - name: Update the draft release
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Set up development environment
+        run: bash scripts/env/setup-env.sh
+
+      - name: Type-check and bundle the extension
+        run: bun run vscode:prepublish
+
+      - name: Package VSIX
+        run: bunx vsce package -o extension.vsix
+
+      - name: Publish to VS Code Marketplace
+        run: bunx vsce publish --pat "$MARKETPLACE_TOKEN" --packagePath ./extension.vsix
+        env:
+          MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+
+      - name: Attach VSIX to the draft release
+        run: gh release upload "$RELEASE_TAG" extension.vsix --clobber
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
-        # Repository-specific release preparation goes here, e.g.:
-        #   ./build.sh
-        #   gh release upload "$RELEASE_TAG" ./artifact --clobber
-        run: echo "nothing to add to $RELEASE_TAG yet"
