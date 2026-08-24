@@ -1,0 +1,103 @@
+# Repo-owned (not managed by repo-platform): keeps the release-please release
+# PR annotated with a sticky comment listing every live migration and when its
+# dead-man switch (the MIGRATION_EXPIRIES registry) fires. Runs on the release
+# PR's own pull_request events, so every release-please refresh re-renders the
+# table from the PR's merge ref. scripts/ci/migration-expiry-table.ts prints
+# the document; the marker in its first line identifies the sticky comment.
+#
+# Shared precondition with ci.yml's release-freshness and release-health jobs:
+# these pull_request events fire because REPO_PLATFORM_TOKEN creates and
+# refreshes the release PR. Under the documented GITHUB_TOKEN fallback
+# (release-please.yml's header) the PR emits no events and needs a
+# close/reopen, which degrades this comment exactly as it degrades every other
+# check. The table also re-renders only on PR events, so "Days remaining" on a
+# long-idle release PR lags by however long main sits quiet.
+
+name: Release PR migration expiries
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Queue, never cancel: an in-flight writer finishes before the next starts,
+# so two runs cannot both observe a comment-less PR and double-POST, and a
+# half-finished heal pass is never abandoned mid-delete.
+concurrency:
+  group: release-pr-comment-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # Commenting on a PR through the issues endpoints needs pull-requests write.
+  pull-requests: write
+
+jobs:
+  migration-expiry-comment:
+    # Only release-please's own release PR: the head branch lives in THIS
+    # repository (a fork can name its branch anything, but its head repo
+    # differs and its token stays read-only) and carries the same
+    # release-please-- prefix ci.yml's release-freshness guards match on.
+    # Pushing such a branch here already requires write access, so the prefix
+    # is identification, not a security boundary.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Set up development environment
+        run: bash scripts/env/setup-env.sh
+
+      - name: Render the migration-expiry table
+        run: bun scripts/ci/migration-expiry-table.ts > "$RUNNER_TEMP/migration-expiries.md"
+
+      - name: Post or update the sticky comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # The marker is the renderer's first output line
+          # (MIGRATION_EXPIRY_MARKER in scripts/ci/migration-expiry-render.ts;
+          # a bun test pins the two literals together). Matching it on this
+          # workflow's own bot comments only - anyone with write access could
+          # PATCH another user's comment, and a user-posted marker must not
+          # draw an edit - keeps the update idempotent: one comment, edited in
+          # place, stray duplicates healed by deletion.
+          ids="$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- migration-expiries -->")) | .id')"
+          first=""
+          extras=()
+          while IFS= read -r id; do
+            if [ -z "$id" ]; then
+              continue
+            fi
+            if [ -z "$first" ]; then
+              first="$id"
+            else
+              extras+=("$id")
+            fi
+          done <<< "$ids"
+          # The primary update runs before duplicate healing so a DELETE
+          # hiccup (a 404 from a comment another run already removed) can
+          # never block the table refresh itself.
+          if [ -n "$first" ]; then
+            gh api --method PATCH "repos/$GH_REPO/issues/comments/$first" \
+              -F "body=@$RUNNER_TEMP/migration-expiries.md" > /dev/null
+          else
+            gh api --method POST "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
+              -F "body=@$RUNNER_TEMP/migration-expiries.md" > /dev/null
+          fi
+          for id in "${extras[@]}"; do
+            echo "deleting duplicate sticky comment $id"
+            gh api --method DELETE "repos/$GH_REPO/issues/comments/$id" > /dev/null \
+              || echo "::warning::could not delete duplicate sticky comment $id"
+          done
