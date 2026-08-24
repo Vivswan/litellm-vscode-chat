@@ -71,21 +71,10 @@ import { buildGroupArgs } from "../../../extension/servers/serverSync";
 import type { StoredSecretsRecord } from "../../../extension/servers/serverSync/secrets";
 import { resolveOwnedSecrets } from "../../../extension/servers/serverSync/secrets";
 import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
-import type { EntryViewFieldId, NonSecretOptionalFieldId, SecretFieldId } from "../../../shared/serverEntry";
-import {
-	ENTRY_VIEW_FIELD_IDS,
-	entryUsesSecretField,
-	NON_SECRET_OPTIONAL_FIELD_IDS,
-	SECRET_FIELD_IDS,
-	secretDestination,
-} from "../../../shared/serverEntry";
-
-const PROBE_BASE_URL = "http://litellm.test:4000";
-
-/** Every non-secret field an entry can carry, from both registries; the probed shape space spans all of them. */
-type ShapeFieldId = NonSecretOptionalFieldId | EntryViewFieldId;
-
-const SHAPE_FIELD_IDS: readonly ShapeFieldId[] = [...NON_SECRET_OPTIONAL_FIELD_IDS, ...ENTRY_VIEW_FIELD_IDS];
+import type { SecretFieldId } from "../../../shared/serverEntry";
+import { entryUsesSecretField, SECRET_FIELD_IDS, secretDestination } from "../../../shared/serverEntry";
+import type { ShapeFieldValues } from "../../util/wireRuleProbe";
+import { allSecretSentinels, memoizedWireRuleWalk } from "../../util/wireRuleProbe";
 
 /**
  * One usable probe value per shape field. Total over the id union on purpose:
@@ -94,7 +83,7 @@ const SHAPE_FIELD_IDS: readonly ShapeFieldId[] = [...NON_SECRET_OPTIONAL_FIELD_I
  * The values are parser-legal (a header name the narrowing would accept, a
  * real token URL) so the probed shapes are the reachable ones.
  */
-const SHAPE_FIELD_VALUES: { readonly [K in ShapeFieldId]: NonNullable<DeclaredServer[K]> } = {
+const SHAPE_FIELD_VALUES: ShapeFieldValues = {
 	oauthTokenUrl: "http://idp.test/oauth2/token",
 	oauthClientId: "client-1",
 	oauthScopes: "chat.send",
@@ -108,77 +97,6 @@ const SHAPE_FIELD_VALUES: { readonly [K in ShapeFieldId]: NonNullable<DeclaredSe
 	budget: 5,
 	mcp: true,
 };
-
-/** Header-legal, unique per field, and terminator-suffixed so no field id prefixing another can cross-attribute. */
-function sentinelFor(field: SecretFieldId): string {
-	return `wire-probe-sentinel-${field}-end`;
-}
-
-/**
- * Where one secret field's sentinel sits in a probe: absent, in the stored
- * blob, or inline on the entry (inline wins at resolution). Every probe
- * assigns one source per secret field independently, so a chain branch
- * activated by ANOTHER secret's presence - the escape a single-planting probe
- * would leave - is inside the space.
- */
-const SECRET_SOURCES = ["absent", "stored", "inline"] as const;
-type SecretSource = (typeof SECRET_SOURCES)[number];
-
-/** One composed probe: which fields rode, and what the wire rule says about each, on one entry shape. */
-interface ProbeRecord {
-	readonly shapeName: string;
-	readonly plantingName: string;
-	readonly field: SecretFieldId;
-	readonly sends: boolean;
-	readonly uses: boolean;
-}
-
-/** Every presence combination of the shape fields, over a base URL that forms a server. */
-function allShapes(): { name: string; entry: DeclaredServer }[] {
-	const shapes: { name: string; entry: DeclaredServer }[] = [];
-	for (let mask = 0; mask < 1 << SHAPE_FIELD_IDS.length; mask += 1) {
-		const present = SHAPE_FIELD_IDS.filter((_, index) => (mask & (1 << index)) !== 0);
-		const optional: { -readonly [K in ShapeFieldId]?: DeclaredServer[K] } = {};
-		for (const field of present) {
-			assignShapeField(optional, field);
-		}
-		shapes.push({
-			name: present.length === 0 ? "(bare entry)" : present.join("+"),
-			entry: { label: "probe", baseUrl: PROBE_BASE_URL, ...optional },
-		});
-	}
-	return shapes;
-}
-
-/** The per-field copy, generic so the assignment stays typed to the field's own value. */
-function assignShapeField<K extends ShapeFieldId>(target: { [P in K]?: DeclaredServer[P] }, field: K): void {
-	target[field] = SHAPE_FIELD_VALUES[field];
-}
-
-/** Every assignment of a resolution source to each secret field (3^n vectors). */
-function allPlantings(): { name: string; sources: ReadonlyMap<SecretFieldId, SecretSource> }[] {
-	const plantings: { name: string; sources: ReadonlyMap<SecretFieldId, SecretSource> }[] = [];
-	const total = SECRET_SOURCES.length ** SECRET_FIELD_IDS.length;
-	for (let code = 0; code < total; code += 1) {
-		const sources = new Map<SecretFieldId, SecretSource>();
-		let rest = code;
-		for (const field of SECRET_FIELD_IDS) {
-			const source = SECRET_SOURCES[rest % SECRET_SOURCES.length] as SecretSource;
-			rest = Math.floor(rest / SECRET_SOURCES.length);
-			if (source !== "absent") {
-				sources.set(field, source);
-			}
-		}
-		plantings.push({
-			name:
-				sources.size === 0
-					? "(no secrets)"
-					: [...sources.entries()].map(([field, source]) => `${field}:${source}`).join("+"),
-			sources,
-		});
-	}
-	return plantings;
-}
 
 /**
  * Compose one probe through the real chain and return what the chat path
@@ -200,54 +118,15 @@ function composeGroupServer(entry: DeclaredServer, stored: { readonly [K in Secr
 }
 
 /**
- * The one exhaustive walk, memoized because all three superset tests read it:
- * for every shape and planting vector, compose the chain once and record, per
- * planted field, whether its sentinel rode and what the wire rule says.
- * Detection is textual over the whole parsed server on purpose: it needs no
- * knowledge of WHERE the parser carries a value, so a restructured
- * GroupServer cannot hide a ride from the probe.
+ * The shared exhaustive walk (util/wireRuleProbe.ts) over this pin's
+ * composition: the sync-to-chat chain above, so its `sends` is exactly what a
+ * parsed GroupServer carries onto the chat request path. The parser refusing
+ * a configuration composes no server, which is a legitimate no-ride here, so
+ * this serialization normalizes a refusal to "null" instead of crashing.
  */
-let walked: readonly ProbeRecord[] | undefined;
-function probeRecords(): readonly ProbeRecord[] {
-	if (walked !== undefined) {
-		return walked;
-	}
-	const shapes = allShapes();
-	const plantings = allPlantings();
-	// The space is exhaustive and grows exponentially with the registries; a
-	// legible bound turns a future blow-up into a decision (sample or lazify)
-	// instead of a mocha timeout that names nothing.
-	assert.ok(
-		shapes.length * plantings.length <= 500_000,
-		`the probe space grew to ${shapes.length} shapes x ${plantings.length} plantings - restructure the walk before it times out`
-	);
-	const records: ProbeRecord[] = [];
-	for (const shape of shapes) {
-		for (const planting of plantings) {
-			const inline: { -readonly [K in SecretFieldId]?: string } = {};
-			const stored: { -readonly [K in SecretFieldId]?: string } = {};
-			for (const [field, source] of planting.sources) {
-				(source === "inline" ? inline : stored)[field] = sentinelFor(field);
-			}
-			const probedEntry: DeclaredServer = { ...shape.entry, ...inline };
-			const server = JSON.stringify(composeGroupServer(probedEntry, stored) ?? null);
-			for (const field of SECRET_FIELD_IDS) {
-				if (!planting.sources.has(field)) {
-					continue;
-				}
-				records.push({
-					shapeName: shape.name,
-					plantingName: planting.name,
-					field,
-					sends: server.includes(sentinelFor(field)),
-					uses: entryUsesSecretField(probedEntry, field),
-				});
-			}
-		}
-	}
-	walked = records;
-	return records;
-}
+const probeRecords = memoizedWireRuleWalk(SHAPE_FIELD_VALUES, (entry, stored) =>
+	JSON.stringify(composeGroupServer(entry, stored) ?? null)
+);
 
 suite("provider/catalog groupModels wire-rule superset", () => {
 	test("per field, the chat path sends only what the wire rule attributes somewhere", () => {
@@ -311,10 +190,7 @@ suite("provider/catalog groupModels wire-rule superset", () => {
 		for (const field of SECRET_FIELD_IDS) {
 			assert.strictEqual(entryUsesSecretField(entry, field), false, `the no-server arm must deny "${field}"`);
 		}
-		const stored: { -readonly [K in SecretFieldId]?: string } = {};
-		for (const field of SECRET_FIELD_IDS) {
-			stored[field] = sentinelFor(field);
-		}
+		const stored = allSecretSentinels();
 		assert.strictEqual(
 			composeGroupServer(entry, stored),
 			undefined,

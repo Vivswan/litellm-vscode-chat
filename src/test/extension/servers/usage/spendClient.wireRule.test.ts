@@ -42,20 +42,9 @@
 import * as assert from "node:assert";
 import type { DeclaredServer } from "../../../../extension/servers/serverSync";
 import { keyInfoUrl, usageConnectionFor } from "../../../../extension/servers/usage";
-import type { EntryViewFieldId, NonSecretOptionalFieldId, SecretFieldId } from "../../../../shared/serverEntry";
-import {
-	ENTRY_VIEW_FIELD_IDS,
-	entryUsesSecretField,
-	NON_SECRET_OPTIONAL_FIELD_IDS,
-	SECRET_FIELD_IDS,
-} from "../../../../shared/serverEntry";
-
-const PROBE_BASE_URL = "http://litellm.test:4000";
-
-/** Every non-secret field an entry can carry, from both registries; the probed shape space spans all of them. */
-type ShapeFieldId = NonSecretOptionalFieldId | EntryViewFieldId;
-
-const SHAPE_FIELD_IDS: readonly ShapeFieldId[] = [...NON_SECRET_OPTIONAL_FIELD_IDS, ...ENTRY_VIEW_FIELD_IDS];
+import { entryUsesSecretField, SECRET_FIELD_IDS } from "../../../../shared/serverEntry";
+import type { ShapeFieldValues } from "../../../util/wireRuleProbe";
+import { allSecretSentinels, memoizedWireRuleWalk } from "../../../util/wireRuleProbe";
 
 /**
  * One usable probe value per shape field. Total over the id union on purpose:
@@ -64,7 +53,7 @@ const SHAPE_FIELD_IDS: readonly ShapeFieldId[] = [...NON_SECRET_OPTIONAL_FIELD_I
  * The values are parser-legal (a header name the parser would accept, a real
  * token URL) so the probed shapes are the reachable ones.
  */
-const SHAPE_FIELD_VALUES: { readonly [K in ShapeFieldId]: NonNullable<DeclaredServer[K]> } = {
+const SHAPE_FIELD_VALUES: ShapeFieldValues = {
 	oauthTokenUrl: "http://idp.test/oauth2/token",
 	oauthClientId: "client-1",
 	oauthScopes: "usage.read",
@@ -79,126 +68,17 @@ const SHAPE_FIELD_VALUES: { readonly [K in ShapeFieldId]: NonNullable<DeclaredSe
 	mcp: true,
 };
 
-/** Header-legal, unique per field, and terminator-suffixed so no field id prefixing another can cross-attribute. */
-function sentinelFor(field: SecretFieldId): string {
-	return `wire-probe-sentinel-${field}-end`;
-}
-
 /**
- * Where one secret field's sentinel sits in a probe: absent, in the stored
- * blob, or inline on the entry (inline wins at resolution). Every probe
- * assigns one source per secret field independently, so a composer branch
- * activated by ANOTHER secret's presence - the escape a single-planting probe
- * would leave - is inside the space.
+ * The shared exhaustive walk (util/wireRuleProbe.ts) over this pin's
+ * composition: the raw-blob composer itself, straight from entry and stored
+ * blob, so its `sends` is exactly what usageConnectionFor lets ride. The
+ * composer always returns a connection, so this serialization deliberately
+ * does not normalize: a composer that starts refusing crashes the walk here
+ * instead of reading as a silent no-ride.
  */
-const SECRET_SOURCES = ["absent", "stored", "inline"] as const;
-type SecretSource = (typeof SECRET_SOURCES)[number];
-
-/** One composed probe: which fields rode, and what the wire rule says about each, on one entry shape. */
-interface ProbeRecord {
-	readonly shapeName: string;
-	readonly plantingName: string;
-	readonly field: SecretFieldId;
-	readonly sends: boolean;
-	readonly uses: boolean;
-}
-
-/** Every presence combination of the shape fields, over a base URL that forms a server. */
-function allShapes(): { name: string; entry: DeclaredServer }[] {
-	const shapes: { name: string; entry: DeclaredServer }[] = [];
-	for (let mask = 0; mask < 1 << SHAPE_FIELD_IDS.length; mask += 1) {
-		const present = SHAPE_FIELD_IDS.filter((_, index) => (mask & (1 << index)) !== 0);
-		const optional: { -readonly [K in ShapeFieldId]?: DeclaredServer[K] } = {};
-		for (const field of present) {
-			assignShapeField(optional, field);
-		}
-		shapes.push({
-			name: present.length === 0 ? "(bare entry)" : present.join("+"),
-			entry: { label: "probe", baseUrl: PROBE_BASE_URL, ...optional },
-		});
-	}
-	return shapes;
-}
-
-/** The per-field copy, generic so the assignment stays typed to the field's own value. */
-function assignShapeField<K extends ShapeFieldId>(target: { [P in K]?: DeclaredServer[P] }, field: K): void {
-	target[field] = SHAPE_FIELD_VALUES[field];
-}
-
-/** Every assignment of a resolution source to each secret field (3^n vectors). */
-function allPlantings(): { name: string; sources: ReadonlyMap<SecretFieldId, SecretSource> }[] {
-	const plantings: { name: string; sources: ReadonlyMap<SecretFieldId, SecretSource> }[] = [];
-	const total = SECRET_SOURCES.length ** SECRET_FIELD_IDS.length;
-	for (let code = 0; code < total; code += 1) {
-		const sources = new Map<SecretFieldId, SecretSource>();
-		let rest = code;
-		for (const field of SECRET_FIELD_IDS) {
-			const source = SECRET_SOURCES[rest % SECRET_SOURCES.length] as SecretSource;
-			rest = Math.floor(rest / SECRET_SOURCES.length);
-			if (source !== "absent") {
-				sources.set(field, source);
-			}
-		}
-		plantings.push({
-			name:
-				sources.size === 0
-					? "(no secrets)"
-					: [...sources.entries()].map(([field, source]) => `${field}:${source}`).join("+"),
-			sources,
-		});
-	}
-	return plantings;
-}
-
-/**
- * The one exhaustive walk, memoized because all three superset tests read it:
- * for every shape and planting vector, compose the connection once and record,
- * per planted field, whether its sentinel rode and what the wire rule says.
- * Detection is textual over the whole connection on purpose: it needs no
- * knowledge of WHERE the composer carries a value, so a restructured
- * UsageConnection cannot hide a ride from the probe.
- */
-let walked: readonly ProbeRecord[] | undefined;
-function probeRecords(): readonly ProbeRecord[] {
-	if (walked !== undefined) {
-		return walked;
-	}
-	const shapes = allShapes();
-	const plantings = allPlantings();
-	// The space is exhaustive and grows exponentially with the registries; a
-	// legible bound turns a future blow-up into a decision (sample or lazify)
-	// instead of a mocha timeout that names nothing.
-	assert.ok(
-		shapes.length * plantings.length <= 500_000,
-		`the probe space grew to ${shapes.length} shapes x ${plantings.length} plantings - restructure the walk before it times out`
-	);
-	const records: ProbeRecord[] = [];
-	for (const shape of shapes) {
-		for (const planting of plantings) {
-			const inline: { -readonly [K in SecretFieldId]?: string } = {};
-			const stored: { -readonly [K in SecretFieldId]?: string } = {};
-			for (const [field, source] of planting.sources) {
-				(source === "inline" ? inline : stored)[field] = sentinelFor(field);
-			}
-			const probedEntry: DeclaredServer = { ...shape.entry, ...inline };
-			const connection = JSON.stringify(usageConnectionFor(probedEntry, stored));
-			for (const field of SECRET_FIELD_IDS) {
-				if (!planting.sources.has(field)) {
-					continue;
-				}
-				records.push({
-					shapeName: shape.name,
-					plantingName: planting.name,
-					field,
-					sends: connection.includes(sentinelFor(field)),
-					uses: entryUsesSecretField(probedEntry, field),
-				});
-			}
-		}
-	}
-	walked = records;
-	return records;
-}
+const probeRecords = memoizedWireRuleWalk(SHAPE_FIELD_VALUES, (entry, stored) =>
+	JSON.stringify(usageConnectionFor(entry, stored))
+);
 
 suite("extension/servers/usage spendClient wire-rule superset", () => {
 	test("per field, the composer sends only what the wire rule attributes somewhere", () => {
@@ -265,10 +145,7 @@ suite("extension/servers/usage spendClient wire-rule superset", () => {
 		for (const field of SECRET_FIELD_IDS) {
 			assert.strictEqual(entryUsesSecretField(entry, field), false, `the no-server arm must deny "${field}"`);
 		}
-		const stored: { -readonly [K in SecretFieldId]?: string } = {};
-		for (const field of SECRET_FIELD_IDS) {
-			stored[field] = sentinelFor(field);
-		}
+		const stored = allSecretSentinels();
 		const connection = usageConnectionFor(entry, stored);
 		assert.throws(
 			() => new URL(keyInfoUrl(connection.baseUrl, connection.apiVersion)),
