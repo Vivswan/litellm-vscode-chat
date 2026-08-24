@@ -43,7 +43,9 @@ Every chat-capable model a reachable server reports appears in the picker. Three
 
 When one model name is served by several deployments (a load-balanced pool), it registers once, with the strictest contributor's token limits, so a request can never exceed whichever deployment serves it. This merging matters for the [`max_tokens` exception](#the-max_tokens-exception): the merged output limit counts as declared only when every deployment declared one.
 
-The same conservative merge applies beyond token limits: the pool advertises a capability only when every deployment does - one deployment declaring tool calling off removes it from the pool, a modality (vision, audio) survives only when every deployment has it, and the Thinking Effort control appears only when every deployment advertises reasoning (its server-declared level menu narrowing to the levels every deployment flags). Pricing shows only where every deployment declares the identical per-field cost (where they disagree, the proxy's routing decides what a request actually costs, so the picker shows nothing rather than a wrong number), and the picker's provider name follows the first deployment. A capability the merge dropped can be restored with a [`models.capabilities` override](#capabilities).
+The same conservative merge applies beyond token limits: the pool advertises a capability only when every deployment does - one deployment declaring tool calling off removes it from the pool, a modality (vision, audio) survives only when every deployment has it, and the Thinking Effort control appears only when every deployment advertises reasoning (its server-declared level menu narrowing to the levels every deployment flags).
+
+Pricing shows only where every deployment declares the identical per-field cost (where they disagree, the proxy's routing decides what a request actually costs, so the picker shows nothing rather than a wrong number), and the picker's provider name follows the first deployment. A capability the merge dropped can be restored with a [`models.capabilities` override](#capabilities).
 
 ### Provider routes and aggregates
 
@@ -263,7 +265,9 @@ The extension bundles a snapshot of [OpenRouter](https://openrouter.ai)'s public
   }
   ```
 
-  Fields derived this way rank *above* what the server reports - the directive says the server's data is not to be trusted for this model. Your explicit fields in the same record still win over the catalog's. An unknown catalog ID shows a warning in the [capability inspector](#inspectors) and the model falls back to the other sources; it is never an error. The dashboard's capability editor offers a search picker for the ID. And like every directive, `_openrouter_model` belongs to the record it sits in: it is never inherited - only fields flow between records - and a more specific matching record shadows it along with the rest of the record's fields, so restate the directive there if that model still needs it.
+  Fields derived this way rank *above* what the server reports - the directive says the server's data is not to be trusted for this model. Your explicit fields in the same record still win over the catalog's. An unknown catalog ID shows a warning in the [capability inspector](#inspectors) and the model falls back to the other sources; it is never an error. The dashboard's capability editor offers a search picker for the ID.
+
+  And like every directive, `_openrouter_model` belongs to the record it sits in: it is never inherited - only fields flow between records - and a more specific matching record shadows it along with the rest of the record's fields, so restate the directive there if that model still needs it.
 
 - **Implicit**: without a directive, a model whose own ID matches a catalog entry exactly (or matches the part after the `vendor/` prefix, when only one entry does) still backfills from the catalog - but only as the weakest source above the built-in defaults, so it can never displace server-reported data or your settings.
 
@@ -325,7 +329,9 @@ Older versions had three global fallback settings: `defaultContextLength`, `defa
 }
 ```
 
-The first two ride `_fallback` because the old settings only filled gaps below the server's report. The record is also marked `_inheritable: true`, because the old defaults applied to every model no matter what else you had configured: without the marking, any model with a more specific record of its own would lose the defaults wholesale; with it, they follow every model that does not opt out - each field still a fallback wherever it lands, since [inherited fields keep their source's marking](#fallback-values-_fallback). `defaultMaxInputTokens` always outranked the server's input limit, so it migrates as a plain override - same behavior, new home. Full rename table: [Settings](settings.md#renamed-and-removed-settings).
+The first two ride `_fallback` because the old settings only filled gaps below the server's report. The record is also marked `_inheritable: true`, because the old defaults applied to every model no matter what else you had configured: without the marking, any model with a more specific record of its own would lose the defaults wholesale; with it, they follow every model that does not opt out - each field still a fallback wherever it lands, since [inherited fields keep their source's marking](#fallback-values-_fallback).
+
+`defaultMaxInputTokens` always outranked the server's input limit, so it migrates as a plain override - same behavior, new home. Full rename table: [Settings](settings.md#renamed-and-removed-settings).
 
 ## Parameters
 

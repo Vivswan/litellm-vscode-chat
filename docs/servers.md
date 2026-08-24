@@ -303,7 +303,15 @@ A stored secret remembers the address it was saved for. When an entry's `baseUrl
 
 Only stored values carry this pairing - an inline secret already sits in plain text in settings.json and never raises the question. The OAuth client secret is paired with the entry's token URL rather than the base URL, so moving the token URL is handled the same way. [MCP](#mcp-tools) keeps its stricter refusal until the pairing is fixed - re-pairing the stored value or clearing it both fix it.
 
-Removing an entry does not delete its stored secrets. Three routes will not reuse them: the dashboard's Add Server form, which shows no credentials, so the saved entry carries none of the leftovers and they are removed with it; a settings import, which reconciles every secret field of every label it lands, clearing the ones the imported file does not carry; and a dashboard rename onto the retired label, which wipes the leftovers and brings the renamed entry's own secrets instead. The Add Server form behaves the same way when the label is still in use - it warns that saving replaces the entry, and the replacement takes its stored credentials with it. One route still finds them: re-adding the entry by hand in settings.json. Remove the stored value first (the edit form's "Remove the stored ..." checkbox) when the old credential must not reach the new host. Removing all secrets before uninstalling is covered in [Troubleshooting](troubleshooting.md#uninstalling-and-cleanup).
+Removing an entry does not delete its stored secrets. Three routes will not reuse them:
+
+- the dashboard's Add Server form, which shows no credentials, so the saved entry carries none of the leftovers and they are removed with it;
+- a settings import, which reconciles every secret field of every label it lands, clearing the ones the imported file does not carry;
+- a dashboard rename onto the retired label, which wipes the leftovers and brings the renamed entry's own secrets instead.
+
+The Add Server form behaves the same way when the label is still in use - it warns that saving replaces the entry, and the replacement takes its stored credentials with it.
+
+One route still finds them: re-adding the entry by hand in settings.json. Remove the stored value first (the edit form's "Remove the stored ..." checkbox) when the old credential must not reach the new host. Removing all secrets before uninstalling is covered in [Troubleshooting](troubleshooting.md#uninstalling-and-cleanup).
 
 ## Lifecycle: renames, removals, hidden groups
 
