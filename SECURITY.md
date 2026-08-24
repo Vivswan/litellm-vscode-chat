@@ -18,8 +18,7 @@ Expect an acknowledgement within a few days, and a fix in the next release once 
 
 Never include real credentials in a report; redact everything that looks like a key.
 
-<!-- Repository-specific security documentation (scope, threat model, review
-     expectations for security-relevant changes) goes below this line. It survives template updates via three-way merge. -->
+<!-- Everything above this line is managed by Vivswan/repo-platform and replaced on template sync. Repository-specific security documentation (scope, threat model, review expectations for security-relevant changes) goes below this line; it is this repository's own and survives template updates via three-way merge. -->
 <!-- repo-platform:local-section -->
 
 For this extension, the latest release means the latest VS Code Marketplace release; the tip of `main` is supported too. The project is pre-1.0, so security fixes land on `main` and go out through the normal release flow. Keep security reports out of public pull requests and discussions as well as issues.

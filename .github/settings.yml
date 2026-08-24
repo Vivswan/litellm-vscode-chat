@@ -4,6 +4,7 @@
 # settings-sync workflow if the repo carries its own REPO_PLATFORM_TOKEN;
 # without one it skips with a warning). Undeclared labels are deleted;
 # undeclared rulesets are left alone.
+# repo-platform:mergeable
 # Rendered by the settings-sync module: template updates keep the
 # baseline current via three-way merge (repo additions survive), and sync
 # NEVER deletes this file - it stays even if the module is deselected. A
@@ -74,16 +75,22 @@ labels:
   - name: "autorelease: tagged"
     color: "ededed"
     description: release-please release PR has been tagged
-  # The nightly-fuzz tracking label (fuzzer module): the fuzz-issue action
-  # keys its one-open-issue-per-label dedup on it, so it must survive the
-  # label sync. Values match what the action creates when the label is absent.
+  # release-health's gate labels: an open release-blocker issue fails the
+  # release PR and the release pipeline's pre-flight; release-override on
+  # the release PR bypasses the gates for that one release.
+  - name: release-blocker
+    color: "B60205"
+    description: Blocks releases while open - release-health fails release PRs and the release pipeline
+  - name: release-override
+    color: "FBCA04"
+    description: "On a release PR: bypass release-health gates for this release"
+  # The fuzzer module's tracking label: the fuzz-issue action keys its
+  # one-open-issue-per-label dedup on it, so it must survive the label sync.
   - name: "nightly-fuzz"
     color: "B60205"
     description: Automated nightly fuzz failure
-  # The nightly-CI tracking label (nightly module): the fuzz-issue action
-  # keys its one-open-issue-per-label dedup on it, so it must survive the
-  # label sync. Values match the tuple the nightly starter passes to the
-  # action for label creation.
+  # The nightly module's tracking label: the fuzz-issue action keys its
+  # one-open-issue-per-label dedup on it, so it must survive the label sync.
   - name: "nightly-failure"
     color: "D93F0B"
     description: Automated nightly CI failure

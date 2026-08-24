@@ -1,4 +1,5 @@
-# Shared yamllint configuration from Vivswan/repo-platform.
+# This file is managed by Vivswan/repo-platform.
+# Local edits may be replaced during template updates.
 # The key win is key-duplicates: YAML loaders silently keep the last value,
 # so nothing else in the CI gate would catch a duplicated key.
 extends: default

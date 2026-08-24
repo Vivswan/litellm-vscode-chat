@@ -1,3 +1,5 @@
+# Baseline attributes from Vivswan/repo-platform.
+
 # Normalize all detected text files to LF in the repository.
 * text=auto eol=lf
 
