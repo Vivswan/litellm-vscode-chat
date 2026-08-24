@@ -1,0 +1,38 @@
+# The update stage of the release pipeline: repo-owned, generated once by
+# Vivswan/repo-platform and never overwritten by template
+# sync. The managed release.yml calls this workflow between cutting the
+# draft release and the attested publish, so everything this repository
+# wants on the release happens here: packaging, asset uploads, note edits.
+# Add jobs freely - publishing waits for every job in this file, and every
+# asset uploaded here is attested at publish time into the release's
+# single attestation.jsonl. Recovery when a run dies mid-pipeline is
+# documented in release.yml.
+
+name: Update Release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The draft release's tag (forced at creation, so it is checkout-able before publication)
+        required: true
+        type: string
+
+jobs:
+  update-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # also what makes the draft visible to gh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        # Repository-specific release preparation goes here, e.g.:
+        #   ./build.sh
+        #   gh release upload "$RELEASE_TAG" ./artifact --clobber
+        run: echo "nothing to add to $RELEASE_TAG yet"

@@ -254,10 +254,11 @@ jobs:
             exit 1
           fi
 
-  # Release from a green main only: the repo-owned release.yml pipeline
-  # (which runs the managed release-please.yml machinery, plus any of this
-  # repository's pre/post-release jobs) runs downstream of all-green, so a
-  # red commit can never cut a release or refresh the release PR.
+  # Release from a green main only: the managed release.yml pipeline
+  # (release-please cuts a draft, the repo-owned update-release.yml hook
+  # mutates it, then the attested publish flips it live) runs downstream
+  # of all-green, so a red commit can never cut a release or refresh the
+  # release PR.
   # Deliberately NOT in all-green's needs: it depends on the gate, it is not
   # gated by it. Only push/dispatch runs release: pull requests must never
   # reach the publish pipeline, and the weekly scheduled CodeQL re-scan has
@@ -268,7 +269,7 @@ jobs:
     if: >-
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       && github.ref == 'refs/heads/main'
-    # The publishing ceiling for the repo-owned release.yml jobs (release
+    # The publishing ceiling for the release pipeline's jobs (release
     # assets and their build provenance, ghcr, npm/PyPI trusted publishing);
     # nested jobs can only narrow it, never raise it.
     permissions:
@@ -277,7 +278,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
-      # The release-health pre-flight (in the managed release-please.yml)
+      # The release-health pre-flight (in the managed release.yml)
       # reads open issues and Dependabot alerts through this ceiling.
       issues: read
       vulnerability-alerts: read
