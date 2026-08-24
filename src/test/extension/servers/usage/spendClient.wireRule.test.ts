@@ -4,10 +4,10 @@
  * which credential fields an entry's shape would send) must cover every field
  * usageConnectionFor (the usage/spend connection composer) actually lets ride.
  * The pairing gates - resolveOwnedSecrets' refusals, read by the sync engine,
- * the MCP publisher's resolve boundary, and the stale-stamp consent question -
- * refuse a stale-stamped stored value only when the wire rule says the entry's
- * shape uses its field; a shape the composer sends but the rule denies would
- * let such a value ride to a host it was never stored for, unrefused. Today
+ * the usage poller, and the MCP publisher's resolve boundary - refuse a
+ * stale-stamped stored value only when the wire rule says the entry's shape
+ * uses its field; a shape the composer sends but the rule denies would let
+ * such a value ride to a host it was never stored for, unrefused. Today
  * the two sides agree by parallel implementation; this suite derives BOTH from
  * the real functions and fails closed:
  *

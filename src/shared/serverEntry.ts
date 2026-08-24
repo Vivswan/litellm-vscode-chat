@@ -111,17 +111,17 @@ export function secretDestination(
  * own sendability (narrowVirtualKey also drops a header-value-illegal virtual
  * key) cannot be judged without the value in hand, so a caller holding only a
  * stored value's existence errs toward "uses it" - the safe direction, since
- * consumers gate refusals and questions about stored values (the sync engine's
- * secretsMismatched skip, MCP's resolve refusal, the stale-stamp consent
- * question), never the send itself: the wire narrowing still drops
- * what cannot ride. Header-name collisions are value-contingent the same way:
- * a virtual key displaces another credential (an Authorization-named header
- * skips the OAuth exchange, an X-API-Key-named one owns that carrier) only
- * when its own value RESOLVES, which the entry cannot show - so a declared
- * header never lowers another field's judgment. The dashboard form's activity
- * ring (serverForm's authFormActivity) is deliberately NOT this rule: it keys
- * on the picked auth selector so a stored-but-unsent value can still block a
- * save.
+ * consumers gate refusals about stored values (resolveOwnedSecrets' refused
+ * fields: the sync engine's secretsMismatched skip, the usage poller's probe
+ * skip, MCP's resolve refusal), never the send itself: the wire narrowing
+ * still drops what cannot ride. Header-name collisions are value-contingent
+ * the same way: a virtual key displaces another credential (an
+ * Authorization-named header skips the OAuth exchange, an X-API-Key-named one
+ * owns that carrier) only when its own value RESOLVES, which the entry cannot
+ * show - so a declared header never lowers another field's judgment. The
+ * dashboard form's activity ring (serverForm's authFormActivity) is
+ * deliberately NOT this rule: it keys on the picked auth selector so a
+ * stored-but-unsent value can still block a save.
  */
 export function entryUsesSecretField(
 	entry: {

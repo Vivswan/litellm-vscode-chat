@@ -7,16 +7,16 @@
  * (provider/catalog/groupModels.ts, whose narrowOAuth/narrowVirtualKey those
  * arms are documented as derived from) lets into a composed GroupServer - the
  * connection the chat request path carries onto the wire. The pairing gates
- * (resolveOwnedSecrets' refusals, read by the sync engine, the MCP publisher's
- * resolve boundary, and the stale-stamp consent question) refuse a pairing
- * only when the wire rule says the entry's shape uses the mismatched field. On
- * THIS chain a stamp-mismatched stored value is dropped from the resolution
- * before it can ride, so the harm of a shape the chat path sends but the rule
- * denies is not a wrong-host send but the refusal never firing: the sync
- * engine would proceed without the credential and upsert a CREDENTIAL-LESS
- * group at the new host - permanent, because the host is add-only - while the
- * stale-stamp consent question never asks. And the wire rule is ONE function:
- * an arm the chat path's narrowing outgrows is equally stale for the raw-blob
+ * (resolveOwnedSecrets' refusals, read by the sync engine, the usage poller,
+ * and the MCP publisher's resolve boundary) refuse a pairing only when the
+ * wire rule says the entry's shape uses the mismatched field. On THIS chain a
+ * stamp-mismatched stored value is dropped from the resolution before it can
+ * ride, so the harm of a shape the chat path sends but the rule denies is not
+ * a wrong-host send but the refusal never firing: the sync engine would
+ * proceed without the credential and upsert a CREDENTIAL-LESS group at the
+ * new host - permanent, because the host is add-only - with nothing on the
+ * sync path flagging the mismatch. And the wire rule is ONE function: an arm
+ * the chat path's narrowing outgrows is equally stale for the raw-blob
  * composer the MCP publisher refuses through (the sibling pin's territory),
  * where the wrong-host ride is real.
  *
@@ -153,7 +153,7 @@ suite("provider/catalog groupModels wire-rule superset", () => {
 				!record.sends || record.uses,
 				`entryUsesSecretField denies "${record.field}" on shape [${record.shapeName}] yet the sync-to-chat chain ` +
 					`sends it planted as [${record.plantingName}] - the refusal gates never cover this send, so a stale ` +
-					`"${record.field}" stamp would sync a credential-less group with no consent question`
+					`"${record.field}" stamp would sync a credential-less group with no secretsMismatched flag`
 			);
 		}
 	});
