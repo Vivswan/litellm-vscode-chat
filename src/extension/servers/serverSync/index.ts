@@ -48,5 +48,4 @@ export {
 	readEntryModelCapabilities,
 	readEntryModelParameters,
 	registerSetServerSecretCommand,
-	registerStaleSecretStampNotice,
 } from "./vscodeEnv";

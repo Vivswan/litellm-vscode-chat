@@ -12,8 +12,8 @@
  * blobs on purpose, and a rejected SecretStorage delete can leave one behind).
  * Refusal is scoped by the one wire rule (entryUsesSecretField): a stale stamp
  * on a value the entry cannot send is inert, not a mismatch - the value stays
- * stored under its old stamp and re-enters the check (consent question
- * included) if the entry ever declares the shape that would send it.
+ * stored under its old stamp and re-enters the check if the entry ever
+ * declares the shape that would send it.
  * Fields stored before stamping existed carry no stamp and resolve as before;
  * the stampSecretOwners migration back-fills stamps for declared entries.
  *
@@ -233,7 +233,7 @@ export interface OwnedSecretsResolution {
 	 * (no inline value): `refused` plus the inert fields the entry cannot
 	 * send. The with-secrets export reads this superset for its accounting,
 	 * so a value left out of the file is never a silent omission; the pairing
-	 * gates (the sync engine, MCP, the consent notice) read `refused`.
+	 * gates (the sync engine, MCP) read `refused`.
 	 */
 	readonly mismatched: readonly SecretFieldId[];
 }
@@ -253,12 +253,11 @@ export interface OwnedSecretsResolution {
  * A stale-stamped value the entry cannot send - a virtualKeyValue with no
  * declared header, an oauthClientSecret with no active OAuth unit - is dropped
  * (and listed in `mismatched` for the export's accounting) but NOT refused: it
- * reaches no wire, so it blocks no sync and raises no stale-stamp consent
- * question while inert. It stays in storage under its old stamp ON PURPOSE:
- * the moment the entry declares the shape that uses the field, the same value
- * re-enters this check and the refusal (with its consent question) fires then
- * - the moment the user is actually deciding to send it, rather than while
- * the value cannot matter.
+ * reaches no wire, so it blocks no sync while inert. It stays in storage under
+ * its old stamp ON PURPOSE: the moment the entry declares the shape that uses
+ * the field, the same value re-enters this check and the refusal fires then -
+ * the moment the value would actually reach a wire, rather than while it
+ * cannot matter.
  */
 export function resolveOwnedSecrets(entry: DeclaredServer, record: StoredSecretsRecord): OwnedSecretsResolution {
 	const values: { -readonly [K in SecretFieldId]?: string } = {};

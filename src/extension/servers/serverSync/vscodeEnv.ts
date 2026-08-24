@@ -31,8 +31,6 @@ import {
 	nonSecretIdentityMatches,
 	parseServersSetting,
 } from "./setting";
-import type { StaleStampAnswer } from "./staleStampNotice";
-import { StaleStampNotice } from "./staleStampNotice";
 
 /** The one button every removal notice carries: it opens the models file, where group deletion actually lives. */
 const openGroupsFileAction = () => ({
@@ -222,47 +220,6 @@ export function createServerSyncEnv(
 /** The raw servers setting from the same live channel the sync engine reads. */
 function readRawServersSetting(): unknown {
 	return vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
-}
-
-/**
- * The stale-stamp question as a warning notification (see staleStampNotice.ts
- * for when it is raised). Two actions and a dismissal; the message stays
- * generic over the destination kind because the OAuth client secret stamps on
- * the token URL rather than the base URL.
- */
-async function askStaleSecretStamp(label: string): Promise<StaleStampAnswer | undefined> {
-	const useSame = l10n.t("Use Same Key");
-	const clear = l10n.t("Clear Key");
-	const choice = await vscode.window.showWarningMessage(
-		l10n.t(
-			'Server "{0}" now points at a different address than its stored key was saved for. The entry will not sync until you choose.',
-			label
-		),
-		useSame,
-		clear
-	);
-	return choice === useSame ? "use-same" : choice === clear ? "clear" : undefined;
-}
-
-/**
- * Wire the stale-stamp consent notice onto the engine's sync passes: the one
- * question for a settings-file URL change over a stored secret, the sibling of
- * the dashboard save flow's dialog.
- */
-export function registerStaleSecretStampNotice(
-	context: vscode.ExtensionContext,
-	engine: ServerSyncEngine,
-	logger: Logger
-): void {
-	context.subscriptions.push(
-		new StaleStampNotice(engine, {
-			readServersSetting: readRawServersSetting,
-			secrets: context.secrets,
-			ask: askStaleSecretStamp,
-			requestSync: () => engine.requestSync(),
-			log: (message, data) => logger.log(message, data),
-		})
-	);
 }
 
 /**
