@@ -13,7 +13,6 @@ function makeReader(values: Record<string, unknown>): SettingsReader {
 function makeInput(overrides: Partial<ConfigDiagnosticsInput> = {}): ConfigDiagnosticsInput {
 	return {
 		reader: makeReader({}),
-		parkedGlobalHeadersValue: undefined,
 		entryReports: [],
 		declared: [],
 		hiddenGroups: [],
@@ -268,18 +267,6 @@ suite("extension/dashboard/configDiagnostics", () => {
 				},
 				{ kind: "legacy", hint: "inert-global-headers", oldKey: "headers", detail: "headers", severity: "warning" },
 			]);
-		});
-
-		test("the parked-headers hint stands while the parked record exists: Apply/Discard consume it", () => {
-			const parked = { headers: { "x-b": "2", "x-a": "1" }, migratedAt: 1 };
-
-			const withParked = buildConfigDiagnostics(makeInput({ parkedGlobalHeadersValue: parked }));
-			assert.deepStrictEqual(withParked, [
-				{ kind: "legacy", hint: "parked-global-headers", oldKey: "headers", detail: "x-a, x-b", severity: "warning" },
-			]);
-
-			const consumed = buildConfigDiagnostics(makeInput({ parkedGlobalHeadersValue: undefined }));
-			assert.deepStrictEqual(consumed, [], "the hint dies with the parked record");
 		});
 	});
 

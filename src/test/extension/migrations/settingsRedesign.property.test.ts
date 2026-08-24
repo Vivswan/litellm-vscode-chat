@@ -22,7 +22,6 @@ import { isValidCapabilityField } from "../../../extension/migrations/settingsRe
 import { mergeTokenDefaults } from "../../../extension/migrations/settingsRedesign/tokenDefaults";
 import { planSettingsRedesign } from "../../../extension/migrations/settingsRedesign/transform";
 import type { SettingsSnapshot } from "../../../extension/migrations/settingsRedesign/types";
-import { isRecord } from "../../../shared/util/json";
 import { normalizePositiveNumber } from "../../../shared/util/numbers";
 import { MIGRATION_FUZZ_CORPUS } from "../../fuzzCorpus";
 import { resolveFuzzSeed } from "../../fuzzStream";
@@ -266,7 +265,6 @@ function assertIdempotent(snapshot: SettingsSnapshot): void {
 	const migrated = applyPlanToSnapshot(snapshot, plan.writes);
 	const rerun = planSettingsRedesign(migrated);
 	assert.deepStrictEqual(rerun.writes, [], "re-planning the migrated snapshot must write nothing");
-	assert.strictEqual(rerun.parkedHeaders, undefined, "a rerun never parks again");
 }
 
 function assertWriteDiscipline(snapshot: SettingsSnapshot): void {
@@ -281,22 +279,15 @@ function assertWriteDiscipline(snapshot: SettingsSnapshot): void {
 			);
 		}
 	}
-	// The headers parking contract: parked exactly when a value that really
-	// carried headers is deleted, byte-identical to what the deletion consumes,
-	// with at most one delete and never a value write.
+	// The headers contract: the only legal headers write is the old key's
+	// deletion, and only when the value drained (no headers) or every receiving
+	// entry got its verbatim copy - never a value write back to the old key.
 	const headersWrites = plan.writes.filter((write) => write.section === "headers");
 	assert.ok(headersWrites.length <= 1, "at most one headers write");
 	assert.ok(
 		headersWrites.every((write) => write.value === undefined),
 		"the only legal headers write is the deletion"
 	);
-	const headersValue = snapshot.headers?.globalValue;
-	const carriedHeaders = isRecord(headersValue) && Object.keys(headersValue).length > 0;
-	if (headersWrites.length === 1 && carriedHeaders) {
-		assert.deepStrictEqual(plan.parkedHeaders, headersValue, "the parked value is the deleted one");
-	} else {
-		assert.strictEqual(plan.parkedHeaders, undefined, "only a value that carried headers parks");
-	}
 	// The plan carries no scope: workspace layers survive application verbatim.
 	const migrated = applyPlanToSnapshot(snapshot, plan.writes);
 	for (const [id, layers] of Object.entries(snapshot)) {

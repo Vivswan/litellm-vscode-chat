@@ -195,10 +195,6 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	}),
 	hideExternalServer: fc.record({ baseUrl: fc.string(), sourceHandle: requestId }),
 	unhideServer: fc.record({ label: fc.string(), baseUrl: fc.string() }),
-	resolveParkedHeaders: fc.oneof(
-		fc.record({ action: fc.constant("apply" as const), label: fc.string() }),
-		fc.record({ action: fc.constant("discard" as const) })
-	),
 	readInlineSecrets: fc.record({
 		replace: fc.record({
 			label: fc.string(),

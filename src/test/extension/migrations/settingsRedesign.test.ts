@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { MigrationContext } from "../../../extension/migrations";
 import { MIGRATIONS } from "../../../extension/migrations";
-import type { ParkedHeadersStore, RedesignSettings } from "../../../extension/migrations/settingsRedesign/apply";
+import type { RedesignSettings } from "../../../extension/migrations/settingsRedesign/apply";
 import {
 	applySettingsRedesign,
 	readRedesignSnapshot,
@@ -16,7 +16,6 @@ import type { SettingsSnapshot } from "../../../extension/migrations/settingsRed
 import type { DeclaredServer } from "../../../extension/servers/serverSync";
 import { buildGroupArgs, parseServersSetting } from "../../../extension/servers/serverSync";
 import { matcherMatches, parseMatcherKey } from "../../../shared/config/modelMatcher";
-import { PARKED_GLOBAL_HEADERS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
 import { assertOmits, expectDefined } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
@@ -862,7 +861,7 @@ suite(
 );
 
 suite("extension/migrations/settingsRedesign: global headers", () => {
-	test("the global headers copy into every accepted entry, the old key is deleted, and the value parks", () => {
+	test("the global headers copy into every accepted entry and the old key is deleted", () => {
 		const before: SettingsSnapshot = {
 			headers: { globalValue: { "x-env": "prod", "X-Trace": "vscode" } },
 			servers: {
@@ -881,11 +880,6 @@ suite("extension/migrations/settingsRedesign: global headers", () => {
 			"existing entry names win case-insensitively"
 		);
 		assert.strictEqual(globalValueOf(after, "headers"), undefined);
-		assert.deepStrictEqual(
-			plan.parkedHeaders,
-			{ "x-env": "prod", "X-Trace": "vscode" },
-			"the parked value is byte-identical to the deleted one"
-		);
 		assert.strictEqual(
 			plan.writes.filter((write) => write.section === "headers").length,
 			1,
@@ -897,13 +891,12 @@ suite("extension/migrations/settingsRedesign: global headers", () => {
 		);
 	});
 
-	test("with no entry to receive it, the global headers value stays inert with a hint and nothing parks", () => {
+	test("with no entry to receive it, the global headers value stays inert with a hint", () => {
 		const before: SettingsSnapshot = { headers: { globalValue: { "x-env": "prod" } } };
 		const { plan, after } = migrate(before);
 
 		assert.strictEqual(plan.outcome, "nothing-to-do");
 		assert.deepStrictEqual(after, before);
-		assert.strictEqual(plan.parkedHeaders, undefined, "nothing was deleted, so nothing parks");
 		assert.ok(
 			plan.logLines.some((line) => line.includes("Left the global headers setting in place")),
 			plan.logLines.join(" | ")
@@ -918,11 +911,10 @@ suite("extension/migrations/settingsRedesign: global headers", () => {
 		);
 	});
 
-	test("a value that carried no headers drains without parking, so no permanent hint appears", () => {
+	test("a value that carried no headers drains outright, so no permanent hint appears", () => {
 		for (const globalValue of [{}, "junk", 42, null, []]) {
 			const { plan, after } = migrate({ headers: { globalValue } });
 			assert.deepStrictEqual(plan.writes, [{ section: "headers", value: undefined }]);
-			assert.strictEqual(plan.parkedHeaders, undefined, `${JSON.stringify(globalValue)} never sent a header`);
 			assert.strictEqual(globalValueOf(after, "headers"), undefined);
 		}
 	});
@@ -1199,33 +1191,6 @@ suite("extension/migrations/settingsRedesign: hints", () => {
 			[]
 		);
 	});
-
-	test("a parked global headers value produces its hint with the header names as detail", () => {
-		assert.deepStrictEqual(
-			collectLegacyHints({
-				globalHeadersValue: undefined,
-				modelParametersValue: undefined,
-				modelCapabilitiesValue: undefined,
-				parkedGlobalHeadersValue: { headers: { "x-env": "prod", "X-Trace": "vscode" }, migratedAt: 123 },
-			}),
-			[{ kind: "parked-global-headers", oldKey: "headers", detail: "X-Trace, x-env" }]
-		);
-	});
-
-	test("a parked record that carries no header names produces no hint", () => {
-		for (const headers of ["junk", {}, null, undefined]) {
-			assert.deepStrictEqual(
-				collectLegacyHints({
-					globalHeadersValue: undefined,
-					modelParametersValue: undefined,
-					modelCapabilitiesValue: undefined,
-					parkedGlobalHeadersValue: { headers, migratedAt: 123 },
-				}),
-				[],
-				`${JSON.stringify(headers)} must not raise a permanent hint`
-			);
-		}
-	});
 });
 
 suite("extension/migrations/settingsRedesign: composed pipeline", () => {
@@ -1287,11 +1252,6 @@ suite("extension/migrations/settingsRedesign: composed pipeline", () => {
 
 		assert.strictEqual(plan.outcome, "migrated");
 		assertPlanShape(plan);
-		assert.deepStrictEqual(
-			plan.parkedHeaders,
-			{ "x-env": "prod", "X-Trace": "vscode" },
-			"the consumed global headers value parks"
-		);
 		assert.deepStrictEqual(after, {
 			"chat.timeout": { globalValue: 45000 },
 			"chat.promptCaching": { globalValue: false },
@@ -1358,12 +1318,11 @@ suite("extension/migrations/settingsRedesign: composed pipeline", () => {
 		});
 	});
 
-	test("the rerun after a full pass plans zero writes and parks nothing", () => {
+	test("the rerun after a full pass plans zero writes", () => {
 		const { after } = migrate(OLD_WORLD);
 		const rerun = planSettingsRedesign(after);
 		assert.deepStrictEqual(rerun.writes, []);
 		assert.strictEqual(rerun.outcome, "nothing-to-do");
-		assert.strictEqual(rerun.parkedHeaders, undefined);
 	});
 
 	test("a crash between the value writes and the deletions loses nothing", () => {
@@ -1423,45 +1382,13 @@ suite("extension/migrations/settingsRedesign: applier", () => {
 		};
 	}
 
-	function makeStore(initial?: unknown): {
-		store: ParkedHeadersStore;
-		parkedWrites: unknown[];
-		parked: () => unknown;
-	} {
-		// Keyed like a real Memento, the shape MigrationContext.globalState hands
-		// the applier.
-		const values = new Map<string, unknown>();
-		if (initial !== undefined) {
-			values.set(PARKED_GLOBAL_HEADERS_KEY, initial);
-		}
-		const parkedWrites: unknown[] = [];
-		return {
-			store: {
-				get: <T>(key: string) => values.get(key) as T | undefined,
-				update: async (key: string, value: unknown) => {
-					if (key === PARKED_GLOBAL_HEADERS_KEY) {
-						parkedWrites.push(value);
-					}
-					if (value === undefined) {
-						values.delete(key);
-					} else {
-						values.set(key, value);
-					}
-				},
-			},
-			parkedWrites,
-			parked: () => values.get(PARKED_GLOBAL_HEADERS_KEY),
-		};
-	}
-
 	test("executes the plan at the Global target only and logs the count lines", async () => {
 		const { setting, sections, updates } = makeSetting({
 			requestTimeout: { globalValue: 45000, workspaceValue: 1 },
 		});
 		const { logger, lines } = makeLogger();
-		const { store, parkedWrites } = makeStore();
 
-		const outcome = await applySettingsRedesign(setting, store, logger);
+		const outcome = await applySettingsRedesign(setting, logger);
 
 		assert.strictEqual(outcome, "migrated");
 		for (const update of updates) {
@@ -1470,7 +1397,6 @@ suite("extension/migrations/settingsRedesign: applier", () => {
 		assert.strictEqual(sections["chat.timeout"]?.globalValue, 45000);
 		assert.strictEqual(sections.requestTimeout?.globalValue, undefined);
 		assert.strictEqual(sections.requestTimeout?.workspaceValue, 1, "workspace layers stay");
-		assert.deepStrictEqual(parkedWrites, [], "nothing to park without a consumed headers value");
 		assert.ok(
 			lines.some((line) => line.includes("Renamed 1 setting(s)")),
 			lines.join(" | ")
@@ -1481,40 +1407,20 @@ suite("extension/migrations/settingsRedesign: applier", () => {
 		);
 	});
 
-	test("a consumed global headers value parks once and is never overwritten", async () => {
+	test("a consumed global headers value writes no globalState: the entry copies are the whole move", async () => {
 		const headers = { "x-env": "prod" };
-		const before = Date.now();
 		const { setting, sections } = makeSetting({
 			headers: { globalValue: headers },
 			servers: { globalValue: [{ label: "a", baseUrl: "https://gw", apiKey: "sk-x" }] },
 		});
 		const { logger } = makeLogger();
-		const { store, parkedWrites, parked } = makeStore();
 
-		assert.strictEqual(await applySettingsRedesign(setting, store, logger), "migrated");
-		assert.strictEqual(parkedWrites.length, 1, "parking happens exactly once");
-		const record = parked() as { headers: unknown; migratedAt: number };
-		assert.deepStrictEqual(record.headers, headers, "the parked value is the deleted one");
-		assert.ok(record.migratedAt >= before, "migratedAt is a timestamp");
+		assert.strictEqual(await applySettingsRedesign(setting, logger), "migrated");
+		const servers = sections.servers?.globalValue as Record<string, unknown>[];
+		assert.deepStrictEqual(servers[0]?.headers, headers, "the entry receives the copy");
 		assert.strictEqual(sections.headers?.globalValue, undefined, "the settings delete still happened");
 
-		assert.strictEqual(await applySettingsRedesign(setting, store, logger), "nothing-to-do");
-		assert.strictEqual(parkedWrites.length, 1, "a rerun never re-parks");
-	});
-
-	test("a crash rerun with the headers still in settings does not clobber the parked original", async () => {
-		const original = { headers: { "x-env": "original" }, migratedAt: 1 };
-		const { setting } = makeSetting({
-			headers: { globalValue: { "x-env": "edited-after-crash" } },
-			servers: { globalValue: [{ label: "a", baseUrl: "https://gw", apiKey: "sk-x" }] },
-		});
-		const { logger } = makeLogger();
-		const { store, parkedWrites, parked } = makeStore(original);
-
-		await applySettingsRedesign(setting, store, logger);
-
-		assert.deepStrictEqual(parkedWrites, [], "an existing parked record is never overwritten");
-		assert.deepStrictEqual(parked(), original);
+		assert.strictEqual(await applySettingsRedesign(setting, logger), "nothing-to-do");
 	});
 
 	test("readRedesignSnapshot picks up every pipeline source and target id", () => {
@@ -1530,13 +1436,12 @@ suite("extension/migrations/settingsRedesign: applier", () => {
 	test("a rerun after the move is a silent no-op", async () => {
 		const { setting, updates } = makeSetting({ maskApiKeyInput: { globalValue: false } });
 		const { logger, lines } = makeLogger();
-		const { store } = makeStore();
 
-		assert.strictEqual(await applySettingsRedesign(setting, store, logger), "migrated");
+		assert.strictEqual(await applySettingsRedesign(setting, logger), "migrated");
 		const updatesAfterFirstRun = updates.length;
 		lines.length = 0;
 
-		assert.strictEqual(await applySettingsRedesign(setting, store, logger), "nothing-to-do");
+		assert.strictEqual(await applySettingsRedesign(setting, logger), "nothing-to-do");
 		assert.strictEqual(updates.length, updatesAfterFirstRun, "the second run must not write again");
 		assert.deepStrictEqual(lines, [], "the drained state stays silent on every later activation");
 	});

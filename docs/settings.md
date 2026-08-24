@@ -154,7 +154,7 @@ The one-time upgrade migration handles all of these automatically:
 | `modelParameters` | `models.parameters` |
 | `modelCapabilities` | `models.capabilities` |
 | `openRouterCatalog.enabled` | `models.openRouterCatalog` |
-| `headers` (global) | each server entry's `headers`; copied into every declared entry, and the old value is parked behind a dashboard hint (see the scope notes below) |
+| `headers` (global) | each server entry's `headers`; copied into every declared entry (see the scope notes below) |
 | `maskApiKeyInput` | `ui.maskSecretInputs` |
 | server entry flat fields (`apiKey`, `oauth*`, `virtualKey*`, ...) | the entry's `auth` / `models` / `discovery` objects ([Servers](servers.md#entry-reference)) |
 | record keys as implicit prefixes | explicit matchers - `*` appended to existing keys ([Models - Matching](models.md#model-matching)) |
@@ -165,7 +165,7 @@ The one-time upgrade migration handles all of these automatically:
 
 Five scope and edge notes on the migration:
 
-- The old global `headers` applied to every server - declared entries and [externally managed groups](servers.md#external-servers-and-adoption) alike. The new per-entry `headers` cannot reach a server that has no entry, so the migration copies the value into your declared entries only and parks the original; while an externally managed group exists, the dashboard's diagnostics point out that it no longer receives those headers - [adopting](servers.md#external-servers-and-adoption) the group into an entry is how they come back.
+- The old global `headers` applied to every server - declared entries and [externally managed groups](servers.md#external-servers-and-adoption) alike. The new per-entry `headers` cannot reach a server that has no entry, so the migration copies the value into your declared entries only - [adopting](servers.md#external-servers-and-adoption) an externally managed group into an entry (and adding the headers there) is how it gets them back.
 
 - One Settings Sync caveat: when another machine upgrades first, sync delivers the new-name records (and the old keys' deletion) before this machine migrates. The migration then keeps the synced value and drops the old record unprocessed - including any server-URL-scoped keys it held, whose destinations are this machine's own machine-scoped entries; the first machine consumed them into *its* entries, so here they are dropped rather than moved. On a multi-machine setup, copy URL-scoped keys into the matching server entries before upgrading the remaining machines.
 - It rewrites user settings only. An old name set at workspace scope (a committed `.vscode/settings.json`, say) is left in place - counted in the log, never rewritten - and since the extension no longer reads the old names, it has no effect until you move it to the new name by hand.

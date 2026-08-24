@@ -228,12 +228,6 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	}),
 	hideExternalServer: z.strictObject({ baseUrl: z.string().max(WIRE_LIMITS.url), sourceHandle: requestIdSchema }),
 	unhideServer: z.strictObject({ label: labelSchema, baseUrl: z.string().max(WIRE_LIMITS.url) }),
-	// The parked-headers recovery: two closed actions, and only "apply" names a
-	// target entry; the entry-existence check lives in executeDashboardIntent.
-	resolveParkedHeaders: z.discriminatedUnion("action", [
-		z.strictObject({ action: z.literal("apply"), label: labelSchema }),
-		z.strictObject({ action: z.literal("discard") }),
-	]),
 	readInlineSecrets: z.strictObject({ replace: replacedEntrySchema }),
 	// The inspector reads: the opaque scope key plus the model's raw ID, both
 	// length-bounded like every webview-minted token.
@@ -302,7 +296,6 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	adoptServer: requestSchema("adoptServer"),
 	hideExternalServer: requestSchema("hideExternalServer"),
 	unhideServer: requestSchema("unhideServer"),
-	resolveParkedHeaders: requestSchema("resolveParkedHeaders"),
 	readInlineSecrets: requestSchema("readInlineSecrets"),
 	readModelCapabilities: requestSchema("readModelCapabilities"),
 	readModelParameters: requestSchema("readModelParameters"),

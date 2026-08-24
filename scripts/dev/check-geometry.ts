@@ -201,11 +201,6 @@ const LAST_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor
 /** The Copy diagnostics tool in the Diagnostics page's vertical action stack (third of the four tools). */
 const COPY_TOOL = ".diagnostics-tools li:nth-child(3) button";
 
-/** The parked-headers recovery row's controls and its inline failure line (ParkedHeadersControls). */
-const PARKED_SELECT = ".config-diagnostics .row-diagnostic-actions select";
-const PARKED_APPLY = 'button[aria-label^="Apply parked headers"]';
-const PARKED_DISCARD = 'button[aria-label="Discard parked headers"]';
-const PARKED_FAILURE_LINE = ".config-diagnostics .row-diagnostic-actions p.error";
 /** A rail destination that is never the selected one on the coverage fixtures, so its tip is a real reveal. */
 const RAIL_MODELS_TAB = '.rail-nav [role="tab"][id="tab-models"]';
 
@@ -588,36 +583,6 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`(() => { const path = document.querySelector(${JSON.stringify(COPY_TOOL)})` +
 			`?.querySelector("svg path")?.getAttribute("d") ?? ""; ` +
 			`return path.length > 0 && path !== window.__copyGlyphAtRest; })()`,
-	},
-	{
-		// The parked-headers recovery row's inline failure line mounts INSIDE the
-		// row's actions cluster: the select and both buttons must hold their
-		// geometry while the refused intent's notice appears beside them.
-		name: "diagnostics-parked-headers-failure",
-		fixture: "diagnostics.ts",
-		targets: [PARKED_SELECT, PARKED_APPLY, PARKED_DISCARD],
-		toggle: [
-			`(() => {
-				const discard = document.querySelector(${JSON.stringify(PARKED_DISCARD)});
-				if (discard === null) { throw new Error(${marker("SETUP", ": no parked-headers Discard button on the page")}); }
-				discard.click();
-				const posted = window.__posted.filter((m) => m.method === "resolveParkedHeaders").pop();
-				if (posted === undefined) { throw new Error(${marker("SETUP", ": Discard posted no resolveParkedHeaders request")}); }
-				window.dispatchEvent(
-					new MessageEvent("message", {
-						data: {
-							kind: "fail",
-							id: posted.id,
-							method: "resolveParkedHeaders",
-							message: "No parked headers remain; they may already have been applied or discarded.",
-							failureKind: "validation",
-						},
-					})
-				);
-			})()`,
-		],
-		restVerify: `document.querySelector(${JSON.stringify(PARKED_FAILURE_LINE)}) === null`,
-		verify: `document.querySelector(${JSON.stringify(PARKED_FAILURE_LINE)}) !== null`,
 	},
 	{
 		// The server row's actions cluster occupies a reserved track and reveals by

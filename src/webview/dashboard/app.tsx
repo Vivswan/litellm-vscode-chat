@@ -106,10 +106,6 @@ function toastText(method: AckedMethod): string | undefined {
 			return l10n.t("Server removed");
 		case "adoptServer":
 			return l10n.t("Server adopted");
-		case "resolveParkedHeaders":
-			// The row disappears with the next push, so the outcome (and the
-			// skipped-headers caveat riding it) needs a surface that survives it.
-			return l10n.t("Parked headers resolved");
 		default:
 			return undefined;
 	}

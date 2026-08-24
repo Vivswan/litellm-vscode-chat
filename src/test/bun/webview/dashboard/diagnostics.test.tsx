@@ -327,13 +327,6 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 				detail: "models.parameters",
 				severity: "warning",
 			},
-			{
-				kind: "legacy",
-				hint: "parked-global-headers",
-				oldKey: "headers",
-				detail: "x-tenant-id, x-internal-route",
-				severity: "warning",
-			},
 			// A record key can be URL-shaped too - that is exactly what the
 			// legacy leftover IS - so the redaction cannot live only on the
 			// legacy arm.
@@ -352,12 +345,9 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 	const copied = copyDiagnostics(root);
 	expect(copied).not.toContain("hunter2");
 	expect(copied).not.toContain("litellm.internal");
-	expect(copied).not.toContain("x-tenant-id");
-	expect(copied).not.toContain("x-internal-route");
 	// The classification and the setting survive, which is what makes the line
 	// worth pasting at all.
 	expect(copied).toContain("blocking inert-url-scoped-key (models.parameters)");
-	expect(copied).toContain("degraded parked-global-headers (headers)");
 	expect(copied).toContain('degraded models.parameters invalid-value <url-scoped key> / "temperature"');
 	// The page itself still shows the real key: local is not a public issue.
 	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;

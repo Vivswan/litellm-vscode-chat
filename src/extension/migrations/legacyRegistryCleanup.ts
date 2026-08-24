@@ -8,6 +8,7 @@ import {
 	MIGRATED_ENTRY_PARAMETER_COPIES_KEY,
 	MIGRATED_SERVER_IDS_KEY,
 	MIGRATED_SERVER_LABELS_KEY,
+	PARKED_GLOBAL_HEADERS_KEY,
 	PENDING_GROUP_SUBMISSION_KEY,
 	PENDING_SECRET_DELETIONS_KEY,
 	SEEDED_PROVIDER_GROUPS_KEY,
@@ -17,11 +18,28 @@ import {
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 /**
+ * Keys that can hold PLAINTEXT credential material (auth header values) and
+ * reference no per-server secret. Purged before ANY keychain touch - the
+ * single-server probe reads included - so a locked keychain (whose get or
+ * delete throws and defers the rest of the pass to the next activation) can
+ * never keep the plaintext alive with it. The ordering is derived from this
+ * list, not from call-site discipline: the purge loop walks it first and the
+ * trailing key loop skips it.
+ */
+const PLAINTEXT_FIRST_KEYS: readonly string[] = [PARKED_GLOBAL_HEADERS_KEY];
+
+/**
  * Every globalState key the retired legacy server registry and its migrations
  * (the pre-registry single-server import, the registry-to-provider-groups
- * seeding, and the retired label-scoped modelParameters expansion) ever wrote.
+ * seeding, and the retired label-scoped modelParameters expansion) ever wrote,
+ * plus the settings-redesign migration's retired parked-global-headers record
+ * (a verbatim copy of headers the migration had already written into declared
+ * entries; its recovery flow is gone, so the copy only kept possible auth
+ * values in unencrypted globalState). The parked record holds header values,
+ * never per-server secret ids, so referencedSecretIds does not read it.
  */
 const LEGACY_STATE_KEYS: readonly string[] = [
+	...PLAINTEXT_FIRST_KEYS,
 	SERVER_REGISTRY_KEY,
 	GROUP_MIGRATION_COMPLETE_KEY,
 	SEEDED_PROVIDER_GROUPS_KEY,
@@ -71,6 +89,12 @@ function referencedSecretIds(globalState: vscode.Memento): Set<string> {
 
 async function cleanUpLegacyRegistryState(ctx: MigrationContext): Promise<MigrationOutcome> {
 	const presentKeys = LEGACY_STATE_KEYS.filter((key) => ctx.globalState.get<unknown>(key) !== undefined);
+	// Plaintext first, by construction: see PLAINTEXT_FIRST_KEYS.
+	for (const key of PLAINTEXT_FIRST_KEYS) {
+		if (presentKeys.includes(key)) {
+			await ctx.globalState.update(key, undefined);
+		}
+	}
 	const hasSingleServerSecrets =
 		(await ctx.secrets.get(LEGACY_BASE_URL_SECRET)) !== undefined ||
 		(await ctx.secrets.get(LEGACY_API_KEY_SECRET)) !== undefined;
@@ -86,7 +110,9 @@ async function cleanUpLegacyRegistryState(ctx: MigrationContext): Promise<Migrat
 	await ctx.secrets.delete(LEGACY_API_KEY_SECRET);
 	await ctx.secrets.delete(LEGACY_BASE_URL_SECRET);
 	for (const key of presentKeys) {
-		await ctx.globalState.update(key, undefined);
+		if (!PLAINTEXT_FIRST_KEYS.includes(key)) {
+			await ctx.globalState.update(key, undefined);
+		}
 	}
 	return "migrated";
 }
@@ -103,11 +129,13 @@ async function cleanUpLegacyRegistryState(ctx: MigrationContext): Promise<Migrat
  * v0.3.1 and the group migration's own progress markers, which every install
  * that ever activated a post-v0.3.1 build carries (the fresh-install completion
  * flag included), plus the retired label-scoped modelParameters expansion's
- * label map and entry-copy ledger, which nothing reads anymore.
+ * label map and entry-copy ledger, which nothing reads anymore, and the
+ * settings-redesign migration's retired parked-global-headers record, whose
+ * Apply/Discard recovery flow is deleted.
  */
 export const legacyRegistryCleanupMigration: ExtensionMigration = {
 	state: "legacy-registry-state",
-	description: "Deleted leftover legacy server-registry state and its stored secrets",
+	description: "Deleted leftover legacy state: registry keys, their stored secrets, and retired parked records",
 	sourceRelease: "0.3.1",
 	run: cleanUpLegacyRegistryState,
 };

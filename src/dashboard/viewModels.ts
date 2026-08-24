@@ -653,7 +653,7 @@ export interface DashboardUsage {
 }
 
 /** The legacy leftovers worth a dashboard hint; mirrors the migration's LegacyHintKind (never imported: that module is host-only). */
-type LegacyHintViewKind = "inert-url-scoped-key" | "inert-global-headers" | "parked-global-headers";
+type LegacyHintViewKind = "inert-url-scoped-key" | "inert-global-headers";
 
 /**
  * How a diagnostic row renders: "warning" is a problem to fix, "advisory" an
@@ -703,7 +703,7 @@ export type ConfigDiagnosticView =
 			readonly hint: LegacyHintViewKind;
 			/** The leftover key: a record key for scoped-key hints, the setting id for the headers hints. */
 			readonly oldKey: string;
-			/** The setting id the leftover sits in, or the parked header names. */
+			/** The setting id the leftover sits in. */
 			readonly detail: string;
 			readonly severity: ConfigDiagnosticSeverity;
 	  }

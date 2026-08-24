@@ -47,7 +47,6 @@ import {
 	getUsagePollingOffFreshnessWindowMs,
 	SERVERS_SETTING_KEY,
 } from "../../shared/config/settings";
-import { PARKED_GLOBAL_HEADERS_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { Logger } from "../../shared/logger";
 import { pickEntryViewFields, pickNonSecretOptionalFields } from "../../shared/serverEntry";
@@ -425,7 +424,6 @@ export class DashboardController implements vscode.Disposable {
 				usage: this.env.getUsage(),
 				diagnostics: buildConfigDiagnostics({
 					reader,
-					parkedGlobalHeadersValue: this.env.readParkedGlobalHeaders(),
 					entryReports,
 					declared: declared.views,
 					// The same list the servers section's hidden-groups line renders.
@@ -614,7 +612,6 @@ export class DashboardController implements vscode.Disposable {
 		adoptServer: (payload) => executeDashboardIntent({ method: "adoptServer", payload }, this.env),
 		hideExternalServer: (payload) => executeDashboardIntent({ method: "hideExternalServer", payload }, this.env),
 		unhideServer: (payload) => executeDashboardIntent({ method: "unhideServer", payload }, this.env),
-		resolveParkedHeaders: (payload) => executeDashboardIntent({ method: "resolveParkedHeaders", payload }, this.env),
 		executeCommand: (payload) => executeDashboardIntent({ method: "executeCommand", payload }, this.env),
 		syncModels: (payload) => executeDashboardIntent({ method: "syncModels", payload }, this.env),
 	};
@@ -923,8 +920,6 @@ export function registerDashboardCommand(
 				now: Date.now(),
 				isFresh: isUsageFresh,
 			}),
-		readParkedGlobalHeaders: () => context.globalState.get<unknown>(PARKED_GLOBAL_HEADERS_KEY),
-		clearParkedGlobalHeaders: () => Promise.resolve(context.globalState.update(PARKED_GLOBAL_HEADERS_KEY, undefined)),
 		// Fire-and-forget kicks; both push state when they settle. The catalog
 		// row stays toast-free; an explicit usage refresh in which NO server
 		// returned data acknowledges itself with one warning toast (partial

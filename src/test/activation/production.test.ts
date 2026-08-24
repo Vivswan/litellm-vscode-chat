@@ -16,7 +16,6 @@ import {
 	GROUP_MIGRATION_COMPLETE_KEY,
 	HAS_SHOWN_WELCOME_KEY,
 	MIGRATED_SERVER_LABELS_KEY,
-	PARKED_GLOBAL_HEADERS_KEY,
 	SERVER_REGISTRY_KEY,
 } from "../../shared/config/storageKeys";
 import { catalogFixtureText } from "../catalogFixture";
@@ -529,18 +528,10 @@ suite("production activation", () => {
 		const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
 		const seededIds = ["requestTimeout", "modelParameters", "defaultContextLength", "headers"];
 		const newIds = ["chat.timeout", "models.parameters", "models.capabilities", "servers"];
-		const parked = new Map<string, unknown>();
-		const store = {
-			get: <T>(key: string): T | undefined => parked.get(key) as T | undefined,
-			update: (key: string, value: unknown) => {
-				parked.set(key, value);
-				return Promise.resolve();
-			},
-		};
 		const logger = {
 			log: (line: string) => channelLines.push(line),
 			error: (line: string) => channelLines.push(line),
-		} as unknown as Parameters<typeof applySettingsRedesign>[2];
+		} as unknown as Parameters<typeof applySettingsRedesign>[1];
 		try {
 			// A clean slate on the new-name ids: earlier tests leave values there,
 			// and the rename's sync-race rule would otherwise keep them and drop
@@ -562,7 +553,7 @@ suite("production activation", () => {
 			);
 			assert.strictEqual(config().inspect<number>("requestTimeout")?.globalValue, 45000, "the seed must land");
 
-			await applySettingsRedesign(config(), store, logger);
+			await applySettingsRedesign(config(), logger);
 
 			// The renamed and restructured world, read back through the host.
 			assert.strictEqual(config().inspect<number>("chat.timeout")?.globalValue, 45000);
@@ -584,8 +575,6 @@ suite("production activation", () => {
 			for (const id of seededIds) {
 				assert.strictEqual(config().inspect(id)?.globalValue, undefined, `${id} must be deleted`);
 			}
-			const parkedRecord = parked.get(PARKED_GLOBAL_HEADERS_KEY) as { headers?: unknown } | undefined;
-			assert.deepStrictEqual(parkedRecord?.headers, { "x-env": "prod" }, "the consumed headers value parks once");
 
 			// Idempotent rerun against the REAL migrated settings: nothing to write.
 			const rerun = planSettingsRedesign(readRedesignSnapshot(config()));

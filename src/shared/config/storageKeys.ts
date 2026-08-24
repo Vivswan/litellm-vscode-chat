@@ -88,10 +88,10 @@ export const OPENROUTER_CATALOG_METADATA_KEY = "litellm.openRouterCatalogMetadat
 
 /**
  * globalState: the removed global `headers` setting's last value, parked by
- * the settings-redesign migration when it deletes the key (written at most
- * once, never overwritten). Consumable: the dashboard's parked-headers hint
- * offers Apply (merge onto a declared entry through the normal servers-setting
- * write) and Discard, and both delete this record.
+ * older builds' settings-redesign migration. RETIRED: the parked copy was by
+ * construction a duplicate of headers already written into declared entries,
+ * and its Apply/Discard recovery flow is deleted. The key survives only as a
+ * purge target in legacyRegistryCleanup's LEGACY_STATE_KEYS.
  */
 export const PARKED_GLOBAL_HEADERS_KEY = "litellm.parkedGlobalHeaders";
 

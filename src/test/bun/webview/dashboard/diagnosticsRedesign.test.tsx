@@ -13,12 +13,10 @@ import {
 	cleanup,
 	fireClick,
 	fireInput,
-	fireSelect,
 	lastRequest,
 	mount,
 	postedCalls,
 	postedRequests,
-	pushToWebview,
 	resetPosted,
 	respondTo,
 } from "../harness";
@@ -99,14 +97,11 @@ function mountDiagnostics(options: {
 }
 
 describe("Configuration diagnostics", () => {
-	function mountConfig(
-		diagnostics: readonly ConfigDiagnosticView[],
-		servers: Parameters<typeof DiagnosticsSection>[0]["servers"] = []
-	) {
+	function mountConfig(diagnostics: readonly ConfigDiagnosticView[]) {
 		return mount(
 			<DiagnosticsSection
 				currencySymbol="$"
-				servers={servers}
+				servers={[]}
 				modelCount={0}
 				hiddenGroupCount={0}
 				diagnostics={diagnostics}
@@ -116,63 +111,6 @@ describe("Configuration diagnostics", () => {
 			/>
 		);
 	}
-
-	const PARKED_HINT: ConfigDiagnosticView = {
-		kind: "legacy",
-		hint: "parked-global-headers",
-		oldKey: "headers",
-		detail: "x-env, x-trace",
-		severity: "warning",
-	};
-
-	test("the parked-headers row offers Apply with a declared-entry picker plus Discard, and no reveal", () => {
-		const root = mountConfig(
-			[PARKED_HINT],
-			[makeDeclaredServer({ label: "Prod" }), makeDeclaredServer({ label: "Staging", baseUrl: "http://s.test" })]
-		);
-		const row = root.querySelector(".config-diagnostics li") as HTMLElement;
-		const select = row.querySelector("select") as HTMLSelectElement;
-		expect([...select.options].map((option) => option.value)).toEqual(["Prod", "Staging"]);
-		expect(buttonByText(row, "Apply to entry")).toBeDefined();
-		expect(buttonByText(row, "Discard")).toBeDefined();
-		// The recovery controls ARE the remedy; a reveal button beside them
-		// would only distract from the decision. Learn more survives.
-		expect([...row.querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain(
-			"Show in settings.json"
-		);
-		expect(row.textContent).toContain("Learn more");
-
-		fireSelect(select, "Staging");
-		fireClick(buttonByText(row, "Apply to entry"));
-		expect(postedCalls()).toEqual([{ method: "resolveParkedHeaders", payload: { action: "apply", label: "Staging" } }]);
-
-		resetPosted();
-		fireClick(buttonByText(row, "Discard"));
-		expect(postedCalls()).toEqual([{ method: "resolveParkedHeaders", payload: { action: "discard" } }]);
-	});
-
-	test("with no declared entry the parked row narrows to Discard and says why", () => {
-		const root = mountConfig([PARKED_HINT]);
-		const row = root.querySelector(".config-diagnostics li") as HTMLElement;
-		expect(row.querySelector("select")).toBeNull();
-		expect([...row.querySelectorAll("button")].map((b) => b.textContent?.trim())).toContain("Discard");
-		expect(row.textContent).toContain("Add a server entry to apply them, or discard them.");
-	});
-
-	test("a refused parked-headers intent stands inline until the next attempt", () => {
-		const root = mountConfig([PARKED_HINT]);
-		const row = root.querySelector(".config-diagnostics li") as HTMLElement;
-		fireClick(buttonByText(row, "Discard"));
-		const posted = lastRequest("resolveParkedHeaders");
-		pushToWebview({
-			kind: "fail",
-			id: posted.id,
-			method: "resolveParkedHeaders",
-			message: "No parked headers remain; they may already have been applied or discarded.",
-			failureKind: "validation",
-		});
-		expect(row.querySelector(".error")?.textContent).toContain("No parked headers remain");
-	});
 
 	/** What a sighted reader sees: the node's text minus the screen-reader-only parts. */
 	function sightedText(element: Element | null | undefined): string {
@@ -264,43 +202,31 @@ describe("Configuration diagnostics", () => {
 				detail: "models.parameters",
 				severity: "warning",
 			},
-			{
-				kind: "legacy",
-				hint: "parked-global-headers",
-				oldKey: "headers",
-				detail: "x-env, x-trace",
-				severity: "warning",
-			},
 		];
 		const root = mountConfig(diagnostics);
 		const items = Array.from(root.querySelectorAll(".config-diagnostics li"));
-		expect(items).toHaveLength(5);
+		expect(items).toHaveLength(4);
 		// Ranked by what it costs, not by the order the host emitted them: the
 		// two wholly inert pieces of configuration first, then the partly
-		// ignored ones, then the field that applies as written.
+		// ignored one, then the field that applies as written.
 		expect(items.map((li) => li.className)).toEqual([
 			"row-diagnostic tier-error",
 			"row-diagnostic tier-error",
-			"row-diagnostic tier-warn",
 			"row-diagnostic tier-warn",
 			"row-diagnostic tier-advisory",
 		]);
 		const text = items.map((li) => li.textContent ?? "");
 		expect(text[0]).toContain('"gpt*5"');
 		expect(text[1]).toContain("https://gw/gpt-4");
-		// Within a tier the host's emission order survives (a stable sort), so
-		// the thresholds drop stays ahead of the parked headers.
+		// The remedy ("move it into that server entry's record") lives behind
+		// Learn more: one consequence clause is the whole visible budget.
+		expect(text[1]).toContain("Learn more");
 		expect(text[2]).toContain("2");
-		expect(text[3]).toContain("x-env, x-trace");
-		// The remedy ("adopt the external group") moved behind Learn more: one
-		// consequence clause is the whole visible budget for a diagnostic.
-		expect(text[3]).not.toContain("adopt");
-		expect(text[3]).toContain("Learn more");
-		expect(text[4]).toContain('"supports_web_search"');
+		expect(text[3]).toContain('"supports_web_search"');
 		// The count beside the title excludes the advisory (the configuration
 		// applies as written), but carries the total too, because the rail badge
-		// counts the whole list and "4" beside a list of 5 is a question.
-		expect(root.querySelector(".section-meta")?.textContent).toBe("4 of 5 need attention");
+		// counts the whole list and "3" beside a list of 4 is a question.
+		expect(root.querySelector(".section-meta")?.textContent).toBe("3 of 4 need attention");
 	});
 
 	test("consequence-first copy leads with what is lost and keeps the cause", () => {

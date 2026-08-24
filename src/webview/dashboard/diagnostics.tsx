@@ -42,7 +42,7 @@ import type { FeedbackUrl } from "./feedbackLinks";
 import { FEEDBACK_LINK_FEATURE_REQUEST, FEEDBACK_LINK_RATE, FEEDBACK_LINK_REPOSITORY } from "./feedbackLinks";
 import { DocsLink, HoverTip } from "./help";
 import { helpConfigDiagnosticsSection, helpDiagnosticsTools, helpResolutionSection } from "./helpText";
-import { useIntentOutcome, useRpc } from "./hooks";
+import { useRpc } from "./hooks";
 import {
 	IconBook,
 	IconBug,
@@ -69,7 +69,6 @@ import { AbsentDatum } from "./ui/absent";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Section } from "./ui/section";
-import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
 /**
@@ -120,8 +119,6 @@ interface ConfigProblem {
 	/** The parser's structural report, when there is one. English by policy - it also rides the copyable block. */
 	readonly detail?: string | undefined;
 	readonly actions: readonly DiagnosticAction[];
-	/** The parked-headers hint alone: the row renders the Apply/Discard recovery controls. */
-	readonly parkedHeaders?: true | undefined;
 }
 
 /**
@@ -190,10 +187,9 @@ function problemSeverity(diagnostic: PageConfigDiagnostic): DiagnosticSeverity {
 		case "entry":
 			return cappedSeverity(diagnostic.severity, diagnostic.misconfigured ? "blocking" : "degraded");
 		case "legacy":
-			// A parked-headers leftover still has a live route back: the headers
-			// are held until the row's Apply or Discard resolves them. The other
-			// two hold values that reach nothing and have nowhere to go.
-			return cappedSeverity(diagnostic.severity, diagnostic.hint === "parked-global-headers" ? "degraded" : "blocking");
+			// Both remaining legacy leftovers hold values that reach nothing and
+			// have nowhere to go, so they rank as wholly inert configuration.
+			return cappedSeverity(diagnostic.severity, "blocking");
 		case "thresholds":
 			return cappedSeverity(diagnostic.severity, "degraded");
 	}
@@ -236,9 +232,8 @@ function englishDiagnosticLine(diagnostic: PageConfigDiagnostic): string {
 		}
 		case "legacy":
 			// The classification and the setting it sits in, nothing else: `oldKey` on a URL-scoped
-			// hint IS a base URL, and `detail` on a parked-headers hint is the user's own header
-			// names (hints.ts: local-dashboard-only). Every branch yields a setting id, never user
-			// text.
+			// hint IS a base URL (hints.ts: local-dashboard-only). Every branch yields a setting id,
+			// never user text.
 			return `${tier} ${diagnostic.hint} (${
 				diagnostic.hint === "inert-url-scoped-key" ? diagnostic.detail : diagnostic.oldKey
 			})`;
@@ -291,13 +286,6 @@ function legacyProblemText(diagnostic: Extract<ConfigDiagnosticView, { kind: "le
 			return l10n.t('Nothing uses "{0}": that key grammar was removed.', diagnostic.oldKey);
 		case "inert-global-headers":
 			return l10n.t("No server sends these headers: the setting that held them was removed.");
-		case "parked-global-headers":
-			// Consequence first; the Apply/Discard controls beside the row are
-			// the remedy, so the sentence only has to name what is parked.
-			return l10n.t(
-				"Headers from the removed global headers setting ({0}) are parked and sent nowhere.",
-				diagnostic.detail
-			);
 	}
 }
 
@@ -382,34 +370,22 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 			};
 		}
 		case "legacy": {
-			// The parked-headers hint is a recovery flow, not a pointer: its row
-			// carries the Apply/Discard controls that consume the parked record,
-			// so the reveal action would only distract from the decision.
-			const parked = diagnostic.hint === "parked-global-headers";
 			return {
 				// The same leftover key can sit in BOTH record settings, and the
 				// two hints differ only in which one; without `detail` they share a
 				// key and React drops one of the blocks.
 				key: `legacy:${diagnostic.hint}:${diagnostic.oldKey}:${diagnostic.detail}`,
-				// A parked-headers leftover still has a live route back: the headers
-				// are held until Apply or Discard resolves them. The other two hold
-				// values that reach nothing and have nowhere to go.
 				severity: problemSeverity(diagnostic),
 				headline: legacyProblemText(diagnostic),
 				where: diagnostic.hint === "inert-url-scoped-key" ? [diagnostic.detail] : [diagnostic.oldKey],
 				actions: [
-					...(parked
-						? []
-						: [
-								{
-									kind: "reveal",
-									setting: diagnostic.hint === "inert-url-scoped-key" ? revealTarget(diagnostic.detail) : "servers",
-									subject: diagnostic.oldKey,
-								} as const,
-							]),
+					{
+						kind: "reveal",
+						setting: diagnostic.hint === "inert-url-scoped-key" ? revealTarget(diagnostic.detail) : "servers",
+						subject: diagnostic.oldKey,
+					} as const,
 					docsAction(DOCS_LINK_SETTINGS_MIGRATION, l10n.t("the settings-migration guide")),
 				],
-				...(parked ? { parkedHeaders: true as const } : {}),
 			};
 		}
 		case "thresholds":
@@ -430,71 +406,11 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 }
 
 /**
- * The parked-headers hint's recovery controls: Apply merges the parked record
- * into the picked declared entry (extension-side; the values never enter this
- * bundle), Discard deletes it. Either way the hint's diagnostic leaves the next
- * push, so these controls are the flow's whole surface. A failed intent stands
- * inline until the next attempt.
- */
-function ParkedHeadersControls({ declaredLabels }: { declaredLabels: readonly string[] }) {
-	const intent = useIntentOutcome("resolveParkedHeaders");
-	const [target, setTarget] = useState("");
-	const selected = declaredLabels.includes(target) ? target : (declaredLabels[0] ?? "");
-	return (
-		<>
-			{declaredLabels.length > 0 ? (
-				<>
-					<Select
-						aria-label={l10n.t("Server entry to apply the parked headers to")}
-						value={selected}
-						onChange={(event) => setTarget(event.currentTarget.value)}
-					>
-						{declaredLabels.map((label) => (
-							<option key={label} value={label}>
-								{label}
-							</option>
-						))}
-					</Select>
-					<Button
-						variant="secondary"
-						size="compact"
-						aria-label={l10n.t("Apply parked headers to {0}", selected)}
-						onClick={() => intent.send({ action: "apply", label: selected })}
-					>
-						{l10n.t("Apply to entry")}
-					</Button>
-				</>
-			) : (
-				// No declared entry to apply onto: the choice narrows to Discard, and
-				// the sentence says why the apply half is missing.
-				<span className="hint">{l10n.t("Add a server entry to apply them, or discard them.")}</span>
-			)}
-			<Button
-				variant="danger"
-				size="compact"
-				aria-label={l10n.t("Discard parked headers")}
-				onClick={() => intent.send({ action: "discard" })}
-			>
-				{l10n.t("Discard")}
-			</Button>
-			{intent.outcome?.result === "fail" ? (
-				// Keyed by seq so a repeat remounts and re-announces (see PaneFailureLine).
-				// basis-full drops the line onto its own flex row: mounting it must not
-				// re-center the controls beside it (the geometry pair pins this).
-				<p key={intent.outcome.seq} className="error basis-full" role="alert">
-					{intent.outcome.message}
-				</p>
-			) : null}
-		</>
-	);
-}
-
-/**
  * One problem, through the one band pipeline: severity is one vocabulary, and a second
  * renderer spelling its own tiers is exactly the drift ProblemBand exists to prevent.
  * This page's location badges and reveal actions ride the band's slots.
  */
-function ConfigProblemLine({ problem, declaredLabels }: { problem: ConfigProblem; declaredLabels: readonly string[] }) {
+function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
 	return (
 		<ProblemBand
 			as="li"
@@ -518,9 +434,8 @@ function ConfigProblemLine({ problem, declaredLabels }: { problem: ConfigProblem
 			}
 			details={problem.detail !== undefined ? [problem.detail] : undefined}
 			actions={
-				problem.actions.length > 0 || problem.parkedHeaders === true ? (
+				problem.actions.length > 0 ? (
 					<div className="row-diagnostic-actions">
-						{problem.parkedHeaders === true ? <ParkedHeadersControls declaredLabels={declaredLabels} /> : null}
 						{problem.actions.map((action) =>
 							action.kind === "reveal" ? (
 								// The verb is REVEAL, never rewrite: it opens the file at the
@@ -551,14 +466,7 @@ function ConfigProblemLine({ problem, declaredLabels }: { problem: ConfigProblem
  * The configuration problems, worst first. Always present as a section - sections do
  * not appear and disappear under the reader - with the clean state saying so in words.
  */
-function ConfigDiagnostics({
-	diagnostics,
-	declaredLabels,
-}: {
-	diagnostics: readonly ConfigDiagnosticView[];
-	/** The declared entries' labels, for the parked-headers Apply target picker. */
-	declaredLabels: readonly string[];
-}) {
+function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagnosticView[] }) {
 	const problems = pageConfigDiagnostics(diagnostics)
 		.map(configProblem)
 		.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
@@ -596,7 +504,7 @@ function ConfigDiagnostics({
 			) : (
 				<ul className="config-diagnostics">
 					{problems.map((problem) => (
-						<ConfigProblemLine key={problem.key} problem={problem} declaredLabels={declaredLabels} />
+						<ConfigProblemLine key={problem.key} problem={problem} />
 					))}
 				</ul>
 			)}
@@ -1286,10 +1194,7 @@ export function DiagnosticsSection({
 				diagnostics={diagnostics}
 			/>
 			<Support />
-			<ConfigDiagnostics
-				diagnostics={diagnostics}
-				declaredLabels={servers.filter((server) => server.origin === "declared").map((server) => server.label)}
-			/>
+			<ConfigDiagnostics diagnostics={diagnostics} />
 			<ResolvedModels active={active} stateSeq={stateSeq} currencySymbol={currencySymbol} onInspect={onInspect} />
 		</Section>
 	);

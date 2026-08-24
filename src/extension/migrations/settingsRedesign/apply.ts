@@ -5,13 +5,11 @@
  * field ids are unchanged and stored values keep working under the new entry
  * shape), no fingerprint touch (a migrated entry's group args are
  * byte-identical, except the wire-inert-fragment exception), and no idempotency
- * ledger (source-key absence is the state signal). The one globalState touch is
- * the write-once parking of a consumed global headers value.
+ * ledger (source-key absence is the state signal).
  */
 
 import * as vscode from "vscode";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
-import { PARKED_GLOBAL_HEADERS_KEY } from "../../../shared/config/storageKeys";
 import type { Logger } from "../../../shared/logger";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "../index";
 import {
@@ -64,30 +62,15 @@ export function readRedesignSnapshot(setting: RedesignSettings): SettingsSnapsho
 	return sections;
 }
 
-/** The Memento slice the headers parking needs; MigrationContext.globalState satisfies it. */
-export interface ParkedHeadersStore {
-	get<T>(key: string): T | undefined;
-	update(key: string, value: unknown): Thenable<void>;
-}
-
 /**
- * Plan against the current user settings and execute: park the consumed global
- * headers value first (once - an existing parked record is never overwritten,
- * so a rerun after a crash cannot clobber the original), then the writes in
- * plan order (values before deletions) at the Global target, then the
- * count-only log lines. Log lines can accompany a "nothing-to-do" outcome
- * (workspace leftovers, an inert global headers value, a blocked trio merge).
+ * Plan against the current user settings and execute: the writes in plan order
+ * (values before deletions) at the Global target, then the count-only log
+ * lines. Log lines can accompany a "nothing-to-do" outcome (workspace
+ * leftovers, an inert global headers value, a blocked trio merge).
  */
-export async function applySettingsRedesign(
-	setting: RedesignSettings,
-	store: ParkedHeadersStore,
-	logger: Logger
-): Promise<MigrationOutcome> {
+export async function applySettingsRedesign(setting: RedesignSettings, logger: Logger): Promise<MigrationOutcome> {
 	const snapshot = readRedesignSnapshot(setting);
 	const plan = planSettingsRedesign(snapshot);
-	if (plan.parkedHeaders !== undefined && store.get(PARKED_GLOBAL_HEADERS_KEY) === undefined) {
-		await store.update(PARKED_GLOBAL_HEADERS_KEY, { headers: plan.parkedHeaders, migratedAt: Date.now() });
-	}
 	for (const write of plan.writes) {
 		await setting.update(write.section, write.value, vscode.ConfigurationTarget.Global);
 	}
@@ -112,6 +95,6 @@ export const settingsRedesignMigration: ExtensionMigration = {
 	description: "Renamed and restructured the pre-redesign settings into the redesigned namespace",
 	sourceRelease: "0.4.4",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
-		return applySettingsRedesign(vscode.workspace.getConfiguration(CONFIG_SECTION), ctx.globalState, ctx.logger);
+		return applySettingsRedesign(vscode.workspace.getConfiguration(CONFIG_SECTION), ctx.logger);
 	},
 };

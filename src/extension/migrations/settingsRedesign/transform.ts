@@ -133,14 +133,11 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 	processRecord(LEGACY_MODEL_PARAMETERS_ID, NEW_MODEL_PARAMETERS_ID, "parameters");
 	const capabilitiesState = processRecord(LEGACY_MODEL_CAPABILITIES_ID, NEW_MODEL_CAPABILITIES_ID, "capabilities");
 
-	// --- The global headers move into the entries. A value that really carried
-	// headers and gets deleted is PARKED (the applier stores it once in
-	// globalState): the old setting also reached servers without a declared
-	// entry - externally managed groups - which the new world cannot express
-	// headers for, so the parked copy keeps the loss recoverable through the
-	// dashboard's hint and the adopt flow. A value that carried nothing parks
-	// nothing: there is no lost behavior to recover.
-	let parkedHeaders: Readonly<Record<string, unknown>> | undefined;
+	// --- The global headers move into the entries. The copies are the whole
+	// migration: every receiving entry gets the headers verbatim, so the deleted
+	// setting survives as plaintext in the user's own settings.json. A value no
+	// entry can receive is left in place instead (the inert-global-headers hint
+	// points at it), so nothing is ever lost.
 	const rawHeaders = globalOf(LEGACY_HEADERS_ID);
 	if (rawHeaders !== undefined) {
 		if (!isRecord(rawHeaders) || Object.keys(rawHeaders).length === 0) {
@@ -159,7 +156,6 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 					updateEntry(target.entryIndex, (entry) => withEntryHeaders(entry, rawHeaders).entry);
 				}
 				deletions.push(LEGACY_HEADERS_ID);
-				parkedHeaders = rawHeaders;
 				logLines.push(
 					`Copied the global headers setting into ${receivers.length} server ${entriesNoun(receivers.length)} and removed it`
 				);
@@ -274,6 +270,5 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 		writes,
 		logLines,
 		outcome: writes.length > 0 ? "migrated" : "nothing-to-do",
-		...(parkedHeaders !== undefined ? { parkedHeaders } : {}),
 	};
 }

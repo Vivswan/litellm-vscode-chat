@@ -160,11 +160,6 @@ export interface RecordedEnv {
 	/** Every unhideGroup call; unhideResult is what the fake reports back. */
 	unhidden: { label: string; baseUrl: string }[];
 	unhideResult: boolean;
-	/** What readParkedGlobalHeaders answers; clearParkedGlobalHeaders empties it. */
-	parkedGlobalHeaders: unknown;
-	/** How many clearParkedGlobalHeaders calls arrived; failClearParked makes each throw. */
-	parkedClears: number;
-	failClearParked?: Error;
 	/** How many refreshCatalogNow kicks arrived (the refreshCatalog intent). */
 	catalogRefreshes: number;
 	/** How many refreshUsageNow kicks arrived (the refreshUsage intent). */
@@ -201,8 +196,6 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		hidden: [],
 		unhidden: [],
 		unhideResult: true,
-		parkedGlobalHeaders: undefined,
-		parkedClears: 0,
 		catalogRefreshes: 0,
 		usageRefreshes: 0,
 		env: {
@@ -297,14 +290,6 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			unhideGroup: async (identity) => {
 				recorded.unhidden.push({ ...identity });
 				return recorded.unhideResult;
-			},
-			readParkedGlobalHeaders: () => recorded.parkedGlobalHeaders,
-			clearParkedGlobalHeaders: async () => {
-				recorded.parkedClears += 1;
-				if (recorded.failClearParked !== undefined) {
-					throw recorded.failClearParked;
-				}
-				recorded.parkedGlobalHeaders = undefined;
 			},
 			probeDraftConnection: async (connection) => {
 				recorded.probes.push(connection);

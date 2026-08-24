@@ -157,14 +157,6 @@ export interface IntentEnvironment {
 	hideGroup(identity: { label: string; baseUrl: string }): Promise<void>;
 	/** Clear one removed-group tombstone. Resolves false when no tombstone matched the identity. */
 	unhideGroup(identity: { label: string; baseUrl: string }): Promise<boolean>;
-	/**
-	 * The PARKED_GLOBAL_HEADERS_KEY globalState value: the removed global
-	 * headers setting's last value, parked by the settings-redesign migration.
-	 * Read for the diagnostics hint and the resolveParkedHeaders intent.
-	 */
-	readParkedGlobalHeaders(): unknown;
-	/** Delete the parked record; the diagnostics hint dies with it. Idempotent. */
-	clearParkedGlobalHeaders(): Promise<void>;
 	/** Classification-only logging (the buffer feeds public issue reports); never a payload value. */
 	log(message: string, data?: unknown): void;
 	/**
@@ -850,79 +842,6 @@ export async function executeDashboardIntent(
 			const removed = await env.unhideGroup({ label: intent.payload.label, baseUrl: intent.payload.baseUrl });
 			if (!removed) {
 				throw new DashboardValidationError(l10n.t("No hidden group matches this identity; it may already be visible"));
-			}
-			return undefined;
-		}
-		case "resolveParkedHeaders": {
-			// The recovery flow for the global headers the settings redesign parked:
-			// apply merges them into a declared entry through the normal
-			// servers-setting write, discard just drops them; both delete the
-			// parked record, so the diagnostics hint cannot outlive the choice.
-			if (intent.payload.action === "discard") {
-				await env.clearParkedGlobalHeaders();
-				return undefined;
-			}
-			const parked = env.readParkedGlobalHeaders();
-			const parkedHeaders = isRecord(parked) && isRecord(parked.headers) ? parked.headers : undefined;
-			if (parkedHeaders === undefined || Object.keys(parkedHeaders).length === 0) {
-				throw new DashboardValidationError(
-					l10n.t("No parked headers remain; they may already have been applied or discarded.")
-				);
-			}
-			const entries = rawServerEntries(env.readServersSetting());
-			const accepted = acceptedEntry(entries, intent.payload.label);
-			const rawEntry = accepted !== undefined ? entries[accepted.index] : undefined;
-			if (!isRecord(rawEntry) || accepted === undefined) {
-				throw new DashboardValidationError(
-					l10n.t("No servers setting entry has this label; the server is managed outside the setting")
-				);
-			}
-			// The entry's own headers win, case-insensitively (header names are):
-			// applying a years-old parked value must never clobber configuration
-			// written since. A non-record headers field is replaced by the valid
-			// shape, like declareExpectedFailure's discovery repair.
-			const existing = isRecord(rawEntry.headers) ? rawEntry.headers : {};
-			const taken = new Set(Object.keys(existing).map((name) => name.toLowerCase()));
-			const applied: Record<string, unknown> = {};
-			const parkedNames = Object.keys(parkedHeaders);
-			for (const name of parkedNames) {
-				const value = parkedHeaders[name];
-				const scalar = typeof value === "string" || typeof value === "number" || typeof value === "boolean";
-				if (
-					isUnsafeRecordKey(name) ||
-					!isValidHeaderName(name) ||
-					!scalar ||
-					!isValidHeaderValue(String(value)) ||
-					taken.has(name.toLowerCase())
-				) {
-					continue;
-				}
-				taken.add(name.toLowerCase());
-				applied[name] = value;
-			}
-			if (Object.keys(applied).length > 0) {
-				const next = [...entries];
-				next[accepted.index] = { ...rawEntry, headers: { ...existing, ...applied } };
-				await env.writeServersSetting(next);
-				env.requestServerSync();
-			}
-			try {
-				await env.clearParkedGlobalHeaders();
-			} catch {
-				throw new DashboardOperationError(
-					l10n.t("The headers were applied, but the parked copy could not be cleared. Use Discard to remove it.")
-				);
-			}
-			const skipped = parkedNames.length - Object.keys(applied).length;
-			if (skipped > 0) {
-				// Counts only: header names are user text and this caveat renders as
-				// a page-global ack.
-				return skipped === 1
-					? l10n.t("1 parked header was not applied: the entry already sets it, or it is not a valid header.")
-					: l10n.t(
-							"{0} parked headers were not applied: the entry already sets them, or they are not valid headers.",
-							skipped
-						);
 			}
 			return undefined;
 		}

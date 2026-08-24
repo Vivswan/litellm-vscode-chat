@@ -9,13 +9,14 @@ import {
 	MIGRATED_ENTRY_PARAMETER_COPIES_KEY,
 	MIGRATED_SERVER_IDS_KEY,
 	MIGRATED_SERVER_LABELS_KEY,
+	PARKED_GLOBAL_HEADERS_KEY,
 	PENDING_GROUP_SUBMISSION_KEY,
 	PENDING_SECRET_DELETIONS_KEY,
 	SEEDED_PROVIDER_GROUPS_KEY,
 	SERVER_REGISTRY_KEY,
 	SKIPPED_MIGRATION_SERVERS_KEY,
 } from "../../../shared/config/storageKeys";
-import { makeExtensionStorage, makeMigrationContext } from "../../testUtils";
+import { failingStorage, makeExtensionStorage, makeMigrationContext } from "../../testUtils";
 
 suite("extension/migrations/legacyRegistryCleanup", () => {
 	test("deletes every legacy key and every per-server secret the blobs reference", async () => {
@@ -135,6 +136,67 @@ suite("extension/migrations/legacyRegistryCleanup", () => {
 
 			assert.strictEqual(outcome, "migrated", `${key} alone must trigger a cleanup`);
 			assert.strictEqual(storage.mementoStore.get(key), undefined, `${key} must be purged`);
+		}
+	});
+
+	test("the retired parked-global-headers record is purged without touching any secret", async () => {
+		// The settings-redesign migration parked the removed global headers value
+		// only after copying it verbatim into declared entries, so the record is a
+		// duplicate holding possible auth values in unencrypted globalState. Its
+		// Apply/Discard recovery flow is deleted; this purge is what remains. The
+		// record holds header values, never per-server secret ids, so the secret
+		// sweep must not read it.
+		const storage = makeExtensionStorage({
+			[PARKED_GLOBAL_HEADERS_KEY]: { headers: { "x-env": "prod", authorization: "Bearer tok" }, migratedAt: 1 },
+		});
+		storage.secretStore.set(apiKeySecret("unrelated"), "sk-keep");
+
+		const outcome = await legacyRegistryCleanupMigration.run(makeMigrationContext(storage));
+
+		assert.strictEqual(outcome, "migrated", "the parked record alone must trigger a cleanup");
+		assert.strictEqual(storage.mementoStore.get(PARKED_GLOBAL_HEADERS_KEY), undefined, "the record must be purged");
+		assert.strictEqual(
+			storage.secretStore.get(apiKeySecret("unrelated")),
+			"sk-keep",
+			"no blob names this secret, so the purge must not touch it"
+		);
+	});
+
+	test("the parked record is purged before ANY keychain touch, so a failing secret get or delete cannot keep it", async () => {
+		// The purge order is the point: the record holds plaintext auth header
+		// values, and a locked keychain (whose get or delete throws and defers the
+		// rest of the cleanup to the next activation) must not defer the plaintext
+		// delete along with it. Both fallible operations are exercised: the
+		// single-server probe reads and the per-server deletes.
+		const failureModes: [string, "secretGet" | "secretDelete"][] = [
+			["a failing probe read", "secretGet"],
+			["a failing per-server delete", "secretDelete"],
+		];
+		for (const [label, operation] of failureModes) {
+			const backing = makeExtensionStorage({
+				[PARKED_GLOBAL_HEADERS_KEY]: { headers: { authorization: "Bearer tok" }, migratedAt: 1 },
+				[SKIPPED_MIGRATION_SERVERS_KEY]: ["srv1"],
+			});
+			backing.secretStore.set(apiKeySecret("srv1"), "sk-srv1");
+			const storage = failingStorage(backing, {
+				failOn: { [operation]: () => new Error("keychain locked") },
+			});
+
+			await assert.rejects(
+				legacyRegistryCleanupMigration.run(makeMigrationContext(storage)),
+				/keychain locked/,
+				`${label} still surfaces to the runner`
+			);
+			assert.strictEqual(
+				backing.mementoStore.get(PARKED_GLOBAL_HEADERS_KEY),
+				undefined,
+				`the plaintext record must already be gone under ${label}`
+			);
+			assert.strictEqual(
+				backing.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY) !== undefined,
+				true,
+				`the other keys survive as the retry signal under ${label}`
+			);
 		}
 	});
 });

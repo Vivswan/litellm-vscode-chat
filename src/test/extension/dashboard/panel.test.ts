@@ -104,8 +104,6 @@ interface Harness {
 	declaredServers: DeclaredServersInput;
 	/** What getSnapshots answers; defaults to one healthy "srv1" server serving "m1". */
 	snapshots: ReturnType<DashboardControllerEnv["getSnapshots"]>;
-	/** What readParkedGlobalHeaders answers; cleared by clearParkedGlobalHeaders. */
-	parkedGlobalHeaders: unknown;
 	/** What resolveEntryParameters answers per snapshot server ID. */
 	entryResolutions: Record<string, EntryParametersResolution>;
 	/** What resolveEntryCapabilities answers per snapshot server ID. */
@@ -156,10 +154,6 @@ function makeHarness(): Harness {
 		getCatalogLookup: () => EMPTY_CATALOG_LOOKUP,
 		getCatalogStatus: () => EMPTY_CATALOG_STATUS,
 		getUsage: () => EMPTY_USAGE_VIEW,
-		readParkedGlobalHeaders: () => harness.parkedGlobalHeaders,
-		clearParkedGlobalHeaders: async () => {
-			harness.parkedGlobalHeaders = undefined;
-		},
 		refreshCatalogNow: () => {},
 		refreshUsageNow: () => {},
 		refreshUsageIfStale: () => {
@@ -244,7 +238,6 @@ function makeHarness(): Harness {
 		serversSetting: [],
 		declaredServers: { source: "engine", views: [] },
 		snapshots: [{ status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] }],
-		parkedGlobalHeaders: undefined,
 		entryResolutions: {},
 		entryCapabilities: {},
 		catalogQueries: [],

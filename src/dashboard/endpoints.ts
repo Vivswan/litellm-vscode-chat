@@ -261,13 +261,6 @@ export const DASHBOARD_ENDPOINTS = {
 	hideExternalServer: { outcome: "acked", channel: "chained" },
 	unhideServer: { outcome: "acked", channel: "chained" },
 	/**
-	 * Consume the parked global headers the settings-redesign migration held
-	 * back: apply them onto a declared entry (a servers-array read-modify-write,
-	 * hence chained) or discard them; both delete the parked record, and the
-	 * diagnostics hint dies with it.
-	 */
-	resolveParkedHeaders: { outcome: "acked", channel: "chained" },
-	/**
 	 * Run a full model sync now. Acked because the answer IS the point: state
 	 * pushes emit long before discovery starts, so a control disabled during the
 	 * pass needs the ack to release. The ack proves only that the sync command
@@ -414,17 +407,6 @@ interface DashboardEndpointIO {
 	hideExternalServer: { request: { readonly baseUrl: string; readonly sourceHandle: string } };
 	/** Clear one hidden group's tombstone (the identity its HiddenGroup row carried). */
 	unhideServer: { request: { readonly label: string; readonly baseUrl: string } };
-	/**
-	 * Resolve the parked global headers (PARKED_GLOBAL_HEADERS_KEY): "apply"
-	 * merges them into the named declared entry's headers through the normal
-	 * servers-setting write (existing header names win, case-insensitively),
-	 * "discard" just deletes the parked record. Both end the recovery flow for
-	 * good. Header names and values already sit in the extension's own
-	 * globalState; the webview only names the action and the target entry.
-	 */
-	resolveParkedHeaders: {
-		request: { readonly action: "apply"; readonly label: string } | { readonly action: "discard" };
-	};
 	/**
 	 * A declared entry's inline-stored secret values, for the edit form's
 	 * prefill: inline values already sit in plaintext in the settings file.

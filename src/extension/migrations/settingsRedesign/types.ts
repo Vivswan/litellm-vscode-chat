@@ -42,12 +42,4 @@ export interface RedesignPlan {
 	/** English, counts only: the log lines feed the public issue-report buffer. */
 	readonly logLines: readonly string[];
 	readonly outcome: MigrationOutcome;
-	/**
-	 * The global headers value the plan's deletion consumes, when it really
-	 * carried headers: the applier parks it once in globalState (the old
-	 * setting also reached servers without a declared entry, which the new
-	 * world cannot express), so the dashboard can hint and the adopt flow can
-	 * restore it. Absent when nothing is deleted or the value carried nothing.
-	 */
-	readonly parkedHeaders?: Readonly<Record<string, unknown>>;
 }

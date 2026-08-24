@@ -81,13 +81,6 @@ const state: DashboardState = baseState({
 			detail: "models.parameters",
 			severity: "warning",
 		},
-		{
-			kind: "legacy",
-			hint: "parked-global-headers",
-			oldKey: "headers",
-			detail: "x-routing-env, x-trace-source",
-			severity: "warning",
-		},
 		{ kind: "thresholds", dropped: 1, severity: "warning" },
 	],
 });

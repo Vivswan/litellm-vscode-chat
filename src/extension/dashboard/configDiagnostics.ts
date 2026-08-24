@@ -30,8 +30,6 @@ import { rejectsWithOwnRow } from "./state";
 export interface ConfigDiagnosticsInput {
 	/** The litellm-vscode-chat configuration section; the builder reads the record settings and leftovers itself. */
 	readonly reader: SettingsReader;
-	/** The PARKED_GLOBAL_HEADERS_KEY globalState value, when present. */
-	readonly parkedGlobalHeadersValue: unknown;
 	/** The per-entry acceptance reports (serverSettingReports over the raw setting). */
 	readonly entryReports: readonly ServerEntryReport[];
 	/** The declared entries' own records, for the entry-layer record lints. */
@@ -143,15 +141,11 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		}
 	}
 
-	// Legacy leftovers the redesign migration deliberately left in place. The
-	// parked-headers hint stands while the parked record exists: the hint's
-	// Apply and Discard actions are what consume the record, and the hint dies
-	// with it.
+	// Legacy leftovers the redesign migration deliberately left in place.
 	for (const hint of collectLegacyHints({
 		globalHeadersValue: input.reader.get(LEGACY_HEADERS_ID),
 		modelParametersValue,
 		modelCapabilitiesValue,
-		parkedGlobalHeadersValue: input.parkedGlobalHeadersValue,
 	})) {
 		diagnostics.push({
 			kind: "legacy",
