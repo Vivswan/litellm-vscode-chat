@@ -32,10 +32,11 @@
  *
  * Scope: this pins the usage composer alone. The chat path's sibling
  * narrowing (parseGroupConfiguration's narrowOAuth/narrowVirtualKey, which
- * the wire rule's arms are documented as derived from) stays pinned only by
- * parallel implementation; it composes from resolveOwnedSecrets' resolution,
- * so the raw-blob composition entryConnectionFor feeds this composer is the
- * one this pin covers.
+ * the wire rule's arms are documented as derived from) is pinned by its own
+ * sibling suite (test/provider/catalog/groupModels.wireRule.test.ts, which
+ * composes the sync engine's real chain); it composes from
+ * resolveOwnedSecrets' resolution, so the raw-blob composition
+ * entryConnectionFor feeds this composer is the one this pin covers.
  */
 
 import * as assert from "node:assert";
