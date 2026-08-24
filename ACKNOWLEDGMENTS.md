@@ -1,23 +1,12 @@
 # Acknowledgments
 
-Every name here made the extension concretely better. Code contributions are credited here and as
-commit co-authors. Bug reports and feature requests are credited here when
-the fix landed in a traceable commit; from the adoption of the convention
-below they are also credited in commit subjects, which release-please
-carries into the changelog (commit history cannot be rewritten to backfill
-the older ones).
+Every name here made the extension concretely better. Code contributions are credited here and as commit co-authors. Bug reports and feature requests are credited here when the fix landed in a traceable commit; from the adoption of the convention below they are also credited in commit subjects, which release-please carries into the changelog (commit history cannot be rewritten to backfill the older ones).
 
-Reports that were resolved without a code change (configuration issues,
-stale reports, or fixes that predate traceable history) are not listed - a
-row here means the report changed the code.
+Reports that were resolved without a code change (configuration issues, stale reports, or fixes that predate traceable history) are not listed - a row here means the report changed the code.
 
 ## Code contributions
 
-Pull requests that were merged, or whose implementations and ideas were
-folded into later rewrites of the same feature. The historical landing
-commits predate the co-author convention below; as a one-time backfill,
-everyone in this table is credited with a `Co-authored-by:` trailer on the
-commit that introduced this file.
+Pull requests that were merged, or whose implementations and ideas were folded into later rewrites of the same feature. The historical landing commits predate the co-author convention below; as a one-time backfill, everyone in this table is credited with a `Co-authored-by:` trailer on the commit that introduced this file.
 
 | Author | Contribution |
 |---|---|
@@ -66,16 +55,9 @@ commit that introduced this file.
 | [@yongzhang](https://github.com/yongzhang) | Load-balanced model group display ([#183](https://github.com/Vivswan/litellm-vscode-chat/issues/183)) |
 | [@yongzhang](https://github.com/yongzhang) | Silent empty response from reasoning models, with the missing end-of-stream guard pinpointed ([#215](https://github.com/Vivswan/litellm-vscode-chat/issues/215)) |
 
-If you reported something and are missing here, open an issue or PR and say
-so - the list is maintained by hand.
+If you reported something and are missing here, open an issue or PR and say so - the list is maintained by hand.
 
 ## Ongoing credit
 
-- A commit that resolves a community-reported issue or feature request
-  credits the reporter in its subject, for example
-  `fix: normalize base URL slashes (#53, thanks @Pandaplanes)`.
-  release-please copies the subject into [CHANGELOG.md](CHANGELOG.md), so the
-  acknowledgment ships with the release.
-- A commit that lands community code, or supersedes a community PR while
-  keeping its ideas, carries a `Co-authored-by:` trailer for the human
-  author, and this file gains a row.
+- A commit that resolves a community-reported issue or feature request credits the reporter in its subject, for example `fix: normalize base URL slashes (#53, thanks @Pandaplanes)`. release-please copies the subject into [CHANGELOG.md](CHANGELOG.md), so the acknowledgment ships with the release.
+- A commit that lands community code, or supersedes a community PR while keeping its ideas, carries a `Co-authored-by:` trailer for the human author, and this file gains a row.

@@ -1,8 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents working in this repository.
-`CLAUDE.md`, `.github/copilot-instructions.md`, and `.github/agents.md` are
-symlinks to this file, so edit only here.
+This file provides guidance to AI coding agents working in this repository. `CLAUDE.md`, `.github/copilot-instructions.md`, and `.github/agents.md` are symlinks to this file, so edit only here.
 
 ## Project
 
@@ -15,44 +13,16 @@ LiteLLM VSCode Chat: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered b
 
 ## Conventions
 
-- PR titles and commit subjects must be Conventional Commits (`feat:`, `fix:`,
-  `feat!:`, `chore:`, ...). PRs are squash-merged, so the PR title becomes the
-  commit subject and drives release-please versioning. CI validates both
-  (the ci.yml pr-title job + validate-commit-names).
-- CI gates on a single required check named `all-green` in the managed
-  `.github/workflows/ci.yml`. This repository's own test/lint jobs belong in
-  `.github/workflows/checks.yml` (repo-owned, called inside the gate); do not
-  edit ci.yml, template sync overwrites it. The `release` job runs on top
-  of the gate (`needs: all-green`); the release pipeline is repo-owned in
-  `.github/workflows/release.yml` (pre/post-release jobs go there, around the
-  managed release-please machinery).
-- No typographic look-alike characters (curly quotes, em-dashes, invisible
-  unicode). CI enforces this with the check-typography action; use plain ASCII
-  punctuation.
+- PR titles and commit subjects must be Conventional Commits (`feat:`, `fix:`, `feat!:`, `chore:`, ...). PRs are squash-merged, so the PR title becomes the commit subject and drives release-please versioning. CI validates both (the ci.yml pr-title job + validate-commit-names).
+- CI gates on a single required check named `all-green` in the managed `.github/workflows/ci.yml`. This repository's own test/lint jobs belong in `.github/workflows/checks.yml` (repo-owned, called inside the gate); do not edit ci.yml, template sync overwrites it. The `release` job runs on top of the gate (`needs: all-green`); the release pipeline is repo-owned in `.github/workflows/release.yml` (pre/post-release jobs go there, around the managed release-please machinery).
+- No typographic look-alike characters (curly quotes, em-dashes, invisible unicode). CI enforces this with the check-typography action; use plain ASCII punctuation.
 
 ## Managed by repo-platform
 
-- Files whose header says "managed by Vivswan/repo-platform"
-  arrive via sync PRs pushed by that repository. Do not edit them here;
-  change them in Vivswan/repo-platform and let the next sync
-  PR deliver the update.
-- Repository settings (description, topics, labels, rulesets, merge policy)
-  are applied from Vivswan/repo-platform: by the
-  `settings/repos/` file named after this repository over there when one
-  exists, otherwise by this repository's own `.github/settings.yml`. Do not
-  change settings by hand in the GitHub UI; edit the settings file.
-- Repo-owned escape hatches stay local:
-  `.github/workflows/checks.yml`,
-  `.github/workflows/format-check-reusable.yml` (the format-check job
-  checks.yml calls, including the packaged-file-list and no-tracked-PNGs
-  guards), `.github/workflows/test-reusable.yml` (the test job checks.yml
-  and docker-test.yml call), `.github/workflows/release.yml`,
-  `.gitleaks.toml`,
-  `.gitignore`'s marked LOCAL section, `.typography-allow.local`
-  (typography exemptions; the managed `.typography-allow` is overwritten
-  by sync), and the repository-specific section below.
-- Module selection is this repository's own: edit the `modules` list in
-  `.repo-platform.yml` and the next sync PR applies the change.
+- Files whose header says "managed by Vivswan/repo-platform" arrive via sync PRs pushed by that repository. Do not edit them here; change them in Vivswan/repo-platform and let the next sync PR deliver the update.
+- Repository settings (description, topics, labels, rulesets, merge policy) are applied from Vivswan/repo-platform: by the `settings/repos/` file named after this repository over there when one exists, otherwise by this repository's own `.github/settings.yml`. Do not change settings by hand in the GitHub UI; edit the settings file.
+- Repo-owned escape hatches stay local: `.github/workflows/checks.yml`, `.github/workflows/format-check-reusable.yml` (the format-check job checks.yml calls, including the packaged-file-list and no-tracked-PNGs guards), `.github/workflows/test-reusable.yml` (the test job checks.yml and docker-test.yml call), `.github/workflows/release.yml`, `.gitleaks.toml`, `.gitignore`'s marked LOCAL section, `.typography-allow.local` (typography exemptions; the managed `.typography-allow` is overwritten by sync), and the repository-specific section below.
+- Module selection is this repository's own: edit the `modules` list in `.repo-platform.yml` and the next sync PR applies the change.
 
 ## Repository-specific guidance
 
@@ -60,8 +30,7 @@ LiteLLM VSCode Chat: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered b
      updates via three-way merge. -->
 <!-- repo-platform:local-section -->
 
-Keep shared project facts here; the code is the source of truth for
-implementation detail.
+Keep shared project facts here; the code is the source of truth for implementation detail.
 
 ### Project overview
 
@@ -87,12 +56,7 @@ bun run check-geometry     # sweep the registered state pairs and width surfaces
 
 ### Validation expectations for agents
 
-- After ANY TypeScript change: `bun run typecheck`. It covers all four tsconfig
-  projects; `bun run compile` builds only the root one, so a type error in
-  `src/webview/` or `src/test/bun/` passes compile and fails CI. `lint:types` is
-  eslint and typechecks nothing - the names are misleading and have cost a
-  red main. The pre-commit hook runs typecheck too, so this is a fast local
-  echo of the gate rather than an extra obligation.
+- After ANY TypeScript change: `bun run typecheck`. It covers all four tsconfig projects; `bun run compile` builds only the root one, so a type error in `src/webview/` or `src/test/bun/` passes compile and fails CI. `lint:types` is eslint and typechecks nothing - the names are misleading and have cost a red main. The pre-commit hook runs typecheck too, so this is a fast local echo of the gate rather than an extra obligation.
 - After source or test changes: `bun run lint`, `bun run lint:types`, `bun run lint:knip`, and the relevant tests. `bun run lint` does not check formatting; CI's format gate runs `biome ci`, and `bunx biome check .` is the local equivalent. After workflow changes: `bun run lint:actions`.
 - Never launch VS Code or any GUI for verification; humans test interactively (`F5` or `bun run dev`).
 
