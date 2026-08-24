@@ -1,3 +1,5 @@
+<!-- This file is managed by Vivswan/repo-platform. Local edits may be replaced during template updates. The text is the unmodified Contributor Covenant v2.1. -->
+
 # Contributor Covenant Code of Conduct
 
 ## Our Pledge

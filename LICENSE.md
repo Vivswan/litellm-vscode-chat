@@ -533,7 +533,5 @@ expression.
 **Use** means anything you do with the software requiring one of your
 licenses.
 
-<!-- Repository-specific license notices (third-party components,
-     differently licensed paths) go below this line. They survive
-     template updates via three-way merge. -->
+<!-- The license text above is managed by Vivswan/repo-platform and replaced on template sync. Repository-specific license notices (third-party components, differently licensed paths) go below this line; they are this repository's own and survive template updates via three-way merge. -->
 <!-- repo-platform:local-section -->
