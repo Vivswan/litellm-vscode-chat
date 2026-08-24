@@ -88,9 +88,6 @@ export class McpVersionCounters {
 	/** In memory only, and never persisted or logged: these summarize secret material. */
 	private readonly digests = new Map<string, string>();
 
-	/** Digests of reported-but-not-yet-persisted rotations; see observeCredentials. */
-	private readonly pending = new Map<string, string>();
-
 	/**
 	 * The tail of the persisted writes. Every bump is a read-modify-write of one
 	 * shared record, and the events that trigger them (a secrets change naming
@@ -135,13 +132,13 @@ export class McpVersionCounters {
 	 * always produces a digest (it always has a base URL), so absence in the
 	 * map means "never seen" and nothing else.
 	 *
-	 * A REPORTED label's new digest is held pending rather than committed: only
-	 * `confirmRotation` moves it, so a rotation whose counter write fails is
-	 * re-detected on the next pass and retried instead of being consumed and
-	 * silently lost. The cost is that a pass arriving before the previous
-	 * write confirms re-reports the same rotation, which can advance the
-	 * counter twice - harmless, because the version is an opaque change token
-	 * and nobody reads it as a count, and the caller deduplicates a batch.
+	 * A REPORTED label's new digest commits right here, so each rotation is
+	 * reported exactly once. If the caller's counter write then fails, nothing
+	 * recovers it - deliberately: the version is an opaque change token nobody
+	 * reads as a count, so the only cost is the editor serving the previous
+	 * cached credential until the NEXT rotation bumps the counter anyway. The
+	 * failure self-corrects on its own next beat, and recovery machinery for a
+	 * self-healing failure earned less than it cost.
 	 */
 	observeCredentials(entries: readonly DeclaredServer[]): readonly string[] {
 		const rotated: string[] = [];
@@ -150,29 +147,18 @@ export class McpVersionCounters {
 			seen.add(entry.label);
 			const digest = credentialDigestOf(entry);
 			const previous = this.digests.get(entry.label);
-			if (previous === undefined) {
-				// First sighting: seeding, not a rotation, so it commits outright.
+			if (previous !== digest) {
 				this.digests.set(entry.label, digest);
-			} else if (previous !== digest) {
-				this.pending.set(entry.label, digest);
-				rotated.push(entry.label);
+				if (previous !== undefined) {
+					rotated.push(entry.label);
+				}
 			}
 		}
 		for (const label of [...this.digests.keys()]) {
 			if (!seen.has(label)) {
 				this.digests.delete(label);
-				this.pending.delete(label);
 			}
 		}
 		return rotated;
-	}
-
-	/** Commit a reported rotation, once its counter write has landed. */
-	confirmRotation(label: string): void {
-		const digest = this.pending.get(label);
-		if (digest !== undefined) {
-			this.digests.set(label, digest);
-			this.pending.delete(label);
-		}
 	}
 }

@@ -6,9 +6,11 @@ import { MCP_ENTRY_VERSIONS_KEY } from "../../../../../shared/config/storageKeys
 
 /**
  * The rotation counter. Two things are load-bearing and neither is obvious:
- * a rotation must never be MISSED (the editor would keep offering tools
- * authenticated by a credential that no longer works), and activation must
- * never be announced AS one (every window would prompt a tool refresh).
+ * a rotation must always be REPORTED (the editor would otherwise keep offering
+ * tools authenticated by a credential that no longer works), and activation
+ * must never be announced as one (every window would prompt a tool refresh).
+ * Reporting is exactly-once: a rotation whose counter write then fails is not
+ * retried, because the next rotation bumps the counter anyway.
  */
 
 /**
@@ -90,14 +92,7 @@ describe("extension/features/mcp/versions", () => {
 			// absence, a first secret would read as a first sighting and its
 			// rotation would go unannounced.
 			const counters = new McpVersionCounters(store());
-			// Each step confirms, the way the wiring does after a landed write.
-			const step = (declared: DeclaredServer): readonly string[] => {
-				const rotated = counters.observeCredentials([declared]);
-				for (const label of rotated) {
-					counters.confirmRotation(label);
-				}
-				return rotated;
-			};
+			const step = (declared: DeclaredServer): readonly string[] => counters.observeCredentials([declared]);
 			step(entry());
 			assert.deepStrictEqual(step(entry({ apiKey: "sk-1" })), ["Main"]);
 			assert.deepStrictEqual(step(entry()), ["Main"]);
@@ -177,26 +172,40 @@ describe("extension/features/mcp/versions", () => {
 			assert.deepStrictEqual(counters.observeCredentials([entry({ apiKey: "sk-9" })]), []);
 		});
 
-		test("a reported rotation is not consumed until it is confirmed, so a failed write retries", () => {
-			// The counter write can fail (globalState). If observing had committed
-			// the digest, the next pass would see no change and the rotation would
-			// be lost for good instead of retried.
+		test("a rotation is reported exactly once: the observed digest commits at observation", () => {
 			const counters = new McpVersionCounters(store());
 			counters.observeCredentials([entry({ apiKey: "sk-1" })]);
 			assert.deepStrictEqual(counters.observeCredentials([entry({ apiKey: "sk-2" })]), ["Main"]);
-			// No confirmRotation: the same rotation is still outstanding.
-			assert.deepStrictEqual(counters.observeCredentials([entry({ apiKey: "sk-2" })]), ["Main"]);
-			counters.confirmRotation("Main");
 			assert.deepStrictEqual(counters.observeCredentials([entry({ apiKey: "sk-2" })]), []);
 		});
 
-		test("confirming one label leaves another's rotation outstanding", () => {
-			const counters = new McpVersionCounters(store());
-			const pair = (a: string, b: string) => [entry({ label: "A", apiKey: a }), entry({ label: "B", apiKey: b })];
-			counters.observeCredentials(pair("sk-a", "sk-b"));
-			assert.deepStrictEqual(counters.observeCredentials(pair("sk-a2", "sk-b2")), ["A", "B"]);
-			counters.confirmRotation("A");
-			assert.deepStrictEqual(counters.observeCredentials(pair("sk-a2", "sk-b2")), ["B"]);
+		test("a failed counter write leaves the old counter, and the next rotation still bumps observably", async () => {
+			// The write can fail (globalState). Nothing retries it, deliberately:
+			// the version is an opaque change token, so the worst case is the
+			// editor serving the previous cached credential until the next
+			// rotation moves the counter anyway - which this pins.
+			const backing = store();
+			let failNext = true;
+			const write = backing.update.bind(backing);
+			backing.update = async (key: string, value: unknown): Promise<void> => {
+				if (failNext) {
+					failNext = false;
+					throw new Error("write failed");
+				}
+				await write(key, value);
+			};
+			const counters = new McpVersionCounters(backing);
+			counters.observeCredentials([entry({ apiKey: "sk-1" })]);
+			assert.deepStrictEqual(counters.observeCredentials([entry({ apiKey: "sk-2" })]), ["Main"]);
+			await assert.rejects(counters.bump("Main"));
+			// The old counter survives the failed write untouched.
+			assert.strictEqual(counters.versionOf("Main"), 0);
+			assert.strictEqual(backing.value, undefined);
+			// The next rotation is still detected, and its write bumps observably.
+			assert.deepStrictEqual(counters.observeCredentials([entry({ apiKey: "sk-3" })]), ["Main"]);
+			await counters.bump("Main");
+			assert.strictEqual(counters.versionOf("Main"), 1);
+			assert.deepStrictEqual(backing.value, { Main: 1 });
 		});
 
 		test("detection persists nothing: only the caller's bump writes", () => {

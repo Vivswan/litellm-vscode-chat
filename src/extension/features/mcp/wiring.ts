@@ -71,40 +71,21 @@ export function wireMcpServers(
 	};
 
 	/**
-	 * Labels whose counter write failed. The digest path re-detects its own
-	 * outstanding rotations, but the SecretStorage path reports a label once and
-	 * has no digest to re-compare, so without this a failed write there would
-	 * lose the rotation for good. Every later event retries them.
-	 */
-	const unwritten = new Set<string>();
-
-	/**
 	 * Persist the observed rotations, then publish. The listeners below are
 	 * VS Code events, which do not await what a handler returns, so this owns
 	 * the whole async tail: a failed counter write is logged and the comparison
 	 * still runs, because a swallowed rejection would also swallow the change
-	 * event and leave the editor holding a list it should have refreshed.
+	 * event and leave the editor holding a list it should have refreshed. No
+	 * more recovery than the log line: a rotation whose write failed leaves the
+	 * editor serving its previous cached credential until the next rotation
+	 * bumps the counter anyway, so the failure heals on its own next beat.
 	 */
 	const bumpThenFire = async (rotated: readonly string[]): Promise<void> => {
-		// A label the setting no longer declares is forgotten here as the digests
-		// forget it: retrying a rotation for a server nobody publishes would write
-		// a counter forever for a label that is gone.
-		const declared = new Set(currentMcpEntries().map((entry) => entry.label));
-		for (const label of [...unwritten]) {
-			if (!declared.has(label)) {
-				unwritten.delete(label);
-			}
-		}
-		// Deduplicated: the digest path re-reports an unconfirmed rotation that is
-		// already in `unwritten`, and one rotation must bump the counter once.
-		for (const label of new Set([...unwritten, ...rotated])) {
+		for (const label of rotated) {
 			// Per label, so one failed write cannot abandon the rest of the batch.
 			try {
 				await versions.bump(label);
-				versions.confirmRotation(label);
-				unwritten.delete(label);
 			} catch (error) {
-				unwritten.add(label);
 				logger.error("Failed to record an MCP credential rotation", error);
 			}
 		}

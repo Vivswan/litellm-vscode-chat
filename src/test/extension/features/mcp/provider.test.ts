@@ -720,22 +720,28 @@ suite("extension/features/mcp", () => {
 			});
 		});
 
-		test("a failed counter write is retried on the next event, not lost", async () => {
-			// The SecretStorage path reports a label once and has no digest to
-			// re-compare, so without the retry set a failed write would drop the
-			// rotation for good - and the editor would keep offering tools
-			// authenticated by a credential that no longer exists.
+		test("a failed counter write leaves the old counter; the next rotation still bumps and fires", async () => {
+			// Nothing retries a failed write, deliberately: the version is an
+			// opaque change token nobody reads as a count, so the worst case is
+			// the editor serving its previous cached credential until the next
+			// rotation moves the counter anyway - which this pins.
 			await withWiring([entry()], async (spies) => {
 				spies.store.failWrites = true;
 				await withConfig({ servers: [entry()] }, () => spies.fireSecretChange(serverSecretsKey("Main")));
 				assert.strictEqual(spies.store.get(MCP_ENTRY_VERSIONS_KEY), undefined, "the write really failed");
 				assert.strictEqual(spies.changes, 0, "nothing new to publish while the counter did not move");
 
-				// Any later event retries it; the rotation was remembered.
+				// No later event retries the failed write: this pass would have
+				// replayed it under the old recovery layer, and must not now.
 				spies.store.failWrites = false;
 				await withConfig({ servers: [entry()] }, () => spies.fireConfigChange());
+				assert.strictEqual(spies.store.get(MCP_ENTRY_VERSIONS_KEY), undefined, "no retry writes the counter");
+				assert.strictEqual(spies.changes, 0, "no retry publishes anything");
+
+				// The next rotation is its own signal, and its write lands.
+				await withConfig({ servers: [entry()] }, () => spies.fireSecretChange(serverSecretsKey("Main")));
 				assert.deepStrictEqual(spies.store.get(MCP_ENTRY_VERSIONS_KEY), { Main: 1 });
-				assert.strictEqual(spies.changes, 1, "the retried rotation publishes a new version");
+				assert.strictEqual(spies.changes, 1, "the next rotation publishes a new version");
 			});
 		});
 
