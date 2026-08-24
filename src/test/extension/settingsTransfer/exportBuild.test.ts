@@ -125,8 +125,12 @@ suite("extension/settingsTransfer/exportBuild", () => {
 				readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }),
 				readServerSecrets: () =>
 					Promise.resolve({
-						values: { apiKey: "sk-retired", virtualKeyValue: "vk-current" },
-						owners: { apiKey: "http://retired.test", virtualKeyValue: "http://a.test" },
+						values: { apiKey: "sk-retired", virtualKeyValue: "vk-current", oauthClientSecret: "cs-old" },
+						owners: {
+							apiKey: "http://retired.test",
+							virtualKeyValue: "http://a.test",
+							oauthClientSecret: "https://old-idp.test/token",
+						},
 					}),
 			})
 		);
@@ -135,9 +139,14 @@ suite("extension/settingsTransfer/exportBuild", () => {
 			// so it counts unmaterialized; the mismatched apiKey is refused.
 			{ label: "A", baseUrl: "http://a.test" },
 		]);
-		assert.strictEqual(result.mismatchedSecretCount, 1);
+		// Both stale-stamped fields count mismatched, the inert one included:
+		// the oauthClientSecret has no active OAuth unit here, so it refuses
+		// nothing (the one wire rule), but its omission from the file must not
+		// be silent - the export reads the mismatched superset, not refused.
+		assert.strictEqual(result.mismatchedSecretCount, 2);
 		assert.strictEqual(result.unmaterializedSecretCount, 1);
 		assert.ok(!JSON.stringify(result.envelope).includes("sk-retired"));
+		assert.ok(!JSON.stringify(result.envelope).includes("cs-old"), "an inert stale value never rides either");
 	});
 
 	test("a non-array servers value rides only into a with-secrets export; a no-secrets one omits it", async () => {

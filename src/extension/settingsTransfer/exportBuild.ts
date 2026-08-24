@@ -48,9 +48,10 @@ export interface SettingsExportResult {
 	readonly unmaterializedSecretCount: number;
 	/**
 	 * Blob secret fields whose ownership stamp names a different destination
-	 * than their entry (resolveOwnedSecrets refuses the pairing), left out of
-	 * the file: materializing one inline would hand a retired credential to the
-	 * entry's current host on any import, since inline values bypass the
+	 * than their entry (resolveOwnedSecrets' `mismatched` - the stale-stamped
+	 * fields the entry cannot send included, not just the refused ones), left
+	 * out of the file: materializing one inline would hand a retired credential
+	 * to the entry's current host on any import, since inline values bypass the
 	 * ownership check. Reported so the omission is never silent.
 	 */
 	readonly mismatchedSecretCount: number;
@@ -137,7 +138,10 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 			if (parsed !== undefined) {
 				const owned = resolveOwnedSecrets(parsed, record);
 				usable = owned.values;
-				mismatchedSecretCount += owned.refused.length;
+				// The superset on purpose: an inert stale-stamped field (one the
+				// entry cannot send, so it does not refuse the pairing) still drops
+				// out of the file here, and the summary must say so.
+				mismatchedSecretCount += owned.mismatched.length;
 			} else {
 				const values: { -readonly [K in SecretFieldId]?: string } = {};
 				for (const field of SECRET_FIELD_IDS) {

@@ -111,8 +111,10 @@ export function secretDestination(
  * own sendability (narrowVirtualKey also drops a header-value-illegal virtual
  * key) cannot be judged without the value in hand, so a caller holding only a
  * stored value's existence errs toward "uses it" - the safe direction, since
- * consumers gate questions about stored values (ask vs. silently clear), not
- * the send itself. Header-name collisions are value-contingent the same way:
+ * consumers gate refusals and questions about stored values (the sync engine's
+ * secretsMismatched skip, MCP's resolve refusal, the stale-stamp and import
+ * consent questions), never the send itself: the wire narrowing still drops
+ * what cannot ride. Header-name collisions are value-contingent the same way:
  * a virtual key displaces another credential (an Authorization-named header
  * skips the OAuth exchange, an X-API-Key-named one owns that carrier) only
  * when its own value RESOLVES, which the entry cannot show - so a declared

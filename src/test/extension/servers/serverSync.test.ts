@@ -300,11 +300,12 @@ suite("extension/servers/serverSync", () => {
 			});
 		});
 
-		test("resolveOwnedSecrets: matching or missing stamps resolve, mismatches refuse unless inline shadows them", () => {
+		test("resolveOwnedSecrets: matching or missing stamps resolve, mismatches refuse only where the entry sends", () => {
 			const entry: DeclaredServer = {
 				label: "A",
 				baseUrl: "http://a.test/",
 				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "client",
 			};
 			assert.strictEqual(secretDestination(entry, "apiKey"), "http://a.test");
 			assert.strictEqual(secretDestination(entry, "oauthClientSecret"), "https://idp.test/token");
@@ -323,6 +324,7 @@ suite("extension/servers/serverSync", () => {
 			assert.deepStrictEqual(resolveOwnedSecrets(entry, record), {
 				values: { apiKey: "sk-1", virtualKeyValue: "vk-1" },
 				refused: ["oauthClientSecret"],
+				mismatched: ["oauthClientSecret"],
 			});
 
 			// The same mismatch behind an inline value is dormant: dropped from the
@@ -331,7 +333,29 @@ suite("extension/servers/serverSync", () => {
 			assert.deepStrictEqual(resolveOwnedSecrets(shadowed, record), {
 				values: { apiKey: "sk-1", virtualKeyValue: "vk-1" },
 				refused: [],
+				mismatched: [],
 			});
+
+			// The same mismatch on a field the entry cannot send is inert, not a
+			// refusal: refusal is scoped by the one wire rule (entryUsesSecretField),
+			// so a stale-stamped headerless virtualKeyValue drops without blocking,
+			// and an oauthClientSecret without an active OAuth unit likewise. Both
+			// still list as mismatched, the export's accounting superset.
+			const staleUnsent = {
+				values: { virtualKeyValue: "vk-old", oauthClientSecret: "cs-old" },
+				owners: { virtualKeyValue: "http://old.test", oauthClientSecret: "https://old-idp.test/token" },
+			};
+			assert.deepStrictEqual(resolveOwnedSecrets({ label: "B", baseUrl: "http://a.test/" }, staleUnsent), {
+				values: {},
+				refused: [],
+				mismatched: ["oauthClientSecret", "virtualKeyValue"],
+			});
+			// Declaring the header makes the field used: the SAME stored value now
+			// refuses (the field-becomes-used transition; consent fires then).
+			assert.deepStrictEqual(
+				resolveOwnedSecrets({ label: "B", baseUrl: "http://a.test/", virtualKeyHeader: "x-key" }, staleUnsent),
+				{ values: {}, refused: ["virtualKeyValue"], mismatched: ["oauthClientSecret", "virtualKeyValue"] }
+			);
 
 			// A stamp recorded with no destination ("") refuses once the entry
 			// gains one: re-pairing stays deliberate.
@@ -339,6 +363,7 @@ suite("extension/servers/serverSync", () => {
 			assert.deepStrictEqual(resolveOwnedSecrets(entry, stampedEmpty), {
 				values: {},
 				refused: ["oauthClientSecret"],
+				mismatched: ["oauthClientSecret"],
 			});
 		});
 	});
@@ -449,6 +474,32 @@ suite("extension/servers/serverSync", () => {
 
 			assert.strictEqual(args?.apiKey, undefined, "the refused field must not ride the group path");
 			assert.strictEqual(args?.virtualKeyValue, "vk-ok");
+		});
+
+		test("a stale stamp on a field the entry cannot send is inert: the entry syncs, and refusal starts when the field becomes used", async () => {
+			// The USER RULING: refusal is scoped by the one wire rule
+			// (entryUsesSecretField). A headerless entry can never send a
+			// virtualKeyValue, so a stale-stamped one blocks nothing - it drops
+			// from the resolution (never rides the group args) and raises no
+			// secretsMismatched skip.
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { virtualKeyValue: "vk-old" } });
+			recorded.secretOwners = { A: { virtualKeyValue: "http://old.test" } };
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure, undefined, "an inert stale stamp is no mismatch");
+			assert.strictEqual(recorded.upserts.length, 1, "the entry syncs");
+			assert.strictEqual(recorded.upserts[0]?.virtualKeyValue, undefined, "the stale value still never rides");
+
+			// The field-becomes-used transition: declaring the header makes the
+			// entry's shape send the field, so the SAME stored value refuses now -
+			// the consent moment is when the user is actually deciding to send it.
+			recorded.setting = [{ label: "A", baseUrl: "http://a.test", auth: { virtualKey: { header: "x-key" } } }];
+			await engine.syncNow();
+			const view = engine.getDeclared()[0];
+			assert.strictEqual(view?.syncFailure?.class, "secretsMismatched");
+			assert.strictEqual(view?.syncFailure?.message, SECRET_OWNERSHIP_MISMATCH_MESSAGE);
+			assert.strictEqual(recorded.upserts.length, 1, "the refused pairing must never reach the host");
 		});
 	});
 

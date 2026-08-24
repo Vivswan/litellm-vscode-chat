@@ -423,6 +423,70 @@ suite("extension/features/mcp", () => {
 			assert.deepStrictEqual(definition.headers, {}, "a refused pairing attaches nothing");
 		});
 
+		test("an inert stale stamp resolves; declaring the field's shape refuses the same stored value", async () => {
+			// Refusal is scoped by the one wire rule (entryUsesSecretField): a
+			// stale-stamped virtualKeyValue with no declared header has no carrier
+			// (usageConnectionFor builds the virtualKey unit only with a header),
+			// so the pairing resolves - and none of the composed headers may carry
+			// the stored value.
+			const blobs = new Map<string, string>();
+			const store: vscode.SecretStorage = {
+				get: async (key: string) => blobs.get(key),
+				store: async (key: string, value: string) => {
+					blobs.set(key, value);
+				},
+				delete: async (key: string) => {
+					blobs.delete(key);
+				},
+				onDidChange: () => new vscode.Disposable(() => {}),
+			} as unknown as vscode.SecretStorage;
+			await updateServerSecret(store, "Main", "virtualKeyValue", "vk-stale-stamped", "http://retired.test");
+
+			const provider = createMcpServerDefinitionProvider(
+				{
+					secrets: store,
+					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+					versions: new McpVersionCounters(memento()),
+					advisory: () => {},
+					logError: () => {},
+				},
+				new vscode.EventEmitter<void>().event
+			);
+			const inertServers = [entry({ auth: { apiKey: SECRET_VALUES.apiKey } })];
+			const [definition] = await withConfig({ servers: inertServers }, () => provide(provider));
+			assert.ok(definition);
+			const resolved = await withConfig({ servers: inertServers }, () => resolve(provider, definition));
+			// The positive control keeps the negative claim meaningful: the inline
+			// apiKey DID compose into the handed headers, so an empty-headers
+			// regression (a flipped origin verdict) cannot fake the pass below.
+			assert.ok(
+				JSON.stringify(resolved.headers).includes(SECRET_VALUES.apiKey),
+				"the entry's own credential composes into the handed headers"
+			);
+			assert.ok(
+				!JSON.stringify(resolved.headers).includes("vk-stale-stamped"),
+				"the inert stored value must never reach the handed headers"
+			);
+
+			// The field-becomes-used transition: declaring the header makes the
+			// entry's shape send the field, so the SAME stored value now refuses
+			// before any header composition - unchanged for sendable credentials.
+			const usedServers = [entry({ auth: { apiKey: SECRET_VALUES.apiKey, virtualKey: { header: "x-litellm-key" } } })];
+			const [republished] = await withConfig({ servers: usedServers }, () => provide(provider));
+			assert.ok(republished);
+			await withConfig({ servers: usedServers }, async () => {
+				await assert.rejects(
+					() => resolve(provider, republished),
+					(error: unknown) => {
+						assert.ok(error instanceof MirroredError);
+						assert.strictEqual(error.logClassification, "Mcp(stored secrets stamped for another destination)");
+						return true;
+					}
+				);
+			});
+			assert.deepStrictEqual(republished.headers, {}, "a refused pairing attaches nothing");
+		});
+
 		test("an unparseable endpoint is published bare rather than credentialed", async () => {
 			// The fail-closed arm of the origin check: junk is not this entry's origin.
 			const servers = [entry({ mcp: { url: "not a url" }, auth: { apiKey: SECRET_VALUES.apiKey } })];

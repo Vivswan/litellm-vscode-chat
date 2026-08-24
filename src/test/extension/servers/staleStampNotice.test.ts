@@ -315,6 +315,28 @@ suite("serverSync stale-stamp notice", () => {
 		assert.strictEqual(world.delays, 0, "no evaluation started at all");
 	});
 
+	test("an inert stale stamp on a field the entry cannot send raises no question", async () => {
+		// Refusal is scoped by the one wire rule (entryUsesSecretField): a
+		// stale-stamped virtualKeyValue with no declared header reaches no wire,
+		// so the detection re-derivation finds nothing refused even when a stale
+		// view still claims the mismatch class - no ask, no blob mutation. The
+		// consent question is deferred to the field-becomes-used transition,
+		// which the engine classifies as its own secretsMismatched pass then.
+		const world = makeWorld();
+		await updateServerSecret(world.store, "Prod", "virtualKeyValue", "vk-old", "http://old.test");
+		world.setting = [{ label: "Prod", baseUrl: "http://new.test" }];
+		world.views = [mismatchedView("Prod")];
+		world.answers.push("clear");
+		await world.notice.scan();
+
+		assert.deepStrictEqual(world.asks, [], "an inert stale stamp is never asked about");
+		assert.strictEqual(world.delays, 0, "the detection short-circuits before the recheck wait");
+		assert.deepStrictEqual(await readServerSecretsRecord(world.store, "Prod"), {
+			values: { virtualKeyValue: "vk-old" },
+			owners: { virtualKeyValue: "http://old.test" },
+		});
+	});
+
 	test("one question per label at a time: passes landing under an open notification do not stack a second", async () => {
 		const world = makeWorld();
 		await seedMismatch(world);

@@ -73,7 +73,12 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
 import type { TransportErrorClassification, UnservedEndpointEvidence } from "../../shared/errorClassification";
-import { pickEntryViewFields, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import {
+	entryUsesSecretField,
+	pickEntryViewFields,
+	pickNonSecretOptionalFields,
+	SECRET_FIELD_IDS,
+} from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
@@ -439,7 +444,9 @@ function buildServers(
 			baseUrl: view.baseUrl,
 			lastChecked: checkedAtMs(matched?.snapshot.status.lastChecked),
 			credentials: knownPresent ? "present" : secrets.kind === "proven" ? "absent" : "unknown",
-			hasOAuth: view.oauthTokenUrl !== undefined && view.oauthClientId !== undefined,
+			// The badge reads the same wire rule the secret machinery judges by:
+			// an active OAuth unit is entryUsesSecretField's oauthClientSecret arm.
+			hasOAuth: entryUsesSecretField(view, "oauthClientSecret"),
 			origin: "declared",
 			...(matched?.snapshot.observedModelInfoKeys !== undefined
 				? { observedModelInfoKeys: matched.snapshot.observedModelInfoKeys }

@@ -10,6 +10,10 @@
  * destination refuses the field, so a leftover or surviving blob can never
  * silently authenticate against a host it was not stored for (removals keep
  * blobs on purpose, and a rejected SecretStorage delete can leave one behind).
+ * Refusal is scoped by the one wire rule (entryUsesSecretField): a stale stamp
+ * on a value the entry cannot send is inert, not a mismatch - the value stays
+ * stored under its old stamp and re-enters the check (consent question
+ * included) if the entry ever declares the shape that would send it.
  * Fields stored before stamping existed carry no stamp and resolve as before;
  * the stampSecretOwners migration back-fills stamps for declared entries.
  *
@@ -23,7 +27,7 @@
 
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
 import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
-import { SECRET_FIELD_IDS, secretDestination } from "../../../shared/serverEntry";
+import { entryUsesSecretField, SECRET_FIELD_IDS, secretDestination } from "../../../shared/serverEntry";
 import type { DeclaredServer } from "./setting";
 
 /** The secure-side secrets of one label, as the SecretStorage blob holds them. */
@@ -218,26 +222,48 @@ export interface OwnedSecretsResolution {
 	readonly values: StoredServerSecrets;
 	/**
 	 * Stored fields the ownership check refused AND the entry would actually
-	 * have used (no inline value shadows them). A refused field means the
-	 * pairing must not proceed; a shadowed one is dormant and merely drops.
+	 * have sent: the entry's shape uses the field (entryUsesSecretField, the
+	 * one wire rule) and no inline value shadows it. A refused field means the
+	 * pairing must not proceed; a shadowed or unsent one is dormant and merely
+	 * drops.
 	 */
 	readonly refused: readonly SecretFieldId[];
+	/**
+	 * Every stored field the stamp mismatch dropped with nothing standing in
+	 * (no inline value): `refused` plus the inert fields the entry cannot
+	 * send. The with-secrets export reads this superset for its accounting,
+	 * so a value left out of the file is never a silent omission; the pairing
+	 * gates (the sync engine, MCP, the consent notice) read `refused`.
+	 */
+	readonly mismatched: readonly SecretFieldId[];
 }
 
 /**
  * THE ownership check: which of a label's stored values may be paired with
  * `entry`. A field whose stamp names a different destination than the entry's
- * is dropped from the resolution; if the entry would have used it (no inline
- * value wins), it is also listed as refused so the caller can refuse the whole
+ * is dropped from the resolution; if the entry would actually have SENT it -
+ * entryUsesSecretField says the entry's shape uses the field, and no inline
+ * value wins - it is also listed as refused so the caller can refuse the whole
  * pairing instead of proceeding without the credential (the sync engine's
  * add-only host would make a credential-less group permanent). An unstamped
  * field predates stamping and resolves as before. Every consumer that pairs a
  * blob with an entry - the sync engine, the usage poller, the dashboard's
  * keep resolution, the with-secrets export - reads this one function.
+ *
+ * A stale-stamped value the entry cannot send - a virtualKeyValue with no
+ * declared header, an oauthClientSecret with no active OAuth unit - is dropped
+ * (and listed in `mismatched` for the export's accounting) but NOT refused: it
+ * reaches no wire, so it blocks no sync and raises no stale-stamp consent
+ * question while inert. It stays in storage under its old stamp ON PURPOSE:
+ * the moment the entry declares the shape that uses the field, the same value
+ * re-enters this check and the refusal (with its consent question) fires then
+ * - the moment the user is actually deciding to send it, rather than while
+ * the value cannot matter.
  */
 export function resolveOwnedSecrets(entry: DeclaredServer, record: StoredSecretsRecord): OwnedSecretsResolution {
 	const values: { -readonly [K in SecretFieldId]?: string } = {};
 	const refused: SecretFieldId[] = [];
+	const mismatched: SecretFieldId[] = [];
 	const inline = inlineSecretValues(entry);
 	for (const field of SECRET_FIELD_IDS) {
 		const value = record.values[field];
@@ -248,10 +274,13 @@ export function resolveOwnedSecrets(entry: DeclaredServer, record: StoredSecrets
 		if (owner === undefined || owner === secretDestination(entry, field)) {
 			values[field] = value;
 		} else if (inline[field] === undefined) {
-			refused.push(field);
+			mismatched.push(field);
+			if (entryUsesSecretField(entry, field)) {
+				refused.push(field);
+			}
 		}
 	}
-	return { values, refused };
+	return { values, refused, mismatched };
 }
 
 /**
