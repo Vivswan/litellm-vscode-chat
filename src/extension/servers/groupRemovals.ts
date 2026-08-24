@@ -123,11 +123,13 @@ function parseVersion(raw: unknown): bigint {
 	return 0n;
 }
 
-/** Blobs written before versioning were bare record arrays; they re-enter the protocol at version 0. */
+/**
+ * Blobs written before versioning were bare record arrays; those read as this
+ * shape through the wrapping view the store is constructed over
+ * (migrations/bareArrayBlobs.ts).
+ * Anything else corrupt re-enters the protocol at version 0 with no records.
+ */
 function parseVersionedRecords(raw: unknown): VersionedRecords {
-	if (Array.isArray(raw)) {
-		return { version: 0n, records: raw };
-	}
 	if (isRecord(raw) && Array.isArray(raw.records)) {
 		return { version: parseVersion(raw.version), records: raw.records };
 	}

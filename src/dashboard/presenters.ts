@@ -72,23 +72,18 @@ export function classifyOverall(
 /**
  * The verdict as one sentence, pinned by tests. English by policy: users paste
  * these lines into public issue reports, so localization sweeps must skip this
- * function. The legacy registry is real configuration even though it
- * contributes no server rows, so it overrides the not-configured claim -
- * hidden groups go further and claim the connected verdict itself (through
- * classifyOverall), since their groups still answer.
+ * function. Hidden groups claim the connected verdict (through classifyOverall),
+ * since their groups still answer.
  */
 export function overallStatusText(
 	servers: readonly DashboardServer[],
 	modelCount: number,
-	context: { readonly legacyServerCount?: number; readonly hiddenGroupCount?: number } = {}
+	context: { readonly hiddenGroupCount?: number } = {}
 ): string {
-	const legacyServerCount = context.legacyServerCount ?? 0;
 	const hiddenGroupCount = context.hiddenGroupCount ?? 0;
 	switch (classifyOverall(servers, { hiddenGroupCount })) {
 		case "not-configured":
-			return legacyServerCount > 0
-				? `Legacy registry only (${legacyServerCount} ${legacyServerCount === 1 ? "server" : "servers"})`
-				: "Not configured";
+			return "Not configured";
 		case "error": {
 			// The fallback only satisfies the type checker (the verdict guarantees an
 			// error row). A transport failure outranks a misconfigured row's fixed

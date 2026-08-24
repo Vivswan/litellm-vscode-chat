@@ -60,7 +60,6 @@ import {
 } from "../../shared/webviewPaths";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
-import type { ServerRegistry } from "../servers/serverRegistry";
 import type { ServerSyncEngine } from "../servers/serverSync";
 import {
 	deleteServerSecrets,
@@ -76,7 +75,6 @@ import { isUsageFresh, notifyUsageRefreshFailure } from "../servers/usage";
 import { createSettingsAccess } from "../settingsAccess";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
-import { joinDeclared, labeledSnapshots } from "./declaredJoin";
 import { buildDashboardHtml } from "./html";
 import { parseDashboardRequest } from "./intentSchema";
 import type { FeatureProbes, IntentAckNotice, IntentEnvironment } from "./intents";
@@ -131,8 +129,6 @@ export interface DashboardPanel {
  * per-server resolver belongs here, not as another loose env member.
  */
 export interface ServerResolution {
-	/** Whether a snapshot belongs to a provider group (vs the legacy registry). */
-	isGroupSnapshot(serverId: string): boolean;
 	/** The request path's per-entry modelParameters resolution; see entryParametersResolver. */
 	resolveEntryParameters(serverId: string): EntryParametersResolution | undefined;
 	/** The declared entry's own modelCapabilities: the readModelCapabilities responder's entry layer. */
@@ -152,8 +148,6 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	getSnapshots(): readonly ServerModelsSnapshot[];
 	/** The declared views with their proof source (engine pass vs pre-first-pass settings fallback). */
 	getDeclaredServers(): DeclaredServersInput;
-	/** The legacy registry's servers, reduced to base URLs; see DashboardState.legacyServerCount. */
-	getLegacyServers(): readonly { readonly baseUrl: string }[];
 	/** The removal bookkeeping (tombstones and orphan origins) the state builder folds in. */
 	getRemovedGroups(): RemovedGroupsView;
 	/** The per-server resolver seams, grouped; see ServerResolution. */
@@ -164,8 +158,6 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	getCatalogStatus(): CatalogStatusView;
 	/** The Servers page's usage snapshot, assembled from the poller's store at push time. */
 	getUsage(): DashboardUsage;
-	/** The PARKED_GLOBAL_HEADERS_KEY globalState value, for the parked-headers legacy hint. */
-	getParkedGlobalHeaders(): unknown;
 	/**
 	 * One usage pass only when the stored numbers are stale (the poller's
 	 * refreshIfStale); open() fires it, so revealing the panel serves the
@@ -408,16 +400,11 @@ export class DashboardController implements vscode.Disposable {
 		}
 		const snapshots = this.env.getSnapshots();
 		for (const snapshot of snapshots) {
-			if (this.env.serverResolution.isGroupSnapshot(snapshot.status.serverId)) {
-				this._observedGroupIdentities.add(observedIdentityKey(snapshot.status.label, snapshot.status.baseUrl));
-			}
+			this._observedGroupIdentities.add(observedIdentityKey(snapshot.status.label, snapshot.status.baseUrl));
 		}
 		const reader = this.env.settingsReader();
 		const declared = this.env.getDeclaredServers();
 		const entryReports = serverSettingReports(this.env.readServersSetting());
-		// The parked-headers hint stands only while externally managed groups
-		// exist; externality here is the same join the servers table renders.
-		const hasExternalGroups = joinDeclared(labeledSnapshots(snapshots), declared.views).unmatched.size > 0;
 		const removedGroups = this.env.getRemovedGroups();
 		const wasGroupObserved = (label: string, baseUrl: string) =>
 			this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl));
@@ -432,16 +419,13 @@ export class DashboardController implements vscode.Disposable {
 				declared,
 				entryReports,
 				featureProbes,
-				legacyServers: this.env.getLegacyServers(),
 				removedGroups,
-				isGroupSnapshot: (serverId) => this.env.serverResolution.isGroupSnapshot(serverId),
 				wasGroupObserved,
 				catalog: this.env.getCatalogStatus(),
 				usage: this.env.getUsage(),
 				diagnostics: buildConfigDiagnostics({
 					reader,
-					parkedGlobalHeadersValue: this.env.getParkedGlobalHeaders(),
-					hasExternalGroups,
+					parkedGlobalHeadersValue: this.env.readParkedGlobalHeaders(),
 					entryReports,
 					declared: declared.views,
 					// The same list the servers section's hidden-groups line renders.
@@ -630,6 +614,7 @@ export class DashboardController implements vscode.Disposable {
 		adoptServer: (payload) => executeDashboardIntent({ method: "adoptServer", payload }, this.env),
 		hideExternalServer: (payload) => executeDashboardIntent({ method: "hideExternalServer", payload }, this.env),
 		unhideServer: (payload) => executeDashboardIntent({ method: "unhideServer", payload }, this.env),
+		resolveParkedHeaders: (payload) => executeDashboardIntent({ method: "resolveParkedHeaders", payload }, this.env),
 		executeCommand: (payload) => executeDashboardIntent({ method: "executeCommand", payload }, this.env),
 		syncModels: (payload) => executeDashboardIntent({ method: "syncModels", payload }, this.env),
 	};
@@ -796,7 +781,7 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
  * labeled-identity join behind the entry-params-inactive notice: a group with
  * rotated credentials still carries the entry's label and URL, so requests
  * through it still receive the entry's parameters, and the inspector must say
- * so. Unlabeled groups and registry snapshots resolve to nothing, matching
+ * so. Unlabeled groups resolve to nothing, matching
  * the request path exactly.
  */
 export function entryParametersResolver(
@@ -850,7 +835,6 @@ export interface RegisterDashboardOptions {
 	readonly provider: LiteLLMChatModelProvider;
 	readonly logger: Logger;
 	readonly syncEngine: ServerSyncEngine;
-	readonly registry: ServerRegistry;
 	readonly removals: GroupRemovalStore;
 	/**
 	 * Structurally the OpenRouter catalog store: the snapshot feeds the
@@ -881,10 +865,8 @@ export function registerDashboardCommand(
 	context: vscode.ExtensionContext,
 	options: RegisterDashboardOptions
 ): DashboardController {
-	const { provider, logger, syncEngine, registry, removals, catalog, usagePoller, getEntryModelCapabilities, ua } =
-		options;
+	const { provider, logger, syncEngine, removals, catalog, usagePoller, getEntryModelCapabilities, ua } = options;
 	const serverResolution: ServerResolution = {
-		isGroupSnapshot: (serverId) => provider.getGroupServer(serverId) !== undefined,
 		// The exact resolver chat requests use (activation wires the provider's
 		// getEntryModelParameters to the same readEntryModelParameters).
 		resolveEntryParameters: entryParametersResolver(
@@ -918,7 +900,6 @@ export function registerDashboardCommand(
 				vscode.workspace.getConfiguration(CONFIG_SECTION).get<unknown>(SERVERS_SETTING_KEY)
 			);
 		},
-		getLegacyServers: () => registry.getServers(),
 		getRemovedGroups: (): RemovedGroupsView => ({
 			tombstones: removals.tombstones(),
 			origins: removals.provenance().map((record) => ({
@@ -942,7 +923,8 @@ export function registerDashboardCommand(
 				now: Date.now(),
 				isFresh: isUsageFresh,
 			}),
-		getParkedGlobalHeaders: () => context.globalState.get<unknown>(PARKED_GLOBAL_HEADERS_KEY),
+		readParkedGlobalHeaders: () => context.globalState.get<unknown>(PARKED_GLOBAL_HEADERS_KEY),
+		clearParkedGlobalHeaders: () => Promise.resolve(context.globalState.update(PARKED_GLOBAL_HEADERS_KEY, undefined)),
 		// Fire-and-forget kicks; both push state when they settle. The catalog
 		// row stays toast-free; an explicit usage refresh in which NO server
 		// returned data acknowledges itself with one warning toast (partial
@@ -993,16 +975,9 @@ export function registerDashboardCommand(
 				(serverId) => provider.getGroupServer(serverId)
 			),
 		// The hide intent's identity source: the same still-external resolution
-		// the adopt path uses, minus the credentials, gated to group-backed
-		// snapshots (a legacy-registry row has no group to silence).
+		// the adopt path uses, minus the credentials.
 		resolveExternalGroup: (baseUrl, sourceHandle) =>
-			resolveExternalGroupIdentity(
-				provider.getServerSnapshots(),
-				syncEngine.getDeclared(),
-				baseUrl,
-				sourceHandle,
-				serverResolution.isGroupSnapshot
-			),
+			resolveExternalGroupIdentity(provider.getServerSnapshots(), syncEngine.getDeclared(), baseUrl, sourceHandle),
 		// Tombstone writes fire the store's onDidChange, which the activation
 		// wiring points at the provider's model-change event: the hidden group's
 		// models leave (or return to) the picker without waiting for the next

@@ -13,10 +13,12 @@ import {
 	cleanup,
 	fireClick,
 	fireInput,
+	fireSelect,
 	lastRequest,
 	mount,
 	postedCalls,
 	postedRequests,
+	pushToWebview,
 	resetPosted,
 	respondTo,
 } from "../harness";
@@ -83,7 +85,6 @@ function mountDiagnostics(options: {
 	const props = {
 		servers: [makeDeclaredServer()],
 		modelCount: 2,
-		legacyServerCount: 0,
 		hiddenGroupCount: 0,
 		diagnostics: options.diagnostics ?? [],
 		active: true,
@@ -98,14 +99,16 @@ function mountDiagnostics(options: {
 }
 
 describe("Configuration diagnostics", () => {
-	function mountConfig(diagnostics: readonly ConfigDiagnosticView[]) {
+	function mountConfig(
+		diagnostics: readonly ConfigDiagnosticView[],
+		servers: Parameters<typeof DiagnosticsSection>[0]["servers"] = []
+	) {
 		return mount(
 			<DiagnosticsSection
 				currencySymbol="$"
-				servers={[]}
+				servers={servers}
 				modelCount={0}
 				hiddenGroupCount={0}
-				legacyServerCount={0}
 				diagnostics={diagnostics}
 				active={false}
 				stateSeq={0}
@@ -113,6 +116,63 @@ describe("Configuration diagnostics", () => {
 			/>
 		);
 	}
+
+	const PARKED_HINT: ConfigDiagnosticView = {
+		kind: "legacy",
+		hint: "parked-global-headers",
+		oldKey: "headers",
+		detail: "x-env, x-trace",
+		severity: "warning",
+	};
+
+	test("the parked-headers row offers Apply with a declared-entry picker plus Discard, and no reveal", () => {
+		const root = mountConfig(
+			[PARKED_HINT],
+			[makeDeclaredServer({ label: "Prod" }), makeDeclaredServer({ label: "Staging", baseUrl: "http://s.test" })]
+		);
+		const row = root.querySelector(".config-diagnostics li") as HTMLElement;
+		const select = row.querySelector("select") as HTMLSelectElement;
+		expect([...select.options].map((option) => option.value)).toEqual(["Prod", "Staging"]);
+		expect(buttonByText(row, "Apply to entry")).toBeDefined();
+		expect(buttonByText(row, "Discard")).toBeDefined();
+		// The recovery controls ARE the remedy; a reveal button beside them
+		// would only distract from the decision. Learn more survives.
+		expect([...row.querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain(
+			"Show in settings.json"
+		);
+		expect(row.textContent).toContain("Learn more");
+
+		fireSelect(select, "Staging");
+		fireClick(buttonByText(row, "Apply to entry"));
+		expect(postedCalls()).toEqual([{ method: "resolveParkedHeaders", payload: { action: "apply", label: "Staging" } }]);
+
+		resetPosted();
+		fireClick(buttonByText(row, "Discard"));
+		expect(postedCalls()).toEqual([{ method: "resolveParkedHeaders", payload: { action: "discard" } }]);
+	});
+
+	test("with no declared entry the parked row narrows to Discard and says why", () => {
+		const root = mountConfig([PARKED_HINT]);
+		const row = root.querySelector(".config-diagnostics li") as HTMLElement;
+		expect(row.querySelector("select")).toBeNull();
+		expect([...row.querySelectorAll("button")].map((b) => b.textContent?.trim())).toContain("Discard");
+		expect(row.textContent).toContain("Add a server entry to apply them, or discard them.");
+	});
+
+	test("a refused parked-headers intent stands inline until the next attempt", () => {
+		const root = mountConfig([PARKED_HINT]);
+		const row = root.querySelector(".config-diagnostics li") as HTMLElement;
+		fireClick(buttonByText(row, "Discard"));
+		const posted = lastRequest("resolveParkedHeaders");
+		pushToWebview({
+			kind: "fail",
+			id: posted.id,
+			method: "resolveParkedHeaders",
+			message: "No parked headers remain; they may already have been applied or discarded.",
+			failureKind: "validation",
+		});
+		expect(row.querySelector(".error")?.textContent).toContain("No parked headers remain");
+	});
 
 	/** What a sighted reader sees: the node's text minus the screen-reader-only parts. */
 	function sightedText(element: Element | null | undefined): string {
@@ -536,7 +596,6 @@ describe("Resolved models", () => {
 				servers={[]}
 				modelCount={0}
 				hiddenGroupCount={0}
-				legacyServerCount={0}
 				diagnostics={[]}
 				active={false}
 				stateSeq={0}

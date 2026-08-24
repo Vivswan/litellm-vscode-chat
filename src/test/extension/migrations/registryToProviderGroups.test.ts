@@ -5,7 +5,6 @@ import { getMigratedServerLabels, unionLabelSources } from "../../../extension/m
 import { legacySingleServerMigration } from "../../../extension/migrations/legacySingleServer";
 import {
 	isGroupMigrationComplete,
-	isGroupMigrationRunning,
 	migrateServersToProviderGroups,
 	registryToProviderGroupsMigration,
 } from "../../../extension/migrations/registryToProviderGroups";
@@ -75,7 +74,7 @@ function migrate(
 	);
 }
 
-/** Capture skip notices; migration warns once per skipped server. */
+/** Capture straggler notices; the migration warns once per retired server. */
 async function withWarnings(fn: () => Promise<void>): Promise<string[]> {
 	const warnings: string[] = [];
 	const origWarn = vscode.window.showWarningMessage;
@@ -278,7 +277,48 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.strictEqual(registry.getServers().length, 1, "the second server stays for the next activation");
 	});
 
-	test("a recorded entry that no longer matches its record is kept, marked skipped, and announced once", async () => {
+	test("a recorded entry that no longer matches its record is retired: announced once, removed with its secret", async () => {
+		// The group can never be verified again (the entry changed against its
+		// seeded record) and the legacy edit surface that once resolved this is
+		// gone, so the entry retires instead of parking forever.
+		const storage = makeExtensionStorage();
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+		const server = await registry.addServer("Production", "http://prod.test", "edited-key");
+		storage.mementoStore.set(SEEDED_PROVIDER_GROUPS_KEY, [
+			{
+				id: server.id,
+				name: "Production",
+				label: "Production",
+				baseUrl: "http://prod.test",
+				keyFingerprint: fingerprint("original-key"),
+			},
+		]);
+		const { logger, lines } = makeLogger();
+		const host = makeFakeHost();
+
+		const warnings = await withWarnings(async () => {
+			assert.strictEqual(await migrate(registry, storage, logger, host.exec), true);
+			assert.strictEqual(await migrate(registry, storage, logger, host.exec), false);
+		});
+
+		assert.deepStrictEqual(registry.getServers(), [], "the unverifiable entry is removed");
+		assert.strictEqual(storage.secretStore.has(apiKeySecret(server.id)), false, "its stored key is deleted");
+		assert.strictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), undefined, "no marker is parked");
+		assert.strictEqual(warnings.length, 1, "the retirement is announced exactly once across runs");
+		const notice = expectMessage(warnings[0]);
+		assert.ok(notice.includes('"Production"'), notice);
+		assert.ok(notice.includes("http://prod.test"), notice);
+		assert.ok(notice.includes("litellm-vscode-chat.servers"), "the notice points at the servers setting");
+		assert.ok(notice.includes("Add Server"), "the notice points at the dashboard's Add Server");
+		assert.ok(
+			lines.every((l) => !l.includes("Production") || l.includes("Migrated")),
+			"log lines stay classification-only"
+		);
+	});
+
+	test("a straggler whose removal fails stays for the next activation, unannounced", async () => {
+		// The notice claims the entry is gone, so a failed removal must not fire
+		// it; the entry (or its orphaned secret) is retried next activation.
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		const server = await registry.addServer("Production", "http://prod.test", "edited-key");
@@ -293,17 +333,88 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		]);
 		const { logger } = makeLogger();
 		const host = makeFakeHost();
+		const originalUpdate = storage.memento.update.bind(storage.memento);
+		let broken = true;
+		(storage.memento as { update(key: string, value: unknown): Thenable<void> }).update = async (key, value) => {
+			if (key === SERVER_REGISTRY_KEY && broken) {
+				throw new Error("memento write failed");
+			}
+			await originalUpdate(key, value);
+		};
 
 		const warnings = await withWarnings(async () => {
 			assert.strictEqual(await migrate(registry, storage, logger, host.exec), false);
-			assert.strictEqual(await migrate(registry, storage, logger, host.exec), false);
 		});
 
-		assert.strictEqual(registry.getServers().length, 1, "the mismatched entry must not be removed");
-		assert.deepStrictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), [server.id]);
-		assert.strictEqual(warnings.length, 1, "the skip must be announced exactly once across runs");
-		const skipWarning = expectMessage(warnings[0]);
-		assert.ok(skipWarning.includes("changed after it was migrated"), skipWarning);
+		assert.strictEqual(registry.getServers().length, 1, "the failed removal leaves the entry for a retry");
+		assert.deepStrictEqual(warnings, [], "no notice fires for a removal that did not land");
+		assert.strictEqual(
+			storage.mementoStore.get(PENDING_SECRET_DELETIONS_KEY),
+			undefined,
+			"a surviving entry keeps its secret paired; nothing is queued as orphaned"
+		);
+
+		broken = false;
+		const retried = await withWarnings(async () => {
+			assert.strictEqual(await migrate(registry, storage, logger, host.exec), true);
+		});
+		assert.deepStrictEqual(registry.getServers(), []);
+		assert.strictEqual(retried.length, 1, "the retry announces the retirement once");
+	});
+
+	test("a retirement whose SECRET delete fails still announces: the entry removal landed", async () => {
+		// removeServer persists the entry's removal before deleting the secret,
+		// so this rejection destroys the entry anyway; a silent return here would
+		// be exactly the unannounced destruction the notice contract forbids.
+		const storage = makeExtensionStorage();
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+		const server = await registry.addServer("Production", "http://prod.test", "edited-key");
+		storage.mementoStore.set(SEEDED_PROVIDER_GROUPS_KEY, [
+			{
+				id: server.id,
+				name: "Production",
+				label: "Production",
+				baseUrl: "http://prod.test",
+				keyFingerprint: fingerprint("original-key"),
+			},
+		]);
+		const { logger } = makeLogger();
+		const host = makeFakeHost();
+		const failingKey = apiKeySecret(server.id);
+		let deletionsBroken = true;
+		const originalDelete = storage.secrets.delete.bind(storage.secrets);
+		storage.secrets.delete = async (key: string) => {
+			if (key === failingKey && deletionsBroken) {
+				throw new Error("keychain unavailable");
+			}
+			await originalDelete(key);
+		};
+
+		const warnings = await withWarnings(async () => {
+			await migrate(registry, storage, logger, host.exec);
+		});
+
+		assert.deepStrictEqual(registry.getServers(), [], "the entry removal persisted before the secret failure");
+		assert.strictEqual(warnings.length, 1, "the destruction is announced even though the secret delete failed");
+		const failedNotice = expectMessage(warnings[0]);
+		assert.ok(failedNotice.includes('"Production"'));
+		assert.ok(
+			failedNotice.includes("failed and is retried"),
+			`the notice must not claim a deletion that failed: ${failedNotice}`
+		);
+		assert.ok(!failedNotice.includes("was deleted"), failedNotice);
+		assert.deepStrictEqual(
+			storage.mementoStore.get(PENDING_SECRET_DELETIONS_KEY),
+			[server.id],
+			"the orphaned secret joins the every-activation retry list"
+		);
+
+		deletionsBroken = false;
+		const second = await withWarnings(async () => {
+			await migrate(registry, storage, logger, host.exec);
+		});
+		assert.deepStrictEqual(second, [], "the retirement never re-announces");
+		assert.strictEqual(storage.secretStore.size, 0, "the pending retry clears the orphaned secret");
 	});
 
 	test("a finalization that fails after the durable-id write retries and completes", async () => {
@@ -443,12 +554,13 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.deepStrictEqual(warnings, [], "our own interrupted submission is not a collision to announce");
 	});
 
-	test("a marker whose recorded identity no longer matches the server is a foreign collision", async () => {
+	test("a marker whose recorded identity no longer matches the server is a foreign collision and retires", async () => {
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		const server = await registry.addServer("Production", "http://prod.test", "rotated-key");
-		// The marker recorded the pre-rotation identity; the group's real
-		// configuration is unknowable, so the entry must be retained.
+		// The marker recorded the pre-rotation identity; the existing group's
+		// real configuration is unknowable forever, so the entry retires with
+		// its notice - a mismatched marker never legitimizes SEEDED removal.
 		storage.mementoStore.set(PENDING_GROUP_SUBMISSION_KEY, {
 			id: server.id,
 			name: "Production",
@@ -463,8 +575,8 @@ suite("extension/migrations/registryToProviderGroups", () => {
 			assert.strictEqual(await migrate(registry, storage, logger, host.exec), false);
 		});
 
-		assert.strictEqual(registry.getServers().length, 1, "a mismatched marker must not authorize removal");
-		assert.deepStrictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), [server.id]);
+		assert.deepStrictEqual(registry.getServers(), [], "the collision retires the entry");
+		assert.strictEqual(storage.secretStore.has(apiKeySecret(server.id)), false);
 		assert.strictEqual(warnings.length, 1);
 	});
 
@@ -563,32 +675,56 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.strictEqual(storage.secretStore.size, 0, "the orphaned secret must be gone after the retry");
 	});
 
-	test("a skip marker lifts when the server is renamed, letting the migration complete", async () => {
+	test("a skip marker whose collision was resolved migrates cleanly: the marker is a verdict, not proof", async () => {
+		// Earlier versions parked collided entries under skip markers and told
+		// the user to resolve the collision in the language models UI. A user
+		// who did exactly that must not lose the server: the marked entry goes
+		// back through the ordinary seeding pass, and only a still-standing
+		// collision retires it.
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		const server = await registry.addServer("Production", "http://prod.test", "prod-key");
+		storage.mementoStore.set(SKIPPED_MIGRATION_SERVERS_KEY, [server.id]);
+		const { logger } = makeLogger();
+		const host = makeFakeHost();
+
+		const warnings = await withWarnings(async () => {
+			assert.strictEqual(await migrate(registry, storage, logger, host.exec), true);
+		});
+
+		assert.ok(host.groups.has("Production"), "the entry migrates under its own name");
+		assert.deepStrictEqual(registry.getServers(), []);
+		assert.deepStrictEqual(warnings, [], "a clean migration announces nothing");
+		assert.strictEqual(
+			storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY),
+			undefined,
+			"finalization clears markers"
+		);
+	});
+
+	test("a skip marker whose collision still stands retires its entry through the ordinary pass", async () => {
+		const storage = makeExtensionStorage();
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+		const server = await registry.addServer("Production", "http://prod.test", "prod-key");
+		storage.mementoStore.set(SKIPPED_MIGRATION_SERVERS_KEY, [server.id]);
 		const { logger } = makeLogger();
 		const host = makeFakeHost();
 		host.groups.add("Production");
 
-		await withWarnings(async () => {
-			assert.strictEqual(await migrate(registry, storage, logger, host.exec), false);
+		const warnings = await withWarnings(async () => {
+			await migrate(registry, storage, logger, host.exec);
 		});
-		assert.deepStrictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), [server.id]);
 
-		// Renaming is the natural resolution of a name collision.
-		await registry.updateServer(server.id, "Production EU", "http://prod.test", undefined);
-		assert.strictEqual(
-			storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY),
-			undefined,
-			"the rename must lift the skip marker"
-		);
+		assert.deepStrictEqual(registry.getServers(), [], "the standing collision retires the entry");
+		assert.strictEqual(storage.secretStore.has(apiKeySecret(server.id)), false);
+		assert.strictEqual(warnings.length, 1);
+		assert.ok(expectMessage(warnings[0]).includes('"Production"'));
 
-		const completed = await migrate(registry, storage, logger, host.exec);
-
-		assert.strictEqual(completed, true);
-		assert.ok(host.groups.has("Production EU"), "the renamed server must migrate under its new name");
-		assert.deepStrictEqual(registry.getServers(), []);
+		// The marker's entry is gone, so the marker lifts on the next pass.
+		await withWarnings(async () => {
+			await migrate(registry, storage, logger, host.exec);
+		});
+		assert.strictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), undefined, "the stale marker lifts");
 	});
 
 	test("an entry is never removed unless its progress record survives persistence", async () => {
@@ -633,8 +769,8 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.deepStrictEqual(registry.getServers(), []);
 		assert.deepStrictEqual([...host.groups].sort(), ["Backup", "Production"], "Both servers end up seeded");
 		assert.ok(
-			!lines.some((l) => l.includes("skipped a server")),
-			`Recovery must not degrade to a foreign-collision skip. Lines: ${lines.join(" | ")}`
+			!lines.some((l) => l.includes("retired an unmigratable")),
+			`Recovery must not degrade to a foreign-collision retirement. Lines: ${lines.join(" | ")}`
 		);
 	});
 
@@ -698,7 +834,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		);
 	});
 
-	test("a genuine name collision keeps the entry, marks it skipped, and announces once", async () => {
+	test("a genuine name collision retires the entry with one notice while the sibling migrates", async () => {
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		const server = await registry.addServer("Production", "http://prod.test", "prod-key");
@@ -708,27 +844,30 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		host.groups.add("Production");
 
 		const warnings = await withWarnings(async () => {
-			assert.strictEqual(await migrate(registry, storage, logger, host.exec), false);
+			assert.strictEqual(await migrate(registry, storage, logger, host.exec), true);
 			assert.strictEqual(await migrate(registry, storage, logger, host.exec), false);
 		});
 
 		assert.deepStrictEqual(
-			registry.getServers().map((s) => s.label),
-			["Production"],
-			"the collided entry stays because the existing group's config is unknowable; the other migrates"
+			registry.getServers(),
+			[],
+			"the collided entry retires (the foreign group's config is unknowable forever); the other migrates"
 		);
-		assert.deepStrictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), [server.id]);
+		assert.strictEqual(storage.secretStore.has(apiKeySecret(server.id)), false);
 		assert.strictEqual(
 			host.submissions.filter((s) => s.group.name === "Production").length,
 			1,
-			"a skipped server must not be re-submitted on later runs"
+			"a retired server must not be re-submitted on later runs"
 		);
 		assert.strictEqual(warnings.length, 1, "the collision must be announced exactly once across runs");
 		const collisionWarning = expectMessage(warnings[0]);
-		assert.ok(collisionWarning.includes("already exists"), collisionWarning);
+		assert.ok(collisionWarning.includes("could not be migrated"), collisionWarning);
 	});
 
-	test("a cross-window edit during the seed command keeps the edited entry and marks it skipped", async () => {
+	test("a cross-window edit landing during the seed command retires the changed entry", async () => {
+		// The seeded group holds the pre-edit settings and can never be verified
+		// against the changed entry again, so the entry retires with the notice
+		// naming its EDITED identity - what the user re-adds.
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		const server = await registry.addServer("Production", "http://prod.test", "prod-key");
@@ -736,29 +875,24 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		const host = makeFakeHost();
 		const exec = async (command: string, ...args: unknown[]): Promise<unknown> => {
 			const result = await host.exec(command, ...args);
-			await registry.updateServer(server.id, "Production", "http://prod-edited.test", undefined);
+			// Another window's strictly newer blob re-points the entry mid-flight.
+			storage.mementoStore.set(SERVER_REGISTRY_KEY, {
+				version: 99,
+				servers: [{ id: server.id, label: "Production", baseUrl: "http://prod-edited.test" }],
+			});
 			return result;
 		};
 
 		const warnings = await withWarnings(async () => {
-			assert.strictEqual(await migrate(registry, storage, logger, exec), false);
+			assert.strictEqual(await migrate(registry, storage, logger, exec), true);
 		});
 
-		assert.deepStrictEqual(
-			registry.getServers().map((s) => s.baseUrl),
-			["http://prod-edited.test"],
-			"the edited entry must survive; the seeded group has the earlier settings"
-		);
-		assert.deepStrictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), [server.id]);
-		const progress = storage.mementoStore.get(SEEDED_PROVIDER_GROUPS_KEY) as Array<{ name: string }>;
-		assert.deepStrictEqual(
-			progress.map((p) => p.name),
-			["Production"],
-			"the seeded group is recorded even though the entry stays"
-		);
+		assert.deepStrictEqual(registry.getServers(), [], "the changed entry retires; the group has the earlier settings");
+		const progress = storage.mementoStore.get(SEEDED_PROVIDER_GROUPS_KEY);
+		assert.strictEqual(progress, undefined, "finalization clears the seeded records once the registry drains");
 		assert.strictEqual(warnings.length, 1);
 		const editWarning = expectMessage(warnings[0]);
-		assert.ok(editWarning.includes("changed while it was being migrated"), editWarning);
+		assert.ok(editWarning.includes("http://prod-edited.test"), editWarning);
 	});
 
 	test("a server added during seeding stays in the registry and defers completion", async () => {
@@ -766,7 +900,6 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		await registry.addServer("Production", "http://prod.test", "prod-key");
 		const { logger, lines } = makeLogger();
-		const runningDuringSeed: boolean[] = [];
 
 		const completed = await migrateServersToProviderGroups(
 			registry,
@@ -775,14 +908,11 @@ suite("extension/migrations/registryToProviderGroups", () => {
 			logger,
 			fakeFingerprintSaltSession(),
 			async () => {
-				runningDuringSeed.push(isGroupMigrationRunning());
 				await registry.addServer("Added Mid-Flight", "http://new.test", "");
 			}
 		);
 
 		assert.strictEqual(completed, false);
-		assert.deepStrictEqual(runningDuringSeed, [true], "the migration lock must be held while seeding");
-		assert.strictEqual(isGroupMigrationRunning(), false, "the migration lock must be released afterwards");
 		assert.strictEqual(isGroupMigrationComplete(storage.memento), false);
 		assert.deepStrictEqual(
 			registry.getServers().map((s) => s.label),
@@ -904,8 +1034,8 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	});
 
 	test("a skip marker for a server no longer in the registry lifts, unblocking completion", async () => {
-		// The skipped server was deleted via the manage UI, as the skip notice
-		// instructs; its marker must not block fresh-install completion forever.
+		// The parked server is already gone (an earlier version's manual
+		// resolution); its marker must not block fresh-install completion forever.
 		const storage = makeExtensionStorage({ [SKIPPED_MIGRATION_SERVERS_KEY]: ["gone1234"] });
 		const ctx = makeMigrationContext(storage);
 

@@ -101,7 +101,6 @@ export const EXTERNAL_SERVER: DashboardServer = {
 	state: "ok",
 	lastChecked: minutesAgoMs(5),
 	adoptHandle: "handle-fixture",
-	hideable: true,
 };
 
 // The external-API-key specimen: "API key" + "external" is the widest badge
@@ -116,7 +115,6 @@ export const EXTERNAL_KEYED_SERVER: DashboardServer = {
 	state: "ok",
 	lastChecked: minutesAgoMs(12),
 	adoptHandle: "handle-fixture-keyed",
-	hideable: true,
 };
 
 function model(overrides: Partial<DashboardModel> & Pick<DashboardModel, "id" | "name">): DashboardModel {
@@ -552,7 +550,6 @@ export function baseState(overrides: Partial<DashboardState> = {}): DashboardSta
 		],
 		usage: USAGE,
 		diagnostics: [],
-		legacyServerCount: 0,
 		...overrides,
 	};
 }

@@ -14,7 +14,6 @@ function makeInput(overrides: Partial<ConfigDiagnosticsInput> = {}): ConfigDiagn
 	return {
 		reader: makeReader({}),
 		parkedGlobalHeadersValue: undefined,
-		hasExternalGroups: false,
 		entryReports: [],
 		declared: [],
 		hiddenGroups: [],
@@ -271,20 +270,16 @@ suite("extension/dashboard/configDiagnostics", () => {
 			]);
 		});
 
-		test("the parked-headers hint renders only while externally managed groups exist (R3 ruling)", () => {
+		test("the parked-headers hint stands while the parked record exists: Apply/Discard consume it", () => {
 			const parked = { headers: { "x-b": "2", "x-a": "1" }, migratedAt: 1 };
 
-			const withoutGroups = buildConfigDiagnostics(
-				makeInput({ parkedGlobalHeadersValue: parked, hasExternalGroups: false })
-			);
-			assert.deepStrictEqual(withoutGroups, [], "no external group means nobody misses the parked headers");
-
-			const withGroups = buildConfigDiagnostics(
-				makeInput({ parkedGlobalHeadersValue: parked, hasExternalGroups: true })
-			);
-			assert.deepStrictEqual(withGroups, [
+			const withParked = buildConfigDiagnostics(makeInput({ parkedGlobalHeadersValue: parked }));
+			assert.deepStrictEqual(withParked, [
 				{ kind: "legacy", hint: "parked-global-headers", oldKey: "headers", detail: "x-a, x-b", severity: "warning" },
 			]);
+
+			const consumed = buildConfigDiagnostics(makeInput({ parkedGlobalHeadersValue: undefined }));
+			assert.deepStrictEqual(consumed, [], "the hint dies with the parked record");
 		});
 	});
 

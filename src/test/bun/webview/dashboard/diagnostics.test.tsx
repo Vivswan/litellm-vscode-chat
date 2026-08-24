@@ -146,7 +146,6 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 			}),
 		],
 		models: [makeModel(), makeModel({ id: "second", name: "Second" })],
-		legacyServerCount: 1,
 	});
 	const button = buttonByText(root, "Copy diagnostics");
 	const iconPath = () => button.querySelector("svg path")?.getAttribute("d") ?? "";
@@ -160,7 +159,6 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 			"Degraded (2 models, some servers failed)",
 			"Servers configured: 2",
 			`Last checked: ${new Date(lastChecked).toISOString()}`,
-			"Legacy registry servers: 1",
 			"Prod (http://localhost:4000): OK (2 models)",
 			"Broken (http://localhost:4001): Error: connect ECONNREFUSED",
 			"Configuration diagnostics: 0",
@@ -264,18 +262,14 @@ test("the copied block says Never with nothing checked yet, and drops the legacy
 	expect(copied).toContain("Waiting for first sync");
 	expect(copied).toContain("Servers configured: 1");
 	expect(copied).toContain("Last checked: Never");
-	expect(copied).not.toContain("Legacy registry");
 });
 
-test("a legacy-only world names the registry in the copied verdict and disables Test connection", () => {
-	const root = mountDiagnostics({ legacyServerCount: 2 });
+test("a world with no server rows reads not configured and disables Test connection", () => {
+	const root = mountDiagnostics({});
 	const copied = copyDiagnostics(root);
-	expect(copied).toContain("Legacy registry only (2 servers)");
+	expect(copied).toContain("Not configured");
 	expect(copied).toContain("Servers configured: 0");
-	expect(copied).toContain("Legacy registry servers: 2");
-	expect(copied).not.toContain("Not configured");
-	// The registry's serving path retires with this release train, so a
-	// registry-only world has nothing durable a connection test could reach.
+	// With no server rows there is nothing a connection test could reach.
 	expect(buttonByText(root, "Test connection").disabled).toBe(true);
 });
 

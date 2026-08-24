@@ -106,6 +106,10 @@ function toastText(method: AckedMethod): string | undefined {
 			return l10n.t("Server removed");
 		case "adoptServer":
 			return l10n.t("Server adopted");
+		case "resolveParkedHeaders":
+			// The row disappears with the next push, so the outcome (and the
+			// skipped-headers caveat riding it) needs a surface that survives it.
+			return l10n.t("Parked headers resolved");
 		default:
 			return undefined;
 	}
@@ -170,26 +174,16 @@ function ToastHost({
 }
 
 /**
- * The hero's overall verdict, mapped from the shared classifyOverall (with the tab's
- * legacy-registry rule mirrored), so the strip and the tab never disagree. Exported for
- * the cross-surface vocabulary suite. Connected-with-zero-models is the shared warning
- * state (see zeroModelJudgment host-side): the word names it and the tone matches the
- * status bar's warning, never a green beside a warning bar.
+ * The hero's overall verdict, mapped from the shared classifyOverall, so the strip and
+ * the tab never disagree. Exported for the cross-surface vocabulary suite.
+ * Connected-with-zero-models is the shared warning state (see zeroModelJudgment
+ * host-side): the word names it and the tone matches the status bar's warning, never a
+ * green beside a warning bar.
  */
-export function overallState(
-	servers: readonly DashboardServer[],
-	legacyServerCount: number,
-	modelCount: number,
-	hiddenGroupCount = 0
-): Overall {
+export function overallState(servers: readonly DashboardServer[], modelCount: number, hiddenGroupCount = 0): Overall {
 	switch (classifyOverall(servers, { hiddenGroupCount })) {
 		case "not-configured":
-			// The legacy registry is real configuration even though it
-			// contributes no server rows (see overallStatusText).
-			return {
-				tone: "muted",
-				word: legacyServerCount > 0 ? l10n.t("Legacy registry only") : l10n.t("Not configured"),
-			};
+			return { tone: "muted", word: l10n.t("Not configured") };
 		case "error":
 			return { tone: "error", word: l10n.t("Error") };
 		case "degraded":
@@ -706,12 +700,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					active={activeSection}
 					onSelect={selectSection}
 					serverCount={state.servers.length}
-					overall={overallState(
-						state.servers,
-						state.legacyServerCount,
-						state.servedModelCount,
-						state.hiddenGroups.length
-					)}
+					overall={overallState(state.servers, state.servedModelCount, state.hiddenGroups.length)}
 					synced={lastSync(state.servers, now)}
 				/>
 				<div className="pane">
@@ -790,7 +779,6 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						<DiagnosticsSection
 							servers={state.servers}
 							modelCount={state.servedModelCount}
-							legacyServerCount={state.legacyServerCount}
 							hiddenGroupCount={state.hiddenGroups.length}
 							diagnostics={state.diagnostics}
 							active={section === "diagnostics"}

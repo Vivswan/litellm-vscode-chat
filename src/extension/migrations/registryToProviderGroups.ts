@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { z } from "zod";
-import { manageCommandTitle, VENDOR_ID } from "../../shared/config/commandIds";
+import { VENDOR_ID } from "../../shared/config/commandIds";
 import {
 	apiKeySecret,
 	GROUP_MIGRATION_COMPLETE_KEY,
@@ -16,7 +16,7 @@ import type { Logger } from "../../shared/logger";
 import type { ServerWithKey } from "../../shared/servers";
 import { fingerprint, fingerprintSchema } from "../../shared/util/fingerprint";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
-import type { ServerRegistry } from "../servers/serverRegistry";
+import { ServerRegistry } from "../servers/serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 import { getMigratedServerLabels } from "./labelScopedModelParameters";
 import { hasLegacyConfig } from "./legacySingleServer";
@@ -68,11 +68,6 @@ function getPendingSecretDeletions(globalState: vscode.Memento): string[] {
 }
 
 const migrationState = { running: false };
-
-/** Registry mutations must wait out a running seeding pass. */
-export function isGroupMigrationRunning(): boolean {
-	return migrationState.running;
-}
 
 /**
  * True once a nonempty registry was fully migrated and emptied. While unset,
@@ -172,8 +167,9 @@ function matchesSeededConfig(server: ServerWithKey, record: SeededGroup): boolea
  * key and unions immediately before writing. A concurrent window can still
  * interleave between that read and the write; the residual race degrades
  * safely because the unions are monotonic and recovery is idempotent: a lost
- * seeded record resurfaces as a marker-less duplicate on the next activation
- * (the retained-entry skip-and-notify path), never as a silent deletion.
+ * seeded record resurfaces as a marker-less duplicate on the next activation,
+ * where the name collision retires the entry with a notice (the group itself
+ * survives host-side with the same configuration), never as a silent deletion.
  */
 
 async function persistSeededRecord(globalState: vscode.Memento, record: SeededGroup): Promise<SeededGroup[]> {
@@ -183,12 +179,6 @@ async function persistSeededRecord(globalState: vscode.Memento, record: SeededGr
 	}
 	await globalState.update(SEEDED_PROVIDER_GROUPS_KEY, merged);
 	return merged;
-}
-
-async function persistSkippedServer(globalState: vscode.Memento, serverId: string): Promise<void> {
-	const merged = new Set(getSkippedServers(globalState));
-	merged.add(serverId);
-	await globalState.update(SKIPPED_MIGRATION_SERVERS_KEY, [...merged]);
 }
 
 async function persistPendingSecretDeletions(globalState: vscode.Memento, serverIds: readonly string[]): Promise<void> {
@@ -205,11 +195,13 @@ type ExecuteCommand = (command: string, ...args: unknown[]) => Thenable<unknown>
  * How one server's submission ended. "seeded": the group exists and its
  * progress record verifiably persisted, so removing the registry entry is
  * safe. "deferred": the host did not accept it; retry next activation.
- * "skipped": a foreign group owns the name. "halt-pass": the progress record
- * would not persist, so the whole pass stops - continuing would let the next
- * server overwrite the single pending-marker slot this retry depends on.
+ * "unmigratable": a foreign group owns the name, so equivalence can never be
+ * verified - the caller retires the entry as a straggler. "halt-pass": the
+ * progress record would not persist, so the whole pass stops - continuing
+ * would let the next server overwrite the single pending-marker slot this
+ * retry depends on.
  */
-type SeedSubmissionOutcome = "seeded" | "deferred" | "skipped" | "halt-pass";
+type SeedSubmissionOutcome = "seeded" | "deferred" | "unmigratable" | "halt-pass";
 
 /**
  * Submit one registry server as the provider group `record` describes and
@@ -225,8 +217,7 @@ async function submitGroupSeed(
 	logger: Logger,
 	executeCommand: ExecuteCommand,
 	current: ServerWithKey,
-	record: SeededGroup,
-	markSkipped: (serverId: string, notice: string) => Promise<void>
+	record: SeededGroup
 ): Promise<SeedSubmissionOutcome> {
 	// The marker tells a crashed in-flight submission apart from a foreign name
 	// collision, but only while the server's identity still matches what the
@@ -265,18 +256,10 @@ async function submitGroupSeed(
 		}
 		if (!wasOurSubmission) {
 			// A group with this name exists but its configuration is not
-			// readable, so equivalence with this server is unknowable.
+			// readable, so equivalence with this server is unknowable - ever.
+			// The caller retires the entry as a straggler.
 			await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
-			await markSkipped(
-				current.id,
-				l10n.t(
-					'A language models group named "{0}" already exists, so server "{1}" was not migrated. Review the group in the language models UI, then remove the legacy server via "{2}".',
-					record.name,
-					current.label,
-					manageCommandTitle()
-				)
-			);
-			return "skipped";
+			return "unmigratable";
 		}
 		logger.log("The colliding provider group was created by an interrupted earlier submission; treating it as seeded");
 	}
@@ -306,11 +289,13 @@ async function submitGroupSeed(
  * time: seed the group, persist a progress record (with a non-secret key
  * fingerprint), merge the label map, then remove the registry entry, but only
  * after re-reading the registry and confirming the entry still matches what
- * was seeded, since another window may have edited it meanwhile. Entries whose
- * group cannot be verified are marked skipped, left in place, and announced
- * once. Finalization is state-derived: progress records present and the
- * registry empty completes the migration, on this activation or a later one.
- * Returns true when the migration completed during this call.
+ * was seeded. Entries whose group can never be verified (a foreign name
+ * collision, an entry that changed against its seeded record) are retired as
+ * stragglers: announced once and removed with their secrets, since the legacy
+ * edit surface that once resolved them is gone. Finalization is state-derived:
+ * progress records present and the registry empty completes the migration, on
+ * this activation or a later one. Returns true when the migration completed
+ * during this call.
  */
 export async function migrateServersToProviderGroups(
 	registry: ServerRegistry,
@@ -338,21 +323,105 @@ export async function migrateServersToProviderGroups(
 		} else if (await finalizeIfDone(registry, globalState, secrets, logger)) {
 			return true;
 		}
-		const snapshot = await registry.getServersWithKeys();
-		// A skip marker guards a live entry the user must resolve manually. Once
-		// that entry is gone the marker would block the fresh-install completion
-		// forever, so stale markers lift here; a racing marker add from another
-		// window self-heals by re-skipping.
+		// A straggler is an entry the migration can never verify a group for (a
+		// foreign name collision, or an edit that raced the seeding). The legacy
+		// edit surface that once resolved them is gone, so parking them would
+		// park them forever: instead the entry is retired - removed from the
+		// registry with its stored API key deleted - and announced ONCE, naming
+		// the label and base URL so the user can re-add the server through the
+		// dashboard's Add Server or the servers setting (re-entering the key,
+		// which cannot be surfaced). The removal happens first, and the notice
+		// fires exactly when the ENTRY removal landed: removeServer persists the
+		// entry's removal before deleting the secret, so a rejection can also
+		// mean the entry is already gone with only its secret orphaned - the
+		// notice must not go missing there, or the destruction would be silent.
+		// A removal that did not land stays unannounced and retries next
+		// activation (a repeat notice on retry is a retry, not permanence).
+		const retireStraggler = async (server: { id: string; label: string; baseUrl: string }): Promise<void> => {
+			let keyDeleted = true;
+			let retryQueued = true;
+			try {
+				await registry.removeServer(server.id);
+			} catch (error) {
+				logger.error("Failed to retire an unmigratable legacy server", error);
+				// Two reads, both required. The CURRENT instance's in-memory view is
+				// authoritative for a rolled-back removal persist (the optimistic
+				// Memento cache can hold the rejected entry-gone blob, which a plain
+				// re-parse would misread as destroyed). A FRESH parse of the persisted
+				// blob catches the opposite hazard: a concurrent window's EQUAL-version
+				// restore, which this instance's version gate would ignore
+				// (legacySingleServer's post-import re-read exists for the same race).
+				// Either view showing the entry means nothing was destroyed.
+				const survivedHere = registry.getServers().some((existing) => existing.id === server.id);
+				const survivedInStorage = new ServerRegistry(globalState, secrets)
+					.getServers()
+					.some((existing) => existing.id === server.id);
+				if (survivedHere || survivedInStorage) {
+					// Nothing is announced and nothing queued; the next activation
+					// retries the retirement.
+					return;
+				}
+				// The entry is gone but its secret delete failed: queue the orphaned
+				// secret for the every-activation retry, and fall through to the
+				// notice - the removal the notice reports DID land.
+				keyDeleted = false;
+				try {
+					await persistPendingSecretDeletions(globalState, [server.id]);
+				} catch (pendingError) {
+					// A SecretStorage failure plus a Memento failure in one pass: no
+					// retry record survives, and the notice below says so instead of
+					// claiming an automatic retry.
+					retryQueued = false;
+					logger.error("Failed to queue a retired server's orphaned secret for retry", pendingError);
+				}
+			}
+			// Classification only in the log; the toast names the server so the
+			// user can act, and claims exactly what happened to the key: deleted,
+			// queued for automatic retry, or possibly still in secret storage.
+			logger.log("Provider-group migration retired an unmigratable legacy server; it must be re-added manually");
+			const notice = keyDeleted
+				? l10n.t(
+						'LiteLLM: Server "{0}" ({1}) could not be migrated to a provider group and was removed from legacy storage; its stored API key was deleted. Re-add it with the dashboard\'s Add Server or in the "{2}" setting.',
+						server.label,
+						server.baseUrl,
+						"litellm-vscode-chat.servers"
+					)
+				: retryQueued
+					? l10n.t(
+							'LiteLLM: Server "{0}" ({1}) could not be migrated to a provider group and was removed from legacy storage; deleting its stored API key failed and is retried automatically. Re-add it with the dashboard\'s Add Server or in the "{2}" setting.',
+							server.label,
+							server.baseUrl,
+							"litellm-vscode-chat.servers"
+						)
+					: l10n.t(
+							'LiteLLM: Server "{0}" ({1}) could not be migrated to a provider group and was removed from legacy storage; deleting its stored API key failed, and it may remain in VS Code secret storage. Re-add it with the dashboard\'s Add Server or in the "{2}" setting.',
+							server.label,
+							server.baseUrl,
+							"litellm-vscode-chat.servers"
+						);
+			void vscode.window.showWarningMessage(notice);
+		};
+
+		// Skip markers an earlier version parked lift once their entry is gone;
+		// a marker's LIVE entry deliberately goes back through the ordinary
+		// seeding pass below instead of retiring here. The marker records an
+		// old verdict, not proof of unmigratability now: the old notice told the
+		// user to resolve the collision in the language models UI, and an entry
+		// whose collision was resolved that way migrates cleanly - only a
+		// still-standing collision retires it, through the same classification
+		// every other entry gets.
 		const storedSkipped = getSkippedServers(globalState);
 		if (storedSkipped.length > 0) {
-			const liveIds = new Set(snapshot.map((server) => server.id));
+			const liveIds = new Set(registry.getServers().map((server) => server.id));
 			const liveSkipped = storedSkipped.filter((id) => liveIds.has(id));
 			if (liveSkipped.length !== storedSkipped.length) {
 				await globalState.update(SKIPPED_MIGRATION_SERVERS_KEY, liveSkipped.length > 0 ? liveSkipped : undefined);
 			}
 		}
+		const snapshot = await registry.getServersWithKeys();
 		if (snapshot.length === 0) {
-			return false;
+			// Retiring the last straggler can complete the migration right here.
+			return finalizeIfDone(registry, globalState, secrets, logger);
 		}
 		// The pass persists key fingerprints a LATER session must recognize, and
 		// its recovery compares stored records against freshly computed ones.
@@ -367,17 +436,7 @@ export async function migrateServersToProviderGroups(
 		}
 
 		let seeded = getSeededGroups(globalState);
-		const skipped = new Set(getSkippedServers(globalState));
 		const usedNames = new Set(seeded.map((group) => group.name));
-
-		const markSkipped = async (serverId: string, notice: string): Promise<void> => {
-			skipped.add(serverId);
-			await persistSkippedServer(globalState, serverId);
-			// The toast names the server so the user can act; the log line stays
-			// classification-only because it feeds the public issue-report buffer.
-			logger.log("Provider-group migration skipped a server; it stays in the registry for manual review");
-			void vscode.window.showWarningMessage(l10n.t("LiteLLM: {0}", notice));
-		};
 
 		for (const server of snapshot) {
 			// Re-confirmed per server: a salt mutation detected mid-loop must stop
@@ -386,14 +445,12 @@ export async function migrateServersToProviderGroups(
 				logger.log("Stopping the provider-group migration mid-pass: the fingerprint salt is no longer confirmed");
 				break;
 			}
-			if (skipped.has(server.id)) {
-				continue;
-			}
 
 			const record = seeded.find((group) => group.id === server.id);
 			if (record) {
 				// Seeded in a run that stopped before removing the entry; remove it
-				// only if it still is the config the group was built from.
+				// only if it still is the config the group was built from - an entry
+				// that changed since can never be verified again, so it retires.
 				const current = (await registry.getServersWithKeys()).find((s) => s.id === server.id);
 				if (!current) {
 					continue;
@@ -401,14 +458,7 @@ export async function migrateServersToProviderGroups(
 				if (matchesSeededConfig(current, record)) {
 					await removeMigratedServer(registry, current, logger);
 				} else {
-					await markSkipped(
-						server.id,
-						l10n.t(
-							'Server "{0}" changed after it was migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "{1}".',
-							current.label,
-							manageCommandTitle()
-						)
-					);
+					await retireStraggler(current);
 				}
 				continue;
 			}
@@ -426,8 +476,12 @@ export async function migrateServersToProviderGroups(
 				baseUrl: current.baseUrl,
 				keyFingerprint: fingerprint(current.apiKey),
 			};
-			const outcome = await submitGroupSeed(globalState, logger, executeCommand, current, newRecord, markSkipped);
-			if (outcome === "deferred" || outcome === "skipped") {
+			const outcome = await submitGroupSeed(globalState, logger, executeCommand, current, newRecord);
+			if (outcome === "deferred") {
+				continue;
+			}
+			if (outcome === "unmigratable") {
+				await retireStraggler(current);
 				continue;
 			}
 			if (outcome === "halt-pass") {
@@ -437,7 +491,9 @@ export async function migrateServersToProviderGroups(
 			seeded = getSeededGroups(globalState);
 
 			// The seed command validates over the network; re-read before removing
-			// so an edit from another window is never deleted.
+			// so an entry another migration pass already drained is never
+			// double-handled - and one that changed mid-flight retires, since its
+			// group holds the earlier settings and can never be verified again.
 			const afterSeed = (await registry.getServersWithKeys()).find((s) => s.id === server.id);
 			if (!afterSeed) {
 				continue;
@@ -445,14 +501,7 @@ export async function migrateServersToProviderGroups(
 			if (matchesSeededConfig(afterSeed, newRecord)) {
 				await removeMigratedServer(registry, afterSeed, logger);
 			} else {
-				await markSkipped(
-					server.id,
-					l10n.t(
-						'Server "{0}" changed while it was being migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "{1}".',
-						afterSeed.label,
-						manageCommandTitle()
-					)
-				);
+				await retireStraggler(afterSeed);
 			}
 		}
 
@@ -544,7 +593,7 @@ async function retryPendingSecretDeletions(
 
 async function removeMigratedServer(registry: ServerRegistry, server: ServerWithKey, logger: Logger): Promise<void> {
 	try {
-		await registry.removeServerUnguarded(server.id);
+		await registry.removeServer(server.id);
 	} catch (error) {
 		logger.error("Failed to remove a migrated server from the registry", error);
 	}
@@ -587,7 +636,7 @@ async function cleanUpOrphanedServers(
 	logger.log(`Removing ${orphans.length} orphaned registry server(s) left behind by the group migration`);
 	for (const orphan of orphans) {
 		try {
-			await registry.removeServerUnguarded(orphan.id);
+			await registry.removeServer(orphan.id);
 		} catch (error) {
 			await persistPendingSecretDeletions(globalState, [orphan.id]);
 			logger.error("Failed to remove an orphaned server from the registry", error);
@@ -596,16 +645,12 @@ async function cleanUpOrphanedServers(
 }
 
 /**
- * A fresh install has nothing to migrate, so it is marked complete right away,
- * which routes server management to the native provider-group UI. Every trace
- * of an unfinished migration blocks this. The hasLegacyConfig guard keeps the
- * flag honest: the legacy migration is best-effort, so on its failure the
- * registry looks fresh here while an import is still due.
- *
- * Deliberately not gated on extension mode: test mode forces the legacy manage
- * path regardless of the flag, servers the litellm._test.* commands create
- * have no migration record so they are never swept, and gating would leave the
- * production fresh-install path untested.
+ * A fresh install has nothing to migrate, so it is marked complete right away.
+ * Every trace of an unfinished migration blocks this - the stored skip markers
+ * included, since they mean straggler entries are still awaiting their retire
+ * pass. The hasLegacyConfig guard keeps the flag honest: the legacy migration
+ * is best-effort, so on its failure the registry looks fresh here while an
+ * import is still due.
  */
 async function completeFreshInstall(ctx: MigrationContext): Promise<boolean> {
 	if (

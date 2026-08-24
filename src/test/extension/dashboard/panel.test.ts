@@ -104,8 +104,8 @@ interface Harness {
 	declaredServers: DeclaredServersInput;
 	/** What getSnapshots answers; defaults to one healthy "srv1" server serving "m1". */
 	snapshots: ReturnType<DashboardControllerEnv["getSnapshots"]>;
-	/** The legacy registry's servers, as getLegacyServers reports them. */
-	legacyServers: { baseUrl: string }[];
+	/** What readParkedGlobalHeaders answers; cleared by clearParkedGlobalHeaders. */
+	parkedGlobalHeaders: unknown;
 	/** What resolveEntryParameters answers per snapshot server ID. */
 	entryResolutions: Record<string, EntryParametersResolution>;
 	/** What resolveEntryCapabilities answers per snapshot server ID. */
@@ -140,7 +140,6 @@ function makeHarness(): Harness {
 		inspect: (key) => (Object.hasOwn(settingsValues, key) ? { globalValue: settingsValues[key] } : undefined),
 	};
 	const serverResolution: ServerResolution = {
-		isGroupSnapshot: () => true,
 		resolveEntryParameters: (serverId) => harness.entryResolutions[serverId],
 		resolveEntryCapabilities: (serverId) => harness.entryCapabilities[serverId],
 	};
@@ -152,13 +151,15 @@ function makeHarness(): Harness {
 		},
 		getSnapshots: () => harness.snapshots,
 		getDeclaredServers: () => harness.declaredServers,
-		getLegacyServers: () => harness.legacyServers,
 		getRemovedGroups: () => ({ tombstones: [], origins: [] }),
 		serverResolution,
 		getCatalogLookup: () => EMPTY_CATALOG_LOOKUP,
 		getCatalogStatus: () => EMPTY_CATALOG_STATUS,
 		getUsage: () => EMPTY_USAGE_VIEW,
-		getParkedGlobalHeaders: () => undefined,
+		readParkedGlobalHeaders: () => harness.parkedGlobalHeaders,
+		clearParkedGlobalHeaders: async () => {
+			harness.parkedGlobalHeaders = undefined;
+		},
 		refreshCatalogNow: () => {},
 		refreshUsageNow: () => {},
 		refreshUsageIfStale: () => {
@@ -243,7 +244,7 @@ function makeHarness(): Harness {
 		serversSetting: [],
 		declaredServers: { source: "engine", views: [] },
 		snapshots: [{ status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] }],
-		legacyServers: [],
+		parkedGlobalHeaders: undefined,
 		entryResolutions: {},
 		entryCapabilities: {},
 		catalogQueries: [],
@@ -422,21 +423,6 @@ suite("extension/dashboard/panel", () => {
 
 			assert.deepStrictEqual(focusMessages(fake), [], "the user asked for the dashboard, not the old deep link");
 		});
-	});
-
-	test("state pushes count legacy registry servers that have no row of their own", () => {
-		const harness = makeHarness();
-		harness.legacyServers = [
-			{ baseUrl: "http://old.test" },
-			// Same host as the live snapshot (modulo the trailing slash): it
-			// already renders as a server row, so it must not count again.
-			{ baseUrl: "http://prod.test/" },
-		];
-		harness.controller.open();
-		const fake = harness.panels[0];
-		assert.ok(fake);
-
-		assert.strictEqual(lastState(fake).state.legacyServerCount, 1);
 	});
 
 	suite("declaredViewsFromSetting", () => {

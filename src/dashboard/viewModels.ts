@@ -182,7 +182,6 @@ export type DashboardServer = DashboardServerBase &
 				 */
 				readonly entryFieldsInactive?: true | undefined;
 				readonly provenance?: undefined;
-				readonly hideable?: undefined;
 				readonly problems?: undefined;
 		  }
 		| {
@@ -201,14 +200,14 @@ export type DashboardServer = DashboardServerBase &
 				readonly notices?: undefined;
 				readonly entryFieldsInactive?: undefined;
 				readonly provenance?: undefined;
-				readonly hideable?: undefined;
 		  }
 		| {
 				/**
-				 * A provider group managed outside the setting. `adoptHandle` is the
-				 * opaque token the adopt intent names its source group by: a salted
-				 * one-way hash, stable for the session, carrying no credential
-				 * material, resolvable only while the group stays external.
+				 * A provider group managed outside the setting; Remove (hide) always
+				 * applies to it, by tombstone. `adoptHandle` is the opaque token the
+				 * adopt intent names its source group by: a salted one-way hash,
+				 * stable for the session, carrying no credential material, resolvable
+				 * only while the group stays external.
 				 */
 				readonly origin: "external";
 				readonly adoptHandle: string;
@@ -217,11 +216,6 @@ export type DashboardServer = DashboardServerBase &
 				readonly entryFieldsInactive?: undefined;
 				/** Why the group exists, when a removal or rename explains it; see ExternalServerProvenance. */
 				readonly provenance?: ExternalServerProvenance | undefined;
-				/**
-				 * Whether Remove (hide) applies: false for legacy-registry rows, whose
-				 * models the registry path would keep serving after a hide.
-				 */
-				readonly hideable: boolean;
 				readonly problems?: undefined;
 		  }
 	) &
@@ -297,8 +291,9 @@ export interface DashboardModel {
 	readonly id: string;
 	/**
 	 * The model ID as the server knows it: what a request's `model` field and a
-	 * modelParameters prefix match against. Differs from `id` only on
-	 * legacy-registry multi-server registrations, where `id` is namespaced.
+	 * modelParameters prefix match against. Differs from `id` on registrations
+	 * that mint exposed IDs of their own (aggregate `:cheapest`/`:fastest`
+	 * variants).
 	 */
 	readonly rawId: string;
 	/**
@@ -863,12 +858,6 @@ export interface DashboardState {
 	readonly usage: DashboardUsage;
 	/** Configuration problems found in the settings; see ConfigDiagnosticView. */
 	readonly diagnostics: readonly ConfigDiagnosticView[];
-	/**
-	 * Legacy-registry servers (pre-migration installs and test mode) with no
-	 * server row of their own. Labels and URLs stay extension-side; the
-	 * Diagnostics tab only states the count.
-	 */
-	readonly legacyServerCount: number;
 }
 
 /**

@@ -106,7 +106,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const dashboard = wireDashboard(context, logger, {
 		provider,
 		syncEngine: servers.syncEngine,
-		registry: storage.registry,
 		groupRemovals: storage.groupRemovals,
 		catalogStore,
 		usagePoller: servers.usagePoller,
@@ -149,7 +148,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	wireUiCommands(context, logger, {
 		registry: storage.registry,
-		getManagementUiMode: storage.getManagementUiMode,
 		provider,
 		statusBar,
 		outputChannel,

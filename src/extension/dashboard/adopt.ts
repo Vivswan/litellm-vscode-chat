@@ -56,19 +56,16 @@ function resolveExternalSnapshot(
 /**
  * The identity of the external group a hide intent names: the status label
  * and base URL the removal tombstone is keyed by. Same resolution rules as
- * resolveExternalSnapshot, plus one gate: the snapshot must be a provider
- * group. A snapshot without a group has none a tombstone could silence, so
- * "hiding" it would only make the dashboard lie.
+ * resolveExternalSnapshot.
  */
 export function resolveExternalGroupIdentity(
 	snapshots: readonly ServerModelsSnapshot[],
 	declared: readonly DeclaredServerView[],
 	baseUrl: string,
-	sourceHandle: string,
-	isGroupSnapshot: (serverId: string) => boolean
+	sourceHandle: string
 ): { label: string; baseUrl: string } | undefined {
 	const source = resolveExternalSnapshot(snapshots, declared, baseUrl, sourceHandle);
-	if (source === undefined || !isGroupSnapshot(source.status.serverId)) {
+	if (source === undefined) {
 		return undefined;
 	}
 	return { label: source.status.label, baseUrl: source.status.baseUrl };

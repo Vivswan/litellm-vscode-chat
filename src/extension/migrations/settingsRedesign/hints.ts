@@ -46,9 +46,9 @@ function scopedKeyHints(value: unknown, settingId: string): LegacyHint[] {
  * sitting in a global record (they match no model ID under the new grammar),
  * a global headers value no entry could receive, and a parked global
  * headers value (the removed setting also reached servers without a
- * declared entry; adopting the group restores them). Base URLs and header
- * names are user text - the hints are for the local dashboard only and must
- * never reach logs or issue reports.
+ * declared entry; the hint's Apply/Discard controls consume the parked
+ * record). Base URLs and header names are user text - the hints are for the
+ * local dashboard only and must never reach logs or issue reports.
  */
 export function collectLegacyHints(input: LegacyHintInput): LegacyHint[] {
 	const hints = [

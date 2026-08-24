@@ -7,7 +7,6 @@ import type { Logger } from "../../shared/logger";
 import type { AggregatedStatus } from "../../shared/servers";
 import { GITHUB_DOCS_URL } from "../../shared/util/links";
 import type { DashboardController } from "../dashboard/panel";
-import type { ManagementUiMode } from "../servers/serverManagement";
 import { registerManageCommand } from "../servers/serverManagement";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
@@ -148,7 +147,6 @@ export function wireUiCommands(
 	logger: Logger,
 	deps: {
 		registry: ServerRegistry;
-		getManagementUiMode: () => ManagementUiMode;
 		provider: LiteLLMChatModelProvider;
 		statusBar: StatusBarManager;
 		outputChannel: vscode.OutputChannel;
@@ -158,8 +156,8 @@ export function wireUiCommands(
 		vscodeVersion: string;
 	}
 ): void {
-	// The hub's server entry routes by the UI mode (see getManagementUiMode).
-	registerManageCommand(context, deps.registry, logger, deps.getManagementUiMode);
+	// The hub's server entry opens the dashboard's Servers view.
+	registerManageCommand(context);
 
 	registerTestConnectionCommand(context, deps.provider, deps.statusBar, deps.outputChannel, logger);
 

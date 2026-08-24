@@ -43,36 +43,6 @@ suite("extension/servers/serverRegistry", () => {
 			assert.strictEqual(await registry.getApiKey(server.id), "");
 		});
 
-		test("updateServer rewrites label/baseUrl and empty-string api key deletes the secret", async () => {
-			const { registry, secretStore } = createRegistry();
-			const server = await registry.addServer("Original", "http://host:4000", "original-key");
-
-			await registry.updateServer(server.id, "Renamed", "http://other:5000/", "");
-
-			const servers = registry.getServers();
-			assert.strictEqual(servers.length, 1);
-			assert.deepStrictEqual(servers[0], { id: server.id, label: "Renamed", baseUrl: "http://other:5000" });
-			assert.strictEqual(secretStore.has(apiKeySecret(server.id)), false);
-		});
-
-		test("updateServer with undefined api key leaves the stored secret untouched", async () => {
-			const { registry, secretStore } = createRegistry();
-			const server = await registry.addServer("Original", "http://host:4000", "original-key");
-
-			await registry.updateServer(server.id, "Renamed", "http://host:4000", undefined);
-
-			assert.strictEqual(secretStore.get(apiKeySecret(server.id)), "original-key");
-		});
-
-		test("updateServer for an unknown id is a no-op", async () => {
-			const { registry } = createRegistry();
-			const server = await registry.addServer("Original", "http://host:4000", "key");
-
-			await registry.updateServer("missing1", "Ghost", "http://ghost:4000", "ghost-key");
-
-			assert.deepStrictEqual(registry.getServers(), [server]);
-		});
-
 		test("removeServer drops the entry and its secret", async () => {
 			const { registry, secretStore } = createRegistry();
 			const kept = await registry.addServer("Kept", "http://kept:4000", "kept-key");
@@ -114,87 +84,6 @@ suite("extension/servers/serverRegistry", () => {
 			assert.strictEqual(registry.getServers().length, 0);
 			assert.strictEqual(storage.secretStore.size, 0, "The stored secret must be rolled back");
 		});
-
-		test("updateServer stores the key first: a failing key write leaves the entry at its old host", async () => {
-			// The reverse order (entry persist, then key write) left a re-pointed
-			// entry paired with the OLD host's key when the key write failed - the
-			// legacy request path then sent that key to the new host.
-			let failStore = false;
-			const storage = failingStorage(makeExtensionStorage(), {
-				failOn: { secretStore: () => (failStore ? new Error("keychain locked") : undefined) },
-			});
-			const registry = new ServerRegistry(storage.memento, storage.secrets);
-			const server = await registry.addServer("Original", "http://old:4000", "old-key");
-			failStore = true;
-
-			await assert.rejects(
-				registry.updateServer(server.id, "Renamed", "http://new:5000", "new-key"),
-				/keychain locked/
-			);
-
-			assert.deepStrictEqual(registry.getServers(), [server], "the entry must not re-point without its new key");
-			assert.strictEqual(storage.secretStore.get(apiKeySecret(server.id)), "old-key");
-		});
-
-		test("updateServer rolls the staged key back when the entry persist fails", async () => {
-			let failPersist = false;
-			const storage = failingStorage(makeExtensionStorage(), {
-				failOn: { mementoUpdate: () => (failPersist ? new Error("registry write failed") : undefined) },
-			});
-			const registry = new ServerRegistry(storage.memento, storage.secrets);
-			const server = await registry.addServer("Original", "http://old:4000", "old-key");
-			failPersist = true;
-
-			await assert.rejects(
-				registry.updateServer(server.id, "Renamed", "http://new:5000", "new-key"),
-				/registry write failed/
-			);
-
-			assert.deepStrictEqual(registry.getServers(), [server]);
-			assert.strictEqual(
-				storage.secretStore.get(apiKeySecret(server.id)),
-				"old-key",
-				"the staged key is rolled back with the entry"
-			);
-		});
-
-		test("updateServer deletes the key when even the rollback restore fails: missing beats mismatched", async () => {
-			// Persist fails AND restoring the old key fails: leaving the staged NEW
-			// key under the entry (still at its old host) would serve a credential
-			// that belongs elsewhere, so the key is deleted instead - requests 401
-			// and the user re-enters, but no host ever sees another host's key.
-			let failPersist = false;
-			let storesAfterArm = 0;
-			const storage = failingStorage(makeExtensionStorage(), {
-				failOn: {
-					mementoUpdate: () => (failPersist ? new Error("registry write failed") : undefined),
-					// The first armed store is the staged new key (succeeds); the
-					// second is the rollback restore (fails).
-					secretStore: () => {
-						if (!failPersist) {
-							return undefined;
-						}
-						storesAfterArm += 1;
-						return storesAfterArm >= 2 ? new Error("keychain locked") : undefined;
-					},
-				},
-			});
-			const registry = new ServerRegistry(storage.memento, storage.secrets);
-			const server = await registry.addServer("Original", "http://old:4000", "old-key");
-			failPersist = true;
-
-			await assert.rejects(
-				registry.updateServer(server.id, "Renamed", "http://new:5000", "new-key"),
-				/registry write failed/
-			);
-
-			assert.deepStrictEqual(registry.getServers(), [server], "the entry stays at its old host");
-			assert.strictEqual(
-				storage.secretStore.has(apiKeySecret(server.id)),
-				false,
-				"no key at all beats the new host's key under the old host's entry"
-			);
-		});
 	});
 
 	suite("getServers validation", () => {
@@ -206,13 +95,16 @@ suite("extension/servers/serverRegistry", () => {
 
 		test("malformed entries are filtered out", () => {
 			const valid = { id: "srv1", label: "Valid", baseUrl: "http://valid:4000" };
-			const { registry } = createRegistry([
-				valid,
-				null,
-				"nonsense",
-				{ id: "srv2", label: "No baseUrl" },
-				{ id: 42, label: "Bad id type", baseUrl: "http://bad:4000" },
-			]);
+			const { registry } = createRegistry({
+				version: 1,
+				servers: [
+					valid,
+					null,
+					"nonsense",
+					{ id: "srv2", label: "No baseUrl" },
+					{ id: 42, label: "Bad id type", baseUrl: "http://bad:4000" },
+				],
+			});
 
 			assert.deepStrictEqual(registry.getServers(), [valid]);
 		});
@@ -252,17 +144,14 @@ suite("extension/servers/serverRegistry", () => {
 			});
 		});
 
-		test("a pre-versioning bare-array registry is readable and upgraded on write", async () => {
+		test("a bare-array blob is no longer accepted here: the wrap migration owns it", async () => {
+			// Pre-versioning bare arrays are wrapped into { version, servers } by
+			// migrations/bareArrayBlobs.ts BEFORE the registry is constructed; a
+			// bare array reaching this parser is corrupt state and reads empty.
 			const legacyShaped = { id: "srv1", label: "Old", baseUrl: "http://old:4000" };
-			const { registry, mementoStore } = createRegistry([legacyShaped]);
+			const { registry } = createRegistry([legacyShaped]);
 
-			assert.deepStrictEqual(registry.getServers(), [legacyShaped]);
-
-			const added = await registry.addServer("New", "http://new:4000", "");
-			assert.deepStrictEqual(mementoStore.get(SERVER_REGISTRY_KEY), {
-				version: 1,
-				servers: [legacyShaped, added],
-			});
+			assert.deepStrictEqual(registry.getServers(), []);
 		});
 
 		test("a broken persisted version re-enters versioning at 0 instead of freezing adoption", async () => {
@@ -312,19 +201,6 @@ suite("extension/servers/serverRegistry", () => {
 			const again = await registry.addServer("Again", "http://again:4000", "");
 			assert.deepStrictEqual(registry.getServers(), [first, again]);
 			assert.deepStrictEqual(storage.mementoStore.get(SERVER_REGISTRY_KEY), { version: 2, servers: [first, again] });
-		});
-	});
-
-	suite("hasLabel", () => {
-		test("matches existing labels and honors excludeId", async () => {
-			const { registry } = createRegistry();
-			const server = await registry.addServer("Prod", "http://prod:4000", "");
-			await registry.addServer("Staging", "http://staging:4000", "");
-
-			assert.strictEqual(registry.hasLabel("Prod"), true);
-			assert.strictEqual(registry.hasLabel("Missing"), false);
-			assert.strictEqual(registry.hasLabel("Prod", server.id), false);
-			assert.strictEqual(registry.hasLabel("Prod", "some-other-id"), true);
 		});
 	});
 });

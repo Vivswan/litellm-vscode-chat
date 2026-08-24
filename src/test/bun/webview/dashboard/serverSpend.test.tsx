@@ -471,7 +471,6 @@ describe("the drawer", () => {
 						hasOAuth: false,
 						state: "ok",
 						adoptHandle: "handle-abc",
-						hideable: true,
 					},
 				]}
 				now={NOW}

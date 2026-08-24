@@ -42,7 +42,7 @@ import type { FeedbackUrl } from "./feedbackLinks";
 import { FEEDBACK_LINK_FEATURE_REQUEST, FEEDBACK_LINK_RATE, FEEDBACK_LINK_REPOSITORY } from "./feedbackLinks";
 import { DocsLink, HoverTip } from "./help";
 import { helpConfigDiagnosticsSection, helpDiagnosticsTools, helpResolutionSection } from "./helpText";
-import { useRpc } from "./hooks";
+import { useIntentOutcome, useRpc } from "./hooks";
 import {
 	IconBook,
 	IconBug,
@@ -69,6 +69,7 @@ import { AbsentDatum } from "./ui/absent";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Section } from "./ui/section";
+import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
 /**
@@ -119,6 +120,8 @@ interface ConfigProblem {
 	/** The parser's structural report, when there is one. English by policy - it also rides the copyable block. */
 	readonly detail?: string | undefined;
 	readonly actions: readonly DiagnosticAction[];
+	/** The parked-headers hint alone: the row renders the Apply/Discard recovery controls. */
+	readonly parkedHeaders?: true | undefined;
 }
 
 /**
@@ -188,7 +191,7 @@ function problemSeverity(diagnostic: PageConfigDiagnostic): DiagnosticSeverity {
 			return cappedSeverity(diagnostic.severity, diagnostic.misconfigured ? "blocking" : "degraded");
 		case "legacy":
 			// A parked-headers leftover still has a live route back: the headers
-			// are held, and adopting the external group delivers them. The other
+			// are held until the row's Apply or Discard resolves them. The other
 			// two hold values that reach nothing and have nowhere to go.
 			return cappedSeverity(diagnostic.severity, diagnostic.hint === "parked-global-headers" ? "degraded" : "blocking");
 		case "thresholds":
@@ -289,11 +292,12 @@ function legacyProblemText(diagnostic: Extract<ConfigDiagnosticView, { kind: "le
 		case "inert-global-headers":
 			return l10n.t("No server sends these headers: the setting that held them was removed.");
 		case "parked-global-headers":
-			// Consequence first, one negative: the old wording ("provider groups
-			// without a server entry no longer get the removed global headers")
-			// stacked a negative subject, a temporal claim, and a
-			// self-contradicting noun phrase.
-			return l10n.t("Externally managed provider groups no longer send the global headers ({0}).", diagnostic.detail);
+			// Consequence first; the Apply/Discard controls beside the row are
+			// the remedy, so the sentence only has to name what is parked.
+			return l10n.t(
+				"Headers from the removed global headers setting ({0}) are parked and sent nowhere.",
+				diagnostic.detail
+			);
 	}
 }
 
@@ -377,27 +381,37 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 				],
 			};
 		}
-		case "legacy":
+		case "legacy": {
+			// The parked-headers hint is a recovery flow, not a pointer: its row
+			// carries the Apply/Discard controls that consume the parked record,
+			// so the reveal action would only distract from the decision.
+			const parked = diagnostic.hint === "parked-global-headers";
 			return {
 				// The same leftover key can sit in BOTH record settings, and the
 				// two hints differ only in which one; without `detail` they share a
 				// key and React drops one of the blocks.
 				key: `legacy:${diagnostic.hint}:${diagnostic.oldKey}:${diagnostic.detail}`,
 				// A parked-headers leftover still has a live route back: the headers
-				// are held, and adopting the external group delivers them. The other
-				// two hold values that reach nothing and have nowhere to go.
+				// are held until Apply or Discard resolves them. The other two hold
+				// values that reach nothing and have nowhere to go.
 				severity: problemSeverity(diagnostic),
 				headline: legacyProblemText(diagnostic),
 				where: diagnostic.hint === "inert-url-scoped-key" ? [diagnostic.detail] : [diagnostic.oldKey],
 				actions: [
-					{
-						kind: "reveal",
-						setting: diagnostic.hint === "inert-url-scoped-key" ? revealTarget(diagnostic.detail) : "servers",
-						subject: diagnostic.oldKey,
-					},
+					...(parked
+						? []
+						: [
+								{
+									kind: "reveal",
+									setting: diagnostic.hint === "inert-url-scoped-key" ? revealTarget(diagnostic.detail) : "servers",
+									subject: diagnostic.oldKey,
+								} as const,
+							]),
 					docsAction(DOCS_LINK_SETTINGS_MIGRATION, l10n.t("the settings-migration guide")),
 				],
+				...(parked ? { parkedHeaders: true as const } : {}),
 			};
+		}
 		case "thresholds":
 			return {
 				key: "thresholds",
@@ -416,11 +430,71 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 }
 
 /**
+ * The parked-headers hint's recovery controls: Apply merges the parked record
+ * into the picked declared entry (extension-side; the values never enter this
+ * bundle), Discard deletes it. Either way the hint's diagnostic leaves the next
+ * push, so these controls are the flow's whole surface. A failed intent stands
+ * inline until the next attempt.
+ */
+function ParkedHeadersControls({ declaredLabels }: { declaredLabels: readonly string[] }) {
+	const intent = useIntentOutcome("resolveParkedHeaders");
+	const [target, setTarget] = useState("");
+	const selected = declaredLabels.includes(target) ? target : (declaredLabels[0] ?? "");
+	return (
+		<>
+			{declaredLabels.length > 0 ? (
+				<>
+					<Select
+						aria-label={l10n.t("Server entry to apply the parked headers to")}
+						value={selected}
+						onChange={(event) => setTarget(event.currentTarget.value)}
+					>
+						{declaredLabels.map((label) => (
+							<option key={label} value={label}>
+								{label}
+							</option>
+						))}
+					</Select>
+					<Button
+						variant="secondary"
+						size="compact"
+						aria-label={l10n.t("Apply parked headers to {0}", selected)}
+						onClick={() => intent.send({ action: "apply", label: selected })}
+					>
+						{l10n.t("Apply to entry")}
+					</Button>
+				</>
+			) : (
+				// No declared entry to apply onto: the choice narrows to Discard, and
+				// the sentence says why the apply half is missing.
+				<span className="hint">{l10n.t("Add a server entry to apply them, or discard them.")}</span>
+			)}
+			<Button
+				variant="danger"
+				size="compact"
+				aria-label={l10n.t("Discard parked headers")}
+				onClick={() => intent.send({ action: "discard" })}
+			>
+				{l10n.t("Discard")}
+			</Button>
+			{intent.outcome?.result === "fail" ? (
+				// Keyed by seq so a repeat remounts and re-announces (see PaneFailureLine).
+				// basis-full drops the line onto its own flex row: mounting it must not
+				// re-center the controls beside it (the geometry pair pins this).
+				<p key={intent.outcome.seq} className="error basis-full" role="alert">
+					{intent.outcome.message}
+				</p>
+			) : null}
+		</>
+	);
+}
+
+/**
  * One problem, through the one band pipeline: severity is one vocabulary, and a second
  * renderer spelling its own tiers is exactly the drift ProblemBand exists to prevent.
  * This page's location badges and reveal actions ride the band's slots.
  */
-function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
+function ConfigProblemLine({ problem, declaredLabels }: { problem: ConfigProblem; declaredLabels: readonly string[] }) {
 	return (
 		<ProblemBand
 			as="li"
@@ -444,8 +518,9 @@ function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
 			}
 			details={problem.detail !== undefined ? [problem.detail] : undefined}
 			actions={
-				problem.actions.length > 0 ? (
+				problem.actions.length > 0 || problem.parkedHeaders === true ? (
 					<div className="row-diagnostic-actions">
+						{problem.parkedHeaders === true ? <ParkedHeadersControls declaredLabels={declaredLabels} /> : null}
 						{problem.actions.map((action) =>
 							action.kind === "reveal" ? (
 								// The verb is REVEAL, never rewrite: it opens the file at the
@@ -476,7 +551,14 @@ function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
  * The configuration problems, worst first. Always present as a section - sections do
  * not appear and disappear under the reader - with the clean state saying so in words.
  */
-function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagnosticView[] }) {
+function ConfigDiagnostics({
+	diagnostics,
+	declaredLabels,
+}: {
+	diagnostics: readonly ConfigDiagnosticView[];
+	/** The declared entries' labels, for the parked-headers Apply target picker. */
+	declaredLabels: readonly string[];
+}) {
 	const problems = pageConfigDiagnostics(diagnostics)
 		.map(configProblem)
 		.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
@@ -514,7 +596,7 @@ function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagno
 			) : (
 				<ul className="config-diagnostics">
 					{problems.map((problem) => (
-						<ConfigProblemLine key={problem.key} problem={problem} />
+						<ConfigProblemLine key={problem.key} problem={problem} declaredLabels={declaredLabels} />
 					))}
 				</ul>
 			)}
@@ -1023,20 +1105,16 @@ function withEnglishError(server: DashboardServer): DashboardServer {
 function diagnosticsReportText(
 	servers: readonly DashboardServer[],
 	modelCount: number,
-	legacyServerCount: number,
 	hiddenGroupCount: number,
 	diagnostics: readonly ConfigDiagnosticView[]
 ): string {
 	const copyServers = servers.map(withEnglishError);
 	const checkedMs = latestCheckedMs(copyServers);
 	const lines = [
-		overallStatusText(copyServers, modelCount, { legacyServerCount, hiddenGroupCount }),
+		overallStatusText(copyServers, modelCount, { hiddenGroupCount }),
 		`Servers configured: ${copyServers.length}`,
 		`Last checked: ${checkedMs === undefined ? "Never" : new Date(checkedMs).toISOString()}`,
 	];
-	if (legacyServerCount > 0) {
-		lines.push(`Legacy registry servers: ${legacyServerCount}`);
-	}
 	for (const server of copyServers) {
 		lines.push(`${server.label} (${displayUrl(server.baseUrl)}): ${serverOutcomeText(server)}`);
 	}
@@ -1082,13 +1160,11 @@ function LinkRow({ href, icon, label }: { href: FeedbackUrl | DocsUrl; icon: Rea
 function DiagnosticsTools({
 	servers,
 	modelCount,
-	legacyServerCount,
 	hiddenGroupCount,
 	diagnostics,
 }: {
 	servers: readonly DashboardServer[];
 	modelCount: number;
-	legacyServerCount: number;
 	/** How many provider groups an explicit removal hides (state.hiddenGroups); the report's verdict and count read it. */
 	hiddenGroupCount: number;
 	/** Copied alongside the connection facts; the page's subject rides its own report. */
@@ -1111,7 +1187,7 @@ function DiagnosticsTools({
 	}, [copiedAt]);
 	const copyDiagnostics = () => {
 		navigator.clipboard
-			?.writeText(diagnosticsReportText(servers, modelCount, legacyServerCount, hiddenGroupCount, diagnostics))
+			?.writeText(diagnosticsReportText(servers, modelCount, hiddenGroupCount, diagnostics))
 			.catch(() => {});
 		setCopiedAt((current) => current + 1);
 	};
@@ -1122,9 +1198,8 @@ function DiagnosticsTools({
 				{/* Primary rank for all four tools: they ARE the page's content, with nothing louder
 				    to rank under - the same promotion the settings transfer section makes. */}
 				<Button
-					// Registry-only installs get no offer to test: the legacy registry's
-					// serving path retires with this release train, so with no server
-					// rows there is nothing a connection test could durably reach.
+					// No servers means nothing a connection test could reach; the
+					// disabled state says the fix is adding a server, not testing.
 					disabled={servers.length === 0}
 					onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
 				>
@@ -1171,7 +1246,6 @@ function Support() {
 export function DiagnosticsSection({
 	servers,
 	modelCount,
-	legacyServerCount,
 	hiddenGroupCount,
 	diagnostics,
 	active,
@@ -1181,7 +1255,6 @@ export function DiagnosticsSection({
 }: {
 	servers: readonly DashboardServer[];
 	modelCount: number;
-	legacyServerCount: number;
 	/** How many provider groups an explicit removal hides (state.hiddenGroups.length); Copy diagnostics reads it. */
 	hiddenGroupCount: number;
 	diagnostics: readonly ConfigDiagnosticView[];
@@ -1209,12 +1282,14 @@ export function DiagnosticsSection({
 			<DiagnosticsTools
 				servers={servers}
 				modelCount={modelCount}
-				legacyServerCount={legacyServerCount}
 				hiddenGroupCount={hiddenGroupCount}
 				diagnostics={diagnostics}
 			/>
 			<Support />
-			<ConfigDiagnostics diagnostics={diagnostics} />
+			<ConfigDiagnostics
+				diagnostics={diagnostics}
+				declaredLabels={servers.filter((server) => server.origin === "declared").map((server) => server.label)}
+			/>
 			<ResolvedModels active={active} stateSeq={stateSeq} currencySymbol={currencySymbol} onInspect={onInspect} />
 		</Section>
 	);

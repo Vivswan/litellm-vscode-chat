@@ -136,8 +136,7 @@ function checkedAtMs(lastChecked: string | undefined): number | undefined {
 function buildServer(
 	snapshot: ServerModelsSnapshot,
 	label: string,
-	provenance: ExternalServerProvenance | undefined,
-	hideable: boolean
+	provenance: ExternalServerProvenance | undefined
 ): DashboardServer {
 	const { status } = snapshot;
 	const base = {
@@ -151,7 +150,6 @@ function buildServer(
 		hasOAuth: status.hasOAuth === true,
 		origin: "external",
 		adoptHandle: adoptSourceHandle(status.serverId),
-		hideable,
 		...(provenance !== undefined ? { provenance } : {}),
 		...(snapshot.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: snapshot.observedModelInfoKeys } : {}),
 	} as const;
@@ -339,19 +337,15 @@ function buildServers(
 	labeled: readonly LabeledSnapshot[],
 	declaredInput: DeclaredServersInput,
 	entryReports: readonly ServerEntryReport[],
-	removedGroups: RemovedGroupsView,
-	isGroupSnapshot: (serverId: string) => boolean
+	removedGroups: RemovedGroupsView
 ): { servers: DashboardServer[]; snapshotLabels: string[][] } {
 	const declared = declaredInput.views;
 	const { matchedByDeclared, unmatched } = joinDeclared(labeled, declared);
 	// The removal bookkeeping is keyed by the snapshot's own status label (never
 	// the display label, which can carry a collision ordinal) plus the
-	// normalized base URL. Only EXTERNAL, GROUP-BACKED rows are ever suppressed:
-	// a declared entry matching a tombstone clears it engine-side, and a
-	// legacy-registry row has no group a tombstone silences - it would keep
-	// serving its models, so hiding it here would lie.
+	// normalized base URL. Only EXTERNAL rows are ever suppressed: a declared
+	// entry matching a tombstone clears it engine-side.
 	const isTombstoned = (snapshot: ServerModelsSnapshot) =>
-		isGroupSnapshot(snapshot.status.serverId) &&
 		removedGroups.tombstones.some(
 			(identity) =>
 				identity.label === snapshot.status.label &&
@@ -472,14 +466,7 @@ function buildServers(
 			hidden.add(entry);
 			continue;
 		}
-		servers.push(
-			buildServer(
-				entry.snapshot,
-				entry.label,
-				originFor(entry.snapshot),
-				isGroupSnapshot(entry.snapshot.status.serverId)
-			)
-		);
+		servers.push(buildServer(entry.snapshot, entry.label, originFor(entry.snapshot)));
 	}
 	// Entries the parser refused whole still render as rows: they sit in the
 	// setting, and a silently missing row would read as a removal.
@@ -750,24 +737,11 @@ function languageFilterLossy(raw: unknown, filter: InlineLanguageFilter): boolea
 }
 
 /**
- * Legacy-registry servers with no server row of their own: after a sweep a
- * registry server can also surface as an external snapshot row (same base
- * URL), and the same server must never be stated twice.
- */
-function countUnlistedLegacyServers(
-	servers: readonly DashboardServer[],
-	legacyServers: readonly { readonly baseUrl: string }[]
-): number {
-	const shown = new Set(servers.map((server) => normalizeBaseUrl(server.baseUrl)));
-	return legacyServers.filter((server) => !shown.has(normalizeBaseUrl(server.baseUrl))).length;
-}
-
-/**
  * What the request path would resolve for one server's requests, as panel.ts
  * resolves it: the group's label paired with the declared entry's own
  * modelParameters, through the SAME resolver chat requests use. Undefined for
- * unlabeled groups, legacy-registry snapshots, and labels no declared entry
- * matches at that URL - exactly the requests that get only the global setting.
+ * unlabeled groups and labels no declared entry matches at that URL - exactly
+ * the requests that get only the global setting.
  */
 export type EntryParametersResolution = {
 	readonly entryLabel: string;
@@ -787,15 +761,7 @@ export interface DashboardStateInputs {
 	readonly declared?: DeclaredServersInput;
 	/** The per-entry acceptance reports (serverSettingReports); drives the Misconfigured rows. */
 	readonly entryReports?: readonly ServerEntryReport[];
-	/** The legacy registry's servers, reduced to base URLs; see DashboardState.legacyServerCount. */
-	readonly legacyServers?: readonly { readonly baseUrl: string }[];
 	readonly removedGroups?: RemovedGroupsView;
-	/**
-	 * Whether a snapshot belongs to a provider group (vs the legacy registry);
-	 * gates tombstone suppression and the external rows' hideable flag. The
-	 * default treats everything as a group.
-	 */
-	readonly isGroupSnapshot?: (serverId: string) => boolean;
 	/**
 	 * Whether a tombstoned identity's group was observed alive at some point
 	 * this session (suppressed groups still report, deleted groups never do).
@@ -885,9 +851,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 		reader,
 		declared = { source: "engine", views: [] },
 		entryReports = [],
-		legacyServers = [],
 		removedGroups = NO_REMOVED_GROUPS,
-		isGroupSnapshot = () => true,
 		wasGroupObserved = () => true,
 		catalog = EMPTY_CATALOG_STATUS,
 		usage = EMPTY_USAGE_VIEW,
@@ -895,7 +859,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 		featureProbes = [],
 	} = inputs;
 	const labeled = labeledSnapshots(snapshots);
-	const { servers, snapshotLabels } = buildServers(labeled, declared, entryReports, removedGroups, isGroupSnapshot);
+	const { servers, snapshotLabels } = buildServers(labeled, declared, entryReports, removedGroups);
 	// See visibleHiddenGroups for why this renders from the tombstones, not from
 	// live snapshots.
 	const hiddenGroups = visibleHiddenGroups(removedGroups, wasGroupObserved);
@@ -925,7 +889,6 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 		featureProbes,
 		usage,
 		diagnostics,
-		legacyServerCount: countUnlistedLegacyServers(servers, legacyServers),
 	};
 }
 

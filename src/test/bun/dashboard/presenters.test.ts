@@ -97,16 +97,6 @@ describe("dashboard/presenters renderers", () => {
 			);
 		});
 
-		test("a legacy-only registry names the registry instead of a not-configured claim", () => {
-			assert.strictEqual(overallStatusText([], 0, { legacyServerCount: 1 }), "Legacy registry only (1 server)");
-			assert.strictEqual(overallStatusText([], 0, { legacyServerCount: 2 }), "Legacy registry only (2 servers)");
-		});
-
-		test("legacy leftovers never override a configured verdict", () => {
-			const servers = [declaredServer({ state: "ok", servedModelCount: 3 })];
-			assert.strictEqual(overallStatusText(servers, 3, { legacyServerCount: 2 }), "Connected (3 models)");
-		});
-
 		test("every server reachable reads as connected with the model count", () => {
 			const servers = [
 				declaredServer({ servedModelCount: 4 }),

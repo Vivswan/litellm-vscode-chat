@@ -137,7 +137,6 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 				reader: EMPTY_READER,
 				declared: { source: "engine", views: declaredViews(row) },
 				entryReports: rejects,
-				isGroupSnapshot: () => true,
 				removedGroups: {
 					tombstones: row.window
 						.filter(isHiddenGroupServerStatus)

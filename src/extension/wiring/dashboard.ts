@@ -19,7 +19,6 @@ import type { DashboardController } from "../dashboard/panel";
 import { registerDashboardCommand } from "../dashboard/panel";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
-import type { ServerRegistry } from "../servers/serverRegistry";
 import type { ServerSyncEngine } from "../servers/serverSync";
 import { readEntryModelCapabilities } from "../servers/serverSync";
 import type { UsagePoller } from "../servers/usage";
@@ -33,8 +32,7 @@ const USAGE_POLLING_OFF_WINDOW_SETTING_ID = "usage.pollingOffFreshnessWindow" sa
 
 /**
  * The dashboard panel controller and its commands. Also registers
- * litellm.showDiagnostics, which deep-links to the Diagnostics tab; the
- * dashboard states the legacy registry's leftovers, hence the registry dep.
+ * litellm.showDiagnostics, which deep-links to the Diagnostics tab.
  */
 export function wireDashboard(
 	context: vscode.ExtensionContext,
@@ -42,7 +40,6 @@ export function wireDashboard(
 	deps: {
 		provider: LiteLLMChatModelProvider;
 		syncEngine: ServerSyncEngine;
-		registry: ServerRegistry;
 		groupRemovals: GroupRemovalStore;
 		catalogStore: OpenRouterCatalogStore;
 		usagePoller: UsagePoller;
@@ -56,7 +53,6 @@ export function wireDashboard(
 		provider: deps.provider,
 		logger,
 		syncEngine: deps.syncEngine,
-		registry: deps.registry,
 		removals: deps.groupRemovals,
 		catalog: deps.catalogStore,
 		usagePoller: deps.usagePoller,

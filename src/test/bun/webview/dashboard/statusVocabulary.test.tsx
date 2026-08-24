@@ -64,7 +64,7 @@ test("the hero reads each window state with the table's word and tone", () => {
 		// The counts the production shell passes: the merged served count (the
 		// table's totalModels pins it to the builder's servedModelCount) and the
 		// hidden-groups count.
-		const hero = overallState(row.rows, 0, row.totalModels, hiddenGroupCount);
+		const hero = overallState(row.rows, row.totalModels, hiddenGroupCount);
 		expect(hero.word, `${row.name}: hero word`).toBe(row.expect.hero.word);
 		expect(hero.tone, `${row.name}: hero tone`).toBe(row.expect.hero.tone);
 	}

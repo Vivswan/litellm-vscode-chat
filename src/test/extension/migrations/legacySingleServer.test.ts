@@ -241,7 +241,13 @@ suite("extension/migrations/legacySingleServer", () => {
 			broken = false;
 
 			const imported = expectDefined(ctx.registry.getServers()[0]);
-			await ctx.registry.updateServer(imported.id, "My proxy", "http://legacy:4000", undefined);
+			// The imported entry's label can drift (another window, settings sync,
+			// an earlier version's edit surface); detection must key on the base
+			// URL, so rename the entry directly in the stored blob.
+			storage.mementoStore.set(SERVER_REGISTRY_KEY, {
+				version: 99,
+				servers: [{ id: imported.id, label: "My proxy", baseUrl: "http://legacy:4000" }],
+			});
 
 			const { ctx: retryCtx } = makeContext(storage);
 			assert.strictEqual(await legacySingleServerMigration.run(retryCtx), "migrated");

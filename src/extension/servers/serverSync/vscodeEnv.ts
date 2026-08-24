@@ -8,7 +8,7 @@ import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { CMD, INTERNAL_CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
-import { SERVERS_SETTING_KEY } from "../../../shared/config/settings";
+import { getMaskSecretInputs, SERVERS_SETTING_KEY } from "../../../shared/config/settings";
 import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
 import type { Logger } from "../../../shared/logger";
 import type { ExpectedFailureCategory, SecretFieldId } from "../../../shared/serverEntry";
@@ -388,7 +388,9 @@ export function registerSetServerSecretCommand(
 				prompt: l10n.t(
 					"Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value."
 				),
-				password: true,
+				// The one host-side secret prompt left; it honors the same
+				// ui.maskSecretInputs setting the dashboard's secret inputs read.
+				password: getMaskSecretInputs(),
 			});
 			if (value === undefined) {
 				return;

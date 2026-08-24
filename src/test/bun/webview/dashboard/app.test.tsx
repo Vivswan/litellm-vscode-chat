@@ -333,20 +333,6 @@ test("the rail carries one quiet Report-a-bug action that posts the reportIssue 
 	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "reportIssue" } }]);
 });
 
-test("with only legacy-registry servers the rail says so instead of claiming not configured", () => {
-	// The Diagnostics tab's verdict treats the legacy registry as real
-	// configuration (overallStatusText); the rail mirrors that rule, so the
-	// rail and the tab can never disagree about the same install.
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState({ legacyServerCount: 2 })));
-	const pill = root.querySelector(".rail-status");
-	expect(pill?.textContent).toContain("Legacy registry only");
-	expect(pill?.classList.contains("tone-muted")).toBe(true);
-
-	pushToWebview(statePush(makeState()));
-	expect(root.querySelector(".rail-status")?.textContent).toContain("Not configured");
-});
-
 test("the Diagnostics table's inspector opens in place over the tab and closing stays there", () => {
 	// The inspector is an App-level overlay: opening it from the Resolved-models
 	// table must not switch to the overview tab, and closing it must leave the

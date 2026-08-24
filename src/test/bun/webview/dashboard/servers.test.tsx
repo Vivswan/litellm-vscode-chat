@@ -703,10 +703,10 @@ test("removing an external row is two-step and posts hideExternalServer with the
 	expect(typeof posted.id).toBe("string");
 });
 
-test("a non-hideable external row (legacy registry) offers Edit only, no Remove", () => {
-	const root = mountShell([makeExternalServer({ hideable: false })]);
+test("every external row offers Remove: the registry-only Edit carve-out retired with the registry", () => {
+	const root = mountShell([makeExternalServer()]);
 	const actions = [...root.querySelectorAll(".server-actions button")].map((el) => el.textContent?.trim());
-	expect(actions).toEqual(["Edit"]);
+	expect(actions).toEqual(["Edit", "Remove"]);
 });
 
 test("the hide ack raises the guidance notice naming the group, with the models-file action", () => {

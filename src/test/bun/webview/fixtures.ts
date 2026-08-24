@@ -147,7 +147,6 @@ export function makeExternalServer(overrides: ServerOverrides<ExternalServer> = 
 		hasOAuth: false,
 		state: "ok",
 		adoptHandle: "handle-abc123",
-		hideable: true,
 	};
 	return { ...base, ...overrides } as ExternalServer;
 }
@@ -185,7 +184,6 @@ export function makeState(overrides: Partial<DashboardState> = {}): DashboardSta
 		featureProbes: ["inlineCompletions"],
 		usage: makeUsage(),
 		diagnostics: [],
-		legacyServerCount: 0,
 		...overrides,
 	};
 }

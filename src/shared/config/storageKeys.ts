@@ -3,7 +3,11 @@
  * Memento keys live in globalState; secret keys live in SecretStorage.
  */
 
-/** globalState: the ServerConfig[] server registry. */
+/**
+ * globalState: the retired legacy ServerConfig[] server registry, as a
+ * versioned { version, servers } blob. Nothing serves or edits it; it survives
+ * as the provider-group migration's read source until that migration drains it.
+ */
 export const SERVER_REGISTRY_KEY = "litellm.serverRegistry";
 
 /** globalState: set once the first-run welcome message has been shown. */
@@ -34,10 +38,11 @@ export const GROUP_MIGRATION_COMPLETE_KEY = "litellm.groupMigrationComplete";
 export const SEEDED_PROVIDER_GROUPS_KEY = "litellm.seededProviderGroups";
 
 /**
- * globalState: registry server IDs the migration must leave alone: their
- * group's configuration could not be verified (a name collision or an edit
- * that raced the seeding), so removing the entry could destroy the only
- * correct copy. The user resolves them manually.
+ * globalState: registry server IDs an earlier version parked for manual
+ * review (a name collision or an edit that raced the seeding). The migration
+ * now retires such stragglers - one notice, then removal - so this key only
+ * marks entries whose retire pass has not succeeded yet; it empties as they
+ * resolve and is cleared at finalization.
  */
 export const SKIPPED_MIGRATION_SERVERS_KEY = "litellm.skippedMigrationServers";
 
@@ -90,10 +95,10 @@ export const OPENROUTER_CATALOG_METADATA_KEY = "litellm.openRouterCatalogMetadat
 
 /**
  * globalState: the removed global `headers` setting's last value, parked by
- * the settings-redesign migration when it deletes the key. The old setting
- * reached servers without a declared entry, which the redesigned per-entry
- * headers cannot express, so the parked copy keeps that loss recoverable.
- * Written at most once and never overwritten.
+ * the settings-redesign migration when it deletes the key (written at most
+ * once, never overwritten). Consumable: the dashboard's parked-headers hint
+ * offers Apply (merge onto a declared entry through the normal servers-setting
+ * write) and Discard, and both delete this record.
  */
 export const PARKED_GLOBAL_HEADERS_KEY = "litellm.parkedGlobalHeaders";
 

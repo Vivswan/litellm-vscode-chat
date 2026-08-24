@@ -43,7 +43,7 @@ import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { FEATURE_MODEL_IDS } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { recordFromKeys } from "../../../shared/util/json";
-import { assertOmits, makeModelInfo } from "../../pureHelpers";
+import { makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
 import {
 	displayedReplace,
@@ -99,17 +99,13 @@ function buildState(
 	snapshots: DashboardStateInputs["snapshots"],
 	reader: SettingsReader,
 	declared?: readonly DeclaredServerView[],
-	legacyServers?: DashboardStateInputs["legacyServers"],
-	removedGroups?: DashboardStateInputs["removedGroups"],
-	isGroupSnapshot?: DashboardStateInputs["isGroupSnapshot"]
+	removedGroups?: DashboardStateInputs["removedGroups"]
 ) {
 	return buildDashboardState({
 		snapshots,
 		reader,
 		...(declared !== undefined ? { declared: { source: "engine", views: declared } } : {}),
-		...(legacyServers !== undefined ? { legacyServers } : {}),
 		...(removedGroups !== undefined ? { removedGroups } : {}),
-		...(isGroupSnapshot !== undefined ? { isGroupSnapshot } : {}),
 	});
 }
 
@@ -290,30 +286,6 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(synced.servers[0]?.error, "sync failed");
 			const syncedRow = synced.servers[0];
 			assert.ok(syncedRow !== undefined && !("classification" in syncedRow));
-		});
-
-		test("legacy registry servers with no row of their own are counted, never listed", () => {
-			const state = buildState(
-				[{ status: makeServerStatus(), models: [] }],
-				makeReader({}),
-				[],
-				[
-					{ baseUrl: "http://old.test" },
-					// The same host the snapshot row shows (modulo the trailing
-					// slash): already stated once, so it must not count again.
-					{ baseUrl: "http://prod.test/" },
-				]
-			);
-
-			assert.strictEqual(state.legacyServerCount, 1);
-			assertOmits(JSON.stringify(state.servers), "old.test", "legacy servers contribute no row");
-		});
-
-		test("a declared row also shadows its legacy twin; without legacy input the count is zero", () => {
-			const shadowed = buildState([], makeReader({}), [makeDeclared()], [{ baseUrl: "http://prod.test" }]);
-			assert.strictEqual(shadowed.legacyServerCount, 0);
-
-			assert.strictEqual(buildState([], makeReader({})).legacyServerCount, 0);
 		});
 
 		test("a down server's retained models list under its erroring row without a per-model stale marker", () => {
@@ -1378,7 +1350,6 @@ suite("extension/dashboard/state", () => {
 				],
 				makeReader({}),
 				[],
-				[],
 				{ tombstones: [{ label: "Prod", baseUrl: "http://prod.test" }], origins: [] }
 			);
 
@@ -1416,7 +1387,6 @@ suite("extension/dashboard/state", () => {
 				],
 				makeReader({}),
 				[],
-				[],
 				{ tombstones: [{ label: "Dup", baseUrl: "http://b.test" }], origins: [] }
 			);
 
@@ -1439,7 +1409,6 @@ suite("extension/dashboard/state", () => {
 				],
 				makeReader({}),
 				[makeDeclared()],
-				[],
 				{ tombstones: [{ label: "Prod", baseUrl: "http://prod.test" }], origins: [] }
 			);
 
@@ -1448,7 +1417,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("hidden groups persist without a live snapshot, so unhide stays offered", () => {
-			const state = buildState([], makeReader({}), [], [], {
+			const state = buildState([], makeReader({}), [], {
 				tombstones: [{ label: "Gone", baseUrl: "http://gone.test" }],
 				origins: [],
 			});
@@ -1478,40 +1447,24 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Seen", baseUrl: "http://seen.test" }]);
 		});
 
-		test("a registry-backed snapshot is never suppressed and its row is not hideable", () => {
-			// In test mode (and pre-migration) the legacy registry contributes
-			// external-looking rows whose models the registry sweep keeps serving,
-			// so a tombstone must not hide them and the row offers no Remove.
+		test("every external snapshot is tombstone-suppressible: the registry serving path is gone", () => {
+			// Every status-window snapshot is group-backed by construction now, so
+			// a tombstone matching an external row's identity always hides it.
 			const state = buildState(
 				[
 					{
-						status: makeServerStatus({ serverId: "registry-1", label: "Legacy", baseUrl: "http://legacy.test" }),
+						status: makeServerStatus({ serverId: "g-legacy", label: "Legacy", baseUrl: "http://legacy.test" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 				],
 				makeReader({}),
 				[],
-				[],
-				{ tombstones: [{ label: "Legacy", baseUrl: "http://legacy.test" }], origins: [] },
-				() => false
+				{ tombstones: [{ label: "Legacy", baseUrl: "http://legacy.test" }], origins: [] }
 			);
 
-			assert.strictEqual(state.servers.length, 1, "the registry row stays visible");
-			assert.strictEqual(state.servers[0]?.hideable, false);
-			assert.strictEqual(state.models.length, 1, "its models stay listed");
-			assert.deepStrictEqual(
-				state.hiddenGroups,
-				[{ label: "Legacy", baseUrl: "http://legacy.test" }],
-				"the stale tombstone still lists, so it stays unhideable-away"
-			);
-		});
-
-		test("group-backed external rows are hideable by default", () => {
-			const state = buildState(
-				[{ status: makeServerStatus({ serverId: "g1", label: "Prod" }), models: [] }],
-				makeReader({})
-			);
-			assert.strictEqual(state.servers[0]?.hideable, true);
+			assert.strictEqual(state.servers.length, 0, "the tombstoned row leaves the table");
+			assert.strictEqual(state.models.length, 0, "its models leave with it");
+			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Legacy", baseUrl: "http://legacy.test" }]);
 		});
 
 		test("external rows carry their recorded provenance; unrecorded rows carry none", () => {
@@ -1527,7 +1480,6 @@ suite("extension/dashboard/state", () => {
 					},
 				],
 				makeReader({}),
-				[],
 				[],
 				{
 					tombstones: [],
@@ -1682,7 +1634,7 @@ suite("extension/dashboard/state", () => {
 					models: [makeModelInfo({ id: "m2", name: "m2" })],
 				},
 			];
-			const state = buildState(snapshots, makeReader({}), [], [], {
+			const state = buildState(snapshots, makeReader({}), [], {
 				tombstones: [{ label: "Hidden", baseUrl: "http://hidden.test" }],
 				origins: [],
 			});
@@ -3694,17 +3646,16 @@ suite("extension/dashboard/state", () => {
 
 		test("resolveExternalGroupIdentity yields the raw status identity, under the same trust rules", () => {
 			const snapshots = [snapshotFor("group:aaa:http://ext.test"), snapshotFor("group:bbb:http://ext.test")];
-			const isGroup = (serverId: string) => groupServers.has(serverId);
 			// Both ordinal rows resolve to the same raw status identity: the
 			// tombstone is keyed by the snapshot's own label, never the display
 			// ordinal.
 			const handle = handleOf(snapshots, [], "ext.test (1)");
-			assert.deepStrictEqual(resolveExternalGroupIdentity(snapshots, [], "http://ext.test", handle, isGroup), {
+			assert.deepStrictEqual(resolveExternalGroupIdentity(snapshots, [], "http://ext.test", handle), {
 				label: "ext.test",
 				baseUrl: "http://ext.test",
 			});
 			assert.strictEqual(
-				resolveExternalGroupIdentity(snapshots, [], "http://attacker.test", handle, isGroup),
+				resolveExternalGroupIdentity(snapshots, [], "http://attacker.test", handle),
 				undefined,
 				"bound to the intent's base URL like the adopt path"
 			);
@@ -3712,28 +3663,9 @@ suite("extension/dashboard/state", () => {
 				makeDeclared({ label: "Prod", baseUrl: "http://ext.test", expectedClientId: "group:aaa:http://ext.test" }),
 			];
 			assert.strictEqual(
-				resolveExternalGroupIdentity(snapshots, declared, "http://ext.test", handle, isGroup),
+				resolveExternalGroupIdentity(snapshots, declared, "http://ext.test", handle),
 				undefined,
 				"a declared group's identity must not resolve for a hide intent"
-			);
-		});
-
-		test("resolveExternalGroupIdentity refuses registry-backed snapshots: there is no group to silence", () => {
-			const registryOnly = [
-				{
-					status: makeServerStatus({ serverId: "registry-1", label: "ext.test", baseUrl: "http://ext.test" }),
-					models: [],
-				},
-			];
-			assert.strictEqual(
-				resolveExternalGroupIdentity(
-					registryOnly,
-					[],
-					"http://ext.test",
-					handleOf(registryOnly, [], "ext.test"),
-					() => false
-				),
-				undefined
 			);
 		});
 	});

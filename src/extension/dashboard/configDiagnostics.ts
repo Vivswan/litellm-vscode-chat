@@ -32,8 +32,6 @@ export interface ConfigDiagnosticsInput {
 	readonly reader: SettingsReader;
 	/** The PARKED_GLOBAL_HEADERS_KEY globalState value, when present. */
 	readonly parkedGlobalHeadersValue: unknown;
-	/** Whether any externally managed provider group exists right now; gates the parked-headers hint. */
-	readonly hasExternalGroups: boolean;
 	/** The per-entry acceptance reports (serverSettingReports over the raw setting). */
 	readonly entryReports: readonly ServerEntryReport[];
 	/** The declared entries' own records, for the entry-layer record lints. */
@@ -146,18 +144,15 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 	}
 
 	// Legacy leftovers the redesign migration deliberately left in place. The
-	// parked-headers hint renders only while externally managed groups exist:
-	// it says those groups no longer receive the removed global headers, and
-	// adopting restores them.
+	// parked-headers hint stands while the parked record exists: the hint's
+	// Apply and Discard actions are what consume the record, and the hint dies
+	// with it.
 	for (const hint of collectLegacyHints({
 		globalHeadersValue: input.reader.get(LEGACY_HEADERS_ID),
 		modelParametersValue,
 		modelCapabilitiesValue,
 		parkedGlobalHeadersValue: input.parkedGlobalHeadersValue,
 	})) {
-		if (hint.kind === "parked-global-headers" && !input.hasExternalGroups) {
-			continue;
-		}
 		diagnostics.push({
 			kind: "legacy",
 			hint: hint.kind,

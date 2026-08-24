@@ -97,7 +97,7 @@ async function migrateLegacySingleServer(ctx: MigrationContext): Promise<Migrati
 		// here. The legacy secrets are deleted only after the entry persists,
 		// so a failed addServer leaves them in place for a retry.
 		if (!hasLegacyEntry()) {
-			const imported = await ctx.registry.addServerUnguarded("Default", baseUrl, apiKey);
+			const imported = await ctx.registry.addServer("Default", baseUrl, apiKey);
 			// Two windows can still interleave between the re-read and their
 			// writes; the registry's versioned last-write-wins keeps one entry.
 			// A same-version overwrite is invisible to our own registry

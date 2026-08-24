@@ -1770,18 +1770,14 @@ function ServerRow({
 									{l10n.t("Edit")}
 								</Button>
 							)}
-							{/* A legacy-registry external row is not hideable (the registry path would
-							    keep serving its models), so it keeps Edit only. */}
-							{server.origin === "declared" || server.origin === "misconfigured" || server.hideable ? (
-								<Button
-									variant="danger"
-									size="compact"
-									aria-label={l10n.t("Remove {0}", server.label)}
-									onClick={() => onArmRemove(true)}
-								>
-									{l10n.t("Remove")}
-								</Button>
-							) : null}
+							<Button
+								variant="danger"
+								size="compact"
+								aria-label={l10n.t("Remove {0}", server.label)}
+								onClick={() => onArmRemove(true)}
+							>
+								{l10n.t("Remove")}
+							</Button>
 						</>
 					)}
 				</span>

@@ -70,12 +70,15 @@ suite("extension/servers/groupRemovals", () => {
 
 		test("corrupt stored values are validated at the read boundary", () => {
 			const { store } = makeStore({
-				[REMOVED_GROUP_TOMBSTONES_KEY]: [
-					{ label: "Prod", baseUrl: "http://prod.test" },
-					{ label: 42, baseUrl: "http://bad.test" },
-					"junk",
-					{ label: "NoUrl" },
-				],
+				[REMOVED_GROUP_TOMBSTONES_KEY]: {
+					version: "1",
+					records: [
+						{ label: "Prod", baseUrl: "http://prod.test" },
+						{ label: 42, baseUrl: "http://bad.test" },
+						"junk",
+						{ label: "NoUrl" },
+					],
+				},
 			});
 			assert.deepStrictEqual(store.tombstones(), [{ label: "Prod", baseUrl: "http://prod.test" }]);
 
@@ -86,20 +89,15 @@ suite("extension/servers/groupRemovals", () => {
 			assert.deepStrictEqual(junkRecords.tombstones(), []);
 		});
 
-		test("a pre-versioning bare-array blob is readable and upgraded on write", async () => {
-			const { store, storage } = makeStore({
+		test("a bare-array blob is no longer accepted here: the wrap migration owns it", () => {
+			// Pre-versioning bare arrays are wrapped into { version, records } by
+			// migrations/bareArrayBlobs.ts BEFORE the store is constructed; a bare
+			// array reaching this parser is corrupt state and reads empty.
+			const { store } = makeStore({
 				[REMOVED_GROUP_TOMBSTONES_KEY]: [{ label: "Old", baseUrl: "http://old.test" }],
 			});
-			assert.strictEqual(store.isTombstoned("Old", "http://old.test"), true);
-
-			await store.addTombstone({ label: "New", baseUrl: "http://new.test" });
-			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), {
-				version: "1",
-				records: [
-					{ label: "Old", baseUrl: "http://old.test" },
-					{ label: "New", baseUrl: "http://new.test" },
-				],
-			});
+			assert.strictEqual(store.isTombstoned("Old", "http://old.test"), false);
+			assert.deepStrictEqual(store.tombstones(), []);
 		});
 
 		test("a broken persisted version re-enters versioning at 0 instead of freezing adoption", async () => {
@@ -447,12 +445,15 @@ suite("extension/servers/groupRemovals", () => {
 
 		test("corrupt provenance records are dropped at the read boundary", () => {
 			const { store } = makeStore({
-				[ORPHANED_GROUP_PROVENANCE_KEY]: [
-					{ label: "A", baseUrl: "http://a.test", origin: { kind: "removed-entry-leftover", removedLabel: "A" } },
-					{ label: "B", baseUrl: "http://b.test", origin: { kind: "unknown-kind" } },
-					{ label: "C", baseUrl: "http://c.test" },
-					{ label: "D", baseUrl: "http://d.test", origin: { kind: "rename-leftover", oldLabel: "D" } },
-				],
+				[ORPHANED_GROUP_PROVENANCE_KEY]: {
+					version: "1",
+					records: [
+						{ label: "A", baseUrl: "http://a.test", origin: { kind: "removed-entry-leftover", removedLabel: "A" } },
+						{ label: "B", baseUrl: "http://b.test", origin: { kind: "unknown-kind" } },
+						{ label: "C", baseUrl: "http://c.test" },
+						{ label: "D", baseUrl: "http://d.test", origin: { kind: "rename-leftover", oldLabel: "D" } },
+					],
+				},
 			});
 			assert.deepStrictEqual(store.provenance(), [
 				{ label: "A", baseUrl: "http://a.test", origin: { kind: "removed-entry-leftover", removedLabel: "A" } },
