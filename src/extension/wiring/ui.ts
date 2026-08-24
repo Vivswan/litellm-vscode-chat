@@ -8,7 +8,6 @@ import type { AggregatedStatus } from "../../shared/servers";
 import { GITHUB_DOCS_URL } from "../../shared/util/links";
 import type { DashboardController } from "../dashboard/panel";
 import { registerManageCommand } from "../servers/serverManagement";
-import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
 import {
 	registerHelpAndFeedbackCommand,
@@ -108,20 +107,19 @@ export function wireStatusFanout(
 }
 
 /**
- * The one-time welcome message. Gated on the legacy registry and the declared
- * servers setting only: this runs during activation, before the host has handed
- * over any provider group, so the group latch cannot contribute yet.
+ * The one-time welcome message. Gated on the declared servers setting only:
+ * this runs during activation, before the host has handed over any provider
+ * group, so the group latch cannot contribute yet.
  */
 export async function maybeShowWelcome(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	deps: {
-		registry: ServerRegistry;
 		hasDeclaredServers: () => boolean;
 	}
 ): Promise<void> {
 	const hasShownWelcome = context.globalState.get<boolean>(HAS_SHOWN_WELCOME_KEY, false);
-	if (!hasShownWelcome && deps.registry.getServers().length === 0 && !deps.hasDeclaredServers()) {
+	if (!hasShownWelcome && !deps.hasDeclaredServers()) {
 		showActionableMessage("info", l10n.t("Welcome to LiteLLM! Connect to 100+ LLMs in VS Code."), [
 			reconfigureAction(configureNowLabel()),
 			{
@@ -146,7 +144,6 @@ export function wireUiCommands(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	deps: {
-		registry: ServerRegistry;
 		provider: LiteLLMChatModelProvider;
 		statusBar: StatusBarManager;
 		outputChannel: vscode.OutputChannel;
@@ -178,7 +175,6 @@ export function wireUiCommands(
 
 	registerReportIssueCommand(
 		context,
-		deps.registry,
 		() => deps.statusBar.connectionStatus,
 		deps.extVersion,
 		deps.vscodeVersion,

@@ -137,10 +137,10 @@ function parseVersionedRecords(raw: unknown): VersionedRecords {
 }
 
 /**
- * One Memento region under the same versioned-blob protocol as
- * ServerRegistry: the in-memory list is authoritative for this window, every
- * persist bumps the version, and stored snapshots are adopted only when
- * strictly newer. That closes the observed globalState hazard (#220: an
+ * One Memento region under the versioned-blob protocol: the in-memory list is
+ * authoritative for this window, every persist bumps the version, and stored
+ * snapshots are adopted only when strictly newer. That closes the observed
+ * globalState hazard (#220: an
  * awaited update reverted moments later by a stale value - the nightly monkey
  * fuzzer caught removed groups' models never leaving the host list that way),
  * because the revert carries an older-or-equal version and is ignored, while

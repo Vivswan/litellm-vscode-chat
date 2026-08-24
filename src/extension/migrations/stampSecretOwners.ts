@@ -87,15 +87,13 @@ export async function stampSecretOwnersFor(
  * as long as it lives, a rerun also re-stamps blobs an interim DOWNGRADE
  * rewrote (an old version's read-modify-write drops the whole `_owner` map),
  * so ownership protection converges again on the next activation rather than
- * staying erased. Runs pre-registration, after the settings redesign in the
- * same phase, so the entries it derives destinations from are already in the
- * redesigned shape.
+ * staying erased. Runs after the settings redesign, so the entries it derives
+ * destinations from are already in the redesigned shape.
  */
 export const stampSecretOwnersMigration: ExtensionMigration = {
 	state: "unstamped-server-secrets",
 	description: "Stamped stored server secrets with the destinations their entries pair them with",
 	sourceRelease: "0.4.7",
-	phase: "pre-registration",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
 		return stampSecretOwnersFor(
 			() => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),

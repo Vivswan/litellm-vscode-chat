@@ -7,7 +7,7 @@ import { z } from "zod";
  * re-enter shape-checked exactly as loosely as before. The brand asserts
  * provenance in the type system, not a runtime format.
  */
-export const fingerprintSchema = z.string().brand<"Fingerprint">();
+const fingerprintSchema = z.string().brand<"Fingerprint">();
 
 export type Fingerprint = z.infer<typeof fingerprintSchema>;
 

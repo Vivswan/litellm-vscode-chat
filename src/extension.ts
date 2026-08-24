@@ -18,9 +18,8 @@ import { Logger } from "./shared/logger";
  * The composition root: activate() only constructs and orders the wiring
  * modules under src/extension/wiring/; each module owns its subscriptions and
  * reactions. The ordering constraints activate() owns are commented at their
- * call sites: l10n configuration first, pre-registration migrations awaited
- * before registerLanguageModelChatProvider, post-registration migrations
- * fire-and-forget after it, test seams gated on non-production mode.
+ * call sites: l10n configuration first, the state migrations awaited before
+ * registerLanguageModelChatProvider, test seams gated on non-production mode.
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	// The activation-production harness calls this compiled function itself with
@@ -66,9 +65,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		storage
 	);
 
-	// The provider must not see a half-migrated registry, so pre-registration
+	// The provider must not see half-migrated settings or storage, so the
 	// migrations complete before registration.
-	await storage.runPreRegistrationMigrations();
+	await storage.runMigrations();
 
 	vscode.lm.registerLanguageModelChatProvider(VENDOR_ID, provider);
 
@@ -133,21 +132,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// so groups edited or deleted natively since the last session reconcile.
 	void servers.syncEngine.syncNow(true);
 
-	// Hands registry servers to VS Code as provider groups. The host validates
-	// each group by calling the registered provider, so this phase runs after
-	// registration, and off the activation path because it hits the network.
-	void storage.runPostRegistrationMigrations();
-
 	if (devSeed?.openDashboard) {
 		void vscode.commands.executeCommand(CMD.openDashboard).then(undefined, (error: unknown) => {
 			logger.error("Dev seed dashboard open failed", error);
 		});
 	}
 
-	await maybeShowWelcome(context, logger, { registry: storage.registry, hasDeclaredServers });
+	await maybeShowWelcome(context, logger, { hasDeclaredServers });
 
 	wireUiCommands(context, logger, {
-		registry: storage.registry,
 		provider,
 		statusBar,
 		outputChannel,

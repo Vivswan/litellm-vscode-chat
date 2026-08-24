@@ -10,7 +10,6 @@ import type { DashboardController } from "../dashboard/panel";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import { createOpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
-import type { ServerRegistry } from "../servers/serverRegistry";
 import {
 	parseServersSetting,
 	readEntryApiVersion,
@@ -42,16 +41,14 @@ export interface ProviderWiring {
  * The provider's wiring: the OpenRouter catalog store, the provider itself
  * with its extension-injected seams, the shared debounced model-change notify,
  * and the configured-servers gates the status surfaces consult. activate()
- * registers the returned provider with the host AFTER awaiting the
- * pre-registration migrations.
+ * registers the returned provider with the host AFTER awaiting the state
+ * migrations.
  */
 export function wireProvider(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	userAgent: string,
 	deps: {
-		registry: ServerRegistry;
-		isMigrated: () => boolean;
 		groupRemovals: GroupRemovalStore;
 	}
 ): ProviderWiring {
@@ -102,14 +99,8 @@ export function wireProvider(
 	// hasSeenGroupConfiguration is the cold-start-honest signal: the host's
 	// groupless refresh reports an empty window before it re-resolves each
 	// group, so the live snapshot count alone would wrongly read as empty.
-	// Unmigrated registry servers count too - mid-migration they are real
-	// configuration - but only until the migration completes; leftovers it
-	// deliberately retains afterwards are diagnostics material.
 	const hasConfiguredServers = () =>
-		provider.getServerSnapshots().length > 0 ||
-		provider.hasSeenGroupConfiguration() ||
-		hasDeclaredServers() ||
-		(!deps.isMigrated() && deps.registry.getServers().length > 0);
+		provider.getServerSnapshots().length > 0 || provider.hasSeenGroupConfiguration() || hasDeclaredServers();
 
 	return { catalogStore, provider, notifyModelsChanged, hasDeclaredServers, hasConfiguredServers };
 }

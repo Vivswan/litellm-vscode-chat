@@ -1,19 +1,13 @@
 import type * as vscode from "vscode";
-import {
-	ORPHANED_GROUP_PROVENANCE_KEY,
-	REMOVED_GROUP_TOMBSTONES_KEY,
-	SERVER_REGISTRY_KEY,
-} from "../../shared/config/storageKeys";
+import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../shared/config/storageKeys";
 
 /**
- * Migrates away from: the pre-versioning bare-array blobs of the three
- * versioned Memento regions (the server registry and the two group-removal
- * regions). Blobs written before those protocols gained versions were bare
- * record arrays; each region's versioned shape is its own - the registry
- * persists { version: number, servers }, the removal regions { version:
- * decimal string, records } (see serverRegistry.ts / groupRemovals.ts) - and
- * the readers' bare-array acceptance branches were deleted in favor of this
- * one read-boundary normalization.
+ * Migrates away from: the pre-versioning bare-array blobs of the two
+ * group-removal Memento regions. Blobs written before those protocols gained
+ * versions were bare record arrays; the versioned shape is { version: decimal
+ * string, records } (see groupRemovals.ts), and the readers' bare-array
+ * acceptance branches were deleted in favor of this one read-boundary
+ * normalization.
  *
  * Deliberately a READ-TIME view with no writer of its own: an activation-time
  * rewrite would be the one write in the system that does not bump above what
@@ -25,12 +19,12 @@ import {
  * the region's own read-time sanitization keeps judging corrupt members).
  *
  * Not in MIGRATIONS: the normalization must be in place before the
- * ServerRegistry and GroupRemovalStore constructors first parse these keys
- * (both adopt stored snapshots only when STRICTLY newer, so a wrap appearing
- * after construction would never be read), and MigrationContext itself
- * carries the constructed registry. wireStorage constructs the stores over
- * this view. State-detecting and idempotent like every migration here: a
- * versioned blob passes through by identity.
+ * GroupRemovalStore constructor first parses these keys (it adopts stored
+ * snapshots only when STRICTLY newer, so a wrap appearing after construction
+ * would never be read). wireStorage constructs the store over this view.
+ * State-detecting and idempotent like every migration here: a versioned blob
+ * passes through by identity. Registered in MIGRATION_EXPIRIES under
+ * "bare-array-blobs".
  */
 export function bareArrayWrappingMemento(memento: vscode.Memento): vscode.Memento {
 	const get = <T>(key: string, defaultValue?: T): T | undefined => {
@@ -44,17 +38,9 @@ export function bareArrayWrappingMemento(memento: vscode.Memento): vscode.Mement
 	};
 }
 
-/** Each region's versioned wrap of a bare record array, at the protocol's floor (version 0). */
-const BARE_ARRAY_WRAPS: ReadonlyMap<string, (records: readonly unknown[]) => unknown> = new Map<
-	string,
-	(records: readonly unknown[]) => unknown
->([
-	[SERVER_REGISTRY_KEY, (records) => ({ version: 0, servers: records })],
-	[REMOVED_GROUP_TOMBSTONES_KEY, (records) => ({ version: "0", records })],
-	[ORPHANED_GROUP_PROVENANCE_KEY, (records) => ({ version: "0", records })],
-]);
+/** The regions that wrap; both share the removal protocol's versioned shape at its floor (version 0). */
+const BARE_ARRAY_REGIONS: ReadonlySet<string> = new Set([REMOVED_GROUP_TOMBSTONES_KEY, ORPHANED_GROUP_PROVENANCE_KEY]);
 
 function wrapIfBareArray(key: string, value: unknown): unknown {
-	const wrap = BARE_ARRAY_WRAPS.get(key);
-	return wrap !== undefined && Array.isArray(value) ? wrap(value) : value;
+	return BARE_ARRAY_REGIONS.has(key) && Array.isArray(value) ? { version: "0", records: value } : value;
 }

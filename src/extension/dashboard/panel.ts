@@ -874,7 +874,7 @@ export function registerDashboardCommand(
 			readEntryModelParameters
 		),
 		// The entry layer resolves through the provider's own identity source
-		// (group label, or the registry sweep's recorded label).
+		// (the group's label and base URL).
 		resolveEntryCapabilities: (serverId) => {
 			const identity = provider.capabilityEntryIdentity(serverId);
 			return identity !== undefined ? getEntryModelCapabilities(identity.label, identity.baseUrl) : undefined;

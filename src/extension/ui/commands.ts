@@ -12,7 +12,6 @@ import { unexpectedFailureCount } from "../../shared/servers";
 import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { DashboardController } from "../dashboard/panel";
-import type { ServerRegistry } from "../servers/serverRegistry";
 import type { ServerSyncEngine } from "../servers/serverSync";
 import { updateServerSecret } from "../servers/serverSync";
 import { secretDestination } from "../servers/serverSync/secrets";
@@ -374,7 +373,6 @@ export function registerSyncModelsCommand(
  * freeze every subsequent dashboard message.
  */
 export async function runReportIssue(
-	registry: ServerRegistry,
 	getConnectionStatus: () => ConnectionStatus,
 	extVersion: string,
 	vscodeVersion: string,
@@ -382,7 +380,7 @@ export async function runReportIssue(
 	globalState: vscode.Memento
 ): Promise<void> {
 	const connectionStatus = getConnectionStatus();
-	const snapshot = await buildDiagnosticsSnapshot(registry, connectionStatus, extVersion, vscodeVersion, issueReporter);
+	const snapshot = buildDiagnosticsSnapshot(connectionStatus, extVersion, vscodeVersion, issueReporter);
 	const fingerprint = reportFingerprint(snapshot);
 	const openIssue = async () => {
 		await issueReporter.openIssue(snapshot);
@@ -470,7 +468,6 @@ async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promi
 
 export function registerReportIssueCommand(
 	context: vscode.ExtensionContext,
-	registry: ServerRegistry,
 	getConnectionStatus: () => ConnectionStatus,
 	extVersion: string,
 	vscodeVersion: string,
@@ -478,7 +475,7 @@ export function registerReportIssueCommand(
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.reportIssue, () =>
-			runReportIssue(registry, getConnectionStatus, extVersion, vscodeVersion, issueReporter, context.globalState)
+			runReportIssue(getConnectionStatus, extVersion, vscodeVersion, issueReporter, context.globalState)
 		)
 	);
 }

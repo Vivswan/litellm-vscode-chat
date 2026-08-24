@@ -2,7 +2,6 @@ import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
 import type { FingerprintSaltSession, FingerprintSaltState } from "../extension/fingerprintSalt";
 import type { MigrationContext } from "../extension/migrations";
-import { ServerRegistry } from "../extension/servers/serverRegistry";
 import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "../provider";
 import { DiscoveryCache } from "../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../provider/catalog/groupDiscovery";
@@ -268,7 +267,7 @@ export interface FakeExtensionStorage {
 	secretStore: Map<string, string>;
 }
 
-/** Map-backed Memento and SecretStorage fakes covering what ServerRegistry and friends consume. */
+/** Map-backed Memento and SecretStorage fakes covering what the storage-backed stores consume. */
 export function makeExtensionStorage(initialMemento?: Record<string, unknown>): FakeExtensionStorage {
 	const mementoStore = new Map<string, unknown>(Object.entries(initialMemento ?? {}));
 	const memento = {
@@ -301,7 +300,6 @@ export function makeMigrationContext(
 	return {
 		globalState: storage.memento,
 		secrets: storage.secrets,
-		registry: new ServerRegistry(storage.memento, storage.secrets),
 		logger: makeLogger().logger,
 		fingerprintSalt: fakeFingerprintSaltSession(),
 		...overrides,

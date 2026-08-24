@@ -11,6 +11,7 @@ import type { LiteLLMChatModelProvider } from "../../provider";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { MODEL_CAPABILITIES_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
 import {
+	apiKeySecret,
 	FINGERPRINT_SALT_SECRET,
 	GROUP_MIGRATION_COMPLETE_KEY,
 	HAS_SHOWN_WELCOME_KEY,
@@ -113,7 +114,7 @@ suite("production activation", () => {
 		catalogNetworkGuard = blockCatalogNetwork();
 
 		// A label-scoped modelParameters key under the LEGACY id plus the
-		// persisted label map: the pre-registration migrations must rewrite the
+		// persisted label map: the awaited migrations must rewrite the
 		// label scope AND rename the setting before the provider registers.
 		// Seeded through settings.json, since the host refuses value writes to
 		// the uncontributed legacy id.
@@ -130,13 +131,16 @@ suite("production activation", () => {
 			[GROUP_MIGRATION_COMPLETE_KEY]: true,
 			[HAS_SHOWN_WELCOME_KEY]: true,
 			[MIGRATED_SERVER_LABELS_KEY]: { "http://localhost:49997": ["Leftover"] },
-			// A leftover registry server: after the migration completed, the
-			// groupless refresh must NOT serve it in production.
+			// Leftover legacy-registry state: the activation-time cleanup must
+			// delete the blob, the completion flag, and the entry's stored secret,
+			// while the label map (the settings-redesign pipeline's read source)
+			// survives.
 			[SERVER_REGISTRY_KEY]: {
 				version: 1,
 				servers: [{ id: "srv-prod-1", label: "Leftover", baseUrl: "http://localhost:49997" }],
 			},
 		});
+		storage.secretStore.set(apiKeySecret("srv-prod-1"), "sk-leftover");
 		const originalUpdate = storage.memento.update.bind(storage.memento);
 		(storage.memento as { update: (key: string, value: unknown) => Thenable<void> }).update = (key, value) => {
 			mementoWrites.push(key);
@@ -249,8 +253,7 @@ suite("production activation", () => {
 
 	test("activation with hasShownWelcome pre-seeded skips the globalState re-write", () => {
 		// The load-bearing assertion: a regression to always-update would rewrite
-		// the flag on every activation. The toast check is belt and braces - the
-		// seeded registry server suppresses the welcome toast independently.
+		// the flag on every activation. The toast check is belt and braces.
 		assert.ok(
 			!mementoWrites.includes(HAS_SHOWN_WELCOME_KEY),
 			"the already-true welcome flag must not be rewritten on every activation"
@@ -275,33 +278,33 @@ suite("production activation", () => {
 		assert.deepStrictEqual(captured["Leftover/gpt-4*"], { temperature: 0.25 }, "the original key survives, starred");
 	});
 
-	test("a populated legacy registry is never served by the group-agnostic refresh", async () => {
+	test("activation deletes the leftover legacy-registry state and its stored secret", () => {
+		// The one-shot cleanup migration, exercised through the real composed
+		// activation: the seeded blob, the completion flag, and the entry's
+		// per-server secret are gone, while the label map survives as the
+		// settings-redesign pipeline's read source.
+		assert.strictEqual(storage.memento.get(SERVER_REGISTRY_KEY), undefined);
+		assert.strictEqual(storage.memento.get(GROUP_MIGRATION_COMPLETE_KEY), undefined);
+		assert.strictEqual(storage.secretStore.get(apiKeySecret("srv-prod-1")), undefined);
+		assert.deepStrictEqual(storage.memento.get(MIGRATED_SERVER_LABELS_KEY), {
+			"http://localhost:49997": ["Leftover"],
+		});
+	});
+
+	test("the group-agnostic refresh serves no models", async () => {
 		assert.strictEqual(registeredVendor, "litellm");
 		const registered = expectDefined(provider, "activation must register the provider");
-
-		// The activation-time migration may have rewritten the registry blob.
-		// Depend on neither outcome: re-seed the fixture under a strictly newer
-		// version (the registry adopts newer blobs on its next read) and prove it
-		// is present, so the refusal below judges a POPULATED registry.
-		await storage.memento.update(SERVER_REGISTRY_KEY, {
-			version: 1000,
-			servers: [{ id: "srv-prod-1", label: "Leftover", baseUrl: "http://localhost:49997" }],
-		});
-		assert.ok(
-			JSON.stringify(storage.mementoStore.get(SERVER_REGISTRY_KEY)).includes("Leftover"),
-			"the seeded server must exist immediately before the refresh"
-		);
 
 		channelLines.length = 0;
 		const token = new vscode.CancellationTokenSource().token;
 		const models = await registered.provideLanguageModelChatInformation({ silent: true }, token);
-		// Serving "Leftover" would double-list every server beside its provider
-		// group; the refresh must not even attempt its discovery.
+		// Every model must reach the picker through a per-group call carrying its
+		// group's resolved connection; the configuration-less refresh serves none.
 		assert.deepStrictEqual(models, []);
 		assert.deepStrictEqual(
 			registered.getServerSnapshots().map((snapshot) => snapshot.status.label),
 			[],
-			"the group-agnostic refresh must not touch the migrated registry's servers"
+			"the group-agnostic refresh must not touch any server"
 		);
 		// The discriminating half, since a failed discovery would also yield no
 		// models: the group-agnostic path logs its serves-nothing outcome and
@@ -312,7 +315,7 @@ suite("production activation", () => {
 		);
 		assert.ok(
 			!channelLines.some((line) => line.includes("Fetching models")),
-			"a broken contract would fetch the seeded registry server"
+			"a broken contract would fetch without a group configuration"
 		);
 	});
 
@@ -608,7 +611,6 @@ suite("production activation", () => {
 		test("a bundled dist/openrouter-models.json installs at activation and fires the catalog notify", async function () {
 			this.timeout(30000);
 			const rerunStorage = makeExtensionStorage({
-				[GROUP_MIGRATION_COMPLETE_KEY]: true,
 				[HAS_SHOWN_WELCOME_KEY]: true,
 			});
 			(rerunStorage.memento as unknown as { keys?: () => readonly string[] }).keys = () => [

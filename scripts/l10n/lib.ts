@@ -326,8 +326,6 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"applySaveServerSetting",
 	"applyTestServerDraft",
 	"requireEntryShownByForm",
-	"submitGroupSeed",
-	"migrateServersToProviderGroups",
 	"registerManageCommand",
 	"notifyRemovalEvents",
 	"createServerSyncEnv",

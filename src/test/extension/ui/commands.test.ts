@@ -1,7 +1,6 @@
 import * as assert from "node:assert";
 import { APIConnectionError, APIError, AuthenticationError } from "openai";
 import * as vscode from "vscode";
-import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { registerTestCommands, runConnectionTest, runModelSync, runReportIssue } from "../../../extension/ui/commands";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
 import { statusErrorHeadline } from "../../../extension/ui/notifier";
@@ -847,11 +846,6 @@ suite("extension/ui/commands", () => {
 	// offer of the faster fix before GitHub opens. The verdict comes from the CURRENT
 	// connection status only, never the historical latestError.
 	suite("runReportIssue", () => {
-		function makeRegistry(): ServerRegistry {
-			const storage = makeExtensionStorage();
-			return new ServerRegistry(storage.memento, storage.secrets);
-		}
-
 		function makeReporter(openedIssueUrls: string[]): IssueReporter {
 			return new IssueReporter({
 				writeClipboard: async () => {},
@@ -919,7 +913,6 @@ suite("extension/ui/commands", () => {
 			const mocks = mockGate("Report Anyway");
 			try {
 				await runReportIssue(
-					makeRegistry(),
 					() => ({ state: "not-configured" }),
 					"1.2.3",
 					"9.9.9",
@@ -943,7 +936,6 @@ suite("extension/ui/commands", () => {
 			const mocks = mockGate("Configure Now");
 			try {
 				await runReportIssue(
-					makeRegistry(),
 					() => ({ state: "not-configured" }),
 					"1.2.3",
 					"9.9.9",
@@ -962,14 +954,7 @@ suite("extension/ui/commands", () => {
 			const openedIssueUrls: string[] = [];
 			const mocks = mockGate("Troubleshooting Docs");
 			try {
-				await runReportIssue(
-					makeRegistry(),
-					() => classified404,
-					"1.2.3",
-					"9.9.9",
-					makeReporter(openedIssueUrls),
-					freshMemento()
-				);
+				await runReportIssue(() => classified404, "1.2.3", "9.9.9", makeReporter(openedIssueUrls), freshMemento());
 				await waitFor(() => mocks.executed.length > 0, "the docs link to open");
 			} finally {
 				mocks.restore();
@@ -986,14 +971,7 @@ suite("extension/ui/commands", () => {
 			const openedIssueUrls: string[] = [];
 			const mocks = mockGate("Test Connection");
 			try {
-				await runReportIssue(
-					makeRegistry(),
-					() => classified404,
-					"1.2.3",
-					"9.9.9",
-					makeReporter(openedIssueUrls),
-					freshMemento()
-				);
+				await runReportIssue(() => classified404, "1.2.3", "9.9.9", makeReporter(openedIssueUrls), freshMemento());
 				await waitFor(() => gateExecuted(mocks).length > 0, "the connection test command to run");
 			} finally {
 				mocks.restore();
@@ -1006,12 +984,11 @@ suite("extension/ui/commands", () => {
 			const openedIssueUrls: string[] = [];
 			const mocks = mockGate(undefined);
 			try {
-				const registry = makeRegistry();
 				const reporter = makeReporter(openedIssueUrls);
-				await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter, freshMemento());
+				await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, freshMemento());
 				await waitFor(() => gateWarnings(mocks).length === 1, "the gate to show");
 				// Nothing is remembered: the second invocation offers the gate again.
-				await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter, freshMemento());
+				await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, freshMemento());
 				await waitFor(() => gateWarnings(mocks).length === 2, "the gate to re-offer");
 				// A settled turn for any stray action; there must be none.
 				await new Promise((resolve) => setTimeout(resolve, 10));
@@ -1038,7 +1015,6 @@ suite("extension/ui/commands", () => {
 			const mocks = mockGate("Report Anyway");
 			try {
 				await runReportIssue(
-					makeRegistry(),
 					() => ({ state: "connected", totalModels: 2, serverStatuses: [makeServerStatus({ servedModelCount: 2 })] }),
 					"1.2.3",
 					"9.9.9",
@@ -1057,7 +1033,6 @@ suite("extension/ui/commands", () => {
 			const mocks = mockGate("Report Anyway");
 			try {
 				await runReportIssue(
-					makeRegistry(),
 					() => ({
 						state: "error",
 						error: "boom",
@@ -1089,14 +1064,7 @@ suite("extension/ui/commands", () => {
 				// Pins the non-blocking contract: the dashboard's executeCommand intent
 				// awaits this promise inside its serialized message chain, so it must
 				// settle while showWarningMessage's promise is still pending.
-				await runReportIssue(
-					makeRegistry(),
-					() => status,
-					"1.2.3",
-					"9.9.9",
-					makeReporter(openedIssueUrls),
-					freshMemento()
-				);
+				await runReportIssue(() => status, "1.2.3", "9.9.9", makeReporter(openedIssueUrls), freshMemento());
 				assert.ok(answer !== undefined, "the gate must be on screen when the command settles");
 				assert.strictEqual(openedIssueUrls.length, 0, "no issue opens before the gate is answered");
 				// The world changes while the dialog sits unanswered; the report must
@@ -1186,7 +1154,7 @@ suite("extension/ui/commands", () => {
 				);
 				const mocks = mockHint(undefined);
 				try {
-					await runReportIssue(makeRegistry(), () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					mocks.restore();
 				}
@@ -1203,13 +1171,12 @@ suite("extension/ui/commands", () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
 				const reporter = makeReporter(openedIssueUrls);
-				const registry = makeRegistry();
 				const mocks = mockHint(undefined);
 				try {
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 					assert.strictEqual(openedIssueUrls.length, 1);
 					const before = storedReport(storage);
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 					await waitFor(() => hintDialogs(mocks).length === 1, "the repeat hint to show");
 					// A settled turn for any stray action; there must be none.
 					await new Promise((resolve) => setTimeout(resolve, 10));
@@ -1229,10 +1196,9 @@ suite("extension/ui/commands", () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
 				const reporter = makeReporter(openedIssueUrls);
-				const registry = makeRegistry();
 				const first = mockHint(undefined);
 				try {
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					first.restore();
 				}
@@ -1241,7 +1207,7 @@ suite("extension/ui/commands", () => {
 				storage.mementoStore.set(LAST_ISSUE_REPORT_KEY, aged);
 				const mocks = mockHint("Report Anyway");
 				try {
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 					await waitFor(() => openedIssueUrls.length === 2, "Report Anyway to open the issue");
 					await waitFor(() => storedReport(storage).openedAt > aged.openedAt, "the ledger to refresh");
 				} finally {
@@ -1256,17 +1222,16 @@ suite("extension/ui/commands", () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
 				const reporter = makeReporter(openedIssueUrls);
-				const registry = makeRegistry();
 				const first = mockHint(undefined);
 				try {
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					first.restore();
 				}
 				const before = storedReport(storage);
 				const mocks = mockHint("Open Existing Issues");
 				try {
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 					await waitFor(() => mocks.executed.some((call) => call[0] === "vscode.open"), "the issues list to open");
 					await new Promise((resolve) => setTimeout(resolve, 10));
 				} finally {
@@ -1289,12 +1254,10 @@ suite("extension/ui/commands", () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
 				const reporter = makeReporter(openedIssueUrls);
-				const registry = makeRegistry();
 				const mocks = mockHint(undefined);
 				try {
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 					await runReportIssue(
-						registry,
 						() => ({ state: "connected", totalModels: 3, serverStatuses: [makeServerStatus({ servedModelCount: 3 })] }),
 						"1.2.3",
 						"9.9.9",
@@ -1312,16 +1275,15 @@ suite("extension/ui/commands", () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
 				const reporter = makeReporter(openedIssueUrls);
-				const registry = makeRegistry();
 				const mocks = mockHint(undefined);
 				try {
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 					const stored = storedReport(storage);
 					storage.mementoStore.set(LAST_ISSUE_REPORT_KEY, {
 						...stored,
 						openedAt: Date.now() - 73 * 60 * 60 * 1000,
 					});
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					mocks.restore();
 				}
@@ -1334,16 +1296,15 @@ suite("extension/ui/commands", () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
 				const reporter = makeReporter(openedIssueUrls);
-				const registry = makeRegistry();
 				const mocks = mockHint(undefined);
 				try {
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 					const stored = storedReport(storage);
 					storage.mementoStore.set(LAST_ISSUE_REPORT_KEY, {
 						...stored,
 						openedAt: Date.now() + 24 * 60 * 60 * 1000,
 					});
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					mocks.restore();
 				}
@@ -1355,10 +1316,9 @@ suite("extension/ui/commands", () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
 				const reporter = makeReporter(openedIssueUrls);
-				const registry = makeRegistry();
 				const first = mockHint(undefined);
 				try {
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					first.restore();
 				}
@@ -1376,7 +1336,7 @@ suite("extension/ui/commands", () => {
 					// Pins the non-blocking contract, like the setup-gate twin above:
 					// the dashboard awaits this command in its serialized message
 					// chain, so it must settle while the modal is still pending.
-					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 					assert.ok(answer !== undefined, "the modal must be on screen when the command settles");
 					assert.strictEqual(openedIssueUrls.length, 1, "no issue opens before the modal is answered");
 					expectDefined(answer)("Report Anyway");
@@ -1390,11 +1350,10 @@ suite("extension/ui/commands", () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
 				const reporter = makeReporter(openedIssueUrls);
-				const registry = makeRegistry();
 				// First gated report: Report Anyway opens and remembers the fingerprint.
 				const firstGate = mockGate("Report Anyway");
 				try {
-					await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, storage.memento);
 					await waitFor(() => openedIssueUrls.length === 1, "the gated report to open");
 					await waitFor(() => storage.mementoStore.has(LAST_ISSUE_REPORT_KEY), "the gated report to be remembered");
 				} finally {
@@ -1406,7 +1365,7 @@ suite("extension/ui/commands", () => {
 				const gate = mockGate("Report Anyway");
 				const hint = mockHint(undefined);
 				try {
-					await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, storage.memento);
 					await waitFor(() => openedIssueUrls.length === 2, "Report Anyway to open the second report");
 				} finally {
 					hint.restore();

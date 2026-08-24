@@ -16,7 +16,7 @@ import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { MIGRATED_ENTRY_PARAMETER_COPIES_KEY, PARKED_GLOBAL_HEADERS_KEY } from "../../../shared/config/storageKeys";
 import type { Logger } from "../../../shared/logger";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "../index";
-import { getMigratedServerLabels, readEntryCopyLedger, unionLabelSources } from "../labelScopedModelParameters";
+import { getMigratedServerLabels, readEntryCopyLedger } from "../labelScopedModelParameters";
 import {
 	LEGACY_HEADERS_ID,
 	LEGACY_MODEL_CAPABILITIES_ID,
@@ -119,19 +119,18 @@ export async function applySettingsRedesign(
  * rewrite) label-scoped modelParameters keys. Deletable once installs carrying
  * any of that state are judged extinct.
  *
- * Runs pre-registration so the first registration of a session already sees
- * the new-name settings and the restructured entries. The label map's union
- * includes the current registry snapshot, so servers the group migration has
- * not seeded yet still decode their label-scoped keys in this same pass.
+ * Runs before registration so the first registration of a session already sees
+ * the new-name settings and the restructured entries. The label map is the
+ * retired group migration's persisted baseUrl -> labels record, the one source
+ * the label-scoped expansion still has.
  */
 export const settingsRedesignMigration: ExtensionMigration = {
 	state: "settings-redesign",
 	description: "Renamed and restructured the pre-redesign settings into the redesigned namespace",
 	sourceRelease: "0.4.4",
-	phase: "pre-registration",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
 		return applySettingsRedesign(vscode.workspace.getConfiguration(CONFIG_SECTION), ctx.globalState, ctx.logger, {
-			labelsByBaseUrl: unionLabelSources(getMigratedServerLabels(ctx.globalState), ctx.registry.getServers()),
+			labelsByBaseUrl: getMigratedServerLabels(ctx.globalState),
 			entryCopyLedger: readEntryCopyLedger(ctx.globalState),
 		});
 	},

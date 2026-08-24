@@ -97,7 +97,7 @@ export interface AttachedModelInfo extends LanguageModelChatInformation {
 /** The model information this provider returns to (and receives back from) the host. */
 export type LiteLLMModelInfo = PreAttachModelInfo | AttachedModelInfo;
 
-/** Client-cache IDs for group servers, disjoint from registry server IDs. */
+/** Client-cache IDs for group servers, disjoint from any other server id shape (see isGroupClientId). */
 const GROUP_CLIENT_ID_PREFIX = "group:";
 
 /**

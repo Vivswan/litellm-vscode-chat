@@ -22,44 +22,29 @@ import type { SettingsSnapshot } from "./settingsRedesign/types";
 const labelMapSchema = z.record(z.string(), z.array(z.string()));
 
 /**
- * baseUrl -> labels for servers migrated to provider groups. The group
- * migration writes the map as each server seeds; the settings-redesign
- * pipeline's label expansion is its long-term reader.
+ * baseUrl -> labels for servers the retired group migration seeded into
+ * provider groups; the settings-redesign pipeline's label expansion is the
+ * map's long-term reader. Read defensively: a label mapping to more than one
+ * normalized URL is dropped everywhere, because its scoped keys cannot be
+ * resolved to one server (the retired writer kept the map unambiguous, but the
+ * blob is plain Memento state). URLs are normalized before comparison, so a
+ * trailing-slash variant of the same server is not read as a conflict.
  */
 export function getMigratedServerLabels(globalState: vscode.Memento): Record<string, string[]> {
 	const parsed = labelMapSchema.safeParse(globalState.get<unknown>(MIGRATED_SERVER_LABELS_KEY));
-	return parsed.success ? parsed.data : {};
-}
-
-/**
- * baseUrl -> labels from BOTH sources the runtime label path used to serve:
- * the persisted map (servers already seeded into provider groups) and the
- * current registry snapshot (servers the group migration has not seeded). A
- * label mapping to more than one normalized URL across the union is dropped
- * everywhere, because its scoped keys cannot be resolved to one server. URLs
- * are normalized before comparison, so a trailing-slash variant of the same
- * server is not read as a conflict.
- */
-export function unionLabelSources(
-	labelsByBaseUrl: Record<string, string[]>,
-	registryServers: readonly { label: string; baseUrl: string }[]
-): Record<string, string[]> {
+	if (!parsed.success) {
+		return {};
+	}
 	const urlsByLabel = new Map<string, Set<string>>();
-	const add = (label: string, baseUrl: string): void => {
-		const urls = urlsByLabel.get(label) ?? new Set<string>();
-		urls.add(normalizeBaseUrl(baseUrl));
-		urlsByLabel.set(label, urls);
-	};
-	for (const [baseUrl, labels] of Object.entries(labelsByBaseUrl)) {
+	for (const [baseUrl, labels] of Object.entries(parsed.data)) {
 		for (const label of labels) {
-			add(label, baseUrl);
+			const urls = urlsByLabel.get(label) ?? new Set<string>();
+			urls.add(normalizeBaseUrl(baseUrl));
+			urlsByLabel.set(label, urls);
 		}
 	}
-	for (const server of registryServers) {
-		add(server.label, server.baseUrl);
-	}
 
-	const union: Record<string, string[]> = {};
+	const labelMap: Record<string, string[]> = {};
 	for (const [label, urls] of urlsByLabel) {
 		if (urls.size !== 1) {
 			continue;
@@ -68,11 +53,11 @@ export function unionLabelSources(
 		if (baseUrl === undefined) {
 			continue;
 		}
-		const labels = union[baseUrl] ?? [];
+		const labels = labelMap[baseUrl] ?? [];
 		labels.push(label);
-		union[baseUrl] = labels;
+		labelMap[baseUrl] = labels;
 	}
-	return union;
+	return labelMap;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

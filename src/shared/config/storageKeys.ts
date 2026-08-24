@@ -4,9 +4,9 @@
  */
 
 /**
- * globalState: the retired legacy ServerConfig[] server registry, as a
- * versioned { version, servers } blob. Nothing serves or edits it; it survives
- * as the provider-group migration's read source until that migration drains it.
+ * globalState: the retired legacy ServerConfig[] server registry blob. Nothing
+ * reads it; the legacy-registry cleanup deletes it (and the per-server secrets
+ * its entries reference) at activation.
  */
 export const SERVER_REGISTRY_KEY = "litellm.serverRegistry";
 
@@ -25,46 +25,43 @@ export const HAS_SHOWN_WELCOME_KEY = "litellm.hasShownWelcome";
 export const LAST_CONNECTION_STATUS_KEY = "litellm.lastConnectionStatus";
 
 /**
- * globalState: set once every registry server has been handed to VS Code as a
- * provider group, or right away on a fresh install with nothing to migrate.
+ * globalState: the retired provider-group migration's completion flag, set on
+ * every install that ever activated a post-v0.3.1 build (fresh installs marked
+ * themselves complete right away). The legacy-registry cleanup deletes it.
  */
 export const GROUP_MIGRATION_COMPLETE_KEY = "litellm.groupMigrationComplete";
 
 /**
- * globalState: records of groups already seeded into VS Code, persisted after
- * each success so a retried migration never re-submits a group the host
- * accepted. Cleared when the migration completes.
+ * globalState: the retired provider-group migration's seeded-progress records.
+ * The legacy-registry cleanup deletes the key, deleting each record's
+ * per-server secret first.
  */
 export const SEEDED_PROVIDER_GROUPS_KEY = "litellm.seededProviderGroups";
 
 /**
- * globalState: registry server IDs an earlier version parked for manual
- * review (a name collision or an edit that raced the seeding). The migration
- * now retires such stragglers - one notice, then removal - so this key only
- * marks entries whose retire pass has not succeeded yet; it empties as they
- * resolve and is cleared at finalization.
+ * globalState: registry server IDs the retired provider-group migration parked
+ * for manual review. The legacy-registry cleanup deletes it.
  */
 export const SKIPPED_MIGRATION_SERVERS_KEY = "litellm.skippedMigrationServers";
 
 /**
- * globalState: the group submission currently in flight, written just before
- * the host command and cleared after. An "already exists" rejection counts as
- * our own seeding only when this marker matches the server's current identity;
- * without it the name collision belongs to someone else.
+ * globalState: the retired provider-group migration's in-flight submission
+ * marker. The legacy-registry cleanup deletes it.
  */
 export const PENDING_GROUP_SUBMISSION_KEY = "litellm.pendingGroupSubmission";
 
 /**
- * globalState: server IDs whose migrated secret could not be deleted at
- * finalization; retried on every activation until empty.
+ * globalState: server IDs whose migrated secret the retired provider-group
+ * migration could not delete. The legacy-registry cleanup deletes each listed
+ * secret, then the key.
  */
 export const PENDING_SECRET_DELETIONS_KEY = "litellm.pendingSecretDeletions";
 
 /**
- * globalState: baseUrl -> labels for servers that were migrated to provider
- * groups. The label-scoped-modelParameters migration reads it forever to add
- * base-URL-scoped copies of label-scoped keys; the runtime no longer matches
- * labels itself.
+ * globalState: baseUrl -> labels for servers the retired provider-group
+ * migration seeded. NOT a legacy-registry cleanup target: the settings-redesign
+ * pipeline's label-scoped-modelParameters expansion reads it forever to decode
+ * label-scoped keys; the runtime no longer matches labels itself.
  */
 export const MIGRATED_SERVER_LABELS_KEY = "litellm.migratedServerLabels";
 
@@ -78,10 +75,9 @@ export const MIGRATED_SERVER_LABELS_KEY = "litellm.migratedServerLabels";
 export const MIGRATED_ENTRY_PARAMETER_COPIES_KEY = "litellm.migratedEntryParameterCopies";
 
 /**
- * globalState: ids of registry servers that were seeded into provider groups,
- * unioned at every finalization and never cleared. The only evidence the
- * post-completion orphan cleanup accepts before deleting an entry: labels and
- * base URLs recur when a user re-adds a server, ids never do.
+ * globalState: ids of registry servers the retired provider-group migration
+ * seeded, once the orphan cleanup's only accepted evidence. The legacy-registry
+ * cleanup deletes it.
  */
 export const MIGRATED_SERVER_IDS_KEY = "litellm.migratedServerIds";
 
@@ -129,7 +125,7 @@ export const MCP_ENTRY_VERSIONS_KEY = "litellm.mcpEntryVersions";
  */
 export const REVIEW_COMMENT_THREADS_KEY = "litellm.reviewCommentThreads";
 
-/** SecretStorage: API key for one registered server. */
+/** SecretStorage: API key for one server of the retired legacy registry; a legacy-registry cleanup target. */
 export function apiKeySecret(serverId: string): string {
 	return `litellm.apiKey.${serverId}`;
 }
@@ -192,19 +188,15 @@ export const PRE_IMPORT_SNAPSHOT_SECRET = "litellm.preImportSnapshot";
 export const FINGERPRINT_SALT_SECRET = "litellm.fingerprintSalt";
 
 /**
- * SecretStorage: the pre-registry single-server configuration.
- * Read and deleted only by src/extension/migrations/legacySingleServer.ts.
+ * SecretStorage: the pre-registry single-server configuration of v0.2.2 and
+ * earlier. Deleted by the legacy-registry cleanup, never imported.
  */
 export const LEGACY_BASE_URL_SECRET = "litellm.baseUrl";
 export const LEGACY_API_KEY_SECRET = "litellm.apiKey";
 
 /**
- * globalState: set after the legacy single-server config became a registry
- * entry but before its secrets are deleted, cleared once they are. While set,
- * the deletions are retried on every activation, even after the group
- * migration has emptied the registry, so lingering legacy secrets can never
- * re-import stale config. `true` for a plain interrupted run; an import that
- * lost a cross-window race carries the orphaned per-server secret ids still
- * to delete.
+ * globalState: the retired single-server migration's interrupted-cleanup
+ * marker; its object form lists orphaned per-server secret ids. The
+ * legacy-registry cleanup deletes the listed secrets, then the key.
  */
 export const LEGACY_CLEANUP_PENDING_KEY = "litellm.legacyCleanupPending";

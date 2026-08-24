@@ -3,12 +3,11 @@ import type { LabelExpansionResult } from "../../../extension/migrations/labelSc
 import {
 	expandLabelScopedKeys,
 	getMigratedServerLabels,
-	unionLabelSources,
 } from "../../../extension/migrations/labelScopedModelParameters";
 import { LEGACY_MODEL_PARAMETERS_ID } from "../../../extension/migrations/settingsRedesign/legacyIds";
 import { planSettingsRedesign } from "../../../extension/migrations/settingsRedesign/transform";
 import type { SettingsSnapshot } from "../../../extension/migrations/settingsRedesign/types";
-import { ServerRegistry } from "../../../extension/servers/serverRegistry";
+import { MIGRATED_SERVER_LABELS_KEY } from "../../../shared/config/storageKeys";
 import { makeExtensionStorage, makeMigrationContext } from "../../testUtils";
 
 // User-written label/host fragments that must never reach log lines; hoisted so
@@ -402,44 +401,48 @@ suite("extension/migrations/labelScopedModelParameters: the fold through the pip
 	});
 });
 
-suite("extension/migrations/labelScopedModelParameters: unionLabelSources", () => {
-	test("registry servers without a map entry contribute their label and URL", () => {
-		const union = unionLabelSources({ "http://prod.test": ["Prod"] }, [
-			{ label: "Staging", baseUrl: "http://staging.test" },
-		]);
+suite("extension/migrations/labelScopedModelParameters: getMigratedServerLabels", () => {
+	test("reads the persisted map with URLs normalized", () => {
+		const storage = makeExtensionStorage({
+			[MIGRATED_SERVER_LABELS_KEY]: { "http://prod.test/": ["Prod"], "http://staging.test": ["Staging"] },
+		});
 
-		assert.deepStrictEqual(union, { "http://prod.test": ["Prod"], "http://staging.test": ["Staging"] });
+		assert.deepStrictEqual(getMigratedServerLabels(storage.memento), {
+			"http://prod.test": ["Prod"],
+			"http://staging.test": ["Staging"],
+		});
 	});
 
-	test("a label pointing at different URLs across map and registry is dropped everywhere", () => {
-		const union = unionLabelSources({ "http://prod.test": ["Prod", "Shared"] }, [
-			{ label: "Shared", baseUrl: "http://other.test" },
-		]);
+	test("a label mapped to different URLs is dropped everywhere", () => {
+		// The retired writer kept the map unambiguous, but the blob is plain
+		// Memento state; an ambiguous label cannot resolve to one server.
+		const storage = makeExtensionStorage({
+			[MIGRATED_SERVER_LABELS_KEY]: { "http://prod.test": ["Prod", "Shared"], "http://other.test": ["Shared"] },
+		});
 
-		assert.deepStrictEqual(union, { "http://prod.test": ["Prod"] });
+		assert.deepStrictEqual(getMigratedServerLabels(storage.memento), { "http://prod.test": ["Prod"] });
 	});
 
-	test("the same label on the same URL in both sources is one entry, trailing slashes ignored", () => {
-		const union = unionLabelSources({ "http://prod.test/": ["Production"] }, [
-			{ label: "Production", baseUrl: "http://prod.test" },
-		]);
+	test("the same label under trailing-slash variants of one URL is one entry, not a conflict", () => {
+		const storage = makeExtensionStorage({
+			[MIGRATED_SERVER_LABELS_KEY]: { "http://prod.test/": ["Production"], "http://prod.test": ["Production"] },
+		});
 
-		assert.deepStrictEqual(union, { "http://prod.test": ["Production"] });
+		assert.deepStrictEqual(getMigratedServerLabels(storage.memento), { "http://prod.test": ["Production"] });
 	});
-});
 
-suite("extension/migrations/labelScopedModelParameters: migration wiring", () => {
-	test("an unseeded registry server's label reaches the fold's union before any seeding", async () => {
-		// The label map is written during post-registration seeding but the fold runs
-		// pre-registration, so the union's registry-snapshot side is what lets a
-		// straight-from-registry upgrade decode its label-scoped keys on the first pass.
-		const storage = makeExtensionStorage();
-		const registry = new ServerRegistry(storage.memento, storage.secrets);
-		await registry.addServer("Staging", "http://staging.test", "key");
-		const ctx = makeMigrationContext(storage, { registry });
+	test("an unparseable blob reads as an empty map", () => {
+		const storage = makeExtensionStorage({ [MIGRATED_SERVER_LABELS_KEY]: "not a map" });
 
-		const union = unionLabelSources(getMigratedServerLabels(ctx.globalState), ctx.registry.getServers());
-		const { value } = expand({ globalValue: { "Staging/gpt-4": { temperature: 0.3 } } }, union);
+		assert.deepStrictEqual(getMigratedServerLabels(storage.memento), {});
+	});
+
+	test("the persisted map decodes label-scoped keys through the fold", () => {
+		const storage = makeExtensionStorage({ [MIGRATED_SERVER_LABELS_KEY]: { "http://staging.test": ["Staging"] } });
+		const ctx = makeMigrationContext(storage);
+
+		const labels = getMigratedServerLabels(ctx.globalState);
+		const { value } = expand({ globalValue: { "Staging/gpt-4": { temperature: 0.3 } } }, labels);
 
 		assert.deepStrictEqual(value?.["http://staging.test/gpt-4"], { temperature: 0.3 });
 		assert.deepStrictEqual(value?.["Staging/gpt-4"], { temperature: 0.3 }, "the original key is kept");

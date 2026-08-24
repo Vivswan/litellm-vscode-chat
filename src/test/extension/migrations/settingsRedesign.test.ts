@@ -13,7 +13,6 @@ import type { LegacyHintKind } from "../../../extension/migrations/settingsRedes
 import { collectLegacyHints } from "../../../extension/migrations/settingsRedesign/hints";
 import { planSettingsRedesign } from "../../../extension/migrations/settingsRedesign/transform";
 import type { SettingsSnapshot } from "../../../extension/migrations/settingsRedesign/types";
-import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import type { DeclaredServer } from "../../../extension/servers/serverSync";
 import { buildGroupArgs, parseServersSetting } from "../../../extension/servers/serverSync";
 import { matcherMatches, parseMatcherKey } from "../../../shared/config/modelMatcher";
@@ -1547,7 +1546,7 @@ suite("extension/migrations/settingsRedesign: migration wiring", () => {
 	// The applier's end-to-end coverage lives in activation/production.test.ts; this
 	// proves run(ctx) no-ops on a profile without legacy state and writes no storage
 	// doing so. Reads are legitimate; only mutations are forbidden here.
-	test("the registered pre-registration migration no-ops on a clean profile without writing storage", async () => {
+	test("the registered migration no-ops on a clean profile without writing storage", async () => {
 		const storage = makeExtensionStorage();
 		const writeForbidding = <T extends object>(name: string, target: T): T =>
 			new Proxy(target, {
@@ -1562,11 +1561,9 @@ suite("extension/migrations/settingsRedesign: migration wiring", () => {
 		const ctx: MigrationContext = {
 			globalState: writeForbidding("globalState", storage.memento),
 			secrets: writeForbidding("secrets", storage.secrets),
-			registry: new ServerRegistry(storage.memento, storage.secrets),
 			logger: new Logger({ info: () => {}, error: () => {} }),
 			fingerprintSalt: fakeFingerprintSaltSession(),
 		};
-		assert.strictEqual(settingsRedesignMigration.phase, "pre-registration");
 		assert.ok(MIGRATIONS.includes(settingsRedesignMigration), "the migration must be registered");
 		assert.ok(
 			MIGRATIONS.indexOf(settingsRedesignMigration) >
