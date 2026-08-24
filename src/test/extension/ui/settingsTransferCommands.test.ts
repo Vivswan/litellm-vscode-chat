@@ -34,8 +34,6 @@ interface PromptAnswers {
 	confirmUndo: boolean;
 	/** Per-label collision answers; a label absent here answers undefined (dismissal). */
 	collisions: Record<string, "overwrite" | "skip" | "rename" | undefined>;
-	/** Per-label stale-key answers; a label absent here answers undefined (dismissal). A function may mutate the world first. */
-	staleKeys: Record<string, "use-same" | "clear" | undefined | (() => "use-same" | "clear" | undefined)>;
 	/** The rename box's answer; a function may inspect the suggestion and validator. */
 	rename:
 		| string
@@ -74,8 +72,6 @@ interface FakeWorld {
 	notifications: FakeNotification[];
 	summaries: ImportPreviewSummary[];
 	collisionPrompts: { label: string; connectionChanged: boolean }[];
-	/** The labels the stale-key question was asked for, in order. */
-	staleKeyPrompts: string[];
 	renamePrompts: { suggested: string; validate: (candidate: string) => string | undefined }[];
 	/** The snapshot timestamps the undo confirmation modal was shown. */
 	undoConfirmations: string[];
@@ -167,11 +163,6 @@ function makeWorld(
 			world.collisionPrompts.push({ label, connectionChanged });
 			return world.answers.collisions[label];
 		},
-		resolveStaleKey: async (label) => {
-			world.staleKeyPrompts.push(label);
-			const answer = world.answers.staleKeys[label];
-			return typeof answer === "function" ? answer() : answer;
-		},
 		askRenamedLabel: async (suggested, validate) => {
 			world.renamePrompts.push({ suggested, validate });
 			return typeof world.answers.rename === "function"
@@ -199,7 +190,6 @@ function makeWorld(
 			confirmImport: true,
 			confirmUndo: true,
 			collisions: {},
-			staleKeys: {},
 			rename: undefined,
 		},
 		settings,
@@ -220,7 +210,6 @@ function makeWorld(
 		notifications: [],
 		summaries: [],
 		collisionPrompts: [],
-		staleKeyPrompts: [],
 		renamePrompts: [],
 		undoConfirmations: [],
 		confirmSecretsCalls: 0,
@@ -589,61 +578,19 @@ suite("settingsTransferCommands import flow", () => {
 		return world;
 	}
 
-	test("an overwrite that re-points a stale-stamped key asks; Use Same Key re-stamps and keeps the value", async () => {
-		const world = stampedWorld();
-		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://new:4000" }] });
-		world.answers.collisions = { a: "overwrite" };
-		world.answers.staleKeys = { a: "use-same" };
-		await runImportSettingsFlow(world.env);
+	test("an overwrite the file backs with no value always clears the stored key, stamped or not", async () => {
+		// The fail-safe direction: a stored secret is never silently paired with
+		// imported configuration - re-pointed address, stamped value, no prompt,
+		// no keep. The undo snapshot is the regret path.
+		const stamped = stampedWorld();
+		stageEnvelope(stamped, { servers: [{ label: "a", baseUrl: "http://new:4000" }] });
+		stamped.answers.collisions = { a: "overwrite" };
+		await runImportSettingsFlow(stamped.env);
+		assert.deepStrictEqual(stamped.settings.get(SERVERS_SETTING_KEY), [{ label: "a", baseUrl: "http://new:4000" }]);
+		assert.deepStrictEqual(await stamped.env.readServerSecrets("a"), { values: {}, owners: {} });
+		assert.match(onlyNotification(stamped).message, /1 server overwritten/);
 
-		assert.deepStrictEqual(world.staleKeyPrompts, ["a"]);
-		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "a", baseUrl: "http://new:4000" }]);
-		assert.deepStrictEqual(await world.env.readServerSecrets("a"), {
-			values: { apiKey: "OLD-KEY" },
-			owners: { apiKey: "http://new:4000" },
-		});
-		assert.match(onlyNotification(world).message, /1 server overwritten/);
-	});
-
-	test("Clear Key removes the stored value, the same clear the plan defaults to", async () => {
-		const world = stampedWorld();
-		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://new:4000" }] });
-		world.answers.collisions = { a: "overwrite" };
-		world.answers.staleKeys = { a: "clear" };
-		await runImportSettingsFlow(world.env);
-
-		assert.deepStrictEqual(world.staleKeyPrompts, ["a"]);
-		assert.deepStrictEqual(await world.env.readServerSecrets("a"), { values: {}, owners: {} });
-		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "a", baseUrl: "http://new:4000" }]);
-	});
-
-	test("dismissing the stale-key prompt aborts the whole import with zero writes", async () => {
-		const world = stampedWorld();
-		stageEnvelope(world, { "chat.timeout": 1, servers: [{ label: "a", baseUrl: "http://new:4000" }] });
-		world.answers.collisions = { a: "overwrite" }; // stale-key unanswered -> dismissal
-		await runImportSettingsFlow(world.env);
-
-		assert.deepStrictEqual(world.staleKeyPrompts, ["a"]);
-		assert.strictEqual(world.settings.get("chat.timeout"), undefined);
-		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "a", baseUrl: "http://old:4000" }]);
-		assert.deepStrictEqual(await world.env.readServerSecrets("a"), {
-			values: { apiKey: "OLD-KEY" },
-			owners: { apiKey: "http://old:4000" },
-		});
-		assert.strictEqual(world.snapshotSlot, undefined);
-		assert.deepStrictEqual(world.notifications, []);
-	});
-
-	test("no stale-key prompt when the file carries the field or the stored value is unstamped", async () => {
-		// The file's own value overwrites with a fresh stamp.
-		const carried = stampedWorld();
-		stageEnvelope(carried, { servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }] });
-		carried.answers.collisions = { a: "overwrite" };
-		await runImportSettingsFlow(carried.env);
-		assert.deepStrictEqual(carried.staleKeyPrompts, []);
-		assert.deepStrictEqual(blobOf(carried, "a"), { apiKey: "NEW-KEY" });
-
-		// An unstamped value predates stamping; the documented clear-as-stale stands.
+		// An unstamped value predates stamping and clears the same way.
 		const unstamped = makeWorld(
 			{ servers: [{ label: "a", baseUrl: "http://old:4000" }] },
 			{ a: { apiKey: "OLD-KEY" } }
@@ -651,44 +598,21 @@ suite("settingsTransferCommands import flow", () => {
 		stageEnvelope(unstamped, { servers: [{ label: "a", baseUrl: "http://new:4000" }] });
 		unstamped.answers.collisions = { a: "overwrite" };
 		await runImportSettingsFlow(unstamped.env);
-		assert.deepStrictEqual(unstamped.staleKeyPrompts, []);
 		assert.deepStrictEqual(blobOf(unstamped, "a"), {});
 	});
 
-	test("a stamp rotated while the prompts sat open leaves the field untouched instead of re-pairing it", async () => {
-		// The consent named the OLD stamp; a value re-paired elsewhere meanwhile
-		// (another window's deliberate action) must be neither restamped nor
-		// cleared - the sync engine then refuses the standing pairing and its
-		// own notice re-asks about what now stands. Both answers are guarded.
-		for (const answer of ["use-same", "clear"] as const) {
-			const world = stampedWorld();
-			stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://new:4000" }] });
-			world.answers.collisions = { a: "overwrite" };
-			world.answers.staleKeys = {
-				a: () => {
-					world.secretValues.set(
-						serverSecretsKey("a"),
-						JSON.stringify({ apiKey: "ROTATED", _owner: { apiKey: "http://elsewhere:4000" } })
-					);
-					return answer;
-				},
-			};
-			await runImportSettingsFlow(world.env);
-
-			assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "a", baseUrl: "http://new:4000" }]);
-			assert.deepStrictEqual(
-				await world.env.readServerSecrets("a"),
-				{ values: { apiKey: "ROTATED" }, owners: { apiKey: "http://elsewhere:4000" } },
-				`the "${answer}" answer must not touch a rotated pairing`
-			);
-		}
+	test("a value the file carries replaces the stored one instead of clearing", async () => {
+		const world = stampedWorld();
+		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }] });
+		world.answers.collisions = { a: "overwrite" };
+		await runImportSettingsFlow(world.env);
+		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "NEW-KEY" });
 	});
 
-	test("a failed servers write rolls a restamp back, value and stamp alike", async () => {
+	test("a failed servers write rolls the stale-field clear back, value and stamp alike", async () => {
 		const world = stampedWorld();
 		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://new:4000" }] });
 		world.answers.collisions = { a: "overwrite" };
-		world.answers.staleKeys = { a: "use-same" };
 		world.failWrites.add(SERVERS_SETTING_KEY);
 		await runImportSettingsFlow(world.env);
 
@@ -698,16 +622,12 @@ suite("settingsTransferCommands import flow", () => {
 		});
 	});
 
-	test("undo after Use Same Key restores the pre-import stamp with the value", async () => {
+	test("undo after an overwrite restores the cleared stored key, value and stamp alike", async () => {
 		const world = stampedWorld();
 		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://new:4000" }] });
 		world.answers.collisions = { a: "overwrite" };
-		world.answers.staleKeys = { a: "use-same" };
 		await runImportSettingsFlow(world.env);
-		assert.deepStrictEqual(await world.env.readServerSecrets("a"), {
-			values: { apiKey: "OLD-KEY" },
-			owners: { apiKey: "http://new:4000" },
-		});
+		assert.deepStrictEqual(await world.env.readServerSecrets("a"), { values: {}, owners: {} });
 
 		world.notifications = [];
 		await runUndoLastImportFlow(world.env);
@@ -1532,7 +1452,6 @@ suite("settingsTransferCommands secret hygiene", () => {
 			notifications: world.notifications.map((note) => ({ ...note, run: undefined })),
 			summaries: world.summaries,
 			collisionPrompts: world.collisionPrompts,
-			staleKeyPrompts: world.staleKeyPrompts,
 			renameSuggestions: world.renamePrompts.map((prompt) => prompt.suggested),
 			undoConfirmations: world.undoConfirmations,
 		});
@@ -1571,8 +1490,8 @@ suite("settingsTransferCommands secret hygiene", () => {
 		assert.ok(!visibleSurfaces(world).includes(SENTINEL));
 	});
 
-	test("the stale-key prompt path never leaks the stored value or its stamp beyond the label", async () => {
-		// The prompt fires for a STAMPED live sentinel key; everything the user
+	test("clearing a stamped stored key never leaks the value or its stamp beyond the label", async () => {
+		// The overwrite clears a STAMPED live sentinel key; everything the user
 		// or the log sees carries the label alone.
 		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] });
 		world.secretValues.set(
@@ -1581,13 +1500,12 @@ suite("settingsTransferCommands secret hygiene", () => {
 		);
 		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://new:4000" }] });
 		world.answers.collisions = { a: "overwrite" };
-		world.answers.staleKeys = { a: "use-same" };
 		await runImportSettingsFlow(world.env);
-		assert.deepStrictEqual(world.staleKeyPrompts, ["a"], "the prompt actually fired");
+		assert.deepStrictEqual(await world.env.readServerSecrets("a"), { values: {}, owners: {} });
 		assert.ok(!visibleSurfaces(world).includes(SENTINEL));
 		assert.ok(
 			!JSON.stringify(Object.fromEntries(world.settings)).includes(SENTINEL),
-			"the kept value stays in secret storage"
+			"the cleared value never lands in the settings map"
 		);
 	});
 

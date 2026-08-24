@@ -18,10 +18,10 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settingSpec";
 import type { SecretFieldId } from "../../shared/serverEntry";
-import { entryUsesSecretField, OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { restructureServers } from "../migrations/settingsRedesign/entries";
-import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
+import type { StoredSecretOwners, StoredServerSecrets } from "../servers/serverSync/secrets";
 import { secretDestination } from "../servers/serverSync/secrets";
 import type { DeclaredServer, ServerEntryReport } from "../servers/serverSync/setting";
 import {
@@ -304,25 +304,7 @@ export function planSettingsImport(
 
 /** The user's answer to one collision prompt. */
 export type CollisionDecision =
-	| {
-			readonly action: "overwrite";
-			/**
-			 * The stale-key question's answer, when the overwrite raised one
-			 * (staleStoredKeyFields): the fields it named, each with the ownership
-			 * stamp the consent was given FOR. The apply step acts on a field only
-			 * while its standing stamp still equals the recorded one - "use-same"
-			 * re-stamps the standing value for the imported destination, "clear"
-			 * deletes it - and otherwise leaves the field UNTOUCHED: a value
-			 * rotated to another pairing while the prompts sat open was never what
-			 * the user answered about (the sync watcher re-asks about it). Absent
-			 * keeps the default: fields the file does not carry are cleared as
-			 * stale.
-			 */
-			readonly staleKeyConsent?: {
-				readonly answer: "use-same" | "clear";
-				readonly stamps: Readonly<Partial<Record<SecretFieldId, string>>>;
-			};
-	  }
+	| { readonly action: "overwrite" }
 	| { readonly action: "skip" }
 	| { readonly action: "rename"; readonly newLabel: string };
 
@@ -332,52 +314,6 @@ export type CollisionDecision =
  * partial decision set never reaches resolveImportPlan.
  */
 export type CollisionDecisions = Readonly<Record<string, CollisionDecision>>;
-
-/**
- * The stored secret fields an overwrite of `label` would re-point away from
- * their stamps: the label's blob holds a value whose stamp names exactly the
- * STANDING entry's destination (the value is live - a dormant leftover the
- * current entry never resolved keeps the plan's default clear, it re-points
- * nothing), the imported entry actually uses the field and pairs it with a
- * different destination (entryUsesSecretField, the shared wire-shape rule - no
- * token exchange for a client secret, no header for a virtual key value,
- * nothing to re-pair; a stored value's own header-validity stays unjudged, the
- * safe direction: asking preserves, silence clears), and the file carries no
- * replacement value (a carried value overwrites with a fresh stamp; an
- * unstamped value predates stamping and keeps the default clear). Non-empty
- * means the import flow asks the stale-key question before folding the answer
- * into the overwrite decision's staleKeyConsent. Empty when either side does
- * not parse - with no derivable destination there is nothing to compare, and
- * the default clear stands.
- */
-export function staleStoredKeyFields(
-	plan: ImportPlan,
-	label: string,
-	record: StoredSecretsRecord
-): readonly SecretFieldId[] {
-	const index = representativeIndices(plan.incomingServers).get(label);
-	const raw = index !== undefined ? plan.incomingServers[index]?.raw : undefined;
-	if (!isRecord(raw)) {
-		return [];
-	}
-	const stripped = stripEntrySecrets(raw);
-	const incoming = acceptedEntry([stripped.entry], label)?.entry;
-	const current = acceptedEntry(plan.currentServersRaw, label)?.entry;
-	if (incoming === undefined || current === undefined) {
-		return [];
-	}
-	return SECRET_FIELD_IDS.filter((field) => {
-		const owner = record.owners[field];
-		return (
-			record.values[field] !== undefined &&
-			owner !== undefined &&
-			owner === secretDestination(current, field) &&
-			entryUsesSecretField(incoming, field) &&
-			owner !== secretDestination(incoming, field) &&
-			stripped.secrets[field] === undefined
-		);
-	});
-}
 
 /** One label's SecretStorage writes, stripped out of its incoming entry. */
 export interface SecretWrite {
@@ -392,23 +328,6 @@ export interface SecretWrite {
 	 * closed, so fixing the entry re-pairs the secret deliberately.
 	 */
 	readonly owners: StoredSecretOwners;
-	/**
-	 * Stored fields to keep with their CURRENT value, re-stamped with `owners`
-	 * (the stale-key question's "use same key"), keyed to the stamp the consent
-	 * was given for. Only fields `secrets` does not carry can appear here; the
-	 * apply step reads the standing value and writes it back under the new
-	 * stamp, leaving the field untouched when the value is gone or its stamp no
-	 * longer equals the recorded one (see CollisionDecision.staleKeyConsent).
-	 */
-	readonly restamps: Readonly<Partial<Record<SecretFieldId, string>>>;
-	/**
-	 * Stored fields the stale-key question's "clear" answer covers, keyed the
-	 * same way: the apply step clears the field only while its standing stamp
-	 * still equals the recorded one, and otherwise leaves it untouched - a
-	 * value re-paired elsewhere while the prompts sat open must not die under
-	 * an answer that concerned a different pairing. Disjoint from `restamps`.
-	 */
-	readonly guardedClears: Readonly<Partial<Record<SecretFieldId, string>>>;
 }
 
 /** The exact writes the host flow applies (settings first, the servers array last). */
@@ -464,39 +383,19 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 	let renamed = 0;
 	let skipped = 0;
 
-	const land = (
-		label: string,
-		rawEntry: Readonly<Record<string, unknown>>,
-		staleKeyConsent?: {
-			readonly answer: "use-same" | "clear";
-			readonly stamps: Readonly<Partial<Record<SecretFieldId, string>>>;
-		}
-	): Readonly<Record<string, unknown>> => {
+	const land = (label: string, rawEntry: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
 		const stripped = stripEntrySecrets(rawEntry);
 		// The stamp target is the entry as it will be written and parsed back;
 		// see SecretWrite.owners for the fail-closed fallback.
 		const parsed = acceptedEntry([stripped.entry], label)?.entry;
 		const target = parsed ?? { baseUrl: typeof rawEntry.baseUrl === "string" ? rawEntry.baseUrl.trim() : "" };
-		// A field the file carries lands with its own value and never joins the
-		// consent maps (staleStoredKeyFields excludes carried fields), so the
-		// filter is belt and braces against a malformed decision.
-		const restamps: { -readonly [K in SecretFieldId]?: string } = {};
-		const guardedClears: { -readonly [K in SecretFieldId]?: string } = {};
 		const owners: { -readonly [K in SecretFieldId]?: string } = {};
 		for (const field of SECRET_FIELD_IDS) {
-			const consentStamp = staleKeyConsent?.stamps[field];
-			if (stripped.secrets[field] === undefined && consentStamp !== undefined) {
-				if (staleKeyConsent?.answer === "use-same") {
-					restamps[field] = consentStamp;
-				} else {
-					guardedClears[field] = consentStamp;
-				}
-			}
-			if (stripped.secrets[field] !== undefined || restamps[field] !== undefined) {
+			if (stripped.secrets[field] !== undefined) {
 				owners[field] = secretDestination(target, field);
 			}
 		}
-		secretWrites.push({ label, secrets: stripped.secrets, owners, restamps, guardedClears });
+		secretWrites.push({ label, secrets: stripped.secrets, owners });
 		if (!touched.has(label)) {
 			touched.add(label);
 			touchedLabels.push(label);
@@ -535,7 +434,7 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 		if (decision.action === "overwrite") {
 			landedLabels.add(label);
 			const overwriteIndex = indexByLabel.get(label);
-			const entry = land(label, incoming.raw, decision.staleKeyConsent);
+			const entry = land(label, incoming.raw);
 			if (overwriteIndex !== undefined) {
 				base[overwriteIndex] = entry;
 			} else {

@@ -247,7 +247,7 @@ async function askStaleSecretStamp(label: string): Promise<StaleStampAnswer | un
 /**
  * Wire the stale-stamp consent notice onto the engine's sync passes: the one
  * question for a settings-file URL change over a stored secret, the sibling of
- * the dashboard save flow's dialog and the settings import's prompt.
+ * the dashboard save flow's dialog.
  */
 export function registerStaleSecretStampNotice(
 	context: vscode.ExtensionContext,
