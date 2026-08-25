@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.6.0](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.5.0...v0.6.0) (2026-08-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* drop the parked global-headers record and its recovery flow
+* drop the stale-stamp re-raise notice engine
+* drop the v0.3.1 label-scoped parameter expansion
+* always clear stored keys an import does not replace
+* drop the legacy-registry migration; very old installs re-add servers
+* retire the legacy registry and make parked migration state consumable
+* drop pre-rename status readings and the pinned legacy group-identity format
+* replace the two inline-completion language lists with one mode-based filter
+
+### Features
+
+* add a dashboard features page and a registry-driven feature architecture ([9c45ae0](https://github.com/Vivswan/litellm-vscode-chat/commit/9c45ae0ef8b69ec79c037cccce38b4b76027a57d))
+* add AI review comments on your changes ([66a318e](https://github.com/Vivswan/litellm-vscode-chat/commit/66a318e422178d62043daa519a25d6c5b361e4aa))
+* add commit message generation command ([82e5fbd](https://github.com/Vivswan/litellm-vscode-chat/commit/82e5fbddf734b4ab94513b04864785c07a230bd8))
+* add fix and explain quick fixes on diagnostics ([c23058e](https://github.com/Vivswan/litellm-vscode-chat/commit/c23058ecb1e2e653c67072c6b54845fc5037700e))
+* add inline completion and commit generation settings scaffolding ([e6ed047](https://github.com/Vivswan/litellm-vscode-chat/commit/e6ed047aad757d48e8a531b10d01a58943cfffe6))
+* add inline completions from LiteLLM FIM models ([311e50c](https://github.com/Vivswan/litellm-vscode-chat/commit/311e50c952d896015426cf660319d965daf6689e))
+* answer [@litellm](https://github.com/litellm) chat turns with slash commands ([cb536e2](https://github.com/Vivswan/litellm-vscode-chat/commit/cb536e21fe9f3bb5b1fe3f17cd40489108a66c5b))
+* confirm the stored key when a server's URL changes ([7a47643](https://github.com/Vivswan/litellm-vscode-chat/commit/7a476432b43cba8b931da27085e0168adab44689))
+* drop the legacy-registry migration; very old installs re-add servers ([90d4472](https://github.com/Vivswan/litellm-vscode-chat/commit/90d4472fc8dc6fd588f7ad52ccecfe2bddf0ea98))
+* drop the parked global-headers record and its recovery flow ([64c5e01](https://github.com/Vivswan/litellm-vscode-chat/commit/64c5e01c9b5ef2c96705e62c9092cfb0194ccb03))
+* drop the stale-stamp re-raise notice engine ([09e9778](https://github.com/Vivswan/litellm-vscode-chat/commit/09e97786e469849ec3fcde96662fba7eb3a8c0ae))
+* drop the v0.3.1 label-scoped parameter expansion ([b763ee9](https://github.com/Vivswan/litellm-vscode-chat/commit/b763ee90e9f9ea2f272258681674d777b33d3a42))
+* expose a LiteLLM consult tool for agent mode ([b83e2d6](https://github.com/Vivswan/litellm-vscode-chat/commit/b83e2d69f0f05fee97f7a1850eca6ebdeb15c2c3))
+* generate PR titles and descriptions with a LiteLLM model ([6b49352](https://github.com/Vivswan/litellm-vscode-chat/commit/6b493524cefe440e64f510be11b03f781cbddc06))
+* generate the settings reference from the settings spec ([0a8d8fd](https://github.com/Vivswan/litellm-vscode-chat/commit/0a8d8fd92b91a51fb138a4368912fd8b3911fbd6))
+* publish MCP servers from declared LiteLLM entries ([47ae3f4](https://github.com/Vivswan/litellm-vscode-chat/commit/47ae3f498917eb5e66a454c21d7542de4b894a57))
+* replace the two inline-completion language lists with one mode-based filter ([a95c573](https://github.com/Vivswan/litellm-vscode-chat/commit/a95c5734ccea02fa71fb68d574bf6a8b3a745ebc))
+* retire the legacy registry and make parked migration state consumable ([29481f9](https://github.com/Vivswan/litellm-vscode-chat/commit/29481f967fe710dbf60e5feed8bc5f20e57bf7ab))
+
+
+### Bug Fixes
+
+* align commit generation errors, privacy claims, and naming across features ([9b4b6bc](https://github.com/Vivswan/litellm-vscode-chat/commit/9b4b6bc3ac8221d4cd93cb5309e9d0e179b9110b))
+* align feature copy and retire the hand-counted recipe number ([343da5a](https://github.com/Vivswan/litellm-vscode-chat/commit/343da5ad10d13ee7c83aeac41e1a603bb8789387))
+* bound each OAuth-exchange joiner by its own timeout and error surface ([0bf38e8](https://github.com/Vivswan/litellm-vscode-chat/commit/0bf38e8163960aaf3f3f201464b629ecbe4d6e87))
+* edit the commit message prompt in a multiline editor ([856d146](https://github.com/Vivswan/litellm-vscode-chat/commit/856d14611f1d90b0036b9e793562a0b8888f4e12))
+* escape backslashes in participant reference labels ([e6ef3cc](https://github.com/Vivswan/litellm-vscode-chat/commit/e6ef3cc8732e1721b98bdbefc7f323200d59cd1d))
+* match OAuth exchange timeout advice and commit error format to their surfaces ([455f115](https://github.com/Vivswan/litellm-vscode-chat/commit/455f115afab63c997a63550039db4291753d31ef))
+* pin vscode typings to the engines floor and refuse malformed language-filter requests ([4789170](https://github.com/Vivswan/litellm-vscode-chat/commit/4789170793bc1fa5da5d42d2fdaaf33289e43554))
+* register entry fields once and make sync failures unrepresentable half-set ([2f82a43](https://github.com/Vivswan/litellm-vscode-chat/commit/2f82a435ec8072e0ddfc86b8a27651dbef57aa4a))
+* restore the VSIX packaging and Marketplace publish in the release hook ([548003b](https://github.com/Vivswan/litellm-vscode-chat/commit/548003bbc002e6c94ff8f1d848ada334159304e5))
+* route model-facing file labels and command failures through their owners ([7ea122d](https://github.com/Vivswan/litellm-vscode-chat/commit/7ea122d374e5c77a08395bbff2e04b83a53b0b08))
+* scope egress-controlling feature settings to machine-overridable ([02527b8](https://github.com/Vivswan/litellm-vscode-chat/commit/02527b8e9c2beff902f948047eca203f32c6f3fd))
+
+
+### Code Refactoring
+
+* always clear stored keys an import does not replace ([fdef41b](https://github.com/Vivswan/litellm-vscode-chat/commit/fdef41b098b666cbb2e6ee623d1fc9abcee09cad))
+* drop pre-rename status readings and the pinned legacy group-identity format ([f3559d3](https://github.com/Vivswan/litellm-vscode-chat/commit/f3559d3ad8f52ba544db036162a38f32f0fd2a7f))
+
 ## [0.5.0](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.7...v0.5.0) (2026-08-20)
 
 
