@@ -94,6 +94,15 @@ labels:
   - name: "nightly-failure"
     color: "D93F0B"
     description: Automated nightly CI failure
+  # The repo-owned close-answered-issues workflow's pair: label an issue
+  # awaiting-reply after answering it, and the workflow closes it (tagging it
+  # auto-closed) after three days without activity.
+  - name: awaiting-reply
+    color: "0E8A16"
+    description: Answered; auto-closes after three quiet days
+  - name: auto-closed
+    color: "ededed"
+    description: Closed by the close-answered-issues workflow after no reply
 
 
 # Branch ruleset for the default branch. Admins (RepositoryRole id 5) are in
