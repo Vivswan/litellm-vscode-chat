@@ -1,0 +1,40 @@
+# Repo-owned (not managed by repo-platform): auto-closes answered issues.
+# Label an issue `awaiting-reply` after answering it; if nothing on the issue
+# changes for three days, this closes it with a pointer to reopen. Any
+# activity (a comment, an edit, a label change) resets the clock. Closed
+# issues are skipped entirely; reopening one counts as activity, so the next
+# run strips both labels instead of re-closing it.
+name: Close Answered Issues
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  # The action persists its operations state through the Actions cache.
+  actions: write
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v11
+        with:
+          any-of-issue-labels: awaiting-reply
+          days-before-issue-stale: 3
+          # Close in the same run the issue goes stale: the three quiet days
+          # are the whole grace period, with no separate warning phase.
+          days-before-issue-close: 0
+          close-issue-reason: completed
+          stale-issue-label: auto-closed
+          close-issue-message: >
+            Closing since there was no further reply. If the answer above did
+            not resolve it, comment here and the issue can be reopened.
+          labels-to-remove-when-unstale: awaiting-reply
+          # Issues only; pull requests are never touched. The unstale override
+          # keeps even a hand-labeled stale PR out of reach.
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          remove-pr-stale-when-updated: false
