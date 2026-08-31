@@ -47,6 +47,10 @@ const LABEL_PARAMS_B = "SyncSuite Params B";
 const LABEL_CAPS = "SyncSuite Caps";
 const LABEL_EXPECTED = "SyncSuite Expected";
 const LABEL_DECLARED_UNEXPECTED = "SyncSuite Declared Unexpected";
+const LABEL_ROTATED = "SyncSuite Rotated";
+
+/** Scenario 12's initial wrong key: baked into the group, then healed by the stored rotation. */
+const WRONG_ROTATED_KEY = "sk-rotated-wrong-MARKER";
 
 /**
  * Scenario 9's override target: llama-4-scout declares no token limits, so un-overridden copies carry the
@@ -241,6 +245,7 @@ suite("Docker server sync", () => {
 		// from the persisted fingerprint map.
 		await setStoredSecret(LABEL_STORED, "apiKey", undefined);
 		await setStoredSecret(LABEL_PRECEDENCE, "apiKey", undefined);
+		await setStoredSecret(LABEL_ROTATED, "apiKey", undefined);
 		await serversConfig().update(
 			MODEL_CAPABILITIES_SETTING_KEY,
 			originalCapabilitiesSetting,
@@ -670,5 +675,42 @@ suite("Docker server sync", () => {
 		);
 		const params = await chat(model, `${COMMAND_SIGIL}params`);
 		assert.match(params, /max_tokens: `9000`/, "a user-declared output limit reaches the wire uncapped");
+	});
+
+	test("scenario 12: fixing a stored key heals the server without recreating the group (#277)", async function () {
+		this.timeout(120000);
+		// The group is created with a WRONG key baked into its host configuration
+		// (stored before the entry exists, so it lands unstamped and the first
+		// sync pass bakes it in); the add itself succeeds, discovery then fails.
+		await setStoredSecret(LABEL_ROTATED, "apiKey", WRONG_ROTATED_KEY);
+		await declareServer({ label: LABEL_ROTATED, baseUrl: BASE_URL });
+		assert.strictEqual(
+			(await declaredFor(LABEL_ROTATED)).syncFailure?.message,
+			undefined,
+			"the group add succeeds; only discovery fails"
+		);
+		const statusDeadline = Date.now() + 60000;
+		let errored = false;
+		while (Date.now() < statusDeadline && !errored) {
+			const statuses = (await vscode.commands.executeCommand("litellm._test.getServerStatuses")) as ServerStatus[];
+			errored = statuses.some((status) => status.label === LABEL_ROTATED && status.state === "error");
+			if (!errored) {
+				await new Promise((resolve) => setTimeout(resolve, 500));
+			}
+		}
+		assert.ok(errored, `the wrong key must surface an error status for ${LABEL_ROTATED}`);
+
+		// The #277 fix: setting the valid key must reach the EXISTING group - no
+		// blocked state, no group recreation, Error -> Active on the next sync.
+		await setStoredSecret(LABEL_ROTATED, "apiKey", API_KEY);
+		await syncNow();
+		proxyGroups += 1;
+		await waitForProxyGroupCount(proxyGroups);
+		const view = await declaredFor(LABEL_ROTATED);
+		assert.strictEqual(view.syncFailure?.message, undefined, "a credential rotation never enters the blocked state");
+		assert.strictEqual(view.secrets.apiKey, "secure", "the rotated key lives in SecretStorage");
+		// The healed group carries chat end to end with the rotated credentials.
+		const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
+		assert.ok(countModels(models, ALIAS) >= proxyGroups, "the healed group serves the proxy models");
 	});
 });

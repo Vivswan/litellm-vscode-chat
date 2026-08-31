@@ -13,6 +13,7 @@ import type { GroupRemovalStore } from "../servers/groupRemovals";
 import {
 	parseServersSetting,
 	readEntryApiVersion,
+	readEntryCredentials,
 	readEntryDeclaredModels,
 	readEntryExpectedFailures,
 	readEntryHeaders,
@@ -77,6 +78,7 @@ export function wireProvider(
 		getEntryApiVersion: readEntryApiVersion,
 		getEntryDeclaredModels: readEntryDeclaredModels,
 		getExpectedFailures: readEntryExpectedFailures,
+		resolveEntryCredentials: (label, baseUrl) => readEntryCredentials(context.secrets, logger, label, baseUrl),
 		getCatalogLookup: () => catalogStore.lookup,
 		isGroupSuppressed: (label, baseUrl) => deps.groupRemovals.isTombstoned(label, baseUrl),
 	});

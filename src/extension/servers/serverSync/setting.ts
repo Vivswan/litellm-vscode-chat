@@ -597,9 +597,11 @@ export function stillDeclaredIn(raw: unknown): (label: string) => boolean {
  * deliberately play no part - so any group carrying the entry's label at the
  * entry's URL resolves, a hand-labeled native group included. A same-label
  * group at another URL proves nothing about the connection: it resolves to
- * nothing and gets only the global settings.
+ * nothing and gets only the global settings. Exported for the credential
+ * overlay's resolver (entryCredentials.ts), which must match by the exact
+ * same rule as headers, parameters, and capabilities.
  */
-function matchedEntryFor(raw: unknown, label: string, baseUrl: string): DeclaredServer | undefined {
+export function matchedEntryFor(raw: unknown, label: string, baseUrl: string): DeclaredServer | undefined {
 	const match = acceptedEntry(raw, label);
 	if (match === undefined || normalizeBaseUrl(match.entry.baseUrl) !== normalizeBaseUrl(baseUrl)) {
 		return undefined;

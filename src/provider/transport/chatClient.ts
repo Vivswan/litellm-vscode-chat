@@ -21,8 +21,8 @@ import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
 import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/discovery";
 import { fetchModels } from "../catalog/discovery";
-import type { LiteLLMModelInfo, ParsedModelMetadata } from "../catalog/groupModels";
-import { groupClientId, parseModelMetadata } from "../catalog/groupModels";
+import type { GroupCredentials, GroupServer, LiteLLMModelInfo, ParsedModelMetadata } from "../catalog/groupModels";
+import { groupClientId, overlayGroupCredentials, parseModelMetadata } from "../catalog/groupModels";
 import { requestParamsFromModelConfiguration } from "../catalog/modelConfiguration";
 import {
 	type OAuthConfig,
@@ -113,6 +113,14 @@ export interface ChatClientOptions {
 	 * declared entry matches get the auto rule.
 	 */
 	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
+	/**
+	 * Resolves a declared entry's CURRENT credentials at request time, matched
+	 * like getEntryHeaders. Model objects carry the credentials attached at
+	 * serve time, which a rotation since then has outdated; the overlay makes
+	 * every send authenticate with the entry's live ones. Defaults to none:
+	 * the attached credentials stay in force.
+	 */
+	resolveEntryCredentials?: ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>) | undefined;
 }
 
 /**
@@ -128,6 +136,9 @@ export class ChatClient {
 	) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
 	private readonly getEntryHeaders: (label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined;
 	private readonly getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
+	private readonly resolveEntryCredentials?:
+		| ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>)
+		| undefined;
 	private readonly clients = new ServerClientCache();
 	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly resolution: ModelResolutionTable;
@@ -146,6 +157,7 @@ export class ChatClient {
 		this.getEntryModelParameters = options.getEntryModelParameters ?? (() => undefined);
 		this.getEntryHeaders = options.getEntryHeaders ?? (() => undefined);
 		this.getEntryApiVersion = options.getEntryApiVersion ?? (() => undefined);
+		this.resolveEntryCredentials = options.resolveEntryCredentials;
 		this.resolution = options.resolution ?? new ModelResolutionTable();
 	}
 
@@ -277,12 +289,35 @@ export class ChatClient {
 		);
 	}
 
+	/**
+	 * Overlay an attached labeled server's credentials with the declared
+	 * entry's current ones (see ChatClientOptions.resolveEntryCredentials).
+	 * A resolver failure keeps the attached credentials silently: transport
+	 * modules throw without logging, the extension side already logged the
+	 * read failure, and the attached credentials remain a valid request input.
+	 */
+	private async overlaidServer(server: GroupServer | undefined): Promise<GroupServer | undefined> {
+		if (server?.label === undefined || this.resolveEntryCredentials === undefined) {
+			return server;
+		}
+		try {
+			const credentials = await this.resolveEntryCredentials(server.label, server.baseUrl);
+			return credentials !== undefined ? overlayGroupCredentials(server, credentials) : server;
+		} catch {
+			return server;
+		}
+	}
+
 	async send(ctx: ChatRequestContext): Promise<void> {
 		const { model, messages, options, progress, token } = ctx;
 
 		// The one parse of the model object's LiteLLM metadata; everything below
 		// reads the parsed result instead of re-narrowing the host round trip.
-		const metadata = parseModelMetadata(model, this.log);
+		const parsed = parseModelMetadata(model, this.log);
+		// Attached credentials date from the serve that minted the model object;
+		// the overlay swaps in the entry's current ones so a rotation applies to
+		// the very next request instead of waiting out a host re-resolve.
+		const metadata = { ...parsed, server: await this.overlaidServer(parsed.server) };
 		const connection = this.resolveConnection(model, metadata);
 
 		const promptCachingEnabled = isPromptCachingEnabled();

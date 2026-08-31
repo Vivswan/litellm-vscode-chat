@@ -27,7 +27,7 @@ import {
 	ServerSyncEngine,
 	updateServerSecret,
 } from "../../../extension/servers/serverSync";
-import { SECRET_OWNERSHIP_MISMATCH_MESSAGE } from "../../../extension/servers/serverSync/engine";
+import { groupArgsFingerprint, SECRET_OWNERSHIP_MISMATCH_MESSAGE } from "../../../extension/servers/serverSync/engine";
 import {
 	readServerSecretsRecord,
 	resolveOwnedSecrets,
@@ -623,7 +623,12 @@ suite("extension/servers/serverSync", () => {
 			);
 		});
 
-		test("a secret rotated mid-pass skips the add too: the submitted args always match a fresh read", async () => {
+		test("a secret rotated mid-pass no longer blocks the add: identity is what the pre-add re-read guards", async () => {
+			// The identity fingerprint does not cover credentials, so the pass-start
+			// pairing may reach the host even when the secret rotates between the
+			// loop's read and the add. Harmless where it was once permanent: the
+			// baked credentials are a serve-time-overridden fallback, and the
+			// rotation's own follow-up pass reads as in-sync without another add.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
 			const originalRead = recorded.env.readSecrets.bind(recorded.env);
 			let rotated = false;
@@ -638,14 +643,15 @@ suite("extension/servers/serverSync", () => {
 			};
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
-			assert.strictEqual(recorded.upserts.length, 0, "the pre-rotation args must not reach the host");
-
-			await engine.syncNow();
 			assert.deepStrictEqual(
 				recorded.upserts.map((args) => args.apiKey),
-				["sk-2"],
-				"the follow-up pass adds the rotated secret"
+				["sk-1"],
+				"the add lands with the pass-start pairing"
 			);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined);
+
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1, "the rotation's follow-up pass is in-sync, no re-add");
 		});
 
 		test("dispose settles a queued syncNow, and no pass may start after disposal", async () => {
@@ -679,16 +685,24 @@ suite("extension/servers/serverSync", () => {
 			assert.strictEqual(recorded.upserts.length, 1, "post-dispose requestSync schedules nothing");
 		});
 
-		test("an unchanged entry skips the upsert; a changed secret re-upserts", async () => {
+		test("an unchanged entry skips the upsert; a rotated secret is in-sync; a baseUrl edit re-upserts", async () => {
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "the second identical pass upserts nothing");
 
+			// A credential rotation is a sync no-op BY DESIGN: the identity print
+			// does not cover secrets, the host could not update the group anyway,
+			// and the serve-time overlay delivers the new value.
 			recorded.secrets = { A: { apiKey: "sk-2" } };
 			await engine.syncNow();
-			assert.strictEqual(recorded.upserts.length, 2, "a secret change re-upserts");
+			assert.strictEqual(recorded.upserts.length, 1, "a secret change owes the host nothing");
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "and raises no failure");
+
+			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 2, "an identity change re-upserts");
 		});
 
 		test("entries removed from the setting are reported once and dropped from the fingerprint map", async () => {
@@ -1066,14 +1080,14 @@ suite("extension/servers/serverSync", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1);
 
-			// The entry changes, but the host cannot update the existing group.
-			recorded.secrets = { A: { apiKey: "sk-2" } };
+			// The entry's identity changes, but the host cannot update the existing group.
+			recorded.setting = [{ label: "A", baseUrl: "http://changed.test" }];
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 			assert.ok(
-				!JSON.stringify(recorded.logged).includes("sk-2"),
+				!JSON.stringify(recorded.logged).includes("sk-1"),
 				"the classification log never carries secret material"
 			);
 
@@ -1096,8 +1110,8 @@ suite("extension/servers/serverSync", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1);
 
-			// The change is refused: the host cannot update the existing group.
-			recorded.secrets = { A: { apiKey: "sk-2" } };
+			// The identity change is refused: the host cannot update the existing group.
+			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
@@ -1110,14 +1124,14 @@ suite("extension/servers/serverSync", () => {
 			// The user reverts the entry instead of removing the group natively:
 			// the live group already holds this content, so the error clears
 			// without a host call.
-			recorded.secrets = { A: { apiKey: "sk-1" } };
+			recorded.setting = [{ label: "A", baseUrl: "http://a.test" }];
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the revert unwedges the entry");
 			assert.strictEqual(recorded.upserts.length, 1, "the revert is a silent no-op, not a retry");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
 
 			// A genuine change afterwards still surfaces the error.
-			recorded.secrets = { A: { apiKey: "sk-3" } };
+			recorded.setting = [{ label: "A", baseUrl: "http://c.test" }];
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
 		});
@@ -1156,9 +1170,9 @@ suite("extension/servers/serverSync", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1);
 
-			// The entry changes and the add for the NEW configuration fails
-			// transiently (not as a duplicate).
-			recorded.secrets = { A: { apiKey: "sk-2" } };
+			// The entry's identity changes and the add for the NEW configuration
+			// fails transiently (not as a duplicate).
+			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.failLabels.add("A");
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPSERT_FAILED_MESSAGE);
@@ -1168,7 +1182,7 @@ suite("extension/servers/serverSync", () => {
 			// and the pending retry concerned a configuration that no longer
 			// exists, so this is in sync without a host call.
 			recorded.failLabels.delete("A");
-			recorded.secrets = { A: { apiKey: "sk-1" } };
+			recorded.setting = [{ label: "A", baseUrl: "http://a.test" }];
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the revert lands in sync");
 			assert.strictEqual(recorded.upserts.length, 1, "no host call for the revert");
@@ -1180,8 +1194,8 @@ suite("extension/servers/serverSync", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1);
 
-			// The entry changes and the host refuses the duplicate: blocked.
-			recorded.secrets = { A: { apiKey: "sk-2" } };
+			// The entry's identity changes and the host refuses the duplicate: blocked.
+			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
@@ -1281,8 +1295,8 @@ suite("extension/servers/serverSync", () => {
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 
-			// The change is refused as a duplicate: blocked, actionable text.
-			recorded.secrets = { A: { apiKey: "sk-2" } };
+			// The identity change is refused as a duplicate: blocked, actionable text.
+			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
@@ -1498,7 +1512,7 @@ suite("extension/servers/serverSync", () => {
 			const setting = [{ label: "A", baseUrl: "http://a.test" }];
 			const recorded = makeSyncEnv(setting);
 			const parsed = expectDefined(parseServersSetting(setting).entries[0]);
-			const printed = fingerprint(JSON.stringify(buildGroupArgs(parsed, {})));
+			const printed = groupArgsFingerprint(buildGroupArgs(parsed, {}));
 			let seeded = false;
 			recorded.env.getFingerprints = () => {
 				if (!seeded) {
@@ -1547,7 +1561,7 @@ suite("extension/servers/serverSync", () => {
 			];
 			const recorded = makeSyncEnv(setting);
 			const parsedA = expectDefined(parseServersSetting(setting).entries[0]);
-			const printedA = fingerprint(JSON.stringify(buildGroupArgs(parsedA, {})));
+			const printedA = groupArgsFingerprint(buildGroupArgs(parsedA, {}));
 			let seeded = false;
 			recorded.env.getFingerprints = () => {
 				if (!seeded) {
@@ -2260,6 +2274,20 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 		await env.setFingerprints({ A: "after" });
 		assert.deepStrictEqual(storage.mementoStore.get(SERVER_SYNC_FINGERPRINTS_KEY), { A: "after" });
 		assert.deepStrictEqual(env.getFingerprints(), { A: "after" });
+	});
+
+	test("a carried legacy-format record never overwrites a store record another window projected", async () => {
+		// Only pre-projection records lack the "i1:" prefix, and the engine
+		// carries them purely as last-known-good, so the projected store record
+		// is strictly newer knowledge; the engine's next duplicate response
+		// confirms against the store and adopts it into the session map.
+		const { env, storage } = makeEnv("durable");
+		await env.setFingerprints({ A: "i1:projected-elsewhere", B: "i1:fresh" });
+		await env.setFingerprints({ A: "legacy-carried", B: "i1:fresh" });
+		assert.deepStrictEqual(storage.mementoStore.get(SERVER_SYNC_FINGERPRINTS_KEY), {
+			A: "i1:projected-elsewhere",
+			B: "i1:fresh",
+		});
 	});
 
 	test("a session-only salt never touches the stored map", async () => {

@@ -18,6 +18,23 @@ export function recordFromKeys<K extends string, V>(keys: readonly K[], value: (
 	return Object.fromEntries(keys.map((key) => [key, value(key)])) as Record<K, V>;
 }
 
+/**
+ * Validate a stored label-to-string map at its trust boundary: anything not a
+ * plain record reads as empty, and non-string values or reserved
+ * (prototype-mutating) keys are dropped field by field, so consumers can
+ * assign the surviving keys into plain records unguarded.
+ */
+export function validatedStringRecord(stored: unknown): Record<string, string> {
+	if (!isRecord(stored)) {
+		return {};
+	}
+	return Object.fromEntries(
+		Object.entries(stored).filter(
+			(field): field is [string, string] => typeof field[1] === "string" && !isUnsafeRecordKey(field[0])
+		)
+	);
+}
+
 /** Try to parse a JSON object from a string. */
 export function tryParseJSONObject(text: string): { ok: true; value: Record<string, unknown> } | { ok: false } {
 	try {

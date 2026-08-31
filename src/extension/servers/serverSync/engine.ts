@@ -160,14 +160,19 @@ export interface ServerSyncEnv {
 /**
  * The provider-group command arguments for one entry with its secrets resolved.
  * Fields ride in OPTIONAL_ENTRY_FIELDS order after name, vendor, baseUrl, and
- * label, and that order is frozen: the persisted sync fingerprint hashes
- * JSON.stringify of this object. `label` repeats the group name as a
+ * label, and that order is frozen: the persisted sync fingerprint hashes the
+ * identity projection of this object (groupIdentityArgs), and the
+ * fingerprintProjection migration re-renders the legacy full-args JSON, so
+ * both renderings must stay byte-stable. `label` repeats the group name as a
  * configuration property because the host echoes only the configuration back to
  * the provider, never the name; it is what gives entries sharing a base URL and
  * credentials distinct group identities. The entry's headers, modelParameters,
  * modelCapabilities, expectedFailures, declaredModels, budget, and mcp
  * deliberately stay out: they are read extension-side, so editing them must
- * not change the fingerprint or churn the group. The parser flattens the nested settings shape
+ * not change the fingerprint or churn the group. The credential fields are
+ * baked into the group at add time but overlaid with the entry's current
+ * values at serve and request time (entryCredentials.ts), so they too are
+ * editable without churning the group. The parser flattens the nested settings shape
  * onto these fields, so stored fingerprints stay stable across the entry
  * restructure (serverSync.test.ts pins the stability).
  */
@@ -190,14 +195,44 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
 }
 
 /**
- * The fingerprint of one entry's group args as this version persists it:
- * salted, over the frozen JSON rendering buildGroupArgs documents. The engine
- * compares stored records against this rendering ONLY: an entry whose record
- * matches nothing degrades to the name-conflict classification below - carried,
- * never overwritten - until the entry is reverted, renamed, or removed.
+ * The identity projection of one entry's group args: the fields that name the
+ * host-side group rather than configure it. Derived from buildGroupArgs's
+ * output (never from the entry) so the two renderings cannot drift, with
+ * baseUrl verbatim like the args carry it - a base URL text edit still reads
+ * as a different group. Credential fields stay out on purpose: the host is
+ * add-only, so a credential change can never reach the live group anyway, and
+ * the serve-time credential overlay (entryCredentials.ts) applies the entry's
+ * current secrets instead - a rotation must read as in-sync, not as a doomed
+ * re-add.
  */
-function groupArgsFingerprint(args: Record<string, string>): string {
-	return fingerprint(JSON.stringify(args));
+function groupIdentityArgs(args: Record<string, string>): Record<string, string> {
+	const { name, vendor, baseUrl, label } = args;
+	const identity: Record<string, string> = {};
+	for (const [key, value] of Object.entries({ name, vendor, baseUrl, label })) {
+		if (value !== undefined) {
+			identity[key] = value;
+		}
+	}
+	return identity;
+}
+
+/**
+ * The fingerprint of one entry's group IDENTITY as this version persists it:
+ * salted, over the frozen JSON rendering of groupIdentityArgs, marked with the
+ * "i1:" format prefix. The prefix is what lets the fingerprintProjection
+ * migration and the fuzz oracle tell this rendering from the legacy full-args
+ * one (both are otherwise opaque hex); older extension versions compare
+ * records only by equality, so the prefix is downgrade-safe. The engine
+ * compares stored records against this rendering ONLY - legacy records are
+ * rewritten by the migration, never dual-accepted here - and an entry whose
+ * record matches nothing degrades to the name-conflict classification below,
+ * carried, never overwritten, until the entry is reverted, renamed, or
+ * removed. Exported for the fingerprintProjection migration, which rewrites
+ * legacy full-args records into this rendering; the legacy rendering itself
+ * lives quarantined in the migration.
+ */
+export function groupArgsFingerprint(args: Record<string, string>): string {
+	return `i1:${fingerprint(JSON.stringify(groupIdentityArgs(args)))}`;
 }
 
 /**
@@ -378,7 +413,9 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 * directly. Undefined when no accepted entry carries the label. Stored
 	 * secrets resolve through the ownership check; a refused field simply stays
 	 * out (this path only serves the internal test command, which must never
-	 * send a credential the engine itself would refuse).
+	 * send a credential the engine itself would refuse). The provider's
+	 * credential overlay resolves through entryCredentials.ts instead: it also
+	 * matches the base URL and fails closed on any refusal.
 	 */
 	async resolveGroupArgs(label: string): Promise<Record<string, string> | undefined> {
 		const match = acceptedEntry(this.env.readServersSetting(), label);
@@ -480,12 +517,15 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
-	 * Whether the entry still resolves to exactly the group args this pass is
-	 * about to add: one fresh setting read and one fresh secrets read, compared
-	 * by fingerprint over the ownership-resolved values. Anything else - the
-	 * entry gone or edited, the secrets rotated or newly refused, a read
-	 * failing - reads as "not current" and the add is skipped, fail closed
-	 * (the pass that follows the change reads truth).
+	 * Whether the entry still resolves to the group identity this pass is about
+	 * to add, with its stored secrets still owned: one fresh setting read and
+	 * one fresh secrets read. An entry gone or renamed, a re-pointed base URL,
+	 * a newly refused secret pairing, or a failed read reads as "not current"
+	 * and the add is skipped, fail closed (the pass that follows the change
+	 * reads truth). A mid-pass credential EDIT no longer blocks the add: the
+	 * identity fingerprint does not cover credentials, and the baked values are
+	 * a serve-time-overridden fallback, so pairing the pass-start secrets with
+	 * the freshly edited entry is harmless where it was once permanent.
 	 */
 	private async entryStillCurrent(label: string, printed: string): Promise<boolean> {
 		try {
@@ -620,10 +660,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 				next[entry.label] = printed;
 				// An entry stuck on the duplicate error that matches its
 				// last-known-good fingerprint again was reverted: the live group
-				// already holds this exact content, so the error clears silently. A
-				// pending retry recorded for some OTHER configuration is moot for the
-				// same reason; only a failure for this very fingerprint (the guard
-				// above) sends the entry back to the host.
+				// already holds this exact identity, so the error clears silently.
+				// Credential rotations land here by design - the identity print does
+				// not cover them, the overlay serves the current values, and no host
+				// call is owed. A pending retry recorded for some OTHER configuration
+				// is moot for the same reason; only a failure for this very
+				// fingerprint (the guard above) sends the entry back to the host.
 				this.retry.delete(entry.label);
 			} else if (!force && retryState?.kind === "blocked" && retryState.fingerprint === printed) {
 				// The host already refused this exact configuration as a duplicate

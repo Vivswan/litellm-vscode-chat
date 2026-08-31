@@ -7,6 +7,7 @@ import {
 	SERVERS_SETTING_KEY,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 } from "../../shared/config/settings";
+import { isServerSecretsKey } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { DebouncedAction } from "../../shared/util/debounce";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
@@ -55,6 +56,22 @@ export function wireServers(
 	context.subscriptions.push(
 		syncEngine,
 		usagePoller,
+		// The owner-level reaction to a server-secret change, keyed on the blob
+		// keys themselves so no writer can be missed (dashboard, palette,
+		// settings import, the test command, and OTHER WINDOWS all land here):
+		// the usage poller re-probes availability (a fixed key can lift a
+		// 401/403), the host re-resolves groups so the credential overlay serves
+		// the new value (the sync pass alone never re-attaches models for a
+		// credential-only change), and a sync pass refreshes the declared views'
+		// secret locations and expected identities (in-sync entries make no host
+		// call, so this never risks an upsert).
+		context.secrets.onDidChange((event) => {
+			if (isServerSecretsKey(event.key)) {
+				usagePoller.applyServersChange();
+				notifyModelsChanged.schedule();
+				syncEngine.requestSync();
+			}
+		}),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			const affects = (id: string) => event.affectsConfiguration(`${CONFIG_SECTION}.${id}`);
 			if (affects(SERVERS_SETTING_KEY)) {
@@ -90,9 +107,7 @@ export function wireServers(
 			}
 		})
 	);
-	// A palette-stored secret can fix a key the proxy had rejected, so the
-	// usage poller re-probes availability when one changes.
-	registerSetServerSecretCommand(context, syncEngine, logger, () => usagePoller.applyServersChange());
+	registerSetServerSecretCommand(context, syncEngine, logger);
 	registerSettingsTransferCommands(context, createSettingsTransferEnv(context, syncEngine, logger));
 	// Refresh Usage Now: the poller's explicit refresh, availability re-probed,
 	// working whether or not polling is on.

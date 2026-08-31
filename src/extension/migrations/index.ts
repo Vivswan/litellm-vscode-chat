@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 import type { Logger } from "../../shared/logger";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
+import { fingerprintProjectionMigration } from "./fingerprintProjection";
 import { legacyRegistryCleanupMigration } from "./legacyRegistryCleanup";
 import { settingsRedesignMigration } from "./settingsRedesign/apply";
 import { stampSecretOwnersMigration } from "./stampSecretOwners";
@@ -57,6 +58,7 @@ export const MIGRATIONS: readonly ExtensionMigration[] = [
 	legacyRegistryCleanupMigration,
 	settingsRedesignMigration,
 	stampSecretOwnersMigration,
+	fingerprintProjectionMigration,
 ];
 
 /** Best-effort: a failing migration logs once and the rest still run; never rejects. */

@@ -11,10 +11,13 @@
  * (parseServersSetting, buildGroupArgs, resolveOwnedSecrets), so it cannot
  * drift from the sync engine's rules. Its structural insight: under VS Code's
  * add-only provider-group command a label's first successfully synced
- * configuration is immutable for the host lifetime, so any later divergence
- * expects exactly GROUP_UPDATE_UNAVAILABLE_MESSAGE - unless a stored secret's
- * ownership stamp refuses the entry pairing at the engine's read boundary
- * first, which expects SECRET_OWNERSHIP_MISMATCH_MESSAGE.
+ * configuration is immutable for the host lifetime, but the engine fingerprints
+ * only the group IDENTITY (name, vendor, baseUrl, label) - credentials are
+ * overlaid live at serve and request time - so only an identity divergence
+ * expects GROUP_UPDATE_UNAVAILABLE_MESSAGE, a credential-only divergence is
+ * in-sync with no failure, and a stored secret whose ownership stamp refuses
+ * the entry pairing at the engine's read boundary expects
+ * SECRET_OWNERSHIP_MISMATCH_MESSAGE before either.
  *
  * Known oracle limitations: the storage probe covers Memento keys only
  * (SecretStorage has no enumeration API); model attribution is a lower bound,
@@ -30,6 +33,7 @@ import type { DeclaredServer, DeclaredServerView } from "../extension/servers/se
 import {
 	buildGroupArgs,
 	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
+	inlineSecretValues,
 	parseServersSetting,
 	secretLocations,
 } from "../extension/servers/serverSync";
@@ -64,6 +68,7 @@ import {
 	SYNCED_ENTRY_BASE_URLS_KEY,
 } from "../shared/config/storageKeys";
 import type { SecretFieldId, SecretLocation } from "../shared/serverEntry";
+import { entryUsesSecretField } from "../shared/serverEntry";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { FAKE_MODELS, PLAYBACK_MODEL } from "./fakeStack/models";
 import { FAKE_OAUTH_CLIENT_ID, FAKE_OAUTH_CLIENT_SECRET } from "./fakeStack/oauth";
@@ -648,11 +653,22 @@ export class MonkeySession {
 	}
 
 	/**
+	 * The identity projection of one serialized group-args rendering: exactly
+	 * the fields the engine's fingerprint covers. Credentials stay out, so a
+	 * rotation compares equal - the overlay serves the current values and the
+	 * sync pass owes the host nothing.
+	 */
+	private identityArgs(argsJson: string): string {
+		const args = JSON.parse(argsJson) as Record<string, string>;
+		return JSON.stringify({ name: args.name, vendor: args.vendor, baseUrl: args.baseUrl, label: args.label });
+	}
+
+	/**
 	 * The sync outcome the engine's branch order dictates: the ownership check
 	 * runs at the read boundary, so a stored value stamped for a different
 	 * destination refuses the whole pairing before any host call; only a
-	 * resolvable pairing that diverges from the synced group's immutable
-	 * configuration reaches the add-only error.
+	 * resolvable pairing whose IDENTITY diverges from the synced group's
+	 * reaches the add-only error - credential-only divergence is in-sync.
 	 */
 	private expectedSyncError(label: string): string | undefined {
 		const oracle = expectDefined(this.declared.get(label), `oracle entry for ${label}`);
@@ -660,7 +676,9 @@ export class MonkeySession {
 		if (this.ownedSecrets(parsed, label).refused.length > 0) {
 			return SECRET_OWNERSHIP_MISMATCH_MESSAGE;
 		}
-		return this.resolvedArgs(oracle.entry, label) === oracle.hostArgs ? undefined : GROUP_UPDATE_UNAVAILABLE_MESSAGE;
+		return this.identityArgs(this.resolvedArgs(oracle.entry, label)) === this.identityArgs(oracle.hostArgs)
+			? undefined
+			: GROUP_UPDATE_UNAVAILABLE_MESSAGE;
 	}
 
 	private expectedSecretLocation(label: string, field: SecretFieldId): SecretLocation {
@@ -1038,18 +1056,31 @@ export class MonkeySession {
 				if (oracle === undefined) {
 					return;
 				}
-				const value =
-					action.field === "oauthClientSecret"
-						? `monkey-oauth-secret-${action.serial}`
-						: `sk-monkey-${this.env.seed}-${action.serial}`;
-				this.minted.push(value);
+				// A stored secret is LIVE once nothing inline shadows it (the overlay
+				// serves it on the group's next sweep), and vscode.lm exposes no
+				// per-group identity to attribute a darkened shared alias, so a live
+				// field on a non-dark entry stores the stack's real value; everything
+				// else keeps minted garbage for the leak scan.
+				const parsed = this.parsedEntry(oracle.entry, real);
+				const live =
+					entryUsesSecretField(parsed, action.field) && inlineSecretValues(parsed)[action.field] === undefined;
+				let value: string;
+				if (live && oracle.health !== "dark") {
+					value = action.field === "oauthClientSecret" ? FAKE_OAUTH_CLIENT_SECRET : this.env.apiKey;
+				} else {
+					value =
+						action.field === "oauthClientSecret"
+							? `monkey-oauth-secret-${action.serial}`
+							: `sk-monkey-${this.env.seed}-${action.serial}`;
+					this.minted.push(value);
+				}
 				await this.setStoredSecret(real, action.field, value);
 				const blob = this.blobFor(real);
 				blob.values[action.field] = value;
 				// The store command stamps like the palette: the label resolves to a
 				// declared entry, so the value is stored for that entry's CURRENT
 				// destination - a later redeclare diverges from this stamp.
-				blob.owners[action.field] = secretDestination(this.parsedEntry(oracle.entry, real), action.field);
+				blob.owners[action.field] = secretDestination(parsed, action.field);
 				await this.syncNow();
 				const view = await this.declaredView(real);
 				assert.strictEqual(view.secrets[action.field], this.expectedSecretLocation(real, action.field));
@@ -1058,7 +1089,21 @@ export class MonkeySession {
 			}
 			case "clear-secret": {
 				const real = label(action.label);
-				if (!this.declared.has(real)) {
+				const oracle = this.declared.get(real);
+				if (oracle === undefined) {
+					return;
+				}
+				// Clearing a live field on a non-dark entry would darken serving that
+				// the shared-alias invariants cannot attribute per group (see
+				// set-secret); skipped like an undeclared label. The transition
+				// itself is pinned deterministically by docker-serversync scenario 12.
+				const parsed = this.parsedEntry(oracle.entry, real);
+				if (
+					oracle.health !== "dark" &&
+					entryUsesSecretField(parsed, action.field) &&
+					inlineSecretValues(parsed)[action.field] === undefined &&
+					this.stored.get(real)?.values[action.field] !== undefined
+				) {
 					return;
 				}
 				await this.setStoredSecret(real, action.field, undefined);

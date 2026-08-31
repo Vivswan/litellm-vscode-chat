@@ -97,6 +97,25 @@ export interface AttachedModelInfo extends LanguageModelChatInformation {
 /** The model information this provider returns to (and receives back from) the host. */
 export type LiteLLMModelInfo = PreAttachModelInfo | AttachedModelInfo;
 
+/** The credential slice of a group server: what the entry-credentials overlay replaces as one unit. */
+export type GroupCredentials = Pick<GroupServer, "apiKey" | "oauth" | "virtualKey">;
+
+/**
+ * Replace a group server's baked-in credentials with a declared entry's
+ * current ones. Wholesale, never merged: the entry's resolved credential set
+ * is the complete truth, so an entry that dropped its OAuth unit (or virtual
+ * key) must strip the baked one rather than keep authenticating with it.
+ */
+export function overlayGroupCredentials(server: GroupServer, credentials: GroupCredentials): GroupServer {
+	return {
+		baseUrl: server.baseUrl,
+		apiKey: credentials.apiKey,
+		...(server.label !== undefined ? { label: server.label } : {}),
+		...(credentials.oauth !== undefined ? { oauth: credentials.oauth } : {}),
+		...(credentials.virtualKey !== undefined ? { virtualKey: credentials.virtualKey } : {}),
+	};
+}
+
 /** Client-cache IDs for group servers, disjoint from any other server id shape (see isGroupClientId). */
 const GROUP_CLIENT_ID_PREFIX = "group:";
 
@@ -115,9 +134,10 @@ const GROUP_CLIENT_ID_PREFIX = "group:";
  * value (the raw API key above all) can spell another component or another
  * component combination; the pinned injectivity property drives adversarial
  * JSON-shaped keys through exactly that claim. The tuple is hashed, so no ID
- * embeds credential material. Rotating any part mints a new identity: the
- * group double-counts in the status window for one cycle until the old
- * identity ages out. IDs are derived, never stored (the salted fingerprint
+ * embeds credential material. Rotating any part mints a new identity for the
+ * same logical group; the status window evicts the retired identity the
+ * moment the new one records (StatusWindow.record), so a rotation never
+ * leaves a ghost twin. IDs are derived, never stored (the salted fingerprint
  * keeps them stable across sessions for unchanged credentials); the one
  * persisted carrier (the status blob) is version-stamped and restores nothing
  * from other shapes, so a format change costs one blob reset and nothing else.

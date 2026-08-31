@@ -110,9 +110,44 @@ export interface GroupDiscoveryOptions {
  */
 export class GroupDiscovery {
 	private readonly _options: GroupDiscoveryOptions;
+	/**
+	 * The latest serve generation per labeled logical group (label + base URL),
+	 * the rotation liveness check recordAndServe consults. Generations are
+	 * claimed SYNCHRONOUSLY by beginServe before the caller's first await (the
+	 * credential overlay's secrets read), so arrival order at the facade - not
+	 * resolver or fetch completion order - decides which serve's record stands:
+	 * cacheKeyFor recomputed from a serve's own frozen groupServer can detect a
+	 * live apiVersion edit but never a credential rotation, since the rotated
+	 * credentials arrive only with a LATER serve's overlaid server. Unlabeled
+	 * groups stay out (two on one host is a documented, deliberate collision).
+	 * Bounded by the labels served this session, like the status window.
+	 */
+	private readonly _serveGenerations = new Map<string, number>();
 
 	constructor(options: GroupDiscoveryOptions) {
 		this._options = options;
+	}
+
+	/** One injective identity per labeled logical group; undefined for unlabeled servers. */
+	private logicalGroupId(groupServer: Pick<GroupServer, "label" | "baseUrl">): string | undefined {
+		return groupServer.label !== undefined ? JSON.stringify([groupServer.label, groupServer.baseUrl]) : undefined;
+	}
+
+	/**
+	 * Claim the next serve generation for a logical group, SYNCHRONOUSLY and
+	 * before any await in the caller: the overlay never changes label or base
+	 * URL, so the pre-overlay parse is a valid claim ticket. A serve carrying a
+	 * superseded generation yields its record (see recordAndServe). Undefined
+	 * for unlabeled groups, which keep plain last-write-wins recording.
+	 */
+	beginServe(groupServer: Pick<GroupServer, "label" | "baseUrl">): number | undefined {
+		const logicalId = this.logicalGroupId(groupServer);
+		if (logicalId === undefined) {
+			return undefined;
+		}
+		const generation = (this._serveGenerations.get(logicalId) ?? 0) + 1;
+		this._serveGenerations.set(logicalId, generation);
+		return generation;
 	}
 
 	/** The declared entry's expectedFailures for this server, or none for unlabeled and unmatched servers. */
@@ -160,7 +195,13 @@ export class GroupDiscovery {
 	 * credentials; the cache key fingerprints those credentials, so rotating any
 	 * of them lands on a fresh cache entry.
 	 */
-	async fetchGroupModels(groupServer: GroupServer, silent: boolean, bypassCache = false): Promise<LiteLLMModelInfo[]> {
+	async fetchGroupModels(
+		groupServer: GroupServer,
+		silent: boolean,
+		bypassCache = false,
+		/** The beginServe claim for this serve; absent for unlabeled groups and callers with no earlier await. */
+		generation?: number
+	): Promise<LiteLLMModelInfo[]> {
 		const server: ServerConnection = {
 			id: groupClientId(groupServer),
 			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
@@ -181,6 +222,11 @@ export class GroupDiscovery {
 		// Computed before recordAndServe because it doubles as this serve's
 		// configuration stamp there.
 		const cacheKey = this.cacheKeyFor(groupServer);
+		// A caller that could not claim before its own awaits (none today beyond
+		// the unlabeled case) still participates: an unclaimed labeled serve
+		// claims here, so it can at least be superseded by later serves.
+		const logicalId = this.logicalGroupId(groupServer);
+		const serveGeneration = generation ?? this.beginServe(groupServer);
 		// Every path records and serves through here: the reporter gets exactly
 		// the served pair the return value carries, and both outcome counts derive
 		// from the same pair, so no branch can record one set and serve another.
@@ -193,15 +239,24 @@ export class GroupDiscovery {
 		): AttachedServe => {
 			const discovered = attach(served.discovered);
 			const declared = attach(served.declared);
-			// A serve whose configuration rotated while its fetch was in flight
-			// yields the record: composed keys let the old and new roots' fetches
-			// run concurrently (the old join choreography incidentally ordered
-			// them), so a late old-root completion recording here would overwrite
-			// the newer root's models and stale-serve anchor in the status window.
-			// The CALLER still gets the models its call was configured for when it
-			// started; only the shared record defers to the current configuration
-			// (a racing serve already recorded it, or the next sweep will).
-			if (this.cacheKeyFor(groupServer) !== cacheKey) {
+			// A serve whose configuration is no longer the group's CURRENT one
+			// yields the record: composed keys let old and new configurations'
+			// fetches run concurrently, so a late completion recording here would
+			// overwrite the newer configuration's models, status, and stale-serve
+			// anchor. Two staleness signals, both needed: the recomputed key
+			// catches a live apiVersion edit on THIS server object, and the serve
+			// generation catches a rotation, whose new credentials only ever
+			// arrive with a LATER serve's overlaid server - claimed before the
+			// overlay's await, so a serve that stalled in the resolver cannot
+			// stamp itself current after a newer one recorded. The CALLER still
+			// gets the models its call was configured for when it started; only
+			// the shared record defers (a racing serve already recorded, or the
+			// next sweep will).
+			const superseded =
+				logicalId !== undefined &&
+				serveGeneration !== undefined &&
+				this._serveGenerations.get(logicalId) !== serveGeneration;
+			if (superseded || this.cacheKeyFor(groupServer) !== cacheKey) {
 				this._options.log(
 					"Discovery finished for a rotated configuration; leaving the group record to the current one",
 					{

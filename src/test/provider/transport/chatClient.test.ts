@@ -4,7 +4,7 @@ import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { ChatClient } from "../../../provider/transport/chatClient";
 import { convertMessages } from "../../../shared/conversion/messages";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { makeLogger, withFetch } from "../../pureHelpers";
+import { makeLogger, toHeaderMap, withFetch } from "../../pureHelpers";
 import { withConfig } from "../../testUtils";
 
 function controllableStream(): { stream: ReadableStream<Uint8Array>; push(text: string): void; close(): void } {
@@ -330,5 +330,63 @@ suite("provider/transport/chatClient", () => {
 					);
 				})
 		);
+	});
+
+	test("a send overlays the attached credentials with the entry's current ones", async () => {
+		// The attached server dates from the serve that minted the model object;
+		// a rotation since then must reach the very next request, not wait out a
+		// host re-resolve.
+		const resolved: [string, string][] = [];
+		const stream = controllableStream();
+		let authHeader: string | undefined;
+		await withFetch(
+			async (_url, init) => {
+				authHeader = toHeaderMap(init?.headers).authorization;
+				return new Response(stream.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+			},
+			async () => {
+				const client = new ChatClient({
+					userAgent: "test-agent",
+					resolveEntryCredentials: async (label, baseUrl) => {
+						resolved.push([label, baseUrl]);
+						return { apiKey: "k-rotated" };
+					},
+				});
+				const token = new vscode.CancellationTokenSource().token;
+				const send = client.send({ model, messages, options, progress: collector().progress, token });
+				stream.push("data: [DONE]\n\n");
+				stream.close();
+				await send;
+			}
+		);
+		assert.strictEqual(authHeader, "Bearer k-rotated", "the request authenticates with the overlaid key");
+		assert.deepStrictEqual(resolved, [["Default", normalizeBaseUrl("http://litellm.test")]]);
+	});
+
+	test("a resolver answering undefined (or throwing) keeps the attached credentials", async () => {
+		for (const resolveEntryCredentials of [
+			async () => undefined,
+			async () => {
+				throw new Error("secret storage exploded");
+			},
+		]) {
+			const stream = controllableStream();
+			let authHeader: string | undefined;
+			await withFetch(
+				async (_url, init) => {
+					authHeader = toHeaderMap(init?.headers).authorization;
+					return new Response(stream.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+				},
+				async () => {
+					const client = new ChatClient({ userAgent: "test-agent", resolveEntryCredentials });
+					const token = new vscode.CancellationTokenSource().token;
+					const send = client.send({ model, messages, options, progress: collector().progress, token });
+					stream.push("data: [DONE]\n\n");
+					stream.close();
+					await send;
+				}
+			);
+			assert.strictEqual(authHeader, "Bearer k", "the attached key remains a valid request input");
+		}
 	});
 });

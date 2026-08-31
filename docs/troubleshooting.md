@@ -73,7 +73,7 @@ VS Code could not establish a trusted HTTPS connection to the base URL; the exte
 
 The two 401 messages name different credentials:
 
-- Plain **"Authentication failed: Your LiteLLM server requires an API key"** means the proxy rejected the extension's credential. Edit the server (dashboard, or the `servers` setting) and update it; verify the key against your LiteLLM proxy configuration. For an [external group](servers.md#external-servers-and-adoption) with no entry, the credential is owned by VS Code - update it through the model picker's "Manage LiteLLM Provider" flow, or adopt the group.
+- Plain **"Authentication failed: Your LiteLLM server requires an API key"** means the proxy rejected the extension's credential. Edit the server (dashboard, or the `servers` setting) and update it; verify the key against your LiteLLM proxy configuration. The fixed key takes effect on the next sync or model refresh - run "LiteLLM: Sync Models Now" to apply it immediately. For an [external group](servers.md#external-servers-and-adoption) with no entry, the credential is owned by VS Code - update it through the model picker's "Manage LiteLLM Provider" flow, or adopt the group.
 - **"Authentication failed upstream"** means the proxy accepted your key but could not authenticate to the model's upstream provider; updating the extension's key cannot help. Fix that provider's credentials on the LiteLLM server, or ask whoever runs it to.
 
 Two setup mistakes look like auth failures:

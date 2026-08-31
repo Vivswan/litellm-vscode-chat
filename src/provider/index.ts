@@ -21,8 +21,13 @@ import type { AggregatedStatus } from "../shared/servers";
 import { DiscoveryCache } from "./catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "./catalog/groupDiscovery";
 import { GroupDiscovery } from "./catalog/groupDiscovery";
-import type { GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
-import { groupClientId, parseGroupConfiguration, parseModelMetadata } from "./catalog/groupModels";
+import type { GroupCredentials, GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
+import {
+	groupClientId,
+	overlayGroupCredentials,
+	parseGroupConfiguration,
+	parseModelMetadata,
+} from "./catalog/groupModels";
 import type { EntryIdentity } from "./catalog/servedModels";
 import { ServedModelDecorator } from "./catalog/servedModels";
 import { GroupStatusReporter } from "./catalog/statusReporting";
@@ -112,6 +117,19 @@ export interface LiteLLMChatModelProviderOptions {
 		| ((label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined)
 		| undefined;
 	/**
+	 * Serve- and request-time resolver for a declared entry's CURRENT
+	 * credentials, matched by label and normalized base URL like
+	 * getEntryHeaders. The host's provider-group configuration bakes the
+	 * credentials in at group creation and can never be updated (the group
+	 * command surface is add-only), so a labeled group's baked credentials are
+	 * overlaid with the matching entry's live ones before anything derives
+	 * identity from them; `undefined` (no matching entry, refused secret
+	 * ownership, a failed secrets read) keeps the baked credentials in force -
+	 * they remain the fallback for external groups and leftover groups whose
+	 * entry moved hosts. Never rejects by contract; the facade still guards.
+	 */
+	resolveEntryCredentials?: ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>) | undefined;
+	/**
 	 * The OpenRouter capability catalog as in-memory lookup data (the catalog
 	 * store owns files, network, and the opt-out; this layer only resolves).
 	 * Read at serve time so a refreshed snapshot reaches the next attach
@@ -155,6 +173,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private readonly _reporter: GroupStatusReporter;
 	private readonly _decorator: ServedModelDecorator;
 	private readonly _discovery: GroupDiscovery;
+	/** See LiteLLMChatModelProviderOptions.resolveEntryCredentials. */
+	private readonly _resolveEntryCredentials?:
+		| ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>)
+		| undefined;
 	// Sticky evidence that the host has handed this session at least one provider
 	// group. Once seen it never resets, so the "not configured" surfaces stay
 	// silent for a group-configured user even between refresh cycles, when the
@@ -173,12 +195,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	constructor(options: LiteLLMChatModelProviderOptions) {
 		this.logger = options.logger;
+		this._resolveEntryCredentials = options.resolveEntryCredentials;
 		this._client = new ChatClient({
 			userAgent: options.userAgent,
 			logger: options.logger,
 			getEntryModelParameters: options.getEntryModelParameters,
 			getEntryHeaders: options.getEntryHeaders,
 			getEntryApiVersion: options.getEntryApiVersion,
+			resolveEntryCredentials: options.resolveEntryCredentials,
 			resolution: this._resolution,
 		});
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
@@ -317,15 +341,42 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
+	 * Overlay a labeled group's baked credentials with its declared entry's
+	 * current ones (see LiteLLMChatModelProviderOptions.resolveEntryCredentials).
+	 * Applied before anything derives identity from the server, so the client
+	 * ID, discovery cache key, and status window all describe the credentials
+	 * requests actually use. A resolver failure keeps the baked credentials:
+	 * the facade is the logging boundary, so the failure is logged once here.
+	 */
+	private async overlayEntryCredentials(server: GroupServer): Promise<GroupServer> {
+		if (server.label === undefined || this._resolveEntryCredentials === undefined) {
+			return server;
+		}
+		try {
+			const credentials = await this._resolveEntryCredentials(server.label, server.baseUrl);
+			return credentials !== undefined ? overlayGroupCredentials(server, credentials) : server;
+		} catch (error) {
+			this.logError("Resolving a declared entry's credentials failed; using the group's stored credentials", error);
+			return server;
+		}
+	}
+
+	/**
 	 * Serve one VS Code-managed provider group. Model IDs are returned raw and
 	 * display names unprefixed because the host namespaces group models itself.
 	 */
 	private async provideGroupModels(configuration: unknown, silent: boolean): Promise<LiteLLMModelInfo[]> {
-		const groupServer = parseGroupConfiguration(configuration, (message, data) => this.log(message, data));
-		if (!groupServer) {
+		const parsed = parseGroupConfiguration(configuration, (message, data) => this.log(message, data));
+		if (!parsed) {
 			this.log("Ignoring provider-group refresh with malformed configuration (baseUrl must be a string)");
 			return [];
 		}
+		// The serve generation is claimed BEFORE the overlay's secrets read (the
+		// overlay never changes label or base URL, so the pre-overlay parse is a
+		// valid claim): a serve that stalls in the resolver while a newer one
+		// completes must yield its record, and only arrival order can decide that.
+		const generation = this._discovery.beginServe(parsed);
+		const groupServer = await this.overlayEntryCredentials(parsed);
 
 		// Re-seeing a group within one unmarked cycle means a new sweep started
 		// without a group-agnostic call; the window decides (marked cycles are
@@ -335,7 +386,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			this.pruneServerCaches([...this._statusWindow.serverIds(), serverId]);
 		}
 
-		return this._discovery.fetchGroupModels(groupServer, silent);
+		return this._discovery.fetchGroupModels(groupServer, silent, false, generation);
 	}
 
 	/**
@@ -385,12 +436,22 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/**
 	 * Fetch models from every group server observed in the status window: a
 	 * real network round trip per group. Fallback for hosts that do not react
-	 * to the change event; outcomes land in the merged status.
+	 * to the change event; outcomes land in the merged status. Windowed group
+	 * servers were overlaid when they were recorded, but the overlay re-runs
+	 * here so a rotation since that serve still probes with current
+	 * credentials.
 	 */
 	async testKnownGroupConnections(): Promise<void> {
 		for (const groupServer of this._statusWindow.groupServers()) {
 			try {
-				await this._discovery.fetchGroupModels(groupServer, false, true);
+				// Claimed before the overlay's await, like provideGroupModels.
+				const generation = this._discovery.beginServe(groupServer);
+				await this._discovery.fetchGroupModels(
+					await this.overlayEntryCredentials(groupServer),
+					false,
+					true,
+					generation
+				);
 			} catch {
 				// Already logged and recorded in the merged status; the remaining
 				// group servers still get probed.

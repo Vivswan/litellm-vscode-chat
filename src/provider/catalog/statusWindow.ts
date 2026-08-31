@@ -191,6 +191,26 @@ export class StatusWindow {
 		groupServer: GroupServer,
 		observations: DiscoveryObservations = {}
 	): void {
+		// A credential rotation mints a new client ID for the same logical group
+		// (host group names are unique per vendor, so one label at one host IS
+		// one group). The retired identity is evicted at once rather than left to
+		// age out: a lingering twin double-counts the merged status and renders
+		// as a ghost external row whose Hide would tombstone the label the REAL
+		// group serves under. Unlabeled snapshots keep the aging path - two
+		// unlabeled groups on one host are a documented, deliberate collision.
+		if (groupServer.label !== undefined) {
+			for (const [serverId, entry] of this.entries) {
+				if (
+					serverId !== status.serverId &&
+					entry.groupServer.label === groupServer.label &&
+					// Both sides are NormalizedBaseUrl by construction (every
+					// GroupServer comes through parseGroupConfiguration's normalize).
+					entry.groupServer.baseUrl === groupServer.baseUrl
+				) {
+					this.entries.delete(serverId);
+				}
+			}
+		}
 		const previous = this.entries.get(status.serverId);
 		this.entries.set(status.serverId, {
 			cycle: this.cycle,
