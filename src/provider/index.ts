@@ -386,7 +386,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			this.pruneServerCaches([...this._statusWindow.serverIds(), serverId]);
 		}
 
-		return this._discovery.fetchGroupModels(groupServer, silent, false, generation);
+		const models = await this._discovery.fetchGroupModels(groupServer, silent, false, generation);
+		// The serve's record may have evicted a rotated twin's identity from the
+		// window; the SDK-client and discovery caches move in lockstep with the
+		// window (both embed credentials), so the keep-set re-derives after every
+		// group serve rather than waiting for the next sweep's group-agnostic
+		// prune - which an idle host may never make.
+		this.pruneServerCaches(this._statusWindow.serverIds());
+		return models;
 	}
 
 	/**
@@ -457,6 +464,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				// group servers still get probed.
 			}
 		}
+		// Same lockstep re-derivation as provideGroupModels: a probe's record may
+		// have evicted a rotated twin's identity.
+		this.pruneServerCaches(this._statusWindow.serverIds());
 	}
 
 	async provideLanguageModelChatResponse(
