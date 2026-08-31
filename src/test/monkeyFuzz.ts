@@ -37,7 +37,7 @@ import {
 	parseServersSetting,
 	secretLocations,
 } from "../extension/servers/serverSync";
-import { groupArgsFingerprint, SECRET_OWNERSHIP_MISMATCH_MESSAGE } from "../extension/servers/serverSync/engine";
+import { groupIdentityArgs, SECRET_OWNERSHIP_MISMATCH_MESSAGE } from "../extension/servers/serverSync/engine";
 import type { OwnedSecretsResolution } from "../extension/servers/serverSync/secrets";
 import { resolveOwnedSecrets, secretDestination } from "../extension/servers/serverSync/secrets";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
@@ -653,14 +653,16 @@ export class MonkeySession {
 	}
 
 	/**
-	 * The engine's own identity rendering of one serialized group-args string:
-	 * the REAL groupArgsFingerprint, so the oracle cannot drift from what the
-	 * sync pass compares. Credentials stay out of the print, so a rotation
-	 * compares equal - the overlay serves the current values and the sync pass
-	 * owes the host nothing.
+	 * The engine's own identity projection of one serialized group-args string
+	 * (the REAL groupIdentityArgs, so the oracle cannot drift from what the
+	 * sync pass compares), rendered as JSON rather than the salted fingerprint:
+	 * the real extension owns the process salt in the docker labels, so the
+	 * oracle must not call fingerprint(). Credentials stay out of the
+	 * projection, so a rotation compares equal - the overlay serves the current
+	 * values and the sync pass owes the host nothing.
 	 */
 	private identityPrint(argsJson: string): string {
-		return groupArgsFingerprint(JSON.parse(argsJson) as Record<string, string>);
+		return JSON.stringify(groupIdentityArgs(JSON.parse(argsJson) as Record<string, string>));
 	}
 
 	/**

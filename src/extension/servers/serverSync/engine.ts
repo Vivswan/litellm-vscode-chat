@@ -203,9 +203,11 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
  * add-only, so a credential change can never reach the live group anyway, and
  * the serve-time credential overlay (entryCredentials.ts) applies the entry's
  * current secrets instead - a rotation must read as in-sync, not as a doomed
- * re-add.
+ * re-add. Exported for the fuzz oracle, which compares identities through
+ * this exact projection but cannot call the salted fingerprint (the real
+ * extension owns the process salt in the docker labels).
  */
-function groupIdentityArgs(args: Record<string, string>): Record<string, string> {
+export function groupIdentityArgs(args: Record<string, string>): Record<string, string> {
 	const { name, vendor, baseUrl, label } = args;
 	const identity: Record<string, string> = {};
 	for (const [key, value] of Object.entries({ name, vendor, baseUrl, label })) {
