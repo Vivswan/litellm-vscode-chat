@@ -37,7 +37,7 @@ import {
 	parseServersSetting,
 	secretLocations,
 } from "../extension/servers/serverSync";
-import { SECRET_OWNERSHIP_MISMATCH_MESSAGE } from "../extension/servers/serverSync/engine";
+import { groupArgsFingerprint, SECRET_OWNERSHIP_MISMATCH_MESSAGE } from "../extension/servers/serverSync/engine";
 import type { OwnedSecretsResolution } from "../extension/servers/serverSync/secrets";
 import { resolveOwnedSecrets, secretDestination } from "../extension/servers/serverSync/secrets";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
@@ -653,14 +653,14 @@ export class MonkeySession {
 	}
 
 	/**
-	 * The identity projection of one serialized group-args rendering: exactly
-	 * the fields the engine's fingerprint covers. Credentials stay out, so a
-	 * rotation compares equal - the overlay serves the current values and the
-	 * sync pass owes the host nothing.
+	 * The engine's own identity rendering of one serialized group-args string:
+	 * the REAL groupArgsFingerprint, so the oracle cannot drift from what the
+	 * sync pass compares. Credentials stay out of the print, so a rotation
+	 * compares equal - the overlay serves the current values and the sync pass
+	 * owes the host nothing.
 	 */
-	private identityArgs(argsJson: string): string {
-		const args = JSON.parse(argsJson) as Record<string, string>;
-		return JSON.stringify({ name: args.name, vendor: args.vendor, baseUrl: args.baseUrl, label: args.label });
+	private identityPrint(argsJson: string): string {
+		return groupArgsFingerprint(JSON.parse(argsJson) as Record<string, string>);
 	}
 
 	/**
@@ -676,7 +676,7 @@ export class MonkeySession {
 		if (this.ownedSecrets(parsed, label).refused.length > 0) {
 			return SECRET_OWNERSHIP_MISMATCH_MESSAGE;
 		}
-		return this.identityArgs(this.resolvedArgs(oracle.entry, label)) === this.identityArgs(oracle.hostArgs)
+		return this.identityPrint(this.resolvedArgs(oracle.entry, label)) === this.identityPrint(oracle.hostArgs)
 			? undefined
 			: GROUP_UPDATE_UNAVAILABLE_MESSAGE;
 	}

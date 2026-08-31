@@ -394,7 +394,7 @@ export class GroupDiscovery {
 			// discovery listed stays inert against the stale set. Test Connection
 			// (non-silent) still throws, except that an expected failure with
 			// declared models serves the declared set instead.
-			const stale = this._options.window.staleServableModels(server.id);
+			const stale = this._options.window.staleServableModels(server.id, groupServer);
 			// A non-silent expected failure serves the declared set ALONE (the
 			// return below), so its record must not count the stale set the silent
 			// path would serve - and the declared synthesis must run against the

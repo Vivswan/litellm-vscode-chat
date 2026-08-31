@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { MODEL_INFO_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
+import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, makeLogger } from "../../pureHelpers";
 import { makeProvider } from "../../testUtils";
 
@@ -202,6 +202,30 @@ suite("provider credential overlay", () => {
 		assert.strictEqual(snapshots.length, 1, "the stalled serve recorded nothing");
 		assert.strictEqual(snapshots[0]?.status.serverId, rotatedId, "the rotated identity's record survives");
 		assert.strictEqual(provider.getGroupServer(rotatedId)?.apiKey, "sk-second");
+	});
+
+	test("a rotation carries the stale-serve anchor: a failed silent refresh still serves last-known models", async () => {
+		// The evicted twin's last success is the same logical group's; without
+		// the carry, rotating right before an outage would vanish the models
+		// instead of stale-serving them.
+		let key = "sk-first";
+		let fail = false;
+		const provider = makeProvider(undefined, "unused", undefined, {
+			resolveEntryCredentials: async () => ({ apiKey: key }),
+		});
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
+		);
+		const configuration = { baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" };
+		const healthy = await provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
+		assert.strictEqual(healthy.length, 1);
+
+		key = "sk-second";
+		fail = true;
+		const stale = await provider.provideLanguageModelChatInformation(groupOptions(configuration, true), cancellation());
+		assert.strictEqual(stale.length, 1, "the rotated identity inherits the twin's stale-serve anchor");
+		assert.ok(stale[0]?.statusIcon !== undefined, "stale-served models carry the warning decoration");
 	});
 
 	test("the overlay replaces the credential set wholesale: a dropped OAuth unit strips the baked one", async () => {
