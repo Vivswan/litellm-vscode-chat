@@ -1050,6 +1050,38 @@ suite("provider", () => {
 			assert.ok(!("priceCategory" in dust), "nor earn a low-cost badge");
 		});
 
+		test("a raw 0/0 pair prices as genuinely free (nightly seed 124443 counterexample, #282)", () => {
+			// The boundary the dust rule must not swallow: a RAW zero pair at this
+			// layer can only be user-written free (discovery maps the server's 0/0
+			// no-pricing stamp to undefined before registration), so it keeps the
+			// free label and the low badge - the zeroPair carve-out in
+			// pricingFromCosts.
+			const { infos } = buildModelInfos(
+				[
+					{
+						id: "free",
+						shape: {
+							kind: "deployment",
+							provider: {
+								provider: "openai",
+								status: "ok",
+								input_cost_per_token: 0,
+								output_cost_per_token: 0,
+							},
+						},
+					},
+				],
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				1,
+				() => {}
+			);
+			const free = expectDefined(infos[0]);
+			assert.strictEqual(free.inputCost, 0);
+			assert.strictEqual(free.outputCost, 0);
+			assert.strictEqual(free.priceCategory, "low", "genuinely free keeps the low-cost badge");
+			assert.strictEqual(free.pricing, "$0 in / $0 out per 1M tokens", "and the free display label");
+		});
+
 		test("priceCategory is always one of the four literals the host renders", () => {
 			// The host renders any other string through a capitalized "<Foo> cost"
 			// fallback, so the derivation may only ever emit the known four.
@@ -1083,6 +1115,15 @@ suite("provider", () => {
 					if (info.inputCost !== undefined && info.outputCost !== undefined) {
 						if (info.inputCost > 0 || info.outputCost > 0) {
 							assert.ok(info.priceCategory !== undefined, "a nonzero two-sided price always derives a category");
+						} else if (inputPerToken === 0 && outputPerToken === 0) {
+							// The RAW zero pair at this layer can only be user-written
+							// "genuinely free": discovery's serverCostsOf maps the
+							// server's 0/0 no-pricing stamp to undefined before any shape
+							// reaches registration, so the zeroPair carve-out keeps the
+							// free label and badge on purpose. Nightly seed 124443 caught
+							// the previous oracle asserting the opposite here (#282).
+							assert.strictEqual(info.priceCategory, "low", "a raw 0/0 pair prices as genuinely free");
+							assert.ok(info.pricing !== undefined, "and carries the free display label");
 						} else {
 							// Both sides rounded to 0: sub-unit dust that slipped the raw
 							// 0/0 undeclared check must not present the model as free.
