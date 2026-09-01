@@ -30,4 +30,10 @@ export const MIGRATION_EXPIRIES: readonly MigrationExpiry[] = [
 	{ state: "unstamped-server-secrets", file: "stampSecretOwners.ts", introduced: "2026-08-19", expires: "2026-11-19" },
 	{ state: "bare-array-blobs", file: "bareArrayBlobs.ts", introduced: "2026-08-23", expires: "2026-11-23" },
 	{ state: "legacy-registry-state", file: "legacyRegistryCleanup.ts", introduced: "2026-08-24", expires: "2026-11-24" },
+	{
+		state: "full-args-sync-fingerprints",
+		file: "fingerprintProjection.ts",
+		introduced: "2026-08-30",
+		expires: "2026-11-30",
+	},
 ];

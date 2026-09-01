@@ -38,7 +38,7 @@ Typical - a hosted gateway with a key kept out of the settings file:
 
 Save, and the server's models appear in the model picker within moments. The dashboard's **Test connection** button probes a draft exactly as entered - unsaved edits included, stored secrets read from wherever they live - with one discovery call, and reports the model count or the exact error, linking the matching [troubleshooting](troubleshooting.md#common-issues) section when the failure looks like a setup problem. It saves and syncs nothing.
 
-One timing rule when the key comes after the entry: the provider group is created from the entry the moment it first syncs, credentials included, and VS Code cannot update an existing group - a key stored after that first sync reaches requests only once the group is recreated, and the server row shows the exact steps ([Lifecycle](#lifecycle-renames-removals-hidden-groups)). The dashboard's add form avoids this by storing the key before the entry first syncs.
+No timing trap when the key comes after the entry: the provider group is created from the entry the moment it first syncs, but discovery and requests always resolve the entry's CURRENT credentials - a key stored (or fixed) after that first sync takes effect on the next sync or model refresh, no group recreation needed.
 
 ## Entry reference
 
@@ -284,7 +284,7 @@ When editing a saved entry:
 - An emptied secret field keeps whatever is stored; it does not clear the secret.
 - Deleting a stored secret is an explicit choice: the edit form shows a "Remove the stored ..." checkbox under each secret field that has a value.
 
-Setting or rotating a stored secret counts as changing the entry's credentials: the already-synced group cannot pick it up, requests keep using the credentials the group was created with, and the server row shows the recreate steps ([Lifecycle](#lifecycle-renames-removals-hidden-groups)).
+Setting or rotating a stored secret takes effect on the next sync or model refresh: discovery and requests resolve the entry's current credentials, so a fixed key turns the server row from Error back to Active without touching the provider group. (The group's own stored copy is only a fallback, used when no matching entry resolves - an external group, or an entry re-pointed at another host.)
 
 Where the extension needs a non-secret identity for a credential (the change detectors that keep sync state in step), it stores a fingerprint keyed by a random per-install secret rather than a plain hash - those records reveal nothing about the credential, even a short guessable key, to anything that can read extension state but not secret storage. And when VS Code's secret storage itself is unavailable (a Linux desktop without a keyring service, say), sync skips the entry for the pass and the server row says so - see [Troubleshooting](troubleshooting.md#secret-storage-is-unavailable).
 
@@ -320,7 +320,8 @@ One VS Code limitation explains this whole section: **the host API can create pr
 | You do | What happens |
 |---|---|
 | Add an entry | A provider group is created; models appear in the picker |
-| Change an entry's URL or credentials | The existing group cannot be updated. The server row shows an error with the fix: delete the group's object from the models file, reload, run "LiteLLM: Sync Models Now" - the group is recreated from the entry. Until then, requests keep using the credentials the group was created with - a rotated key is not in effect |
+| Change an entry's credentials (API key, OAuth, virtual key) | Takes effect on the next sync or model refresh: discovery and requests resolve the entry's current credentials, and the group's stored copy is only a fallback. No error, no group recreation |
+| Change an entry's URL | The existing group cannot be updated. The server row shows an error with the fix: delete the group's object from the models file, reload, run "LiteLLM: Sync Models Now" - the group is recreated from the entry |
 | Rename an entry (`label`) | A new group is created under the new name; the old one stays behind. The extension's notice names it and opens the models file so its object can be deleted; the dashboard marks the leftover row "external" with the rename in its badge tip. A settings.json rename does not move the label's stored secrets - they stay under the old name ([Secrets](#secrets-and-secret-storage)); a dashboard rename carries them over |
 | Remove an entry | The group cannot be removed, so the extension *hides* it: remembers the removal, answers the group with an empty model list (models leave the picker), and folds the row into the dashboard's "hidden groups" line with an Unhide action. The removal notice names the group and opens the models file for permanent deletion |
 | Re-add an entry with the same label and base URL | Its hidden group comes back on its own |

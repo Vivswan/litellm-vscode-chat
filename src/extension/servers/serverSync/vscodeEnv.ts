@@ -6,6 +6,7 @@
 
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import type { GroupCredentials } from "../../../provider/catalog/groupModels";
 import { CMD, INTERNAL_CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getMaskSecretInputs, SERVERS_SETTING_KEY } from "../../../shared/config/settings";
@@ -13,11 +14,13 @@ import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../
 import type { Logger } from "../../../shared/logger";
 import type { ExpectedFailureCategory, SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
-import { isUnsafeRecordKey } from "../../../shared/util/json";
+import { errorLabel } from "../../../shared/util/errorLabel";
+import { validatedStringRecord } from "../../../shared/util/json";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import { showActionableMessage } from "../../ui/notifier";
 import type { GroupRemovalStore } from "../groupRemovals";
 import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engine";
+import { entryGroupCredentialsFor } from "./entryCredentials";
 import { inlineSecretValues, readServerSecretsRecord, secretDestination, updateServerSecret } from "./secrets";
 import type { EntryModelCapabilities, EntryModelParameters } from "./setting";
 import {
@@ -123,15 +126,7 @@ export function createServerSyncEnv(
 			// non-string value or a reserved (prototype-mutating) key is corruption
 			// and must not ride into the session map behind an unchecked cast - the
 			// engine assigns these keys into plain records unguarded.
-			const stored = context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY);
-			if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
-				return {};
-			}
-			return Object.fromEntries(
-				Object.entries(stored).filter(
-					(field): field is [string, string] => typeof field[1] === "string" && !isUnsafeRecordKey(field[0])
-				)
-			);
+			return validatedStringRecord(context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY));
 		},
 		setFingerprints: async (map) => {
 			// Re-confirmed at write time, per batch, not once per pass: a store
@@ -142,20 +137,27 @@ export function createServerSyncEnv(
 			if ((await fingerprintSalt.confirmDurable()) !== "durable") {
 				return;
 			}
-			await context.globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, map);
+			// Format dominance: a current-format ("i1:") store record is never
+			// overwritten by a carried legacy-format one. Only pre-projection
+			// records lack the prefix, and the engine carries them purely as
+			// last-known-good, so a store record another window already projected
+			// is strictly newer knowledge; keeping it costs nothing here (the
+			// engine's next duplicate response confirms against the store and
+			// adopts it into the session map).
+			const stored = validatedStringRecord(context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY));
+			const next: Record<string, string> = { ...map };
+			for (const [label, record] of Object.entries(map)) {
+				const storedRecord = stored[label];
+				if (!record.startsWith("i1:") && storedRecord !== undefined && storedRecord.startsWith("i1:")) {
+					next[label] = storedRecord;
+				}
+			}
+			await context.globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, next);
 		},
 		getEntryBaseUrls: () => {
 			// Validated like the fingerprints: the key is engine-owned, but a
 			// corrupt value or reserved key must not ride behind a cast.
-			const stored = context.globalState.get<unknown>(SYNCED_ENTRY_BASE_URLS_KEY);
-			if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
-				return {};
-			}
-			return Object.fromEntries(
-				Object.entries(stored).filter(
-					(field): field is [string, string] => typeof field[1] === "string" && !isUnsafeRecordKey(field[0])
-				)
-			);
+			return validatedStringRecord(context.globalState.get<unknown>(SYNCED_ENTRY_BASE_URLS_KEY));
 		},
 		setEntryBaseUrls: async (map) => {
 			await context.globalState.update(SYNCED_ENTRY_BASE_URLS_KEY, map);
@@ -220,6 +222,32 @@ export function createServerSyncEnv(
 /** The raw servers setting from the same live channel the sync engine reads. */
 function readRawServersSetting(): unknown {
 	return vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
+}
+
+/**
+ * The provider's credential-overlay resolver over the real setting and
+ * SecretStorage channels (see entryCredentials.ts for the resolution rules).
+ * Never rejects: the overlay's callers treat a failure as "keep the baked
+ * credentials", so any escape degrades to undefined with one log line here.
+ */
+export async function readEntryCredentials(
+	secrets: vscode.SecretStorage,
+	logger: Logger,
+	label: string,
+	baseUrl: string
+): Promise<GroupCredentials | undefined> {
+	try {
+		return await entryGroupCredentialsFor(
+			readRawServersSetting,
+			(entryLabel) => readServerSecretsRecord(secrets, entryLabel),
+			label,
+			baseUrl,
+			(message, data) => logger.log(message, data)
+		);
+	} catch (error) {
+		logger.log("Resolving entry credentials for the overlay failed", { label, error: errorLabel(error) });
+		return undefined;
+	}
 }
 
 /**
@@ -304,13 +332,7 @@ function secretPaletteLabel(field: SecretFieldId): string {
 export function registerSetServerSecretCommand(
 	context: vscode.ExtensionContext,
 	engine: ServerSyncEngine,
-	logger: Logger,
-	/**
-	 * Notified after a stored secret changed; the usage poller re-probes
-	 * availability on it (a fixed key can lift a 401/403 classification). With
-	 * polling off the re-probe waits for the next explicit refresh.
-	 */
-	onSecretsChanged?: () => void
+	logger: Logger
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.setServerSecret, async () => {
@@ -399,7 +421,6 @@ export function registerSetServerSecretCommand(
 				);
 			}
 			engine.requestSync();
-			onSecretsChanged?.();
 		})
 	);
 }

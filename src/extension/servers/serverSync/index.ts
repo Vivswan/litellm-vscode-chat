@@ -42,6 +42,7 @@ export {
 export {
 	createServerSyncEnv,
 	readEntryApiVersion,
+	readEntryCredentials,
 	readEntryDeclaredModels,
 	readEntryExpectedFailures,
 	readEntryHeaders,

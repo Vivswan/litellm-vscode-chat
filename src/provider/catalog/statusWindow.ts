@@ -191,7 +191,21 @@ export class StatusWindow {
 		groupServer: GroupServer,
 		observations: DiscoveryObservations = {}
 	): void {
-		const previous = this.entries.get(status.serverId);
+		// A credential rotation mints a new client ID for the same logical group
+		// (host group names are unique per vendor, so one label at one host IS
+		// one group). The retired identity is evicted at once rather than left to
+		// age out: a lingering twin double-counts the merged status and renders
+		// as a ghost external row whose Hide would tombstone the label the REAL
+		// group serves under. Its last success carries into the successor as the
+		// stale-serve anchor - same logical group, same models - so a rotation
+		// followed by a failed silent refresh still stale-serves instead of
+		// vanishing. Unlabeled snapshots keep the aging path - two unlabeled
+		// groups on one host are a documented, deliberate collision.
+		const twin = this.labeledTwin(status.serverId, groupServer);
+		if (twin !== undefined) {
+			this.entries.delete(twin[0]);
+		}
+		const previous = this.entries.get(status.serverId) ?? twin?.[1];
 		this.entries.set(status.serverId, {
 			cycle: this.cycle,
 			at: this.now(),
@@ -246,14 +260,44 @@ export class StatusWindow {
 	 * serving disabled), at which point the failure serves the empty list.
 	 */
 	staleServableModels(
-		serverId: string
+		serverId: string,
+		groupServer?: Pick<GroupServer, "label" | "baseUrl">
 	): { models: readonly PreAttachModelInfo[]; discoveredRawIds: readonly string[]; lastSuccessAt: number } | undefined {
-		const entry = this.entries.get(serverId);
+		// A rotated identity has no record until its first report lands, but its
+		// labeled twin's last success is the same logical group's models.
+		const entry = this.entries.get(serverId) ?? this.labeledTwin(serverId, groupServer)?.[1];
 		const lastSuccess = entry?.lastSuccess;
 		const windowMs = this.staleServeWindowMs();
 		if (entry === undefined || lastSuccess === undefined || windowMs <= 0 || this.now() - lastSuccess.at > windowMs) {
 			return undefined;
 		}
 		return { models: lastSuccess.models, discoveredRawIds: entry.discoveredRawIds, lastSuccessAt: lastSuccess.at };
+	}
+
+	/**
+	 * The labeled twin of a server ID: an entry for the SAME logical group
+	 * (same label, same base URL) recorded under a different, usually retired,
+	 * identity. What record() evicts on a rotation, and what stale serving
+	 * falls back to before the rotated identity's first report lands. Both
+	 * base URLs are NormalizedBaseUrl by construction (every GroupServer comes
+	 * through parseGroupConfiguration's normalize).
+	 */
+	private labeledTwin(
+		serverId: string,
+		groupServer: Pick<GroupServer, "label" | "baseUrl"> | undefined
+	): [string, StatusWindowEntry] | undefined {
+		if (groupServer?.label === undefined) {
+			return undefined;
+		}
+		for (const [id, entry] of this.entries) {
+			if (
+				id !== serverId &&
+				entry.groupServer.label === groupServer.label &&
+				entry.groupServer.baseUrl === groupServer.baseUrl
+			) {
+				return [id, entry];
+			}
+		}
+		return undefined;
 	}
 }

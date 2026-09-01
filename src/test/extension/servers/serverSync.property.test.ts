@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { StoredServerSecrets } from "../../../extension/servers/serverSync";
 import { acceptedEntry, buildGroupArgs, parseServersSetting } from "../../../extension/servers/serverSync";
+import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
@@ -230,6 +231,53 @@ suite("extension/servers/serverSync buildGroupArgs properties", () => {
 					const expected: string | undefined = field.secret ? (inline ?? storedValue) : inline;
 					assert.strictEqual(args[field.id], expected, `${field.id} must resolve inline-first`);
 				}
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+});
+
+suite("extension/servers/serverSync fingerprint properties", () => {
+	const entryRecordArb = fc
+		.tuple(fc.constantFrom(...labelPool), optionalFieldsArb)
+		.map(([label, fields]) => ({ ...fields, label, baseUrl: "http://args.test" }));
+
+	const storedArb: fc.Arbitrary<StoredServerSecrets> = fc.dictionary(
+		fc.constantFrom(...SECRET_FIELD_IDS),
+		fc.constantFrom("stored-secret", "other-stored"),
+		{ maxKeys: 3 }
+	) as fc.Arbitrary<StoredServerSecrets>;
+
+	test("the identity print ignores every credential valuation: a rotation must read as in-sync", () => {
+		fc.assert(
+			fc.property(entryRecordArb, storedArb, storedArb, (record, storedA, storedB) => {
+				const [entry] = parseServersSetting([record]).entries;
+				fc.pre(entry !== undefined);
+				const printA = groupArgsFingerprint(buildGroupArgs(entry, storedA));
+				const printB = groupArgsFingerprint(buildGroupArgs(entry, storedB));
+				assert.ok(printA.startsWith("i1:"), "the current rendering carries its format prefix");
+				assert.strictEqual(printA, printB, "secret valuations must not reach the print");
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+
+	test("an identity difference (label or baseUrl) always yields a different print", () => {
+		fc.assert(
+			fc.property(entryRecordArb, storedArb, fc.constantFrom("label", "baseUrl"), (record, stored, mutatedField) => {
+				const [entry] = parseServersSetting([record]).entries;
+				fc.pre(entry !== undefined);
+				const mutated =
+					mutatedField === "label"
+						? { ...record, label: `${record.label}-renamed` }
+						: { ...record, baseUrl: "http://elsewhere.test" };
+				const [mutatedEntry] = parseServersSetting([mutated]).entries;
+				fc.pre(mutatedEntry !== undefined);
+				assert.notStrictEqual(
+					groupArgsFingerprint(buildGroupArgs(entry, stored)),
+					groupArgsFingerprint(buildGroupArgs(mutatedEntry, stored)),
+					"an identity change must churn the group"
+				);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);

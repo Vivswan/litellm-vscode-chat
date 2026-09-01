@@ -162,8 +162,20 @@ export const ORPHANED_GROUP_PROVENANCE_KEY = "litellm.orphanedGroupProvenance";
  * entry, keyed by its label: a JSON blob holding any of apiKey,
  * oauthClientSecret, and virtualKeyValue the user chose not to keep inline.
  */
+const SERVER_SECRETS_KEY_PREFIX = "litellm.serverSecrets.";
+
 export function serverSecretsKey(label: string): string {
-	return `litellm.serverSecrets.${label}`;
+	return `${SERVER_SECRETS_KEY_PREFIX}${label}`;
+}
+
+/**
+ * Whether a SecretStorage change event concerns one of the per-label server
+ * blobs. The one owner-level signal that a server credential changed, however
+ * it was written (dashboard, palette, settings import, test command), so the
+ * reaction wiring cannot miss a writer.
+ */
+export function isServerSecretsKey(key: string): boolean {
+	return key.startsWith(SERVER_SECRETS_KEY_PREFIX);
 }
 
 /**
