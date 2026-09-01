@@ -1241,7 +1241,7 @@
 		"@vscode/l10n": "^0.0.18",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
-		"gpt-tokenizer": "^3.4.0",
+		"gpt-tokenizer": "^4.0.0",
 		"openai": "^7.4.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
