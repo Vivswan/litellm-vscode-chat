@@ -181,6 +181,33 @@ function deltaToolEvent(state: GeneratorState): FuzzEvent {
 	return { label: "delta-tool", tools: [call], deltaToolChannel: true, chunks: deltaToolFrames(state, call, index) };
 }
 
+/**
+ * A no-parameter delta-channel call, OpenAI-style: `arguments: ""` in every
+ * frame (or absent entirely). Must emit with the empty object at end of
+ * stream (#281). A TAIL event: the emission is defined by end-of-stream
+ * handling (the flush reads the empty accumulation as {}), so mid-stream
+ * placement would diverge from the oracles' wire-order expectation. The name
+ * embeds the index because empty args carry no `seq` to keep the
+ * cross-channel dedup accounting unique.
+ */
+function emptyArgsDeltaToolEvent(state: GeneratorState): FuzzEvent {
+	const index = state.toolIndex++;
+	const call: ExpectedToolCall = { name: `no_args_tool_${index}`, args: {} };
+	const variant = Math.floor(state.random() * 3);
+	const first = {
+		index,
+		id: `call_fuzz_${index}`,
+		type: "function",
+		function: { name: call.name, ...(variant === 1 ? {} : { arguments: "" }) },
+	};
+	const chunks: unknown[] = [chunkOf({ tool_calls: [first] })];
+	if (variant === 2) {
+		// A continuation frame that still carries nothing.
+		chunks.push(chunkOf({ tool_calls: [{ index, function: { arguments: "" } }] }));
+	}
+	return { label: "empty-args-delta-tool", tools: [call], deltaToolChannel: true, chunks };
+}
+
 function inlineToolEvent(state: GeneratorState): FuzzEvent {
 	const call = toolCallSpec(state);
 	const index = state.toolIndex++;
@@ -464,12 +491,13 @@ export function generateEvents(random: () => number, directMode: boolean): FuzzE
 		}
 	}
 
-	// One optional tail whose behavior is defined by end-of-stream handling.
+	// One optional tail whose behavior is defined by end-of-stream handling,
+	// drawn from the SAME registry the property suites use (equal slices, ~15%
+	// each), so the docker targets exercise every tail kind too.
 	const tailRoll = random();
-	if (tailRoll < 0.15) {
-		events.push(unterminatedInlineTail(state));
-	} else if (tailRoll < 0.3) {
-		events.push(truncatedTokenTail(state));
+	const tailIndex = Math.floor(tailRoll / 0.15);
+	if (tailIndex < TAIL_EVENT_KINDS.length) {
+		events.push(buildTailEvent(expectDefined(TAIL_EVENT_KINDS[tailIndex]), state));
 	}
 	return events;
 }
@@ -501,7 +529,7 @@ export const PROPERTY_EVENT_KIND_WEIGHTS = [
 ] as const;
 export type PropertyEventKind = (typeof PROPERTY_EVENT_KIND_WEIGHTS)[number]["kind"];
 
-export const TAIL_EVENT_KINDS = ["unterminated-inline-tail", "truncated-token-tail"] as const;
+export const TAIL_EVENT_KINDS = ["unterminated-inline-tail", "truncated-token-tail", "empty-args-delta-tool"] as const;
 export type TailEventKind = (typeof TAIL_EVENT_KINDS)[number];
 
 function buildEvent(kind: PropertyEventKind, state: GeneratorState): FuzzEvent {
@@ -547,9 +575,21 @@ export function makePropertyEvent(kind: PropertyEventKind, seed: number, state: 
 	return buildEvent(kind, state);
 }
 
+/** The one tail-kind dispatch, shared by generateEvents and makeTailEvent. */
+function buildTailEvent(kind: TailEventKind, state: GeneratorState): FuzzEvent {
+	switch (kind) {
+		case "unterminated-inline-tail":
+			return unterminatedInlineTail(state);
+		case "truncated-token-tail":
+			return truncatedTokenTail(state);
+		case "empty-args-delta-tool":
+			return emptyArgsDeltaToolEvent(state);
+	}
+}
+
 export function makeTailEvent(kind: TailEventKind, seed: number, state: GeneratorState): FuzzEvent {
 	state.random = mulberry32(seed);
-	return kind === "unterminated-inline-tail" ? unterminatedInlineTail(state) : truncatedTokenTail(state);
+	return buildTailEvent(kind, state);
 }
 
 // ── Assembly: events to chunks plus the exact expected outcome ───────────────

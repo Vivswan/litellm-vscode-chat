@@ -189,6 +189,13 @@ Do not guess - open the dashboard's Models section and check the model's paramet
 
 Your VS Code build lacks the thinking-part API, so streamed reasoning is dropped (with a note in the output channel), and a reply that contained nothing but reasoning fails with this error. Update VS Code to a version that supports thinking parts, or use a model that returns final text.
 
+### "The model sent a broken tool call" / "hit the model's output limit in the middle of a tool call"
+
+A tool call must arrive with valid JSON arguments or the extension fails the turn rather than dispatch a call the model did not finish parameterizing. (A tool that takes no parameters and streams empty arguments is fine - that emits a normal call with no input.) The two variants name different causes:
+
+- **"The model sent a broken tool call... Trying again usually fixes it"**: the model (or a gateway rewriting its output) produced arguments that never became valid JSON. Retrying usually works; a model that does this consistently is worth reporting to whoever runs the gateway.
+- **"The response hit the model's output limit in the middle of a tool call"**: the stream ended with `finish_reason: length`, so the output limit cut the arguments off. Retrying cannot fix a limit - raise the model's max output tokens (a `models.capabilities` override, or `max_tokens` in `models.parameters`), or trim the request.
+
 ## Usage features are missing
 
 The dashboard's server rows show no spend, no spend percentage appears, and no alerts fire. In likelihood order:

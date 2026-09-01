@@ -381,6 +381,26 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		],
 	},
 
+	// A no-parameter tool call streamed OpenAI-style with empty arguments in
+	// every frame; it must emit with the empty object instead of failing (#281)
+	"tool-call-empty-args": {
+		type: "sse",
+		chunks: [
+			makeChunk({
+				role: "assistant",
+				tool_calls: [
+					{
+						index: 0,
+						id: "call_no_args",
+						type: "function",
+						function: { name: "get_time", arguments: "" },
+					},
+				],
+			}),
+			makeChunk({}, "tool_calls"),
+		],
+	},
+
 	// The same call arrives on the delta channel and inline in text; only one may be emitted
 	"duplicate-tool-calls": {
 		type: "sse",
