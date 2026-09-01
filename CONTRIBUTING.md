@@ -12,7 +12,7 @@ CI, settings, and standards files here (including this document above the marker
 
 ## CI
 
-- CI gates on a single status check, `all-green`, which needs every gating CI job (the convention is documented in [repo-platform's all-green guide](https://github.com/vivswan/repo-platform/blob/main/docs/all-green.md)).
+- CI gates on the `all-green` status check - the CI workflow's own `all-green` job, which needs every gating job and fails unless each result is success or skipped, with at least one success (the convention is documented in [repo-platform's all-green guide](https://github.com/vivswan/repo-platform/blob/main/docs/all-green.md)).
 - Repository-specific checks live in `.github/workflows/checks.yml`; run the commands it lists locally before pushing.
 - A typography gate enforces plain ASCII punctuation: no curly quotes, em-dashes, or invisible unicode.
 

@@ -68,9 +68,9 @@ docker/.copilot-token/*
 # END REPOSITORY LOCAL
 
 # BEGIN REPO-PLATFORM MANAGED
-# Generated from github/gitignore @ 57286c3887203259752b747db94e6c3ad10ec53d - do not edit; local
-# patterns go in the REPOSITORY LOCAL section above. Managed patterns
-# deliberately come last: last-match-wins makes them non-overridable.
+# Generated from github/gitignore - do not edit; local patterns go in
+# the REPOSITORY LOCAL section above. Managed patterns deliberately
+# come last: last-match-wins makes them non-overridable.
 
 ## Agent local state (repo-platform)
 .claude/worktrees/

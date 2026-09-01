@@ -16,8 +16,6 @@ trim_trailing_whitespace = false
 indent_style = tab
 
 # Repository-specific rules go below this line; they stay yours across
-# template updates. Start each override with its own [section] header (a
-# bare property here lands inside the last managed section's scope);
-# .editorconfig applies later sections over earlier ones, so sections
-# here override the managed rules above.
+# template updates. Start each override with its own [section] header;
+# later sections override the managed rules above.
 # repo-platform:local-section
