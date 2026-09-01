@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.0...v0.6.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* apply rotated server credentials to existing provider groups ([#277](https://github.com/Vivswan/litellm-vscode-chat/issues/277), thanks [@calexandre](https://github.com/calexandre)) ([#280](https://github.com/Vivswan/litellm-vscode-chat/issues/280)) ([064f0c0](https://github.com/Vivswan/litellm-vscode-chat/commit/064f0c06aa9ada79d69bfb22a8b0c8c18265f449))
+* emit no-argument tool calls instead of failing the turn ([#281](https://github.com/Vivswan/litellm-vscode-chat/issues/281), thanks [@hugocoder2015](https://github.com/hugocoder2015)) ([#285](https://github.com/Vivswan/litellm-vscode-chat/issues/285)) ([c2ab9d6](https://github.com/Vivswan/litellm-vscode-chat/commit/c2ab9d6572665297f4509142b348d25c7ed5a3ee))
+
 ## [0.6.0](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.5.0...v0.6.0) (2026-08-25)
 
 
