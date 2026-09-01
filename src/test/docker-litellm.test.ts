@@ -403,6 +403,13 @@ suite("Docker LiteLLM stack", () => {
 		test("tool-call-invalid-json rejects on completion", async () => {
 			await assert.rejects(() => play("tool-call-invalid-json"));
 		});
+
+		test("tool-call-empty-args emits a no-argument call instead of failing (#281)", async () => {
+			const calls = extractToolCalls(await play("tool-call-empty-args"));
+			assert.strictEqual(calls.length, 1);
+			assert.strictEqual(expectDefined(calls[0]).name, "get_time");
+			assert.deepStrictEqual(expectDefined(calls[0]).input, {}, "empty arguments read as the empty object");
+		});
 	});
 
 	// ── Reasoning and modern stream fields ─────────────────────────────────────

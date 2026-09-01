@@ -108,6 +108,12 @@ interface RequestState {
 	reportedAnyPart: boolean;
 	/** Reasoning lost to a missing or throwing thinking-part class; see DroppedReasoning. */
 	droppedReasoning: DroppedReasoning;
+	/**
+	 * The last finish_reason any choice carried, terminal or not: "length"
+	 * classifies the invalid-tool-call throw (an output limit that cut a call
+	 * mid-arguments is not fixed by retrying, so the message must not say so).
+	 */
+	lastFinishReason: string | undefined;
 }
 
 function freshRequestState(): RequestState {
@@ -125,6 +131,7 @@ function freshRequestState(): RequestState {
 		audioBuffer: undefined,
 		reportedAnyPart: false,
 		droppedReasoning: freshDroppedReasoning(),
+		lastFinishReason: undefined,
 	};
 }
 
@@ -420,8 +427,11 @@ export class StreamProcessor {
 			}
 		}
 
-		if (choice.finish_reason !== undefined && TERMINAL_FINISH_REASONS.includes(choice.finish_reason)) {
-			this.finishStream(progress, !token?.isCancellationRequested);
+		if (choice.finish_reason !== undefined) {
+			this._req.lastFinishReason = choice.finish_reason;
+			if (TERMINAL_FINISH_REASONS.includes(choice.finish_reason)) {
+				this.finishStream(progress, !token?.isCancellationRequested);
+			}
 		}
 
 		return emitted;
@@ -542,7 +552,11 @@ export class StreamProcessor {
 			if (this._req.ledger.alreadyHandled(call.seq)) {
 				continue;
 			}
-			const parsed = tryParseJSONObject(call.args);
+			// A COMPLETE call's end token arrived, so its argument section is
+			// final: an explicit-but-empty section reads as the no-argument call
+			// (the parser only synthesizes "{}" when the argument-begin token
+			// itself is absent).
+			const parsed = tryParseJSONObject(StreamProcessor.flushArgsText(call.args));
 			if (!parsed.ok) {
 				// Classification only: the name and arguments are response text.
 				this._log("Dropping inline tool call with invalid JSON arguments", { argsLength: call.args.length });
@@ -625,10 +639,48 @@ export class StreamProcessor {
 		this.emitToolCall(progress, { id: buf.id, name: buf.name, parsedArgs: parsed.value }, index);
 	}
 
-	/** Flushes every buffer, logging each invalid one; returns the invalid count. */
-	private flushToolCallBuffers(progress: ResponsePartSink): number {
+	/**
+	 * The finalized reading of an accumulated arguments string: an empty (or
+	 * whitespace-only) accumulation is a no-argument call and reads as the
+	 * empty object - the same rule the inline parser applies to a call with no
+	 * argument-begin token and outbound history conversion applies to a missing
+	 * input. Callers gate WHEN finality holds: a complete inline call's end
+	 * token proves it, the EOF flush proves it for delta buffers (unless
+	 * finish_reason "length" says the limit cut the call off - see
+	 * EmptyArgsMode), and mid-stream sites must never use this, since empty
+	 * arguments may still be accumulating there.
+	 */
+	private static flushArgsText(args: string): string {
+		return args.trim() === "" ? "{}" : args;
+	}
+
+	/**
+	 * How an end-of-stream flush treats a delta buffer whose accumulated
+	 * arguments are empty. "hold": leave it pending - the finish_reason and
+	 * [DONE] runs can still be followed by chunks carrying the arguments, and
+	 * emitting now would retire the index and drop them. "emit": the final EOF
+	 * run's no-argument reading (flushArgsText). "invalid": the final run after
+	 * finish_reason "length" - the limit cut the call off before its arguments,
+	 * so it counts toward the classified failure instead of emitting a call
+	 * the model never finished.
+	 */
+	private flushToolCallBuffers(progress: ResponsePartSink, emptyArgs: "hold" | "emit" | "invalid"): number {
 		let invalidCount = 0;
 		for (const [index, buf] of Array.from(this._req.toolCallBuffers.entries())) {
+			if (buf.args.trim() === "") {
+				if (emptyArgs === "hold") {
+					continue;
+				}
+				if (emptyArgs === "invalid") {
+					// Classification only: buffered arguments are response text.
+					this._log("Invalid JSON for tool call", { index, argsLength: buf.args.length });
+					invalidCount++;
+					this._req.toolCallBuffers.delete(index);
+					continue;
+				}
+				this.emitToolCall(progress, { id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: {} }, index);
+				continue;
+			}
 			const parsed = tryParseJSONObject(buf.args);
 			if (!parsed.ok) {
 				// Classification only: buffered arguments are response text.
@@ -652,12 +704,31 @@ export class StreamProcessor {
 	 * [DONE] runs can still be followed by more chunks.
 	 */
 	private finishStream(progress: ResponsePartSink, finishedNormally: boolean, isFinal = false): void {
-		let invalidCount = this.flushToolCallBuffers(progress);
+		// Empty delta buffers finalize only at the true EOF run of a
+		// normally-finished stream; a cancelled stream downgrades them to the
+		// same logged drops its unparseable leftovers get (the "invalid" count
+		// never throws without finishedNormally). See flushToolCallBuffers for
+		// the three modes.
+		const emptyArgs = !isFinal
+			? "hold"
+			: !finishedNormally || this._req.lastFinishReason === "length"
+				? "invalid"
+				: "emit";
+		let invalidCount = this.flushToolCallBuffers(progress, emptyArgs);
 
 		const rest = this._req.textParser.flush();
 		const call = rest.provisionalCall;
 		if (call && !this._req.ledger.alreadyHandled(call.seq)) {
-			const parsed = tryParseJSONObject(call.args);
+			// The parser's held state is gone after flush(), so an unterminated
+			// call cannot resume on a later run: finality is a given here, and
+			// only two gates apply - cancellation (a cancelled partial call must
+			// drop, not run) and the length gate (an output limit that cut the
+			// call off must classify, not emit a call the model never finished).
+			const inlineArgs =
+				finishedNormally && this._req.lastFinishReason !== "length"
+					? StreamProcessor.flushArgsText(call.args)
+					: call.args;
+			const parsed = tryParseJSONObject(inlineArgs);
 			if (parsed.ok) {
 				this._req.ledger.markHandled(call.seq);
 				this.emitInlineToolCall(call, parsed.value, progress);
@@ -702,6 +773,23 @@ export class StreamProcessor {
 			// The English mirror is what the output channel and issue-report
 			// buffer record: count only - tool names and argument snippets are
 			// response text and must never join it.
+			if (this._req.lastFinishReason === "length") {
+				// The output limit cut the call mid-arguments: retrying cannot fix
+				// a limit, so the advice points at the limit instead.
+				const lengthDetail =
+					invalidCount === 1
+						? l10n.t("the output limit cut 1 tool call off mid-arguments")
+						: l10n.t("the output limit cut {0} tool calls off mid-arguments", invalidCount);
+				throw localizedError(
+					chatErrorMessage(
+						l10n.t(
+							"The response hit the model's output limit in the middle of a tool call. Raise the model's max output tokens (a models.capabilities override, or max_tokens in models.parameters), or trim the request."
+						),
+						lengthDetail
+					),
+					`Tool call flush failed at end of stream: output limit cut ${invalidCount} tool call(s) mid-arguments`
+				);
+			}
 			const detail =
 				invalidCount === 1
 					? l10n.t("1 tool call arrived with arguments that were not valid JSON")

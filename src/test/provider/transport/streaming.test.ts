@@ -1971,6 +1971,156 @@ suite("provider/streaming end-of-stream policy", () => {
 		);
 	});
 
+	test("a no-argument tool call (arguments empty throughout) emits with empty input instead of failing (#281)", async () => {
+		// The OpenAI-style shape for a no-parameter tool: `arguments: ""` in
+		// every frame. At end of stream no more deltas can arrive, so the empty
+		// accumulation reads as the empty object - the same rule the inline
+		// parser and outbound history conversion already apply.
+		for (const frames of [
+			// [DONE] route, empty string args.
+			[
+				'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":""}}]}}]}\n',
+				"data: [DONE]\n",
+			],
+			// finish_reason route, arguments field never sent at all.
+			[
+				'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t"}}]}}]}\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n',
+			],
+			// EOF route (no [DONE]), whitespace-only args.
+			[
+				'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"  "}}]}}]}\n',
+			],
+		]) {
+			const stream = new StreamProcessor(idSource(), () => {});
+			const { parts, progress } = collector();
+			await stream.processStreamingResponse(sseStream(frames), progress, token());
+			const calls = toolCallsOf(parts);
+			assert.strictEqual(calls.length, 1, `the call must emit for frames: ${frames[0]}`);
+			assert.strictEqual(calls[0]?.name, "t");
+			assert.deepStrictEqual(calls[0]?.input, {}, "a no-argument call carries the empty object");
+		}
+	});
+
+	test("an argument-less inline tool call left unterminated emits with empty input at [DONE]", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"<|tool_call_begin|>t<|tool_call_argument_begin|>"}}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		const calls = toolCallsOf(parts);
+		assert.strictEqual(calls.length, 1);
+		assert.deepStrictEqual(calls[0]?.input, {});
+	});
+
+	test("a COMPLETE inline call with an explicit empty argument section emits with empty input", async () => {
+		// The end token proves the argument section is final; only a call with
+		// no argument-begin token gets the parser's own synthesized "{}".
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"<|tool_call_begin|>t<|tool_call_argument_begin|><|tool_call_end|>"}}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		const calls = toolCallsOf(parts);
+		assert.strictEqual(calls.length, 1);
+		assert.deepStrictEqual(calls[0]?.input, {});
+	});
+
+	test("a non-final flush HOLDS an empty buffer: arguments arriving after finish_reason still land", async () => {
+		// finish_reason and [DONE] can be followed by more chunks; finalizing an
+		// empty buffer there would retire the index and drop the late arguments.
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":""}}]}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n',
+			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"a\\":1}"}}]}}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		const calls = toolCallsOf(parts);
+		assert.strictEqual(calls.length, 1, "one call, not an empty twin plus the real one");
+		assert.deepStrictEqual(calls[0]?.input, { a: 1 }, "the late arguments win over the empty reading");
+	});
+
+	test("a name-only call cut by the output limit classifies instead of emitting an empty call", async () => {
+		// The limit arrived before ANY argument bytes: emitting {} would run a
+		// tool the model never finished parameterizing.
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":""}}]}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			/output limit in the middle of a tool call/
+		);
+		assert.strictEqual(toolCallsOf(parts).length, 0, "nothing may emit for the cut-off call");
+	});
+
+	test("an inline call cut by the output limit classifies instead of emitting", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"<|tool_call_begin|>t<|tool_call_argument_begin|>"}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			/output limit in the middle of a tool call/
+		);
+	});
+
+	test("the empty-args rule stays at end of stream: null-literal arguments still reject", async () => {
+		// "null" is a modeled decision, not absent text; dispatching it as {}
+		// would invent arguments the model did not send.
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"null"}}]}}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			/The model sent a broken tool call/
+		);
+	});
+
+	test("an output limit that cuts a tool call mid-arguments names the limit, not a retry (#281)", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{\\"a\\":"}}]}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(error: unknown) => {
+				assert.match(String(error), /output limit in the middle of a tool call/);
+				assert.strictEqual(
+					(error as { englishMessage?: string }).englishMessage,
+					"Tool call flush failed at end of stream: output limit cut 1 tool call(s) mid-arguments"
+				);
+				return true;
+			}
+		);
+	});
+
 	test("cancellation downgrades unparseable leftovers to logged drops", async () => {
 		const logs: string[] = [];
 		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg));
@@ -1990,6 +2140,25 @@ suite("provider/streaming end-of-stream policy", () => {
 			logs.some((l) => l.includes("Invalid JSON for tool call")),
 			"The dropped buffer must be logged"
 		);
+	});
+
+	test("cancellation drops an empty-args call instead of emitting it (#281)", async () => {
+		// A name-only call at cancellation is an unfinished call, not a
+		// no-argument one: emitting {} could run a tool the user just cancelled.
+		for (const frames of [
+			// Delta channel, name arrived, arguments never did.
+			['data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":""}}]}}]}\n'],
+			// Inline channel, argument section opened and empty.
+			['data: {"choices":[{"delta":{"content":"<|tool_call_begin|>t<|tool_call_argument_begin|>"}}]}\n'],
+		]) {
+			const stream = new StreamProcessor(idSource(), () => {});
+			const { parts, progress } = collector();
+			const source = new vscode.CancellationTokenSource();
+			const body = sseStream(frames, () => source.cancel());
+
+			await stream.processStreamingResponse(body, progress, source.token);
+			assert.strictEqual(toolCallsOf(parts).length, 0, `nothing may emit for frames: ${frames[0]}`);
+		}
 	});
 
 	test("stream end without [DONE] flushes buffered calls, falling back to unknown_tool", async () => {
