@@ -1,10 +1,12 @@
+# BEGIN REPO-PLATFORM MANAGED
 # Default owners for everything in the repo. Baseline from
-# Vivswan/repo-platform.
+# Vivswan/repo-platform; this section is replaced on
+# template sync.
 
 * @vivswan
 /.github/ @vivswan
 
-# Repository-specific owners go below this line; they stay yours across
-# template updates. CODEOWNERS applies the LAST matching pattern, so
-# entries here override the managed defaults above.
-# repo-platform:local-section
+# Repository-specific owners go below the END marker; they stay yours
+# across template updates. CODEOWNERS applies the LAST matching pattern,
+# so entries below the managed region override the defaults above.
+# END REPO-PLATFORM MANAGED
