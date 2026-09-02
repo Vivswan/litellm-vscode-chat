@@ -1,7 +1,3 @@
-
-# BEGIN REPOSITORY LOCAL
-# Add repository-specific ignore patterns in this section only.
-
 # Agent configs: only the checked-in settings/hooks files are tracked
 .claude/*
 !.claude/settings.json
@@ -64,8 +60,6 @@ docker/.copilot-token/*
 # Agent scratch probes (throwaway measurement fixtures/scripts); cleaned up
 # after use, ignored so a forgotten one can never land in a commit
 .probe*
-
-# END REPOSITORY LOCAL
 
 # BEGIN REPO-PLATFORM MANAGED
 # Generated from github/gitignore - do not edit between the BEGIN/END
