@@ -176,14 +176,27 @@ suite("stack drift guard: vscode typings floor", () => {
 	});
 });
 
-suite("stack drift guard: README", () => {
-	test("the requirements line states engines.vscode's minimum", () => {
+suite("stack drift guard: minimum-VS-Code claims", () => {
+	test("every doc stating the floor states engines.vscode's minimum", () => {
 		const { engines } = JSON.parse(read("package.json")) as { engines: { vscode: string } };
 		const minimum = /^\^(\d+\.\d+\.\d+)$/.exec(engines.vscode)?.[1];
 		assert.ok(minimum, `engines.vscode is a caret range over an exact version (got "${engines.vscode}")`);
-		const claimed = /VS Code (\d+\.\d+\.\d+) or higher/.exec(read("README.md"))?.[1];
-		assert.ok(claimed, 'README.md states "VS Code <version> or higher"');
-		assert.strictEqual(claimed, minimum, "README minimum VS Code version");
+		const claims: ReadonlyArray<readonly [string, RegExp]> = [
+			["README.md", /VS Code (\d+\.\d+\.\d+) or higher/],
+			["README.zh-cn.md", /VS Code (\d+\.\d+\.\d+) 或更高版本/],
+			["README.zh-tw.md", /VS Code (\d+\.\d+\.\d+) 或更新版本/],
+			["docs/getting-started.md", /VS Code (\d+\.\d+\.\d+) or higher/],
+			["docs/zh-cn/getting-started.md", /VS Code (\d+\.\d+\.\d+) 或更高版本/],
+			["docs/zh-tw/getting-started.md", /VS Code (\d+\.\d+\.\d+) 或更高版本/],
+			["docs/troubleshooting.md", /needs (\d+\.\d+\.\d+) or higher/],
+			["docs/zh-cn/troubleshooting.md", /需要 (\d+\.\d+\.\d+) 或更高版本/],
+			["docs/zh-tw/troubleshooting.md", /需要 (\d+\.\d+\.\d+) 或更高版本/],
+		];
+		for (const [file, pattern] of claims) {
+			const claimed = pattern.exec(read(file))?.[1];
+			assert.ok(claimed, `${file} states the minimum VS Code version`);
+			assert.strictEqual(claimed, minimum, `${file} minimum VS Code version`);
+		}
 	});
 });
 

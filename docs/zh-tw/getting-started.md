@@ -6,7 +6,7 @@
 
 ## 需求
 
-- **VS Code 1.129.0 或更高版本**, 已安裝並登入 GitHub Copilot Chat 延伸模組。本延伸模組接入的是 Copilot 的聊天檢視, 沒有它就沒有聊天介面, 也沒有模型選擇器。如果您的 Copilot 席次來自組織 (Copilot Business 或 Enterprise), 組織還必須啟用 GitHub 的「Bring your own language model key」原則 - 沒有它, 即使這裡的每項診斷都回報已連線, Copilot 也會隱藏來自本延伸模組這類提供者延伸模組的模型。
+- **VS Code 1.134.0 或更高版本**, 已安裝並登入 GitHub Copilot Chat 延伸模組。本延伸模組接入的是 Copilot 的聊天檢視, 沒有它就沒有聊天介面, 也沒有模型選擇器。如果您的 Copilot 席次來自組織 (Copilot Business 或 Enterprise), 組織還必須啟用 GitHub 的「Bring your own language model key」原則 - 沒有它, 即使這裡的每項診斷都回報已連線, Copilot 也會隱藏來自本延伸模組這類提供者延伸模組的模型。
 - **一個執行中的 LiteLLM 代理**, 自架或雲端皆可。LiteLLM 代理是一台把眾多 LLM 提供者放在單一 OpenAI 相容端點之後的伺服器; 如果您還沒有, LiteLLM 官方的[代理快速上手](https://docs.litellm.ai/docs/proxy/quick_start)幾條命令就能在本機跑起來一個。
 - **一把 LiteLLM API 金鑰** (如果您的代理需要): 通常是 `sk-...` 形式的值, 可能是代理設定中的主金鑰, 也可能是由代理營運者核發的[虛擬金鑰](servers.md#身分驗證)。
   - 如果伺服器由公司營運, 請詢問其管理員。

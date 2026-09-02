@@ -48,7 +48,7 @@ So: **red on the left** means requests cannot get through - work through [Common
 This extension plugs into GitHub Copilot Chat; without it there is no chat view and no model picker.
 
 - Install the GitHub Copilot Chat extension, sign in to GitHub, and make sure it is enabled.
-- On an older VS Code, update it: the extension needs 1.129.0 or higher.
+- On an older VS Code, update it: the extension needs 1.134.0 or higher.
 - In a window in Restricted Mode (an untrusted folder), VS Code disables this extension entirely: the LiteLLM commands, the status bar item, and the registered models all disappear until you trust the workspace.
 
 ### "Connection Error: Unable to connect"

@@ -26,7 +26,7 @@
 
 ## 要求
 
-- VS Code 1.129.0 或更高版本, 已安装并登录 GitHub Copilot Chat 扩展
+- VS Code 1.134.0 或更高版本, 已安装并登录 GitHub Copilot Chat 扩展
 - 正在运行的 LiteLLM 代理 (自托管或云端)
 - LiteLLM API 密钥 (如果你的部署需要)
 
