@@ -1,4 +1,6 @@
-# Baseline attributes from Vivswan/repo-platform.
+# BEGIN REPO-PLATFORM MANAGED
+# Baseline attributes from Vivswan/repo-platform; this
+# section is replaced on template sync.
 
 # Normalize all detected text files to LF in the repository.
 * text=auto eol=lf
@@ -20,7 +22,8 @@ CLAUDE.md -text
 *.zip binary
 
 # Repository-specific attributes (binary globs, linguist overrides) go
-# below this line; they stay yours across template updates.
-# repo-platform:local-section
+# below the END marker; they stay yours across template updates, and the
+# LAST matching line wins, so entries there override the managed ones.
+# END REPO-PLATFORM MANAGED
 
 *.vsix binary

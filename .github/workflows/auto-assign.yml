@@ -6,20 +6,23 @@ on:
   workflow_dispatch:
     inputs:
       issue:
-        description: Issue or PR number to assign (for items whose creation fired no workflow)
+        description: Issue or PR number to assign (leave empty to sweep every open unassigned item)
         required: false
         default: ""
   issues:
     types: [opened]
   pull_request:
     types: [opened, synchronize]
-  # Code scanning alerts have no creation trigger for Actions, so assign
-  # them after each CI run completes, with a weekly cron as a catch-up.
+  # Nightly catch-up sweep: assigns everything open and unassigned whose
+  # creation fired no workflow - issues, PRs, and (on CodeQL repos) code
+  # scanning alerts.
+  schedule:
+    - cron: "13 6 * * *"
+  # Code scanning alerts have no creation trigger for Actions, so also
+  # assign them after each CI run completes.
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-  schedule:
-    - cron: "13 6 * * 1"
 
 # No workflow-level grants: each job grants its reusable workflow exactly
 # what it needs (contents:read is CODEOWNERS resolution).
@@ -27,7 +30,7 @@ permissions: {}
 
 jobs:
   auto-assign:
-    if: github.event_name == 'issues' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'issues' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     permissions:
       contents: read
       issues: write
