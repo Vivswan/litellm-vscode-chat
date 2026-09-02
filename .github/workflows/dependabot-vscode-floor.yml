@@ -70,7 +70,7 @@ jobs:
           # The managed bun-lockfile workflow can push to the same head in
           # the same window; its commit touches only bun.lock, so a rebase
           # is conflict-free. Three attempts, then fail loudly.
-          for attempt in 1 2 3; do
+          for _ in 1 2 3; do
             if git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$HEAD_REF"; then
               pushed=true
               break
