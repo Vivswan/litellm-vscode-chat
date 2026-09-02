@@ -1,0 +1,98 @@
+# Repo-owned. Dependabot bumps @types/vscode but cannot move engines.vscode
+# with it, so those PRs land red on the check-vscode-types gate (typings
+# newer than the floor are rejected). This raises the floor and every doc
+# stating it on Dependabot's own PRs; a bump the floor already covers is a
+# no-op. Same token contract as the managed dependabot-bun-lockfile.yml:
+# register REPO_PLATFORM_TOKEN as a Dependabot secret so the fix commit
+# re-runs CI (github.token starts no workflows).
+
+name: Dependabot VS Code Floor
+
+on:
+  pull_request:
+    paths: ["package.json"]
+
+permissions:
+  contents: read
+
+# Dependabot force-pushes on rebase, so only the newest run per PR and
+# actor proceeds; the actor keeps the fix push's own run from cancelling
+# the finishing original.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}-${{ github.actor }}
+  cancel-in-progress: true
+
+jobs:
+  raise-floor:
+    # Dependabot's own pushes only (the fix commit and human pushes must
+    # not re-fire it); same-repo only: the token cannot push to a fork.
+    if: github.actor == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write # the no-retrigger-token PR comment below
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The event's own commit, not the mutable branch: the actor gate
+          # authenticates the event, and a branch moved after it must not
+          # choose the code that runs beside the write token. A stale sha
+          # just loses the push race below and fails loudly.
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Raise engines.vscode and the doc floors to the @types/vscode pin
+        run: bun scripts/ci/sync-vscode-floor.ts
+      - name: Commit and push the floor bump
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}
+          CAN_RETRIGGER: ${{ secrets.REPO_PLATFORM_TOKEN != '' }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if git diff --quiet; then
+            echo "floor already in sync"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Only the files the floor-sync script owns, so a stray runner
+          # edit can never ride along.
+          git add -u -- package.json README.md README.zh-cn.md README.zh-tw.md docs
+          # [dependabot skip] keeps Dependabot rebasing and updating the
+          # PR over this commit.
+          git commit -m "build: raise engines.vscode to match @types/vscode" -m "[dependabot skip]"
+          # The managed bun-lockfile workflow can push to the same head in
+          # the same window; its commit touches only bun.lock, so a rebase
+          # is conflict-free. Three attempts, then fail loudly.
+          for _ in 1 2 3; do
+            if git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$HEAD_REF"; then
+              pushed=true
+              break
+            fi
+            git fetch origin "$HEAD_REF"
+            git rebase "origin/$HEAD_REF"
+          done
+          if [ "${pushed:-false}" != "true" ]; then
+            echo "::error::could not push the floor bump after 3 attempts"
+            exit 1
+          fi
+          if [ "$CAN_RETRIGGER" = "true" ]; then
+            exit 0
+          fi
+          # github.token starts no workflows: say so on the PR (once) and
+          # as an annotation, but stay green - the fleet legitimately runs
+          # without the token.
+          marker="<!-- dependabot-vscode-floor: no-retrigger-token -->"
+          comments=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '.[].body' || true)
+          case "$comments" in
+            *"$marker"*) ;;
+            *) gh pr comment "$PR_NUMBER" -R "$GITHUB_REPOSITORY" --body "$marker
+          Pushed an engines.vscode floor bump with the default workflow token, which starts no workflows, so checks will not re-run on the new head. Close and reopen this PR to re-run them, or register \`REPO_PLATFORM_TOKEN\` as a Dependabot secret so future fixes re-trigger CI automatically." || true ;;
+          esac
+          echo "::warning::floor bump pushed without REPO_PLATFORM_TOKEN - checks will not re-run on the new head; close/reopen the PR or register the token as a Dependabot secret"

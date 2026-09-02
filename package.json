@@ -26,7 +26,7 @@
 		"url": "https://github.com/Vivswan/litellm-vscode-chat/issues"
 	},
 	"engines": {
-		"vscode": "^1.129.0"
+		"vscode": "^1.134.0"
 	},
 	"categories": [
 		"AI",
@@ -1257,7 +1257,7 @@
 		"@types/node": "^26.1.1",
 		"@types/react": "^19.2.0",
 		"@types/react-dom": "^19.2.5",
-		"@types/vscode": "1.125.0",
+		"@types/vscode": "1.134.0",
 		"@vscode/l10n-dev": "^0.0.35",
 		"@vscode/test-cli": "^0.0.15",
 		"@vscode/test-electron": "^3.1.0",

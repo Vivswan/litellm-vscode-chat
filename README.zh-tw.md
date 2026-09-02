@@ -26,7 +26,7 @@
 
 ## 需求
 
-- VS Code 1.129.0 或更新版本, 已安裝 GitHub Copilot Chat 延伸模組並登入
+- VS Code 1.134.0 或更新版本, 已安裝 GitHub Copilot Chat 延伸模組並登入
 - 執行中的 LiteLLM Proxy (自架或雲端)
 - LiteLLM API 金鑰 (視您的環境需要)
 
