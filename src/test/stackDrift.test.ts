@@ -177,26 +177,46 @@ suite("stack drift guard: vscode typings floor", () => {
 });
 
 suite("stack drift guard: minimum-VS-Code claims", () => {
+	const claims: ReadonlyArray<readonly [string, RegExp]> = [
+		["README.md", /VS Code (\d+\.\d+\.\d+) or higher/],
+		["README.zh-cn.md", /VS Code (\d+\.\d+\.\d+) 或更高版本/],
+		["README.zh-tw.md", /VS Code (\d+\.\d+\.\d+) 或更新版本/],
+		["docs/getting-started.md", /VS Code (\d+\.\d+\.\d+) or higher/],
+		["docs/zh-cn/getting-started.md", /VS Code (\d+\.\d+\.\d+) 或更高版本/],
+		["docs/zh-tw/getting-started.md", /VS Code (\d+\.\d+\.\d+) 或更高版本/],
+		["docs/troubleshooting.md", /needs (\d+\.\d+\.\d+) or higher/],
+		["docs/zh-cn/troubleshooting.md", /需要 (\d+\.\d+\.\d+) 或更高版本/],
+		["docs/zh-tw/troubleshooting.md", /需要 (\d+\.\d+\.\d+) 或更高版本/],
+	];
+
 	test("every doc stating the floor states engines.vscode's minimum", () => {
 		const { engines } = JSON.parse(read("package.json")) as { engines: { vscode: string } };
 		const minimum = /^\^(\d+\.\d+\.\d+)$/.exec(engines.vscode)?.[1];
 		assert.ok(minimum, `engines.vscode is a caret range over an exact version (got "${engines.vscode}")`);
-		const claims: ReadonlyArray<readonly [string, RegExp]> = [
-			["README.md", /VS Code (\d+\.\d+\.\d+) or higher/],
-			["README.zh-cn.md", /VS Code (\d+\.\d+\.\d+) 或更高版本/],
-			["README.zh-tw.md", /VS Code (\d+\.\d+\.\d+) 或更新版本/],
-			["docs/getting-started.md", /VS Code (\d+\.\d+\.\d+) or higher/],
-			["docs/zh-cn/getting-started.md", /VS Code (\d+\.\d+\.\d+) 或更高版本/],
-			["docs/zh-tw/getting-started.md", /VS Code (\d+\.\d+\.\d+) 或更高版本/],
-			["docs/troubleshooting.md", /needs (\d+\.\d+\.\d+) or higher/],
-			["docs/zh-cn/troubleshooting.md", /需要 (\d+\.\d+\.\d+) 或更高版本/],
-			["docs/zh-tw/troubleshooting.md", /需要 (\d+\.\d+\.\d+) 或更高版本/],
-		];
 		for (const [file, pattern] of claims) {
 			const claimed = pattern.exec(read(file))?.[1];
 			assert.ok(claimed, `${file} states the minimum VS Code version`);
 			assert.strictEqual(claimed, minimum, `${file} minimum VS Code version`);
 		}
+	});
+
+	test("the floor-sync script rewrites exactly the claim files, and its workflow runs it", () => {
+		// The script cannot import this table (rootDir: src), so its own
+		// FLOOR_DOCS list is pinned here instead: a doc added to one list
+		// without the other fails this equality, not a future Dependabot PR.
+		const block = /FLOOR_DOCS = \[([^\]]*)\]/.exec(read("scripts/ci/sync-vscode-floor.ts"))?.[1];
+		assert.ok(block, "sync-vscode-floor.ts declares FLOOR_DOCS as an array literal");
+		const listed = [...block.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+		assert.deepStrictEqual(
+			listed,
+			claims.map(([file]) => file),
+			"FLOOR_DOCS matches the claim table"
+		);
+		assert.match(
+			read(".github/workflows/dependabot-vscode-floor.yml"),
+			/^\s+run: bun scripts\/ci\/sync-vscode-floor\.ts$/m,
+			"the dependabot-vscode-floor workflow runs the shared floor-sync script"
+		);
 	});
 });
 
