@@ -1,12 +1,9 @@
 # This file is managed by Vivswan/repo-platform.
 # Local edits may be replaced during template updates.
 #
-# Applies this repository's .github/settings.yml via github-settings-as-code.
-# Without the REPO_PLATFORM_TOKEN secret the run warns and skips; with
-# one, it needs Administration + Issues write, and a section the token
-# cannot reach fails the run. No heal cron here on purpose:
-# Vivswan/repo-platform's central settings-repos run applies this
-# repository's settings.yml regardless of this workflow.
+# Without REPO_PLATFORM_TOKEN the run warns and skips. No heal cron here:
+# Vivswan/repo-platform's central settings-repos run applies
+# this repository's settings regardless of this workflow.
 
 name: Settings Sync
 
@@ -27,7 +24,7 @@ permissions:
 
 jobs:
   apply:
-    uses: Vivswan/repo-platform/.github/workflows/reusable-apply-settings.yml@main
+    uses: Vivswan/repo-platform/.github/workflows/reusable-apply-settings.yml@build
     with:
       check_only: ${{ inputs.check_only || false }}
     secrets:

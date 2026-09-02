@@ -1,0 +1,30 @@
+# This file is managed by Vivswan/repo-platform.
+# Local edits may be replaced during template updates.
+#
+# The module's settings layer makes this job's own check run (`pr-title`)
+# a required status check, so the workflow must run on every event that
+# changes what the check judges - the title (opened, edited, reopened) -
+# AND on synchronize: a required check must exist at the PR's NEWEST head
+# commit, so a push without a fresh run would leave the merge box waiting
+# on a check nothing creates.
+
+name: PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  # PRs are squash-merged, so the PR title becomes the commit subject and
+  # drives release-please versioning. The job id is the check-run name the
+  # ruleset requires.
+  pr-title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

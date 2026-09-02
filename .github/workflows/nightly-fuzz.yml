@@ -314,7 +314,7 @@ jobs:
       - name: File or update the fuzz issue
         id: file-issue
         if: needs.fuzz.result != 'success'
-        uses: Vivswan/repo-platform/actions/fuzz-issue@main
+        uses: Vivswan/repo-platform/actions/fuzz-issue@build
         with:
           mode: report
           label: nightly-fuzz
@@ -332,7 +332,7 @@ jobs:
 
       - name: Close the fuzz issue on a green night
         if: needs.fuzz.result == 'success'
-        uses: Vivswan/repo-platform/actions/fuzz-issue@main
+        uses: Vivswan/repo-platform/actions/fuzz-issue@build
         with:
           mode: resolve
           label: nightly-fuzz

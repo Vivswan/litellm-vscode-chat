@@ -1,180 +1,43 @@
 ---
-# Repository settings, applied by Vivswan/repo-platform's
-# central settings-repos run (and, when this file changes, by the
-# settings-sync workflow if the repo carries its own REPO_PLATFORM_TOKEN;
-# without one it skips with a warning). Undeclared labels are deleted;
-# undeclared rulesets are left alone.
-# repo-platform:mergeable
-# Rendered by the settings-sync module: template updates keep the
-# baseline current via three-way merge (repo additions survive), and sync
-# NEVER deletes this file - it stays even if the module is deselected. A
-# central settings/repos/<name>.yml in repo-platform wins over it.
+# This repository's OWN settings, applied by Vivswan/repo-platform
+# (and by settings-sync on pushes to this file when the repo carries its
+# own REPO_PLATFORM_TOKEN). Rendered once, repo-owned: template sync never
+# rewrites it. Fleet defaults merge UNDER this file - keys here win, null
+# opts out, labels replace by name, rulesets MERGE by name; both must stay
+# lists. The fleet invariants (squash-only merging, the protection
+# rulesets) sit ABOVE and cannot be overridden. Undeclared labels are
+# deleted by the apply; undeclared rulesets are left alone.
 
 repository:
   description: "Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM."
-  # homepage, topics, and private are always declared, even when empty or
-  # public: the apply manages only declared keys, so this keeps it healing
-  # out-of-band edits (an empty value declares-and-clears).
+  # Declared even when empty: the apply manages only declared keys, so
+  # this keeps it healing out-of-band edits.
   homepage: "https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat"
   topics: "ai,bun,copilot-chat,litellm,llm,typescript,vscode-extension"
   private: false
-  has_issues: true
-  has_wiki: false
-  has_projects: false
-  has_discussions: false
-  default_branch: main
-  allow_squash_merge: true
-  allow_merge_commit: false
-  allow_rebase_merge: false
-  # The squash subject must ALWAYS be the PR title (the pr-title check and
-  # release-please rely on it); GitHub only defaults to that for
-  # single-commit PRs.
-  squash_merge_commit_title: PR_TITLE
-  squash_merge_commit_message: PR_BODY
-  allow_update_branch: true
-  delete_branch_on_merge: true
-  allow_auto_merge: true
-  enable_vulnerability_alerts: true
-  enable_automated_security_fixes: true
-  # Declared so the apply heals out-of-band disables. Public only: without
-  # Advanced Security, private repositories reject this block (422).
-  security_and_analysis:
-    secret_scanning:
-      status: enabled
-    secret_scanning_push_protection:
-      status: enabled
 
+# This repository's own labels (the fleet layers already carry the
+# dependabot, release, and tracking labels its modules need):
+# labels:
+#   - name: my-label
+#     color: "0e8a16"
+#     description: What it marks
+
+# This repository's own rulesets, or additions to a fleet one (an entry
+# named like a fleet ruleset merges into it and adds its rules):
+# rulesets:
+#   - name: my-ruleset
+#     target: branch
+#     enforcement: active
+
+# Carried from this repository's own previous settings.yml: what the
+# apply would otherwise take away - it deletes labels the merged
+# document does not declare, and a null is this repo's own opt-out
+# from managing that key.
 labels:
-  - name: dependencies
-    color: "0366d6"
-    description: Dependency updates
-  # Dependabot's default labels: the managed dependabot.yml sets no `labels:`
-  # override, so dependabot applies these and recreates them when missing.
-  # Undeclared they would loop forever: every settings apply deletes what
-  # dependabot re-adds on its next run. Values match what dependabot creates.
-  - name: github_actions
-    color: "000000"
-    description: Pull requests that update GitHub Actions code
-  - name: javascript
-    color: "168700"
-    description: Pull requests that update javascript code
-  - name: bug
-    color: "d73a4a"
-    description: Something isn't working
-  - name: enhancement
-    color: "a2eeef"
-    description: New feature or request
-  - name: fix-lint
-    color: "fbca04"
-    description: Lint / formatting fixes
-  # release-please manages these two; listing them here keeps the settings
-  # sync from deleting them (it removes any label not declared in this file).
-  - name: "autorelease: pending"
-    color: "ededed"
-    description: release-please release PR awaiting merge/tag
-  - name: "autorelease: tagged"
-    color: "ededed"
-    description: release-please release PR has been tagged
-  # release-health's gate labels: an open release-blocker issue fails the
-  # release PR and the release pipeline's pre-flight; release-override on
-  # the release PR bypasses the gates for that one release.
-  - name: release-blocker
-    color: "B60205"
-    description: Blocks releases while open - release-health fails release PRs and the release pipeline
-  - name: release-override
-    color: "FBCA04"
-    description: "On a release PR: bypass release-health gates for this release"
-  # The fuzzer module's tracking label: the fuzz-issue action keys its
-  # one-open-issue-per-label dedup on it, so it must survive the label sync.
-  - name: "nightly-fuzz"
-    color: "B60205"
-    description: Automated nightly fuzz failure
-  # The nightly module's tracking label: the fuzz-issue action keys its
-  # one-open-issue-per-label dedup on it, so it must survive the label sync.
-  - name: "nightly-failure"
-    color: "D93F0B"
-    description: Automated nightly CI failure
-  # The repo-owned close-answered-issues workflow's pair: label an issue
-  # awaiting-reply after answering it, and the workflow closes it (tagging it
-  # auto-closed) after three days without activity.
   - name: awaiting-reply
-    color: "0E8A16"
+    color: 0E8A16
     description: Answered; auto-closes after three quiet days
   - name: auto-closed
-    color: "ededed"
+    color: ededed
     description: Closed by the close-answered-issues workflow after no reply
-
-
-# Branch ruleset for the default branch. Admins (RepositoryRole id 5) are in
-# the bypass list, so direct pushes to main still work. The single required
-# status check is `all-green` (ci.yml), which `needs:` every gating CI job - the
-# list stays stable when jobs are added or renamed.
-# "Require code quality results" is a public-preview rule with no published
-# REST schema; enable it in the UI (Settings -> Rules -> Rulesets -> main).
-rulesets:
-  - name: main
-    target: branch
-    enforcement: active
-    conditions:
-      ref_name:
-        include:
-          - "~DEFAULT_BRANCH"
-        exclude: []
-    rules:
-      - type: deletion
-      - type: non_fast_forward
-      - type: required_linear_history
-      - type: required_status_checks
-        parameters:
-          strict_required_status_checks_policy: false
-          do_not_enforce_on_create: true
-          required_status_checks:
-            - context: all-green
-      - type: code_scanning
-        parameters:
-          code_scanning_tools:
-            - tool: CodeQL
-              security_alerts_threshold: high_or_higher
-              alerts_threshold: errors
-      - type: pull_request
-        parameters:
-          required_approving_review_count: 0
-          dismiss_stale_reviews_on_push: false
-          # Require an approving review from a CODEOWNER before merge.
-          # Admins in bypass_actors can still merge without one.
-          require_code_owner_review: true
-          require_last_push_approval: false
-          required_review_thread_resolution: false
-          # Squash-only merges (enforced by the ruleset, not just repo settings).
-          allowed_merge_methods:
-            - squash
-      # Automatically request Copilot code review on PRs to main, including on
-      # each new push and on draft PRs.
-      - type: copilot_code_review
-        parameters:
-          review_on_push: true
-          review_draft_pull_requests: true
-    bypass_actors:
-      - actor_id: 5
-        actor_type: RepositoryRole
-        bypass_mode: always
-
-  # vX.Y.Z release tags are immutable: repo-platform's push sync pins
-  # against them and release artifacts reference them. Admins bypass, so
-  # deliberate tag cleanup doesn't require disabling the ruleset.
-  - name: release-tags
-    target: tag
-    enforcement: active
-    conditions:
-      ref_name:
-        include:
-          - v*
-        exclude: []
-    rules:
-      - type: deletion
-      - type: non_fast_forward
-      - type: update
-    bypass_actors:
-      - actor_id: 5
-        actor_type: RepositoryRole
-        bypass_mode: always
