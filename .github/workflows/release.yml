@@ -1,37 +1,11 @@
 # This file is managed by Vivswan/repo-platform.
 # Local edits may be replaced during template updates.
 #
-# The release pipeline, called by the managed ci.yml on top of the
-# all-green gate, so releases and release-PR refreshes only happen on a
-# green main. release-please accumulates conventional commits on main into
-# a release PR; merging it cuts the release. GitHub releases are immutable
-# once published (the tag and assets freeze, a late upload gets HTTP 422),
-# so every release moves through the same three stages, always draft-first:
-#   1. release-please cuts the release as a DRAFT with its tag already
-#      forced at the merge SHA (`draft` + `force-tag-creation` in the
-#      repo-owned release-please-config.json).
-#   2. update-release calls the repo-owned update-release.yml with the
-#      tag: this repository's packaging, asset uploads, and note edits go
-#      there (add jobs to that file freely - publishing waits for all of
-#      them).
-#   3. publish-release attests build provenance for every asset on the
-#      draft - one Sigstore bundle attached as a single attestation.jsonl,
-#      one JSONL line per asset - and flips the draft live:
-#      `gh attestation verify <asset> -R <owner>/<repo> --bundle attestation.jsonl`
-#      The bundle rides on the frozen release itself, so verification
-#      never depends on GitHub's attestations API staying reachable.
-# A run in which release-please creates or refreshes the release PR
-# (computed independently of any release cut; a run finding no unreleased
-# releasable commits triggers neither) calls the repo-owned
-# update-release-pr.yml with that PR's number and head branch, so files
-# that must ride in the release commit are regenerated there.
-# Everything runs in the same workflow run, so it works with the default
-# GITHUB_TOKEN too, which cannot trigger `on: release` workflows. Without
-# the REPO_PLATFORM_TOKEN secret the release PR is created by the default
-# GITHUB_TOKEN and needs a close/reopen to run its checks.
-# If the pipeline dies after the draft exists, a rerun cannot recreate it
-# (release-please sees the forced tag); re-run this run's failed jobs, or
-# finish by hand (a hand-published release carries no attestation.jsonl):
+# Draft-first because published releases freeze (a late upload gets 422).
+# Without REPO_PLATFORM_TOKEN the release PR is created by GITHUB_TOKEN
+# and needs a close/reopen to run its checks. If the pipeline dies after
+# the draft exists, a rerun cannot recreate it (the tag is forced) -
+# re-run the failed jobs, or finish by hand:
 #   gh release upload <tag> <assets> --clobber
 #   gh release edit <tag> --draft=false
 
@@ -39,15 +13,18 @@ name: Release
 
 on:
   workflow_call:
+    inputs:
+      sha:
+        description: The judged commit this release run vouches for; empty falls back to github.sha.
+        required: false
+        type: string
+        default: ""
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The effective token comes from the calling job's ceiling; declaring
-    # the needs here documents them and caps a caller that grants more.
-    # The read keys feed the release-health pre-flight (open issues,
-    # Dependabot alerts).
+    # Caps a caller that grants more; the read keys feed release-health.
     permissions:
       contents: write
       pull-requests: write
@@ -56,40 +33,31 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
-      # The action's pr output is one JSON PullRequest object ({number,
-      # headBranchName, ...}), unset unless a PR was created or refreshed;
-      # the && short-circuit keeps fromJSON off the empty string whenever
-      # no PR was proposed (release-cut-only runs, runs finding nothing
-      # awaiting release, and head-check-skipped runs).
+      # pr is unset when no PR was proposed; the && short-circuit keeps
+      # fromJSON off the empty string.
       prs_created: ${{ steps.release.outputs.prs_created }}
       pr_number: ${{ steps.release.outputs.pr && fromJSON(steps.release.outputs.pr).number }}
       pr_head_branch: ${{ steps.release.outputs.pr && fromJSON(steps.release.outputs.pr).headBranchName }}
     steps:
-      # A green run releases only the head it tested: if main moved on, skip
-      # and let the newer push's own run release (after its CI passes).
-      # gh api (not anonymous ls-remote) so private repositories work too.
-      - name: Check this run tested the current head
+      # A green verdict releases only the commit it judged; gh api (not
+      # anonymous ls-remote) so private repositories work.
+      - name: Check this run judged the current head
         id: head
         env:
           GH_TOKEN: ${{ github.token }}
+          JUDGED: ${{ inputs.sha || github.sha }}
         run: |
           head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
-          if [ "$head" = "$GITHUB_SHA" ]; then
+          if [ "$head" = "$JUDGED" ]; then
             echo "current=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::main moved to ${head:0:7} since this run started; the newer run releases"
+            echo "::notice::main moved to ${head:0:7} since ${JUDGED:0:7} was judged; the newer run releases"
             echo "current=false" >> "$GITHUB_OUTPUT"
           fi
-      # Authoritative release gating: the release PR's release-health CI job
-      # gives early visible feedback, but it can be stale by merge time (a
-      # tracking or blocker issue opened after that PR went green re-runs no
-      # check), so the same action runs again here before release-please
-      # acts. In release mode the gate self-scopes to release-cut pushes:
-      # it gates only a push that merges a release-please-- PR (reading the
-      # release-override label from that PR) and passes trivially on every
-      # other run, so ordinary main pushes and release-PR refreshes are
-      # never blocked.
-      - uses: Vivswan/repo-platform/actions/release-health@main
+      # The release PR's CI health check can be stale by merge time, so
+      # the same gate re-runs here; release mode self-scopes to
+      # release-cut pushes.
+      - uses: Vivswan/repo-platform/actions/release-health@build
         if: steps.head.outputs.current == 'true'
         with:
           mode: release
@@ -101,16 +69,10 @@ jobs:
         if: steps.head.outputs.current == 'true'
         with:
           token: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}
-      # release-please runs two phases: create releases for merged PRs still
-      # labeled "autorelease: pending" (relabeling them "autorelease:
-      # tagged"), then propose the next release PR. Phase 2 silently ABORTS
-      # - green - while any pending label remains ("untagged, merged release
-      # PRs outstanding"), so a pending label the action cannot clear parks
-      # release-please with no red anywhere. Check AFTER the action so its
-      # recovery phase always gets its turn first: a label still pending
-      # here survived a real attempt. The 30-minute grace covers labels
-      # legitimately still pending right after a merge (a parallel publish
-      # pipeline, API eventual consistency).
+      # release-please's propose phase silently ABORTS - green - while a
+      # merged PR still wears "autorelease: pending". Checked AFTER the
+      # action so its recovery phase runs first; 30 minutes covers labels
+      # legitimately pending right after a merge.
       - name: Fail when a stale pending release PR parks release-please
         if: steps.head.outputs.current == 'true'
         env:
@@ -126,9 +88,8 @@ jobs:
             exit 1
           fi
 
-  # Stage 2: the repo-owned hook. No permissions block here, so the hook
-  # gets the calling job's full publishing ceiling (release assets, ghcr,
-  # npm/PyPI trusted publishing); its jobs narrow it themselves.
+  # No permissions block on purpose: the repo-owned hook gets the calling
+  # job's full publishing ceiling; its jobs narrow it themselves.
   update-release:
     needs: [release-please]
     if: needs.release-please.outputs.release_created == 'true'
@@ -137,16 +98,13 @@ jobs:
       tag: ${{ needs.release-please.outputs.tag_name }}
     secrets: inherit
 
-  # Stage 3: attest the draft's assets and freeze the release. The gates
-  # are runtime, not render-time, on purpose: assets are only knowable at
-  # runtime, and a visibility flip between syncs must not block releasing
-  # (GitHub attestations need a public repository or Enterprise Cloud, so
-  # non-public releases publish unattested by fleet policy).
+  # Gates are runtime on purpose: assets are only knowable at runtime,
+  # and attestation needs a public repository, so non-public releases
+  # publish unattested.
   publish-release:
     needs: [release-please, update-release]
-    # The needs chain already implies this gate (a skipped update-release
-    # skips this job too); the job that flips a release live keeps its own
-    # explicit gate on purpose.
+    # Implied by the needs chain; the job that flips a release live keeps
+    # its own explicit gate on purpose.
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -158,11 +116,8 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
-      # One probe answers everything: which assets are attestable, and
-      # whether a prior attempt left a stale attestation.jsonl on the
-      # draft. The stale bundle is deleted from the RELEASE, not a local
-      # mirror, so no later skip path can ever publish it; a fresh one is
-      # attached below when attestation runs.
+      # A stale attestation.jsonl from a prior attempt is deleted from the
+      # RELEASE, so no later skip path can publish it.
       - name: Inspect the draft release's assets
         id: assets
         env:
@@ -193,9 +148,8 @@ jobs:
         if: steps.download.outcome == 'success'
         with:
           subject-path: assets/*
-      # Skipped along with the download and attest steps: bundle-path is
-      # empty then, and a no-asset or non-public release publishes without
-      # an attestation.jsonl (the probe above already removed any stale one).
+      # bundle-path is empty when download/attest skipped: a no-asset or
+      # non-public release publishes without an attestation.jsonl.
       - name: Attach the attestation bundle to the draft
         if: steps.attest.outputs.bundle-path != ''
         env:
@@ -209,13 +163,8 @@ jobs:
           GH_TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}
         run: gh release edit "$TAG" --draft=false
 
-  # The release-PR hook: gated only on prs_created, which release-please
-  # computes independently of release_created (a run finding no unreleased
-  # releasable commits sets neither), so this call sits outside the three
-  # release stages above and never delays publish-release. Same ceiling
-  # passthrough as update-release: no permissions block, so the repo-owned
-  # hook gets the calling job's full ceiling and its jobs narrow it
-  # themselves.
+  # prs_created is independent of release_created, so this never delays
+  # publish-release. Same ceiling passthrough as update-release.
   update-release-pr:
     needs: [release-please]
     if: needs.release-please.outputs.prs_created == 'true'

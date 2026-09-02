@@ -63,7 +63,7 @@ jobs:
       - name: File or update the nightly issue
         id: file-issue
         if: needs.checks.result == 'failure' || needs.checks.result == 'cancelled'
-        uses: Vivswan/repo-platform/actions/fuzz-issue@main
+        uses: Vivswan/repo-platform/actions/fuzz-issue@build
         with:
           mode: report
           label: "nightly-failure"
@@ -86,7 +86,7 @@ jobs:
 
       - name: Close the nightly issue on a green night
         if: needs.checks.result == 'success'
-        uses: Vivswan/repo-platform/actions/fuzz-issue@main
+        uses: Vivswan/repo-platform/actions/fuzz-issue@build
         with:
           mode: resolve
           label: "nightly-failure"

@@ -1,25 +1,12 @@
 # This file is managed by Vivswan/repo-platform.
 # Local edits may be replaced during template updates.
 #
-# Dependabot edits bun.lock conservatively: it bumps the target package but
-# leaves stale nested entries behind (a dependency's pinned copy of a package
-# the hoisted entry already moved past), so `bun install --frozen-lockfile`
-# and typecheck fail with mixed-version errors even when every manifest
-# accepts the update. This workflow regenerates the lockfile on Dependabot's
-# own PRs, which dedupes those entries, and pushes the fix back to the PR
-# branch; an already-clean lockfile gets no commit.
-#
-# `bun install --lockfile-only` rewrites bun.lock without installing packages
-# or running lifecycle scripts, so no PR-controlled code runs next to the
-# write credential.
-#
-# Dependabot-triggered runs read the Dependabot secrets store, not the
-# Actions one, and their default token is read-only, but the job-level
-# permissions below are honored. Register REPO_PLATFORM_TOKEN as a
-# Dependabot secret so the fix commit re-runs CI; a push made with
-# github.token starts no workflows, so after such a push the job posts a
-# PR comment and a warning annotation saying the checks will not re-run
-# (close/reopen the PR to re-run them).
+# Dependabot bumps the target package but leaves stale nested bun.lock
+# entries behind, so `bun install --frozen-lockfile` fails with
+# mixed-version errors; this regenerates the lockfile on Dependabot's own
+# PRs. --lockfile-only runs no lifecycle scripts next to the write
+# credential. Register REPO_PLATFORM_TOKEN as a DEPENDABOT secret so the
+# fix commit re-runs CI (github.token starts no workflows).
 
 name: Dependabot Bun Lockfile
 
@@ -30,19 +17,17 @@ on:
 permissions:
   contents: read
 
-# Dependabot force-pushes the PR branch on rebase; a superseded run's push
-# would race the new head, so only the newest run per PR and actor proceeds.
-# The actor in the group keeps the run this workflow's own fix push triggers
-# (its job skips on the actor gate) from cancelling the finishing original.
+# Dependabot force-pushes on rebase, so only the newest run per PR and
+# actor proceeds; the actor keeps the fix push's own run from cancelling
+# the finishing original.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}-${{ github.actor }}
   cancel-in-progress: true
 
 jobs:
   dedupe:
-    # Dependabot's own pushes only, so this workflow's fix commit and human
-    # pushes cannot re-fire it, and same-repo PRs only: the token cannot push
-    # to a fork's branch.
+    # Dependabot's own pushes only (the fix commit and human pushes must
+    # not re-fire it); same-repo only: the token cannot push to a fork.
     if: github.actor == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -57,14 +42,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      # Every tracked lockfile, not just the root one: a repository can
-      # commit several (repo-platform itself locks each composite action's
-      # directory). '*/bun.lock' is a git pathspec, where '*' crosses '/',
-      # so it matches at any depth. Deleting before regenerating matters:
-      # bun accepts the stale lockfile as a valid resolution and keeps it,
-      # so only a from-scratch resolve drops the stale entries. The side
-      # effect is a refresh of every in-range pin, which package.json
-      # ranges and the PR's own CI still bound.
+      # Every tracked lockfile ('*/bun.lock' is a git pathspec; '*'
+      # crosses '/'). Delete before regenerating: bun keeps a stale
+      # lockfile as a valid resolution, and only a from-scratch resolve
+      # drops the stale entries.
       - name: Regenerate bun lockfiles
         shell: bash
         run: |
@@ -90,20 +71,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git ls-files -z -- 'bun.lock' '*/bun.lock' | xargs -0 git add --
-          # The body's [dependabot skip] keeps Dependabot rebasing and
-          # updating the PR over this commit; without it Dependabot stops
-          # touching a PR once someone else pushes to it.
+          # [dependabot skip] keeps Dependabot rebasing and updating the
+          # PR over this commit.
           git commit -m "build(deps): dedupe bun lockfile" -m "[dependabot skip]"
           git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$HEAD_REF"
           if [ "$CAN_RETRIGGER" = "true" ]; then
             exit 0
           fi
-          # The fix landed via github.token, which starts no workflows: this
-          # PR's checks will not re-run on the new head. Surface that on the
-          # PR (once) and as a run annotation. The push itself succeeded, so
-          # the run stays green - the fleet legitimately runs without the
-          # token, and a red run on every deduped PR would drown real
-          # failures.
+          # github.token starts no workflows: say so on the PR (once) and
+          # as an annotation, but stay green - the fleet legitimately runs
+          # without the token.
           marker="<!-- dependabot-bun-lockfile: no-retrigger-token -->"
           comments=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '.[].body' || true)
           case "$comments" in
