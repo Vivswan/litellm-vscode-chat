@@ -66,7 +66,7 @@ services:
   litellm:
     # The -database flavor of the same version: identical proxy, plus the
     # bundled prisma client its entrypoint uses to migrate the schema above.
-    image: ghcr.io/berriai/litellm-database:v1.93.0
+    image: ghcr.io/berriai/litellm-database:v1.99.1
     command: ["--config", "/app/generated/litellm-config.yaml", "--port", "4000"]
     volumes:
       # The directory is mounted rather than the file: a missing bind-mounted

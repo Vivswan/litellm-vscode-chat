@@ -131,16 +131,16 @@ function transportSuite(title: string, directMode: boolean): void {
 			model = await resolveTargetModel(directMode);
 		});
 
-		test(`${COMMAND_SIGIL}abort:3 keeps the streamed text and leaves the model usable: a classified death direct, a swallowed drop through the proxy`, async function () {
+		test(`${COMMAND_SIGIL}abort:3 fails promptly with the streamed text intact and leaves the model usable: a classified death direct, a classified error frame through the proxy`, async function () {
 			this.timeout(60000);
 			const outcome = await runToOutcome(model, `${COMMAND_SIGIL}abort:3`);
 			// The playback's flush delay before the destroy tail makes this a
 			// genuine MID-STREAM death: all three chunks stream out, then the
 			// socket drops with the chunked body unterminated.
 			assert.strictEqual(extractText(outcome.parts), "chunk1 chunk2 chunk3 ");
+			assert.ok(outcome.error !== undefined, "a mid-stream destroy must surface as an error, not a clean completion");
+			assert.ok(outcome.elapsedMs < 30000, `the failure must be prompt, took ${outcome.elapsedMs}ms`);
 			if (directMode) {
-				assert.ok(outcome.error !== undefined, "a mid-stream destroy must surface as an error, not a clean completion");
-				assert.ok(outcome.elapsedMs < 30000, `the failure must be prompt, took ${outcome.elapsedMs}ms`);
 				// The body-read termination (undici's bare "terminated") maps to the
 				// classified mid-stream network message, never the raw TypeError.
 				assert.match(
@@ -149,24 +149,24 @@ function transportSuite(title: string, directMode: boolean): void {
 				);
 				assert.ok(!String(outcome.error).startsWith("TypeError"), "the raw undici error must never surface");
 			} else {
-				// Observed against LiteLLM v1.93: the proxy SWALLOWS the upstream's
-				// socket drop. Its HTTP client reads the unterminated body as end of
-				// stream, the proxy synthesizes a finish and its own [DONE], and the
-				// extension sees a clean completion carrying the text that got
-				// through - the truncation is invisible on this side of the proxy.
-				// Pinned so a proxy upgrade that starts forwarding the death shows up
-				// as a diff. (Until bun 1.4.0 the fake backend's destroy tail leaked
-				// stray header bytes into the chunked body, a bun 1.3.x bug the proxy
-				// reacted to by hanging; the whole-call timeout test below now drives
-				// that hang with a %stall, a genuine upstream hang.)
-				assert.strictEqual(
-					outcome.error,
-					undefined,
-					`LiteLLM v1.93 swallows an upstream socket drop; got ${String(outcome.error)}`
+				// Observed against LiteLLM v1.99.1: the proxy FORWARDS the upstream's
+				// socket drop as an in-band error frame - the three deltas, then
+				// `data: {"error": {"message": "litellm.APIConnectionError: ...",
+				// "code": "500"}}` on the already-200 response, no [DONE]. The
+				// extension's stream loop throws streamErrorFrame on it, so the user
+				// sees the interrupted-stream headline with LiteLLM's own connection
+				// error as the detail, never a silent truncation. (v1.93 swallowed the
+				// same drop: its HTTP client read the unterminated body as end of
+				// stream and the proxy synthesized a finish and its own [DONE], which
+				// this leg pinned as a clean completion until the upgrade.)
+				assert.match(
+					String(outcome.error),
+					/^RequestError: The server reported an error while it was streaming this reply, so the response was interrupted\.[\s\S]*\n\nDetails: LiteLLM stream error \(500\): litellm\.APIConnectionError\b/,
+					"the forwarded upstream death must surface as the classified in-band error frame"
 				);
 				assert.ok(
-					outcome.elapsedMs < 30000,
-					`the swallowed drop must still complete promptly, took ${outcome.elapsedMs}ms`
+					!/The connection dropped before the model finished replying/.test(String(outcome.error)),
+					"through the proxy the death is an error frame on a live socket, not a dropped connection"
 				);
 			}
 			await assertModelStillAnswers();
@@ -206,8 +206,9 @@ function transportSuite(title: string, directMode: boolean): void {
 			const outcome = await runToOutcome(model, `${COMMAND_SIGIL}nodone:5`);
 			// Pinned from observation on both targets. Direct: the stream loop treats
 			// plain EOF as end of stream (finishStream runs on reader exhaustion).
-			// Proxy: LiteLLM v1.93 tolerates the missing sentinel the same way,
-			// forwarding all five deltas and ending with its own [DONE].
+			// Proxy: LiteLLM tolerates the missing sentinel the same way, forwarding
+			// all five deltas (v1.93 was seen ending the stream with its own [DONE];
+			// the clean completion this asserts holds on v1.99.1 too).
 			assert.strictEqual(outcome.error, undefined, `clean EOF must not fail the request: ${String(outcome.error)}`);
 			assert.strictEqual(extractText(outcome.parts), "chunk1 chunk2 chunk3 chunk4 chunk5 ");
 			await assertModelStillAnswers();
@@ -265,7 +266,8 @@ function transportSuite(title: string, directMode: boolean): void {
 			assert.ok(outcome.error !== undefined, "a 503 must reject the request");
 			// The http classification carries the status in its user-facing message.
 			// Observed on both targets: the direct leg is the extension's own mapping,
-			// and LiteLLM v1.93 maps the upstream 503 to its ServiceUnavailableError.
+			// and LiteLLM forwards the upstream 503 status (v1.93 wrapped it in its
+			// ServiceUnavailableError; the status pin holds on v1.99.1 too).
 			// The HTML body text is deliberately never asserted; the buffer-secrecy
 			// suite below pins its absence from the log buffer instead.
 			assert.match(String(outcome.error), /LiteLLM 503\b/);
@@ -403,10 +405,11 @@ const ERROR_SWEEP = [403, 404, 408, 409, 422, 500, 502, 503, 504] as const;
 
 /**
  * What the proxy answers when the upstream returns each swept status, pinned
- * from observation against the docker stack (LiteLLM v1.93): identity for all
- * nine - it wraps each upstream body in its own exception envelope but forwards
- * the status unchanged. The direct target always carries the exact upstream
- * status; pinning the proxy here turns a rewriting upgrade into a diff.
+ * from observation against the docker stack (LiteLLM v1.93 and v1.99.1 alike):
+ * identity for all nine - it wraps each upstream body in its own exception
+ * envelope but forwards the status unchanged. The direct target always carries
+ * the exact upstream status; pinning the proxy here turns a rewriting upgrade
+ * into a diff.
  */
 const PROXY_FORWARDED_STATUS: Readonly<Record<number, number>> = {
 	403: 403,
@@ -562,9 +565,10 @@ function wrongMasterKeySuite(): void {
 
 		test("the log buffer carries the auth classification and no key material or body text", async () => {
 			const logs = await sessionLogLines();
-			// Pinned from observation: the pinned stack (LiteLLM v1.93 in its database
-			// flavor) rejects an unknown master key with an HTTP 401 on both
-			// /v1/model/info and /v1/models, so the refresh failure logs the
+			// Pinned from observation: the pinned stack (LiteLLM in its database
+			// flavor) rejects an unknown master key with an HTTP 401 (seen on both
+			// /v1/model/info and /v1/models on v1.93; the 401 classification this
+			// asserts holds on v1.99.1 too), so the refresh failure logs the
 			// AUTH_MESSAGE template (englishMessage; the buffer is English-only). The
 			// DB-LESS v1.93 proxy answered 400 instead (a BadRequestError wrapping an
 			// auth_error body); if a stack change resurfaces that shape, repin this to
