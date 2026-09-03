@@ -1,5 +1,8 @@
-# This file is managed by Vivswan/repo-platform. Its presence
+# Generated once by Vivswan/repo-platform and repo-owned from
+# then on: the sync reads this file, it never rewrites it. Its presence
 # marks this repository as participating in push sync. `modules` is this
 # repo's module selection - edit it and the next sync applies the change.
+# An optional `mirrors` list declares byte copies of rendered files
+# (repo-platform's docs/new-repo.md has the contract).
 
 modules: ["agents", "bun", "release-please", "issue-templates", "pr-title", "auto-assign", "fuzzer", "nightly", "settings-sync"]
