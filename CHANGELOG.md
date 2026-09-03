@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.2](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.1...v0.6.2) (2026-09-03)
+
+
+### Bug Fixes
+
+* classify a stalled OpenRouter catalog refresh as a timeout, not as unparseable ([6af2909](https://github.com/Vivswan/litellm-vscode-chat/commit/6af2909562a9285ebaf909b72101572c806cb3e3))
+* report a stalled OpenRouter fetch as a timeout, not as non-JSON ([159a6a4](https://github.com/Vivswan/litellm-vscode-chat/commit/159a6a4b933a67e8f302bbbd046b89bc14068c85))
+* share one OpenRouter retry rule between the catalog script and the runtime ([a244c91](https://github.com/Vivswan/litellm-vscode-chat/commit/a244c91e24c63320fb2d09d19e7c02dfa536a11d))
+* stop bun 1.3.x from dropping the child-spawn guard's declaration step ([c14694a](https://github.com/Vivswan/litellm-vscode-chat/commit/c14694a5e9a986322faa68acbc728cdf276b9da7))
+* stop retrying an unparseable OpenRouter catalog body, matching discovery ([2646ef9](https://github.com/Vivswan/litellm-vscode-chat/commit/2646ef9f88be0162d842e4eb2d60bb66d251a92d))
+
 ## [0.6.1](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.0...v0.6.1) (2026-09-01)
 
 
