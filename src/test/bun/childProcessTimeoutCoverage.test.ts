@@ -627,8 +627,8 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 	// its references and sites into the scope enclosing it, so a local in one function cannot alias a local in another.
 	// A declaration's own name defines, it does not use.
 	// Not named `declare`: bun 1.3.x's transpiler reads a statement that begins with that contextual keyword as an
-	// ambient declaration and drops the whole call, which silently emptied every module's declaration table on CI; the
-	// top-level declaration control in audit() catches a recurrence of that whole class of loss.
+	// ambient declaration and drops the whole call, which silently dropped every function, class, interface, type,
+	// enum, and namespace registration on CI; the top-level declaration control in audit() catches a recurrence.
 	const registerDeclaration = (node: ts.HasModifiers & { readonly name?: ts.Node }, scopes: readonly Scope[]): void => {
 		const body = (child: ts.Node, inner: readonly Scope[]): void => {
 			if (child !== node.name) {
