@@ -7,15 +7,15 @@ function entryWith(auth: unknown): Record<string, unknown> {
 	return { label: "A", baseUrl: "http://a.test", ...(auth === undefined ? {} : { auth }) };
 }
 
-suite("extension/settingsTransfer/secretSurgery", () => {
-	test("the frozen signatures", () => {
-		const strip: (rawEntry: Readonly<Record<string, unknown>>) => StrippedEntry = stripEntrySecrets;
-		const materialize: (rawEntry: Readonly<Record<string, unknown>>, blob: StoredServerSecrets) => MaterializedEntry =
-			materializeEntrySecrets;
-		assert.strictEqual(typeof strip, "function");
-		assert.strictEqual(typeof materialize, "function");
-	});
+// The frozen signatures are pinned at compile time: a drift fails typecheck,
+// so no runtime test restates what the types already prove.
+void (stripEntrySecrets satisfies (rawEntry: Readonly<Record<string, unknown>>) => StrippedEntry);
+void (materializeEntrySecrets satisfies (
+	rawEntry: Readonly<Record<string, unknown>>,
+	blob: StoredServerSecrets
+) => MaterializedEntry);
 
+suite("extension/settingsTransfer/secretSurgery", () => {
 	suite("stripEntrySecrets", () => {
 		test("the string apiKey form strips to a formless auth, which is deleted", () => {
 			const { entry, secrets } = stripEntrySecrets(entryWith({ apiKey: "sk-1" }));

@@ -59,51 +59,53 @@ suite("extension/servers/serverManagement", () => {
 			return run;
 		}
 
-		test("lists every surface in one menu", async () => {
+		test("the hub lists every surface in one menu, and cancelling it executes nothing", async () => {
 			const run = await runHub(undefined);
-			const labels = run.itemLabels.map((label) => label.replace(/^\$\([^)]+\) /, ""));
-			assert.deepStrictEqual(labels, [
-				"Manage Servers",
-				"Open Dashboard",
-				"Sync Models Now",
-				"Test Connection",
-				"Show Diagnostics",
-				"Set Server Secret",
-				"Open Settings",
-				"Help & Feedback",
-				"Report Issue",
-			]);
+			assert.deepStrictEqual(
+				{ ...run, itemLabels: run.itemLabels.map((label) => label.replace(/^\$\([^)]+\) /, "")) },
+				{
+					itemLabels: [
+						"Manage Servers",
+						"Open Dashboard",
+						"Sync Models Now",
+						"Test Connection",
+						"Show Diagnostics",
+						"Set Server Secret",
+						"Open Settings",
+						"Help & Feedback",
+						"Report Issue",
+					],
+					executed: [],
+					quickPicksShown: 1,
+				}
+			);
 		});
 
-		test("cancelling the hub executes nothing", async () => {
-			const run = await runHub(undefined);
-			assert.deepStrictEqual(run.executed, []);
-		});
-
-		test("Manage Servers opens the dashboard, not a native editor", async () => {
-			const run = await runHub("Manage Servers");
-			assert.deepStrictEqual(run.executed, [{ command: "litellm.openDashboard", args: [] }]);
-		});
-
-		test("Open Settings filters the settings view to this extension", async () => {
-			const run = await runHub("Open Settings");
-			assert.deepStrictEqual(run.executed, [
-				{ command: "workbench.action.openSettings", args: ["@ext:vivswan.litellm-vscode-chat"] },
-			]);
-		});
-
-		for (const [entry, command] of [
-			["Open Dashboard", "litellm.openDashboard"],
-			["Sync Models Now", "litellm.syncModels"],
-			["Test Connection", "litellm.testConnection"],
-			["Show Diagnostics", "litellm.showDiagnostics"],
-			["Set Server Secret", "litellm.setServerSecret"],
-			["Help & Feedback", "litellm.helpAndFeedback"],
-			["Report Issue", "litellm.reportIssue"],
-		] as const) {
+		const routes: readonly { entry: string; command: string; args: readonly unknown[]; reason?: string }[] = [
+			{
+				entry: "Manage Servers",
+				command: "litellm.openDashboard",
+				args: [],
+				reason: "the dashboard is the server-management surface, never a native editor",
+			},
+			{ entry: "Open Dashboard", command: "litellm.openDashboard", args: [] },
+			{ entry: "Sync Models Now", command: "litellm.syncModels", args: [] },
+			{ entry: "Test Connection", command: "litellm.testConnection", args: [] },
+			{ entry: "Show Diagnostics", command: "litellm.showDiagnostics", args: [] },
+			{ entry: "Set Server Secret", command: "litellm.setServerSecret", args: [] },
+			{
+				entry: "Open Settings",
+				command: "workbench.action.openSettings",
+				args: ["@ext:vivswan.litellm-vscode-chat"],
+				reason: "the settings view opens filtered to this extension",
+			},
+			{ entry: "Help & Feedback", command: "litellm.helpAndFeedback", args: [] },
+			{ entry: "Report Issue", command: "litellm.reportIssue", args: [] },
+		];
+		for (const { entry, command, args, reason } of routes) {
 			test(`${entry} routes to ${command}`, async () => {
 				const run = await runHub(entry);
-				assert.deepStrictEqual(run.executed, [{ command, args: [] }]);
+				assert.deepStrictEqual(run.executed, [{ command, args }], reason ?? `${entry} must execute exactly ${command}`);
 			});
 		}
 

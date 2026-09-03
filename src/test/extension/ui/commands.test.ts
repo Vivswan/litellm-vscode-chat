@@ -7,7 +7,7 @@ import { statusErrorHeadline } from "../../../extension/ui/notifier";
 import type { ConnectionStatus } from "../../../extension/ui/status";
 import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/transport/errorMapping";
-import { LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
+import { HAS_SHOWN_WELCOME_KEY, LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
 import { SETUP_HINT_KINDS, type SetupHintKind } from "../../../shared/errorClassification";
 import { Logger, markLogSafe } from "../../../shared/logger";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
@@ -1437,16 +1437,16 @@ suite("extension/ui/commands", () => {
 	});
 
 	// The dashboard Diagnostics tab's Open-output-log action. The channel lives
-	// in a closure, so the unit host pins the registration and the execution
-	// path; the intents allow-list test pins the dashboard mapping onto this ID.
+	// in the activation closure, unreachable from here, so the unit host pins
+	// the registration and that the execution path resolves; the intents
+	// allow-list test pins the dashboard mapping onto this ID.
 	suite("open output command", () => {
-		test("litellm.openOutput is registered on activation", async () => {
+		test("litellm.openOutput is registered on activation and executes without throwing", async () => {
 			const commands = await vscode.commands.getCommands(true);
 			assert.ok(commands.includes("litellm.openOutput"), "the open-output command must be registered");
-		});
-
-		test("executing it resolves (the handler is a bare channel show)", async () => {
-			await vscode.commands.executeCommand("litellm.openOutput");
+			await assert.doesNotReject(async () => {
+				await vscode.commands.executeCommand("litellm.openOutput");
+			}, "the bare channel show must resolve");
 		});
 	});
 
@@ -1468,11 +1468,32 @@ suite("extension/ui/commands", () => {
 		});
 
 		test("getRecentLogs returns the classification-only string buffer", async () => {
+			// A refused dashboard intent logs through the activated extension's
+			// real logger, so the buffer this command reads must carry the
+			// rejection's classification line and never the validation message,
+			// which quotes the offending (user-typed) record key.
+			assert.strictEqual(
+				await vscode.commands.executeCommand("litellm._test.dashboardMessage", {
+					kind: "request",
+					id: "logs-1",
+					method: "setModelParameters",
+					payload: { value: { constructor: { temperature: 1 } } },
+				}),
+				"validation-error"
+			);
 			const logs = (await vscode.commands.executeCommand("litellm._test.getRecentLogs")) as unknown;
-			assert.ok(Array.isArray(logs), "the command returns an array");
 			assert.ok(
-				logs.every((line) => typeof line === "string"),
-				"every buffer entry is a string"
+				Array.isArray(logs) && logs.every((line) => typeof line === "string"),
+				"the command returns the buffer as string lines"
+			);
+			const lines = logs as string[];
+			assert.ok(
+				lines.some((line) => line.includes("Dashboard intent rejected") && line.includes('"kind": "validation"')),
+				`the buffer must carry the rejection's classification; lines: ${lines.join(" | ")}`
+			);
+			assert.ok(
+				lines.every((line) => !line.includes("reserved name") && !line.includes("constructor")),
+				"the validation message leaked into the buffer"
 			);
 		});
 
@@ -1559,11 +1580,15 @@ suite("extension/ui/commands", () => {
 		});
 
 		test("getStorageKeys returns the extension's globalState key strings", async () => {
+			// The monkey fuzzer enumerates real storage through this command, so an
+			// empty answer must fail here, and so must a read off the wrong Memento:
+			// every host run is a fresh profile, whose first activation writes the
+			// welcome flag into globalState and nowhere else.
 			const keys = (await vscode.commands.executeCommand("litellm._test.getStorageKeys")) as unknown;
-			assert.ok(Array.isArray(keys), "the command returns an array");
+			assert.ok(Array.isArray(keys) && keys.every((key) => typeof key === "string"), "the command returns string keys");
 			assert.ok(
-				keys.every((key) => typeof key === "string"),
-				"every storage key is a string"
+				(keys as string[]).includes(HAS_SHOWN_WELCOME_KEY),
+				`the keys must include the welcome flag activation writes; keys: ${JSON.stringify(keys)}`
 			);
 		});
 

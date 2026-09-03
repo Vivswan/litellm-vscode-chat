@@ -26,31 +26,27 @@ function server(label: string, extra: Record<string, unknown> = {}): Record<stri
 	return { label, baseUrl: `http://${label.toLowerCase()}.test`, ...extra };
 }
 
-suite("extension/settingsTransfer/importPlan", () => {
-	test("the frozen signatures and result shapes", () => {
-		const plan: (
-			envelopeSettings: Readonly<Record<string, unknown>>,
-			currentServersRaw: unknown,
-			storedSecrets?: Readonly<Record<string, StoredServerSecrets>>
-		) => ImportPlan = planSettingsImport;
-		const resolve: (plan: ImportPlan, decisions: CollisionDecisions) => ImportApplication = resolveImportPlan;
-		const suggest: (label: string, takenLabels: ReadonlySet<string>) => string = suggestRenamedLabel;
-		assert.strictEqual(typeof plan, "function");
-		assert.strictEqual(typeof resolve, "function");
-		assert.strictEqual(typeof suggest, "function");
-		const write: SettingWrite = { key: "chat.timeout", value: 1 };
-		const skipped: SkippedKey = { key: "chat.promptCaching", reason: "wrong-type" };
-		const decision: CollisionDecision = { action: "rename", newLabel: "B" };
-		const collision: ServerCollision = { label: "A", connectionChanged: false };
-		const incoming: IncomingServer = {
-			raw: server("A"),
-			report: { index: 0, label: "A", baseUrl: "http://a.test", problems: [], accepted: true },
-			skipped: false,
-		};
-		const secretWrite: SecretWrite = { label: "A", secrets: {}, owners: {} };
-		assert.ok(write && skipped && decision && collision && incoming && secretWrite);
-	});
+// The frozen signatures and result shapes are pinned at compile time: a drift
+// fails typecheck, so no runtime test restates what the types already prove.
+void (planSettingsImport satisfies (
+	envelopeSettings: Readonly<Record<string, unknown>>,
+	currentServersRaw: unknown,
+	storedSecrets?: Readonly<Record<string, StoredServerSecrets>>
+) => ImportPlan);
+void (resolveImportPlan satisfies (plan: ImportPlan, decisions: CollisionDecisions) => ImportApplication);
+void (suggestRenamedLabel satisfies (label: string, takenLabels: ReadonlySet<string>) => string);
+void ({ key: "chat.timeout", value: 1 } satisfies SettingWrite);
+void ({ key: "chat.promptCaching", reason: "wrong-type" } satisfies SkippedKey);
+void ({ action: "rename", newLabel: "B" } satisfies CollisionDecision);
+void ({ label: "A", connectionChanged: false } satisfies ServerCollision);
+void ({
+	raw: server("A"),
+	report: { index: 0, label: "A", baseUrl: "http://a.test", problems: [], accepted: true },
+	skipped: false,
+} satisfies IncomingServer);
+void ({ label: "A", secrets: {}, owners: {} } satisfies SecretWrite);
 
+suite("extension/settingsTransfer/importPlan", () => {
 	test("the local usage.statusBar vocabulary mirrors the settings module's enum", () => {
 		assert.deepStrictEqual([...USAGE_STATUS_BAR_MODE_VALUES], [...USAGE_STATUS_BAR_MODES]);
 	});

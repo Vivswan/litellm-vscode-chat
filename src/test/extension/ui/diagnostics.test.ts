@@ -1,56 +1,89 @@
 import * as assert from "node:assert";
 import { buildDiagnosticsSnapshot } from "../../../extension/ui/diagnostics";
+import type { DiagnosticsSnapshot } from "../../../extension/ui/issueReporter";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
-import { FEATURE_IDS } from "../../../shared/config/settingSpec";
 import { markLogSafe } from "../../../shared/logger";
 import { expectDefined } from "../../pureHelpers";
-import { makeServerStatus } from "../../testUtils";
+import { makeServerStatus, withConfig } from "../../testUtils";
 
 // The interactive diagnostics surface is the dashboard's Diagnostics tab
 // (pinned in extension/dashboard/panel.test.ts, dashboard/protocol.test.ts, and
 // the webview suite); what remains here is the issue reporter's snapshot.
 suite("extension/ui/diagnostics", () => {
 	suite("buildDiagnosticsSnapshot", () => {
-		test("collects environment, connection, and reporter data", () => {
+		test("collects environment, connection, and reporter data", async () => {
 			const reporter = new IssueReporter();
 			reporter.appendLog("first log line");
 			reporter.appendLog("second log line");
 			reporter.recordError("discovery", new Error("fetch exploded"));
 
-			const snapshot = buildDiagnosticsSnapshot(
-				{ state: "connected", totalModels: 7, serverStatuses: [] },
-				"1.2.3",
-				"9.9.9",
-				reporter
+			// Non-default configuration on every settings-derived field, through
+			// the same getConfiguration surface the snapshot reads (withConfig
+			// restores it in its finally): a build that hardcoded the defaults
+			// must fail here. Unset features keep their package.json defaults.
+			const snapshot = await withConfig(
+				{
+					"commitGeneration.enabled": true,
+					"commitGeneration.model": { server: "Prod", model: "gpt-4" },
+					"chatParticipant.enabled": false,
+					servers: [
+						{ label: "Prod", baseUrl: "http://prod.test", mcp: true },
+						{ label: "Plain", baseUrl: "http://plain.test" },
+					],
+				},
+				() =>
+					buildDiagnosticsSnapshot(
+						{ state: "connected", totalModels: 7, serverStatuses: [] },
+						"1.2.3",
+						"9.9.9",
+						reporter
+					)
 			);
 
-			assert.strictEqual(snapshot.extensionVersion, "1.2.3");
-			assert.strictEqual(snapshot.vscodeVersion, "9.9.9");
-			assert.strictEqual(snapshot.platform, `${process.platform} ${process.arch}`);
-			assert.strictEqual(snapshot.connectionState, "connected");
-			assert.strictEqual(snapshot.modelCount, 7);
-			assert.strictEqual(snapshot.apiKeyConfigured, "unknown", "unobserved native groups cannot be ruled out");
-			assert.strictEqual(snapshot.baseUrlConfigured, false);
-			assert.strictEqual(snapshot.featureFlags.commitGeneration.enabled, false, "the opt-in defaults off");
+			// The whole record: this snapshot prefills public issues, so a field
+			// added to DiagnosticsSnapshot must be seen here before it ships. The
+			// Required<> literal is total over the record, optional fields
+			// included, and over FEATURE_IDS by construction. The error's
+			// timestamp and stack are the run's own, so they are checked for
+			// shape and read once into the expectation.
+			const latestError = expectDefined(snapshot.latestError);
 			assert.strictEqual(
-				snapshot.featureFlags.commitGeneration.modelConfigured,
-				false,
-				"no model ref is set by default"
+				latestError.timestamp,
+				new Date(latestError.timestamp).toISOString(),
+				"the error timestamp is an ISO 8601 stamp"
 			);
-			assert.strictEqual(snapshot.featureFlags.inlineCompletions.enabled, false, "the inline opt-in defaults off");
-			assert.strictEqual(
-				snapshot.featureFlags.inlineCompletions.modelConfigured,
-				false,
-				"no inline model ref is set by default"
-			);
-			// The whole record is total over FEATURE_IDS, the unshipped features
-			// included; the participant carries no model flag by construction.
-			assert.deepStrictEqual(Object.keys(snapshot.featureFlags).sort(), [...FEATURE_IDS].sort());
-			assert.strictEqual(snapshot.featureFlags.chatParticipant.enabled, true, "the participant defaults on");
-			assert.strictEqual(snapshot.featureFlags.chatParticipant.modelConfigured, undefined);
-			assert.strictEqual(expectDefined(snapshot.latestError).source, "discovery");
-			assert.strictEqual(expectDefined(snapshot.latestError).message, "fetch exploded");
-			assert.deepStrictEqual(snapshot.recentLogs, ["first log line", "second log line"]);
+			assert.ok(latestError.stack?.startsWith("Error: fetch exploded"), "a plain error keeps its own stack");
+			const expected: Required<DiagnosticsSnapshot> = {
+				extensionVersion: "1.2.3",
+				vscodeVersion: "9.9.9",
+				platform: `${process.platform} ${process.arch}`,
+				connectionState: "connected",
+				modelCount: 7,
+				// Unobserved native groups cannot be ruled out.
+				apiKeyConfigured: "unknown",
+				baseUrlConfigured: false,
+				// Flags only, never the model or label the configured ref names;
+				// the participant carries no model flag by construction.
+				featureFlags: {
+					inlineCompletions: { enabled: false, modelConfigured: false },
+					commitGeneration: { enabled: true, modelConfigured: true },
+					prGeneration: { enabled: false, modelConfigured: false },
+					consultTool: { enabled: false, modelConfigured: false },
+					quickFix: { enabled: false, modelConfigured: false },
+					reviewComments: { enabled: false, modelConfigured: false },
+					chatParticipant: { enabled: false },
+				},
+				// The opted-in entry counts; the plain one does not.
+				mcpEntryCount: 1,
+				latestError: {
+					source: "discovery",
+					message: "fetch exploded",
+					stack: latestError.stack,
+					timestamp: latestError.timestamp,
+				},
+				recentLogs: ["first log line", "second log line"],
+			};
+			assert.deepStrictEqual(snapshot, expected);
 		});
 
 		test("the snapshot passes the latest error's classification through", () => {

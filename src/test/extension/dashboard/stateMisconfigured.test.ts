@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import type { DeclaredServerNotice } from "../../../dashboard/viewModels";
 import type { SettingsReader } from "../../../extension/dashboard/state";
 import { buildDashboardState } from "../../../extension/dashboard/state";
 import type { DeclaredServerView, ServerEntryReport } from "../../../extension/servers/serverSync";
@@ -102,42 +103,62 @@ suite("extension/dashboard/state misconfigured rows", () => {
 		);
 	});
 
-	test("a non-identity join with per-entry headers raises the headers-inactive notice", () => {
+	test("a non-identity join raises one inactive notice per configured entry-only field family", () => {
 		// The serving group joined by URL only, so the request path's
-		// label-and-URL resolution does not apply this entry's custom headers.
-		const state = buildDashboardState({
-			snapshots: [
-				{
-					status: makeServerStatus({
-						serverId: "group:fp-other:http://x.test",
-						label: "x.test",
-						baseUrl: "http://x.test",
-					}),
-					models: [],
-				},
-			],
-			reader: READER,
-			declared: {
-				source: "engine",
-				views: [
-					makeDeclared({
-						label: "Prod",
-						baseUrl: "http://x.test",
-						expectedClientId: "group:fp-labeled:http://x.test",
-						headers: { "x-team": "a" },
-					}),
-				],
+		// label-and-URL resolution applies none of this entry's entry-only
+		// fields; the row must name exactly which families went inactive.
+		// state.ts derives the notices from parallel same-shape branches, one
+		// per family, so one table drives them all.
+		const cases: readonly {
+			override: Partial<DeclaredServerView>;
+			notices: readonly DeclaredServerNotice[];
+			reason: string;
+		}[] = [
+			{
+				override: { headers: { "x-team": "a" } },
+				notices: ["entry-headers-inactive"],
+				reason: "custom headers are resolved by label and URL",
 			},
-		});
-
-		assert.deepStrictEqual(state.servers[0]?.notices, ["entry-headers-inactive"]);
-	});
-
-	test("a non-identity join with a per-entry apiVersion raises the api-version-inactive notice", () => {
-		// The request path resolves apiVersion by label and URL, so a group
-		// joined by URL only silently falls back to the auto rule; the row must
-		// say so. "" is a real override and must raise the notice too.
-		for (const apiVersion of ["v2", ""]) {
+			{
+				override: { apiVersion: "v2" },
+				notices: ["entry-api-version-inactive"],
+				reason: "the api version silently falls back to the auto rule",
+			},
+			{
+				override: { apiVersion: "" },
+				notices: ["entry-api-version-inactive"],
+				reason: '"" is a real override (append nothing), not an absent field',
+			},
+			{
+				override: { modelParameters: { "gpt-4": { temperature: 0.2 } } },
+				notices: ["entry-params-inactive"],
+				reason: "entry parameters are resolved by label and URL",
+			},
+			{
+				override: { modelCapabilities: { "gpt-4": { supports_vision: true } } },
+				notices: ["entry-capabilities-inactive"],
+				reason: "entry capability records ride the capabilities family",
+			},
+			{
+				override: { expectedFailures: ["modelInfo"] },
+				notices: ["entry-capabilities-inactive"],
+				reason: "expected failures ride the capabilities family",
+			},
+			{
+				override: { declaredModels: ["gpt-4"] },
+				notices: ["entry-capabilities-inactive"],
+				reason: "declared models ride the capabilities family",
+			},
+			{
+				override: {
+					modelParameters: { "gpt-4": { temperature: 0.2 } },
+					modelCapabilities: { "gpt-4": { supports_vision: true } },
+				},
+				notices: ["entry-params-inactive", "entry-capabilities-inactive"],
+				reason: "parameters and capabilities get separate classifications, in declaration order",
+			},
+		];
+		for (const { override, notices, reason } of cases) {
 			const state = buildDashboardState({
 				snapshots: [
 					{
@@ -157,17 +178,13 @@ suite("extension/dashboard/state misconfigured rows", () => {
 							label: "Prod",
 							baseUrl: "http://x.test",
 							expectedClientId: "group:fp-labeled:http://x.test",
-							apiVersion,
+							...override,
 						}),
 					],
 				},
 			});
 
-			assert.deepStrictEqual(
-				state.servers[0]?.notices,
-				["entry-api-version-inactive"],
-				`apiVersion ${JSON.stringify(apiVersion)}`
-			);
+			assert.deepStrictEqual(state.servers[0]?.notices, notices, `${JSON.stringify(override)}: ${reason}`);
 		}
 	});
 

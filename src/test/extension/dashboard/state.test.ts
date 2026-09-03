@@ -961,12 +961,14 @@ suite("extension/dashboard/state", () => {
 				});
 			});
 
-			test("the settings fallback pushes unproven, never proven-none", () => {
+			test("the settings fallback pushes unproven, never proven-none, and its credential verdict is unknown", () => {
 				// The fallback cannot read secret blobs synchronously, so its "none"
 				// is only "no inline value". Pushing it as fact froze a wrong identity
 				// into edit forms opened in that window, whose saves then refused as
 				// "the entry changed"; the row must say unproven instead - and the
-				// unproven shape carries NO locations, so nothing can read one.
+				// unproven shape carries NO locations, so nothing can read one. The
+				// same guess must not become a credential denial either: a secure-side
+				// key exists exactly when this window matters.
 				const state = buildDashboardState({
 					snapshots: [],
 					reader: makeReader({}),
@@ -976,7 +978,9 @@ suite("extension/dashboard/state", () => {
 					},
 				});
 
-				assert.deepStrictEqual(declaredRow(state).config.secrets, { kind: "unproven" });
+				const row = declaredRow(state);
+				assert.deepStrictEqual(row.config.secrets, { kind: "unproven" }, "an unread none is a guess, never proven");
+				assert.strictEqual(row.credentials, "unknown", "an unproven none must not read as a false negative");
 			});
 
 			test("a fallback view with every secret inline is proven by the setting itself", () => {
@@ -1014,22 +1018,6 @@ suite("extension/dashboard/state", () => {
 				});
 
 				assert.deepStrictEqual(declaredRow(state).config.secrets, { kind: "unproven" });
-			});
-
-			test("an unproven row's credential verdict is unknown, never a denial", () => {
-				// The fallback's "none" is "no inline value", not "no key": a
-				// secure-side key exists exactly when this window matters, so the
-				// row must say it does not know rather than show a false negative.
-				const state = buildDashboardState({
-					snapshots: [],
-					reader: makeReader({}),
-					declared: {
-						source: "settings-fallback",
-						views: [makeDeclared({ secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } })],
-					},
-				});
-
-				assert.strictEqual(declaredRow(state).credentials, "unknown");
 			});
 
 			test("a proven none is a real absent, not unknown", () => {
@@ -1679,60 +1667,6 @@ suite("extension/dashboard/state", () => {
 			const plain = absent.servers[0];
 			assert.ok(plain?.origin === "declared");
 			assert.ok(!("apiVersion" in plain.config), "an entry without the field prefills the auto default");
-		});
-
-		test("a non-identity join flags capabilities and expected failures inactive, beside the params notice", () => {
-			const state = buildState(
-				[
-					{
-						status: makeServerStatus({
-							serverId: "group:fp-other:http://x.test",
-							label: "x.test",
-							baseUrl: "http://x.test",
-							servedModelCount: 3,
-						}),
-						models: [],
-					},
-				],
-				makeReader({}),
-				[
-					makeDeclared({
-						label: "Prod",
-						baseUrl: "http://x.test",
-						expectedClientId: "group:fp-labeled:http://x.test",
-						expectedConnectionId: "group:fp-conn:http://x.test",
-						modelParameters: { "gpt-4": { temperature: 0.2 } },
-						modelCapabilities: { "gpt-4": { supports_vision: true } },
-					}),
-				]
-			);
-			assert.deepStrictEqual(state.servers[0]?.notices, ["entry-params-inactive", "entry-capabilities-inactive"]);
-		});
-
-		test("expectedFailures alone also raises the capabilities-inactive notice on a non-identity join", () => {
-			const state = buildState(
-				[
-					{
-						status: makeServerStatus({
-							serverId: "group:fp-other:http://x.test",
-							label: "x.test",
-							baseUrl: "http://x.test",
-						}),
-						models: [],
-					},
-				],
-				makeReader({}),
-				[
-					makeDeclared({
-						label: "Prod",
-						baseUrl: "http://x.test",
-						expectedClientId: "group:fp-labeled:http://x.test",
-						expectedConnectionId: "group:fp-conn:http://x.test",
-						expectedFailures: ["modelInfo"],
-					}),
-				]
-			);
-			assert.deepStrictEqual(state.servers[0]?.notices, ["entry-capabilities-inactive"]);
 		});
 
 		test("an expected failure rides the row with its declared count as the model count", () => {

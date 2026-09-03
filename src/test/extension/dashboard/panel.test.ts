@@ -47,6 +47,8 @@ interface FakePanel {
 	setVisible(visible: boolean): void;
 	triggerDispose(): void;
 	disposed: boolean;
+	/** How many times the controller brought this panel forward. */
+	revealed: number;
 }
 
 function makeFakePanel(): FakePanel {
@@ -58,6 +60,7 @@ function makeFakePanel(): FakePanel {
 	const fake: FakePanel = {
 		posted,
 		disposed: false,
+		revealed: 0,
 		receiveMessage: (message) => messageEmitter.fire(message),
 		setVisible: (next) => {
 			visible = next;
@@ -75,7 +78,9 @@ function makeFakePanel(): FakePanel {
 			get visible() {
 				return visible;
 			},
-			reveal: () => {},
+			reveal: () => {
+				fake.revealed += 1;
+			},
 			onDidDispose: disposeEmitter.event,
 			onDidChangeViewState: viewStateEmitter.event,
 			dispose: () => {
@@ -278,6 +283,7 @@ suite("extension/dashboard/panel", () => {
 		harness.controller.open();
 
 		assert.strictEqual(harness.panels.length, 1);
+		assert.strictEqual(harness.panels[0]?.revealed, 1, "the second open must bring the existing panel forward");
 	});
 
 	test("open kicks the staleness-gated usage refresh, never the unconditional one", () => {

@@ -1,24 +1,20 @@
 import * as assert from "node:assert";
 import type { StoredSecretsRecord, StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
-import type { PreImportSnapshot, SnapshotEntry, SnapshotRestore } from "../../../extension/settingsTransfer/snapshot";
+import type { PreImportSnapshot, SnapshotRestore } from "../../../extension/settingsTransfer/snapshot";
 import { buildPreImportSnapshot, planSnapshotRestore } from "../../../extension/settingsTransfer/snapshot";
 import { ALL_SETTING_KEYS } from "../../../shared/config/settingSpec";
 
-suite("extension/settingsTransfer/snapshot", () => {
-	test("the frozen signatures and the entry shape", () => {
-		const build: (
-			readGlobalSetting: (key: string) => unknown,
-			readServerSecrets: (label: string) => Promise<StoredSecretsRecord>,
-			touchedLabels: readonly string[]
-		) => Promise<PreImportSnapshot> = buildPreImportSnapshot;
-		const restore: (snapshot: PreImportSnapshot) => SnapshotRestore = planSnapshotRestore;
-		assert.strictEqual(typeof build, "function");
-		assert.strictEqual(typeof restore, "function");
-		const present: SnapshotEntry<number> = { present: true, value: 1 };
-		const absent: SnapshotEntry<number> = { present: false };
-		assert.notDeepStrictEqual(present, absent);
-	});
+// The frozen signatures are pinned at compile time: a drift fails typecheck,
+// so no runtime test restates what the types already prove. The SnapshotEntry
+// shape is pinned by the typed PreImportSnapshot literal below.
+void (buildPreImportSnapshot satisfies (
+	readGlobalSetting: (key: string) => unknown,
+	readServerSecrets: (label: string) => Promise<StoredSecretsRecord>,
+	touchedLabels: readonly string[]
+) => Promise<PreImportSnapshot>);
+void (planSnapshotRestore satisfies (snapshot: PreImportSnapshot) => SnapshotRestore);
 
+suite("extension/settingsTransfer/snapshot", () => {
 	test("records every setting key as present or absent and each touched label's blob", async () => {
 		const values: Record<string, unknown> = { "chat.timeout": 60000, servers: [{ label: "A" }] };
 		const blobs: Record<string, StoredServerSecrets> = { A: { apiKey: "sk-a" }, B: {} };
