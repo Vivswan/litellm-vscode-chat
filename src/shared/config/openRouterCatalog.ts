@@ -20,6 +20,42 @@ import type { CapabilityCatalogLookup, CapabilityFieldValues, CatalogLookupResul
 export const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
 /**
+ * Why one GET of OPENROUTER_MODELS_URL failed, as both fetchers classify it:
+ * the build script renders each kind with its evidence, the runtime refresh
+ * with a fixed log-safe word, and the retry verdict is the one judgement the
+ * two must share - isRetryableOpenRouterFailure below is its only home.
+ */
+export type OpenRouterFetchFailure =
+	| { readonly kind: "timeout"; readonly phase: "headers" | "body" }
+	| { readonly kind: "network" }
+	| { readonly kind: "http"; readonly status: number }
+	| { readonly kind: "unparseable" };
+
+/**
+ * Discovery's rule, inherited from the SDK's retry predicate: a timeout, a
+ * connection failure, or a 408/409/429/5xx may clear on the next attempt; any
+ * other 4xx and a 200 whose body is not JSON (a CDN interstitial, a schema
+ * change) are the server's settled answer - discovery's body parse sits
+ * outside the SDK's retry loop - so a repeat attempt only spends the budget.
+ */
+export function isRetryableOpenRouterFailure(failure: OpenRouterFetchFailure): boolean {
+	switch (failure.kind) {
+		case "timeout":
+		case "network":
+			return true;
+		case "http":
+			return (
+				failure.status === 408 ||
+				failure.status === 409 ||
+				failure.status === 429 ||
+				(failure.status >= 500 && failure.status <= 599)
+			);
+		case "unparseable":
+			return false;
+	}
+}
+
+/**
  * The smallest model count a live payload may carry before the fetch script
  * calls it schema drift. The packaged-file-list CI check asserts the same
  * floor on the shipped artifact with jq; keep the two numbers in sync.

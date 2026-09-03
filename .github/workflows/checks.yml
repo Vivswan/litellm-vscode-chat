@@ -247,9 +247,10 @@ jobs:
   # same URL again on its own runner, and the two fetches doubled the exposure
   # to a CDN body stall for zero extra coverage (the second one validated the
   # same payload). The endpoint is unauthenticated and the failure text
-  # distinguishes "unreachable (transient)" from "schema drift"; unconditional
-  # on purpose (a skipped job would count green in the gate, see the header
-  # note).
+  # distinguishes "OpenRouter did not deliver a usable catalog" (transient or
+  # settled, per the retry rule the script shares with the runtime) from
+  # "schema drift"; unconditional on purpose (a skipped job would count green
+  # in the gate, see the header note).
   openrouter-catalog:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -266,16 +267,18 @@ jobs:
         with:
           bun-version-file: package.json
 
-      # Push-to-main runs opt into the script's lenient mode: an UNREACHABLE
-      # OpenRouter (connect failure, header or body timeout, non-2xx, a body
-      # that is not JSON - the script's own transient class) is one
-      # ::warning:: annotation and exit 0 with nothing written, because a
-      # third-party outage must not block landing on main; schema drift stays
-      # fatal in every mode. Pull request runs, ci.yml's weekly schedule, and
-      # manual dispatch stay fatal, so an outage is still caught loudly where
-      # a human is watching and a re-run is cheap, and the release build's own
-      # fetch (vscode:prepublish) stays fatal too. The file, not the exit
-      # code, says whether the catalog was fetched.
+      # Push-to-main runs opt into the script's lenient mode: OpenRouter not
+      # delivering a usable catalog (connect failure, header or body timeout,
+      # non-2xx, a body that is not JSON - every UnreachableError, whether the
+      # shared retry rule called it transient or settled; the script's
+      # ::warning:: headline says which) is one ::warning:: annotation and
+      # exit 0 with nothing written, because a third-party failure must not
+      # block landing on main; schema drift stays fatal in every mode. Pull
+      # request runs, ci.yml's weekly schedule, and manual dispatch stay fatal,
+      # so the failure is still caught loudly where a human is watching and a
+      # re-run is cheap, and the release build's own fetch (vscode:prepublish)
+      # stays fatal too. The file, not the exit code, says whether the catalog
+      # was fetched.
       - name: Fetch and validate the live OpenRouter catalog
         id: fetch
         env:

@@ -1,8 +1,13 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import type { CatalogModel, SlimOpenRouterModel } from "../../../../shared/config/openRouterCatalog";
+import type {
+	CatalogModel,
+	OpenRouterFetchFailure,
+	SlimOpenRouterModel,
+} from "../../../../shared/config/openRouterCatalog";
 import {
 	createCatalogLookup,
+	isRetryableOpenRouterFailure,
 	mapOpenRouterEntry,
 	parseCatalogSnapshot,
 	slimCatalogPayload,
@@ -251,4 +256,43 @@ describe("shared/config openRouterCatalog slimming", () => {
 		});
 		assert.ok(!JSON.stringify(reSlimmed).includes("pricing"));
 	});
+});
+
+/**
+ * The one retry rule both fetchers consult, pinned as whole outcomes per
+ * failure class. Discovery's SDK rule: the transport failures and the four
+ * status classes the SDK retries (408, 409, 429, 5xx) earn another attempt;
+ * every other 4xx and a body that is not JSON are settled. The 407/410,
+ * 499/500 and 599/600 neighbours pin the edges of the two status windows;
+ * 600 is not an HTTP 5xx and earns nothing.
+ */
+describe("isRetryableOpenRouterFailure", () => {
+	const http = (status: number): OpenRouterFetchFailure => ({ kind: "http", status });
+	const cases: readonly { readonly failure: OpenRouterFetchFailure; readonly retryable: boolean }[] = [
+		{ failure: { kind: "timeout", phase: "headers" }, retryable: true },
+		{ failure: { kind: "timeout", phase: "body" }, retryable: true },
+		{ failure: { kind: "network" }, retryable: true },
+		{ failure: http(408), retryable: true },
+		{ failure: http(409), retryable: true },
+		{ failure: http(429), retryable: true },
+		{ failure: http(500), retryable: true },
+		{ failure: http(503), retryable: true },
+		{ failure: http(599), retryable: true },
+		{ failure: http(400), retryable: false },
+		{ failure: http(401), retryable: false },
+		{ failure: http(403), retryable: false },
+		{ failure: http(404), retryable: false },
+		{ failure: http(407), retryable: false },
+		{ failure: http(410), retryable: false },
+		{ failure: http(428), retryable: false },
+		{ failure: http(430), retryable: false },
+		{ failure: http(499), retryable: false },
+		{ failure: http(600), retryable: false },
+		{ failure: { kind: "unparseable" }, retryable: false },
+	];
+	for (const { failure, retryable } of cases) {
+		test(`${JSON.stringify(failure)} ${retryable ? "earns another attempt" : "is settled"}`, () => {
+			assert.strictEqual(isRetryableOpenRouterFailure(failure), retryable);
+		});
+	}
 });

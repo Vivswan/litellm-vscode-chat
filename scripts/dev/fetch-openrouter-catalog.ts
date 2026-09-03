@@ -1,19 +1,22 @@
 /**
  * Fetch, validate, slim, and (by default) write the OpenRouter capability
- * catalog artifact to dist/openrouter-models.json. Strict on purpose: any
- * failure exits non-zero, so a release build and the packaged-file-list CI check
- * can never ship a missing or semantically empty catalog. `--check` runs the
- * same fetch and validation into a temp file and never touches dist/.
- * `--unreachable-is-warning` is the push-to-main gate's opt-in: an unreachable
+ * catalog artifact to dist/openrouter-models.json. Strict by default: any
+ * failure exits non-zero, so a release build never ships a missing or
+ * semantically empty catalog and a pull request's packaged-file-list check
+ * never proceeds without one. `--check` runs the same fetch and validation
+ * into a temp file and never touches dist/. `--unreachable-is-warning` is the
+ * one exception, passed by checks.yml on push builds only: an unreachable
  * OpenRouter becomes one `::warning::` line and exit 0 with nothing written
- * (failureExit in openRouterCatalogFetch.ts decides), while schema drift stays
- * fatal in every mode.
+ * (failureExit in openRouterCatalogFetch.ts decides), the packaged-file-list
+ * check downstream then tolerates the missing artifact, and schema drift
+ * stays fatal in every mode.
  *
  * bundle/bundle:dev deliberately do NOT run this: builds stay network-free and
  * the runtime tolerates a missing artifact. Failure messages distinguish
- * OpenRouter being unreachable (transient, classified in openRouterCatalogFetch.ts)
- * from the payload no longer matching
- * src/shared/config/openRouterCatalog.ts (drift - update the module).
+ * OpenRouter not handing over a catalog (classified in
+ * openRouterCatalogFetch.ts, retried under the rule it shares with the runtime)
+ * from the payload no longer matching src/shared/config/openRouterCatalog.ts
+ * (drift - update the module).
  */
 
 import { mkdir, mkdtemp, rename, writeFile } from "node:fs/promises";
@@ -25,7 +28,13 @@ import {
 	parseCatalogSnapshot,
 	slimCatalogPayload,
 } from "../../src/shared/config/openRouterCatalog";
-import { FETCH_TIMEOUT_MS, failureExit, fetchLivePayload, UnreachableError } from "./openRouterCatalogFetch";
+import {
+	FETCH_TIMEOUT_MS,
+	failureExit,
+	fetchLivePayload,
+	UnreachableError,
+	unreachableVerdict,
+} from "./openRouterCatalogFetch";
 
 class DriftError extends Error {}
 
@@ -110,8 +119,9 @@ main().catch((error) => {
 		return;
 	}
 	if (error instanceof UnreachableError) {
-		console.error(`OpenRouter unreachable (transient): ${error.message}`);
-		console.error("Not a schema problem - retry once the endpoint is reachable.");
+		const { headline, advice } = unreachableVerdict(error);
+		console.error(`${headline}: ${error.message}`);
+		console.error(advice);
 	} else if (error instanceof DriftError) {
 		console.error(`OpenRouter payload schema drift: ${error.message}`);
 		console.error("Update src/shared/config/openRouterCatalog.ts to match the current payload.");

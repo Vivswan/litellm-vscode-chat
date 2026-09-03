@@ -454,9 +454,11 @@ suite("extension openRouterCatalog store", () => {
 		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
 	});
 
-	// Discovery's retry rule, carried over: the SDK retries 408/409/429/5xx and
-	// connection failures, and its body parse sits outside the retry loop, so a
-	// 200 with garbage and a settled 4xx get exactly one attempt.
+	// The retry rule the runtime shares with the fetch script
+	// (isRetryableOpenRouterFailure, discovery's SDK rule): 408/409/429/5xx and
+	// connection failures retry, and a 200 with garbage or a settled 4xx gets
+	// exactly one attempt - as discovery's body parse sits outside the SDK's
+	// retry loop.
 	for (const { name, body, status, classification, attempts } of [
 		{ name: "a 503", body: "upstream-secret-body", status: 503, classification: "HTTP 503", attempts: 3 },
 		{ name: "a 429", body: "upstream-secret-body", status: 429, classification: "HTTP 429", attempts: 3 },
