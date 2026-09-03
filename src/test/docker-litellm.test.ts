@@ -1022,20 +1022,18 @@ suite("Docker LiteLLM stack", () => {
 			);
 		});
 
-		test("sigil-less verbs are plain text", async () => {
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", "help")), FALLBACK_TEXT);
-		});
-
-		test("a slash-prefixed line is plain text end to end: /help gets the fallback", async () => {
-			// Copilot Chat normally eats "/help" before it reaches the model; when
-			// the text does arrive the grammar must treat it as prose.
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", "/help")), FALLBACK_TEXT);
-		});
-
-		test("a bang-prefixed line is plain text end to end: !help gets the fallback", async () => {
-			// Agent CLIs run a leading "!" as a shell command, so "!" lines are prose
-			// exactly like "/".
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", "!help")), FALLBACK_TEXT);
+		test("lines without the sigil are plain text end to end and get the fallback", async () => {
+			// Copilot Chat normally eats "/help" before it reaches the model, and
+			// agent CLIs run a leading "!" as a shell command; when such text does
+			// arrive the grammar must treat it as prose, exactly like a bare verb.
+			const cases: ReadonlyArray<[input: string, reason: string]> = [
+				["help", "a bare verb without the sigil is prose"],
+				["/help", "a Copilot slash command is prose"],
+				["!help", "an agent-CLI bang line is prose"],
+			];
+			for (const [input, reason] of cases) {
+				assert.strictEqual(extractText(await say("gpt-5.2-mini", input)), FALLBACK_TEXT, `${input}: ${reason}`);
+			}
 		});
 
 		test("a chat host's request envelope still dispatches end to end", async () => {

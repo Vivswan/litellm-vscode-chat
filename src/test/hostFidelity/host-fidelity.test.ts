@@ -121,32 +121,48 @@ suite("Host-Fidelity Tests (capture)", () => {
 			assert.strictEqual(expectDefined(models[0]).vendor, "litellm");
 		});
 
-		test("model has positive token limits", () => {
-			assert.ok(model.maxInputTokens > 0, `maxInputTokens should be positive, got ${model.maxInputTokens}`);
+		test("the model registers with the fixture's declared input limit, family, and pricing", () => {
+			// The model-info values the host's consumer object exposes must survive
+			// discovery, capability resolution, and registration exactly: the
+			// declared input limit (not the built-in floor or a catalog guess), the
+			// litellm_provider as family, and the pricing fields. The host copies no
+			// maxOutputTokens onto this object; the declared 16000 is pinned on the
+			// wire as max_tokens in the request contract suite.
+			assert.deepStrictEqual(
+				{
+					maxInputTokens: model.maxInputTokens,
+					family: model.family,
+					inputCost: model.inputCost,
+					outputCost: model.outputCost,
+					priceCategory: model.priceCategory,
+					pricing: model.pricing,
+				},
+				{
+					maxInputTokens: 128000,
+					family: "openai",
+					// per-token 0.00000125 and 0.00001 convert to per-million 1.25 and 10
+					inputCost: 1.25,
+					outputCost: 10,
+					// blended (3*1.25+10)/4 = 3.4375 lands in the medium band
+					priceCategory: "medium",
+					pricing: "$1.25 in / $10 out per 1M tokens",
+				}
+			);
 		});
 
-		test("model family follows the server's litellm_provider", () => {
-			assert.strictEqual(model.family, "openai", "the capture server advertises litellm_provider: openai");
-		});
-
-		test("the host-preserved model exposes the pricing fields to consumers", () => {
-			// The capture fixture declares per-token costs so this pins, against a
-			// real host, that pricing metadata registers without throwing and
-			// survives onto the object selectChatModels() hands consumers.
-			assert.strictEqual(model.inputCost, 1.25, "per-token 0.00000125 converts to 1.25 per million");
-			assert.strictEqual(model.outputCost, 10);
-			assert.strictEqual(model.priceCategory, "medium", "blended (3*1.25+10)/4 = 3.4375 lands in the medium band");
-			assert.strictEqual(model.pricing, "$1.25 in / $10 out per 1M tokens");
-		});
-
-		test("countTokens returns positive for text", async () => {
-			const count = await model.countTokens("Hello world");
-			assert.ok(count > 0, `Token count should be positive, got ${count}`);
-		});
-
-		test("countTokens returns positive for message", async () => {
-			const count = await model.countTokens(vscode.LanguageModelChatMessage.User("Hello world"));
-			assert.ok(count > 0, `Token count should be positive, got ${count}`);
+		test("countTokens prices bare text and a text message through the same estimator", async () => {
+			const short = "Hello world";
+			const long = "This is a much longer string that should yield more tokens than the short one";
+			const shortCount = await model.countTokens(short);
+			const longCount = await model.countTokens(long);
+			const messageCount = await model.countTokens(vscode.LanguageModelChatMessage.User(short));
+			assert.ok(shortCount > 0, `an eleven-character text must price above zero, got ${shortCount}`);
+			assert.ok(longCount > shortCount, `longer text (${longCount}) must price above shorter text (${shortCount})`);
+			assert.strictEqual(
+				messageCount,
+				shortCount,
+				"a text-only user message converts to string content, so it prices exactly like the bare text: no role or wire scaffolding is counted"
+			);
 		});
 	});
 
@@ -231,10 +247,14 @@ suite("Host-Fidelity Tests (capture)", () => {
 			assert.ok(assistantMsgs.length >= 1, "Expected at least 1 assistant message");
 		});
 
-		test("request body contains model and max_tokens", async () => {
+		test("request body carries the raw model ID and the fixture's declared output limit as max_tokens", async () => {
 			const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
-			assert.ok(typeof body.model === "string", "model should be a string");
-			assert.ok(typeof body.max_tokens === "number", "max_tokens should be a number");
+			assert.strictEqual(body.model, modelId, "the wire carries the raw model ID as served");
+			assert.strictEqual(
+				body.max_tokens,
+				16000,
+				"the fixture's server-declared output limit passes as-is; the min(4096, ...) cap applies only to guessed limits"
+			);
 		});
 
 		test("no temperature is injected through the host path unless configured", async () => {
@@ -601,23 +621,45 @@ suite("Host-Fidelity Tests (capture)", () => {
 			);
 		});
 
-		test("HTTP 400 error surfaces as rejection", async () => {
-			server.setScenario("error-400");
-			try {
-				await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
-				assert.fail("Expected sendRequest to reject on HTTP 400");
-			} catch (e) {
-				assert.ok(e instanceof Error, "Should throw an Error");
-			}
-		});
-
-		test("HTTP 401 error surfaces as rejection", async () => {
-			server.setScenario("error-401");
-			try {
-				await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
-				assert.fail("Expected sendRequest to reject on HTTP 401");
-			} catch (e) {
-				assert.ok(e instanceof Error, "Should throw an Error");
+		test("HTTP error statuses reject with their own classification through the host", async () => {
+			// The extension-host boundary flattens a thrown error to name, message,
+			// and code, so those three ARE the classification a vscode.lm consumer
+			// sees; the fixture's error bodies make every message deterministic.
+			const cases: ReadonlyArray<{ scenario: string; name: string; code: unknown; message: string; reason: string }> = [
+				{
+					scenario: "error-400",
+					name: "RequestError",
+					code: undefined,
+					message:
+						"The server rejected this request as invalid.\n\nDetails: LiteLLM 400: Bad request: unknown parameter",
+					reason:
+						"a 400 is a generic HTTP refusal: the invalid_request headline plus the status-bearing detail, unwrapped",
+				},
+				{
+					scenario: "error-401",
+					name: "LanguageModelError",
+					code: "NoPermissions",
+					message:
+						'Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.',
+					reason:
+						"a 401 is an authentication failure, never re-wrapped as a network or generic HTTP error, and crosses the host as LanguageModelError.NoPermissions",
+				},
+			];
+			for (const { scenario, name, code, message, reason } of cases) {
+				server.setScenario(scenario);
+				await assert.rejects(
+					sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]),
+					(e: unknown) => {
+						assert.ok(e instanceof Error, `${scenario}: rejected with a non-Error: ${String(e)}`);
+						assert.deepStrictEqual(
+							{ name: e.name, code: (e as { code?: unknown }).code, message: e.message },
+							{ name, code, message },
+							`${scenario}: ${reason}`
+						);
+						return true;
+					},
+					`${scenario}: sendRequest must reject`
+				);
 			}
 		});
 
