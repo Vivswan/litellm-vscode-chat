@@ -12,12 +12,6 @@ function parsed(placements: readonly ReviewPlacement[], dropped: number, sawNoFi
 }
 
 describe("extension/features/reviewComments/placements", () => {
-	test("the frozen signature and the no-findings sentinel", () => {
-		const parse: (answer: string, lineCount: number) => ParsedPlacements = parsePlacements;
-		expect(typeof parse).toBe("function");
-		expect(NO_FINDINGS_REPLY).toBe("NO FINDINGS");
-	});
-
 	test("well-formed single-line and ranged findings parse in answer order", () => {
 		const answer = "LINE 3: The handle leaks.\nLINE 4-6: The retry loop never backs off.";
 		expect(parsePlacements(answer, 10)).toEqual(
@@ -40,9 +34,13 @@ describe("extension/features/reviewComments/placements", () => {
 	});
 
 	test("the no-findings sentinel is recognized through case, punctuation, and fences, and reported", () => {
-		const cases = ["NO FINDINGS", "no findings.", "No findings!", "**No-Findings.**", "```\nNO FINDINGS\n```"];
+		// The sentinel's spelling is what the prompt tells the model to answer, and
+		// the signature is frozen because the review commands call it positionally.
+		const parse: (answer: string, lineCount: number) => ParsedPlacements = parsePlacements;
+		expect(NO_FINDINGS_REPLY).toBe("NO FINDINGS");
+		const cases = [NO_FINDINGS_REPLY, "no findings.", "No findings!", "**No-Findings.**", "```\nNO FINDINGS\n```"];
 		for (const answer of cases) {
-			expect(parsePlacements(answer, 10)).toEqual(parsed([], 0, true));
+			expect(parse(answer, 10)).toEqual(parsed([], 0, true));
 		}
 	});
 

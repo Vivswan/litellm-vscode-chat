@@ -76,43 +76,6 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 		}
 	});
 
-	test("the manage command is contributed under manageCommandTitle()", () => {
-		// User-facing messages interpolate the title when telling the user to run
-		// the command, so it must be exactly what the palette shows.
-		const entry = readPackageJson().contributes.commands.find((candidate) => candidate.command === CMD.manage);
-		assert.ok(entry?.title !== undefined, "the manage command is contributed with a title");
-		assert.strictEqual(resolveNls(entry.title), manageCommandTitle());
-	});
-
-	test("the sync-models command is contributed under syncModelsCommandTitle()", () => {
-		// Same contract as the manage title: the chat-404 guidance interpolates it.
-		const entry = readPackageJson().contributes.commands.find((candidate) => candidate.command === CMD.syncModels);
-		assert.ok(entry?.title !== undefined, "the sync-models command is contributed with a title");
-		assert.strictEqual(resolveNls(entry.title), syncModelsCommandTitle());
-	});
-
-	test("the refresh-usage command is contributed under refreshUsageCommandTitle()", () => {
-		const entry = readPackageJson().contributes.commands.find((candidate) => candidate.command === CMD.refreshUsage);
-		assert.ok(entry?.title !== undefined, "the refresh-usage command is contributed with a title");
-		assert.strictEqual(resolveNls(entry.title), refreshUsageCommandTitle());
-	});
-
-	test("the generate-commit-message command is contributed under generateCommitMessageCommandTitle()", () => {
-		const entry = readPackageJson().contributes.commands.find(
-			(candidate) => candidate.command === CMD.generateCommitMessage
-		);
-		assert.ok(entry?.title !== undefined, "the generate-commit-message command is contributed with a title");
-		assert.strictEqual(resolveNls(entry.title), generateCommitMessageCommandTitle());
-	});
-
-	test("the generate-pr-description command is contributed under generatePrDescriptionCommandTitle()", () => {
-		const entry = readPackageJson().contributes.commands.find(
-			(candidate) => candidate.command === CMD.generatePrDescription
-		);
-		assert.ok(entry?.title !== undefined, "the generate-pr-description command is contributed with a title");
-		assert.strictEqual(resolveNls(entry.title), generatePrDescriptionCommandTitle());
-	});
-
 	test("the generate-pr-description palette entry is gated on the enable setting", () => {
 		// Opt-in by contribution: the palette entry hides until the boolean
 		// flips. The key is typed so a rename in BOOLEAN_SETTING_SPECS breaks
@@ -162,16 +125,24 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 		assert.strictEqual(palette.when, enabledClause);
 	});
 
-	test("the review commands are contributed under their shared titles", () => {
+	test("every command with a shared title function is contributed under exactly that title", () => {
+		// User-facing messages interpolate these titles when telling the user to
+		// run the command (the chat-404 guidance names the manage and sync-models
+		// commands), so each must be exactly what the palette shows.
 		const commands = readPackageJson().contributes.commands;
 		const pins: readonly [string, string][] = [
+			[CMD.manage, manageCommandTitle()],
+			[CMD.syncModels, syncModelsCommandTitle()],
+			[CMD.refreshUsage, refreshUsageCommandTitle()],
+			[CMD.generateCommitMessage, generateCommitMessageCommandTitle()],
+			[CMD.generatePrDescription, generatePrDescriptionCommandTitle()],
 			[CMD.reviewChanges, reviewChangesCommandTitle()],
 			[CMD.reviewFile, reviewFileCommandTitle()],
 		];
 		for (const [command, title] of pins) {
 			const entry = commands.find((candidate) => candidate.command === command);
 			assert.ok(entry?.title !== undefined, `${command} is contributed with a title`);
-			assert.strictEqual(resolveNls(entry.title), title);
+			assert.strictEqual(resolveNls(entry.title), title, `${command} is contributed under its shared title`);
 		}
 	});
 

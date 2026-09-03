@@ -23,12 +23,23 @@ function diagnosticsOf(id: string, records: Record<string, Record<string, unknow
 	return [...resolveParameterLayer(id, records).diagnostics];
 }
 
+// The diagnostic vocabulary, pinned at compile time rather than in a test that
+// could only ever report green: a kind added to the union is a missing property
+// here, a kind removed is an excess one, and either fails typecheck.
+({
+	"invalid-matcher": true,
+	"invalid-directive": true,
+	"wrong-record-type": true,
+	"unknown-inherit-key": true,
+	"unforceable-key": true,
+	"unrecognized-key": true,
+	"invalid-value": true,
+}) satisfies Record<RecordDiagnosticKind, true>;
+
 describe("shared/config recordResolution directive names", () => {
 	test("the exported directive constants are the documented spellings", () => {
 		assert.strictEqual(INHERITABLE_DIRECTIVE, "_inheritable");
 		assert.strictEqual(INHERIT_FROM_DIRECTIVE, "_inherit_from");
-		const kinds: readonly RecordDiagnosticKind[] = ["invalid-matcher", "invalid-directive", "unknown-inherit-key"];
-		assert.strictEqual(kinds.length, 3, "the shape pin keeps the diagnostic vocabulary imported");
 	});
 });
 

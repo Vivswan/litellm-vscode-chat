@@ -31,12 +31,7 @@ describe("shared/util tokenCount", () => {
 		expect(compactTokenCount(1_000_000)).toBe("1M");
 		expect(compactTokenCount(1_048_576)).toBe("1.05M");
 		expect(compactTokenCount(2_000_000)).toBe("2M");
+		expect(compactTokenCount(5_000_000)).toBe("5M");
 		expect(compactTokenCount(10_000_000)).toBe("10M");
-	});
-
-	test("never renders a bare unit or an empty string", () => {
-		for (const count of [0, 1, 999, 1000, 999_999, 1_048_576, 5_000_000]) {
-			expect(compactTokenCount(count)).toMatch(/^\d/);
-		}
 	});
 });

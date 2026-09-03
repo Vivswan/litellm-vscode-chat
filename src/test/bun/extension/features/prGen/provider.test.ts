@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { CancellationToken } from "vscode";
-import type { GitHubPullRequestsApi } from "../../../../../extension/features/prGen/githubPullRequestsApi";
 import type { TitleAndDescriptionContext } from "../../../../../extension/features/prGen/prompt";
 import { createTitleAndDescriptionProvider } from "../../../../../extension/features/prGen/provider";
 
@@ -54,23 +53,5 @@ describe("extension/features/prGen createTitleAndDescriptionProvider", () => {
 			caught = error;
 		}
 		expect(caught).toBe(failure);
-	});
-
-	test("the provider satisfies the vendored API's typeof-guardable registration member", () => {
-		const provider = createTitleAndDescriptionProvider(() => Promise.resolve(""));
-		const registered: unknown[] = [];
-		const api: GitHubPullRequestsApi = {
-			registerTitleAndDescriptionProvider: (title, candidate) => {
-				registered.push(title, candidate);
-				return { dispose() {} };
-			},
-		};
-		const bare: GitHubPullRequestsApi = {};
-		for (const candidate of [api, bare]) {
-			if (typeof candidate.registerTitleAndDescriptionProvider === "function") {
-				candidate.registerTitleAndDescriptionProvider("LiteLLM", provider);
-			}
-		}
-		expect(registered).toEqual(["LiteLLM", provider]);
 	});
 });

@@ -20,41 +20,29 @@ import {
 import { CONSUMED_CAPABILITY_FIELDS } from "../../../../shared/config/capabilityResolution";
 
 describe("shared/config/capabilityDisplay formatCostPerMillion", () => {
-	test("renders whole-dollar and cent values with exactly two decimals", () => {
-		assert.strictEqual(formatCostPerMillion(0.000005, "$"), "$5.00");
-		assert.strictEqual(formatCostPerMillion(0.000025, "$"), "$25.00");
-		assert.strictEqual(formatCostPerMillion(6.25e-6, "$"), "$6.25");
-		assert.strictEqual(formatCostPerMillion(3.75e-5, "$"), "$37.50");
-		assert.strictEqual(formatCostPerMillion(0.000001, "$"), "$1.00");
-	});
-
-	test("the 5e-7 regression case renders as $0.50, never scientific notation", () => {
-		assert.strictEqual(formatCostPerMillion(5e-7, "$"), "$0.50");
-	});
-
-	test("sub-dollar values trim trailing zeros but keep at least two decimals", () => {
-		assert.strictEqual(formatCostPerMillion(3e-7, "$"), "$0.30");
-		assert.strictEqual(formatCostPerMillion(1.23e-7, "$"), "$0.123");
-		assert.strictEqual(formatCostPerMillion(2.5e-8, "$"), "$0.025");
-	});
-
-	test("sub-cent values keep enough digits to stay non-zero", () => {
-		assert.strictEqual(formatCostPerMillion(4e-10, "$"), "$0.0004");
-		assert.strictEqual(formatCostPerMillion(4.56e-10, "$"), "$0.000456");
-		assert.strictEqual(formatCostPerMillion(1e-12, "$"), "$0.000001");
-	});
-
-	test("values of a dollar and up round to cents", () => {
-		assert.strictEqual(formatCostPerMillion(1.23456e-6, "$"), "$1.23");
-		assert.strictEqual(formatCostPerMillion(9.999e-6, "$"), "$10.00");
-		assert.strictEqual(formatCostPerMillion(0.001234, "$"), "$1234.00");
-	});
-
-	test("boundary rounding never carries into scientific notation or false zeros", () => {
-		// Just under a cent: three significant digits, honest sub-cent price.
-		assert.strictEqual(formatCostPerMillion(9.99e-9, "$"), "$0.00999");
-		// Rounds up across the cent boundary and trims back to cents.
-		assert.strictEqual(formatCostPerMillion(9.9999e-9, "$"), "$0.01");
+	test("each rounding band renders its documented shape", () => {
+		const cases: readonly { input: number; expected: string; reason: string }[] = [
+			{ input: 0.000005, expected: "$5.00", reason: "whole dollars keep exactly two decimals" },
+			{ input: 0.000025, expected: "$25.00", reason: "whole dollars keep exactly two decimals" },
+			{ input: 6.25e-6, expected: "$6.25", reason: "cent values keep exactly two decimals" },
+			{ input: 3.75e-5, expected: "$37.50", reason: "cent values keep exactly two decimals" },
+			{ input: 0.000001, expected: "$1.00", reason: "one dollar keeps exactly two decimals" },
+			{ input: 5e-7, expected: "$0.50", reason: "the 5e-7 regression case, never scientific notation" },
+			{ input: 3e-7, expected: "$0.30", reason: "sub-dollar trims trailing zeros but keeps two decimals" },
+			{ input: 1.23e-7, expected: "$0.123", reason: "sub-dollar keeps three significant digits" },
+			{ input: 2.5e-8, expected: "$0.025", reason: "sub-dollar keeps three significant digits" },
+			{ input: 4e-10, expected: "$0.0004", reason: "sub-cent keeps enough digits to stay non-zero" },
+			{ input: 4.56e-10, expected: "$0.000456", reason: "sub-cent keeps enough digits to stay non-zero" },
+			{ input: 1e-12, expected: "$0.000001", reason: "sub-cent keeps enough digits to stay non-zero" },
+			{ input: 1.23456e-6, expected: "$1.23", reason: "a dollar and up rounds to cents" },
+			{ input: 9.999e-6, expected: "$10.00", reason: "a dollar and up rounds to cents" },
+			{ input: 0.001234, expected: "$1234.00", reason: "a dollar and up rounds to cents" },
+			{ input: 9.99e-9, expected: "$0.00999", reason: "just under a cent: three significant digits, honest price" },
+			{ input: 9.9999e-9, expected: "$0.01", reason: "rounds up across the cent boundary and trims back to cents" },
+		];
+		for (const { input, expected, reason } of cases) {
+			assert.strictEqual(formatCostPerMillion(input, "$"), expected, `${String(input)}: ${reason}`);
+		}
 	});
 
 	test("zero is $0 (a genuinely free model), and -0 does not leak a sign", () => {

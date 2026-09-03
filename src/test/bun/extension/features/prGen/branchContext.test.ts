@@ -227,9 +227,8 @@ describe("extension/features/prGen collectBranchContext", () => {
 		expect((await collectBranchContext(fakeRepo({ head: { name: "" } }))).kind).toBe("noBranch");
 	});
 
-	test("no base branch, a nameless base, and a base that is the branch itself all read as noBase", async () => {
+	test("no base branch and a nameless base read as noBase", async () => {
 		expect((await collectBranchContext(fakeRepo({ head, branchBase: undefined }))).kind).toBe("noBase");
-		expect((await collectBranchContext(fakeRepo({ head, branchBase: { commit: "x" } }))).kind).toBe("noBase");
 		// A nameless base cannot be addressed at all.
 		expect((await collectBranchContext(fakeRepo({ head, branchBase: { commit: "x" } }))).kind).toBe("noBase");
 	});

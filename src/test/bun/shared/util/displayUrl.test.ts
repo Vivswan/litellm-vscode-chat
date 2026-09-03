@@ -3,28 +3,22 @@ import * as assert from "node:assert";
 import { displayUrl, redactUrlCredentials } from "../../../../shared/util/displayUrl";
 
 describe("shared/util/displayUrl", () => {
-	test("strips user:pass userinfo and keeps scheme, host, port, and path", () => {
-		assert.strictEqual(displayUrl("http://user:pass@litellm.test:4000/v1"), "http://litellm.test:4000/v1");
-	});
-
-	test("strips a username-only userinfo", () => {
-		assert.strictEqual(displayUrl("https://user@litellm.test/v1"), "https://litellm.test/v1");
-	});
-
-	test("strips a password-only userinfo", () => {
-		assert.strictEqual(displayUrl("http://:secret@litellm.test:4000"), "http://litellm.test:4000");
-	});
-
-	test("keeps query and fragment", () => {
-		assert.strictEqual(displayUrl("http://u:p@host.test/path?a=1#frag"), "http://host.test/path?a=1#frag");
-	});
-
-	test("does not add a trailing slash to a stripped bare origin", () => {
-		assert.strictEqual(displayUrl("http://u:p@host.test:8001"), "http://host.test:8001");
-	});
-
-	test("keeps a trailing slash the configured URL had", () => {
-		assert.strictEqual(displayUrl("http://u:p@host.test:8001/"), "http://host.test:8001/");
+	test("userinfo is dropped; scheme, host, port, path, query, and fragment are retained", () => {
+		const cases: readonly [string, string, string][] = [
+			[
+				"http://user:pass@litellm.test:4000/v1",
+				"http://litellm.test:4000/v1",
+				"user:pass, keeping scheme/host/port/path",
+			],
+			["https://user@litellm.test/v1", "https://litellm.test/v1", "a username-only userinfo"],
+			["http://:secret@litellm.test:4000", "http://litellm.test:4000", "a password-only userinfo"],
+			["http://u:p@host.test/path?a=1#frag", "http://host.test/path?a=1#frag", "query and fragment are kept"],
+			["http://u:p@host.test:8001", "http://host.test:8001", "no trailing slash added to a stripped bare origin"],
+			["http://u:p@host.test:8001/", "http://host.test:8001/", "a trailing slash the configured URL had is kept"],
+		];
+		for (const [input, expected, reason] of cases) {
+			assert.strictEqual(displayUrl(input), expected, reason);
+		}
 	});
 
 	test("a URL without userinfo passes through byte-identical, unnormalized", () => {
@@ -45,25 +39,19 @@ describe("shared/util/displayUrl", () => {
 });
 
 describe("shared/util/redactUrlCredentials", () => {
-	test("scrubs userinfo out of URLs quoted inside free text", () => {
-		assert.strictEqual(
-			redactUrlCredentials("Invalid URL: http://user:pass@litellm.test:4000/v1"),
-			"Invalid URL: http://litellm.test:4000/v1"
-		);
-	});
-
-	test("is greedy to the run's last @, so multi-@ userinfo leaves no password tail", () => {
-		assert.strictEqual(redactUrlCredentials("see http://a@b@host/x"), "see http://host/x");
-	});
-
-	test("leaves bare emails in prose untouched", () => {
-		assert.strictEqual(redactUrlCredentials("contact admin@example.com"), "contact admin@example.com");
-	});
-
-	test("leaves credential-free URLs untouched", () => {
-		assert.strictEqual(
-			redactUrlCredentials("GET http://litellm.test:4000/v1/models"),
-			"GET http://litellm.test:4000/v1/models"
-		);
+	test("userinfo inside free text is scrubbed; emails and credential-free URLs are untouched", () => {
+		const cases: readonly [string, string, string][] = [
+			[
+				"Invalid URL: http://user:pass@litellm.test:4000/v1",
+				"Invalid URL: http://litellm.test:4000/v1",
+				"userinfo is scrubbed out of a URL quoted inside prose",
+			],
+			["see http://a@b@host/x", "see http://host/x", "greedy to the run's last @, so multi-@ userinfo leaves no tail"],
+			["contact admin@example.com", "contact admin@example.com", "a bare email in prose is not a credential"],
+			["GET http://litellm.test:4000/v1/models", "GET http://litellm.test:4000/v1/models", "a credential-free URL"],
+		];
+		for (const [input, expected, reason] of cases) {
+			assert.strictEqual(redactUrlCredentials(input), expected, reason);
+		}
 	});
 });

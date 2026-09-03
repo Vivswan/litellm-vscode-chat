@@ -8,12 +8,10 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
 const SEED = resolveFuzzSeed();
 
 describe("shared/util/baseUrl", () => {
-	test("DEFAULT_API_VERSION is v1", () => {
-		assert.strictEqual(DEFAULT_API_VERSION, "v1");
-	});
-
-	test("apiRootOf appends the default version to a version-less base URL", () => {
-		assert.strictEqual(apiRootOf("http://localhost:4000"), "http://localhost:4000/v1");
+	test("apiRootOf appends the default version, v1, to a version-less base URL", () => {
+		const base = "http://localhost:4000";
+		assert.strictEqual(apiRootOf(base), "http://localhost:4000/v1");
+		assert.strictEqual(apiRootOf(base), `${base}/${DEFAULT_API_VERSION}`, "the appended segment IS the constant");
 		assert.strictEqual(apiRootOf("http://localhost:4000/"), "http://localhost:4000/v1");
 		assert.strictEqual(apiRootOf("http://h/v1/"), "http://h/v1");
 	});

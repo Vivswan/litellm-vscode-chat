@@ -12,7 +12,9 @@ const SOURCE: readonly SnapshotSource[] = [
 		status: { label: "Team proxy", serverId: "srv-1", state: "ok" },
 		models: [
 			{
-				id: "gpt-4o-mini:cheapest",
+				// The exposed id differs from the stamp, so a conversion reading the
+				// exposed id cannot pass by accident.
+				id: "team-proxy/gpt-4o-mini:cheapest",
 				litellm: { rawModelId: "gpt-4o-mini:cheapest" },
 				maxInputTokens: 128000,
 				capabilities: { toolCalling: true, imageInput: true },
@@ -23,10 +25,16 @@ const SOURCE: readonly SnapshotSource[] = [
 ];
 
 describe("extension/features/participant snapshots", () => {
-	test("the label rides through and every id is the mint-stamped raw model id", () => {
-		const [group] = participantSnapshots(SOURCE);
-		expect(group?.label).toBe("Team proxy");
-		expect(group?.models.map((model) => model.id)).toEqual(["gpt-4o-mini:cheapest", "plain"]);
+	test("the label rides through, every id is the mint-stamped raw model id, and the summary names only what the model reports", () => {
+		expect(participantSnapshots(SOURCE)).toEqual([
+			{
+				label: "Team proxy",
+				models: [
+					{ id: "gpt-4o-mini:cheapest", capabilities: "128k context, tools, images" },
+					{ id: "plain", capabilities: "8k context" },
+				],
+			},
+		]);
 	});
 
 	test("a copy that lost the stamp falls back to the exposed id, which group mints keep raw", () => {
@@ -34,12 +42,6 @@ describe("extension/features/participant snapshots", () => {
 			{ status: { label: "solo", serverId: "srv-1", state: "ok" }, models: [{ id: "gpt-4o", maxInputTokens: 1000 }] },
 		]);
 		expect(group?.models[0]?.id).toBe("gpt-4o");
-	});
-
-	test("the summary names the context window and only the capabilities the model reports", () => {
-		const [group] = participantSnapshots(SOURCE);
-		expect(group?.models[0]?.capabilities).toBe("128k context, tools, images");
-		expect(group?.models[1]?.capabilities).toBe("8k context");
 	});
 
 	test("token counts render compactly at each magnitude", () => {
