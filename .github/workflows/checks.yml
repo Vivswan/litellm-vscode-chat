@@ -253,6 +253,10 @@ jobs:
   openrouter-catalog:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      # fetched or skipped; format-check tolerates a missing artifact only on
+      # skipped.
+      catalog: ${{ steps.fetch.outputs.catalog }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -262,16 +266,39 @@ jobs:
         with:
           bun-version-file: package.json
 
+      # Push-to-main runs opt into the script's lenient mode: an UNREACHABLE
+      # OpenRouter (connect failure, header or body timeout, non-2xx, a body
+      # that is not JSON - the script's own transient class) is one
+      # ::warning:: annotation and exit 0 with nothing written, because a
+      # third-party outage must not block landing on main; schema drift stays
+      # fatal in every mode. Pull request runs, ci.yml's weekly schedule, and
+      # manual dispatch stay fatal, so an outage is still caught loudly where
+      # a human is watching and a re-run is cheap, and the release build's own
+      # fetch (vscode:prepublish) stays fatal too. The file, not the exit
+      # code, says whether the catalog was fetched.
       - name: Fetch and validate the live OpenRouter catalog
-        run: bun scripts/dev/fetch-openrouter-catalog.ts
+        id: fetch
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "push" ]; then
+            set -- --unreachable-is-warning
+          fi
+          bun scripts/dev/fetch-openrouter-catalog.ts "$@"
+          if [ -s dist/openrouter-models.json ]; then
+            echo "catalog=fetched" >> "$GITHUB_OUTPUT"
+          else
+            echo "catalog=skipped" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload the slimmed catalog for format-check
+        if: steps.fetch.outputs.catalog == 'fetched'
         uses: actions/upload-artifact@v7
         with:
           name: openrouter-catalog
           path: dist/openrouter-models.json
-          # The script exits non-zero before it would ever leave the file
-          # missing, so this is a fail-closed backstop, not an expected path.
+          # The step above only reports fetched with the file on disk, so this
+          # is a fail-closed backstop, not an expected path.
           if-no-files-found: error
           # Consumed within the run by format-check; nothing reads it later.
           retention-days: 1
@@ -296,6 +323,7 @@ jobs:
     uses: ./.github/workflows/format-check-reusable.yml
     with:
       catalog-artifact: openrouter-catalog
+      catalog-outcome: ${{ needs.openrouter-catalog.outputs.catalog }}
 
   # All four tsconfig projects. The reusable format-check only typechecks
   # the helper scripts, the pre-commit hook likewise, and the bun test tree

@@ -42,6 +42,29 @@ export function worstCaseWallTimeMs(): number {
 
 export class UnreachableError extends Error {}
 
+/**
+ * How the fetch script exits on a failure. Anything that is not an
+ * UnreachableError - schema drift above all - is fatal in every mode. An
+ * UnreachableError is fatal by default; under `unreachableIsWarning` it is one
+ * GitHub `::warning::` line carrying the evidence and exit 0. Push-to-main
+ * builds opt in, so a third-party outage does not block landing; pull request
+ * runs, ci.yml's weekly schedule, manual dispatch, and the release build's own
+ * fetch stay fatal, so an outage is still caught loudly where a re-run is cheap.
+ */
+export type FailureExit = { readonly exitCode: 0; readonly warning: string } | { readonly exitCode: 1 };
+
+export function failureExit(error: unknown, options: { readonly unreachableIsWarning: boolean }): FailureExit {
+	if (options.unreachableIsWarning && error instanceof UnreachableError) {
+		return {
+			exitCode: 0,
+			warning:
+				`::warning::OpenRouter unreachable (transient): ${error.message}; ` +
+				"skipping the live catalog check on this push - pull request runs, ci.yml's weekly schedule, and release builds still fail on it",
+		};
+	}
+	return { exitCode: 1 };
+}
+
 export interface CatalogFetchOptions {
 	readonly fetch: (url: string, init: { readonly signal: AbortSignal }) => Promise<Response>;
 	readonly timeoutMs: number;

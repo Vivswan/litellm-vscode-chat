@@ -5,6 +5,7 @@ import * as path from "node:path";
 import {
 	FETCH_ATTEMPTS,
 	FETCH_TIMEOUT_MS,
+	failureExit,
 	fetchLivePayload,
 	fetchOnce,
 	retryDelayMs,
@@ -227,4 +228,53 @@ describe("fetchLivePayload retry cadence", () => {
 			`${worstCaseWallTimeMs()} ms of fetching plus a minute of setup exceeds the job's ${budgetMs} ms`
 		);
 	});
+});
+
+/**
+ * The script's exit on a failure, asserted as the whole outcome: the lenient
+ * mode downgrades exactly the transient class to one annotation line and a
+ * green exit, and nothing else - schema drift is the signal the check exists
+ * for, so it stays red in every mode.
+ */
+describe("failureExit", () => {
+	class DriftError extends Error {}
+	const unreachable = new UnreachableError(`HTTP 503 from ${OPENROUTER_MODELS_URL}`);
+	const drift = new DriftError("payload yields 3 usable models (floor 100)");
+	const cases: readonly {
+		readonly name: string;
+		readonly error: unknown;
+		readonly unreachableIsWarning: boolean;
+		readonly exit: ReturnType<typeof failureExit>;
+	}[] = [
+		{
+			name: "lenient: an unreachable OpenRouter is the one ::warning:: line carrying the evidence, exit 0",
+			error: unreachable,
+			unreachableIsWarning: true,
+			exit: {
+				exitCode: 0,
+				warning:
+					`::warning::OpenRouter unreachable (transient): HTTP 503 from ${OPENROUTER_MODELS_URL}; ` +
+					"skipping the live catalog check on this push - pull request runs, ci.yml's weekly schedule, and release builds still fail on it",
+			},
+		},
+		{ name: "lenient: schema drift stays fatal", error: drift, unreachableIsWarning: true, exit: { exitCode: 1 } },
+		{
+			name: "lenient: an unclassified error stays fatal",
+			error: new TypeError("x is not a function"),
+			unreachableIsWarning: true,
+			exit: { exitCode: 1 },
+		},
+		{
+			name: "default: an unreachable OpenRouter is fatal",
+			error: unreachable,
+			unreachableIsWarning: false,
+			exit: { exitCode: 1 },
+		},
+		{ name: "default: schema drift is fatal", error: drift, unreachableIsWarning: false, exit: { exitCode: 1 } },
+	];
+	for (const { name, error, unreachableIsWarning, exit } of cases) {
+		test(name, () => {
+			assert.deepStrictEqual(failureExit(error, { unreachableIsWarning }), exit);
+		});
+	}
 });

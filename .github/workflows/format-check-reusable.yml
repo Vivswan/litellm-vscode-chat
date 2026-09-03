@@ -16,6 +16,10 @@ on:
         description: 'Name of the artifact holding the validated dist/openrouter-models.json (uploaded by checks.yml openrouter-catalog)'
         required: true
         type: string
+      catalog-outcome:
+        description: 'The openrouter-catalog job''s catalog output: fetched (the artifact exists) or skipped (a push build''s lenient mode met an unreachable OpenRouter and uploaded nothing)'
+        required: true
+        type: string
 
 jobs:
   format-check:
@@ -72,17 +76,33 @@ jobs:
           name: ${{ inputs.catalog-artifact }}
           path: dist
 
-      # Fail closed: no artifact, no fetch of our own, no skipped assertions.
-      - name: The catalog artifact must have arrived
+      # Fail closed, with one declared gap: no fetch of our own ever, and a
+      # missing artifact passes only when the producer itself reports that it
+      # skipped the fetch (a push build's lenient mode on an unreachable
+      # OpenRouter) - then the catalog assertions below skip, the bundle still
+      # runs (builds are network-free by design and the runtime tolerates a
+      # missing catalog), and the gap shows on a fresh run as one ::warning::
+      # from each job, the producer's and this one (after a re-run whose earlier
+      # attempt did upload, this job finds that artifact - the same commit's
+      # validated catalog - and posts none). A missing artifact with any
+      # other producer outcome is an error.
+      - name: The catalog artifact must have arrived unless the producer skipped the fetch
+        id: present
         env:
           ARTIFACT: ${{ inputs.catalog-artifact }}
           OUTCOME: ${{ steps.catalog.outcome }}
+          PRODUCER: ${{ inputs.catalog-outcome }}
         run: |
-          if [ "$OUTCOME" != "success" ] || [ ! -s dist/openrouter-models.json ]; then
-            echo "::error::dist/openrouter-models.json did not arrive from the '${ARTIFACT}' artifact (download outcome: ${OUTCOME}); checks.yml's openrouter-catalog job is its only producer and this job never fetches the catalog itself - if the artifact expired, re-run all jobs"
+          if [ "$OUTCOME" = "success" ] && [ -s dist/openrouter-models.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "dist/openrouter-models.json arrived from the '${ARTIFACT}' artifact ($(wc -c < dist/openrouter-models.json | tr -d ' ') bytes)"
+          elif [ "$PRODUCER" = "skipped" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::the openrouter-catalog job skipped its fetch on this push (OpenRouter unreachable); bundling without dist/openrouter-models.json and skipping its packaged-file-list assertions"
+          else
+            echo "::error::dist/openrouter-models.json did not arrive from the '${ARTIFACT}' artifact (download outcome: ${OUTCOME}, producer outcome: ${PRODUCER}); checks.yml's openrouter-catalog job is its only producer and this job never fetches the catalog itself - if the artifact expired, re-run all jobs"
             exit 1
           fi
-          echo "dist/openrouter-models.json arrived from the '${ARTIFACT}' artifact ($(wc -c < dist/openrouter-models.json | tr -d ' ') bytes)"
 
       # The dev compile puts out/ on disk first, so this proves .vscodeignore
       # excludes it rather than passing because the files were never built.
@@ -90,9 +110,12 @@ jobs:
       # test:coverage write them locally but nothing in this job does, so
       # without the seeding their exclusion would never actually be exercised.
       # The downloaded catalog is the same slimmed file vscode:prepublish's
-      # fetch writes, so the listing below checks the exact file set a release
-      # build would package.
+      # fetch writes, so with it on disk the listing below checks the exact
+      # file set a release build would package; after a producer skip the
+      # listing lacks that one file, which the guarded assertions account for.
       - name: Verify the packaged file list stays clean
+        env:
+          CATALOG_PRESENT: ${{ steps.present.outputs.present }}
         run: |
           bun run compile
           bun run bundle
@@ -179,25 +202,31 @@ jobs:
           # The OpenRouter catalog artifact must ship AND carry a real model
           # set: a size floor alone cannot catch a semantically empty file.
           # The floor is read from CATALOG_MODEL_COUNT_FLOOR so it cannot
-          # drift from the fetch script's own validation.
-          if ! echo "$listing" | grep -qx 'dist/openrouter-models.json'; then
-            echo "::error::dist/openrouter-models.json is missing from the packaged file list"
-            exit 1
-          fi
-          catalog_floor="$(bun -e 'console.log(require("./src/shared/config/openRouterCatalog.ts").CATALOG_MODEL_COUNT_FLOOR)')"
-          catalog_count="$(jq '.data | length // 0' dist/openrouter-models.json)"
-          if ! [[ "$catalog_count" =~ ^[0-9]+$ ]] || [ "$catalog_count" -lt "$catalog_floor" ]; then
-            echo "::error::dist/openrouter-models.json parses to ${catalog_count} models (floor ${catalog_floor})"
-            exit 1
-          fi
-          # The catalog is capabilities-only: pricing never rides it (LiteLLM
-          # is the only pricing source), so a pricing key in the shipped
-          # artifact means the slim encoder regressed or a stale file slipped
-          # into the package.
-          catalog_priced="$(jq '[.data[] | has("pricing")] | any' dist/openrouter-models.json)"
-          if [ "$catalog_priced" != "false" ]; then
-            echo "::error::dist/openrouter-models.json carries pricing keys; the catalog is capabilities-only"
-            exit 1
+          # drift from the fetch script's own validation. The three
+          # assertions skip only when the catalog step above judged the
+          # producer's skip legitimate (its ::warning:: already names it).
+          if [ "$CATALOG_PRESENT" = "true" ]; then
+            if ! echo "$listing" | grep -qx 'dist/openrouter-models.json'; then
+              echo "::error::dist/openrouter-models.json is missing from the packaged file list"
+              exit 1
+            fi
+            catalog_floor="$(bun -e 'console.log(require("./src/shared/config/openRouterCatalog.ts").CATALOG_MODEL_COUNT_FLOOR)')"
+            catalog_count="$(jq '.data | length // 0' dist/openrouter-models.json)"
+            if ! [[ "$catalog_count" =~ ^[0-9]+$ ]] || [ "$catalog_count" -lt "$catalog_floor" ]; then
+              echo "::error::dist/openrouter-models.json parses to ${catalog_count} models (floor ${catalog_floor})"
+              exit 1
+            fi
+            # The catalog is capabilities-only: pricing never rides it (LiteLLM
+            # is the only pricing source), so a pricing key in the shipped
+            # artifact means the slim encoder regressed or a stale file slipped
+            # into the package.
+            catalog_priced="$(jq '[.data[] | has("pricing")] | any' dist/openrouter-models.json)"
+            if [ "$catalog_priced" != "false" ]; then
+              echo "::error::dist/openrouter-models.json carries pricing keys; the catalog is capabilities-only"
+              exit 1
+            fi
+          else
+            echo "dist/openrouter-models.json absent by the producer's declared skip; its three assertions did not run"
           fi
           # The localization catalogs must ship: without package.nls.json the
           # host renders raw %key% placeholders, and without the English

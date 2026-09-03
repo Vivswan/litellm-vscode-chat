@@ -4,6 +4,10 @@
  * failure exits non-zero, so a release build and the packaged-file-list CI check
  * can never ship a missing or semantically empty catalog. `--check` runs the
  * same fetch and validation into a temp file and never touches dist/.
+ * `--unreachable-is-warning` is the push-to-main gate's opt-in: an unreachable
+ * OpenRouter becomes one `::warning::` line and exit 0 with nothing written
+ * (failureExit in openRouterCatalogFetch.ts decides), while schema drift stays
+ * fatal in every mode.
  *
  * bundle/bundle:dev deliberately do NOT run this: builds stay network-free and
  * the runtime tolerates a missing artifact. Failure messages distinguish
@@ -21,7 +25,7 @@ import {
 	parseCatalogSnapshot,
 	slimCatalogPayload,
 } from "../../src/shared/config/openRouterCatalog";
-import { FETCH_TIMEOUT_MS, fetchLivePayload, UnreachableError } from "./openRouterCatalogFetch";
+import { FETCH_TIMEOUT_MS, failureExit, fetchLivePayload, UnreachableError } from "./openRouterCatalogFetch";
 
 class DriftError extends Error {}
 
@@ -98,6 +102,13 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+	const exit = failureExit(error, { unreachableIsWarning: process.argv.includes("--unreachable-is-warning") });
+	if (exit.exitCode === 0) {
+		// stdout: the runner reads workflow commands from the step's output and
+		// renders this one as an annotation on the run.
+		console.log(exit.warning);
+		return;
+	}
 	if (error instanceof UnreachableError) {
 		console.error(`OpenRouter unreachable (transient): ${error.message}`);
 		console.error("Not a schema problem - retry once the endpoint is reachable.");
@@ -107,5 +118,5 @@ main().catch((error) => {
 	} else {
 		console.error(error);
 	}
-	process.exitCode = 1;
+	process.exitCode = exit.exitCode;
 });
