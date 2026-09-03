@@ -632,7 +632,13 @@ const stallThenDestroy = (res: ServerResponse, stallMs: number | undefined): voi
 	armTimer(res, () => res.destroy(), Math.min(stallMs ?? STALL_MS_DEFAULT, MAX_STALL_MS));
 };
 
-/** Destroy the socket once the written bytes had a chance to reach the peer; see DESTROY_FLUSH_MS. */
+/**
+ * Destroy the socket once the written bytes had a chance to reach the peer; see DESTROY_FLUSH_MS.
+ * The peer sees a plain FIN with the chunked body unterminated - the only death
+ * shape available here: bun's node:http hands out a facade socket whose writes
+ * never reach the wire and whose resetAndDestroy() is a no-op (bun 1.4.0), so
+ * neither an RST nor hand-framed garbage can be sent through it.
+ */
 const destroyAfterFlush = (res: ServerResponse): void => {
 	armTimer(res, () => res.destroy(), DESTROY_FLUSH_MS);
 };

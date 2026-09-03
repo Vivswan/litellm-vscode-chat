@@ -131,48 +131,73 @@ function transportSuite(title: string, directMode: boolean): void {
 			model = await resolveTargetModel(directMode);
 		});
 
-		test(`${COMMAND_SIGIL}abort:3 fails promptly, keeps the streamed text, and leaves the model usable`, async function () {
+		test(`${COMMAND_SIGIL}abort:3 keeps the streamed text and leaves the model usable: a classified death direct, a swallowed drop through the proxy`, async function () {
 			this.timeout(60000);
+			const outcome = await runToOutcome(model, `${COMMAND_SIGIL}abort:3`);
+			// The playback's flush delay before the destroy tail makes this a
+			// genuine MID-STREAM death: all three chunks stream out, then the
+			// socket drops with the chunked body unterminated.
+			assert.strictEqual(extractText(outcome.parts), "chunk1 chunk2 chunk3 ");
 			if (directMode) {
-				const outcome = await runToOutcome(model, `${COMMAND_SIGIL}abort:3`);
 				assert.ok(outcome.error !== undefined, "a mid-stream destroy must surface as an error, not a clean completion");
 				assert.ok(outcome.elapsedMs < 30000, `the failure must be prompt, took ${outcome.elapsedMs}ms`);
-				// The playback's flush delay before the destroy tail makes this a
-				// genuine MID-STREAM death: all three chunks stream out, then the
-				// request fails. The body-read termination (undici's bare
-				// "terminated") maps to the classified mid-stream network message,
-				// never the raw TypeError.
-				assert.strictEqual(extractText(outcome.parts), "chunk1 chunk2 chunk3 ");
+				// The body-read termination (undici's bare "terminated") maps to the
+				// classified mid-stream network message, never the raw TypeError.
 				assert.match(
 					String(outcome.error),
 					/The connection dropped before the model finished replying[\s\S]*closed mid-response/
 				);
 				assert.ok(!String(outcome.error).startsWith("TypeError"), "the raw undici error must never surface");
 			} else {
-				// Observed against LiteLLM v1.93: the proxy neither forwards the
-				// upstream's mid-stream death nor ends the client stream, so the
-				// request just hangs. requestTimeout is the hard whole-call bound that
-				// makes the failure observable, lowered here for this one request.
-				const configuration = vscode.workspace.getConfiguration("litellm-vscode-chat");
-				await configuration.update("chat.timeout", 10000, vscode.ConfigurationTarget.Global);
-				let outcome: StreamOutcome;
-				try {
-					outcome = await runToOutcome(model, `${COMMAND_SIGIL}abort:3`);
-				} finally {
-					await configuration.update("chat.timeout", undefined, vscode.ConfigurationTarget.Global);
-				}
-				assert.ok(outcome.error !== undefined, "the hung stream must surface the whole-call timeout");
-				assert.ok(outcome.elapsedMs < 30000, `the timeout must bound the hang, took ${outcome.elapsedMs}ms`);
-				assert.match(String(outcome.error), /LiteLLM request timed out after 10000ms/);
-				// LiteLLM held the client stream while the upstream died, so what
-				// text got through before the timeout is its buffering's business;
-				// it must still be a prefix of the chunk text.
-				const text = extractText(outcome.parts);
+				// Observed against LiteLLM v1.93: the proxy SWALLOWS the upstream's
+				// socket drop. Its HTTP client reads the unterminated body as end of
+				// stream, the proxy synthesizes a finish and its own [DONE], and the
+				// extension sees a clean completion carrying the text that got
+				// through - the truncation is invisible on this side of the proxy.
+				// Pinned so a proxy upgrade that starts forwarding the death shows up
+				// as a diff. (Until bun 1.4.0 the fake backend's destroy tail leaked
+				// stray header bytes into the chunked body, a bun 1.3.x bug the proxy
+				// reacted to by hanging; the whole-call timeout test below now drives
+				// that hang with a %stall, a genuine upstream hang.)
+				assert.strictEqual(
+					outcome.error,
+					undefined,
+					`LiteLLM v1.93 swallows an upstream socket drop; got ${String(outcome.error)}`
+				);
 				assert.ok(
-					"chunk1 chunk2 chunk3 ".startsWith(text),
-					`text before the timeout must be a chunk-text prefix, got ${JSON.stringify(text)}`
+					outcome.elapsedMs < 30000,
+					`the swallowed drop must still complete promptly, took ${outcome.elapsedMs}ms`
 				);
 			}
+			await assertModelStillAnswers();
+		});
+
+		test(`${COMMAND_SIGIL}stall:3:30000 under a 10s chat.timeout fails at the whole-call bound with the streamed text`, async function () {
+			this.timeout(60000);
+			// A genuine mid-stream hang: three chunks, then the upstream holds the
+			// connection silent for 30s. Through the proxy, LiteLLM forwards the
+			// chunks and then waits with it; direct, the extension waits alone.
+			// requestTimeout is the hard whole-call bound that makes the hang
+			// observable, lowered here for this one request.
+			const configuration = vscode.workspace.getConfiguration("litellm-vscode-chat");
+			await configuration.update("chat.timeout", 10000, vscode.ConfigurationTarget.Global);
+			let outcome: StreamOutcome;
+			try {
+				outcome = await runToOutcome(model, `${COMMAND_SIGIL}stall:3:30000`);
+			} finally {
+				await configuration.update("chat.timeout", undefined, vscode.ConfigurationTarget.Global);
+			}
+			assert.ok(outcome.error !== undefined, "the hung stream must surface the whole-call timeout");
+			assert.ok(outcome.elapsedMs < 30000, `the timeout must bound the hang, took ${outcome.elapsedMs}ms`);
+			assert.match(String(outcome.error), /LiteLLM request timed out after 10000ms/);
+			// The wire went silent after the third chunk, so what text arrived before
+			// the timeout is buffering's business (the proxy's or the host's); it
+			// must still be a prefix of the chunk text.
+			const text = extractText(outcome.parts);
+			assert.ok(
+				"chunk1 chunk2 chunk3 ".startsWith(text),
+				`text before the timeout must be a chunk-text prefix, got ${JSON.stringify(text)}`
+			);
 			await assertModelStillAnswers();
 		});
 
