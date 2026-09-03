@@ -18,6 +18,7 @@ import {
 import { SETTING_PROSE, type SettingProse } from "../../../../../scripts/docs/settingsReferenceProse";
 import { ALL_SETTING_KEYS } from "../../../../shared/config/settingSpec";
 import { REPO_ROOT } from "../../../util/repoRoot";
+import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
 
 /**
  * The generator against the shipped docs: every locale's committed file must
@@ -254,61 +255,73 @@ function runCli(root: string, ...flags: readonly string[]): { exitCode: number; 
 }
 
 describe("generate-settings-reference CLI", () => {
-	test("an unknown argument aborts without writing", () => {
-		// A typo'd --check must not fall through to generate mode and rewrite docs.
-		const root = makeFixture();
-		const before = fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8");
-		const typo = runCli(root, "--chekc");
-		assert.strictEqual(typo.exitCode, 1);
-		assert.match(typo.stderr, /unknown argument/);
-		assert.strictEqual(fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8"), before);
-	});
+	test(
+		"an unknown argument aborts without writing",
+		() => {
+			// A typo'd --check must not fall through to generate mode and rewrite docs.
+			const root = makeFixture();
+			const before = fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8");
+			const typo = runCli(root, "--chekc");
+			assert.strictEqual(typo.exitCode, 1);
+			assert.match(typo.stderr, /unknown argument/);
+			assert.strictEqual(fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8"), before);
+		},
+		CHILD_PROCESS_TIMEOUT_MS
+	);
 
-	test("one locale's failure writes nothing anywhere", () => {
-		// The zh-tw doc loses its table header, so its stamping throws; the
-		// two-phase CLI must leave the other locales untouched too.
-		const root = makeFixture();
-		const zhTwPath = path.join(root, SETTINGS_DOC_PATHS.zhTw);
-		fs.writeFileSync(zhTwPath, fs.readFileSync(zhTwPath, "utf8").replace(TABLE_HEADERS.zhTw, "| gone |"));
-		const before = fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8");
-		const broken = runCli(root);
-		assert.strictEqual(broken.exitCode, 1);
-		assert.strictEqual(fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8"), before);
-	});
+	test(
+		"one locale's failure writes nothing anywhere",
+		() => {
+			// The zh-tw doc loses its table header, so its stamping throws; the
+			// two-phase CLI must leave the other locales untouched too.
+			const root = makeFixture();
+			const zhTwPath = path.join(root, SETTINGS_DOC_PATHS.zhTw);
+			fs.writeFileSync(zhTwPath, fs.readFileSync(zhTwPath, "utf8").replace(TABLE_HEADERS.zhTw, "| gone |"));
+			const before = fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8");
+			const broken = runCli(root);
+			assert.strictEqual(broken.exitCode, 1);
+			assert.strictEqual(fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8"), before);
+		},
+		CHILD_PROCESS_TIMEOUT_MS
+	);
 
-	test("--check flags unstamped docs, generation stamps them, then --check passes and drift fails again", () => {
-		const root = makeFixture();
+	test(
+		"--check flags unstamped docs, generation stamps them, then --check passes and drift fails again",
+		() => {
+			const root = makeFixture();
 
-		// Unstamped docs are drift by definition: the final stamping run has not
-		// happened yet, so a wired check would fail until it does.
-		const unstamped = runCli(root, "--check");
-		assert.strictEqual(unstamped.exitCode, 1);
-		assert.match(unstamped.stderr, /docs\/settings\.md is stale/);
+			// Unstamped docs are drift by definition: the final stamping run has not
+			// happened yet, so a wired check would fail until it does.
+			const unstamped = runCli(root, "--check");
+			assert.strictEqual(unstamped.exitCode, 1);
+			assert.match(unstamped.stderr, /docs\/settings\.md is stale/);
 
-		const generate = runCli(root);
-		assert.strictEqual(generate.exitCode, 0, generate.stderr);
-		for (const locale of DOC_LOCALES) {
-			const stamped = fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS[locale]), "utf8");
-			assert.ok(stamped.includes(BEGIN_MARKER), `${SETTINGS_DOC_PATHS[locale]} gained the begin marker`);
-			assert.ok(stamped.includes(END_MARKER), `${SETTINGS_DOC_PATHS[locale]} gained the end marker`);
-		}
+			const generate = runCli(root);
+			assert.strictEqual(generate.exitCode, 0, generate.stderr);
+			for (const locale of DOC_LOCALES) {
+				const stamped = fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS[locale]), "utf8");
+				assert.ok(stamped.includes(BEGIN_MARKER), `${SETTINGS_DOC_PATHS[locale]} gained the begin marker`);
+				assert.ok(stamped.includes(END_MARKER), `${SETTINGS_DOC_PATHS[locale]} gained the end marker`);
+			}
 
-		const clean = runCli(root, "--check");
-		assert.strictEqual(clean.exitCode, 0, clean.stderr);
-		assert.match(clean.stdout, /check passed/);
+			const clean = runCli(root, "--check");
+			assert.strictEqual(clean.exitCode, 0, clean.stderr);
+			assert.match(clean.stdout, /check passed/);
 
-		const before = fs.readFileSync(path.join(root, "docs", "settings.md"), "utf8");
-		const rerun = runCli(root);
-		assert.strictEqual(rerun.exitCode, 0, rerun.stderr);
-		assert.strictEqual(
-			fs.readFileSync(path.join(root, "docs", "settings.md"), "utf8"),
-			before,
-			"regeneration is a no-op"
-		);
+			const before = fs.readFileSync(path.join(root, "docs", "settings.md"), "utf8");
+			const rerun = runCli(root);
+			assert.strictEqual(rerun.exitCode, 0, rerun.stderr);
+			assert.strictEqual(
+				fs.readFileSync(path.join(root, "docs", "settings.md"), "utf8"),
+				before,
+				"regeneration is a no-op"
+			);
 
-		fs.writeFileSync(path.join(root, "docs", "settings.md"), before.replace("`300000`", "`299`"));
-		const drifted = runCli(root, "--check");
-		assert.strictEqual(drifted.exitCode, 1);
-		assert.match(drifted.stderr, /docs\/settings\.md is stale/);
-	});
+			fs.writeFileSync(path.join(root, "docs", "settings.md"), before.replace("`300000`", "`299`"));
+			const drifted = runCli(root, "--check");
+			assert.strictEqual(drifted.exitCode, 1);
+			assert.match(drifted.stderr, /docs\/settings\.md is stale/);
+		},
+		CHILD_PROCESS_TIMEOUT_MS
+	);
 });

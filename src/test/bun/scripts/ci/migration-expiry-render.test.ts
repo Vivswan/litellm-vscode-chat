@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { MIGRATION_EXPIRY_MARKER, renderMigrationExpiryTable } from "../../../../../scripts/ci/migration-expiry-render";
 import type { MigrationExpiry } from "../../../../extension/migrations/index";
 import { REPO_ROOT } from "../../../util/repoRoot";
+import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
 
 // Synthetic rows typed as the real registry entry type, taken through the
 // index re-export on purpose: this pins that the re-export stays in place
@@ -65,39 +66,43 @@ describe("renderMigrationExpiryTable", () => {
 		expect(workflow).toContain("bun --no-install scripts/ci/migration-expiry-table.ts");
 	});
 
-	test("the executable renders the real registry without node_modules", () => {
-		// The release-PR workflow runs the executable with bare bun and no
-		// dependency install, so its runtime graph must stay repo-local with
-		// zero package imports. Running it from a scaffold holding exactly that
-		// graph, with --no-install matching the workflow invocation (without it
-		// bun silently auto-installs a package import when node_modules is
-		// absent), pins the contract: a new import fails here, on the PR that
-		// introduced it, instead of on a release run.
-		const RUNTIME_GRAPH = [
-			join("scripts", "ci", "migration-expiry-table.ts"),
-			join("scripts", "ci", "migration-expiry-render.ts"),
-			join("src", "extension", "migrations", "expiries.ts"),
-		];
-		const scaffold = mkdtempSync(join(tmpdir(), "lvt-expiry-smoke-"));
-		try {
-			for (const file of RUNTIME_GRAPH) {
-				mkdirSync(join(scaffold, dirname(file)), { recursive: true });
-				copyFileSync(join(REPO_ROOT, file), join(scaffold, file));
+	test(
+		"the executable renders the real registry without node_modules",
+		() => {
+			// The release-PR workflow runs the executable with bare bun and no
+			// dependency install, so its runtime graph must stay repo-local with
+			// zero package imports. Running it from a scaffold holding exactly that
+			// graph, with --no-install matching the workflow invocation (without it
+			// bun silently auto-installs a package import when node_modules is
+			// absent), pins the contract: a new import fails here, on the PR that
+			// introduced it, instead of on a release run.
+			const RUNTIME_GRAPH = [
+				join("scripts", "ci", "migration-expiry-table.ts"),
+				join("scripts", "ci", "migration-expiry-render.ts"),
+				join("src", "extension", "migrations", "expiries.ts"),
+			];
+			const scaffold = mkdtempSync(join(tmpdir(), "lvt-expiry-smoke-"));
+			try {
+				for (const file of RUNTIME_GRAPH) {
+					mkdirSync(join(scaffold, dirname(file)), { recursive: true });
+					copyFileSync(join(REPO_ROOT, file), join(scaffold, file));
+				}
+				const result = Bun.spawnSync(
+					[process.execPath, "--no-install", join("scripts", "ci", "migration-expiry-table.ts")],
+					{ cwd: scaffold }
+				);
+				expect(result.stderr.toString()).toBe("");
+				expect(result.exitCode).toBe(0);
+				const stdout = result.stdout.toString();
+				expect(stdout.startsWith(`${MIGRATION_EXPIRY_MARKER}\n`)).toBe(true);
+				expect(stdout).toContain("| Migration | Introduced | Expires | Days remaining |");
+				expect(stdout).toMatch(
+					/^\| `[^`]+` \(`src\/extension\/migrations\/[^`]+`\) \| \d{4}-\d{2}-\d{2} \| \d{4}-\d{2}-\d{2} \| -?\d+ \|$/m
+				);
+			} finally {
+				rmSync(scaffold, { recursive: true, force: true });
 			}
-			const result = Bun.spawnSync(
-				[process.execPath, "--no-install", join("scripts", "ci", "migration-expiry-table.ts")],
-				{ cwd: scaffold }
-			);
-			expect(result.stderr.toString()).toBe("");
-			expect(result.exitCode).toBe(0);
-			const stdout = result.stdout.toString();
-			expect(stdout.startsWith(`${MIGRATION_EXPIRY_MARKER}\n`)).toBe(true);
-			expect(stdout).toContain("| Migration | Introduced | Expires | Days remaining |");
-			expect(stdout).toMatch(
-				/^\| `[^`]+` \(`src\/extension\/migrations\/[^`]+`\) \| \d{4}-\d{2}-\d{2} \| \d{4}-\d{2}-\d{2} \| -?\d+ \|$/m
-			);
-		} finally {
-			rmSync(scaffold, { recursive: true, force: true });
-		}
-	});
+		},
+		CHILD_PROCESS_TIMEOUT_MS
+	);
 });
