@@ -239,12 +239,17 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
         run: bun run check-geometry
 
-  # Live-URL schema watch for the OpenRouter capability catalog: the fetch
-  # script's --check mode validates the live payload and the mapping without
-  # writing dist/, so payload drift is caught here instead of by users. The
-  # endpoint is unauthenticated and the failure text distinguishes
-  # "unreachable (transient)" from "schema drift"; unconditional on purpose
-  # (a skipped job would count green in the gate, see the header note).
+  # The run's ONE live fetch of the OpenRouter capability catalog: the fetch
+  # script validates the live payload and the mapping (so payload drift is
+  # caught here instead of by users) and writes the slimmed
+  # dist/openrouter-models.json, which this job hands to format-check's
+  # packaged-file-list check as an artifact. format-check used to fetch the
+  # same URL again on its own runner, and the two fetches doubled the exposure
+  # to a CDN body stall for zero extra coverage (the second one validated the
+  # same payload). The endpoint is unauthenticated and the failure text
+  # distinguishes "unreachable (transient)" from "schema drift"; unconditional
+  # on purpose (a skipped job would count green in the gate, see the header
+  # note).
   openrouter-catalog:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -257,13 +262,40 @@ jobs:
         with:
           bun-version-file: package.json
 
-      - name: Validate the live OpenRouter catalog payload
-        run: bun scripts/dev/fetch-openrouter-catalog.ts --check
+      - name: Fetch and validate the live OpenRouter catalog
+        run: bun scripts/dev/fetch-openrouter-catalog.ts
+
+      - name: Upload the slimmed catalog for format-check
+        uses: actions/upload-artifact@v7
+        with:
+          name: openrouter-catalog
+          path: dist/openrouter-models.json
+          # The script exits non-zero before it would ever leave the file
+          # missing, so this is a fail-closed backstop, not an expected path.
+          if-no-files-found: error
+          # Consumed within the run by format-check; nothing reads it later.
+          retention-days: 1
+          # Artifacts belong to the run, not the attempt, and v4+ artifacts are
+          # immutable: "re-run all jobs" would otherwise 409 on the name the
+          # previous attempt already uploaded. "Re-run failed jobs" when only
+          # format-check failed leaves this job alone, and format-check
+          # downloads the earlier attempt's artifact - until it expires, after
+          # which re-run all jobs.
+          overwrite: true
 
   # Biome ci, helper-script typecheck, knip, type-aware promise lint,
-  # @types/vscode vs engines.vscode, and the packaged-file-list check.
+  # @types/vscode vs engines.vscode, and the packaged-file-list check. Waits
+  # for the catalog job because the packaged-file-list check downloads its
+  # artifact instead of fetching the catalog itself: the ordering cost is the
+  # producer's runtime (typically about a minute; the fetch's retry ladder is
+  # 80 s worst case, under the job's 5-minute cap) on a job that was never
+  # the gate's critical path (the test matrix and docker-stack shards run far
+  # longer).
   format-check:
+    needs: openrouter-catalog
     uses: ./.github/workflows/format-check-reusable.yml
+    with:
+      catalog-artifact: openrouter-catalog
 
   # All four tsconfig projects. The reusable format-check only typechecks
   # the helper scripts, the pre-commit hook likewise, and the bun test tree

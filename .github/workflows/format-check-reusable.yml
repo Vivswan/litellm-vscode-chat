@@ -1,5 +1,9 @@
 name: Format Check (Reusable)
 
+# No workflow_dispatch: the packaged-file-list check consumes the catalog
+# artifact a sibling job of the caller uploads (checks.yml's
+# openrouter-catalog), so this workflow cannot run on its own; a manual run
+# is ci.yml's workflow_dispatch, which runs the whole gate.
 on:
   workflow_call:
     inputs:
@@ -8,13 +12,10 @@ on:
         required: false
         type: string
         default: ''
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: 'Git ref to checkout'
-        required: false
+      catalog-artifact:
+        description: 'Name of the artifact holding the validated dist/openrouter-models.json (uploaded by checks.yml openrouter-catalog)'
+        required: true
         type: string
-        default: ''
 
 jobs:
   format-check:
@@ -58,17 +59,42 @@ jobs:
         # The same script .husky/pre-commit runs, so a local green predicts this gate.
         run: bun scripts/ci/check-vscode-types.ts
 
+      # The OpenRouter catalog arrives from the openrouter-catalog job of the
+      # caller (the run's one live fetch, validated there) rather than from a
+      # second fetch here. Judged by the next step so the failure names its
+      # cause and its producer; the action's own not-found error would fail
+      # the job with no pointer to either.
+      - name: Download the validated OpenRouter catalog
+        id: catalog
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.catalog-artifact }}
+          path: dist
+
+      # Fail closed: no artifact, no fetch of our own, no skipped assertions.
+      - name: The catalog artifact must have arrived
+        env:
+          ARTIFACT: ${{ inputs.catalog-artifact }}
+          OUTCOME: ${{ steps.catalog.outcome }}
+        run: |
+          if [ "$OUTCOME" != "success" ] || [ ! -s dist/openrouter-models.json ]; then
+            echo "::error::dist/openrouter-models.json did not arrive from the '${ARTIFACT}' artifact (download outcome: ${OUTCOME}); checks.yml's openrouter-catalog job is its only producer and this job never fetches the catalog itself - if the artifact expired, re-run all jobs"
+            exit 1
+          fi
+          echo "dist/openrouter-models.json arrived from the '${ARTIFACT}' artifact ($(wc -c < dist/openrouter-models.json | tr -d ' ') bytes)"
+
       # The dev compile puts out/ on disk first, so this proves .vscodeignore
       # excludes it rather than passing because the files were never built.
       # logs/ and coverage/ get seeded the same way: the dev launcher and
       # test:coverage write them locally but nothing in this job does, so
       # without the seeding their exclusion would never actually be exercised.
-      # The strict catalog fetch mirrors vscode:prepublish, so the listing
-      # below checks the exact file set a release build would package.
+      # The downloaded catalog is the same slimmed file vscode:prepublish's
+      # fetch writes, so the listing below checks the exact file set a release
+      # build would package.
       - name: Verify the packaged file list stays clean
         run: |
           bun run compile
-          bun scripts/dev/fetch-openrouter-catalog.ts
           bun run bundle
           mkdir -p logs coverage
           touch logs/ci-proof.log coverage/ci-proof.json
