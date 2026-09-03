@@ -7,7 +7,8 @@
  *
  * bundle/bundle:dev deliberately do NOT run this: builds stay network-free and
  * the runtime tolerates a missing artifact. Failure messages distinguish
- * OpenRouter being unreachable (transient) from the payload no longer matching
+ * OpenRouter being unreachable (transient, classified in openRouterCatalogFetch.ts)
+ * from the payload no longer matching
  * src/shared/config/openRouterCatalog.ts (drift - update the module).
  */
 
@@ -17,52 +18,12 @@ import path from "node:path";
 import {
 	CATALOG_MODEL_COUNT_FLOOR,
 	type CatalogModel,
-	OPENROUTER_MODELS_URL,
 	parseCatalogSnapshot,
 	slimCatalogPayload,
 } from "../../src/shared/config/openRouterCatalog";
+import { FETCH_TIMEOUT_MS, fetchLivePayload, UnreachableError } from "./openRouterCatalogFetch";
 
-const FETCH_TIMEOUT_MS = 60_000;
-
-/** Transient failures retry (idempotent GET; CI runners hit rate limits), schema drift never does. */
-const FETCH_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 5_000;
-
-class UnreachableError extends Error {}
 class DriftError extends Error {}
-
-async function fetchOnce(): Promise<unknown> {
-	let response: Response;
-	try {
-		response = await fetch(OPENROUTER_MODELS_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-	} catch (error) {
-		throw new UnreachableError(error instanceof Error ? error.message : String(error));
-	}
-	if (!response.ok) {
-		throw new UnreachableError(`HTTP ${response.status} from ${OPENROUTER_MODELS_URL}`);
-	}
-	try {
-		return await response.json();
-	} catch {
-		// A 200 with a non-JSON body is an interstitial or truncation, not a
-		// schema statement.
-		throw new UnreachableError("the response body is not JSON");
-	}
-}
-
-async function fetchLivePayload(): Promise<unknown> {
-	for (let attempt = 1; ; attempt += 1) {
-		try {
-			return await fetchOnce();
-		} catch (error) {
-			if (!(error instanceof UnreachableError) || attempt >= FETCH_ATTEMPTS) {
-				throw error;
-			}
-			console.error(`Attempt ${attempt}/${FETCH_ATTEMPTS} failed (${error.message}); retrying in ${RETRY_DELAY_MS}ms`);
-			await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-		}
-	}
-}
 
 /** Fraction of models that must satisfy a predicate for the payload to look healthy. */
 function assertShare(models: readonly CatalogModel[], floor: number, what: string, has: (m: CatalogModel) => boolean) {
@@ -112,7 +73,12 @@ function validateAndSlim(payload: unknown): { text: string; modelCount: number }
 
 async function main(): Promise<void> {
 	const checkOnly = process.argv.includes("--check");
-	const payload = await fetchLivePayload();
+	const payload = await fetchLivePayload({
+		fetch: (url, init) => fetch(url, init),
+		timeoutMs: FETCH_TIMEOUT_MS,
+		sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+		onRetry: (line) => console.error(line),
+	});
 	const { text, modelCount } = validateAndSlim(payload);
 
 	if (checkOnly) {
