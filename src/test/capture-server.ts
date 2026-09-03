@@ -22,9 +22,12 @@ const modelInfoFor = (modelId: string) => ({
 				id: modelId,
 				key: modelId,
 				litellm_provider: "openai",
-				max_input_tokens: 128000,
-				max_output_tokens: 16000,
-				max_tokens: 16000,
+				// Deliberately off the built-in floors (128000 context, 16000 output) and
+				// their derived input (112000), so the pins on these numbers fail the
+				// moment a floor is served instead of the declared value.
+				max_input_tokens: 200000,
+				max_output_tokens: 12000,
+				max_tokens: 12000,
 				supports_function_calling: true,
 				supports_tool_choice: true,
 				supports_prompt_caching: false,

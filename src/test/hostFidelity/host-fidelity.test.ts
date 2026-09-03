@@ -126,8 +126,9 @@ suite("Host-Fidelity Tests (capture)", () => {
 			// discovery, capability resolution, and registration exactly: the
 			// declared input limit (not the built-in floor or a catalog guess), the
 			// litellm_provider as family, and the pricing fields. The host copies no
-			// maxOutputTokens onto this object; the declared 16000 is pinned on the
-			// wire as max_tokens in the request contract suite.
+			// maxOutputTokens onto this object; the declared 12000 is pinned on the
+			// wire as max_tokens in the request contract suite. The fixture sits off
+			// the floors, so a floor-derived input (112000) fails here directly.
 			assert.deepStrictEqual(
 				{
 					maxInputTokens: model.maxInputTokens,
@@ -138,7 +139,7 @@ suite("Host-Fidelity Tests (capture)", () => {
 					pricing: model.pricing,
 				},
 				{
-					maxInputTokens: 128000,
+					maxInputTokens: 200000,
 					family: "openai",
 					// per-token 0.00000125 and 0.00001 convert to per-million 1.25 and 10
 					inputCost: 1.25,
@@ -252,7 +253,7 @@ suite("Host-Fidelity Tests (capture)", () => {
 			assert.strictEqual(body.model, modelId, "the wire carries the raw model ID as served");
 			assert.strictEqual(
 				body.max_tokens,
-				16000,
+				12000,
 				"the fixture's server-declared output limit passes as-is; the min(4096, ...) cap applies only to guessed limits"
 			);
 		});

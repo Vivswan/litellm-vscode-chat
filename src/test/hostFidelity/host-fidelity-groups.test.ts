@@ -143,7 +143,7 @@ suite("Host-Fidelity Tests (provider group semantics)", () => {
 			);
 			// Registration metadata comes from the capture fixture through the real
 			// group path: discovery, capability resolution, registration.
-			assert.strictEqual(info.maxOutputTokens, 16000);
+			assert.strictEqual(info.maxOutputTokens, 12000);
 			assert.strictEqual(info.family, "openai");
 			// The stored key was CONSUMED, not merely tolerated: the fixture does
 			// not authenticate, so only the wire proves the secrets read happened.
