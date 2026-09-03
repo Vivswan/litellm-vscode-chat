@@ -101,11 +101,54 @@ export interface OpenRouterCatalogStatus {
 	readonly refreshing: boolean;
 }
 
-/** A refresh attempt failure the default fetch classified itself; anything else it throws is a network error. */
+/** Why one refresh attempt failed, as the default fetch observed it; the word and the retry verdict both derive from it. */
+type RefreshFailureReason = { kind: "timeout" } | { kind: "http"; status: number } | { kind: "unparseable" };
+
+/**
+ * A refresh attempt failure the default fetch classified itself; anything else
+ * it throws is a network error. `retryable` mirrors the rule discovery
+ * inherits from the SDK's retry predicate: a timeout or a 408/409/429/5xx may
+ * clear on the next attempt, while a 200 whose body is not JSON (a Cloudflare
+ * interstitial, a schema change) and any other 4xx are the server's settled
+ * answer, so a repeat attempt only spends the budget.
+ */
 class RefreshFailure extends Error {
-	constructor(readonly classification: Exclude<CatalogRefreshFailure, "network error">) {
+	readonly classification: Exclude<CatalogRefreshFailure, "network error">;
+	readonly retryable: boolean;
+
+	constructor(reason: RefreshFailureReason) {
+		const classification = RefreshFailure.classificationOf(reason);
 		super(classification);
+		this.classification = classification;
+		this.retryable = RefreshFailure.isRetryable(reason);
 	}
+
+	private static classificationOf(reason: RefreshFailureReason): Exclude<CatalogRefreshFailure, "network error"> {
+		switch (reason.kind) {
+			case "timeout":
+				return "timeout";
+			case "http":
+				return `HTTP ${reason.status}`;
+			case "unparseable":
+				return "unparseable response";
+		}
+	}
+
+	private static isRetryable(reason: RefreshFailureReason): boolean {
+		switch (reason.kind) {
+			case "timeout":
+				return true;
+			case "http":
+				return reason.status === 408 || reason.status === 409 || reason.status === 429 || reason.status >= 500;
+			case "unparseable":
+				return false;
+		}
+	}
+}
+
+/** Whether a failed attempt earns another one: the fetch's own verdict, and every unclassified error is transient. */
+function isRetryableRefreshFailure(error: unknown): boolean {
+	return error instanceof RefreshFailure ? error.retryable : true;
 }
 
 /**
@@ -144,7 +187,7 @@ async function fetchOpenRouterCatalog(signal: AbortSignal): Promise<unknown> {
 		if (signal.aborted) {
 			return signal.reason;
 		}
-		return budget.aborted ? new RefreshFailure("timeout") : error;
+		return budget.aborted ? new RefreshFailure({ kind: "timeout" }) : error;
 	};
 	let response: Response;
 	try {
@@ -153,7 +196,7 @@ async function fetchOpenRouterCatalog(signal: AbortSignal): Promise<unknown> {
 		throw classifyAbort(error);
 	}
 	if (!response.ok) {
-		throw new RefreshFailure(`HTTP ${response.status}`);
+		throw new RefreshFailure({ kind: "http", status: response.status });
 	}
 	let text: string;
 	try {
@@ -166,7 +209,7 @@ async function fetchOpenRouterCatalog(signal: AbortSignal): Promise<unknown> {
 		return payload;
 	} catch (error) {
 		if (error instanceof SyntaxError) {
-			throw new RefreshFailure("unparseable response");
+			throw new RefreshFailure({ kind: "unparseable" });
 		}
 		throw error;
 	}
@@ -395,7 +438,13 @@ class Store implements OpenRouterCatalogStore {
 		this.schedule(persisted ? REFRESH_INTERVAL_MS : FAILURE_RETRY_MS);
 	}
 
-	/** Idempotent GET, so it retries like discovery's model-listing calls; chat completions never do. */
+	/**
+	 * Idempotent GET, so it retries like discovery's model-listing calls (chat
+	 * completions never do), under discovery's rule for what earns a retry: a
+	 * settled answer - a 200 with a non-JSON body, a non-transient 4xx - gets
+	 * one attempt, exactly as discovery's body parse sits outside the SDK's
+	 * retry loop.
+	 */
 	private async fetchWithRetries(): Promise<unknown> {
 		for (let attempt = 0; ; attempt += 1) {
 			try {
@@ -403,7 +452,12 @@ class Store implements OpenRouterCatalogStore {
 			} catch (error) {
 				// Opting out mid-refresh stops the remaining attempts, and dispose()
 				// resolves a pending backoff, so both are re-checked before every retry.
-				if (this.disposed || !this.options.isEnabled() || attempt >= DISCOVERY_MAX_RETRIES) {
+				if (
+					this.disposed ||
+					!this.options.isEnabled() ||
+					attempt >= DISCOVERY_MAX_RETRIES ||
+					!isRetryableRefreshFailure(error)
+				) {
 					throw error;
 				}
 				await this.backoff(1000 * 2 ** attempt);

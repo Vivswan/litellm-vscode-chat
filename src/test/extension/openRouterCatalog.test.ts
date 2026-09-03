@@ -454,37 +454,55 @@ suite("extension openRouterCatalog store", () => {
 		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
 	});
 
-	test("the real fetch classifies an HTTP failure by status only, leaking no response text", async () => {
-		const harness = makeHarness({ bundled: fixtureText, useDefaultFetch: true });
-		await harness.store.initialize();
-		await withFetch(
-			async () => new Response("upstream-secret-body", { status: 503 }),
-			() => harness.store.refreshNow()
-		);
-		assert.ok(harness.logLines.some((line) => line === "OpenRouter catalog refresh failed (HTTP 503)"));
-		assert.ok(!harness.logLines.some((line) => line.includes("upstream-secret-body")), "response body reached the log");
-		assert.strictEqual(harness.store.snapshot().models.length, 6);
-	});
-
-	test("the real fetch classifies a non-JSON body as unparseable, leaking no response text", async () => {
-		const harness = makeHarness({ bundled: fixtureText, useDefaultFetch: true });
-		await harness.store.initialize();
-		await withFetch(
-			async () => new Response("<html>interstitial-page</html>", { status: 200 }),
-			() => harness.store.refreshNow()
-		);
-		assert.deepStrictEqual(
-			harness.logLines.filter((line) => line.includes("refresh failed")),
-			["OpenRouter catalog refresh failed (unparseable response)"]
-		);
-		assert.ok(!harness.logLines.some((line) => line.includes("interstitial-page")), "response body reached the log");
-		assert.deepStrictEqual(harness.store.status(), {
-			modelCount: 6,
-			lastSuccessAt: undefined,
-			lastFailure: { classification: "unparseable response", at: 1_000_000_000_000 },
-			refreshing: false,
-		} satisfies OpenRouterCatalogStatus);
-	});
+	// Discovery's retry rule, carried over: the SDK retries 408/409/429/5xx and
+	// connection failures, and its body parse sits outside the retry loop, so a
+	// 200 with garbage and a settled 4xx get exactly one attempt.
+	for (const { name, body, status, classification, attempts } of [
+		{ name: "a 503", body: "upstream-secret-body", status: 503, classification: "HTTP 503", attempts: 3 },
+		{ name: "a 429", body: "upstream-secret-body", status: 429, classification: "HTTP 429", attempts: 3 },
+		{ name: "a 408", body: "upstream-secret-body", status: 408, classification: "HTTP 408", attempts: 3 },
+		{ name: "a 409", body: "upstream-secret-body", status: 409, classification: "HTTP 409", attempts: 3 },
+		{ name: "a 404", body: "upstream-secret-body", status: 404, classification: "HTTP 404", attempts: 1 },
+		{
+			name: "a non-JSON 200",
+			body: "<html>interstitial-page</html>",
+			status: 200,
+			classification: "unparseable response",
+			attempts: 1,
+		},
+	] as const) {
+		test(`the real fetch classifies ${name} as \`${classification}\` after ${attempts} attempt(s), leaking no response text`, async () => {
+			const harness = makeHarness({ bundled: fixtureText, useDefaultFetch: true });
+			await harness.store.initialize();
+			let fetchCalls = 0;
+			await withFetch(
+				async () => {
+					fetchCalls += 1;
+					return new Response(body, { status });
+				},
+				() => harness.store.refreshNow()
+			);
+			assert.strictEqual(fetchCalls, attempts);
+			assert.deepStrictEqual(
+				harness.logLines.filter((line) => line.includes("refresh failed")),
+				[`OpenRouter catalog refresh failed (${classification})`]
+			);
+			assert.ok(
+				!harness.logLines.some((line) => line.includes("secret-body") || line.includes("interstitial-page")),
+				"response body reached the log"
+			);
+			assert.deepStrictEqual(harness.store.status(), {
+				modelCount: 6,
+				lastSuccessAt: undefined,
+				lastFailure: { classification, at: 1_000_000_000_000 },
+				refreshing: false,
+			} satisfies OpenRouterCatalogStatus);
+			assert.deepStrictEqual(
+				pendingSchedules(harness.scheduled).map((call) => call.ms),
+				[DAY_MS]
+			);
+		});
+	}
 
 	for (const phase of ["headers", "body"] as const) {
 		test(`the real fetch classifies its own budget expiring during the ${phase} as a timeout`, async () => {
