@@ -15,7 +15,16 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { initFingerprintSalt } from "../../shared/util/fingerprint";
 import { FIXED_TEST_SALT } from "../util/testSalt";
 
-GlobalRegistrator.register();
+// Synchronous script loading runs each fetch in a node child (happy-dom's SyncFetch over execFileSync), a spawn no test
+// deadline covers, so it is off from the first window and the three script settings are then pinned non-writable:
+// every handle to the settings object (window.happyDOM.settings included) reaches this same object, and a writable
+// setting could be flipped back by any test. happyDomScriptSettings.test.ts proves the pin holds on the live window.
+GlobalRegistrator.register({ settings: { disableJavaScriptFileLoading: true } });
+Object.defineProperties((window as unknown as { happyDOM: { settings: object } }).happyDOM.settings, {
+	disableJavaScriptFileLoading: { value: true, writable: false, configurable: false },
+	enableJavaScriptEvaluation: { value: false, writable: false, configurable: false },
+	disableJavaScriptEvaluation: { value: false, writable: false, configurable: false },
+});
 // React refuses to flush act()-wrapped work outside a declared test environment.
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 initFingerprintSalt(FIXED_TEST_SALT);

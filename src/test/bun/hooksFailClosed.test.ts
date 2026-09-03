@@ -177,7 +177,7 @@ describe("hook layer fails closed", () => {
 
 	beforeEach(() => {
 		configBefore = sharedConfigSnapshot();
-	});
+	}, CHILD_PROCESS_TIMEOUT_MS);
 
 	afterEach(() => {
 		assert.deepStrictEqual(
@@ -185,7 +185,7 @@ describe("hook layer fails closed", () => {
 			configBefore,
 			"the shared git config's entries changed; this suite must mutate only the scratch repos it creates under the tmpdir"
 		);
-	});
+	}, CHILD_PROCESS_TIMEOUT_MS);
 
 	test(
 		"a fresh worktree that never ran bun install rejects the commit with an actionable message",
