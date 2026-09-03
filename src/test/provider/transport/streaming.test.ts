@@ -129,25 +129,8 @@ suite("provider/transport/streaming", () => {
 		) as vscode.LanguageModelToolCallPart;
 		assert.ok(toolPart, "Should emit a LanguageModelToolCallPart");
 		assert.equal(toolPart.name, "test_tool");
-	});
-
-	test("processDelta logs token usage", async () => {
-		const logs: string[] = [];
-		const stream = new StreamProcessor(idSource(), (msg, data) => {
-			logs.push(data !== undefined ? `${msg}: ${JSON.stringify(data)}` : msg);
-		});
-		const parts: vscode.LanguageModelResponsePart[] = [];
-		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
-
-		stream.processDelta(
-			{ choices: [], usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 } },
-			progress
-		);
-
-		assert.ok(
-			logs.some((l) => l.includes("Token usage")),
-			"Should log token usage"
-		);
+		assert.equal(toolPart.callId, "call_123", "the server's id passes through; nothing re-mints it");
+		assert.deepEqual(toolPart.input, { key: "value" }, "the arguments string parses into the call's input");
 	});
 
 	test("processTextContent strips control tokens", async () => {
@@ -1152,13 +1135,13 @@ suite("provider/streaming pass-through of unhandled modern fields", () => {
 	test("usage logging is restricted to the known numeric token counts", async () => {
 		// The usage record is response-owned: unknown keys and non-numeric values
 		// in known slots must never ride into the log data.
-		const logged: { message: string; data?: unknown }[] = [];
-		const stream = new StreamProcessor(idSource(), (message, data) => logged.push({ message, data }));
-		const { progress } = collector();
-
-		stream.processDelta(
+		const cases = [
 			{
-				choices: [],
+				usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+				expected: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+				reason: "a details-less record logs exactly its three counts",
+			},
+			{
 				usage: {
 					prompt_tokens: 120,
 					completion_tokens: 80,
@@ -1167,18 +1150,26 @@ suite("provider/streaming pass-through of unhandled modern fields", () => {
 					completion_tokens_details: { reasoning_tokens: 40 },
 					gateway_debug: "internal-usage-MARKER",
 				},
+				expected: {
+					prompt_tokens: 120,
+					completion_tokens: 80,
+					total_tokens: 200,
+					"prompt_tokens_details.cached_tokens": 90,
+					"completion_tokens_details.reasoning_tokens": 40,
+				},
+				reason: "known nested counts flatten in; unknown keys at either level stay out",
 			},
-			progress
-		);
+		];
+		for (const { usage, expected, reason } of cases) {
+			const logged: { message: string; data?: unknown }[] = [];
+			const stream = new StreamProcessor(idSource(), (message, data) => logged.push({ message, data }));
+			const { progress } = collector();
 
-		const usageLog = logged.find((l) => l.message === "Token usage");
-		assert.deepStrictEqual(expectDefined(usageLog?.data), {
-			prompt_tokens: 120,
-			completion_tokens: 80,
-			total_tokens: 200,
-			"prompt_tokens_details.cached_tokens": 90,
-			"completion_tokens_details.reasoning_tokens": 40,
-		});
+			stream.processDelta({ choices: [], usage }, progress);
+
+			const usageLog = logged.find((l) => l.message === "Token usage");
+			assert.deepStrictEqual(expectDefined(usageLog?.data), expected, reason);
+		}
 	});
 });
 

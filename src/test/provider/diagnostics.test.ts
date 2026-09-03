@@ -44,8 +44,14 @@ suite("provider/diagnostics", () => {
 			true,
 			"The callback must carry the silent flag of the refresh"
 		);
-		assert.ok(expectDefined(callbackStatus).totalModels > 0);
-		assert.ok(expectDefined(callbackStatus).serverStatuses.every((s) => s.state === "ok"));
+		// Each model's single tool-capable provider registers three entries: the
+		// cheapest and fastest aggregates plus the per-provider entry.
+		assert.strictEqual(expectDefined(callbackStatus).totalModels, 6);
+		assert.deepStrictEqual(
+			expectDefined(callbackStatus).serverStatuses.map((s) => [s.state, s.servedModelCount]),
+			[["ok", 6]],
+			"the one server serves every registered entry and reports ok"
+		);
 	});
 
 	test("status callback reports error on fetch failure", async () => {

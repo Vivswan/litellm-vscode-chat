@@ -69,28 +69,17 @@ suite("provider", () => {
 		assert.deepStrictEqual(pruneCalls, [[]], "The no-servers path must prune the client cache to empty");
 	});
 
-	test("provideTokenCount counts simple string", async () => {
+	test("provideTokenCount prices a bare string and a one-text-part message alike at chars/4", async () => {
 		const provider = makeProvider();
+		const model = makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 });
+		const token = new vscode.CancellationTokenSource().token;
+		const text = "hello world";
 
-		const est = await provider.provideTokenCount(
-			makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
-			"hello world",
-			new vscode.CancellationTokenSource().token
-		);
-		assert.equal(typeof est, "number");
-		assert.ok(est > 0);
-	});
+		const fromString = await provider.provideTokenCount(model, text, token);
+		const fromMessage = await provider.provideTokenCount(model, userMessage(text), token);
 
-	test("provideTokenCount counts message parts", async () => {
-		const provider = makeProvider();
-
-		const est = await provider.provideTokenCount(
-			makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
-			userMessage("hello world"),
-			new vscode.CancellationTokenSource().token
-		);
-		assert.equal(typeof est, "number");
-		assert.ok(est > 0);
+		assert.strictEqual(fromString, 3, "11 chars at four per token");
+		assert.strictEqual(fromMessage, fromString, "the message form prices only its transmitted text, no scaffolding");
 	});
 
 	test("provideTokenCount estimates tokens for image parts when the model takes image input", async () => {

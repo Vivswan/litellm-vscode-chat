@@ -110,36 +110,60 @@ suite("shared/conversion/messages", () => {
 			name: undefined,
 		};
 		const out = convertMessages([msg]) as ConvertedMessage[];
-		assert.equal(out.length, 1);
-		const first = expectDefined(out[0]);
-		assert.equal(first.role, "assistant");
-		assert.ok(first.content?.includes("before"));
-		assert.ok(first.content?.includes("after"));
-		assert.ok(Array.isArray(first.tool_calls) && first.tool_calls.length === 1);
-		assert.equal(expectDefined(first.tool_calls[0]).function.name, "search");
+		assert.deepStrictEqual(out, [
+			{
+				// The turn's text rides on the tool-call message, joined without a separator.
+				role: "assistant",
+				content: "before  after",
+				tool_calls: [{ id: "call1", type: "function", function: { name: "search", arguments: '{"q":"hello"}' } }],
+			},
+		]);
 	});
 
-	test("converts user message with image to array content", () => {
-		const imageData = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
-		const dataPart = new vscode.LanguageModelDataPart(imageData, "image/png");
-		const messages: vscode.LanguageModelChatMessage[] = [
+	test("a user message with image parts converts to array content, images as data URLs in part order", () => {
+		const text = (value: string) => new vscode.LanguageModelTextPart(value);
+		const image = (bytes: number[], mimeType: string) =>
+			new vscode.LanguageModelDataPart(new Uint8Array(bytes), mimeType);
+		const textBlock = (value: string) => ({ type: "text", text: value });
+		const imageBlock = (url: string) => ({ type: "image_url", image_url: { url } });
+		const cases = [
 			{
-				role: vscode.LanguageModelChatMessageRole.User,
-				content: [new vscode.LanguageModelTextPart("What is in this image?"), dataPart],
-				name: undefined,
+				parts: [text("What is in this image?"), image([0x89, 0x50, 0x4e, 0x47], "image/png")],
+				content: [textBlock("What is in this image?"), imageBlock("data:image/png;base64,iVBORw==")],
+				reason: "text plus image: the text becomes a block and the image a base64 data URL",
+			},
+			{
+				parts: [image([0xff, 0xd8, 0xff], "image/jpeg")],
+				content: [imageBlock("data:image/jpeg;base64,/9j/")],
+				reason: "image-only: array content with no text block",
+			},
+			{
+				parts: [image([0xff, 0xd8, 0xff], "image/jpg")],
+				content: [imageBlock("data:image/jpg;base64,/9j/")],
+				reason: "sticker-style mime alias: accepted as an image and sent verbatim",
+			},
+			{
+				parts: [text("Compare these:"), image([1, 2, 3], "image/png"), image([4, 5, 6], "image/jpeg")],
+				content: [
+					textBlock("Compare these:"),
+					imageBlock("data:image/png;base64,AQID"),
+					imageBlock("data:image/jpeg;base64,BAUG"),
+				],
+				reason: "multiple images: each carries its own bytes and mime",
+			},
+			{
+				parts: [text("before"), image([1, 2, 3], "image/png"), text("after")],
+				content: [textBlock("before"), imageBlock("data:image/png;base64,AQID"), textBlock("after")],
+				reason: "ordering: text on both sides of an image stays in part order",
 			},
 		];
-		const out = convertMessages(messages, { imageInput: true });
-		assert.equal(out.length, 1);
-		const first = expectDefined(out[0]);
-		assert.equal(first.role, "user");
-		assert.ok(Array.isArray(first.content), "content should be an array when images present");
-		const content = first.content as Array<{ type: string }>;
-		assert.equal(content.length, 2);
-		assert.equal(expectDefined(content[0]).type, "text");
-		assert.equal(expectDefined(content[1]).type, "image_url");
-		const imageBlock = expectDefined(content[1]) as { type: string; image_url: { url: string } };
-		assert.ok(imageBlock.image_url.url.startsWith("data:image/png;base64,"));
+		for (const { parts, content, reason } of cases) {
+			const out = convertMessages(
+				[{ role: vscode.LanguageModelChatMessageRole.User, content: parts, name: undefined }],
+				{ imageInput: true }
+			);
+			assert.deepStrictEqual(out, [{ role: "user", content }], reason);
+		}
 	});
 
 	test("user message without images produces string content", () => {
@@ -154,82 +178,6 @@ suite("shared/conversion/messages", () => {
 		const first = expectDefined(out[0]);
 		assert.equal(first.content, "hello");
 		assert.equal(typeof first.content, "string");
-	});
-
-	test("image-only user message produces array content", () => {
-		const imageData = new Uint8Array([0xff, 0xd8, 0xff]);
-		const dataPart = new vscode.LanguageModelDataPart(imageData, "image/jpeg");
-		const messages: vscode.LanguageModelChatMessage[] = [
-			{
-				role: vscode.LanguageModelChatMessageRole.User,
-				content: [dataPart],
-				name: undefined,
-			},
-		];
-		const out = convertMessages(messages, { imageInput: true });
-		assert.equal(out.length, 1);
-		const content = expectDefined(out[0]).content as Array<{ type: string }>;
-		assert.ok(Array.isArray(content));
-		assert.equal(content.length, 1);
-		assert.equal(expectDefined(content[0]).type, "image_url");
-	});
-
-	test("accepts sticker-style image mime aliases", () => {
-		const imageData = new Uint8Array([0xff, 0xd8, 0xff]);
-		const dataPart = new vscode.LanguageModelDataPart(imageData, "image/jpg");
-		const messages: vscode.LanguageModelChatMessage[] = [
-			{
-				role: vscode.LanguageModelChatMessageRole.User,
-				content: [dataPart],
-				name: undefined,
-			},
-		];
-		const out = convertMessages(messages, { imageInput: true });
-		const content = expectDefined(out[0]).content as Array<{ type: string }>;
-		assert.ok(Array.isArray(content));
-		assert.equal(content.length, 1);
-		assert.equal(expectDefined(content[0]).type, "image_url");
-		const imageBlock = expectDefined(content[0]) as { type: string; image_url: { url: string } };
-		assert.ok(imageBlock.image_url.url.startsWith("data:image/jpg;base64,"));
-	});
-
-	test("handles multiple images in a single user message", () => {
-		const img1 = new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
-		const img2 = new vscode.LanguageModelDataPart(new Uint8Array([4, 5, 6]), "image/jpeg");
-		const messages: vscode.LanguageModelChatMessage[] = [
-			{
-				role: vscode.LanguageModelChatMessageRole.User,
-				content: [new vscode.LanguageModelTextPart("Compare these:"), img1, img2],
-				name: undefined,
-			},
-		];
-		const out = convertMessages(messages, { imageInput: true });
-		const content = expectDefined(out[0]).content as Array<{ type: string }>;
-		assert.ok(Array.isArray(content));
-		assert.equal(content.length, 3);
-		assert.equal(expectDefined(content[0]).type, "text");
-		assert.equal(expectDefined(content[1]).type, "image_url");
-		assert.equal(expectDefined(content[2]).type, "image_url");
-	});
-
-	test("preserves ordering of text and image parts", () => {
-		const img = new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
-		const messages: vscode.LanguageModelChatMessage[] = [
-			{
-				role: vscode.LanguageModelChatMessageRole.User,
-				content: [new vscode.LanguageModelTextPart("before"), img, new vscode.LanguageModelTextPart("after")],
-				name: undefined,
-			},
-		];
-		const out = convertMessages(messages, { imageInput: true });
-		const content = expectDefined(out[0]).content as Array<{ type: string }>;
-		assert.ok(Array.isArray(content));
-		assert.equal(content.length, 3);
-		assert.equal(expectDefined(content[0]).type, "text");
-		assert.equal((expectDefined(content[0]) as unknown as { text: string }).text, "before");
-		assert.equal(expectDefined(content[1]).type, "image_url");
-		assert.equal(expectDefined(content[2]).type, "text");
-		assert.equal((expectDefined(content[2]) as unknown as { text: string }).text, "after");
 	});
 
 	test("user-message images drop with the no-wire-mapping log when the model lacks imageInput", () => {

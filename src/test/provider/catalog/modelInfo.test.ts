@@ -37,7 +37,10 @@ suite("provider/model info and fallback", () => {
 
 		assert.ok(modelInfoAttempted);
 		assert.ok(modelsAttempted);
-		assert.ok(infos.length > 0);
+		assert.deepStrictEqual(
+			infos.map((i) => i.id),
+			["test-model"]
+		);
 		assert.strictEqual(
 			expectDefined(infos[0]).family,
 			"litellm",

@@ -650,74 +650,34 @@ suite("provider/request contract", () => {
 			);
 		});
 
-		test("sends the chat request to /v1/chat/completions on the configured server", async () => {
-			let chatUrl = "";
-			const provider = createConfiguredProvider();
-			mswServer.use(
-				...discoveryHandlers({
-					data: [{ model_name: "test-model", model_info: { id: "test-model", supports_function_calling: true } }],
-				}),
-				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
-					chatUrl = request.url;
-					return sseResponse("data: [DONE]\n\n");
-				})
-			);
-
-			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
-			await provider.provideLanguageModelChatResponse(
-				attachedModelInfo,
-				[userMessage("test")],
-				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
-				{ report: () => {} },
-				new vscode.CancellationTokenSource().token
-			);
-			assert.equal(chatUrl, `${TEST_BASE_URL}/v1/chat/completions`);
-		});
-
-		test("a declared entry's apiVersion re-roots the chat request", async () => {
-			// "v2" replaces the auto-appended /v1 on the real request, not just the
-			// log line.
-			let chatUrl = "";
-			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
-				getEntryApiVersion: (label, versionBaseUrl) =>
-					label === "Default" && versionBaseUrl === TEST_BASE_URL ? "v2" : undefined,
-			});
-			mswServer.use(
-				http.post(`${TEST_BASE_URL}/v2/chat/completions`, ({ request }) => {
-					chatUrl = request.url;
-					return sseResponse("data: [DONE]\n\n");
-				})
-			);
-			await provider.provideLanguageModelChatResponse(
-				attachedModelInfo,
-				[userMessage("test")],
-				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
-				{ report: () => {} },
-				new vscode.CancellationTokenSource().token
-			);
-			assert.equal(chatUrl, `${TEST_BASE_URL}/v2/chat/completions`);
-		});
-
-		test('a declared entry\'s apiVersion "" sends the chat request to the bare base URL (append nothing)', async () => {
-			let chatUrl = "";
-			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
-				getEntryApiVersion: (label, versionBaseUrl) =>
-					label === "Default" && versionBaseUrl === TEST_BASE_URL ? "" : undefined,
-			});
-			mswServer.use(
-				http.post(`${TEST_BASE_URL}/chat/completions`, ({ request }) => {
-					chatUrl = request.url;
-					return sseResponse("data: [DONE]\n\n");
-				})
-			);
-			await provider.provideLanguageModelChatResponse(
-				attachedModelInfo,
-				[userMessage("test")],
-				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
-				{ report: () => {} },
-				new vscode.CancellationTokenSource().token
-			);
-			assert.equal(chatUrl, `${TEST_BASE_URL}/chat/completions`);
+		test("the chat request's root follows the declared entry's apiVersion", async () => {
+			// The version re-roots the real request, not just the log line.
+			const cases = [
+				{ version: undefined, path: "/v1/chat/completions", reason: "no override keeps the auto-appended /v1" },
+				{ version: "v2", path: "/v2/chat/completions", reason: "a version replaces /v1" },
+				{ version: "", path: "/chat/completions", reason: "the empty version appends nothing: the bare base URL" },
+			];
+			for (const { version, path, reason } of cases) {
+				let chatUrl = "";
+				const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+					getEntryApiVersion: (label, versionBaseUrl) =>
+						label === "Default" && versionBaseUrl === TEST_BASE_URL ? version : undefined,
+				});
+				mswServer.use(
+					http.post(`${TEST_BASE_URL}${path}`, ({ request }) => {
+						chatUrl = request.url;
+						return sseResponse("data: [DONE]\n\n");
+					})
+				);
+				await provider.provideLanguageModelChatResponse(
+					attachedModelInfo,
+					[userMessage("test")],
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				);
+				assert.equal(chatUrl, `${TEST_BASE_URL}${path}`, reason);
+			}
 		});
 	});
 

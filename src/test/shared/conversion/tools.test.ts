@@ -10,19 +10,36 @@ suite("shared/conversion/tools", () => {
 				{
 					name: "do_something",
 					description: "Does something",
-					inputSchema: { type: "object", properties: { x: { type: "number" } }, additionalProperties: false },
+					inputSchema: {
+						type: "object",
+						properties: { x: { type: "number" }, count: { type: "number" } },
+						additionalProperties: false,
+					},
 				},
 			],
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 
-		assert.ok(out);
-		assert.equal(out.tool_choice, "auto");
-		assert.ok(Array.isArray(out.tools));
-		const tool = expectDefined(out.tools[0]);
-		assert.equal(tool.type, "function");
-		assert.equal(tool.function.name, "do_something");
+		// The wire schema is the SANITIZED input: the integer-like property name
+		// narrows to integer, so a verbatim pass-through cannot satisfy this.
+		assert.deepStrictEqual(out, {
+			tool_choice: "auto",
+			tools: [
+				{
+					type: "function",
+					function: {
+						name: "do_something",
+						description: "Does something",
+						parameters: {
+							type: "object",
+							properties: { x: { type: "number" }, count: { type: "integer" } },
+							additionalProperties: false,
+						},
+					},
+				},
+			],
+		});
 	});
 
 	test("convertTools respects ToolMode.Required for single tool", () => {
