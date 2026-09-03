@@ -20,6 +20,7 @@
  */
 
 import * as vscode from "vscode";
+import type { CatalogRefreshFailure } from "../dashboard/viewModels";
 import { DISCOVERY_MAX_RETRIES } from "../provider/catalog/discovery";
 import type { CapabilityCatalogLookup } from "../shared/config/capabilityResolution";
 import {
@@ -95,36 +96,89 @@ export interface OpenRouterCatalogStatus {
 	readonly modelCount: number;
 	/** Epoch ms of the last successful, persisted refresh; undefined when only the bundled snapshot serves. */
 	readonly lastSuccessAt: number | undefined;
-	readonly lastFailure?: { readonly classification: string; readonly at: number } | undefined;
+	readonly lastFailure?: { readonly classification: CatalogRefreshFailure; readonly at: number } | undefined;
 	/** Whether a refresh is in flight right now (the row's Refresh button disables on it). */
 	readonly refreshing: boolean;
 }
 
-async function fetchOpenRouterCatalog(signal: AbortSignal): Promise<unknown> {
-	const response = await globalThis.fetch(OPENROUTER_MODELS_URL, {
-		signal: AbortSignal.any([signal, AbortSignal.timeout(REFRESH_FETCH_TIMEOUT_MS)]),
+/** A refresh attempt failure the default fetch classified itself; anything else it throws is a network error. */
+class RefreshFailure extends Error {
+	constructor(readonly classification: Exclude<CatalogRefreshFailure, "network error">) {
+		super(classification);
+	}
+}
+
+/**
+ * Await the body under the signal that bounds the whole attempt. A
+ * fetch-created body already tears down on abort; racing the signal explicitly
+ * keeps the budget honest for any Response, and settles the read the moment
+ * either abort fires rather than when the stream notices.
+ */
+function readBody(response: Response, signal: AbortSignal): Promise<string> {
+	return new Promise<string>((resolve, reject) => {
+		if (signal.aborted) {
+			reject(signal.reason);
+			return;
+		}
+		const onAbort = () => reject(signal.reason);
+		signal.addEventListener("abort", onAbort, { once: true });
+		response
+			.text()
+			.then(resolve, reject)
+			.finally(() => signal.removeEventListener("abort", onAbort));
 	});
+}
+
+/**
+ * The default network seam. Every phase - headers, body, parse - throws its
+ * own classification: the caller's abort re-throws its reason untouched (the
+ * store settles it silently as cancellation), our own budget expiring throws
+ * `timeout` whichever phase it interrupts, a non-2xx status throws its number,
+ * a whole body that is not JSON throws `unparseable response`, and any other
+ * failure propagates for the store to collapse into `network error`.
+ */
+async function fetchOpenRouterCatalog(signal: AbortSignal): Promise<unknown> {
+	const budget = AbortSignal.timeout(REFRESH_FETCH_TIMEOUT_MS);
+	const attempt = AbortSignal.any([signal, budget]);
+	const classifyAbort = (error: unknown): unknown => {
+		if (signal.aborted) {
+			return signal.reason;
+		}
+		return budget.aborted ? new RefreshFailure("timeout") : error;
+	};
+	let response: Response;
+	try {
+		response = await globalThis.fetch(OPENROUTER_MODELS_URL, { signal: attempt });
+	} catch (error) {
+		throw classifyAbort(error);
+	}
 	if (!response.ok) {
-		throw new Error(`HTTP ${response.status}`);
+		throw new RefreshFailure(`HTTP ${response.status}`);
+	}
+	let text: string;
+	try {
+		text = await readBody(response, attempt);
+	} catch (error) {
+		throw classifyAbort(error);
 	}
 	try {
-		return await response.json();
-	} catch {
-		throw new Error("unparseable response");
+		const payload: unknown = JSON.parse(text);
+		return payload;
+	} catch (error) {
+		if (error instanceof SyntaxError) {
+			throw new RefreshFailure("unparseable response");
+		}
+		throw error;
 	}
 }
 
 /**
  * A fixed-vocabulary rendering of a refresh failure for the log line: the
- * default fetch throws only `HTTP <status>` and `unparseable response`, and
- * anything else collapses to "network error" - response-derived text never
- * reaches the log.
+ * default fetch's own classifications pass through, and anything else
+ * collapses to "network error" - response-derived text never reaches the log.
  */
-function classifyRefreshFailure(error: unknown): string {
-	if (error instanceof Error && (/^HTTP \d+$/.test(error.message) || error.message === "unparseable response")) {
-		return error.message;
-	}
-	return "network error";
+function classifyRefreshFailure(error: unknown): CatalogRefreshFailure {
+	return error instanceof RefreshFailure ? error.classification : "network error";
 }
 
 class Store implements OpenRouterCatalogStore {
@@ -144,7 +198,7 @@ class Store implements OpenRouterCatalogStore {
 	private inFlight: Promise<void> | undefined;
 	private disposed = false;
 	/** The last refresh failure, standing until the next success; see OpenRouterCatalogStatus. */
-	private lastFailure: { classification: string; at: number } | undefined;
+	private lastFailure: { classification: CatalogRefreshFailure; at: number } | undefined;
 
 	constructor(private readonly options: OpenRouterCatalogStoreOptions) {
 		this.fetchCatalog = options.fetchCatalog ?? fetchOpenRouterCatalog;

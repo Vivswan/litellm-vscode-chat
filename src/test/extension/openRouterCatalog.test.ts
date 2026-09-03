@@ -473,7 +473,130 @@ suite("extension openRouterCatalog store", () => {
 			async () => new Response("<html>interstitial-page</html>", { status: 200 }),
 			() => harness.store.refreshNow()
 		);
-		assert.ok(harness.logLines.some((line) => line === "OpenRouter catalog refresh failed (unparseable response)"));
+		assert.deepStrictEqual(
+			harness.logLines.filter((line) => line.includes("refresh failed")),
+			["OpenRouter catalog refresh failed (unparseable response)"]
+		);
 		assert.ok(!harness.logLines.some((line) => line.includes("interstitial-page")), "response body reached the log");
+		assert.deepStrictEqual(harness.store.status(), {
+			modelCount: 6,
+			lastSuccessAt: undefined,
+			lastFailure: { classification: "unparseable response", at: 1_000_000_000_000 },
+			refreshing: false,
+		} satisfies OpenRouterCatalogStatus);
+	});
+
+	for (const phase of ["headers", "body"] as const) {
+		test(`the real fetch classifies its own budget expiring during the ${phase} as a timeout`, async () => {
+			const harness = makeHarness({ bundled: fixtureText, useDefaultFetch: true });
+			await harness.store.initialize();
+			let fetchCalls = 0;
+			await withControlledBudget((expire) =>
+				withFetch(
+					(_url, init) => {
+						fetchCalls += 1;
+						if (phase === "headers") {
+							return new Promise<Response>((_, reject) => {
+								init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+								expire();
+							});
+						}
+						return Promise.resolve(stalledResponse(init, expire));
+					},
+					() => harness.store.refreshNow()
+				)
+			);
+			assert.strictEqual(fetchCalls, 3, "a timed-out attempt retries like any other idempotent GET failure");
+			assert.deepStrictEqual(
+				harness.logLines.filter((line) => line.includes("refresh failed")),
+				["OpenRouter catalog refresh failed (timeout)"]
+			);
+			assert.ok(!harness.logLines.some((line) => line.includes("stalled/model")), "response body reached the log");
+			assert.deepStrictEqual(harness.store.status(), {
+				modelCount: 6,
+				lastSuccessAt: undefined,
+				lastFailure: { classification: "timeout", at: 1_000_000_000_000 },
+				refreshing: false,
+			} satisfies OpenRouterCatalogStatus);
+			assert.deepStrictEqual(
+				pendingSchedules(harness.scheduled).map((call) => call.ms),
+				[DAY_MS]
+			);
+		});
+	}
+
+	test("dispose while the real fetch is mid-body settles silently: no retry, no log, no standing failure", async () => {
+		const harness = makeHarness({ bundled: fixtureText, useDefaultFetch: true });
+		await harness.store.initialize();
+		let fetchCalls = 0;
+		await withControlledBudget(() =>
+			withFetch(
+				async (_url, init) => {
+					fetchCalls += 1;
+					return stalledResponse(init, () => harness.store.dispose());
+				},
+				() => harness.store.refreshNow()
+			)
+		);
+		assert.strictEqual(fetchCalls, 1, "a cancelled attempt must not retry");
+		assert.deepStrictEqual(
+			harness.logLines.filter((line) => line.includes("refresh failed")),
+			[]
+		);
+		assert.deepStrictEqual(harness.store.status(), {
+			modelCount: 6,
+			lastSuccessAt: undefined,
+			refreshing: false,
+		} satisfies OpenRouterCatalogStatus);
+		assert.strictEqual(harness.updates, 0);
+		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
 	});
 });
+
+/**
+ * Run `fn` with the store's per-attempt budget under the test's control: every
+ * AbortSignal.timeout the refresh arms comes back as a controller `expire`
+ * fires with the platform's own TimeoutError, so a stall costs no real seconds.
+ */
+async function withControlledBudget<T>(fn: (expire: () => void) => Promise<T>): Promise<T> {
+	const original = AbortSignal.timeout;
+	const budgets: AbortController[] = [];
+	AbortSignal.timeout = () => {
+		const controller = new AbortController();
+		budgets.push(controller);
+		return controller.signal;
+	};
+	try {
+		return await fn(() => {
+			for (const controller of budgets.splice(0)) {
+				controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+			}
+		});
+	} finally {
+		AbortSignal.timeout = original;
+	}
+}
+
+/**
+ * A 200 whose body starts and then never finishes - today's Cloudflare-edge
+ * failure mode. Like a fetch-created body it errors with the abort reason when
+ * the attempt's signal fires; `onStall` runs once the body read reaches the
+ * stall, so the test acts mid-body, never before the headers.
+ */
+function stalledResponse(init: RequestInit | undefined, onStall: () => void): Response {
+	const signal = init?.signal ?? undefined;
+	let stalled = false;
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(new TextEncoder().encode('{"data": [{"id": "stalled/model"'));
+			signal?.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+		},
+		pull() {
+			if (!stalled) {
+				stalled = true;
+				onStall();
+			}
+		},
+	});
+	return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
+}

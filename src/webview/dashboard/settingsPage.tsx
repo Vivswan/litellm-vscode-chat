@@ -138,8 +138,8 @@ function catalogStatusParts(
 	const age = updated !== undefined ? l10n.t("updated {0}", updated) : l10n.t("bundled snapshot");
 	return {
 		summary: `${count} - ${age}`,
-		// The classification is a fixed English vocabulary ("HTTP 503",
-		// "network error"), protocol-ish like header names.
+		// The classification is CatalogRefreshFailure's fixed English vocabulary,
+		// protocol-ish like header names, so it renders raw.
 		failure:
 			catalog.lastFailure !== undefined
 				? l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification)

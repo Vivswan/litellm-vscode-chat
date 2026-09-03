@@ -534,14 +534,27 @@ export interface StringListSetting {
 }
 
 /**
- * The models.openRouterCatalog row's status. `lastFailure.classification` is
- * a fixed English vocabulary ("HTTP 503", "network error"), never
- * response-derived text.
+ * The OpenRouter catalog refresh failure vocabulary, English by policy: the
+ * store's log line (which feeds the public issue-report buffer) and the
+ * dashboard row show it verbatim like a header name, so it is fixed words and
+ * numbers only, never response-derived text. Each word names the phase that
+ * failed: `HTTP <status>` a non-2xx answer, `timeout` the store's own
+ * per-attempt budget expiring (headers or body), `unparseable response` a body
+ * that arrived whole but is not JSON, the floor a payload too small to trust,
+ * `network error` everything else.
  */
+export type CatalogRefreshFailure =
+	| "network error"
+	| "timeout"
+	| "unparseable response"
+	| `HTTP ${number}`
+	| `payload below the ${number}-model floor`;
+
+/** The models.openRouterCatalog row's status; `lastFailure` stands until the next successful refresh. */
 export interface CatalogStatusView {
 	readonly modelCount: number;
 	readonly lastSuccessAt: number | undefined;
-	readonly lastFailure?: { readonly classification: string; readonly at: number } | undefined;
+	readonly lastFailure?: { readonly classification: CatalogRefreshFailure; readonly at: number } | undefined;
 	readonly refreshing: boolean;
 }
 
