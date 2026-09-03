@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { CHILD_PROCESS_TIMEOUT_MS } from "../../../childProcessTimeout";
 import {
 	blocks,
 	compileDashboard,
@@ -260,32 +261,36 @@ function escapeForRegExp(literal: string): string {
 	return literal.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
-test("every transparent border named as handled compiles to a forced-colors rule", async () => {
-	// The other half: the list may not claim a fix that does not exist. Read from the COMPILED sheets, and only
-	// from UNCONDITIONAL blocks - the same declaration nested in a width query stops existing at every other
-	// width. The uniqueness check below is the claim's reach: one rule per selector in these blocks.
-	const compiled = {
-		theme: forcedColorsBlocks(await compileTheme()),
-		dashboard: forcedColorsBlocks(await compileDashboard()),
-	};
-	expect(compiled.theme.length).toBeGreaterThan(0);
-	expect(compiled.dashboard.length).toBeGreaterThan(0);
-	for (const site of TRANSPARENT_BORDERS) {
-		if (site.disposition.kind !== "named") {
-			continue;
+test(
+	"every transparent border named as handled compiles to a forced-colors rule",
+	async () => {
+		// The other half: the list may not claim a fix that does not exist. Read from the COMPILED sheets, and only
+		// from UNCONDITIONAL blocks - the same declaration nested in a width query stops existing at every other
+		// width. The uniqueness check below is the claim's reach: one rule per selector in these blocks.
+		const compiled = {
+			theme: forcedColorsBlocks(await compileTheme()),
+			dashboard: forcedColorsBlocks(await compileDashboard()),
+		};
+		expect(compiled.theme.length).toBeGreaterThan(0);
+		expect(compiled.dashboard.length).toBeGreaterThan(0);
+		for (const site of TRANSPARENT_BORDERS) {
+			if (site.disposition.kind !== "named") {
+				continue;
+			}
+			const where = `${site.file} :: ${site.text}`;
+			const text = compiled[site.disposition.sheet]
+				.filter((block) => block.unconditional)
+				.map((block) => block.text)
+				.join("\n");
+			const bodies = ruleBodies(text, site.disposition.selector);
+			// Once, because a second rule for the same selector further down wins and
+			// hands the off state back its system colour with the suite green.
+			expect(bodies.length, where).toBe(1);
+			expect(bodies[0], where).toContain(normalize(site.disposition.declaration));
 		}
-		const where = `${site.file} :: ${site.text}`;
-		const text = compiled[site.disposition.sheet]
-			.filter((block) => block.unconditional)
-			.map((block) => block.text)
-			.join("\n");
-		const bodies = ruleBodies(text, site.disposition.selector);
-		// Once, because a second rule for the same selector further down wins and
-		// hands the off state back its system colour with the suite green.
-		expect(bodies.length, where).toBe(1);
-		expect(bodies[0], where).toContain(normalize(site.disposition.declaration));
-	}
-});
+	},
+	CHILD_PROCESS_TIMEOUT_MS
+);
 
 /**
  * What forced colours do to one separating background fill. `twinned`: a forced-colors rule restates the
@@ -823,18 +828,22 @@ const UTILITY_FILLS: readonly UtilityFill[] = [
 	},
 ];
 
-test("every utility-channel separating fill pairs its twin in source and the twin compiles", async () => {
-	for (const site of UTILITY_FILLS) {
-		const where = `${site.file} :: ${site.text}`;
-		const source = readFileSync(path.join(webviewDir, site.file), "utf8");
-		expect(source.split(site.text).length - 1, where).toBe(site.count);
-	}
-	const theme = await compileTheme();
-	for (const site of UTILITY_FILLS) {
-		const twins = rulesFor(theme, site.twinSelector).filter((rule) => rule.context.includes(FORCED_COLORS_QUERY));
-		expect(twins.length, site.twinSelector).toBe(1);
-		for (const twin of twins) {
-			expect(normalize(twin.declarations), site.twinSelector).toContain(normalize(site.twinDeclaration));
+test(
+	"every utility-channel separating fill pairs its twin in source and the twin compiles",
+	async () => {
+		for (const site of UTILITY_FILLS) {
+			const where = `${site.file} :: ${site.text}`;
+			const source = readFileSync(path.join(webviewDir, site.file), "utf8");
+			expect(source.split(site.text).length - 1, where).toBe(site.count);
 		}
-	}
-});
+		const theme = await compileTheme();
+		for (const site of UTILITY_FILLS) {
+			const twins = rulesFor(theme, site.twinSelector).filter((rule) => rule.context.includes(FORCED_COLORS_QUERY));
+			expect(twins.length, site.twinSelector).toBe(1);
+			for (const twin of twins) {
+				expect(normalize(twin.declarations), site.twinSelector).toContain(normalize(site.twinDeclaration));
+			}
+		}
+	},
+	CHILD_PROCESS_TIMEOUT_MS
+);
