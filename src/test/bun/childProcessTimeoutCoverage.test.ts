@@ -20,7 +20,9 @@
  * eval, a computed member of Bun, process, globalThis, require, or Reflect), `Bun` or `require` stored anywhere instead
  * of read as a member base or called, a test callback it cannot see into, any export of the test runner itself,
  * load-time code in any module reaching a spawn, an exception entry matching anything but exactly one registration,
- * a known-safe entry nothing imports or without a reason, and a detector that found no spawn anywhere.
+ * a known-safe entry nothing imports or without a reason, a detector that found no spawn anywhere, and a top-level
+ * declaration the parser lists that the walk never registered (the control that turns a silently skipped registration
+ * step into one loud line instead of hundreds of downstream misses).
  */
 import { expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -624,7 +626,10 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 	// Only a declaration outside every other declaration and registration gets a name of its own: a nested one flows
 	// its references and sites into the scope enclosing it, so a local in one function cannot alias a local in another.
 	// A declaration's own name defines, it does not use.
-	const declare = (node: ts.HasModifiers & { readonly name?: ts.Node }, scopes: readonly Scope[]): void => {
+	// Not named `declare`: bun 1.3.x's transpiler reads a statement that begins with that contextual keyword as an
+	// ambient declaration and drops the whole call, which silently emptied every module's declaration table on CI; the
+	// top-level declaration control in audit() catches a recurrence of that whole class of loss.
+	const registerDeclaration = (node: ts.HasModifiers & { readonly name?: ts.Node }, scopes: readonly Scope[]): void => {
 		const body = (child: ts.Node, inner: readonly Scope[]): void => {
 			if (child !== node.name) {
 				visit(child, inner);
@@ -744,7 +749,7 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 			ts.isEnumDeclaration(node) ||
 			ts.isModuleDeclaration(node)
 		) {
-			declare(node, scopes);
+			registerDeclaration(node, scopes);
 			return;
 		}
 		// Destructuring reads members like a member access does: a loader member, a computed key, or a rest element pulled
@@ -972,6 +977,38 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 	return module;
 }
 
+/**
+ * Positive control on the declaration step: the parser's own statement list is the ground truth the walk must have
+ * registered, so this recounts the file's top-level function, class, interface, type, enum, and namespace declarations
+ * by the same naming rule and reports the ones module.decls never received. A runtime that silently skips the
+ * registering call (bun 1.3.x dropped a statement beginning with the identifier `declare`) fails here as "the walk saw
+ * nothing" instead of as hundreds of downstream export misses.
+ */
+function topLevelDeclarationControl(
+	sf: ts.SourceFile,
+	module: Module
+): { readonly parsed: number; readonly missing: string[] } {
+	let parsed = 0;
+	const missing: string[] = [];
+	for (const statement of sf.statements) {
+		if (
+			ts.isFunctionDeclaration(statement) ||
+			ts.isClassDeclaration(statement) ||
+			ts.isInterfaceDeclaration(statement) ||
+			ts.isTypeAliasDeclaration(statement) ||
+			ts.isEnumDeclaration(statement) ||
+			ts.isModuleDeclaration(statement)
+		) {
+			parsed += 1;
+			const name = statement.name !== undefined && ts.isIdentifier(statement.name) ? statement.name.text : "default";
+			if (!module.decls.has(name)) {
+				missing.push(`${name} (${module.rel})`);
+			}
+		}
+	}
+	return { parsed, missing };
+}
+
 interface Graph {
 	readonly modules: Map<string, Module>;
 	readonly problems: string[];
@@ -1024,7 +1061,10 @@ function resolveBinding(graph: Graph, binding: Binding, visiting: Set<string>): 
 	}
 	const found = resolveExport(graph, binding.target, binding.name, visiting);
 	if (found === undefined) {
-		graph.problems.push(`${rel(binding.target)} exports no "${binding.name}" the walk can find`);
+		const recorded = [...(graph.modules.get(binding.target)?.exports.keys() ?? [])];
+		graph.problems.push(
+			`${rel(binding.target)} exports no "${binding.name}" the walk can find (it recorded ${recorded.length === 0 ? "no exports" : `${recorded.length} exports: ${recorded.join(", ")}`})`
+		);
 		return [];
 	}
 	return found;
@@ -1172,13 +1212,33 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 	}
 	const graph: Graph = { modules: new Map(), problems };
 	const context: Context = { problems, usedSafe: new Set(), jsxRuntimes: jsxRuntimeModules(problems) };
+	let parsedDeclarations = 0;
+	const unregistered: string[] = [];
 	for (const file of files) {
 		const sf = program.getSourceFile(file);
 		if (sf === undefined) {
-			problems.push(`${rel(file)}: the program did not parse this file`);
+			problems.push(`${rel(file)}: the program did not parse this file (looked it up as ${file})`);
 			continue;
 		}
-		graph.modules.set(file, analyzeModule(sf, context));
+		const module = analyzeModule(sf, context);
+		graph.modules.set(file, module);
+		const control = topLevelDeclarationControl(sf, module);
+		parsedDeclarations += control.parsed;
+		unregistered.push(...control.missing);
+	}
+	if (parsedDeclarations === 0) {
+		problems.push(
+			"the walk parsed no top-level declaration anywhere in the tree, so it is not reading what it claims to read"
+		);
+	}
+	if (unregistered.length > 0) {
+		// Reach and export resolution both read the declaration table, so nothing computed from it would be trustworthy:
+		// report the loss once, in place of the hundreds of misleading misses it would otherwise cause.
+		const shown = unregistered.slice(0, 5).join(", ");
+		problems.push(
+			`the walk never registered ${unregistered.length} of the ${parsedDeclarations} top-level declarations it parsed (${shown}${unregistered.length > 5 ? ", ..." : ""}), so its declaration walk is incomplete and the audit stops here`
+		);
+		return { problems: [...new Set(problems)], spawningRegistrations: 0 };
 	}
 	const chains = computeReach(graph);
 	const exceptionMatches = new Map<(typeof EXCEPTIONS)[number], string[]>(EXCEPTIONS.map((entry) => [entry, []]));
