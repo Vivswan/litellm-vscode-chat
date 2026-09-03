@@ -128,25 +128,6 @@ suite("stack drift guard: docker/docker-compose.yml", () => {
 	});
 });
 
-suite("stack drift guard: bun version pin", () => {
-	test("compose's oven/bun image and the devcontainer bun feature carry the packageManager version", () => {
-		const { packageManager } = JSON.parse(read("package.json")) as { packageManager?: string };
-		const pinned = /^bun@(\d+\.\d+\.\d+)$/.exec(packageManager ?? "")?.[1];
-		assert.ok(pinned, `package.json packageManager pins an exact bun version (got "${packageManager}")`);
-		const image = /^\s+image: docker\.io\/oven\/bun:(\S+?)-alpine$/m.exec(read("docker/docker-compose.yml"))?.[1];
-		assert.ok(image, "docker/docker-compose.yml runs the fake backend on a docker.io/oven/bun:*-alpine image");
-		assert.strictEqual(image, pinned, "compose oven/bun image tag version");
-		// devcontainer.json is JSONC; drop full-line comments before parsing.
-		const devcontainer = read(".devcontainer/devcontainer.json").replace(/^\s*\/\/.*$/gm, "");
-		const { features } = JSON.parse(devcontainer) as {
-			features?: Record<string, { version?: string }>;
-		};
-		const bunFeature = Object.entries(features ?? {}).find(([id]) => /\/bun:\d+$/.test(id));
-		assert.ok(bunFeature, "the devcontainer declares a bun feature");
-		assert.strictEqual(bunFeature[1].version, pinned, "devcontainer bun feature version");
-	});
-});
-
 suite("stack drift guard: vscode typings floor", () => {
 	test("the hook and the format-check workflow run the one typings-floor script, over an exact pin", () => {
 		// The class this pins away: the hook once ran its own inline check

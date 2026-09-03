@@ -48,7 +48,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
+          bun-version-file: .bun-version
 
       # No dependency install: the script's whole runtime graph is repo-local
       # TypeScript with zero package imports (the registry is a zero-import

@@ -1,7 +1,7 @@
 # Bun's transpiler does not pick up jsx/jsxImportSource from the nested
 # src/test/bun/tsconfig.json (tsc does), so the react JSX runtime is pinned
 # here. src/webview/tsconfig.json and scripts/dev/bundle.mts pin it too; all
-# three must agree. @types/bun tracks the packageManager bun version.
+# three must agree. @types/bun tracks .bun-version at major.minor.
 jsx = "react-jsx"
 jsxImportSource = "react"
 
