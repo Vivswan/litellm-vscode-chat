@@ -115,19 +115,26 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.release-please.outputs.tag_name }}
+      # One Sigstore bundle covering every asset, under the attest action's
+      # own file name.
+      BUNDLE_NAME: attestation.json
     steps:
-      # A stale attestation.jsonl from a prior attempt is deleted from the
-      # RELEASE, so no later skip path can publish it.
+      # A stale bundle from a prior attempt is deleted from the RELEASE, so
+      # no later skip path can publish it.
       - name: Inspect the draft release's assets
         id: assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           names="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
-          if grep -qxF attestation.jsonl <<< "$names"; then
-            gh release delete-asset "$TAG" attestation.jsonl --yes
-          fi
-          if [ -n "$(grep -vxF attestation.jsonl <<< "$names" || true)" ]; then
+          present=false
+          while IFS= read -r name; do
+            case "$name" in
+              "$BUNDLE_NAME") gh release delete-asset "$TAG" "$name" --yes ;;
+              ?*) present=true ;;
+            esac
+          done <<< "$names"
+          if [ "$present" = true ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::the release has no assets; nothing to attest"
@@ -149,15 +156,15 @@ jobs:
         with:
           subject-path: assets/*
       # bundle-path is empty when download/attest skipped: a no-asset or
-      # non-public release publishes without an attestation.jsonl.
+      # non-public release publishes without a bundle.
       - name: Attach the attestation bundle to the draft
         if: steps.attest.outputs.bundle-path != ''
         env:
           GH_TOKEN: ${{ github.token }}
           BUNDLE: ${{ steps.attest.outputs.bundle-path }}
         run: |
-          cp "$BUNDLE" attestation.jsonl
-          gh release upload "$TAG" attestation.jsonl --clobber
+          cp "$BUNDLE" "$BUNDLE_NAME"
+          gh release upload "$TAG" "$BUNDLE_NAME" --clobber
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}

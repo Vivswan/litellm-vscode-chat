@@ -5,7 +5,7 @@
 # wants on the release happens here: packaging, asset uploads, note edits.
 # Add jobs freely - publishing waits for every job in this file, and every
 # asset uploaded here is attested at publish time into the release's
-# single attestation.jsonl. Recovery when a run dies mid-pipeline is
+# single attestation.json. Recovery when a run dies mid-pipeline is
 # documented in release.yml.
 
 name: Update Release
@@ -27,7 +27,7 @@ jobs:
   # fails after the Marketplace publish, the release stays an invisible
   # draft; finish by hand as release.yml's header describes. This job no
   # longer attests the VSIX itself: the managed publish-release attests
-  # every uploaded asset centrally into the release's attestation.jsonl.
+  # every uploaded asset centrally into the release's attestation.json.
   update-release:
     runs-on: ubuntu-latest
     timeout-minutes: 20
