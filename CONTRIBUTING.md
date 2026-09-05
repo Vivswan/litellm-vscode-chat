@@ -19,11 +19,11 @@ CI, settings, and standards files here (including this document between the BEGI
 
 ## Security
 
-Never report vulnerabilities in issues or pull requests - see [SECURITY.md](SECURITY.md) for the private reporting route.
+Never report vulnerabilities in issues or pull requests - see [SECURITY.md](.github/SECURITY.md) for the private reporting route.
 
 ## Code of conduct
 
-Participation in this project is governed by the [code of conduct](CODE_OF_CONDUCT.md).
+Participation in this project is governed by the [code of conduct](.github/CODE_OF_CONDUCT.md).
 
 <!-- Repository-specific contributing documentation (dev setup, build and
      test commands, review expectations) goes outside the BEGIN/END markers - below the END marker, or above BEGIN. It is this repository's own and survives template updates. -->
