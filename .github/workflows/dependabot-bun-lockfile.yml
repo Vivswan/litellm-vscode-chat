@@ -89,5 +89,7 @@ jobs:
         uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: repo-platform/dependabot-bun-lockfile
-          message: |
-            Pushed a lockfile dedupe commit with the default workflow token, which starts no workflows, so checks will not re-run on the new head. Close and reopen this PR to re-run them, or register `REPO_PLATFORM_TOKEN` as a Dependabot secret so future fixes re-trigger CI automatically.
+          message: >
+            Pushed a lockfile dedupe commit with the default workflow token, which starts no workflows,
+            so checks will not re-run on the new head. Close and reopen this PR to re-run them, or register
+            `REPO_PLATFORM_TOKEN` as a Dependabot secret so future fixes re-trigger CI automatically.

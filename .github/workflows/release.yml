@@ -84,7 +84,9 @@ jobs:
             --limit 100 --json number,mergedAt \
             --jq "[.[] | select(.mergedAt < \"$cutoff\") | \"#\\(.number)\"] | join(\", \")")"
           if [ -n "$stale" ]; then
-            echo "::error::merged release PR(s) $stale have worn 'autorelease: pending' for over 30 minutes, so release-please refuses to propose any new release ('untagged, merged release PRs outstanding'). Finish or abandon that release, then move the label to 'autorelease: tagged'."
+            echo "::error::merged release PR(s) $stale have worn 'autorelease: pending' for over 30 minutes,"\
+              "so release-please refuses to propose any new release ('untagged, merged release PRs outstanding')."\
+              "Finish or abandon that release, then move the label to 'autorelease: tagged'."
             exit 1
           fi
 
