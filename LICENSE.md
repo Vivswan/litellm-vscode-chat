@@ -1,7 +1,7 @@
 <!-- BEGIN REPO-PLATFORM MANAGED -->
-# Individual and Small Organization License 1.0.0
+# Individual and Small Organization License 1.1.0
 
-<https://github.com/Vivswan/licenses/blob/main/individual-small-organization-license/1.0.0.md>
+<https://github.com/Vivswan/licenses/blob/main/individual-small-organization-license/1.1.0/LICENSE.md>
 
 Required Notice: Copyright Vivswan Shah (https://github.com/Vivswan)
 
@@ -9,11 +9,11 @@ Required Notice: Copyright Vivswan Shah (https://github.com/Vivswan)
 
 This table is a plain-language guide only; the terms below govern. A
 longer non-binding guide with worked examples:
-<https://github.com/Vivswan/licenses/blob/main/individual-small-organization-license/GUIDE-1.0.0.md>
+<https://github.com/Vivswan/licenses/blob/main/individual-small-organization-license/1.1.0/GUIDE.md>
 
 | You are... | Use it | Fork and build on it | Publish your fork | Change its license |
 |---|---|---|---|---|
-| An individual choosing it for yourself - any purpose, including self-chosen use at your job (once your organization adopts it for your team, department, or organization, that work use is the organization's and needs the organization's license) and your own freelance, sole-proprietor, or own-company work while your trades and businesses, together with organizations you control, fit the small-organization thresholds below; a company you formed, even one you own alone, is an organization for everything beyond your own work | Yes | Yes | Yes, under this same license | The software: with the licensor's written permission, plus the agreement of any fork author whose changes that permission does not already cover. Your own additions: always your copyright - under any terms you choose when they contain none of the software's expression and are shared apart from it; as part of the fork, they carry this same license |
+| An individual choosing it for yourself - any purpose, including self-chosen use at your job (once your organization adopts it for your team, department, or organization, that work use is the organization's and needs the organization's license) and your own freelance, sole-proprietor, or own-company work while your trades and businesses, together with organizations you control, fit the small-organization thresholds below; a company you formed, even one you own alone, is an organization for everything beyond your own work | Yes - as your own tool; not to offer the software or its functionality to others as a product or service | Yes | Yes, under this same license | The software: with the licensor's written permission, plus the agreement of any fork author whose changes that permission does not already cover. Your own additions: always your copyright - under any terms you choose when they contain none of the software's expression and are shared apart from it; as part of the fork, they carry this same license |
 | An organization with fewer than 100 people and under 10,000,000 USD (2026, inflation-adjusted) in total yearly income of every kind - revenue, receipts, contributions, grants, and appropriations included - affiliates counted | Yes, internally only - no client deliverables, and the software and its functionality stay out of anything offered to others (products built with its help are fine); output it generates may be published for its own repositories and systems | No - contact the licensor | No - contact the licensor | No - contact the licensor |
 | Any other organization | No - contact the licensor | No - contact the licensor | No - contact the licensor | No - contact the licensor |
 
@@ -89,8 +89,16 @@ and systems, whatever its size; this licenses the output only and
 gives them no license to the software itself. The output licenses in
 these terms cover only rights the licensor is entitled to license:
 rights of others in material appearing in output are not licensed
-here. However, you may only make changes and new works based on the
-software according to [Changes and New Works
+here. This grant does not include providing the software or its
+functionality to others, or running the software within a product or
+service offered to others - whether hosted, embedded, or operated by
+you on their behalf. Using the software as a tool in your own work,
+including work you do for others, and sharing its output as licensed
+above, is not providing its functionality; offering to run it for
+others - as a service, an interface, an agent, or a per-job
+arrangement - is. Sharing copies is licensed only as the [Distribution
+License](#distribution-license) provides. However, you may only make
+changes and new works based on the software according to [Changes and New Works
 License](#changes-and-new-works-license), and share the software
 according to [Distribution License](#distribution-license).
 
@@ -334,7 +342,10 @@ If you make any written claim that the software infringes or contributes
 to infringement of any patent, your patent license for the software
 granted under these terms ends immediately. If you are an organization,
 a written claim by any organization that controls you, is controlled by
-you, or is under common control with you counts as your claim. If an
+you, or is under common control with you, or by any natural person who
+[controls](#definitions) you or any of them, counts as your claim. If
+you are a natural person, a written claim by any organization you
+control counts as your claim. If an
 organization you work for - or one that controls it, is controlled by
 it, or is under common control with it - makes such a claim, your patent
 license ends immediately for use in the course of your work for, or on
@@ -365,7 +376,11 @@ and you received no such notice in the preceding 36 months, your
 licenses can nonetheless continue if you come into full compliance with
 these terms, and take practical steps to correct past violations, within
 32 days of receiving notice. Otherwise, all your licenses end
-immediately. A notice counts under this section only as to conduct
+immediately. Notice histories are shared: a notice received by any
+organization in your [group](#definitions), by any organization you
+[control](#definitions), or - if you are an organization - by any
+natural person who controls you, counts under this section as a notice
+you received. A notice counts under this section only as to conduct
 these terms do not license. To the extent a notice concerns use that
 these terms license - including use licensed by the grace in
 [Self-Chosen Use at Work](#self-chosen-use-at-work) or the wind-down
@@ -416,28 +431,30 @@ control with it (together, its **group**), has fewer than 100 distinct
 natural persons personally performing work for those organizations
 combined - whether as employees, independent contractors, or personnel
 assigned through staffing or outsourcing arrangements -
-and less than 10,000,000 USD in those organizations' combined total
-revenue, receipts, contributions, grants, appropriations, and other
-income, excluding amounts any of those organizations receives from
-another of them, counting for each of those organizations its income in
-its own prior tax year - annualized, if that tax year was shorter than
-twelve full months - or, if it has no prior tax year, from its formation
-to the day of the use, annualized, treating in either case any period
-shorter than one full month as one full month. Income in other
-currencies is converted at the average market exchange rate for that tax
-year or, when the organization has no prior tax year, for the period
-from its formation to the day of the use. Adjust the monetary threshold
-for inflation from the 2026 annual average to the annual average for the
-calendar year in which the organization's prior tax year ended or, when
-it has no prior tax year, for the most recent calendar year ended before
-the use, using the United States Bureau of Labor Statistics' consumer
-price index for all urban consumers (CPI-U), U.S. city average, all
-items, or its successor index; until that bureau publishes the 2026
-annual average, the threshold applies unadjusted. When these terms
-measure an individual's own **trades and businesses**, they are counted
-as if they were one organization, with every organization the
-individual controls in its group, and leaving out wages, salary, and
-other compensation the individual earns as an employee. That deemed
+and, under each of the two measures below, less than 10,000,000 USD in
+those organizations' combined total revenue, receipts, contributions,
+grants, appropriations, and other income, excluding amounts any of
+those organizations receives from another of them. The first measure
+counts, for each of those organizations, its income in its own prior
+tax year - annualized, if that tax year was shorter than twelve full
+months - and counts nothing for an organization with no prior tax year.
+The second counts, for each of them, its income in the twelve months
+ending on the last day of the calendar month before the use or, if it
+was formed after those twelve months began, from its formation to the
+day of the use, annualized. Under either measure, any period shorter
+than one full month is treated as one full month. Income in other
+currencies is converted at the average market exchange rate over the
+period measured. Adjust the monetary threshold for inflation from the
+2026 annual average to the annual average for the most recent calendar
+year ended before the day of the use, using the United States Bureau of
+Labor Statistics' consumer price index for all urban consumers (CPI-U),
+U.S. city average, all items, or its successor index; until that bureau
+publishes the 2026 annual average, the threshold applies unadjusted.
+When these terms measure an individual's own **trades and businesses**,
+they are counted as if they were one organization, with every
+organization the individual controls in its group, and leaving out
+wages, salary, and other compensation the individual earns as an
+employee. That deemed
 organization uses the individual's tax year; it has a prior tax year
 only if at least one of the individual's trades or businesses,
 including any since ended, operated during it,
@@ -528,8 +545,14 @@ own independently chosen use with colleagues.
 under these terms.
 
 The software's **output** is what the software produces when run or used
-as designed, and the software's **expression** means its copyrightable
-expression.
+as designed. Output never includes the software or any part of it - its
+source, binaries, build artifacts, and components, and anything that
+provides the software's functionality - however produced, even when the
+software emits, copies, exports, or builds them as designed; such
+material is the software, whatever it is called, and the output licenses
+do not reach it. Fragments of the software's expression that the
+software incorporates into what it produces are output. The software's
+**expression** means its copyrightable expression.
 
 **Use** means anything you do with the software requiring one of your
 licenses.
