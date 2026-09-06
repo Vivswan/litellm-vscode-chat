@@ -529,7 +529,9 @@ suite("provider/transport/errorMapping", () => {
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");
 			assert.strictEqual(
 				mapped.message,
-				"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.\n\nDetails: SSL certificate error for http://litellm.test: self-signed certificate"
+				"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's " +
+					"certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM " +
+					"server administrator.\n\nDetails: SSL certificate error for http://litellm.test: self-signed certificate"
 			);
 			// Node's hostname-mismatch text can embed the certificate's SAN list
 			// (server-supplied), so the public surfaces get a classification.
@@ -1344,7 +1346,9 @@ suite("provider/transport/errorMapping", () => {
 				timeout:
 					'LiteLLM request timed out after 5000ms. Increase the "litellm-vscode-chat.chat.timeout" setting if your model needs more time.',
 				notFound:
-					'The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
+					"The server did not recognize this request - the model may have been removed from the proxy. Run " +
+					'"LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL ' +
+					"(the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).",
 				notFoundHint: undefined,
 				contextWindow:
 					"The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
@@ -1361,7 +1365,9 @@ suite("provider/transport/errorMapping", () => {
 				timeout:
 					'LiteLLM model discovery timed out after 5000ms. Increase the "litellm-vscode-chat.discovery.timeout" setting if your server needs more time.',
 				notFound:
-					"Failed to fetch LiteLLM models: the server at http://litellm.test answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
+					"Failed to fetch LiteLLM models: the server at http://litellm.test answered 404 - it responded, but does " +
+					"not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL " +
+					"already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
 				notFoundHint: "check-base-url",
 				contextWindow: "The server refused the model-list request.",
 				dropped:

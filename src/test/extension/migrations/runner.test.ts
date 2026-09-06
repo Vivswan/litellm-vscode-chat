@@ -180,7 +180,11 @@ suite("extension/migrations/runner", () => {
 			for (const entry of MIGRATION_EXPIRIES) {
 				assert.ok(
 					today <= entry.expires,
-					`Migration "${entry.state}" expired on ${entry.expires}. Delete src/extension/migrations/${entry.file}, its tests, its MIGRATIONS registration, and this MIGRATION_EXPIRIES entry; move any globalState keys it alone kept alive into legacyRegistryCleanup.ts's cleanup list so leftover state still gets deleted (when the cleanup itself is what expired, delete its keys from storageKeys.ts instead). Or deliberately push the date out.`
+					`Migration "${entry.state}" expired on ${entry.expires}. Delete src/extension/migrations/${entry.file}, its ` +
+						"tests, its MIGRATIONS registration, and this MIGRATION_EXPIRIES entry; move any globalState keys it alone " +
+						"kept alive into legacyRegistryCleanup.ts's cleanup list so leftover state still gets deleted (when the " +
+						"cleanup itself is what expired, delete its keys from storageKeys.ts instead). Or deliberately push the " +
+						"date out."
 				);
 			}
 		});

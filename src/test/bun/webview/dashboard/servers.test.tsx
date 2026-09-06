@@ -1879,7 +1879,9 @@ test("a models-listing-unserved error leads bright with the consequence and dims
 			label: "Gateway",
 			state: "error",
 			error:
-				'The models listing failed, but this server answers. If it never serves the models listing, declare that on the "Gateway" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".\nGET https://gateway.example/v1/models answered HTTP 404; model info answered',
+				"The models listing failed, but this server answers. If it never serves the models listing, declare that on the " +
+				'"Gateway" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".\n' +
+				"GET https://gateway.example/v1/models answered HTTP 404; model info answered",
 			classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
 		}),
 	]);

@@ -41,6 +41,7 @@ knip.json
 .gitattributes
 .gitignore
 .gitleaks.toml
+.file-size-allow.local
 .yamllint
 .copier-answers.yml
 .repo-platform.yml

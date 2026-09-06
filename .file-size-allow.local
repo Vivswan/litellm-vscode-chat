@@ -1,0 +1,7 @@
+# Paths exempt from the check-file-size action (both tiers), one per line,
+# relative to the repository root, each with a `# reason` on the same line.
+# Repo-owned: sync never touches this file. An entry whose file is back
+# under every cap fails the check as stale.
+src/extension/servers/serverSync/vscodeEnv.ts # l10n.t messages must stay single string literals for @vscode/l10n-dev extraction
+src/provider/transport/errorMapping.ts # l10n.t messages must stay single string literals for @vscode/l10n-dev extraction
+src/webview/dashboard/icons.tsx # inline copies of codicon SVG path data: upstream geometry strings, not authored here

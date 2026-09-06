@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
-      pull-requests: write # the no-retrigger-token PR comment below
+      pull-requests: write # the no-retrigger-token sticky comment below
     steps:
       - uses: actions/checkout@v7
         with:
@@ -47,13 +47,12 @@ jobs:
       - name: Raise engines.vscode and the doc floors to the @types/vscode pin
         run: bun scripts/ci/sync-vscode-floor.ts
       - name: Commit and push the floor bump
+        id: push
         shell: bash
         env:
           TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}
           CAN_RETRIGGER: ${{ secrets.REPO_PLATFORM_TOKEN != '' }}
-          GH_TOKEN: ${{ github.token }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           if git diff --quiet; then
             echo "floor already in sync"
@@ -85,14 +84,19 @@ jobs:
           if [ "$CAN_RETRIGGER" = "true" ]; then
             exit 0
           fi
-          # github.token starts no workflows: say so on the PR (once) and
-          # as an annotation, but stay green - the fleet legitimately runs
-          # without the token.
-          marker="<!-- dependabot-vscode-floor: no-retrigger-token -->"
-          comments=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '.[].body' || true)
-          case "$comments" in
-            *"$marker"*) ;;
-            *) gh pr comment "$PR_NUMBER" -R "$GITHUB_REPOSITORY" --body "$marker
-          Pushed an engines.vscode floor bump with the default workflow token, which starts no workflows, so checks will not re-run on the new head. Close and reopen this PR to re-run them, or register \`REPO_PLATFORM_TOKEN\` as a Dependabot secret so future fixes re-trigger CI automatically." || true ;;
-          esac
+          # github.token starts no workflows: say so on the PR (the sticky
+          # comment below) and as an annotation, but stay green - the fleet
+          # legitimately runs without the token.
+          echo "no_retrigger=true" >> "$GITHUB_OUTPUT"
           echo "::warning::floor bump pushed without REPO_PLATFORM_TOKEN - checks will not re-run on the new head; close/reopen the PR or register the token as a Dependabot secret"
+      # One comment per PR, edited in place on every fix push; a posting
+      # failure fails the step.
+      - name: Say the fix push cannot re-trigger CI
+        if: steps.push.outputs.no_retrigger == 'true'
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: dependabot-vscode-floor
+          message: >-
+            Pushed an engines.vscode floor bump with the default workflow token, which starts no workflows,
+            so checks will not re-run on the new head. Close and reopen this PR to re-run them, or register
+            `REPO_PLATFORM_TOKEN` as a Dependabot secret so future fixes re-trigger CI automatically.

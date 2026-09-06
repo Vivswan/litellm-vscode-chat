@@ -13,7 +13,14 @@ import { REPO_ROOT } from "../../../util/repoRoot";
  * measuredAtOwnWidth opt-out count.
  */
 
-const harness = fs.readFileSync(path.join(REPO_ROOT, "scripts/dev/render-dashboard.ts"), "utf8");
+// The harness is its entry plus every module under scripts/dev/render/.
+const renderDir = path.join(REPO_ROOT, "scripts/dev/render");
+const harness = [
+	path.join(REPO_ROOT, "scripts/dev/render-dashboard.ts"),
+	...fs.readdirSync(renderDir).map((name) => path.join(renderDir, name)),
+]
+	.map((file) => fs.readFileSync(file, "utf8"))
+	.join("\n");
 const sweep = fs.readFileSync(path.join(REPO_ROOT, "scripts/dev/check-overflow.ts"), "utf8");
 
 describe("overflow sweep wire protocol", () => {
