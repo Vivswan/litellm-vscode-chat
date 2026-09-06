@@ -12,7 +12,10 @@ on:
         required: true
         type: string
       catalog-outcome:
-        description: 'The openrouter-catalog job''s catalog output: fetched (the artifact exists) or skipped (a push build''s lenient mode got no usable catalog from OpenRouter - transient or settled, the producer''s own warning says which - and uploaded nothing)'
+        description: >-
+          The openrouter-catalog job's catalog output: fetched (the artifact exists) or skipped (a push
+          build's lenient mode got no usable catalog from OpenRouter - transient or settled, the producer's
+          own warning says which - and uploaded nothing)
         required: true
         type: string
 
@@ -93,9 +96,13 @@ jobs:
             echo "dist/openrouter-models.json arrived from the '${ARTIFACT}' artifact ($(wc -c < dist/openrouter-models.json | tr -d ' ') bytes)"
           elif [ "$PRODUCER" = "skipped" ]; then
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::the openrouter-catalog job reported catalog=skipped on this push (OpenRouter did not deliver a usable catalog; its own warning names the cause); bundling without dist/openrouter-models.json and skipping its packaged-file-list assertions"
+            echo "::warning::the openrouter-catalog job reported catalog=skipped on this push (OpenRouter did not" \
+              "deliver a usable catalog; its own warning names the cause); bundling without" \
+              "dist/openrouter-models.json and skipping its packaged-file-list assertions"
           else
-            echo "::error::dist/openrouter-models.json did not arrive from the '${ARTIFACT}' artifact (download outcome: ${OUTCOME}, producer outcome: ${PRODUCER}); checks.yml's openrouter-catalog job is its only producer and this job never fetches the catalog itself - if the artifact expired, re-run all jobs"
+            echo "::error::dist/openrouter-models.json did not arrive from the '${ARTIFACT}' artifact (download" \
+              "outcome: ${OUTCOME}, producer outcome: ${PRODUCER}); checks.yml's openrouter-catalog job is its only" \
+              "producer and this job never fetches the catalog itself - if the artifact expired, re-run all jobs"
             exit 1
           fi
 
