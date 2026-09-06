@@ -3,15 +3,13 @@
  * coverage assertions that keep them honest against the stylesheet, and the
  * token-CSS rewrites (inlining, font pinning) the page builder applies.
  */
+/** Every host theme a render can emulate; the fixture field, page builder and flag parser all read this. */
 export const HOST_THEMES = ["dark", "light", "high-contrast", "high-contrast-light", "forced-colors"] as const;
 
 export type HostTheme = (typeof HOST_THEMES)[number];
 
 /** The kinds of surface a host theme paints, which is what the wash scale keys off. */
-
 export const LIGHT_HOST_THEMES: ReadonlySet<HostTheme> = new Set<HostTheme>(["light", "high-contrast-light"]);
-
-/** The reader's own two appearance settings, the vocabularies the shell stamps. */
 
 /**
  * The VS Code Dark Modern theme tokens, approximated so a plain Chrome page
@@ -360,8 +358,6 @@ export function inlineTokenStyle(tokensCss: string): string {
 	}
 	return `${declarations.join("; ")};`;
 }
-
-/** JSON hardened for an inline script body, like html.ts's inlineScriptJson (which is module-private). */
 
 /**
  * Repoints every font token at the pinned faces: the host pair

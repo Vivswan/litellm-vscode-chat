@@ -51,13 +51,11 @@ const HARNESS = path.join(REPO_ROOT, "scripts/dev/render-dashboard.ts");
 const TOLERANCE_PX = 0.5;
 
 /** The width-extreme viewport: past the pane's 1560px cap plus the rail, so every surface is at its widest. */
-
 const WIDE_VIEWPORT_PX = 2000;
 
 const UNGUARDED_FIXTURES: ReadonlyMap<string, string> = new Map(UNGUARDED_FIXTURE_PINS);
 
 /** The steps digest an exemption pins: content-addressed, so any edit to the flow re-opens the question. */
-
 function stepsDigest(steps: readonly string[]): string {
 	return createHash("sha256").update(JSON.stringify(steps)).digest("hex").slice(0, 12);
 }
@@ -123,12 +121,10 @@ async function fixtureGuardFindings(): Promise<string[]> {
 }
 
 /** Two frames after a scroll re-pin, so every measurement reads a settled, identically-scrolled page. */
-
 const SETTLE_JS = `window.scrollTo(0, 0);
 		await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));`;
 
 /** The in-page rect reader both probes share; throws the SETUP marker so a vanished selector reads as "never ran". */
-
 function grabJs(): string {
 	return `const grab = (selector) => {
 			const node = document.querySelector(selector);
@@ -238,7 +234,6 @@ function compareStep(pair: StatePair): string {
 }
 
 /** The intended-dimension exemptions as an array parallel to targets; a key naming no target is a registry typo. */
-
 function intendedByTarget(pair: StatePair): readonly (readonly Dim[])[] {
 	for (const key of Object.keys(pair.intended ?? {})) {
 		if (!pair.targets.includes(key)) {

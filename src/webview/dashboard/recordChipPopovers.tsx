@@ -43,6 +43,7 @@ import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
 import { watchPopoverFlip } from "./ui/popoverFlip";
 
+/** The open field popover's row as "groupIndex:rowIndex"; chip identity is the raw key plus its duplicate ordinal. */
 export function openFieldAddress(
 	groups: readonly PrefixGroup[],
 	popover: ChipPopoverTarget | undefined
@@ -71,6 +72,7 @@ export function openFieldAddress(
 	return undefined;
 }
 
+/** The inherits column's cell chrome, one spelling for every branch below. */
 const INHERIT_CELL = "inherit-cell shrink-0 text-[11px] text-muted-foreground";
 
 /**
@@ -96,8 +98,6 @@ export function InheritsSummary({ kind, group }: { kind: RecordEditorKind; group
 			return <span className={INHERIT_CELL}>{l10n.t("inherits custom")}</span>;
 	}
 }
-
-/** The force mark's word, shared by the row checkboxes and the chip badges so translations stay single-sourced. */
 
 /**
  * The row indices a group renders as chips: everything except directive rows the table's
@@ -159,7 +159,6 @@ function candidateProblem(
 }
 
 /** The offset `.chip-popover` leaves between itself and its anchor, on whichever side it hangs from (dashboard.css). */
-
 const POPOVER_GAP_PX = 4;
 
 /**
@@ -692,7 +691,6 @@ export type ChipPopoverTarget =
 	  };
 
 /** Which chip edge a popover hangs from: chips in the viewport's right half open leftwards to stay on-panel. */
-
 export function popoverAlign(target: EventTarget | null): "start" | "end" {
 	if (!(target instanceof HTMLElement)) {
 		return "start";

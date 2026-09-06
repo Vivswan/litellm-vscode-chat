@@ -120,6 +120,7 @@ export function SpendUnit({
 	);
 }
 
+/** One fact row: every fact has the same shape, so a half-reported server reads like a full one. */
 function Fact({ label, children }: { label: string; children: ReactNode }) {
 	return (
 		<>
@@ -142,13 +143,11 @@ function Absent({ reason }: { reason?: string | undefined }) {
 }
 
 /** The prose annotation beside a fact: provenance for a value, the cause for an absence. */
-
 function Why({ text }: { text: string }) {
 	return <span className="ml-2.5 font-sans text-[0.92em] text-muted-foreground">{text}</span>;
 }
 
 /** The budget fact's provenance, so a number that came from the key never reads as one the user set. */
-
 function BudgetFact({ server, currencySymbol }: { server: UsageServerView; currencySymbol: string }) {
 	if (server.effectiveBudget === undefined) {
 		return (
@@ -228,7 +227,6 @@ function RequestFacts({ server }: { server: UsageServerView }) {
 }
 
 /** The usage half of the drawer's inventory: every spend fact, present or stated missing. */
-
 function UsageFacts({
 	server,
 	pollingOff,

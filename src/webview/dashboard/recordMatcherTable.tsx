@@ -452,7 +452,6 @@ export function RecordMatcherEditorOverlay({
 }
 
 /** The open overlay's target: the RAW matcher key captured at open, plus its occurrence among exact duplicates. */
-
 interface MatcherEditing {
 	/** Identity exactly as stored - the grammar trims nothing, so neither does identity. */
 	readonly key: string;
@@ -461,7 +460,6 @@ interface MatcherEditing {
 }
 
 /** The draft index the target currently resolves to; undefined once the group left the rows. */
-
 function resolveMatcherEditing(
 	groups: readonly PrefixGroup[],
 	editing: MatcherEditing | undefined

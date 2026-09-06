@@ -127,7 +127,6 @@ export type FormTarget =
 	| { readonly kind: "adopt"; readonly server: ExternalDashboardServer };
 
 /** The targets ServerForm handles; adoption renders AdoptForm instead. */
-
 type ServerFormTarget = Extract<FormTarget, { kind: "add" | "edit" }>;
 
 /**
@@ -210,6 +209,7 @@ export function troubleshootingLink(hint: SetupHintKind): { href: DocsUrl; label
 	}
 }
 
+/** One expected-failure category's checkbox label; endpoint paths stay English (protocol terms). */
 function expectedFailureLabel(category: ExpectedFailureCategory): string {
 	switch (category) {
 		case "modelListing":
@@ -288,10 +288,7 @@ function authFormName(form: AuthFormId): string {
 }
 
 /** The selector's render order: rank order, none first. */
-
 const AUTH_FORM_IDS: readonly AuthFormId[] = ["none", "apiKey", "virtualKey", "oauth"];
-
-/** The storage locations' display names, resolved at call time (no module-level localized constants). */
 
 /**
  * The edit destination, mounted in the shell's pane. The boundary outward is two facts and

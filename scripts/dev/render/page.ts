@@ -11,12 +11,12 @@ import { RENDER_EPOCH_MS } from "../renderClock.ts";
 import type { HostTheme } from "./hostThemes.ts";
 import { inlineTokenStyle } from "./hostThemes.ts";
 
+/** The reader's own two appearance settings, the vocabularies the shell stamps. */
 export type AppTheme = UiTheme;
 
 export type Accent = UiAccent;
 
-/** What a fixture module default-exports; `messages` are ExtensionToWebviewMessage objects. */
-
+/** JSON hardened for an inline script body, like html.ts's inlineScriptJson (which is module-private). */
 function inlineJson(value: unknown): string {
 	return JSON.stringify(value)
 		.replaceAll("<", "\\u003c")
@@ -151,27 +151,27 @@ export const VSCODE_DEFAULT_CSS = `@layer vscode-default {
 const PINNED_SANS_SOURCES = `local("Arial"), local("Liberation Sans")`;
 
 const PINNED_MONO_SOURCES = `local("Courier New"), local("Liberation Mono")`;
-/** Near Arial's real metrics, so pinning moves today's measurements as little as possible. */
 
+/** Near Arial's real metrics, so pinning moves today's measurements as little as possible. */
 const PINNED_FONT_METRICS = { ascent: 90, descent: 22 };
 
 const DIVERGENT_FONT_METRICS = { ascent: 160, descent: 40 };
-/** What a line-height: normal line box must measure under each face, at 100px font size. */
 
+/** What a line-height: normal line box must measure under each face, at 100px font size. */
 export const PINNED_CONTROL_PX = PINNED_FONT_METRICS.ascent + PINNED_FONT_METRICS.descent;
 
 export const DIVERGENT_CONTROL_PX = DIVERGENT_FONT_METRICS.ascent + DIVERGENT_FONT_METRICS.descent;
+
 /** The advance-width control: this string at 100px must measure the faces' shared design advances. */
-
 export const ADVANCE_CONTROL_TEXT = "Illustrative Mix 0123456789";
+
 /** Arial's design advances for the string (Liberation Sans carries the same by design). */
-
 export const ADVANCE_CONTROL_SANS_PX = 1217.39;
+
 /** Courier New and Liberation Mono advance every glyph 1229/2048 em (~0.6); the tolerance absorbs the remainder. */
-
 export const ADVANCE_CONTROL_MONO_PX = ADVANCE_CONTROL_TEXT.length * 60;
-/** Advances are design-identical; the slack only absorbs rasterizer rounding. */
 
+/** Advances are design-identical; the slack only absorbs rasterizer rounding. */
 export const ADVANCE_TOLERANCE_PX = 1;
 
 function fontFace(family: string, sources: string, metrics: { ascent: number; descent: number }): string {

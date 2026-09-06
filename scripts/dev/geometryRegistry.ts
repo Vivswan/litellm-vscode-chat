@@ -107,28 +107,27 @@ export type StatePair = StatePairBase &
 	);
 
 /** The theme appearance row, the settings row every pair on that page anchors to. */
-
 const THEME_ROW = '.setting-row:has([id="setting-ui.theme"])';
+
 /** The inline-completions model-picker row (features-page.ts), whose dangling warning is a covered-slot tenant. */
-
 const INLINE_MODEL_ROW = '.setting-row:has([id="setting-inlineCompletions.model"])';
+
 /** The commit model-picker row (features-page.ts), at rest wearing the long vanished-server warning. */
-
 const COMMIT_MODEL_ROW = '.setting-row:has([id="setting-commitGeneration.model"])';
+
 /** The commit prompt row (features-page.ts), whose bounded auto-growing textarea holds a three-line prompt at rest. */
-
 const COMMIT_PROMPT_ROW = '.setting-row:has([id="setting-commitGeneration.prompt"])';
+
 /** That row's textarea itself, the box whose growth the prompt pair measures. */
-
 const COMMIT_PROMPT_BOX = '[id="setting-commitGeneration.prompt"]';
+
 /** The language filter's mode row (features-page.ts), the companion select above the list row. */
-
 const LANGUAGE_FILTER_MODE_ROW = '.setting-row:has([id="setting-inlineCompletions.languageFilter-mode"])';
+
 /** The language filter's list row (features-page.ts), the setting's primary comma-list row. */
-
 const LANGUAGE_FILTER_LIST_ROW = '.setting-row:has([id="setting-inlineCompletions.languageFilter"])';
-/** The usage-thresholds row, whose error contract is "the overlay never changes the row's height". */
 
+/** The usage-thresholds row, whose error contract is "the overlay never changes the row's height". */
 const THRESHOLDS_ROW = '.setting-row:has([id="setting-usage.alertThresholds-warning"])';
 
 /**
@@ -145,41 +144,40 @@ const THRESHOLDS_PARSE_ERROR = `${THRESHOLDS_ROW} .setting-hint span.error[id="s
  * disambiguation).
  */
 const THRESHOLDS_REFUSAL = `${THRESHOLDS_ROW} .setting-hint .setting-cover > span.error:not([id])`;
+
 /** The row's ONE help glyph, in the live flow beside whichever tenant the covered slot shows. */
-
 const THRESHOLDS_GLYPH = `${THRESHOLDS_ROW} .setting-hint .setting-live button.help`;
+
 /** The first server row's home; its next sibling is the second row. */
-
 const FIRST_SERVER_ITEM = ".server-list > li.server-item:first-child";
-/** The locked-down row (servers-spend.ts's fifth server), whose band is the page's one warn-tier band. */
 
+/** The locked-down row (servers-spend.ts's fifth server), whose band is the page's one warn-tier band. */
 const LOCKED_DOWN_ITEM = ".server-list > li.server-item:nth-child(5)";
 
 const LOCKED_DOWN_BAND = `${LOCKED_DOWN_ITEM} .row-diagnostic`;
+
 /** The chip whose popover is open - the one chip a state toggle can address across both measurements. */
-
 const OPEN_CHIP = ".chip-anchor:has(.chip-popover) > button.chip-field";
+
 /** The server edit form's first custom-header row (the only .row users on that page are the header rows). */
-
 const FIRST_HEADER_ROW = "#server-edit-page .row";
+
 /** The settings page's Model parameters frame, anchored by its own add button's id. */
-
 const PARAMS_FRAME = ".record-frame:has(#params-add-matcher)";
+
 /** The same frame in JSON mode, where the add button (the resting anchor) is replaced by the side door. */
-
 const JSON_PARAMS_FRAME = '.record-frame:has(textarea[aria-label="Model parameters as JSON"])';
+
 /** The record row whose chips the popover fixtures open; its next sibling holds the row below. */
-
 const GPT5_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "gpt-5*"'])`;
+
 /** The LAST record row, the one nearest the footer its card's verdict covers. */
-
 const LAST_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "claude-sonnet-4"'])`;
-/** The Copy diagnostics tool in the Diagnostics page's vertical action stack (third of the four tools). */
 
+/** The Copy diagnostics tool in the Diagnostics page's vertical action stack (third of the four tools). */
 const COPY_TOOL = ".diagnostics-tools li:nth-child(3) button";
 
 /** A rail destination that is never the selected one on the coverage fixtures, so its tip is a real reveal. */
-
 const RAIL_MODELS_TAB = '.rail-nav [role="tab"][id="tab-models"]';
 
 /**
@@ -209,7 +207,6 @@ function coversTheRow(item: string, axes: "block" | "both"): string {
 }
 
 /** Narrows .pane to an inline width, engaging container-query tiers no viewport width can reach. */
-
 export function paneWidthStep(width: number): string {
 	return `(() => {
 		const pane = document.querySelector(".pane");
@@ -222,7 +219,6 @@ export function paneWidthStep(width: number): string {
 }
 
 /** The pane's content-box width is under the given tier threshold - the same measure its container queries read. */
-
 function paneTierEngaged(below: number): string {
 	return `(() => {
 		const pane = document.querySelector(".pane");
@@ -232,7 +228,6 @@ function paneTierEngaged(below: number): string {
 }
 
 /** Writes a value into a React-controlled input through the native setter, then fires the events React listens to. */
-
 function reactType(selector: string, value: string): string {
 	return `(() => {
 		const input = document.querySelector(${JSON.stringify(selector)});

@@ -71,7 +71,6 @@ const OVERFLOW_PROBE = `(() => {
 })()`;
 
 /** Throws when the page scrolls sideways at the width it is currently set to. */
-
 export async function assertNoHorizontalOverflow(cdp: CdpConnection, width: number): Promise<void> {
 	const found = (await evaluate(cdp, OVERFLOW_PROBE)) as string | null;
 	if (found === null) {
@@ -132,8 +131,6 @@ export async function assertBelowFloorSideways(cdp: CdpConnection, width: number
 		);
 	}
 }
-
-/** Applies a viewport width and lets two frames settle under it. */
 
 /**
  * The pane's width as its container queries see it: the CONTENT box.

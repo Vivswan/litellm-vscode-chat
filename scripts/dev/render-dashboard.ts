@@ -67,6 +67,7 @@ import {
 	windowWidthsForPanes,
 } from "./render/probes.ts";
 
+/** What a fixture module default-exports; `messages` are ExtensionToWebviewMessage objects. */
 export interface RenderFixture {
 	/** Delivered to the page as window "message" events once it posts its ready request. */
 	readonly messages: readonly unknown[];
@@ -161,7 +162,6 @@ function bundleIsStale(bundlePath: string, stylesheetPath: string): boolean {
 }
 
 /** A path's mtime, or 0 for one that vanished under the walk (its parent directory carries the change). */
-
 function mtimeOf(target: string): number {
 	try {
 		return statSync(target).mtimeMs;

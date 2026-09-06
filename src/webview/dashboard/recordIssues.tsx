@@ -11,6 +11,7 @@ import type {
 	PrefixGroup,
 } from "../../dashboard/recordDraft";
 
+/** Which record editor a shared table serves; picks the flag set, value controls, and key suggestions. */
 export type RecordEditorKind = "params" | "caps";
 
 /**
@@ -24,14 +25,12 @@ export interface RowIssueView {
 }
 
 /** Row-aligned issue views for one group: the matcher's own problem plus one slot per field row. */
-
 export interface GroupIssueView {
 	readonly prefix: string | undefined;
 	readonly rows: readonly RowIssueView[];
 }
 
 /** parseGroups' problems and hints folded into the table's issue views. */
-
 export function paramIssueViews(
 	groups: readonly PrefixGroup[],
 	problems: readonly GroupProblems[],
@@ -47,7 +46,6 @@ export function paramIssueViews(
 }
 
 /** parseCapabilityGroups' issues folded into the table's issue views. */
-
 export function capabilityIssueViews(
 	groups: readonly PrefixGroup[],
 	issues: readonly CapabilityGroupIssues[]
@@ -61,14 +59,12 @@ export function capabilityIssueViews(
 	}));
 }
 
-/** The open field popover's row as "groupIndex:rowIndex"; chip identity is the raw key plus its duplicate ordinal. */
-
+/** The row list's accessible name; the rows carry no header row to name them any more. */
 export function recordListLabel(kind: RecordEditorKind): string {
 	return kind === "params" ? l10n.t("Model parameter matchers") : l10n.t("Model capability matchers");
 }
 
 /** The matcher kind annotation beside each row's key, resolved at render time. */
-
 export function matcherKindLabel(kind: MatcherKind): string {
 	switch (kind) {
 		case "catch-all":
@@ -83,5 +79,3 @@ export function matcherKindLabel(kind: MatcherKind): string {
 			return l10n.t("invalid matcher");
 	}
 }
-
-/** The inherits column's cell chrome, one spelling for every branch below. */

@@ -218,7 +218,6 @@ export async function findPageTargetUrl(port: number, pageUrl: string, timeoutMs
 }
 
 /** A minimal DevTools protocol client over Chrome's page WebSocket: send a method, await its result. */
-
 export class CdpConnection {
 	private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 	private nextId = 1;
@@ -292,6 +291,7 @@ export async function evaluate(cdp: CdpConnection, expression: string, awaitProm
 	return raw.result?.value;
 }
 
+/** Applies a viewport width and lets two frames settle under it. */
 export async function setWidth(cdp: CdpConnection, width: number, height: number, dpr: number): Promise<void> {
 	await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
 	await evaluate(cdp, "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))", true);

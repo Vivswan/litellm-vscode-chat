@@ -30,8 +30,7 @@ export function secretDraft(existing: SecretLocation): SecretFieldDraft {
 	return { value: "", location: existing === "settings" ? "settings" : "secure", clear: false, existing };
 }
 
-/** One expected-failure category's checkbox label; endpoint paths stay English (protocol terms). */
-
+/** The storage locations' display names, resolved at call time (no module-level localized constants). */
 function locationName(location: Exclude<SecretLocation, "none">): string {
 	return location === "secure" ? l10n.t("secret storage") : l10n.t("settings");
 }
@@ -230,7 +229,6 @@ export function FieldRow({
 }
 
 /** A note or control that belongs to the section but not to one field; spans the whole grid. */
-
 export function FieldSpan({ children, className }: { children: ReactNode; className?: string }) {
 	return <div className={cn("col-span-4 min-w-0 @max-[700px]/pane:col-span-2", className)}>{children}</div>;
 }
@@ -254,7 +252,6 @@ export function CompanionNote() {
 }
 
 /** A record section's heading note: optional always, plus how many matchers the entry carries. */
-
 export function matcherCountAside(count: number): string {
 	if (count === 0) {
 		return l10n.t("optional");
@@ -263,7 +260,6 @@ export function matcherCountAside(count: number): string {
 }
 
 /** The commit bar's unsaved-change count, resolved at call time (no module-level localized constants). */
-
 export function unsavedText(count: number): string {
 	return count === 1 ? l10n.t("1 unsaved change") : l10n.t("{0} unsaved changes", count);
 }
@@ -280,7 +276,6 @@ export const COMMIT_BAR_CLASS =
 	"toolbar sticky bottom-0 z-[2] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background py-3 [--bleed:clamp(0px,884px_-_100cqw,24px)] mx-[calc(0px_-_var(--bleed))] px-[var(--bleed)]";
 
 /** A control that belongs under the row above it: it clears the label gutter, and takes the full width once the rows stack. */
-
 export function FieldUnderRow({ children, className }: { children: ReactNode; className?: string }) {
 	return (
 		// Placed in the grid rather than hand-padded past the gutter: a literal offset restates
@@ -571,7 +566,6 @@ export function StoredSecretRow({ field, props }: { field: SecretFieldId; props:
 }
 
 /** The custom-header rows: the record editors' row idiom over the entry's headers record. */
-
 export function HeaderRowsEditor({
 	rows,
 	problems,

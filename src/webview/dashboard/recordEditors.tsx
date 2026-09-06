@@ -38,7 +38,6 @@ export function modelParametersTitle(): string {
 }
 
 /** The capabilities editor's heading, modelParametersTitle's twin for the settings filter. */
-
 export function modelCapabilitiesTitle(): string {
 	return l10n.t("Model capabilities");
 }
@@ -73,7 +72,6 @@ function HeadingRevealButton({
 }
 
 /** How long the "Saved" note lingers after the ack; toast-scale, and any new edit clears it early. */
-
 const SAVED_NOTICE_MS = 4000;
 
 /**
@@ -84,7 +82,6 @@ const SAVED_NOTICE_MS = 4000;
 type DraftPhase = "idle" | "dirty" | "applying" | "saved";
 
 /** The local draft's states: edited rows, an in-flight write, or an acked write awaiting the reflecting push. */
-
 type DraftState<T> =
 	| { readonly kind: "dirty"; readonly rows: T }
 	| { readonly kind: "applying"; readonly rows: T; readonly requestId: string }
@@ -216,7 +213,6 @@ export interface ExternalRecordEdit {
 }
 
 /** The fail arm of a hook outcome: what the editors' failure surfaces render. */
-
 export type IntentFailureOutcome = Extract<IntentOutcome, { result: "fail" }>;
 
 function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undefined; dirty: boolean }) {
@@ -253,7 +249,6 @@ function ApplyStatus({ phase }: { phase: DraftPhase }) {
 }
 
 /** The other-scope records, rendered as the same disabled grid the edit scope uses, never as prose. */
-
 function OtherScopeNote({ scope }: { scope: SettingScope }) {
 	return <p className="hint">{l10n.t("Set in {0} settings - edit there.", settingScopeLabel(scope))}</p>;
 }
@@ -306,8 +301,6 @@ const COMMON_PARAMETER_NAMES = [
 	"seed",
 ] as const;
 
-/** Which record editor a shared table serves; picks the flag set, value controls, and key suggestions. */
-
 /**
  * The card's one validation verdict: the worst problem in draft order, named by its
  * matcher, skipping the field an open popover already states. Card-scoped because a row
@@ -338,7 +331,6 @@ function recordVerdict(
 }
 
 /** The verdict as the status slot's message line; it yields the slot to the refusal while one stands. */
-
 function RecordVerdictLine({
 	groups,
 	issues,
@@ -404,8 +396,6 @@ export function RecordStatusSlot({
 export function anyRecordProblem(issues: readonly GroupIssueView[]): boolean {
 	return issues.some((issue) => issue.prefix !== undefined || issue.rows.some((row) => row.problem !== undefined));
 }
-
-/** The row list's accessible name; the rows carry no header row to name them any more. */
 
 /**
  * Structured editor for litellm-vscode-chat.models.parameters, the object-of-objects the

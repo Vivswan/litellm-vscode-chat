@@ -96,7 +96,6 @@ type DiagnosticAction =
 	  };
 
 /** What a problem line carries wherever it sits; the seat arms below add the seat's own fields. */
-
 interface DiagnosticBase {
 	/** Stable within a row, so React keeps focus on an action button across pushes. */
 	readonly key: string;
@@ -109,7 +108,6 @@ interface DiagnosticBase {
 }
 
 /** The default seat: a banded line under the collapsed row, tinted by its severity alone. */
-
 interface CollapsedDiagnostic extends DiagnosticBase {
 	readonly placement?: undefined;
 	readonly tone?: undefined;
@@ -141,19 +139,16 @@ export interface DrawerNotice extends DiagnosticBase {
 }
 
 /** The two banded seats, which ServerDiagnosticLine renders. */
-
 type BandedDiagnostic = CollapsedDiagnostic | SpendErrorDiagnostic;
 
 type RowDiagnostic = BandedDiagnostic | DrawerNotice;
 
 /** A single optional detail as the details list: [] renders nothing, exactly like the old absent field. */
-
 export function detailLines(...lines: readonly (string | undefined)[]): readonly string[] {
 	return lines.filter((line): line is string => line !== undefined);
 }
 
 /** What one row's diagnostics need to rank spend problems; all of it rides the pushed usage snapshot. */
-
 export interface SpendContext {
 	readonly thresholds: readonly number[];
 	readonly currencySymbol: string;
@@ -164,11 +159,9 @@ export interface SpendContext {
 }
 
 /** The two usage endpoints whose standings turn into English detail lines. */
-
 export type UsageEndpoint = Extract<UsageEndpointId, "keyInfo" | "dailyActivity">;
 
 /** One row's problems plus the usage endpoints whose detail line a diagnostic carries. */
-
 interface RowDiagnostics {
 	/** Every problem the server has, worst first. */
 	readonly lines: readonly RowDiagnostic[];
@@ -177,7 +170,6 @@ interface RowDiagnostics {
 }
 
 /** Every problem one server has, attached to the row that owns it. */
-
 export function serverDiagnostics(
 	server: DashboardServer,
 	/** The row's usage card (denied cards included); its problems rank beside the discovery ones. */
@@ -671,7 +663,6 @@ function usageDiagnostics(
 }
 
 /** A diagnostic's action cluster, one embodiment for the banded lines and the drawer notices. */
-
 function DiagnosticActions({ actions }: { actions: readonly DiagnosticAction[] }) {
 	if (actions.length === 0) {
 		return null;
@@ -759,7 +750,6 @@ export function DrawerNoticeLine({ diagnostic }: { diagnostic: DrawerNotice }) {
 }
 
 /** The row's inactive surfaces as one localized phrase, resolved at call time. */
-
 function inactiveSurfacesText(server: DashboardServer): string {
 	return INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true)
 		.map((notice) => INACTIVE_NOTICE_PRESENTATION[notice].surface())
@@ -857,7 +847,6 @@ export function spendMissingReason(standing: UsageEndpointStandingView, pollingO
 }
 
 /** The path a detail line may print: only the shared table's strings ever reach a template. */
-
 type UsageEndpointPath = (typeof USAGE_ENDPOINT_PATHS)[UsageEndpoint];
 
 /**
@@ -869,7 +858,6 @@ function forbiddenLine(path: UsageEndpointPath, status: number | undefined): str
 }
 
 /** forbiddenLine's unsupported twin: one template for an endpoint this server does not serve. */
-
 function notServedLine(path: UsageEndpointPath, status: number | undefined): string {
 	return `LiteLLM ${path}: not served on this server${status !== undefined ? ` (HTTP ${status})` : ""}`;
 }
@@ -907,7 +895,6 @@ export function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: numbe
 }
 
 /** The /user/daily/activity detail line, same English-template rules as keyInfoDetail. */
-
 export function activityDetail(server: UsageServerView): string | undefined {
 	const standing = server.dailyActivity;
 	const path = USAGE_ENDPOINT_PATHS.dailyActivity;
@@ -958,5 +945,3 @@ function forbiddenRowDetail(endpoint: UsageEndpoint, standing: UsageEndpointStan
 	const path = USAGE_ENDPOINT_PATHS[endpoint];
 	return standing.reason === "forbidden" ? forbiddenLine(path, standing.status) : notServedLine(path, standing.status);
 }
-
-/** One fact row: every fact has the same shape, so a half-reported server reads like a full one. */

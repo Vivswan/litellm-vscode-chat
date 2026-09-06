@@ -526,7 +526,6 @@ export function capabilityKeySuggestions(observedKeys?: readonly string[]): read
 }
 
 /** The no-evidence list (consumed fields plus directives), the fallback wherever no observed set is known. */
-
 export const CAPABILITY_KEY_SUGGESTIONS: readonly string[] = capabilityKeySuggestions();
 
 /**
@@ -728,7 +727,6 @@ export function capabilityValueKind(key: string): "number" | "boolean" | "cost" 
 }
 
 /** The number-family value inputs' shared attributes; costs allow 0 and decimals, token counts do not. */
-
 export function numberInputProps(kind: "number" | "cost"): { min: number; step: number | "any"; placeholder: string } {
 	return kind === "cost"
 		? { min: 0, step: "any", placeholder: l10n.t("Cost per token, e.g. 0.000002") }
@@ -762,7 +760,6 @@ export function capabilityControlKind(key: string, valueText: string): ReturnTyp
 }
 
 /** How long a picker waits after the last keystroke before searching the catalog. */
-
 const CATALOG_SEARCH_DEBOUNCE_MS = 300;
 
 /**

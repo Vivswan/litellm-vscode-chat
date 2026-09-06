@@ -11,6 +11,7 @@ import ts from "typescript";
 import { z } from "zod";
 import { LAZY_L10N_HELPERS } from "./census";
 
+/** The English reference bundle: what extract writes and check re-derives. */
 export const BUNDLE_PATH = path.join(process.cwd(), "l10n", "bundle.l10n.json");
 
 /**
@@ -27,11 +28,9 @@ export const bundleSchema = z.record(
 export type BundleFile = z.infer<typeof bundleSchema>;
 
 /** Flat key-to-string tables: package.nls*.json and translated bundle.l10n.<locale>.json. */
-
 export const nlsSchema = z.record(z.string(), z.string());
 
 /** The message text of one bundle value, whichever shape it uses. */
-
 export function bundleMessage(value: BundleFile[string]): string {
 	return typeof value === "string" ? value : value.message;
 }
@@ -42,7 +41,6 @@ export interface SourceFile {
 }
 
 /** Every src/**\/*.ts|tsx outside src/test with its contents, sorted so extraction order is stable. */
-
 export async function readSourceFiles(): Promise<SourceFile[]> {
 	const srcRoot = path.join(process.cwd(), "src");
 	const entries = await fs.readdir(srcRoot, { recursive: true, withFileTypes: true });
@@ -63,7 +61,6 @@ export async function readSourceFiles(): Promise<SourceFile[]> {
 }
 
 /** Extract every l10n.t() literal from the source tree, key-sorted. */
-
 export async function extractBundle(): Promise<l10nJsonFormat> {
 	const files = await readSourceFiles();
 	const extracted = await getL10nJson(files.map(({ file, contents }) => ({ extension: path.extname(file), contents })));
@@ -75,7 +72,6 @@ export async function extractBundle(): Promise<l10nJsonFormat> {
 }
 
 /** The bundle's on-disk form; one serializer so extract and check cannot disagree. */
-
 export function serializeBundle(bundle: l10nJsonFormat): string {
 	return `${JSON.stringify(bundle, null, "\t")}\n`;
 }
@@ -136,7 +132,6 @@ export function declaredCensusNames(contents: string, fileName: string, names: r
 }
 
 /** A renaming import/export specifier's minted name and the name it stands for. */
-
 interface AliasSpecifier {
 	readonly name: string;
 	readonly of: string;
@@ -144,7 +139,6 @@ interface AliasSpecifier {
 }
 
 /** The renaming (aliased) import/export specifiers of one top-level statement; a plain re-export mints no new name. */
-
 function aliasSpecifiers(statement: ts.Statement): AliasSpecifier[] {
 	const aliases: AliasSpecifier[] = [];
 	if (ts.isImportDeclaration(statement)) {
@@ -186,7 +180,6 @@ function importEqualsAlias(statement: ts.Statement): AliasSpecifier | undefined 
 }
 
 /** A top-level function the reverse census walk found resolving l10n.t without a LAZY_L10N_HELPERS entry. */
-
 export interface UncensusedLazyHelper {
 	readonly file: string;
 	readonly name: string;
@@ -195,7 +188,6 @@ export interface UncensusedLazyHelper {
 }
 
 /** One top-level binding's localization evidence, before the cross-file closure. */
-
 interface HelperNode {
 	readonly file: string;
 	readonly name: string;
@@ -215,7 +207,6 @@ interface HelperNode {
 }
 
 /** The invocation evidence of a set of nodes: a direct l10n.t call, plus every bare-name invocation edge. */
-
 interface InvocationEvidence {
 	direct: boolean;
 	readonly callees: Set<string>;
@@ -236,11 +227,9 @@ function isAssigningOperator(kind: ts.SyntaxKind): boolean {
 }
 
 /** The Function.prototype members that forward an invocation to their receiver. */
-
 const FORWARDING_MEMBERS = new Set(["call", "apply", "bind"]);
 
 /** A property access, or an element access whose key is a string literal - one member read either way. */
-
 function memberNameOf(node: ts.Expression): { readonly object: ts.Expression; readonly member: string } | undefined {
 	if (ts.isPropertyAccessExpression(node)) {
 		return { object: node.expression, member: node.name.text };
@@ -633,7 +622,6 @@ export function uncensusedLazyHelpers(
 }
 
 /** Every top-level binding in one file, with its direct-l10n evidence and bare-call edges. */
-
 function collectTopLevelFunctions(file: string, contents: string): HelperNode[] {
 	const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
 	const sourceFile = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, false, kind);
@@ -732,7 +720,6 @@ function collectTopLevelFunctions(file: string, contents: string): HelperNode[] 
 }
 
 /** Parens and type wrappers do not change what evaluates; strip them so `(fn)()` and `fn as T` read as fn. */
-
 function unwrapExpression(node: ts.Expression): ts.Expression {
 	let current = node;
 	while (

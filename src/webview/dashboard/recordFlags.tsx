@@ -18,6 +18,7 @@ export const PARAM_FLAG_DIRECTIVES: readonly FieldDirective[] = [FORCE_DIRECTIVE
 
 export const CAPABILITY_FLAG_DIRECTIVES: readonly FieldDirective[] = [FALLBACK_DIRECTIVE, INHERITABLE_DIRECTIVE];
 
+/** The force mark's word, shared by the row checkboxes and the chip badges so translations stay single-sourced. */
 export function forceWord(): string {
 	return l10n.t({
 		message: "force",
@@ -40,7 +41,6 @@ export function inheritableWord(): string {
 }
 
 /** The wrong-record-type badge's word; the full sentence rides the badge as its tooltip and description. */
-
 function ignoredWord(): string {
 	return l10n.t({
 		message: "ignored",
@@ -49,7 +49,6 @@ function ignoredWord(): string {
 }
 
 /** One flag badge on a field chip: a stable id for React keys, the localized word, and the full sentence where the word alone is not the story. */
-
 interface ChipFlag {
 	/** Locale-independent identity; translated words could collide as list keys. */
 	readonly id: "force" | "fallback" | "inheritable" | "ignored";
@@ -95,7 +94,6 @@ export function WrongTypeFlagCell({ note, id }: { note: string; id: string }) {
 }
 
 /** The flag badges one field chip carries, derived from the same rows the toggles rewrite; `key` in the resolver's reading. */
-
 export function chipFlags(kind: RecordEditorKind, group: PrefixGroup, key: string): ChipFlag[] {
 	const flags: ChipFlag[] = [];
 	if (kind === "params" && directiveMarkedFields(kind, group, FORCE_DIRECTIVE).has(key)) {
@@ -115,7 +113,6 @@ export function chipFlags(kind: RecordEditorKind, group: PrefixGroup, key: strin
 }
 
 /** The flag directives each editor's chips may absorb; the checkbox sets, unchanged. */
-
 export function flagDirectivesFor(kind: RecordEditorKind): readonly FieldDirective[] {
 	return kind === "params" ? PARAM_FLAG_DIRECTIVES : CAPABILITY_FLAG_DIRECTIVES;
 }
