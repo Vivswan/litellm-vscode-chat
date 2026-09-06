@@ -1,18 +1,12 @@
 /**
  * Pure renderer for the migration-expiry sticky comment posted on the
  * release-please release PR (.github/workflows/update-release-pr.yml).
- * The executable wrapper is migration-expiry-table.ts.
+ * The executable wrapper is migration-expiry-table.ts. The comment's
+ * identity is the sticky-comment action's header, not anything in this
+ * body: the body carries only what a reader sees.
  */
 
 import type { MigrationExpiry } from "../../src/extension/migrations/expiries";
-
-/**
- * First line of the rendered document and the sticky-comment identity: the
- * release-PR workflow finds its earlier comment by this exact prefix, so this
- * literal and the jq filter in update-release-pr.yml move together (a bun
- * test pins them).
- */
-export const MIGRATION_EXPIRY_MARKER = "<!-- migration-expiries -->";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -26,10 +20,16 @@ function daysRemaining(expires: string, today: Date): number {
 	return Math.round((Date.parse(expires) - Date.parse(today.toISOString().slice(0, 10))) / DAY_MS);
 }
 
-/** The full markdown document for the sticky comment, marker line first. */
+/**
+ * The full markdown document for the sticky comment, or the empty string
+ * when no migration is live: the workflow reads an empty rendering as "delete
+ * the comment", so a release PR carries no table once the registry drains.
+ */
 export function renderMigrationExpiryTable(expiries: readonly MigrationExpiry[], today: Date): string {
+	if (expiries.length === 0) {
+		return "";
+	}
 	const lines = [
-		MIGRATION_EXPIRY_MARKER,
 		"Expired migrations fail the build; delete the migration and move its storage keys into the activation cleanup.",
 		"",
 		"| Migration | Introduced | Expires | Days remaining |",
