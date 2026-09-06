@@ -1,6 +1,6 @@
 # This file is managed by Vivswan/repo-platform.
 # Copier uses it to track the template source and version - do not delete.
-_commit: 3071e34d2050e95fafb8a173c19f6e4d84cf7290
+_commit: d79ad46988033bedaa2689c7d0d1bdc292f3afb7
 _src_path: gh:Vivswan/repo-platform
 copyright_holder: Vivswan Shah (https://github.com/Vivswan)
 description: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM.
