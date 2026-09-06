@@ -65,16 +65,35 @@ jobs:
         with:
           needs: ${{ toJSON(needs) }}
 
-  # Runs in the SAME workflow run as the judged commit, downstream of the
-  # gate, so github.sha IS the judged commit; release.yml's head gate
-  # still skips when main has moved on (the newer run releases).
-  release:
+  # Repo-owned: edit post-green.yml, not this file. Runs after the gate,
+  # before the release, on the judged commit; no job lane here (a caller
+  # holding a lane a called job takes deadlocks the call).
+  post-green:
     needs: [all-green]
-    # result is spelled out so the release never depends on GitHub's
+    if: >-
+      needs.all-green.result == 'success' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/post-green.yml
+    with:
+      sha: ${{ github.sha }}
+    secrets: inherit
+
+  # Runs in the SAME workflow run as the judged commit, downstream of the
+  # gate AND the repo-owned post-green hook (so the repository's own
+  # green-gated work lands before the tag is minted), so github.sha IS
+  # the judged commit; release.yml's head gate still skips when main has
+  # moved on (the newer run releases).
+  release:
+    needs: [all-green, post-green]
+    # results are spelled out so the release never depends on GitHub's
     # implied-success() rule; the event clauses keep PR, dispatch, and
     # schedule runs from ever releasing.
     if: >-
       needs.all-green.result == 'success' &&
+      needs.post-green.result == 'success' &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main'
     # Deliberately a lane no group inside the called release.yml takes:
