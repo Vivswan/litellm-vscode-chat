@@ -57,7 +57,17 @@ jobs:
       # bun smoke test runs the executable the same bare way.
       - name: Render the migration-expiry table
         id: render
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
+          # The sticky-comment action reads a missing or unparseable PR number
+          # as nothing to do and exits green; refuse one before it can.
+          case "$PR_NUMBER" in
+            ''|0*|*[!0-9]*)
+              echo "::error::pr_number must be a positive integer, got '$PR_NUMBER'"
+              exit 1
+              ;;
+          esac
           bun --no-install scripts/ci/migration-expiry-table.ts > "$RUNNER_TEMP/migration-expiries.md"
           # An empty rendering means no migration is live: the step below
           # then deletes the comment instead of posting an empty table.
@@ -73,9 +83,21 @@ jobs:
       # the event payload names no pull request: number carries the release
       # PR's.
       - name: Post, update, or delete the sticky comment
+        id: sticky
         uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: migration-expiries
           number: ${{ inputs.pr_number }}
           path: ${{ runner.temp }}/migration-expiries.md
           delete: ${{ steps.render.outputs.empty }}
+
+      # A live table that reached no comment is the one silent outcome the
+      # action can still produce (it skips instead of failing when its lookup
+      # has nothing to work on); it fails here instead.
+      - name: Fail if a live table reached no comment
+        if: steps.render.outputs.empty == 'false' && steps.sticky.outputs.previous_comment_id == '' && steps.sticky.outputs.created_comment_id == ''
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          echo "::error::the sticky-comment action neither found nor created a comment on PR $PR_NUMBER"
+          exit 1
