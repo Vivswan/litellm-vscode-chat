@@ -16,6 +16,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { SETTING_PROSE } from "../../../../../scripts/docs/settingsReferenceProse";
+import type { SettingId } from "../../../../shared/config/settingSpec";
 import { REPO_ROOT } from "../../../util/repoRoot";
 
 /** The shipped probe set, from the fixture features.test.ts pins to production. */
@@ -118,21 +120,21 @@ describe("dashboard probe carve-out copy", () => {
 	});
 
 	test("the settings-reference prose carries the same claim and carve-out per probe-carrying feature, per locale", () => {
-		const prose = readFileSync(path.join(REPO_ROOT, "scripts", "docs", "settingsReferenceProse.ts"), "utf8");
 		for (const feature of probeFeatures()) {
-			const block = new RegExp(`"${feature}\\.enabled":\\s*\\{[\\s\\S]*?\\n\\t\\}`).exec(prose)?.[0];
-			expect(block, `settingsReferenceProse declares ${feature}.enabled`).toBeDefined();
-			if (block === undefined) {
+			const prose = SETTING_PROSE[`${feature}.enabled` as SettingId];
+			expect(prose, `settingsReferenceProse declares ${feature}.enabled`).toBeDefined();
+			if (prose === undefined) {
 				continue;
 			}
 			// Per locale, not per block: an English carve-out must not satisfy the
 			// rule for a Chinese claim that lost its own.
 			for (const locale of LOCALES) {
-				const text = new RegExp(`${locale.proseKey}: (["'])((?:\\\\.|(?!\\1).)*)\\1`).exec(block)?.[2];
-				expect(text, `settingsReferenceProse: ${feature}.enabled has a ${locale.proseKey} entry`).toBeDefined();
-				if (text !== undefined) {
-					assertCell(`settingsReferenceProse (${locale.proseKey}): ${feature}.enabled`, feature, locale, text);
-				}
+				assertCell(
+					`settingsReferenceProse (${locale.proseKey}): ${feature}.enabled`,
+					feature,
+					locale,
+					prose[locale.proseKey]
+				);
 			}
 		}
 	});

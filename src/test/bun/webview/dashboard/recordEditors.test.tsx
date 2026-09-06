@@ -9,13 +9,9 @@ import { newParamRow } from "../../../../dashboard/recordDraft";
 import { CONSUMED_CAPABILITY_FIELDS } from "../../../../shared/config/capabilityResolution";
 import { App } from "../../../../webview/dashboard/app";
 import { helpModelParameterPrefix } from "../../../../webview/dashboard/helpText";
-import type { GroupIssueView } from "../../../../webview/dashboard/recordEditors";
-import {
-	anyRecordProblem,
-	CatalogPicker,
-	capabilityKeySuggestions,
-	RecordStatusSlot,
-} from "../../../../webview/dashboard/recordEditors";
+import { anyRecordProblem, RecordStatusSlot } from "../../../../webview/dashboard/recordEditors";
+import { CatalogPicker, capabilityKeySuggestions } from "../../../../webview/dashboard/recordGroupFields";
+import type { GroupIssueView } from "../../../../webview/dashboard/recordIssues";
 import { SettingsSection } from "../../../../webview/dashboard/settingsPage";
 import { makeSettings } from "../../../dashboardSettingsFixture";
 import { makeModel, makeState, statePush } from "../fixtures";

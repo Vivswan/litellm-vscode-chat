@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import type { PrefixGroup } from "../../../../dashboard/recordDraft";
 import { newParamRow } from "../../../../dashboard/recordDraft";
-import { RecordMatcherEditorOverlay } from "../../../../webview/dashboard/recordEditors";
+import { RecordMatcherEditorOverlay } from "../../../../webview/dashboard/recordMatcherTable";
 import { cleanup, fireInput, mount, render, resetPosted } from "../harness";
 
 beforeEach(resetPosted);

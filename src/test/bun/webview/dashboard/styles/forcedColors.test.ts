@@ -61,9 +61,18 @@ const TRANSPARENT_BORDERS: readonly TransparentBorder[] = [
 		},
 	},
 	{
-		file: "dashboard/recordEditors.tsx",
+		file: "dashboard/recordChipPopovers.tsx",
 		text: "border-transparent",
-		count: 2,
+		count: 1,
+		disposition: {
+			kind: "welcome",
+			why: "the chips are FILLED at rest and forced colours flatten the fill into the page, so the repainted border is the only thing keeping two chips from reading as one run of words; the invalid and hinted chips still outrank it with their 2px marks",
+		},
+	},
+	{
+		file: "dashboard/recordMatcherTable.tsx",
+		text: "border-transparent",
+		count: 1,
 		disposition: {
 			kind: "welcome",
 			why: "the chips are FILLED at rest and forced colours flatten the fill into the page, so the repainted border is the only thing keeping two chips from reading as one run of words; the invalid and hinted chips still outrank it with their 2px marks",
@@ -407,7 +416,10 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 			kind: "twinned",
 			selector: ".server-row:has( > .server-line:hover) .server-actions.armed",
 			declaration: "background: Canvas;",
-			why: "the wash itself is decoration the mode may drop, but the fill UNDER it is the cover's opacity, and this selector outranks the base cover rule - so the twin restates Canvas at this specificity rather than letting the editor-background chain stand, and carries the cover's ink edge with it",
+			why:
+				"the wash itself is decoration the mode may drop, but the fill UNDER it is the cover's opacity, and this " +
+				"selector outranks the base cover rule - so the twin restates Canvas at this specificity rather than letting " +
+				"the editor-background chain stand, and carries the cover's ink edge with it",
 		},
 	},
 	{
@@ -458,7 +470,10 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 		count: 1,
 		disposition: {
 			kind: "welcome",
-			why: "the pinned Inspect column's job is OCCLUSION, not tint: columns scroll under the header cell and the body cells alike, and the mode repaints this fill to opaque Canvas, which occludes exactly the same; the sub-920px border-left seam is a border and survives on its own",
+			why:
+				"the pinned Inspect column's job is OCCLUSION, not tint: columns scroll under the header cell and the body " +
+				"cells alike, and the mode repaints this fill to opaque Canvas, which occludes exactly the same; the " +
+				"sub-920px border-left seam is a border and survives on its own",
 		},
 	},
 	{
@@ -819,7 +834,7 @@ interface UtilityFill {
 
 const UTILITY_FILLS: readonly UtilityFill[] = [
 	{
-		file: "dashboard/serverEditPage.tsx",
+		file: "dashboard/serverFormFields.tsx",
 		text: '"mt-2 mb-3 h-px bg-border forced-colors:bg-[CanvasText]"',
 		count: 1,
 		twinSelector: String.raw`.forced-colors\:bg-\[CanvasText\]`,

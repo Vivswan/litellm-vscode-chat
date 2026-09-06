@@ -279,7 +279,8 @@ test(
 		// rounded-sm in these files would re-mint the coincidence the badge shed.
 		// Exact counts, because a site quietly losing its binding is the regression.
 		const boundSites = [
-			{ file: "recordEditors.tsx", utility: "rounded-(--radius-chip)", count: 3 },
+			{ file: "recordChipPopovers.tsx", utility: "rounded-(--radius-chip)", count: 1 },
+			{ file: "recordMatcherTable.tsx", utility: "rounded-(--radius-chip)", count: 2 },
 			{ file: "ui/input.tsx", utility: "rounded-(--radius-field)", count: 1 },
 			{ file: "ui/select.tsx", utility: "rounded-(--radius-field)", count: 1 },
 			{ file: "ui/textarea.tsx", utility: "rounded-(--radius-field)", count: 1 },
@@ -1205,7 +1206,7 @@ test("the forced light palette keeps Light Modern's passing green, low contrast 
 	expect(light).not.toContain("#007100");
 	// The high contrast light emulation is where #007100 legitimately lives.
 	const harness = readFileSync(
-		path.resolve(import.meta.dir, "../../../../../../scripts/dev/render-dashboard.ts"),
+		path.resolve(import.meta.dir, "../../../../../../scripts/dev/render/hostThemes.ts"),
 		"utf8"
 	);
 	const lightEmulation = /function lightCss\(\)[\s\S]*?\n\}/.exec(harness)?.[0] ?? "";

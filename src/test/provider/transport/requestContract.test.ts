@@ -1391,9 +1391,17 @@ suite("provider/request contract", () => {
 				}),
 				(e: unknown) => {
 					assert.ok(e instanceof Error);
+					const paragraphs = e.message.split("\n\n");
+					assert.strictEqual(paragraphs.length, 2, e.message);
+					const [summary, details] = paragraphs;
+					assert.strictEqual(
+						summary,
+						"This conversation looks too long for the model - trim messages or attachments, or raise the model's " +
+							"input limit in settings if it is wrong."
+					);
 					assert.match(
-						e.message,
-						/^This conversation looks too long for the model - trim messages or attachments, or raise the model's input limit in settings if it is wrong\.\n\nDetails: token limit exceeded before send: local estimate \d+ tokens \(messages \+ tools\), input limit 10$/
+						details ?? "",
+						/^Details: token limit exceeded before send: local estimate \d+ tokens \(messages \+ tools\), input limit 10$/
 					);
 					assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
 					return true;

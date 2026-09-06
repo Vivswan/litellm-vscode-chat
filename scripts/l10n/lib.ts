@@ -9,8 +9,8 @@ import path from "node:path";
 import { getL10nJson, type l10nJsonFormat } from "@vscode/l10n-dev";
 import ts from "typescript";
 import { z } from "zod";
+import { LAZY_L10N_HELPERS } from "./census";
 
-/** The English reference bundle: what extract writes and check re-derives. */
 export const BUNDLE_PATH = path.join(process.cwd(), "l10n", "bundle.l10n.json");
 
 /**
@@ -23,12 +23,15 @@ export const bundleSchema = z.record(
 	z.string(),
 	z.union([z.string(), z.object({ message: z.string(), comment: z.array(z.string()) })])
 );
+
 export type BundleFile = z.infer<typeof bundleSchema>;
 
 /** Flat key-to-string tables: package.nls*.json and translated bundle.l10n.<locale>.json. */
+
 export const nlsSchema = z.record(z.string(), z.string());
 
 /** The message text of one bundle value, whichever shape it uses. */
+
 export function bundleMessage(value: BundleFile[string]): string {
 	return typeof value === "string" ? value : value.message;
 }
@@ -39,6 +42,7 @@ export interface SourceFile {
 }
 
 /** Every src/**\/*.ts|tsx outside src/test with its contents, sorted so extraction order is stable. */
+
 export async function readSourceFiles(): Promise<SourceFile[]> {
 	const srcRoot = path.join(process.cwd(), "src");
 	const entries = await fs.readdir(srcRoot, { recursive: true, withFileTypes: true });
@@ -59,6 +63,7 @@ export async function readSourceFiles(): Promise<SourceFile[]> {
 }
 
 /** Extract every l10n.t() literal from the source tree, key-sorted. */
+
 export async function extractBundle(): Promise<l10nJsonFormat> {
 	const files = await readSourceFiles();
 	const extracted = await getL10nJson(files.map(({ file, contents }) => ({ extension: path.extname(file), contents })));
@@ -70,436 +75,10 @@ export async function extractBundle(): Promise<l10nJsonFormat> {
 }
 
 /** The bundle's on-disk form; one serializer so extract and check cannot disagree. */
+
 export function serializeBundle(bundle: l10nJsonFormat): string {
 	return `${JSON.stringify(bundle, null, "\t")}\n`;
 }
-
-/**
- * Lazy localization helpers: calling one at module scope defeats its laziness
- * exactly like a direct t() call, so the guard bans these names alongside
- * l10n.t and vscode.l10n.t.
- *
- * Inclusion is a full census, no judgment: EVERY top-level lowercase-named
- * function in shipped src/ whose declaration (default parameters included)
- * resolves l10n.t, directly or transitively. Over-inclusion is harmless -
- * none of these is ever legal at module scope. Matching is by call-site name,
- * so one entry covers same-named helpers.
- *
- * Enforced both ways: every entry must still name a top-level declaration in
- * shipped source (a rename would disarm its guard silently), and every
- * top-level lowercase function - and every CLASS - the reverse walk
- * (uncensusedLazyHelpers) sees resolving l10n.t must be listed. A class counts
- * because the roots `new` evaluates are walked whole, deferred bodies included.
- *
- * Both directions follow NAMES bound by declaration, assignment, alias, or
- * default - never values in flight. Conservative extensions keep common
- * indirections visible without becoming data-flow analysis: a callee flattens
- * through its choosing shapes (every ternary or fallback branch judged),
- * .call/.apply/.bind links strip off it (`helper.call(...)` reads as
- * `helper`), a member read off a namespace import of a LOCAL module resolves
- * by member name (`helpers.title()`, `helpers["title"]()`, and `const t =
- * helpers.title` all read as `title`), a computed member call reads as its
- * receiver, and an identifier or resolvable member in direct ARGUMENT
- * position taints the calling scope (`register(label)` gives the caller an
- * edge to `label`, since the walk cannot see whether the callee invokes it).
- * What stays invisible: a thunk table's PROPERTY call off a plain object
- * (inactiveSurfacesText is the known case, registered by hand), a member call
- * reaching a class STATIC that localizes (statics stay out of construction
- * evidence), and a name that takes its value at invocation time - a parameter
- * binding, a for-of or catch binding, a destructuring projection, a spread or
- * an identifier nested inside an argument's array or object literal.
- * Following those is data-flow analysis, which this gate deliberately is not;
- * fixtures pin the boundary so it stays a decision rather than a discovery.
- */
-export const LAZY_L10N_HELPERS: readonly string[] = [
-	"configureNowLabel",
-	"hubItems",
-	"manageCommandTitle",
-	"featureDisabledMessage",
-	"featureDisabledMessageEnglish",
-	"featureNoModelMessage",
-	"featureNoModelMessageEnglish",
-	"generateCommitMessageCommandTitle",
-	"generatePrDescriptionCommandTitle",
-	"prGenerationProviderTitle",
-	"wireCommitGeneration",
-	"wireFeatures",
-	"pickRepository",
-	"sendCommitPrompt",
-	"runGenerateCommitMessage",
-	"createFimSend",
-	"createFimProbe",
-	"wireInlineCompletions",
-	"wireChatParticipant",
-	"quickFixSlashCommands",
-	"registerQuickFixSlashCommands",
-	"actionTitle",
-	"buildAction",
-	"createQuickFixActionsProvider",
-	"sendFallbackPrompt",
-	"noModelAdvice",
-	"runFallback",
-	"runQuickFixChat",
-	"createQuickFixProbe",
-	"wireQuickFix",
-	"handleParticipantTurn",
-	"turnFailedText",
-	"commandListingIntro",
-	"noCommandsText",
-	"builtinSlashCommands",
-	"createSlashCommandRegistry",
-	"modelsMarkdown",
-	"participantSnapshots",
-	"capabilitySummary",
-	"participantFollowups",
-	"followupTable",
-	"createConsultSend",
-	"wireConsultTool",
-	"probeEmptyAnswerText",
-	"probeAnswerText",
-	"createMcpServerDefinitionProvider",
-	"derivedMcpHint",
-	"refusalError",
-	"wireMcpServers",
-	"createPrSend",
-	"wirePrGeneration",
-	"runGeneratePrDescription",
-	// src/extension/features/modelSettingError (the features' one no-such-server sentence)
-	// and the shared send composition that throws it.
-	"noEntryForConfiguredServer",
-	"featureChatSend",
-	"createCommitProbe",
-	// src/dashboard/featureNames (the features' one display-name registry).
-	"featureNameEntry",
-	"featureDisplayName",
-	"featureEnglishName",
-	"featureLogSurface",
-	// src/extension/features/reviewComments (the comment surface and its commands).
-	"reviewChangesCommandTitle",
-	"reviewFileCommandTitle",
-	"userAuthor",
-	"renderComment",
-	"ReviewCommentController",
-	"openGate",
-	"openFeatureGate",
-	"reviewModelGate",
-	"sendReviewMessages",
-	"reviewSender",
-	"runReviewChanges",
-	"runReviewFile",
-	"runReviewReply",
-	"answerReply",
-	"announce",
-	"reportText",
-	"reviewedSentence",
-	"wireReviewComments",
-	"secretPaletteLabel",
-	// src/extension/features/commandFailure (the command features' one failure boundary at the features/ root).
-	"reportCommandFailure",
-	"numberSettingPresentation",
-	"booleanSettingPresentation",
-	"settingScopeLabel",
-	"serverFormFieldLabel",
-	"serverFieldHelp",
-	"unsavedText",
-	"settingRowHelp",
-	"helpServersSection",
-	"helpModelsSection",
-	"helpParamsInspector",
-	"helpSettingsSection",
-	"helpModelParametersSection",
-	"helpMcpSection",
-	"helpMcpEndpoint",
-	"helpSecretStorage",
-	"helpModelParameterPrefix",
-	"helpEntryModelParameterPrefix",
-	"helpModelParameterName",
-	"helpModelParameterValue",
-	"parseNumberDraft",
-	"defaultDisplay",
-	"equivalence",
-	"parseJsonValue",
-	"formatDuration",
-	"zeroModelExplanation",
-	"keyProblem",
-	"firstGroupProblem",
-	"recordFromJsonText",
-	"parseGroups",
-	"parseHeaderRows",
-	"parseHeaderRowsDetailed",
-	"groupsFromJsonText",
-	"parseServerForm",
-	"parseServerFormForTest",
-	"validateAdoptLabel",
-	"sectionFailureText",
-	"pairingFailureMessage",
-	"authMessage",
-	"reasoningOnlyResponseMessage",
-	"timeoutMessage",
-	"timeoutRequestError",
-	"upstreamAuthMessage",
-	"statusErrorTexts",
-	// src/dashboard record-draft and form parsers (localized problems ride the verdicts).
-	"readDirectiveValue",
-	"parseDirectiveListText",
-	"judgeInheritableRow",
-	"judgeInheritFromRow",
-	"firstCapabilityProblem",
-	"capabilityGroupsFromJsonText",
-	"consumedInvalidHint",
-	"wrongRecordTypeHint",
-	"parseCapabilityGroups",
-	"directiveListedEntries",
-	"directiveMarkedFields",
-	"directiveRowAbsorbed",
-	"toggleDirectiveField",
-	"inheritFromChoice",
-	"analyzeServerForm",
-	// src/shared presenters, titles, and localized-error constructors.
-	"capabilityDisplayLabel",
-	"parameterCountText",
-	"costUnitLabel",
-	"syncModelsCommandTitle",
-	"refreshUsageCommandTitle",
-	"chatErrorMessage",
-	"toolPairingHeadline",
-	"toolMismatchHeadline",
-	"validateRequest",
-	// src/provider error constructors, catalog presenters, and schema builders.
-	"unparseableModelsResponse",
-	"coerceJsonPayload",
-	"modelListingUnservedError",
-	"noEndpointServedError",
-	"refineModelsListingFailure",
-	"pickerLabel",
-	"pickerDescription",
-	"reasoningEffortSchema",
-	"configurationSchemaFor",
-	"buildModelInfos",
-	"applyCapabilityOverrides",
-	"synthesizeDeclaredModels",
-	"twoPartTexts",
-	"timeoutError",
-	"parseTokenResponse",
-	"chatHttpHeadline",
-	"discoveryHttpHeadline",
-	"httpHeadline",
-	"bodylessResponseError",
-	"streamErrorFrame",
-	"mapSdkError",
-	"expiredCertificateHeadline",
-	"unverifiedCertificateHeadline",
-	"connectionHeadline",
-	"unreachableHeadline",
-	"socketFailureRequestError",
-	// src/extension pure returners (labels, actions, rendered texts).
-	"validateNumberSetting",
-	"usageHttpError",
-	"relativeTimeText",
-	"dismissAction",
-	"reconfigureAction",
-	"reportIssueAction",
-	"viewOutputAction",
-	"testConnectionAction",
-	"troubleshootingDocsAction",
-	"notifierErrorActions",
-	"commandErrorActions",
-	"openChatAction",
-	"openSettingsAction",
-	"openGroupsFileAction",
-	"renderImportPreview",
-	"undoImportAction",
-	"parseFailureMessage",
-	"gateMessage",
-	"zeroModelStatusTexts",
-	"zeroModelJudgment",
-	"openUsageAction",
-	"serverTooltipLines",
-	"renderUsageStatus",
-	// The rest of the census: flows, wiring, prompts, and IO that resolve
-	// l10n.t on the way. Never legal at module scope either.
-	"activate",
-	"applyAdoptServer",
-	"executeDashboardIntent",
-	"applySaveServerSetting",
-	"applyTestServerDraft",
-	"requireEntryShownByForm",
-	"registerManageCommand",
-	"notifyRemovalEvents",
-	"createServerSyncEnv",
-	"registerSetServerSecretCommand",
-	"notifyUsageRefreshFailure",
-	"registerRefreshUsageCommand",
-	"showZeroModelOutcomeToast",
-	"runConnectionTest",
-	"registerTestConnectionCommand",
-	"runModelSync",
-	"runModelSyncPass",
-	"registerSyncModelsCommand",
-	"runReportIssue",
-	"showRepeatReportHint",
-	"registerReportIssueCommand",
-	"registerOpenGroupsFileCommand",
-	"registerHelpAndFeedbackCommand",
-	"createIssueReporterEnv",
-	"handleOpenSettingKey",
-	"registerOpenSettingKeyCommand",
-	"createSettingsTransferPrompts",
-	"createSettingsTransferEnv",
-	"runExportSettingsFlow",
-	"applyServersUnit",
-	"runImportSettingsFlow",
-	"notifyKeptSnapshot",
-	"runUndoLastImportFlow",
-	"registerSettingsTransferCommands",
-	"showSetupProblemGate",
-	"wireServers",
-	"maybeShowWelcome",
-	"wireUiCommands",
-	"wireDashboard",
-	"wireUsageSurfaces",
-	"registerDashboardCommand",
-	"fetchModels",
-	"exchangeClientCredentials",
-	// Neither localizes AT construction: both localize from deferred members
-	// the walk sees because the roots `new` evaluates - constructor body,
-	// instance property initializers - are walked whole. The census's stated
-	// over-inclusion, and resolving at use time is always available.
-	"DashboardController",
-	"UsageAlerts",
-	// Webview component presenters that resolve l10n.t at call time.
-	"relativeTime",
-	"PriceParts",
-	"pricingNote",
-	"metaLine",
-	"detailFields",
-	"fieldLabel",
-	"capabilityList",
-	"priceFilterLabel",
-	"externalTip",
-	"locationName",
-	"sectionLabel",
-	"toastText",
-	"overallState",
-	"diagnosticsReportText",
-	"modelParametersTitle",
-	"skipReasonText",
-	"maxTokensParts",
-	"lastSync",
-	"railSections",
-	"diagnosticsCount",
-	"severityLabel",
-	"recordProblemText",
-	"legacyProblemText",
-	"docsAction",
-	"configProblem",
-	"nodeFieldText",
-	"treeTitle",
-	"pricingFieldLabel",
-	"parameterProvenance",
-	"capabilityProvenance",
-	"parameterProvenancePhrase",
-	"capabilityProvenancePhrase",
-	"parameterCellProvenance",
-	"capabilityCellProvenance",
-	"forcedCellMark",
-	"inheritedCellMark",
-	"fallbackMark",
-	"parameterDiagnosticText",
-	"formatValue",
-	"capabilityEditLabel",
-	"capabilityDiagnosticText",
-	"outputLimitNote",
-	"settingsScope",
-	"entryScope",
-	"serverScope",
-	"forceWord",
-	"fallbackWord",
-	"inheritedWord",
-	"modelCapabilitiesTitle",
-	"numberInputProps",
-	"recordVerdict",
-	"recordListLabel",
-	"matcherKindLabel",
-	"inheritableWord",
-	"ignoredWord",
-	"chipFlags",
-	"chipRowIndices",
-	"candidateProblem",
-	"troubleshootingLink",
-	"expectedFailureLabel",
-	"authFormName",
-	"matcherCountAside",
-	"serverDiagnostics",
-	"usageDiagnostics",
-	"pillVerdict",
-	"neverUpdatedText",
-	"stalenessText",
-	"spendMissingReason",
-	"requestsMissingReason",
-	"serversMeta",
-	"entryInactiveFixText",
-	// Thunk-table resolver, hand-registered (see the census limit above).
-	"inactiveSurfacesText",
-	// Webview help-text and settings-row presenters.
-	"helpImportExportGroup",
-	"helpConnectionSection",
-	"helpDiscoverySection",
-	"helpAdoptionSection",
-	"helpOauthCompanionApiKey",
-	"helpCapabilityPrefix",
-	"helpCapabilityName",
-	"helpCapabilityValue",
-	"helpCatalogPicker",
-	"helpFallbackFlag",
-	"helpForceFlag",
-	"helpForceFlagDisabled",
-	"helpInheritableFlag",
-	"helpInheritFromControl",
-	"helpModelCapabilitiesSection",
-	"helpTokenEstimation",
-	"helpToolSchemaKeywords",
-	"helpCurrencySymbol",
-	"helpUiTheme",
-	"helpUiAccent",
-	"helpUsageStatusBar",
-	"helpUsageThresholds",
-	"helpFeatureModel",
-	"helpFeaturesSection",
-	"helpCommitPrompt",
-	"helpLanguageFilterList",
-	"helpLanguageFilterMode",
-	"helpCapsInspector",
-	"helpConfigDiagnosticsSection",
-	"helpResolutionSection",
-	"helpDiagnosticsTools",
-	"usageStatusBarDescription",
-	"tokenEstimationDescription",
-	"toolSchemaKeywordsDescription",
-	"usageThresholdsDescription",
-	"currencySymbolDescription",
-	"featureModelDescription",
-	"featureModelTitle",
-	"comingSoonMarker",
-	"featuresComingHint",
-	"commitPromptDescription",
-	"languageFilterListDescription",
-	"languageFilterListTitle",
-	"languageFilterModeDescription",
-	"languageFilterModeLabel",
-	"languageFilterModeTitle",
-	"uiThemeDescription",
-	"uiAccentDescription",
-	"statusBarModeLabel",
-	"tokenEstimationLabel",
-	"uiThemeLabel",
-	"uiAccentLabel",
-	"scopeSummary",
-	"scalarText",
-	"writeFailureText",
-	"glyphTrail",
-	"catalogStatusParts",
-];
 
 /**
  * Which of `names` this file DECLARES as a top-level function, class, or
@@ -557,6 +136,7 @@ export function declaredCensusNames(contents: string, fileName: string, names: r
 }
 
 /** A renaming import/export specifier's minted name and the name it stands for. */
+
 interface AliasSpecifier {
 	readonly name: string;
 	readonly of: string;
@@ -564,6 +144,7 @@ interface AliasSpecifier {
 }
 
 /** The renaming (aliased) import/export specifiers of one top-level statement; a plain re-export mints no new name. */
+
 function aliasSpecifiers(statement: ts.Statement): AliasSpecifier[] {
 	const aliases: AliasSpecifier[] = [];
 	if (ts.isImportDeclaration(statement)) {
@@ -605,6 +186,7 @@ function importEqualsAlias(statement: ts.Statement): AliasSpecifier | undefined 
 }
 
 /** A top-level function the reverse census walk found resolving l10n.t without a LAZY_L10N_HELPERS entry. */
+
 export interface UncensusedLazyHelper {
 	readonly file: string;
 	readonly name: string;
@@ -613,6 +195,7 @@ export interface UncensusedLazyHelper {
 }
 
 /** One top-level binding's localization evidence, before the cross-file closure. */
+
 interface HelperNode {
 	readonly file: string;
 	readonly name: string;
@@ -632,6 +215,7 @@ interface HelperNode {
 }
 
 /** The invocation evidence of a set of nodes: a direct l10n.t call, plus every bare-name invocation edge. */
+
 interface InvocationEvidence {
 	direct: boolean;
 	readonly callees: Set<string>;
@@ -652,9 +236,11 @@ function isAssigningOperator(kind: ts.SyntaxKind): boolean {
 }
 
 /** The Function.prototype members that forward an invocation to their receiver. */
+
 const FORWARDING_MEMBERS = new Set(["call", "apply", "bind"]);
 
 /** A property access, or an element access whose key is a string literal - one member read either way. */
+
 function memberNameOf(node: ts.Expression): { readonly object: ts.Expression; readonly member: string } | undefined {
 	if (ts.isPropertyAccessExpression(node)) {
 		return { object: node.expression, member: node.name.text };
@@ -699,6 +285,7 @@ function stripForwarding(node: ts.Expression, sourceFile: ts.SourceFile): ts.Exp
  * source; the check is defensive, not load-bearing).
  */
 const localNamespaceCache = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+
 function localNamespaceImports(sourceFile: ts.SourceFile): ReadonlySet<string> {
 	const cached = localNamespaceCache.get(sourceFile);
 	if (cached !== undefined) {
@@ -1046,6 +633,7 @@ export function uncensusedLazyHelpers(
 }
 
 /** Every top-level binding in one file, with its direct-l10n evidence and bare-call edges. */
+
 function collectTopLevelFunctions(file: string, contents: string): HelperNode[] {
 	const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
 	const sourceFile = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, false, kind);
@@ -1144,6 +732,7 @@ function collectTopLevelFunctions(file: string, contents: string): HelperNode[] 
 }
 
 /** Parens and type wrappers do not change what evaluates; strip them so `(fn)()` and `fn as T` read as fn. */
+
 function unwrapExpression(node: ts.Expression): ts.Expression {
 	let current = node;
 	while (
@@ -1189,45 +778,6 @@ function possibleValues(rhs: ts.Expression): ts.Expression[] {
 		}
 	}
 	return [source];
-}
-
-/**
- * Line numbers (1-based) of default exports (`export default ...`, `export =`,
- * `export { x as default }`). Both census walks follow call-site NAMES, and a
- * default export is the one shape that breaks that - every importer mints its
- * own name - so the gate keeps it out of shipped source entirely.
- */
-export function defaultExportOffenses(contents: string, fileName: string): number[] {
-	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-	const sourceFile = ts.createSourceFile(fileName, contents, ts.ScriptTarget.Latest, false, kind);
-	const offenses: number[] = [];
-	const flag = (node: ts.Node): void => {
-		offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
-	};
-	for (const statement of sourceFile.statements) {
-		if (ts.isExportAssignment(statement)) {
-			// Covers both `export default expr` and `export = expr`.
-			flag(statement);
-		} else if (
-			(ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
-			(ts.getModifiers(statement) ?? []).some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)
-		) {
-			flag(statement);
-		} else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly && statement.exportClause !== undefined) {
-			if (ts.isNamedExports(statement.exportClause)) {
-				for (const element of statement.exportClause.elements) {
-					if (!element.isTypeOnly && element.name.text === "default") {
-						flag(element);
-					}
-				}
-			} else if (statement.exportClause.name.text === "default") {
-				// `export * as default from "./m"`: a namespace export minting the
-				// default name, which the named-specifier walk above cannot see.
-				flag(statement.exportClause);
-			}
-		}
-	}
-	return offenses;
 }
 
 /**
@@ -1595,319 +1145,5 @@ export function moduleScopeL10nOffenses(contents: string, fileName: string): num
 	for (const statement of sourceFile.statements) {
 		scan(statement);
 	}
-	return offenses;
-}
-
-export interface VscodeL10nRuleOptions {
-	/** Whether this file may read `vscode.l10n.bundle` (the two bundle-feeding sites). */
-	readonly allowBundleReads: boolean;
-	/**
-	 * Whether this file may reference a vscode-module binding as a plain value
-	 * (the Reflect constructor-probe files). Member access rules still apply;
-	 * `.l10n` stays flagged.
-	 */
-	readonly allowVscodeValueUse: boolean;
-}
-
-/**
- * Line numbers (1-based) of localization forms outside the sanctioned set: the
- * canonical `import * as l10n from "@vscode/l10n"` with direct `l10n.t`/
- * `l10n.config` calls, ordinary non-l10n vscode member access,
- * `vscode.l10n.bundle` reads in the bundle-feeding files, and type-only forms.
- *
- * An allowlist that fails closed, not a catalog of known escapes: every other
- * appearance of a tracked binding flags, so a novel laundering form fails the
- * gate rather than shipping strings extraction cannot follow. Matching is
- * syntactic, so a local binding shadowing a tracked name flags too; rename it
- * or add a deliberate allowlist entry here.
- */
-export function vscodeL10nOffenses(contents: string, fileName: string, options: VscodeL10nRuleOptions): number[] {
-	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-	const sourceFile = ts.createSourceFile(fileName, contents, ts.ScriptTarget.Latest, false, kind);
-	const offenses: number[] = [];
-	const flag = (node: ts.Node): void => {
-		offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
-	};
-
-	const specifierOf = (statement: ts.ImportDeclaration | ts.ExportDeclaration): string | undefined =>
-		statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier)
-			? statement.moduleSpecifier.text
-			: undefined;
-
-	// Unwrap parens and type wrappers so `(vscode).l10n` or
-	// `const loc = (l10n as typeof l10n)` cannot slip by.
-	const unwrap = (node: ts.Expression): ts.Expression => {
-		let current = node;
-		while (
-			ts.isParenthesizedExpression(current) ||
-			ts.isAsExpression(current) ||
-			ts.isSatisfiesExpression(current) ||
-			ts.isNonNullExpression(current) ||
-			ts.isTypeAssertionExpression(current)
-		) {
-			current = current.expression;
-		}
-		return current;
-	};
-
-	const isCanonicalL10nImport = (statement: ts.ImportDeclaration): boolean =>
-		statement.importClause?.name === undefined &&
-		statement.importClause?.namedBindings !== undefined &&
-		ts.isNamespaceImport(statement.importClause.namedBindings) &&
-		statement.importClause.namedBindings.name.text === "l10n";
-
-	// Pass 1: which local names bind the vscode module, and whether the
-	// canonical @vscode/l10n binding exists (its laundering checks key off it).
-	const vscodeNamespaces = new Set<string>();
-	let hasCanonicalL10n = false;
-	for (const statement of sourceFile.statements) {
-		if (ts.isImportDeclaration(statement)) {
-			const specifier = specifierOf(statement);
-			const clause = statement.importClause;
-			if (clause === undefined || clause.isTypeOnly) {
-				continue;
-			}
-			if (specifier === "vscode") {
-				// Default and namespace imports both bind the whole module
-				// object under Node16 interop, so both feed the member checks.
-				if (clause.name !== undefined) {
-					vscodeNamespaces.add(clause.name.text);
-				}
-				if (clause.namedBindings !== undefined && ts.isNamespaceImport(clause.namedBindings)) {
-					vscodeNamespaces.add(clause.namedBindings.name.text);
-				}
-			} else if (specifier === "@vscode/l10n" && isCanonicalL10nImport(statement)) {
-				hasCanonicalL10n = true;
-			}
-		} else if (ts.isImportEqualsDeclaration(statement) && !statement.isTypeOnly) {
-			const reference = statement.moduleReference;
-			if (
-				ts.isExternalModuleReference(reference) &&
-				ts.isStringLiteral(reference.expression) &&
-				reference.expression.text === "vscode"
-			) {
-				vscodeNamespaces.add(statement.name.text);
-			}
-		}
-	}
-
-	// Pass 2: import and export statements themselves.
-	for (const statement of sourceFile.statements) {
-		if (ts.isImportDeclaration(statement)) {
-			const specifier = specifierOf(statement);
-			const clause = statement.importClause;
-			if (clause === undefined || clause.isTypeOnly) {
-				continue;
-			}
-			if (specifier === "vscode") {
-				if (clause.namedBindings !== undefined && ts.isNamedImports(clause.namedBindings)) {
-					for (const element of clause.namedBindings.elements) {
-						if (!element.isTypeOnly && (element.propertyName ?? element.name).text === "l10n") {
-							flag(element);
-						}
-					}
-				}
-			} else if (specifier === "@vscode/l10n" && !isCanonicalL10nImport(statement)) {
-				const bindings = clause.namedBindings;
-				const typeOnlyElements =
-					bindings !== undefined &&
-					ts.isNamedImports(bindings) &&
-					clause.name === undefined &&
-					bindings.elements.every((element) => element.isTypeOnly);
-				if (!typeOnlyElements) {
-					flag(statement);
-				}
-			}
-		} else if (ts.isImportEqualsDeclaration(statement) && !statement.isTypeOnly) {
-			const reference = statement.moduleReference;
-			if (ts.isExternalModuleReference(reference)) {
-				if (ts.isStringLiteral(reference.expression) && reference.expression.text === "@vscode/l10n") {
-					flag(statement);
-				}
-			} else {
-				// import x = <entity>: an alias of whatever the entity names. Off
-				// a vscode binding a non-l10n member alias is fine; the whole
-				// namespace or anything through .l10n is not. Off the canonical
-				// binding, every alias breaks the one canonical call shape.
-				const segments: string[] = [];
-				let root: ts.EntityName = reference;
-				while (ts.isQualifiedName(root)) {
-					segments.unshift(root.right.text);
-					root = root.left;
-				}
-				if (hasCanonicalL10n && root.text === "l10n") {
-					flag(statement);
-				} else if (vscodeNamespaces.has(root.text) && (segments.length === 0 || segments.includes("l10n"))) {
-					flag(statement);
-				}
-			}
-		} else if (ts.isExportDeclaration(statement)) {
-			if (statement.isTypeOnly) {
-				continue;
-			}
-			const specifier = specifierOf(statement);
-			if (specifier === "@vscode/l10n") {
-				const typeOnlyElements =
-					statement.exportClause !== undefined &&
-					ts.isNamedExports(statement.exportClause) &&
-					statement.exportClause.elements.every((element) => element.isTypeOnly);
-				if (!typeOnlyElements) {
-					flag(statement);
-				}
-			} else if (specifier === "vscode") {
-				if (statement.exportClause === undefined || !ts.isNamedExports(statement.exportClause)) {
-					flag(statement);
-				} else {
-					for (const element of statement.exportClause.elements) {
-						if (!element.isTypeOnly && (element.propertyName ?? element.name).text === "l10n") {
-							flag(element);
-						}
-					}
-				}
-			} else if (specifier === undefined && statement.exportClause !== undefined) {
-				// A local export of any tracked binding is a facade.
-				if (ts.isNamedExports(statement.exportClause)) {
-					for (const element of statement.exportClause.elements) {
-						const local = (element.propertyName ?? element.name).text;
-						if (!element.isTypeOnly && (vscodeNamespaces.has(local) || (hasCanonicalL10n && local === "l10n"))) {
-							flag(element);
-						}
-					}
-				}
-			}
-		}
-	}
-
-	const isVscodeBinding = (node: ts.Expression): boolean => {
-		const inner = unwrap(node);
-		return ts.isIdentifier(inner) && vscodeNamespaces.has(inner.text);
-	};
-
-	const isVscodeL10n = (node: ts.Node): boolean =>
-		ts.isPropertyAccessExpression(node) && isVscodeBinding(node.expression) && node.name.text === "l10n";
-
-	const isCanonicalBinding = (node: ts.Expression): boolean => {
-		const inner = unwrap(node);
-		return hasCanonicalL10n && ts.isIdentifier(inner) && inner.text === "l10n";
-	};
-
-	// The walk allows the sanctioned forms and flags every other appearance
-	// of a tracked binding, so unknown shapes fail closed.
-	const scan = (node: ts.Node): void => {
-		// A heritage clause's expression evaluates when the class does, even
-		// though its node counts as a type node; walk it before the type skip.
-		if (ts.isExpressionWithTypeArguments(node)) {
-			scan(node.expression);
-			return;
-		}
-		// Type positions are erased at runtime; they cannot ship a string.
-		if (ts.isTypeNode(node) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
-			return;
-		}
-		// Import and export statements were judged in pass 2; walking into
-		// them would flag their own binding identifiers.
-		if (ts.isImportDeclaration(node) || ts.isImportEqualsDeclaration(node) || ts.isExportDeclaration(node)) {
-			return;
-		}
-		// A dynamic import or CommonJS require of either module is a
-		// laundering route the walk cannot follow; nothing sanctioned needs one.
-		if (
-			ts.isCallExpression(node) &&
-			(node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-				(ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
-			node.arguments.length > 0
-		) {
-			const argument = unwrap(node.arguments[0]);
-			if (ts.isStringLiteralLike(argument) && (argument.text === "vscode" || argument.text === "@vscode/l10n")) {
-				flag(node);
-				return;
-			}
-		}
-		// Sanctioned: the exact canonical call shape, l10n.t(...) or
-		// l10n.config(...), unwrapped and unchained - extraction follows
-		// nothing looser, so a wrapped or optional variant falls through.
-		if (ts.isCallExpression(node) && node.questionDotToken === undefined) {
-			const callee = node.expression;
-			if (
-				ts.isPropertyAccessExpression(callee) &&
-				callee.questionDotToken === undefined &&
-				hasCanonicalL10n &&
-				ts.isIdentifier(callee.expression) &&
-				callee.expression.text === "l10n" &&
-				(callee.name.text === "t" || callee.name.text === "config")
-			) {
-				for (const argument of node.arguments) {
-					scan(argument);
-				}
-				return;
-			}
-		}
-		if (ts.isPropertyAccessExpression(node)) {
-			const object = unwrap(node.expression);
-			if (isVscodeBinding(object)) {
-				// Sanctioned: ordinary vscode API use; the l10n member is not it.
-				if (node.name.text === "l10n") {
-					flag(node);
-				}
-				return;
-			}
-			if (isVscodeL10n(object)) {
-				// Sanctioned: the bundle read, in the bundle-feeding files only.
-				if (!(options.allowBundleReads && node.name.text === "bundle")) {
-					flag(node);
-				}
-				return;
-			}
-			if (isCanonicalBinding(object)) {
-				flag(node);
-				return;
-			}
-			// A member name is a key, not a reference; only the object side binds.
-			scan(node.expression);
-			return;
-		}
-		// Element access on a vscode binding stays banned even where passing
-		// the module object as a value is allowed.
-		if (ts.isElementAccessExpression(node) && isVscodeBinding(unwrap(node.expression))) {
-			flag(node);
-			scan(node.argumentExpression);
-			return;
-		}
-		// Fail-closed catch-all: any other appearance of a tracked binding.
-		if (ts.isIdentifier(node)) {
-			if (vscodeNamespaces.has(node.text) && !options.allowVscodeValueUse) {
-				flag(node);
-				return;
-			}
-			if (hasCanonicalL10n && node.text === "l10n") {
-				flag(node);
-				return;
-			}
-		}
-		// Property KEYS spell a name without referencing a binding: skip a
-		// member's non-computed name (and a binding element's property name)
-		// while still walking initializers, bodies, and computed names.
-		const named = node as { readonly name?: ts.Node; readonly propertyName?: ts.Node };
-		const key =
-			ts.isBindingElement(node) && node.propertyName !== undefined && !ts.isComputedPropertyName(node.propertyName)
-				? named.propertyName
-				: ts.isJsxAttribute(node) ||
-						((ts.isClassElement(node) || ts.isObjectLiteralElementLike(node) || ts.isEnumMember(node)) &&
-							!ts.isShorthandPropertyAssignment(node) &&
-							named.name !== undefined &&
-							!ts.isComputedPropertyName(named.name))
-					? named.name
-					: undefined;
-		if (key !== undefined) {
-			ts.forEachChild(node, (child) => {
-				if (child !== key) {
-					scan(child);
-				}
-			});
-			return;
-		}
-		ts.forEachChild(node, scan);
-	};
-	scan(sourceFile);
 	return offenses;
 }

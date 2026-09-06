@@ -444,7 +444,10 @@ function unparseableModelsResponse(endpointUrl: string, reason: string, cause: u
 		{
 			cause,
 			logClassification: UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION,
-			englishMessage: `The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2; LiteLLM's default port is 4000.\n${detail}`,
+			englishMessage:
+				"The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: " +
+				"the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2; LiteLLM's " +
+				`default port is 4000.\n${detail}`,
 		}
 	);
 }

@@ -108,7 +108,11 @@ function RailTab<Id extends string>({
 			onClick={onSelect}
 			{...tip.triggerProps}
 			className={cn(
-				"rail-tab cursor-pointer rounded-sm border border-control-outline px-2 py-1 text-left transition-[color,background-color] duration-[120ms] ease-out focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset) focus-visible:outline-ring focus-visible:outline-solid [@media(width<=1000px)]:px-0 [@media(width<=1000px)]:py-1.5",
+				"rail-tab cursor-pointer rounded-sm border border-control-outline px-2 py-1 text-left",
+				"transition-[color,background-color] duration-[120ms] ease-out",
+				"focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset)",
+				"focus-visible:outline-ring focus-visible:outline-solid [@media(width<=1000px)]:px-0",
+				"[@media(width<=1000px)]:py-1.5",
 				active
 					? "bg-accent-soft font-semibold text-accent-text"
 					: "text-muted-foreground hover:bg-ghost-hover hover:text-foreground"
