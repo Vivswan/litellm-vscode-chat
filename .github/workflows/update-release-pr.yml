@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      # Commenting on a PR through the issues endpoints needs pull-requests write.
+      # The sticky-comment action posts, edits, and deletes its PR comment.
       pull-requests: write
     steps:
       # Default ref on purpose: main's registry, not the PR head - the
@@ -56,47 +56,26 @@ jobs:
       # auto-install a package import when node_modules is absent - and the
       # bun smoke test runs the executable the same bare way.
       - name: Render the migration-expiry table
-        run: bun --no-install scripts/ci/migration-expiry-table.ts > "$RUNNER_TEMP/migration-expiries.md"
-
-      - name: Post or update the sticky comment
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
+        id: render
         run: |
-          # The marker is the renderer's first output line
-          # (MIGRATION_EXPIRY_MARKER in scripts/ci/migration-expiry-render.ts;
-          # a bun test pins the two literals together). Matching it on this
-          # workflow's own bot comments only - anyone with write access could
-          # PATCH another user's comment, and a user-posted marker must not
-          # draw an edit - keeps the update idempotent: one comment, edited in
-          # place, stray duplicates healed by deletion.
-          ids="$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate \
-            --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- migration-expiries -->")) | .id')"
-          first=""
-          extras=()
-          while IFS= read -r id; do
-            if [ -z "$id" ]; then
-              continue
-            fi
-            if [ -z "$first" ]; then
-              first="$id"
-            else
-              extras+=("$id")
-            fi
-          done <<< "$ids"
-          # The primary update runs before duplicate healing so a DELETE
-          # hiccup (a 404 from a comment another run already removed) can
-          # never block the table refresh itself.
-          if [ -n "$first" ]; then
-            gh api --method PATCH "repos/$GH_REPO/issues/comments/$first" \
-              -F "body=@$RUNNER_TEMP/migration-expiries.md" > /dev/null
+          bun --no-install scripts/ci/migration-expiry-table.ts > "$RUNNER_TEMP/migration-expiries.md"
+          # An empty rendering means no migration is live: the step below
+          # then deletes the comment instead of posting an empty table.
+          if [ -s "$RUNNER_TEMP/migration-expiries.md" ]; then
+            echo "empty=false" >> "$GITHUB_OUTPUT"
           else
-            gh api --method POST "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
-              -F "body=@$RUNNER_TEMP/migration-expiries.md" > /dev/null
+            echo "empty=true" >> "$GITHUB_OUTPUT"
           fi
-          for id in "${extras[@]}"; do
-            echo "deleting duplicate sticky comment $id"
-            gh api --method DELETE "repos/$GH_REPO/issues/comments/$id" > /dev/null \
-              || echo "::warning::could not delete duplicate sticky comment $id"
-          done
+
+      # The action finds its earlier comment by the header (its own hidden
+      # marker) among the token identity's comments, edits it in place, and
+      # deletes it when the registry has drained. The caller runs on push, so
+      # the event payload names no pull request: number carries the release
+      # PR's.
+      - name: Post, update, or delete the sticky comment
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: migration-expiries
+          number: ${{ inputs.pr_number }}
+          path: ${{ runner.temp }}/migration-expiries.md
+          delete: ${{ steps.render.outputs.empty }}

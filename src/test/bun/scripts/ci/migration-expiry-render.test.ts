@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { MIGRATION_EXPIRY_MARKER, renderMigrationExpiryTable } from "../../../../../scripts/ci/migration-expiry-render";
+import { renderMigrationExpiryTable } from "../../../../../scripts/ci/migration-expiry-render";
+import { MIGRATION_EXPIRIES } from "../../../../extension/migrations/expiries";
 import type { MigrationExpiry } from "../../../../extension/migrations/index";
 import { REPO_ROOT } from "../../../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
@@ -17,11 +18,10 @@ const ENTRIES: readonly MigrationExpiry[] = [
 ];
 
 describe("renderMigrationExpiryTable", () => {
-	test("renders the marker first, the header note, and one row per entry with signed days remaining", () => {
+	test("renders the header note and one row per entry with signed days remaining", () => {
 		const rendered = renderMigrationExpiryTable(ENTRIES, new Date("2026-09-01T12:34:56Z"));
 		expect(rendered).toBe(
 			[
-				MIGRATION_EXPIRY_MARKER,
 				"Expired migrations fail the build; delete the migration and move its storage keys into the activation cleanup.",
 				"",
 				"| Migration | Introduced | Expires | Days remaining |",
@@ -34,11 +34,12 @@ describe("renderMigrationExpiryTable", () => {
 		);
 	});
 
-	test("the marker is the first line, so the release workflow's startswith match finds the comment", () => {
-		expect(MIGRATION_EXPIRY_MARKER).toBe("<!-- migration-expiries -->");
-		expect(
-			renderMigrationExpiryTable([], new Date("2026-09-01T00:00:00Z")).startsWith(`${MIGRATION_EXPIRY_MARKER}\n`)
-		).toBe(true);
+	test("renders nothing for an empty registry, which the release workflow reads as delete the comment", () => {
+		// The workflow tests the rendered file with `-s` and hands `delete: true`
+		// to the sticky-comment action when it is empty; a header note or a
+		// bare table skeleton here would keep an empty table alive on every
+		// release PR instead.
+		expect(renderMigrationExpiryTable([], new Date("2026-09-01T00:00:00Z"))).toBe("");
 	});
 
 	test("days remaining counts UTC calendar dates, indifferent to the time of day", () => {
@@ -48,14 +49,6 @@ describe("renderMigrationExpiryTable", () => {
 			expect(rendered).toContain("| 2026-06-01 | 2026-09-01 | 0 |");
 			expect(rendered).toContain("| 2026-05-30 | 2026-08-30 | -2 |");
 		}
-	});
-
-	test("update-release-pr.yml's jq filter matches this exact marker literal", () => {
-		// The workflow cannot import the constant, so the two literals are pinned
-		// here: change the marker without the jq filter and every release-PR
-		// refresh would POST a fresh comment instead of editing the old one.
-		const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "update-release-pr.yml"), "utf8");
-		expect(workflow).toContain(`startswith("${MIGRATION_EXPIRY_MARKER}")`);
 	});
 
 	test("update-release-pr.yml runs the executable with --no-install, like the scaffold smoke run", () => {
@@ -94,11 +87,17 @@ describe("renderMigrationExpiryTable", () => {
 				expect(result.stderr.toString()).toBe("");
 				expect(result.exitCode).toBe(0);
 				const stdout = result.stdout.toString();
-				expect(stdout.startsWith(`${MIGRATION_EXPIRY_MARKER}\n`)).toBe(true);
-				expect(stdout).toContain("| Migration | Introduced | Expires | Days remaining |");
-				expect(stdout).toMatch(
-					/^\| `[^`]+` \(`src\/extension\/migrations\/[^`]+`\) \| \d{4}-\d{2}-\d{2} \| \d{4}-\d{2}-\d{2} \| -?\d+ \|$/m
-				);
+				// The real registry decides which rendering the workflow must see: a
+				// drained registry renders nothing (the delete path), a live one the
+				// table.
+				if (MIGRATION_EXPIRIES.length === 0) {
+					expect(stdout).toBe("");
+				} else {
+					expect(stdout).toContain("| Migration | Introduced | Expires | Days remaining |");
+					expect(stdout).toMatch(
+						/^\| `[^`]+` \(`src\/extension\/migrations\/[^`]+`\) \| \d{4}-\d{2}-\d{2} \| \d{4}-\d{2}-\d{2} \| -?\d+ \|$/m
+					);
+				}
 			} finally {
 				rmSync(scaffold, { recursive: true, force: true });
 			}
