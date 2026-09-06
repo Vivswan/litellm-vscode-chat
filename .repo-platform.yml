@@ -5,4 +5,4 @@
 # An optional `mirrors` list declares byte copies of rendered files
 # (repo-platform's docs/new-repo.md has the contract).
 
-modules: ["agents", "bun", "release-please", "issue-templates", "pr-title", "auto-assign", "fuzzer", "nightly", "settings-sync"]
+modules: ["bun", "release-please", "issue-templates", "pr-title", "fuzzer", "nightly"]

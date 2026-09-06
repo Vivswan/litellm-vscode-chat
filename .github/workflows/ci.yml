@@ -45,7 +45,7 @@ jobs:
       issues: read
       vulnerability-alerts: read
     with:
-      modules: '["agents", "bun", "release-please", "issue-templates", "pr-title", "auto-assign", "fuzzer", "nightly", "settings-sync"]'
+      modules: '["bun", "release-please", "issue-templates", "pr-title", "fuzzer", "nightly"]'
       private: false
       codeql-languages: '["javascript-typescript"]'
       tracking-labels: "nightly-fuzz,nightly-failure"
