@@ -30,7 +30,9 @@ permissions: {}
 
 jobs:
   auto-assign:
-    if: github.event_name == 'issues' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: >-
+      github.event_name == 'issues' || github.event_name == 'pull_request'
+      || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     permissions:
       contents: read
       issues: write

@@ -81,7 +81,8 @@ jobs:
           # comment below and as an annotation, but stay green - the fleet
           # legitimately runs without the token.
           echo "no_retrigger=true" >> "$GITHUB_OUTPUT"
-          echo "::warning::lockfile fix pushed without REPO_PLATFORM_TOKEN - checks will not re-run on the new head; close/reopen the PR or register the token as a Dependabot secret"
+          echo "::warning::lockfile fix pushed without REPO_PLATFORM_TOKEN - checks will not re-run on the new head;" \
+            "close/reopen the PR or register the token as a Dependabot secret"
       # One comment per PR, edited in place on later runs; a failed post
       # fails the step.
       - name: Comment that checks will not re-run
