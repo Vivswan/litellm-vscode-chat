@@ -68,7 +68,7 @@ export interface WindowStateRow {
 	/** The same state as the dashboard's server rows; the host suite pins this mirror against the REAL builder. */
 	readonly rows: readonly DashboardServer[];
 	/**
-	 * How many provider groups explicit removals hide (state.hiddenGroups). The
+	 * How many provider groups the user's configuration hides (state.hiddenGroups). The
 	 * hero and paste line read it beside the rows; the window carries the same
 	 * groups as hiddenByRemoval ok statuses, which the host mirror tombstones.
 	 */
@@ -340,8 +340,8 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 			verdict: "connected",
 			bar: { state: "connected", severity: "warning" },
 			hero: { word: "Connected, no models", tone: "warn" },
-			statusLine: "Connected, but 0 models are served (1 hidden by user removal)",
-			notifier: { kind: "warning", contains: "hidden by an explicit removal" },
+			statusLine: "Connected, but 0 models are served (1 hidden by the user's configuration)",
+			notifier: { kind: "warning", contains: "is hidden and serves no models" },
 			pills: [],
 		},
 	},
@@ -357,8 +357,9 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 			verdict: "connected",
 			bar: { state: "connected", severity: "warning" },
 			hero: { word: "Connected, no models", tone: "warn" },
-			statusLine: "Connected, but 0 models are served (1 hidden by user removal; 1 answered with an empty listing)",
-			notifier: { kind: "warning", contains: "hidden by an explicit removal" },
+			statusLine:
+				"Connected, but 0 models are served (1 hidden by the user's configuration; 1 answered with an empty listing)",
+			notifier: { kind: "warning", contains: "is hidden and serves no models" },
 			pills: [{ word: "Connected", tone: "ok" }],
 		},
 	},
@@ -377,8 +378,8 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 			verdict: "connected",
 			bar: { state: "connected", severity: "warning" },
 			hero: { word: "Connected, no models", tone: "warn" },
-			statusLine: "Connected, but 0 models are served (1 hidden by user removal)",
-			notifier: { kind: "warning", contains: "hidden by an explicit removal" },
+			statusLine: "Connected, but 0 models are served (1 hidden by the user's configuration)",
+			notifier: { kind: "warning", contains: "is hidden and serves no models" },
 			pills: [{ word: "Not checked", tone: "muted" }],
 		},
 	},

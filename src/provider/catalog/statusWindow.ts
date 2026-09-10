@@ -32,6 +32,13 @@ export interface ServerModelsSnapshot {
 	 * when the last success came from the /models fallback, or none were reported.
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
+	/**
+	 * The declared entry label the group's configuration carries (the sync
+	 * engine writes it; see GroupServer.label), absent for unlabeled groups
+	 * whose status label is only the URL-host display fallback. The dashboard's
+	 * supersession rule keys on this, never on the display label.
+	 */
+	readonly entryLabel?: string | undefined;
 }
 
 type StatusWindowEntry = {
@@ -122,7 +129,14 @@ export class StatusWindow {
 		 * The discovery.staleServeWindow setting, read at consumption time so a
 		 * settings change reaches the next refresh without event plumbing.
 		 */
-		private readonly staleServeWindowMs: () => number
+		private readonly staleServeWindowMs: () => number,
+		/**
+		 * Fired when a LABELED group's identity enters the window (its first
+		 * report, or its first after an eviction): the sync engine's ownership
+		 * evidence changed, so the wiring re-runs a pass. Never fired for
+		 * re-reports of an identity already in the window.
+		 */
+		private readonly onLabeledGroupEntered: () => void = () => {}
 	) {}
 
 	/**
@@ -206,6 +220,8 @@ export class StatusWindow {
 			this.entries.delete(twin[0]);
 		}
 		const previous = this.entries.get(status.serverId) ?? twin?.[1];
+		// A twin's successor is the same logical group: not an entry.
+		const entered = groupServer.label !== undefined && previous === undefined;
 		this.entries.set(status.serverId, {
 			cycle: this.cycle,
 			at: this.now(),
@@ -218,6 +234,9 @@ export class StatusWindow {
 				status.state === "ok" ? observations.observedModelInfoKeys : previous?.observedModelInfoKeys,
 			groupServer,
 		});
+		if (entered) {
+			this.onLabeledGroupEntered();
+		}
 	}
 
 	/** The window's current view for read-only consumers; see ServerModelsSnapshot. */
@@ -226,6 +245,7 @@ export class StatusWindow {
 			status: entry.status,
 			models: entry.models,
 			...(entry.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: entry.observedModelInfoKeys } : {}),
+			...(entry.groupServer.label !== undefined ? { entryLabel: entry.groupServer.label } : {}),
 		}));
 	}
 
@@ -237,6 +257,25 @@ export class StatusWindow {
 	 */
 	getGroupServer(serverId: string): GroupServer | undefined {
 		return this.entries.get(serverId)?.groupServer;
+	}
+
+	/**
+	 * The distinct base URLs of the LABELED groups currently in the window
+	 * under `label`: the sync engine's live ownership evidence (see
+	 * ServerSyncEnv.observedGroupBaseUrls). Labeled groups only - an unlabeled
+	 * group's URL-host status label is a display fallback, not an entry's
+	 * identity - and live only: a group the user deleted natively leaves the
+	 * window within a sweep, and history must not authorize touching whatever
+	 * took its name.
+	 */
+	observedGroupBaseUrls(label: string): readonly string[] {
+		const urls = new Set<string>();
+		for (const entry of this.entries.values()) {
+			if (entry.groupServer.label === label) {
+				urls.add(entry.groupServer.baseUrl);
+			}
+		}
+		return [...urls];
 	}
 
 	/** Every group client ID currently in the window. */

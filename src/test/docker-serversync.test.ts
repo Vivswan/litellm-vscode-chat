@@ -413,8 +413,8 @@ suite("Docker server sync", () => {
 		}
 	});
 
-	test("scenario 6: re-declaring a taken label surfaces the add-only error; reverting clears it", async function () {
-		this.timeout(90000);
+	test("scenario 6: re-pointing an entry surfaces the add-only error and hides its superseded group; reverting restores both", async function () {
+		this.timeout(120000);
 		const entries = readServersSetting();
 		const index = entries.findIndex((entry) => entry.label === LABEL_INLINE);
 		assert.ok(index >= 0, "scenario 1's entry is still declared");
@@ -424,10 +424,18 @@ suite("Docker server sync", () => {
 		await syncNow();
 		const blocked = await declaredFor(LABEL_INLINE);
 		assert.strictEqual(blocked.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
-		// The original group keeps serving through the name conflict.
-		const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
-		assert.ok(countModels(models, ALIAS) >= proxyGroups, "existing groups must keep their models");
+		// The live group still carries the entry's label at the OLD URL, which the
+		// entry no longer declares: a superseded leftover. The provider serves
+		// nothing from it, so exactly this one group's models leave the picker
+		// while every other group keeps its own.
+		await waitForHostModels(
+			60000,
+			(models) => countModels(models, ALIAS) === proxyGroups - 1,
+			`exactly ${proxyGroups - 1} proxy-backed group(s) to expose ${ALIAS} (the superseded leftover serving none)`
+		);
 
+		// Pointing the entry back at the live group's URL clears the error without
+		// a host call and lifts the suppression: the models return.
 		entries[index] = original;
 		await writeServersSetting(entries);
 		await syncNow();
@@ -437,6 +445,7 @@ suite("Docker server sync", () => {
 			undefined,
 			"reverting to the live group's content clears the error"
 		);
+		await waitForProxyGroupCount(proxyGroups);
 	});
 
 	test("scenario 7: removing an entry hides the surviving group's models; re-declaring restores them", async function () {

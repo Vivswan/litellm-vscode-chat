@@ -83,6 +83,7 @@ import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
+import { supersedingBaseUrl } from "../servers/serverSync";
 import { declaredPresentation } from "../servers/syncFailureOverlay";
 import type { SettingsInspection } from "../settingsAccess";
 import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
@@ -340,7 +341,12 @@ function buildServers(
 	removedGroups: RemovedGroupsView
 ): { servers: DashboardServer[]; snapshotLabels: string[][] } {
 	const declared = declaredInput.views;
-	const { matchedByDeclared, unmatched } = joinDeclared(labeled, declared);
+	// Superseded leftovers (see supersedingView) never enter the join: a
+	// same-URL entry's url pass could otherwise claim a group the provider
+	// serves nothing from, and the row would count models the picker lacks.
+	const joinable = joinableSnapshots(labeled, declared);
+	const superseded = new Set(labeled.filter((entry) => !joinable.includes(entry)));
+	const { matchedByDeclared, unmatched } = joinDeclared(joinable, declared);
 	// The removal bookkeeping is keyed by the snapshot's own status label (never
 	// the display label, which can carry a collision ordinal) plus the
 	// normalized base URL. Only EXTERNAL rows are ever suppressed: a declared
@@ -382,9 +388,10 @@ function buildServers(
 		return claimed.labels.length > 0 ? claimed.labels : [claimed.fallback];
 	};
 	const servers: DashboardServer[] = [];
-	// Hidden externals leave the table AND the models list; this only bridges the
-	// window between the tombstone write and the host's re-resolution.
-	const hidden = new Set<LabeledSnapshot>();
+	// Hidden externals leave the table AND the models list; for tombstones this
+	// only bridges the window between the write and the host's re-resolution,
+	// for superseded leftovers it is the rule itself.
+	const hidden = new Set<LabeledSnapshot>(superseded);
 	declared.forEach((view, declaredIndex) => {
 		const match = matchedByDeclared.get(declaredIndex);
 		const matched = match?.entry;
@@ -770,6 +777,13 @@ export interface DashboardStateInputs {
 	 * everything.
 	 */
 	readonly wasGroupObserved?: (label: string, baseUrl: string) => boolean;
+	/**
+	 * Like wasGroupObserved, but only for observations of a LABELED group at
+	 * the identity (its configuration carried the entry label): what lets a
+	 * tombstone be classified superseded once its entry declares another URL.
+	 * The default observes nothing, so tombstones read as removed.
+	 */
+	readonly wasLabeledGroupObserved?: (label: string, baseUrl: string) => boolean;
 	/** The OpenRouter catalog row's status; defaults to the empty snapshot. */
 	readonly catalog?: CatalogStatusView;
 	/** The Servers page's usage snapshot; defaults to the empty view. */
@@ -781,20 +795,86 @@ export interface DashboardStateInputs {
 }
 
 /**
- * The hidden-groups view both the servers section and Configuration
- * diagnostics render: the tombstones themselves, never live snapshots (an
- * unhide must stay offered after the suppressed group's snapshot ages out of
- * the status window), gated by the session-sticky observation set so a
- * tombstone whose group the host no longer holds is not offered as a ghost.
+ * The base URL a LABELED live group's entry now declares when the group sits
+ * at another one, if any (supersedingBaseUrl over the engine's declared views;
+ * the provider reads the same rule over the live setting): the group is the
+ * leftover an add-only host kept when the entry was re-pointed. Keyed on the
+ * configuration's entry label, never the status label - an unlabeled group's
+ * URL-host display fallback is not an entry's identity.
  */
-export function visibleHiddenGroups(
-	removedGroups: RemovedGroupsView,
-	wasGroupObserved: (label: string, baseUrl: string) => boolean
+function supersedingView(snapshot: ServerModelsSnapshot, declared: readonly DeclaredServerView[]): string | undefined {
+	return snapshot.entryLabel === undefined
+		? undefined
+		: supersedingBaseUrl(declared, snapshot.entryLabel, snapshot.status.baseUrl);
+}
+
+/** The snapshots the dashboard joins to declared entries: every live group minus the superseded leftovers. */
+function joinableSnapshots<T extends { readonly snapshot: ServerModelsSnapshot }>(
+	entries: readonly T[],
+	declared: readonly DeclaredServerView[]
+): T[] {
+	return entries.filter((entry) => supersedingView(entry.snapshot, declared) === undefined);
+}
+
+/** The superseded leftovers among the live snapshots, as hidden-groups rows; see HiddenGroup. */
+function supersededLeftovers(
+	snapshots: readonly ServerModelsSnapshot[],
+	declared: readonly DeclaredServerView[]
 ): HiddenGroup[] {
-	return removedGroups.tombstones
-		.filter((identity) => wasGroupObserved(identity.label, identity.baseUrl))
-		.map((identity) => ({ label: identity.label, baseUrl: identity.baseUrl }))
-		.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
+	return snapshots.flatMap((snapshot): HiddenGroup[] => {
+		const declaredBaseUrl = supersedingView(snapshot, declared);
+		return declaredBaseUrl === undefined
+			? []
+			: [{ label: snapshot.status.label, baseUrl: snapshot.status.baseUrl, reason: "superseded", declaredBaseUrl }];
+	});
+}
+
+/** The inputs of the hidden-groups view; see visibleHiddenGroups. */
+export interface HiddenGroupsInputs {
+	readonly removedGroups: RemovedGroupsView;
+	readonly snapshots: readonly ServerModelsSnapshot[];
+	readonly declared: readonly DeclaredServerView[];
+	/** See DashboardStateInputs.wasGroupObserved. */
+	readonly wasGroupObserved: (label: string, baseUrl: string) => boolean;
+	/** See DashboardStateInputs.wasLabeledGroupObserved. */
+	readonly wasLabeledGroupObserved: (label: string, baseUrl: string) => boolean;
+}
+
+/**
+ * The hidden-groups view both the servers section and Configuration
+ * diagnostics render. Removed groups render from the tombstones themselves,
+ * never live snapshots (an unhide must stay offered after the suppressed
+ * group's snapshot ages out of the status window), gated by the session-sticky
+ * observation set so a tombstone whose group the host no longer holds is not
+ * offered as a ghost. Superseded leftovers render from the live snapshots, and
+ * the same rule classifies a tombstone whose identity was seen as a LABELED
+ * group and whose entry now declares another URL: it renders superseded, not
+ * removed, whether or not its snapshot is in the window this moment (an idle
+ * window evicts and re-reports live groups), because an Unhide could not lift
+ * that suppression.
+ */
+export function visibleHiddenGroups(inputs: HiddenGroupsInputs): HiddenGroup[] {
+	const { removedGroups, snapshots, declared, wasGroupObserved, wasLabeledGroupObserved } = inputs;
+	const superseded = supersededLeftovers(snapshots, declared);
+	const sameIdentity = (group: HiddenGroup, label: string, baseUrl: string) =>
+		group.label === label && normalizeBaseUrl(group.baseUrl) === normalizeBaseUrl(baseUrl);
+	const fromTombstones = removedGroups.tombstones
+		.filter(
+			(identity) =>
+				wasGroupObserved(identity.label, identity.baseUrl) &&
+				!superseded.some((group) => sameIdentity(group, identity.label, identity.baseUrl))
+		)
+		.map((identity): HiddenGroup => {
+			const declaredBaseUrl = wasLabeledGroupObserved(identity.label, identity.baseUrl)
+				? supersedingBaseUrl(declared, identity.label, identity.baseUrl)
+				: undefined;
+			return declaredBaseUrl === undefined
+				? { label: identity.label, baseUrl: identity.baseUrl, reason: "removed" }
+				: { label: identity.label, baseUrl: identity.baseUrl, reason: "superseded", declaredBaseUrl };
+		});
+	return [...fromTombstones, ...superseded].sort(
+		(a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl)
+	);
 }
 
 /**
@@ -834,7 +914,9 @@ export function observedKeysByEntryLabel(
 	snapshots: readonly ServerModelsSnapshot[],
 	declared: readonly DeclaredServerView[]
 ): ReadonlyMap<string, readonly string[]> {
-	const { matchedByDeclared } = joinDeclared(labeledSnapshots(snapshots), declared);
+	// The same join the rows render from: a superseded leftover's keys must not
+	// stand in for the entry that now claims its URL.
+	const { matchedByDeclared } = joinDeclared(joinableSnapshots(labeledSnapshots(snapshots), declared), declared);
 	const byLabel = new Map<string, readonly string[]>();
 	declared.forEach((view, declaredIndex) => {
 		const keys = matchedByDeclared.get(declaredIndex)?.entry.snapshot.observedModelInfoKeys;
@@ -853,6 +935,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 		entryReports = [],
 		removedGroups = NO_REMOVED_GROUPS,
 		wasGroupObserved = () => true,
+		wasLabeledGroupObserved = () => false,
 		catalog = EMPTY_CATALOG_STATUS,
 		usage = EMPTY_USAGE_VIEW,
 		diagnostics = [],
@@ -860,9 +943,13 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 	} = inputs;
 	const labeled = labeledSnapshots(snapshots);
 	const { servers, snapshotLabels } = buildServers(labeled, declared, entryReports, removedGroups);
-	// See visibleHiddenGroups for why this renders from the tombstones, not from
-	// live snapshots.
-	const hiddenGroups = visibleHiddenGroups(removedGroups, wasGroupObserved);
+	const hiddenGroups = visibleHiddenGroups({
+		removedGroups,
+		snapshots,
+		declared: declared.views,
+		wasGroupObserved,
+		wasLabeledGroupObserved,
+	});
 	const observedUnion = observedModelInfoKeysUnion(snapshots);
 	return {
 		servers,

@@ -254,7 +254,8 @@ export class DashboardController implements vscode.Disposable {
 	 * must keep its hidden-groups row all session, while a group deleted from
 	 * the models file before this session must not show a ghost row.
 	 */
-	private readonly _observedGroupIdentities = new Set<string>();
+	/** Identity key -> whether a LABELED group was ever seen at it; see DashboardStateInputs.wasLabeledGroupObserved. */
+	private readonly _observedGroupIdentities = new Map<string, boolean>();
 	/**
 	 * The current page's generation, bumped whenever the page is torn down or
 	 * replaced (the panel hides - without retainContextWhenHidden the page dies
@@ -399,7 +400,11 @@ export class DashboardController implements vscode.Disposable {
 		}
 		const snapshots = this.env.getSnapshots();
 		for (const snapshot of snapshots) {
-			this._observedGroupIdentities.add(observedIdentityKey(snapshot.status.label, snapshot.status.baseUrl));
+			const key = observedIdentityKey(snapshot.status.label, snapshot.status.baseUrl);
+			this._observedGroupIdentities.set(
+				key,
+				(this._observedGroupIdentities.get(key) ?? false) || snapshot.entryLabel !== undefined
+			);
 		}
 		const reader = this.env.settingsReader();
 		const declared = this.env.getDeclaredServers();
@@ -407,6 +412,15 @@ export class DashboardController implements vscode.Disposable {
 		const removedGroups = this.env.getRemovedGroups();
 		const wasGroupObserved = (label: string, baseUrl: string) =>
 			this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl));
+		const wasLabeledGroupObserved = (label: string, baseUrl: string) =>
+			this._observedGroupIdentities.get(observedIdentityKey(label, baseUrl)) === true;
+		const hiddenGroups = visibleHiddenGroups({
+			removedGroups,
+			snapshots,
+			declared: declared.views,
+			wasGroupObserved,
+			wasLabeledGroupObserved,
+		});
 		// In FEATURE_MODEL_IDS order for a stable push, whatever object the env
 		// built its probes record from.
 		const featureProbes = FEATURE_MODEL_IDS.filter((feature) => this.env.featureProbes[feature] !== undefined);
@@ -420,6 +434,7 @@ export class DashboardController implements vscode.Disposable {
 				featureProbes,
 				removedGroups,
 				wasGroupObserved,
+				wasLabeledGroupObserved,
 				catalog: this.env.getCatalogStatus(),
 				usage: this.env.getUsage(),
 				diagnostics: buildConfigDiagnostics({
@@ -427,7 +442,7 @@ export class DashboardController implements vscode.Disposable {
 					entryReports,
 					declared: declared.views,
 					// The same list the servers section's hidden-groups line renders.
-					hiddenGroups: visibleHiddenGroups(removedGroups, wasGroupObserved),
+					hiddenGroups,
 					// The advisory-hint evidence: per entry its own server's observed
 					// set, global records the cross-server union.
 					observedKeysByEntry: observedKeysByEntryLabel(snapshots, declared.views),

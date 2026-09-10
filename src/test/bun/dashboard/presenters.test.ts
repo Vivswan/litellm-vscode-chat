@@ -81,11 +81,11 @@ describe("dashboard/presenters renderers", () => {
 			assert.strictEqual(classifyOverall([], { hiddenGroupCount: 1 }), "connected");
 			assert.strictEqual(
 				overallStatusText([], 0, { hiddenGroupCount: 1 }),
-				"Connected, but 0 models are served (1 hidden by user removal)"
+				"Connected, but 0 models are served (1 hidden by the user's configuration)"
 			);
 			assert.strictEqual(
 				overallStatusText([], 0, { hiddenGroupCount: 2 }),
-				"Connected, but 0 models are served (2 hidden by user removal)"
+				"Connected, but 0 models are served (2 hidden by the user's configuration)"
 			);
 		});
 
@@ -93,7 +93,7 @@ describe("dashboard/presenters renderers", () => {
 			const servers = [declaredServer({ servedModelCount: 0 })];
 			assert.strictEqual(
 				overallStatusText(servers, 0, { hiddenGroupCount: 1 }),
-				"Connected, but 0 models are served (1 hidden by user removal; 1 answered with an empty listing)"
+				"Connected, but 0 models are served (1 hidden by the user's configuration; 1 answered with an empty listing)"
 			);
 		});
 
@@ -366,7 +366,7 @@ describe("dashboard/presenters renderers", () => {
 			// Each notice is its own subject plus the clause the composer appends;
 			// the clause is pinned here once, as users paste it into issue reports.
 			const clause =
-				" (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
+				" (the provider group does not carry this entry's labeled identity); delete the group in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), then run Sync Models Now, or save the entry under a new label";
 			const notices = [
 				"entry-params-inactive",
 				"entry-capabilities-inactive",
@@ -467,11 +467,11 @@ describe("dashboard/presenters renderers", () => {
 			// share (English-bundle wording pinned here once).
 			assert.strictEqual(
 				zeroModelExplanation(1, 0),
-				"1 server is hidden by an explicit removal and serves no models. Restore it from the dashboard's server list."
+				"1 server is hidden and serves no models: it was removed here, or its entry now points at another URL. The dashboard's server list shows which."
 			);
 			assert.strictEqual(
 				zeroModelExplanation(2, 1),
-				"2 servers are hidden by an explicit removal and serve no models. Restore them from the dashboard's server list. The remaining servers answered but listed no models."
+				"2 servers are hidden and serve no models: they were removed here, or their entries now point at other URLs. The dashboard's server list shows which. The remaining servers answered but listed no models."
 			);
 			assert.strictEqual(zeroModelExplanation(0, 1), "The server answered but listed no models.");
 			assert.strictEqual(zeroModelExplanation(0, 2), "Your servers answered but listed no models.");
@@ -479,8 +479,11 @@ describe("dashboard/presenters renderers", () => {
 
 		test("the English detail mirrors the same causes for logs and pasted reports", () => {
 			assert.strictEqual(zeroModelEnglishDetail(0, 1), "answered with an empty listing");
-			assert.strictEqual(zeroModelEnglishDetail(1, 0), "1 hidden by user removal");
-			assert.strictEqual(zeroModelEnglishDetail(2, 1), "2 hidden by user removal; 1 answered with an empty listing");
+			assert.strictEqual(zeroModelEnglishDetail(1, 0), "1 hidden by the user's configuration");
+			assert.strictEqual(
+				zeroModelEnglishDetail(2, 1),
+				"2 hidden by the user's configuration; 1 answered with an empty listing"
+			);
 		});
 	});
 

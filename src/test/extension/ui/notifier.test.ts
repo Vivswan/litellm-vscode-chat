@@ -225,7 +225,7 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("zero models explained by a hidden group names the removal and opens the dashboard, never blames the proxy", () => {
-		// The only group is hidden by an explicit removal; "Check your LiteLLM
+		// The only group is hidden by the user's configuration; "Check your LiteLLM
 		// proxy configuration" was actively wrong here.
 		const notifier = new Notifier(
 			() => true,
@@ -235,8 +235,8 @@ suite("extension/ui/notifier", () => {
 		assert.strictEqual(toasts.length, 1);
 		const toast = expectDefined(toasts[0]);
 		assert.strictEqual(toast.kind, "warning");
-		assert.ok(toast.message.includes("hidden by an explicit removal"), toast.message);
-		assert.ok(toast.message.includes("Restore it from the dashboard's server list"), toast.message);
+		assert.ok(toast.message.includes("is hidden and serves no models"), toast.message);
+		assert.ok(toast.message.includes("The dashboard's server list shows which"), toast.message);
 		assert.ok(!toast.message.includes("proxy"), toast.message);
 		assert.deepStrictEqual(toast.buttons, ["Open Dashboard", "Report Issue"]);
 	});
@@ -253,7 +253,7 @@ suite("extension/ui/notifier", () => {
 		});
 		assert.strictEqual(toasts.length, 1);
 		const toast = expectDefined(toasts[0]);
-		assert.ok(toast.message.includes("hidden by an explicit removal"), toast.message);
+		assert.ok(toast.message.includes("is hidden and serves no models"), toast.message);
 		assert.ok(toast.message.includes("answered but listed no models"), toast.message);
 	});
 
@@ -372,7 +372,7 @@ suite("extension/ui/notifier", () => {
 						// Stood down: neither surface may carry the judgment's wording.
 						for (const surface of [item.last.tooltip, ...toasts.map((toast) => toast.message)]) {
 							assert.ok(!surface.includes("listed no models"), surface);
-							assert.ok(!surface.includes("hidden by an explicit removal"), surface);
+							assert.ok(!surface.includes("is hidden and serves no models"), surface);
 						}
 						assert.ok(!item.last.tooltip.includes("No models available"), item.last.tooltip);
 					}

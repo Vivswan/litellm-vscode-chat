@@ -36,8 +36,10 @@ export {
 	entryExpectedFailuresFor,
 	entryModelCapabilitiesFor,
 	entryModelParametersFor,
+	entrySupersedingBaseUrl,
 	parseServersSetting,
 	serverSettingReports,
+	supersedingBaseUrl,
 } from "./setting";
 export {
 	createServerSyncEnv,
@@ -48,5 +50,6 @@ export {
 	readEntryHeaders,
 	readEntryModelCapabilities,
 	readEntryModelParameters,
+	readEntrySupersedingBaseUrl,
 	registerSetServerSecretCommand,
 } from "./vscodeEnv";

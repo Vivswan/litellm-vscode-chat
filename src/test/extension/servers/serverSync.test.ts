@@ -13,6 +13,7 @@ import {
 	entryExpectedFailuresFor,
 	entryModelCapabilitiesFor,
 	entryModelParametersFor,
+	entrySupersedingBaseUrl,
 	inlineSecretValues,
 	parseServersSetting,
 	ServerSyncEngine,
@@ -537,6 +538,27 @@ suite("extension/servers/serverSync", () => {
 				undefined,
 				"a URL match under an undeclared label resolves to nothing"
 			);
+		});
+
+		test("entrySupersedingBaseUrl is matchedEntryFor's complement: the label's entry at another URL, else nothing", () => {
+			// The suppression predicate's rule: a live group carrying an entry's label
+			// at a URL the entry no longer declares is the leftover an add-only host
+			// kept. Same label at the same URL (slashes aside) is the entry's own
+			// group; an undeclared or rejected label proves nothing.
+			const raw = [
+				{ label: "Prod", baseUrl: "http://new.test/" },
+				{ label: "", baseUrl: "http://rejected.test" },
+			];
+			const cases: [label: string, baseUrl: string, expected: string | undefined][] = [
+				["Prod", "http://old.test", "http://new.test"],
+				["Prod", "http://new.test", undefined],
+				["Prod", "http://new.test///", undefined],
+				["Nope", "http://old.test", undefined],
+				["", "http://old.test", undefined],
+			];
+			for (const [label, baseUrl, expected] of cases) {
+				assert.strictEqual(entrySupersedingBaseUrl(raw, label, baseUrl), expected, `${label} @ ${baseUrl}`);
+			}
 		});
 
 		test("modelParameters never enter the group args or their fingerprint", () => {

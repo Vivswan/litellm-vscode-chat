@@ -207,7 +207,7 @@ suite("extension/ui/commands", () => {
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "warning");
 			assert.ok(!toast.message.includes("Connection failed"), toast.message);
-			assert.ok(toast.message.includes("hidden by an explicit removal"), toast.message);
+			assert.ok(toast.message.includes("is hidden and serves no models"), toast.message);
 			assert.deepStrictEqual(toast.buttons, ["View Output", "Open Dashboard", "Report Issue"]);
 			assert.ok(
 				lines.some((line) => line.includes("Connection test finished with 0 models")),

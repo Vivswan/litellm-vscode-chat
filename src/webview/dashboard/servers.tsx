@@ -374,8 +374,10 @@ function ServerRow({
 }
 
 /**
- * The collapsed hidden-groups line. Unhide clears the removal tombstone extension-side; the
- * group's models return on the host's next re-resolution, which the extension triggers.
+ * The collapsed hidden-groups line. A removed group offers Unhide, which clears the removal
+ * tombstone extension-side (the group's models return on the host's next re-resolution, which
+ * the extension triggers). A superseded leftover offers nothing: it stays hidden while its
+ * entry points at another URL, and the declared row carries the fix.
  */
 function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	const [expanded, setExpanded] = useState(false);
@@ -410,18 +412,27 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 						// Keyed by the identity pair the unhideServer intent posts.
 						<li key={`${group.label}:${group.baseUrl}`}>
 							<span className="hidden-label">{group.label}</span> <span className="url">{group.baseUrl}</span>{" "}
-							<Button
-								variant="secondary"
-								size="compact"
-								onClick={() =>
-									sendRequest("unhideServer", {
-										label: group.label,
-										baseUrl: group.baseUrl,
-									})
-								}
-							>
-								{l10n.t("Unhide")}
-							</Button>
+							{group.reason === "superseded" ? (
+								<span className="hidden-reason">
+									{l10n.t(
+										"the entry now points at {0}; delete this group in Manage Language Models",
+										group.declaredBaseUrl
+									)}
+								</span>
+							) : (
+								<Button
+									variant="secondary"
+									size="compact"
+									onClick={() =>
+										sendRequest("unhideServer", {
+											label: group.label,
+											baseUrl: group.baseUrl,
+										})
+									}
+								>
+									{l10n.t("Unhide")}
+								</Button>
+							)}
 						</li>
 					))}
 				</ul>
@@ -488,7 +499,7 @@ export function ServersSection({
 	onAddServer,
 }: {
 	servers: readonly DashboardServer[];
-	/** Groups hidden by an explicit removal; rendered as the collapsed hidden-groups line. */
+	/** Groups the user's configuration hides (removed, or superseded); rendered as the collapsed hidden-groups line. */
 	hidden?: readonly HiddenGroup[];
 	/** The pushed usage snapshot; the rows' spend units, drawers, and diagnostics all read it. */
 	usage?: DashboardUsage | undefined;
@@ -547,20 +558,32 @@ export function ServersSection({
 	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
 	// The hide round trip: requestId plus the row's label, so the guidance notice can name
 	// the exact group to delete once the ack lands. Only the ack crosses the boundary.
-	const [pendingHide, setPendingHide] = useState<{ requestId: string; label: string } | undefined>(undefined);
-	const [removedNotice, setRemovedNotice] = useState<string | undefined>(undefined);
+	const [pendingHide, setPendingHide] = useState<{ requestId: string; label: string; baseUrl: string } | undefined>(
+		undefined
+	);
+	// The hidden row's label AND base URL: the notice must name the URL, since
+	// an unlabeled group's display label is only its URL host, not the name the
+	// host's editor or its models file carries.
+	const [removedNotice, setRemovedNotice] = useState<{ label: string; baseUrl: string } | undefined>(undefined);
 	const pendingHideRequestId = pendingHide?.requestId;
 	const pendingHideLabel = pendingHide?.label;
+	const pendingHideBaseUrl = pendingHide?.baseUrl;
 	const hideOutcome = hideIntent.outcome;
 	useEffect(() => {
-		if (pendingHideRequestId !== undefined && hideOutcome?.result === "ok" && hideOutcome.id === pendingHideRequestId) {
-			setRemovedNotice(pendingHideLabel);
+		if (
+			pendingHideRequestId !== undefined &&
+			pendingHideLabel !== undefined &&
+			pendingHideBaseUrl !== undefined &&
+			hideOutcome?.result === "ok" &&
+			hideOutcome.id === pendingHideRequestId
+		) {
+			setRemovedNotice({ label: pendingHideLabel, baseUrl: pendingHideBaseUrl });
 			setPendingHide(undefined);
 		}
-	}, [hideOutcome, pendingHideRequestId, pendingHideLabel]);
+	}, [hideOutcome, pendingHideRequestId, pendingHideLabel, pendingHideBaseUrl]);
 	const hideExternal = (server: ExternalDashboardServer) => {
 		const requestId = hideIntent.send({ baseUrl: server.baseUrl, sourceHandle: server.adoptHandle });
-		setPendingHide({ requestId, label: server.label });
+		setPendingHide({ requestId, label: server.label, baseUrl: server.baseUrl });
 	};
 	const saveFailure = saveIntent.outcome?.result === "fail" ? saveIntent.outcome : undefined;
 	const removeFailure = removeIntent.outcome?.result === "fail" ? removeIntent.outcome : undefined;
@@ -670,12 +693,18 @@ export function ServersSection({
 				<div className="notice" role="status">
 					<p>
 						{l10n.t(
-							'Hid "{0}" and its models. VS Code still keeps a provider group named "{0}". To delete it for good:',
-							removedNotice
+							'Hid "{0}" and its models. VS Code still keeps its provider group at {1}; its name here is only a display label, so find it by that base URL. To delete it for good:',
+							removedNotice.label,
+							removedNotice.baseUrl
 						)}
 					</p>
 					<ol className="notice-steps">
-						<li>{l10n.t('Open the models file and remove the "{0}" object from the JSON array.', removedNotice)}</li>
+						<li>
+							{l10n.t(
+								"Open the models file and remove the object whose baseUrl is {0} from the JSON array.",
+								removedNotice.baseUrl
+							)}
+						</li>
 						<li>{l10n.t('Reload the window (Ctrl+Shift+P, "Developer: Reload Window") or restart VS Code.')}</li>
 						<li>{l10n.t("Run Sync models.")}</li>
 					</ol>

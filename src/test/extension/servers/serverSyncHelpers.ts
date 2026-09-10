@@ -47,6 +47,8 @@ export interface Recorded {
 	failFingerprintWrites?: Error;
 	/** What confirmFingerprintsDurable reports; false models a session-only salt. */
 	saltDurable: boolean;
+	/** What observedGroupBaseUrls reports per label: the base URLs the host served that label's group at. */
+	observedGroups: Record<string, readonly string[]>;
 }
 
 export function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServerSecrets> = {}): Recorded {
@@ -63,6 +65,7 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 		failLabels: new Set(),
 		duplicateLabels: new Set(),
 		saltDurable: true,
+		observedGroups: {},
 		env: {
 			readServersSetting: () => recorded.setting,
 			readSecrets: async (label) => ({
@@ -71,11 +74,13 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 			}),
 			confirmFingerprintsDurable: async () => recorded.saltDurable,
 			addProviderGroup: async (args) => {
-				if (recorded.failLabels.has(args.name ?? "")) {
-					throw new Error("host refused the group");
-				}
+				// The name check comes first, as on the host: a taken name is refused
+				// before anything else about the add is considered.
 				if (recorded.duplicateLabels.has(args.name ?? "")) {
 					throw new Error(`Language model group with name ${args.name} already exists for vendor litellm`);
+				}
+				if (recorded.failLabels.has(args.name ?? "")) {
+					throw new Error("host refused the group");
 				}
 				recorded.upserts.push({ ...args });
 			},
@@ -90,6 +95,7 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 			setEntryBaseUrls: async (map) => {
 				recorded.entryBaseUrls = { ...map };
 			},
+			observedGroupBaseUrls: (label) => recorded.observedGroups[label] ?? [],
 			reconcileEntryIdentities: async (declared, events) => {
 				recorded.reconciles.push({ declared: [...declared], events: [...events] });
 			},

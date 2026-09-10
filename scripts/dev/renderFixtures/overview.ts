@@ -33,7 +33,15 @@ const fixture: RenderFixture = {
 						notices: ["entry-params-inactive", "entry-headers-inactive", "entry-api-version-inactive"],
 					} as DashboardServer,
 				],
-				hiddenGroups: [{ label: "old-staging", baseUrl: "http://staging.example:4000" }],
+				hiddenGroups: [
+					{ label: "old-staging", baseUrl: "http://staging.example:4000", reason: "removed" },
+					{
+						label: "prod",
+						baseUrl: "http://legacy.example:4000",
+						reason: "superseded",
+						declaredBaseUrl: "https://prod.example",
+					},
+				],
 			}),
 		},
 	],

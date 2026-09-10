@@ -141,7 +141,7 @@ suite("extension/ui/setupGate", () => {
 				labels: ["Configure Now", "Report Anyway"],
 			},
 			"hidden-groups": {
-				substring: "hidden by an explicit removal",
+				substring: "hidden by your configuration",
 				labels: ["Open Dashboard", "Report Anyway"],
 			},
 			"proxy-not-running": {

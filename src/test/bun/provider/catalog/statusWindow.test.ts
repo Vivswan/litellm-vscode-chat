@@ -175,3 +175,40 @@ describe("provider/catalog/statusWindow: declared models in the served record", 
 		expect(window.snapshots().map((snapshot) => snapshot.models.map((info) => info.id))).toEqual([["declared-model"]]);
 	});
 });
+
+describe("provider/catalog/statusWindow: observed labeled group identities", () => {
+	test("labeled groups' base URLs are the window's LIVE view per label, unlabeled groups leave no trace, and entering fires once", () => {
+		const clock = { nowMs: 1_000_000 };
+		let entered = 0;
+		const window = new StatusWindow(
+			() => clock.nowMs,
+			() => DEFAULT_WINDOW_MS,
+			() => {
+				entered += 1;
+			}
+		);
+		const oldGroup: GroupServer = { baseUrl: normalizeBaseUrl("http://old.test/"), apiKey: "k", label: "Prod" };
+		const newGroup: GroupServer = { baseUrl: normalizeBaseUrl("http://new.test"), apiKey: "k", label: "Prod" };
+		const unlabeled: GroupServer = { baseUrl: normalizeBaseUrl("http://bare.test"), apiKey: "k" };
+		window.record(errorStatus("old"), NOTHING_SERVED, oldGroup);
+		window.record(okStatus("new"), served, newGroup, { discoveredRawIds: ["test-model"] });
+		window.record(okStatus("bare"), served, unlabeled, { discoveredRawIds: ["test-model"] });
+		// A re-report is not an entry.
+		window.record(errorStatus("old"), NOTHING_SERVED, oldGroup);
+		expect(entered).toBe(2);
+		expect(window.observedGroupBaseUrls("Prod")).toEqual(["http://old.test", "http://new.test"]);
+		expect(window.observedGroupBaseUrls("bare.test")).toEqual([]);
+		expect(window.observedGroupBaseUrls("Never")).toEqual([]);
+
+		// Live, not historical: an evicted group is no evidence, and its return
+		// is an entry again (the sync engine re-runs on it).
+		clock.nowMs += 3 * DEFAULT_WINDOW_MS;
+		window.beginCycle();
+		window.beginCycle();
+		expect(window.serverIds()).toEqual([]);
+		expect(window.observedGroupBaseUrls("Prod")).toEqual([]);
+		window.record(errorStatus("old"), NOTHING_SERVED, oldGroup);
+		expect(entered).toBe(3);
+		expect(window.observedGroupBaseUrls("Prod")).toEqual(["http://old.test"]);
+	});
+});

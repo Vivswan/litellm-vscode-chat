@@ -19,7 +19,7 @@ English | [简体中文](zh-cn/dashboard.md) | [繁體中文](zh-tw/dashboard.md
 
 ## Servers
 
-The server list shows every server the extension knows about: entries declared in the [`litellm-vscode-chat.servers` setting](servers.md#entry-reference), and "external" servers that exist only as VS Code provider groups (added outside this extension - see [adoption](servers.md#external-servers-and-adoption)). Groups hidden by a removed entry fold into a "hidden groups" line with an Unhide action ([lifecycle](servers.md#lifecycle-renames-removals-hidden-groups)).
+The server list shows every server the extension knows about: entries declared in the [`litellm-vscode-chat.servers` setting](servers.md#entry-reference), and "external" servers that exist only as VS Code provider groups (added outside this extension - see [adoption](servers.md#external-servers-and-adoption)). Groups hidden by a removed entry fold into a "hidden groups" line with an Unhide action, and superseded leftovers (a group still at an entry's old URL) sit on the same line with the URL the entry now declares ([lifecycle](servers.md#lifecycle-renames-removals-hidden-groups)).
 
 The section heading carries a one-line summary - the server count, how many rows need attention, the worst budget use among fresh rows (marked "stale rows excluded" when a stale figure is visible below it), and whether background polling is off - plus Add server and a Refresh now button that fetches usage data immediately (disabled while a fetch is in flight).
 
@@ -46,7 +46,7 @@ One deliberate softening: an expected discovery failure that is still serving - 
 
 - **Inactive entry configuration** (a diagnostic line under the server's row): the provider group serving the entry may not carry the entry's labeled identity (the group predates entry labels, or a rename left a stale group), so some of what the entry declares may not be applied - its per-server model parameters, per-server capabilities, declared models and expected failures, custom headers, or an `apiVersion` override (requests fall back to the auto rule).
   - One line names exactly which of those surfaces are inactive, with an Open models file action beside it.
-  - The fix is the same for all: delete the group's object from the models file (chatLanguageModels.json), reload the window, and re-sync - or re-label the entry; [Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive) has the steps.
+  - The fix is the same for all: delete the group in Manage Language Models (or its object from the models file, chatLanguageModels.json, then reload the window) and re-sync - or re-label the entry; [Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive) has the steps.
 - **An expected discovery failure with nothing serving** is a blocking line under the row: discovery failed only in categories the entry expects, and nothing serves through it - the entry's `discovery.declared` list is empty and the stale window holds nothing - so the server serves no models; the line's Declare models action opens the entry ([declared models](servers.md#declared-models)).
 - **After adopting an external server**, a one-time notice reminds you that the original group still exists and its models appear twice until you delete its object from the models file (the notice's button opens it) and reload the window.
 

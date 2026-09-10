@@ -609,6 +609,36 @@ export function matchedEntryFor(raw: unknown, label: string, baseUrl: string): D
 	return match.entry;
 }
 
+/**
+ * The one supersession rule, over declared identities: the normalized base URL
+ * the entry labeled `label` declares when it differs from `baseUrl`, or
+ * undefined. A LABELED live group carrying an entry's label at another URL is
+ * that entry's superseded leftover: the host kept the group under the old
+ * connection when the entry was re-pointed (add-only hosts refuse the update),
+ * and one label cannot honestly name two servers. The provider's suppression
+ * predicate reads it over the live setting (entrySupersedingBaseUrl) and the
+ * dashboard over the engine's declared views, so both hide the same groups;
+ * matchedEntryFor is its complement (same label, same URL).
+ */
+export function supersedingBaseUrl(
+	declared: readonly { readonly label: string; readonly baseUrl: string }[],
+	label: string,
+	baseUrl: string
+): string | undefined {
+	const entry = declared.find((candidate) => candidate.label === label);
+	if (entry === undefined) {
+		return undefined;
+	}
+	const declaredUrl = normalizeBaseUrl(entry.baseUrl);
+	return declaredUrl === normalizeBaseUrl(baseUrl) ? undefined : declaredUrl;
+}
+
+/** supersedingBaseUrl over the raw setting's accepted entry for `label`. */
+export function entrySupersedingBaseUrl(raw: unknown, label: string, baseUrl: string): string | undefined {
+	const match = acceptedEntry(raw, label);
+	return match === undefined ? undefined : supersedingBaseUrl([match.entry], label, baseUrl);
+}
+
 /** The request path's resolution of one declared entry's per-entry models.parameters; see matchedEntryFor. */
 export function entryModelParametersFor(
 	raw: unknown,

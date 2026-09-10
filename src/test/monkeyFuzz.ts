@@ -22,7 +22,7 @@
  * Known oracle limitations: the storage probe covers Memento keys only
  * (SecretStorage has no enumeration API); model attribution is a lower bound,
  * since per-group copies share raw IDs, so probes count copies per healthy
- * non-removed group and grandfather pre-existing models via a baseline; the
+ * non-hidden group and grandfather pre-existing models via a baseline; the
  * secret-leak scan is a substring scan over the session log tee for the
  * minted secrets (sk-monkey-<seed>-<n>, monkey-oauth-secret-<n>).
  */
@@ -470,6 +470,13 @@ interface OracleEntry {
 	 */
 	provenHealthy: boolean;
 	/**
+	 * True once the label's copies left the model-count floors: a redeclare
+	 * made its live group a superseded leftover (the provider serves nothing
+	 * from a labeled group whose entry declares another URL), or a removal
+	 * tombstoned it. Guards the subtraction against being taken twice.
+	 */
+	hidden: boolean;
+	/**
 	 * The entry's unique discovery.declared model ID, when its extras carried
 	 * one. Unlike the shared anchor IDs exactly one label owns it, so its
 	 * presence and its post-removal absence are both provable.
@@ -560,9 +567,10 @@ export class MonkeySession {
 	/** Add-only across the whole session: healthy group counts only ever grow. */
 	private everSyncedHealthy = { proxy: 0, fake: 0 };
 	/**
-	 * Healthy ever-synced groups whose entry was later explicitly removed: the
-	 * removal tombstones the group, so the provider answers it with zero models.
-	 * The live model-count floor is everSyncedHealthy minus this.
+	 * Healthy ever-synced groups the provider now answers with zero models:
+	 * their entry was explicitly removed (the removal tombstones the group) or
+	 * re-pointed at another URL (the group is a superseded leftover). The live
+	 * model-count floor is everSyncedHealthy minus this.
 	 */
 	private hiddenHealthy = { proxy: 0, fake: 0 };
 	private expectedSettings = new Map<string, unknown | typeof UNSET>();
@@ -838,6 +846,7 @@ export class MonkeySession {
 			hostArgs: this.resolvedArgs(entry, label),
 			health,
 			provenHealthy: false,
+			hidden: false,
 			syncedBaseUrl: String(entry.baseUrl),
 			...(declaredId !== undefined ? { declaredId } : {}),
 		};
@@ -907,31 +916,52 @@ export class MonkeySession {
 			return undefined;
 		}
 		this.declared.delete(label);
-		if (!oracle.provenHealthy) {
+		return this.hideLabelCopies(oracle);
+	}
+
+	/**
+	 * Move a proven-healthy label's copies to the hidden side of the floors,
+	 * once: a redeclare (superseded leftover) and a later removal of the same
+	 * label hide the same group. Returns the anchor whose drop the caller must
+	 * observe, or undefined when nothing leaves the floors.
+	 */
+	private hideLabelCopies(oracle: OracleEntry): string | undefined {
+		if (!oracle.provenHealthy || oracle.hidden) {
 			return undefined;
 		}
 		if (oracle.health === "proxy") {
+			oracle.hidden = true;
 			this.hiddenHealthy.proxy += 1;
 			return PLAYBACK_MODEL.alias;
 		}
 		if (oracle.health === "fake") {
+			oracle.hidden = true;
 			this.hiddenHealthy.fake += 1;
 			return FAKE_ANCHOR_ID;
 		}
 		return undefined;
 	}
 
+	/** The anchor a label's live group contributes to the floors right now, or undefined when it has none to lose. */
+	private static anchorOf(oracle: OracleEntry): string | undefined {
+		if (!oracle.provenHealthy || oracle.hidden || oracle.health === "dark") {
+			return undefined;
+		}
+		return oracle.health === "proxy" ? PLAYBACK_MODEL.alias : FAKE_ANCHOR_ID;
+	}
+
 	/**
 	 * Observe a removal's hiding actually land: wait until the anchor's copy
-	 * count drops below its pre-removal sample. Raw model IDs carry no group
-	 * identity, so this cannot attribute the drop to the exact removed group,
-	 * but it keeps the floor subtraction honest - the count provably went down.
+	 * count drops below its pre-hide sample (a removal's tombstone or a
+	 * redeclare's supersession). Raw model IDs carry no group identity, so this
+	 * cannot attribute the drop to the exact hidden group, but it keeps the
+	 * floor subtraction honest - the count provably went down.
 	 */
 	private async observeHiddenDrop(anchorId: string, beforeCount: number): Promise<void> {
 		await waitForHostModels(
 			MODEL_WAIT_MS,
 			(models) => this.countModels(models, anchorId) <= beforeCount - 1,
-			`the removed group's tombstone to take a copy of ${anchorId} out of the host list (< ${beforeCount})`
+			`the hidden group (removed or superseded) to take a copy of ${anchorId} out of the host list (< ${beforeCount})`
 		);
 	}
 
@@ -983,6 +1013,13 @@ export class MonkeySession {
 					return; // Shrinking removed the declare; nothing to mutate.
 				}
 				const mutated = { ...oracle.entry, baseUrl: `${oracle.entry.baseUrl}/changed` };
+				// Sampled BEFORE the write: the live group becomes a superseded
+				// leftover and its copies must be observed leaving against this.
+				const anchorId = MonkeySession.anchorOf(oracle);
+				const before =
+					anchorId !== undefined
+						? this.countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), anchorId)
+						: 0;
 				await this.writeServersSetting(
 					this.readServersSetting().map((entry) => (entry.label === real ? mutated : entry))
 				);
@@ -997,9 +1034,13 @@ export class MonkeySession {
 				const expected = this.expectedSyncError(real);
 				assert.notStrictEqual(expected, undefined, "the oracle must expect a redeclare to be refused");
 				assert.strictEqual(view.syncFailure?.message, expected, "a redeclared label must surface the derived refusal");
-				// The mutated base URL no longer identifies the live group, so the
-				// entry's configuration stops reaching it and the declared model must
-				// leave the host list; the group keeps serving what it discovered.
+				// The live group still carries the label at the OLD URL, which the
+				// entry no longer declares: a superseded leftover. The provider serves
+				// nothing from it, so the label's copies leave the floors (observed,
+				// never assumed) and its declared model leaves the host list.
+				if (this.hideLabelCopies(oracle) !== undefined && anchorId !== undefined) {
+					await this.observeHiddenDrop(anchorId, before);
+				}
 				if (oracle.declaredId !== undefined) {
 					await this.observeDeclaredGone(oracle.declaredId);
 				}
@@ -1020,13 +1061,9 @@ export class MonkeySession {
 					return;
 				}
 				// Sampled BEFORE the removal pass so the post-removal drop is
-				// observable against it; only healthy labels have models to lose.
-				const anchorId =
-					oracle.provenHealthy && oracle.health !== "dark"
-						? oracle.health === "proxy"
-							? PLAYBACK_MODEL.alias
-							: FAKE_ANCHOR_ID
-						: undefined;
+				// observable against it; only healthy labels whose copies are still
+				// on the floors (not already hidden by a redeclare) have models to lose.
+				const anchorId = MonkeySession.anchorOf(oracle);
 				const before =
 					anchorId !== undefined
 						? this.countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), anchorId)
@@ -1180,7 +1217,7 @@ export class MonkeySession {
 
 	/**
 	 * The chat action's model target. The fake anchor joins the pool only while
-	 * a healthy, non-removed fake-backend group exists. Caveat: a shrink
+	 * a healthy, non-hidden fake-backend group exists. Caveat: a shrink
 	 * candidate that drops an oauth declare or a remove resolves later picks
 	 * differently than the original walk, which shrinking tolerates; identical
 	 * runs still resolve every pick identically.
@@ -1420,17 +1457,18 @@ export class MonkeySession {
 
 	private async probeModelList(): Promise<void> {
 		const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
-		// Live floors: every healthy ever-synced group keeps its models UNLESS its
-		// entry was explicitly removed, which tombstones the group.
+		// Live floors: every healthy ever-synced group keeps its models UNLESS the
+		// provider hides it - its entry removed (tombstone) or re-pointed at
+		// another URL (superseded leftover).
 		const proxyFloor = this.baselineCopies.proxy + this.everSyncedHealthy.proxy - this.hiddenHealthy.proxy;
 		const fakeFloor = this.baselineCopies.fake + this.everSyncedHealthy.fake - this.hiddenHealthy.fake;
 		assert.ok(
 			this.countModels(models, PLAYBACK_MODEL.alias) >= proxyFloor,
-			`every healthy non-removed proxy group keeps its models: wanted >= ${proxyFloor} copies of ${PLAYBACK_MODEL.alias}`
+			`every healthy non-hidden proxy group keeps its models: wanted >= ${proxyFloor} copies of ${PLAYBACK_MODEL.alias}`
 		);
 		assert.ok(
 			this.countModels(models, FAKE_ANCHOR_ID) >= fakeFloor,
-			`every healthy non-removed fake group keeps its models: wanted >= ${fakeFloor} copies of ${FAKE_ANCHOR_ID}`
+			`every healthy non-hidden fake group keeps its models: wanted >= ${fakeFloor} copies of ${FAKE_ANCHOR_ID}`
 		);
 		for (const model of models) {
 			assert.ok(

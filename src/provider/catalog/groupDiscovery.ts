@@ -95,7 +95,7 @@ export interface GroupDiscoveryOptions {
 	/** Per-entry expectedFailures resolver, matched by label and normalized base URL. */
 	getExpectedFailures: (label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined;
 	/** The extension layer's tombstone predicate; see LiteLLMChatModelProviderOptions.isGroupSuppressed. */
-	isGroupSuppressed: (label: string, baseUrl: string) => boolean;
+	isGroupSuppressed: (label: string, baseUrl: string, entryLabel: string | undefined) => boolean;
 	// Facade-bound log callbacks: this module logs only through them, so the
 	// provider facade stays the single logging boundary.
 	log: (message: string, data?: unknown) => void;
@@ -294,12 +294,13 @@ export class GroupDiscovery {
 			return { served: [...discovered, ...declared], discovered, declared };
 		};
 
-		// A group the user explicitly removed answers empty and never touches
-		// the network or the cache. Its status still reports (healthy with zero
-		// models, flagged hiddenByRemoval) so the status window ages it like any
-		// live group and the dashboard's hidden-groups view stays coherent.
-		if (this._options.isGroupSuppressed(server.label, groupServer.baseUrl)) {
-			this._options.log("Provider group is hidden by an explicit user removal; serving no models", {
+		// A group the user hid - removed its entry, or re-pointed the entry at
+		// another URL - answers empty and never touches the network or the
+		// cache. Its status still reports (healthy with zero models, flagged
+		// hiddenByRemoval) so the status window ages it like any live group and
+		// the dashboard's hidden-groups view stays coherent.
+		if (this._options.isGroupSuppressed(server.label, groupServer.baseUrl, groupServer.label)) {
+			this._options.log("Provider group is hidden by the user's configuration; serving no models", {
 				baseUrl: server.baseUrl,
 			});
 			return recordAndServe({ discovered: [], declared: [] }, { state: "ok", hiddenByRemoval: true }).served;

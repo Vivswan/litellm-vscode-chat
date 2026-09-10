@@ -1250,7 +1250,7 @@ suite("extension/dashboard/state", () => {
 				["Live"],
 				"the tombstoned snapshot contributes no models"
 			);
-			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Prod", baseUrl: "http://prod.test" }]);
+			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Prod", baseUrl: "http://prod.test", reason: "removed" }]);
 			assert.strictEqual(
 				state.servedModelCount,
 				3,
@@ -1303,6 +1303,68 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers[0]?.origin, "declared");
 		});
 
+		test("a live group carrying an entry's label at another URL is a superseded leftover: hidden, out of the join, no Unhide", () => {
+			// The entry "Prod" was re-pointed from old.test to new.test; the add-only
+			// host kept the group at old.test. A second entry declares old.test
+			// itself, so a plain URL join would hand it the leftover as its own
+			// group - the leftover must leave the join pool before any pass runs.
+			// A tombstone on the same identity yields to the superseded reading:
+			// an Unhide could not lift that suppression. An UNLABELED group whose
+			// URL-host display label equals a declared label ("bare.test") is not
+			// a leftover of anything: its configuration carries no entry label, so
+			// it stays an external row.
+			const state = buildState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "g-old",
+							label: "Prod",
+							baseUrl: "http://old.test",
+							servedModelCount: 2,
+						}),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+						entryLabel: "Prod",
+					},
+					{
+						status: makeServerStatus({
+							serverId: "g-bare",
+							label: "bare.test",
+							baseUrl: "http://bare.test",
+							servedModelCount: 1,
+						}),
+						models: [makeModelInfo({ id: "m2", name: "m2" })],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({ label: "Prod", baseUrl: "http://new.test/" }),
+					makeDeclared({ label: "Twin", baseUrl: "http://old.test" }),
+					makeDeclared({ label: "bare.test", baseUrl: "http://elsewhere.test" }),
+				],
+				{ tombstones: [{ label: "Prod", baseUrl: "http://old.test" }], origins: [] }
+			);
+
+			assert.deepStrictEqual(
+				state.servers.map((server) => [server.label, server.origin, server.state]),
+				[
+					["bare.test", "external", "ok"],
+					["bare.test", "declared", "unchecked"],
+					["Prod", "declared", "unchecked"],
+					["Twin", "declared", "unchecked"],
+				],
+				"the leftover is neither an external row nor Twin's group; the unlabeled group stays external"
+			);
+			assert.deepStrictEqual(state.hiddenGroups, [
+				{ label: "Prod", baseUrl: "http://old.test", reason: "superseded", declaredBaseUrl: "http://new.test" },
+			]);
+			assert.deepStrictEqual(
+				state.models.map((model) => model.serverLabel),
+				["bare.test"],
+				"the leftover's models leave the table with it"
+			);
+			assert.strictEqual(state.servedModelCount, 1);
+		});
+
 		test("hidden groups persist without a live snapshot, so unhide stays offered", () => {
 			const state = buildState([], makeReader({}), [], {
 				tombstones: [{ label: "Gone", baseUrl: "http://gone.test" }],
@@ -1310,7 +1372,40 @@ suite("extension/dashboard/state", () => {
 			});
 
 			assert.deepStrictEqual(state.servers, []);
-			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Gone", baseUrl: "http://gone.test" }]);
+			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Gone", baseUrl: "http://gone.test", reason: "removed" }]);
+		});
+
+		test("a tombstone seen as a labeled group whose entry now declares another URL renders superseded even with no live snapshot", () => {
+			// An idle status window evicts and re-reports live groups, so the
+			// snapshot can be absent while the group exists; the tombstone's
+			// classification must not flip to "removed" (with an Unhide the
+			// suppression would ignore) in that gap. An identity only ever seen as
+			// an UNLABELED group is not an entry's leftover and stays removed.
+			const state = buildDashboardState({
+				snapshots: [],
+				reader: makeReader({}),
+				declared: {
+					source: "engine",
+					views: [
+						makeDeclared({ label: "Prod", baseUrl: "http://new.test" }),
+						makeDeclared({ label: "bare.test", baseUrl: "http://elsewhere.test" }),
+					],
+				},
+				removedGroups: {
+					tombstones: [
+						{ label: "Prod", baseUrl: "http://old.test" },
+						{ label: "bare.test", baseUrl: "http://bare.test" },
+					],
+					origins: [],
+				},
+				wasGroupObserved: () => true,
+				wasLabeledGroupObserved: (label) => label === "Prod",
+			});
+
+			assert.deepStrictEqual(state.hiddenGroups, [
+				{ label: "bare.test", baseUrl: "http://bare.test", reason: "removed" },
+				{ label: "Prod", baseUrl: "http://old.test", reason: "superseded", declaredBaseUrl: "http://new.test" },
+			]);
 		});
 
 		test("a tombstone whose group was never observed this session is a ghost and stays off the hidden line", () => {
@@ -1331,7 +1426,7 @@ suite("extension/dashboard/state", () => {
 				wasGroupObserved: (label) => label === "Seen",
 			});
 
-			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Seen", baseUrl: "http://seen.test" }]);
+			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Seen", baseUrl: "http://seen.test", reason: "removed" }]);
 		});
 
 		test("every external snapshot is tombstone-suppressible: the registry serving path is gone", () => {
@@ -1351,7 +1446,9 @@ suite("extension/dashboard/state", () => {
 
 			assert.strictEqual(state.servers.length, 0, "the tombstoned row leaves the table");
 			assert.strictEqual(state.models.length, 0, "its models leave with it");
-			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Legacy", baseUrl: "http://legacy.test" }]);
+			assert.deepStrictEqual(state.hiddenGroups, [
+				{ label: "Legacy", baseUrl: "http://legacy.test", reason: "removed" },
+			]);
 		});
 
 		test("external rows carry their recorded provenance; unrecorded rows carry none", () => {

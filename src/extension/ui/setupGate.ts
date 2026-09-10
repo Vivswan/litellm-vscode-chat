@@ -31,9 +31,11 @@ export type SetupProblem = SetupHintKind | "not-configured" | "hidden-groups";
  * healthy user must not be gated by an old failure. An error status without a
  * setup hint is treated as a real bug and goes straight to GitHub. The
  * zero-model state (connected, nothing served) gates only when hidden groups
- * WHOLLY explain it: that state is user-chosen configuration, so the gate
- * offers the restore instead. A zero-model state a hidden group only partly
- * explains never gates - the server that answered empty may be a real bug.
+ * WHOLLY explain it: that state is user-chosen configuration (an entry
+ * removed, or pointed at another URL), so the gate sends the user to the
+ * dashboard's server list, which names the cause and the next step. A
+ * zero-model state a hidden group only partly explains never gates - the
+ * server that answered empty may be a real bug.
  *
  * One staleness window is accepted: at cold start the status is last session's
  * restored verdict until the first refresh, so a since-fixed setup problem can
@@ -68,7 +70,7 @@ function gateMessage(problem: SetupProblem): string {
 			);
 		case "hidden-groups":
 			return l10n.t(
-				"LiteLLM: This looks like a setup state, not a bug (a server hidden by an explicit removal answers with no models). Restoring it from the dashboard's server list is faster than a GitHub issue."
+				"LiteLLM: This looks like a setup state, not a bug (a server hidden by your configuration - removed here, or its entry pointed at another URL - answers with no models). The dashboard's server list shows why and what to do next, faster than a GitHub issue."
 			);
 		case "proxy-not-running":
 			return l10n.t(
@@ -113,8 +115,9 @@ export async function showSetupProblemGate(problem: SetupProblem, reportAnyway: 
 		problem === "not-configured"
 			? [reconfigureAction(configureNowLabel()), reportAnywayAction]
 			: problem === "hidden-groups"
-				? // No docs section or connection test fixes a deliberate removal;
-					// the dashboard's Servers view carries the Unhide action.
+				? // No docs section or connection test fixes the user's own configuration;
+					// the dashboard's Servers view shows the hidden group with its cause
+					// (Unhide for a removed one, the entry's current URL for a superseded one).
 					[reconfigureAction(l10n.t("Open Dashboard")), reportAnywayAction]
 				: [troubleshootingDocsAction(SETUP_HINT_DOCS_URLS[problem]), testConnectionAction(), reportAnywayAction];
 	await showActionableMessage("warning", gateMessage(problem), actions);

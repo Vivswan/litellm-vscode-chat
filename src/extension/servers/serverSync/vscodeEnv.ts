@@ -7,7 +7,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { GroupCredentials } from "../../../provider/catalog/groupModels";
-import { CMD, INTERNAL_CMD } from "../../../shared/config/commandIds";
+import { CMD, HOST_CMD, INTERNAL_CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getMaskSecretInputs, SERVERS_SETTING_KEY } from "../../../shared/config/settings";
 import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
@@ -17,6 +17,7 @@ import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { validatedStringRecord } from "../../../shared/util/json";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
+import type { MessageAction } from "../../ui/notifier";
 import { showActionableMessage } from "../../ui/notifier";
 import type { GroupRemovalStore } from "../groupRemovals";
 import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engine";
@@ -31,25 +32,54 @@ import {
 	entryHeadersFor,
 	entryModelCapabilitiesFor,
 	entryModelParametersFor,
+	entrySupersedingBaseUrl,
 	nonSecretIdentityMatches,
 	parseServersSetting,
 } from "./setting";
 
-/** The one button every removal notice carries: it opens the models file, where group deletion actually lives. */
+/** The models-file button every leftover notice keeps: the fallback where the editor cannot reach the group. */
 const openGroupsFileAction = () => ({
 	label: l10n.t("Open Models File"),
 	run: () => void vscode.commands.executeCommand(INTERNAL_CMD.openGroupsFile),
 });
 
+/**
+ * The Manage Language Models button, when the host registers the editor's
+ * command: opens the editor searched for `search` (one group label, or nothing
+ * when a notice names several), where the group's menu holds the Delete
+ * action. Undefined on a host without the command, so the notice keeps the
+ * models file alone.
+ */
+async function manageLanguageModelsAction(search: string | undefined): Promise<MessageAction | undefined> {
+	const commands = await vscode.commands.getCommands(true);
+	if (!commands.includes(HOST_CMD.manageLanguageModels)) {
+		return undefined;
+	}
+	return {
+		label: l10n.t("Manage Language Models"),
+		run: () =>
+			void (search === undefined
+				? vscode.commands.executeCommand(HOST_CMD.manageLanguageModels)
+				: vscode.commands.executeCommand(HOST_CMD.manageLanguageModels, search)),
+	};
+}
+
+/** The actions a notice about surviving groups offers: the editor first when the host has it, the models file always. */
+async function leftoverGroupActions(labels: readonly string[]): Promise<MessageAction[]> {
+	const manage = await manageLanguageModelsAction(labels.length === 1 ? labels[0] : undefined);
+	return manage !== undefined ? [manage, openGroupsFileAction()] : [openGroupsFileAction()];
+}
+
 const quoted = (labels: readonly string[]) => labels.map((label) => `"${label}"`).join(", ");
 
 /**
  * The removal notices, one per event class so each says only what is true.
- * Every variant names the exact group label(s) to delete, gives the file-based
- * steps, and carries the button that opens the models file - where group
- * deletion actually lives (VS Code offers extensions no removal API).
+ * Every variant names the exact group label(s) to delete and where: the group
+ * survives (VS Code offers extensions no removal), so the notice leads with the
+ * Manage Language Models editor (its Delete action) and keeps the models file
+ * as the fallback.
  */
-function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
+async function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): Promise<void> {
 	const hidden: string[] = [];
 	const untracked: string[] = [];
 	const renamed: Extract<RemovedEntryEvent, { kind: "renamed" }>[] = [];
@@ -67,24 +97,24 @@ function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
 		const message =
 			hidden.length === 1
 				? l10n.t(
-						"Removed {0} from the servers setting; its models are hidden. VS Code still keeps a provider group named {0}. To delete it: 1) open the models file and remove the {0} object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
+						"Removed {0} from the servers setting; its models are hidden. VS Code still keeps a provider group named {0}: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
 						labels
 					)
 				: l10n.t(
-						"Removed {0} from the servers setting; their models are hidden. VS Code still keeps a provider group for each. To delete them: 1) open the models file and remove the {0} objects from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
+						"Removed {0} from the servers setting; their models are hidden. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
 						labels
 					);
-		void showActionableMessage("info", message, [openGroupsFileAction()]);
+		void showActionableMessage("info", message, await leftoverGroupActions(hidden));
 	}
 	for (const event of renamed) {
 		void showActionableMessage(
 			"info",
 			l10n.t(
-				'Renamed "{0}" to "{1}". VS Code keeps the old group "{0}" and its models. To delete it: 1) open the models file and remove the "{0}" object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now. A rename made directly in settings.json does not carry the old label\'s stored secrets; set them again for "{1}" (a dashboard rename copies them).',
+				'Renamed "{0}" to "{1}". VS Code keeps the old group "{0}" and its models: delete it in Manage Language Models, or remove its object from the models file and reload the window. A rename made directly in settings.json does not carry the old label\'s stored secrets; set them again for "{1}" (a dashboard rename copies them).',
 				event.oldLabel,
 				event.newLabel
 			),
-			[openGroupsFileAction()]
+			await leftoverGroupActions([event.oldLabel])
 		);
 	}
 	if (untracked.length > 0) {
@@ -92,14 +122,14 @@ function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
 		const message =
 			untracked.length === 1
 				? l10n.t(
-						"Removed {0} from the servers setting. VS Code keeps the provider group and its models. To delete it: 1) open the models file and remove the {0} object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
+						"Removed {0} from the servers setting. VS Code keeps the provider group and its models: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
 						labels
 					)
 				: l10n.t(
-						"Removed {0} from the servers setting. VS Code keeps their provider groups and models. To delete them: 1) open the models file and remove the {0} objects from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
+						"Removed {0} from the servers setting. VS Code keeps their provider groups and models: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
 						labels
 					);
-		void showActionableMessage("info", message, [openGroupsFileAction()]);
+		void showActionableMessage("info", message, await leftoverGroupActions(untracked));
 	}
 }
 
@@ -108,7 +138,9 @@ export function createServerSyncEnv(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	fingerprintSalt: FingerprintSaltSession,
-	removals: GroupRemovalStore
+	removals: GroupRemovalStore,
+	/** The provider's observation of which base URLs labeled groups were served at; see ServerSyncEnv.observedGroupBaseUrls. */
+	observedGroupBaseUrls: (label: string) => readonly string[]
 ): ServerSyncEnv {
 	if (fingerprintSalt.state() !== "durable") {
 		logger.log(
@@ -118,7 +150,7 @@ export function createServerSyncEnv(
 	return {
 		readServersSetting: readRawServersSetting,
 		readSecrets: (label) => readServerSecretsRecord(context.secrets, label),
-		addProviderGroup: (args) => vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", args),
+		addProviderGroup: (args) => vscode.commands.executeCommand(HOST_CMD.addProviderGroup, args),
 		confirmFingerprintsDurable: async () => (await fingerprintSalt.confirmDurable()) === "durable",
 		getFingerprints: () => {
 			// Validated at the trust boundary: the key is engine-owned and only ever
@@ -162,6 +194,7 @@ export function createServerSyncEnv(
 		setEntryBaseUrls: async (map) => {
 			await context.globalState.update(SYNCED_ENTRY_BASE_URLS_KEY, map);
 		},
+		observedGroupBaseUrls,
 		reconcileEntryIdentities: async (declared, events) => {
 			// Clear first: a removal and a re-add of the same identity in one pass
 			// must end unsuppressed.
@@ -211,7 +244,9 @@ export function createServerSyncEnv(
 				}
 			}
 			if (noticeEvents.length > 0) {
-				notifyRemovalEvents(noticeEvents);
+				void notifyRemovalEvents(noticeEvents).catch((error: unknown) => {
+					logger.error("Removal notice failed", error);
+				});
 			}
 		},
 		log: (message, data) => logger.log(message, data),
@@ -299,6 +334,15 @@ export function readEntryHeaders(label: string, baseUrl: string): Readonly<Recor
  */
 export function readEntryApiVersion(label: string, baseUrl: string): string | undefined {
 	return entryApiVersionFor(readRawServersSetting(), label, baseUrl);
+}
+
+/**
+ * The suppression predicate's read of whether a live group is a superseded
+ * leftover (see entrySupersedingBaseUrl), over the same live settings channel;
+ * injected into the provider beside the removal tombstones.
+ */
+export function readEntrySupersedingBaseUrl(label: string, baseUrl: string): string | undefined {
+	return entrySupersedingBaseUrl(readRawServersSetting(), label, baseUrl);
 }
 
 /**

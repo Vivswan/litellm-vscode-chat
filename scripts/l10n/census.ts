@@ -236,6 +236,8 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"openChatAction",
 	"openSettingsAction",
 	"openGroupsFileAction",
+	"manageLanguageModelsAction",
+	"leftoverGroupActions",
 	"renderImportPreview",
 	"undoImportAction",
 	"parseFailureMessage",

@@ -127,10 +127,10 @@ export function zeroModelExplanation(hiddenCount: number, answeredCount: number)
 		sentences.push(
 			hiddenCount === 1
 				? l10n.t(
-						"1 server is hidden by an explicit removal and serves no models. Restore it from the dashboard's server list."
+						"1 server is hidden and serves no models: it was removed here, or its entry now points at another URL. The dashboard's server list shows which."
 					)
 				: l10n.t(
-						"{0} servers are hidden by an explicit removal and serve no models. Restore them from the dashboard's server list.",
+						"{0} servers are hidden and serve no models: they were removed here, or their entries now point at other URLs. The dashboard's server list shows which.",
 						hiddenCount
 					)
 		);
@@ -154,7 +154,7 @@ export function zeroModelExplanation(hiddenCount: number, answeredCount: number)
  */
 export function zeroModelEnglishDetail(hiddenCount: number, answeredCount: number): string {
 	return hiddenCount > 0
-		? `${hiddenCount} hidden by user removal${answeredCount > 0 ? `; ${answeredCount} answered with an empty listing` : ""}`
+		? `${hiddenCount} hidden by the user's configuration${answeredCount > 0 ? `; ${answeredCount} answered with an empty listing` : ""}`
 		: "answered with an empty listing";
 }
 
@@ -165,7 +165,7 @@ export function zeroModelEnglishDetail(hiddenCount: number, answeredCount: numbe
  * land in public issue reports.
  */
 function entryInactiveText(subject: string): string {
-	return `${subject} (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label`;
+	return `${subject} (the provider group does not carry this entry's labeled identity); delete the group in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), then run Sync Models Now, or save the entry under a new label`;
 }
 
 const ENTRY_PARAMS_INACTIVE_TEXT = entryInactiveText("per-entry modelParameters are not applied");

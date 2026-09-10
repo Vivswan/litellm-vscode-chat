@@ -109,13 +109,21 @@ export type ExternalServerProvenance =
 	| { readonly kind: "rename-leftover"; readonly oldLabel: string; readonly newLabel: string };
 
 /**
- * One tombstoned provider group: serves no models, rendered only on the
- * hidden-groups line. The identity is what the unhideServer intent echoes.
+ * One hidden provider group: serves no models, rendered only on the
+ * hidden-groups line. "removed" is a tombstone (the user removed the entry or
+ * the external row), and its identity is what the unhideServer intent echoes;
+ * "superseded" is a live group whose entry now declares `declaredBaseUrl`, the
+ * leftover an add-only host kept under the old connection - hidden for as long
+ * as the entry points elsewhere, so there is nothing to unhide.
  */
-export interface HiddenGroup {
-	readonly label: string;
-	readonly baseUrl: string;
-}
+export type HiddenGroup =
+	| { readonly label: string; readonly baseUrl: string; readonly reason: "removed" }
+	| {
+			readonly label: string;
+			readonly baseUrl: string;
+			readonly reason: "superseded";
+			readonly declaredBaseUrl: string;
+	  };
 
 interface DashboardServerBase {
 	readonly label: string;

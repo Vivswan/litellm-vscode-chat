@@ -315,15 +315,15 @@ One route still finds them: re-adding the entry by hand in settings.json. Remove
 
 ## Lifecycle: renames, removals, hidden groups
 
-One VS Code limitation explains this whole section: **the host API can create provider groups but never update or remove them.** The extension works around it honestly rather than pretending.
+One VS Code limitation explains this whole section: **the host API can create provider groups but never update or remove them** (a removal command is proposed in [microsoft/vscode#328578](https://github.com/microsoft/vscode/pull/328578); consuming it is tracked in [#316](https://github.com/Vivswan/litellm-vscode-chat/issues/316)). The extension works around the limitation honestly rather than pretending.
 
 | You do | What happens |
 |---|---|
 | Add an entry | A provider group is created; models appear in the picker |
 | Change an entry's credentials (API key, OAuth, virtual key) | Takes effect on the next sync or model refresh: discovery and requests resolve the entry's current credentials, and the group's stored copy is only a fallback. No error, no group recreation |
-| Change an entry's URL | The existing group cannot be updated. The server row shows an error with the fix: delete the group's object from the models file, reload, run "LiteLLM: Sync Models Now" - the group is recreated from the entry |
-| Rename an entry (`label`) | A new group is created under the new name; the old one stays behind. The extension's notice names it and opens the models file so its object can be deleted; the dashboard marks the leftover row "external" with the rename in its badge tip. A settings.json rename does not move the label's stored secrets - they stay under the old name ([Secrets](#secrets-and-secret-storage)); a dashboard rename carries them over |
-| Remove an entry | The group cannot be removed, so the extension *hides* it: remembers the removal, answers the group with an empty model list (models leave the picker), and folds the row into the dashboard's "hidden groups" line with an Unhide action. The removal notice names the group and opens the models file for permanent deletion |
+| Change an entry's URL | The existing group cannot be updated: it keeps serving the OLD URL, so the extension *hides* it as a superseded leftover (no models, listed on the dashboard's "hidden groups" line with the URL the entry now declares) and the server row shows an error with the fix: delete the group in Manage Language Models (or its object from the models file, then reload), run "LiteLLM: Sync Models Now" - the group is recreated from the entry. Pointing the entry back at the old URL unhides the group on its own |
+| Rename an entry (`label`) | A new group is created under the new name; the old one stays behind. The extension's notice names it and offers Manage Language Models (its Delete action) and the models file; the dashboard marks the leftover row "external" with the rename in its badge tip. A settings.json rename does not move the label's stored secrets - they stay under the old name ([Secrets](#secrets-and-secret-storage)); a dashboard rename carries them over |
+| Remove an entry | The group cannot be removed, so the extension *hides* it: remembers the removal, answers the group with an empty model list (models leave the picker), and folds the row into the dashboard's "hidden groups" line with an Unhide action. The removal notice names the group and offers Manage Language Models (its Delete action) and the models file for permanent deletion. The identity the extension hides is the one the host actually served the label at, so a group that never synced cleanly (a blocked entry) is hidden too |
 | Re-add an entry with the same label and base URL | Its hidden group comes back on its own |
 
 The models file is `<profile>/User/chatLanguageModels.json` - a documented, user-editable JSON file. VS Code reads it at startup and holds it in memory, so quit or reload the window after editing; a live window can overwrite external edits.
@@ -334,7 +334,7 @@ Servers whose groups were added outside this extension (VS Code's own model-mana
 
 An external row offers two actions:
 
-- **Remove** hides the group, same as removing a declared entry; the follow-up notice opens the models file for permanent deletion.
+- **Remove** hides the group, same as removing a declared entry; the follow-up notice opens the models file for permanent deletion (the object with the row's base URL). It cannot point at Manage Language Models: that editor lists groups by their host-owned name, which the extension does not know for an external group.
 - **Edit** adopts the group into the setting:
 
 1. Click Edit on the external row - that is the adopt action.
