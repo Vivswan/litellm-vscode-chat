@@ -34,7 +34,7 @@ export interface ConfigDiagnosticsInput {
 	readonly entryReports: readonly ServerEntryReport[];
 	/** The declared entries' own records, for the entry-layer record lints. */
 	readonly declared: readonly Pick<DeclaredServerView, "label" | "modelParameters" | "modelCapabilities">[];
-	/** The groups hidden by an explicit removal, as the state builder renders them (visibleHiddenGroups). */
+	/** The groups the user's configuration hides (removed, or superseded), as the state builder renders them (visibleHiddenGroups). */
 	readonly hiddenGroups: readonly HiddenGroup[];
 	/**
 	 * Each entry's observed /model/info key set, by entry label: the evidence
@@ -156,7 +156,7 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		});
 	}
 
-	// Groups hidden by an explicit removal serve no models; the Diagnostics
+	// Hidden groups (removed, or superseded) serve no models; the Diagnostics
 	// tab must say so (a hidden-only setup otherwise reads as a healthy
 	// configuration with zero models and no visible cause).
 	if (input.hiddenGroups.length > 0) {

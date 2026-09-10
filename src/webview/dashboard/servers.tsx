@@ -499,7 +499,7 @@ export function ServersSection({
 	onAddServer,
 }: {
 	servers: readonly DashboardServer[];
-	/** Groups hidden by an explicit removal; rendered as the collapsed hidden-groups line. */
+	/** Groups the user's configuration hides (removed, or superseded); rendered as the collapsed hidden-groups line. */
 	hidden?: readonly HiddenGroup[];
 	/** The pushed usage snapshot; the rows' spend units, drawers, and diagnostics all read it. */
 	usage?: DashboardUsage | undefined;

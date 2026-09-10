@@ -1078,7 +1078,7 @@ function DiagnosticsTools({
 }: {
 	servers: readonly DashboardServer[];
 	modelCount: number;
-	/** How many provider groups an explicit removal hides (state.hiddenGroups); the report's verdict and count read it. */
+	/** How many provider groups are hidden (state.hiddenGroups: removed, or superseded); the report's verdict and count read it. */
 	hiddenGroupCount: number;
 	/** Copied alongside the connection facts; the page's subject rides its own report. */
 	diagnostics: readonly ConfigDiagnosticView[];
@@ -1168,7 +1168,7 @@ export function DiagnosticsSection({
 }: {
 	servers: readonly DashboardServer[];
 	modelCount: number;
-	/** How many provider groups an explicit removal hides (state.hiddenGroups.length); Copy diagnostics reads it. */
+	/** How many provider groups are hidden (state.hiddenGroups.length); Copy diagnostics reads it. */
 	hiddenGroupCount: number;
 	diagnostics: readonly ConfigDiagnosticView[];
 	/** Whether the Diagnostics tab is the visible one; the resolved view requests only while shown. */

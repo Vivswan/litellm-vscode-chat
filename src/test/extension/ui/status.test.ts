@@ -238,7 +238,7 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a hidden group explains the zero models: the verdict names the count and the recovery, never the proxy", async () => {
-			// The only working server's group was hidden by an explicit removal,
+			// The only working server's group was hidden by the user's configuration,
 			// and every surface used to blame the server ("Connection failed").
 			const bufferLines: string[] = [];
 			const item = new RecordingItem();
@@ -261,11 +261,11 @@ suite("extension/ui/status", () => {
 			assert.strictEqual(item.last.text, "$(warning) LiteLLM");
 			assert.ok(!item.last.tooltip.includes("Connection failed"), item.last.tooltip);
 			assert.ok(item.last.tooltip.includes("No models available"), item.last.tooltip);
-			assert.ok(item.last.tooltip.includes("1 server is hidden by an explicit removal"), item.last.tooltip);
-			assert.ok(item.last.tooltip.includes("Restore it from the dashboard's server list"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("1 server is hidden and serves no models"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("The dashboard's server list shows which"), item.last.tooltip);
 			// The log line is the English classification, never the localized display.
 			assert.ok(
-				bufferLines.some((line) => line.includes("Servers returned 0 models (1 hidden by user removal)")),
+				bufferLines.some((line) => line.includes("Servers returned 0 models (1 hidden by the user's configuration)")),
 				bufferLines.join(" | ")
 			);
 		});
@@ -281,7 +281,7 @@ suite("extension/ui/status", () => {
 			await new Promise((resolve) => setImmediate(resolve));
 			assert.strictEqual(manager.connectionStatus.state, "connected");
 			assert.strictEqual(item.last.severity, "warning");
-			assert.ok(item.last.tooltip.includes("1 server is hidden by an explicit removal"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("1 server is hidden and serves no models"), item.last.tooltip);
 			assert.ok(item.last.tooltip.includes("The remaining servers answered but listed no models"), item.last.tooltip);
 		});
 
