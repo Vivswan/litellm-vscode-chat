@@ -33,9 +33,9 @@ Pull requests that were merged, or whose implementations and ideas were folded i
 | [@gavinvw](https://github.com/gavinvw) | Models not shown in the Language Models window ([#188](https://github.com/Vivswan/litellm-vscode-chat/issues/188)) |
 | [@hugocoder2015](https://github.com/hugocoder2015) | Turns dying on no-argument tool calls streamed with empty arguments ([#281](https://github.com/Vivswan/litellm-vscode-chat/issues/281)) |
 | [@i20dv](https://github.com/i20dv) | Diagnostics report that surfaced the issue-reporter double-encoding bug ([#191](https://github.com/Vivswan/litellm-vscode-chat/issues/191)) |
+| [@jiang-xiche](https://github.com/jiang-xiche) | OpenRouter catalog pricing leaking into free models, and the open capability overrides ([#248](https://github.com/Vivswan/litellm-vscode-chat/issues/248)) |
 | [@jiang-xiche](https://github.com/jiang-xiche) | Per-model capability overrides, declared models, and the fallback/force directives ([#228](https://github.com/Vivswan/litellm-vscode-chat/issues/228)) |
 | [@jiang-xiche](https://github.com/jiang-xiche) | Usage panel with budget alerts ([#232](https://github.com/Vivswan/litellm-vscode-chat/issues/232)) |
-| [@jiang-xiche](https://github.com/jiang-xiche) | OpenRouter catalog pricing leaking into free models, and the open capability overrides ([#248](https://github.com/Vivswan/litellm-vscode-chat/issues/248)) |
 | [@K0IN](https://github.com/K0IN) | Reasoning effort selection request ([#177](https://github.com/Vivswan/litellm-vscode-chat/issues/177)) |
 | [@kfkawalec](https://github.com/kfkawalec) | Pasted/attached images never reaching LiteLLM ([#73](https://github.com/Vivswan/litellm-vscode-chat/issues/73)) |
 | [@kushagra-patel-nykaa](https://github.com/kushagra-patel-nykaa) | Models missing on VS Code 1.120+, `isUserSelectable` placement ([#119](https://github.com/Vivswan/litellm-vscode-chat/issues/119)) |
@@ -56,6 +56,7 @@ Pull requests that were merged, or whose implementations and ideas were folded i
 | [@wgenchi-mwb](https://github.com/wgenchi-mwb) | Prompt-caching discussion ([#125](https://github.com/Vivswan/litellm-vscode-chat/issues/125)) |
 | [@yongzhang](https://github.com/yongzhang) | Load-balanced model group display ([#183](https://github.com/Vivswan/litellm-vscode-chat/issues/183)) |
 | [@yongzhang](https://github.com/yongzhang) | Silent empty response from reasoning models, with the missing end-of-stream guard pinpointed ([#215](https://github.com/Vivswan/litellm-vscode-chat/issues/215)) |
+| [@YuGuorong](https://github.com/YuGuorong) | Removed servers whose provider group kept being probed on every start, which drove the leftover-group hiding rework ([#315](https://github.com/Vivswan/litellm-vscode-chat/issues/315)) |
 
 If you reported something and are missing here, open an issue or PR and say so - the list is maintained by hand.
 

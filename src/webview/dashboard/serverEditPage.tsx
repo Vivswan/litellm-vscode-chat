@@ -990,7 +990,9 @@ function ServerForm({
 								!(renaming && (parse.ok || parse.problems.label === undefined)) && "invisible"
 							)}
 						>
-							{l10n.t("Renaming creates a new server; the old name serves until you delete it from the models file.")}
+							{l10n.t(
+								"Renaming creates a new server; the old name's group serves until you delete it in Manage Language Models or the models file."
+							)}
 						</p>
 					) : (
 						<p className={cn("collides-note hint m-0 text-[11.5px]", !collides && "invisible")}>

@@ -41,13 +41,17 @@ export function wireServers(
 		groupRemovals: GroupRemovalStore;
 		catalogStore: OpenRouterCatalogStore;
 		notifyModelsChanged: DebouncedAction;
+		/** The engine's live ownership evidence: which base URLs the host is serving each labeled group at. */
+		observedGroupBaseUrls: (label: string) => readonly string[];
+		/** Fires when a labeled group enters the provider's status window; a pass re-runs so the evidence is used. */
+		onDidObserveGroup: vscode.Event<void>;
 	}
 ): ServersWiring {
 	const { catalogStore, notifyModelsChanged } = deps;
 	// Created before the dashboard, which edits the setting and reads the
 	// engine's declared-server view.
 	const syncEngine = new ServerSyncEngine(
-		createServerSyncEnv(context, logger, deps.fingerprintSalt, deps.groupRemovals)
+		createServerSyncEnv(context, logger, deps.fingerprintSalt, deps.groupRemovals, deps.observedGroupBaseUrls)
 	);
 	// The headless usage poller: per-server spend, budgets, and threshold
 	// crossings, on its own cadence (usage.pollInterval; 0 = off) independent of
@@ -56,6 +60,11 @@ export function wireServers(
 	context.subscriptions.push(
 		syncEngine,
 		usagePoller,
+		// Identity evidence arriving after a pass (cold start: the activation
+		// pass runs before the host reports any group) must still reach the
+		// engine, or a blocked entry's identity and an untracked removal's
+		// tombstone would wait for an unrelated settings edit.
+		deps.onDidObserveGroup(() => syncEngine.requestSync()),
 		// The owner-level reaction to a server-secret change, keyed on the blob
 		// keys themselves so no writer can be missed (dashboard, palette,
 		// settings import, the test command, and OTHER WINDOWS all land here):

@@ -138,13 +138,17 @@ export interface LiteLLMChatModelProviderOptions {
 	 */
 	getCatalogLookup?: (() => CapabilityCatalogLookup) | undefined;
 	/**
-	 * Whether a provider group was explicitly removed by the user, judged by
-	 * the group's status label and normalized base URL. A suppressed group
-	 * answers with an empty model list and skips the network entirely; its
-	 * group-side status still reports, so the status window and the dashboard
-	 * stay coherent. Default: nothing is suppressed.
+	 * Whether a provider group is hidden by the user's configuration: explicitly
+	 * removed (judged by the group's status label and normalized base URL, the
+	 * tombstone identity), or superseded because the entry whose label its
+	 * configuration carries now declares another URL (judged by `entryLabel`,
+	 * absent for unlabeled groups, whose URL-host display label must never read
+	 * as an entry's). A suppressed group answers with an empty model list and
+	 * skips the network entirely; its group-side status still reports, so the
+	 * status window and the dashboard stay coherent. Default: nothing is
+	 * suppressed.
 	 */
-	isGroupSuppressed?: ((label: string, baseUrl: string) => boolean) | undefined;
+	isGroupSuppressed?: ((label: string, baseUrl: string, entryLabel: string | undefined) => boolean) | undefined;
 	/** Cache seam for tests (fake TTL clock); the provider owns a real one by default. */
 	discoveryCache?: DiscoveryCache<DiscoveredGroupModels> | undefined;
 	/** The status window's only clock seam; tests inject a fake. The default reads Date.now at call time. */
@@ -183,6 +187,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// live status window has aged its entries out.
 	private _hasSeenGroupConfiguration = false;
 	private readonly _onDidChangeEmitter = new EventEmitter<void>();
+	private readonly _onDidObserveGroupEmitter = new EventEmitter<void>();
 	/**
 	 * The precomputed flat resolution table: one instance shared by the chat
 	 * request path, registration, and the dashboard's inspectors, so every
@@ -192,6 +197,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private readonly _resolution = new ModelResolutionTable();
 	/** Fired to make the host re-resolve the group-agnostic call and every group through this provider. */
 	readonly onDidChangeLanguageModelChatInformation: Event<void> = this._onDidChangeEmitter.event;
+	/**
+	 * Fires when a labeled provider group enters the status window (see
+	 * StatusWindow's onLabeledGroupEntered): the sync engine's ownership
+	 * evidence changed, so the servers wiring re-runs a sync pass.
+	 */
+	readonly onDidObserveGroup: Event<void> = this._onDidObserveGroupEmitter.event;
 
 	constructor(options: LiteLLMChatModelProviderOptions) {
 		this.logger = options.logger;
@@ -210,7 +221,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			options.now ?? (() => Date.now()),
 			// Read per consumption so settings changes apply live; the clamp
 			// warning routes through the facade's logger.
-			() => getDiscoveryStaleServeWindow((message, data) => this.log(message, data))
+			() => getDiscoveryStaleServeWindow((message, data) => this.log(message, data)),
+			() => this._onDidObserveGroupEmitter.fire()
 		);
 		this._reporter = new GroupStatusReporter(this._statusWindow);
 		this._decorator = new ServedModelDecorator({
@@ -274,6 +286,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/** A live group's resolved connection by snapshot server ID; see StatusWindow.getGroupServer for handling rules. */
 	getGroupServer(serverId: string): GroupServer | undefined {
 		return this._statusWindow.getGroupServer(serverId);
+	}
+
+	/**
+	 * The base URLs of the labeled groups the host is serving under `label`
+	 * right now (see StatusWindow.observedGroupBaseUrls). Non-secret; the sync
+	 * engine's ownership evidence and ledger-less identity source.
+	 */
+	observedGroupBaseUrls(label: string): readonly string[] {
+		return this._statusWindow.observedGroupBaseUrls(label);
 	}
 
 	/**

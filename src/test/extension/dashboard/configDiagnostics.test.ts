@@ -289,8 +289,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 		const diagnostics = buildConfigDiagnostics(
 			makeInput({
 				hiddenGroups: [
-					{ label: "Prod", baseUrl: "http://prod.test" },
-					{ label: "Staging", baseUrl: "http://staging.test" },
+					{ label: "Prod", baseUrl: "http://prod.test", reason: "removed" },
+					{ label: "Staging", baseUrl: "http://staging.test", reason: "removed" },
 				],
 			})
 		);

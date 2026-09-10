@@ -236,13 +236,14 @@ VS Code re-resolves model providers often - sometimes several times per second -
 
 ## Leftover groups after removing or renaming a server
 
-VS Code's provider-group API can create groups but never update or remove them, so removing a `servers` entry hides its group (the models leave the picker immediately) rather than deleting it, and renaming an entry leaves the old group behind as an "external" row. The permanent fix is always the same:
+VS Code's provider-group API can create groups but never update or remove them (a removal command is proposed in [microsoft/vscode#328578](https://github.com/microsoft/vscode/pull/328578)), so removing a `servers` entry hides its group (the models leave the picker immediately) rather than deleting it, re-pointing an entry hides the old group as a superseded leftover, and renaming an entry leaves the old group behind as an "external" row. The permanent fix is always the same, in either of two ways:
 
-1. Open the models file - the notice's button, or `<profile>/User/chatLanguageModels.json` by hand.
-2. Delete the named group's object from the JSON array. Quit or reload VS Code first if editing by hand: it holds the file in memory and can overwrite external edits.
-3. Reload the window and run "LiteLLM: Sync Models Now".
+- Manage Language Models (the notice's button, or the "Chat: Manage Language Models" command): find the group by name and pick Delete from its menu.
+- The models file (the notice's other button, or `<profile>/User/chatLanguageModels.json` by hand): delete the named group's object from the JSON array, then reload the window. Quit or reload VS Code first if editing by hand: it holds the file in memory and can overwrite external edits.
 
-A hidden group returns on its own when you re-add an entry with the same label and base URL, or through the dashboard's hidden-groups Unhide action. On a VS Code build in a language other than English, the extension may not recognize the host's name-conflict answer: the server row then shows a generic sync failure retried on every pass instead of the single actionable "provider group already uses this name" state - the fix is the same three steps. The full lifecycle - what each operation leaves behind and why - is at [Servers: lifecycle](servers.md#lifecycle-renames-removals-hidden-groups); external rows and adoption are [covered there too](servers.md#external-servers-and-adoption).
+Then run "LiteLLM: Sync Models Now" if an entry is waiting to recreate its group.
+
+A group hidden by a removal returns on its own when you re-add an entry with the same label and base URL, or through the dashboard's hidden-groups Unhide action; a superseded leftover (the entry now points elsewhere) returns when the entry points back at its URL. On a VS Code build in a language other than English, the extension may not recognize the host's name-conflict answer: the server row then shows a generic sync failure retried on every pass instead of the single actionable "provider group already uses this name" state - the fix is the same deletion. The full lifecycle - what each operation leaves behind and why - is at [Servers: lifecycle](servers.md#lifecycle-renames-removals-hidden-groups); external rows and adoption are [covered there too](servers.md#external-servers-and-adoption).
 
 ## Per-server model parameters are inactive
 
@@ -252,8 +253,8 @@ The same line names every other affected surface too: an entry's `models.capabil
 
 Two ways to fix it:
 
-- Delete the group's object from the models file (`<profile>/User/chatLanguageModels.json`), reload the window, and run "LiteLLM: Sync Models Now"; the extension recreates the group from the entry, this time carrying its identity.
-- Or save the entry under a new label; a new group is created for it. The old group stays until you delete its object from the models file.
+- Delete the group in Manage Language Models (or its object from the models file, `<profile>/User/chatLanguageModels.json`, then reload the window) and run "LiteLLM: Sync Models Now"; the extension recreates the group from the entry, this time carrying its identity.
+- Or save the entry under a new label; a new group is created for it. The old group stays until you delete it the same way.
 
 ## Secret storage is unavailable
 

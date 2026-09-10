@@ -374,8 +374,10 @@ function ServerRow({
 }
 
 /**
- * The collapsed hidden-groups line. Unhide clears the removal tombstone extension-side; the
- * group's models return on the host's next re-resolution, which the extension triggers.
+ * The collapsed hidden-groups line. A removed group offers Unhide, which clears the removal
+ * tombstone extension-side (the group's models return on the host's next re-resolution, which
+ * the extension triggers). A superseded leftover offers nothing: it stays hidden while its
+ * entry points at another URL, and the declared row carries the fix.
  */
 function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	const [expanded, setExpanded] = useState(false);
@@ -410,18 +412,27 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 						// Keyed by the identity pair the unhideServer intent posts.
 						<li key={`${group.label}:${group.baseUrl}`}>
 							<span className="hidden-label">{group.label}</span> <span className="url">{group.baseUrl}</span>{" "}
-							<Button
-								variant="secondary"
-								size="compact"
-								onClick={() =>
-									sendRequest("unhideServer", {
-										label: group.label,
-										baseUrl: group.baseUrl,
-									})
-								}
-							>
-								{l10n.t("Unhide")}
-							</Button>
+							{group.reason === "superseded" ? (
+								<span className="hidden-reason">
+									{l10n.t(
+										"the entry now points at {0}; delete this group in Manage Language Models",
+										group.declaredBaseUrl
+									)}
+								</span>
+							) : (
+								<Button
+									variant="secondary"
+									size="compact"
+									onClick={() =>
+										sendRequest("unhideServer", {
+											label: group.label,
+											baseUrl: group.baseUrl,
+										})
+									}
+								>
+									{l10n.t("Unhide")}
+								</Button>
+							)}
 						</li>
 					))}
 				</ul>
@@ -670,7 +681,7 @@ export function ServersSection({
 				<div className="notice" role="status">
 					<p>
 						{l10n.t(
-							'Hid "{0}" and its models. VS Code still keeps a provider group named "{0}". To delete it for good:',
+							'Hid "{0}" and its models. VS Code still keeps a provider group named "{0}". To delete it for good, pick Delete on it in Manage Language Models (Chat: Manage Language Models), or:',
 							removedNotice
 						)}
 					</p>

@@ -363,8 +363,8 @@ test("Copy diagnostics reports an entry whose problems no server row states, and
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1 })],
 		hiddenGroups: [
-			{ label: "retired-eu", baseUrl: "http://eu.test" },
-			{ label: "retired-us", baseUrl: "http://us.test" },
+			{ label: "retired-eu", baseUrl: "http://eu.test", reason: "removed" },
+			{ label: "retired-us", baseUrl: "http://us.test", reason: "removed" },
 		],
 		models: [makeModel()],
 		diagnostics: [

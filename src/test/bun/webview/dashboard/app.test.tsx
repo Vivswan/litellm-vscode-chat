@@ -83,7 +83,9 @@ test("a hidden-only state renders the connected zero-model hero, never Not confi
 	// "Not configured" beside a warning status bar.
 	const root = mount(<App />);
 	pushToWebview(
-		statePush(makeState({ servers: [], hiddenGroups: [{ label: "retired", baseUrl: "http://old.test" }] }))
+		statePush(
+			makeState({ servers: [], hiddenGroups: [{ label: "retired", baseUrl: "http://old.test", reason: "removed" }] })
+		)
 	);
 	const overall = root.querySelector(".rail-status");
 	expect(overall?.textContent).toContain("Connected, no models");

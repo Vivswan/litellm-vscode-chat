@@ -124,9 +124,9 @@ export function reviewFileCommandTitle(): string {
 /**
  * User-facing commands registered at runtime but kept out of
  * contributes.commands on purpose - the palette shows only the manage hub.
- * openGroupsFile opens the host's provider-groups JSON directly: the one place
- * a leftover provider group can be deleted, since no editor UI for it is
- * sanctioned. quickFixChat is the command a quick-fix lightbulb runs: it takes
+ * openGroupsFile opens the host's provider-groups JSON directly: the fallback
+ * place a leftover provider group can be deleted when the Manage Language
+ * Models editor (HOST_CMD.manageLanguageModels) cannot reach it. quickFixChat is the command a quick-fix lightbulb runs: it takes
  * a structured payload no user could type, so contributing it to the palette
  * would offer an action that fails on every invocation from there. The
  * litellm._test.* harness commands are deliberately not mapped here: they are
@@ -140,6 +140,17 @@ export const INTERNAL_CMD = {
 	openUsage: "litellm.openUsage",
 	quickFixChat: "litellm.quickFixChat",
 	toggleInlineCompletionsLanguage: "litellm.toggleInlineCompletionsLanguage",
+} as const;
+
+/**
+ * The host's own commands this extension drives: the provider-group add
+ * serverSync talks to (the family is add-only; hostGroupCommand.test.ts pins
+ * it) and the Manage Language Models editor the removal notices open, whose
+ * group menu carries the Delete action.
+ */
+export const HOST_CMD = {
+	addProviderGroup: "lm.addLanguageModelsProviderGroup",
+	manageLanguageModels: "workbench.action.chat.manage",
 } as const;
 
 /** Any command ID this extension registers, contributed or internal. */

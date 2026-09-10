@@ -19,6 +19,7 @@ import {
 	readEntryHeaders,
 	readEntryModelCapabilities,
 	readEntryModelParameters,
+	readEntrySupersedingBaseUrl,
 } from "../servers/serverSync";
 import { createTokenCountingController } from "../tokenCounting";
 
@@ -80,7 +81,13 @@ export function wireProvider(
 		getExpectedFailures: readEntryExpectedFailures,
 		resolveEntryCredentials: (label, baseUrl) => readEntryCredentials(context.secrets, logger, label, baseUrl),
 		getCatalogLookup: () => catalogStore.lookup,
-		isGroupSuppressed: (label, baseUrl) => deps.groupRemovals.isTombstoned(label, baseUrl),
+		// Two suppressions, one predicate: the user removed the group (tombstone,
+		// keyed by status label), or the entry whose label the group carries now
+		// declares another URL, so the group is the leftover an add-only host
+		// kept (see entrySupersedingBaseUrl; unlabeled groups cannot be that).
+		isGroupSuppressed: (label, baseUrl, entryLabel) =>
+			deps.groupRemovals.isTombstoned(label, baseUrl) ||
+			(entryLabel !== undefined && readEntrySupersedingBaseUrl(entryLabel, baseUrl) !== undefined),
 	});
 
 	const notifyModelsChanged = debounced(() => {

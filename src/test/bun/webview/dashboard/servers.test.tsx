@@ -743,7 +743,7 @@ test("the hide ack raises the guidance notice naming the group, with the models-
 	expect(root.querySelector(".notice")).toBeNull();
 });
 
-test("the hidden-groups line states the count, expands to rows, and Unhide posts the identity verbatim", () => {
+test("the hidden-groups line states the count, expands to rows, offers Unhide to removed groups only, and posts the identity verbatim", () => {
 	const root = mount(
 		<ServersSection
 			currencySymbol="$"
@@ -752,8 +752,14 @@ test("the hidden-groups line states the count, expands to rows, and Unhide posts
 			onAddServer={() => {}}
 			servers={[makeDeclaredServer()]}
 			hidden={[
-				{ label: "Old", baseUrl: "http://old.test" },
-				{ label: "Gone", baseUrl: "http://gone.test" },
+				{ label: "Old", baseUrl: "http://old.test", reason: "removed" },
+				{ label: "Gone", baseUrl: "http://gone.test", reason: "removed" },
+				{
+					label: "Moved",
+					baseUrl: "http://moved-old.test",
+					reason: "superseded",
+					declaredBaseUrl: "http://moved.test",
+				},
 			]}
 			now={Date.now()}
 		/>
@@ -762,18 +768,25 @@ test("the hidden-groups line states the count, expands to rows, and Unhide posts
 	const line = root.querySelector(".hidden-groups");
 	expect(line).not.toBeNull();
 	// One control saying the whole thing, rather than a count sentence with a lowercase "show" fragment.
-	expect(line?.textContent).toContain("Show 2 hidden groups");
+	expect(line?.textContent).toContain("Show 3 hidden groups");
 	// The disclosure wears the page's rotating chevron: an aria-expanded control with no state mark was the
 	// page's one disclosure that looked like a plain button.
 	expect(line?.querySelector("button[aria-expanded] .disclosure-chevron")).not.toBeNull();
 	// Collapsed by default: no Unhide until shown.
 	expect(line?.textContent).not.toContain("Unhide");
 
-	fireClick(buttonByText(root, "Show 2 hidden groups"));
+	fireClick(buttonByText(root, "Show 3 hidden groups"));
 	expect(buttonByText(root, "Hide")).not.toBeNull();
 	expect(line?.textContent).toContain("Old");
 	expect(line?.textContent).toContain("http://old.test");
-	const unhide = [...root.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Unhide");
+	// A superseded leftover states where its entry points now and offers no Unhide: the
+	// suppression lasts as long as the entry does, so a button could not lift it.
+	const unhides = [...root.querySelectorAll("button")].filter((el) => el.textContent?.trim() === "Unhide");
+	expect(unhides.length).toBe(2);
+	const moved = [...(line?.querySelectorAll("li") ?? [])].find((el) => el.textContent?.includes("Moved"));
+	expect(moved?.textContent).toContain("the entry now points at http://moved.test");
+	expect(moved?.querySelector("button")).toBeNull();
+	const unhide = unhides[0];
 	fireClick(unhide as HTMLElement);
 	expect(postedMessages.length).toBe(1);
 	const posted = postedMessages[0] as RpcRequest<"unhideServer">;
@@ -793,7 +806,7 @@ test("without hidden groups no hidden-groups line renders; with them it renders 
 		<ServersSection
 			currencySymbol="$"
 			servers={[]}
-			hidden={[{ label: "Old", baseUrl: "http://old.test" }]}
+			hidden={[{ label: "Old", baseUrl: "http://old.test", reason: "removed" }]}
 			now={Date.now()}
 			onEditServer={() => {}}
 			onAdoptServer={() => {}}
