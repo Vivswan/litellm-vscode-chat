@@ -467,11 +467,11 @@ describe("dashboard/presenters renderers", () => {
 			// share (English-bundle wording pinned here once).
 			assert.strictEqual(
 				zeroModelExplanation(1, 0),
-				"1 server is hidden and serves no models: its entry was removed, or it now points at another URL. The dashboard's server list shows which."
+				"1 server is hidden and serves no models: it was removed here, or its entry now points at another URL. The dashboard's server list shows which."
 			);
 			assert.strictEqual(
 				zeroModelExplanation(2, 1),
-				"2 servers are hidden and serve no models: their entries were removed, or they now point at other URLs. The dashboard's server list shows which. The remaining servers answered but listed no models."
+				"2 servers are hidden and serve no models: they were removed here, or their entries now point at other URLs. The dashboard's server list shows which. The remaining servers answered but listed no models."
 			);
 			assert.strictEqual(zeroModelExplanation(0, 1), "The server answered but listed no models.");
 			assert.strictEqual(zeroModelExplanation(0, 2), "Your servers answered but listed no models.");

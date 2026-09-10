@@ -693,7 +693,7 @@ export function ServersSection({
 				<div className="notice" role="status">
 					<p>
 						{l10n.t(
-							'Hid "{0}" and its models. VS Code still keeps its provider group at {1}. To delete it for good, find the group with that base URL in Manage Language Models (Chat: Manage Language Models) and pick Delete, or:',
+							'Hid "{0}" and its models. VS Code still keeps its provider group at {1}; its name here is only a display label, so find it by that base URL. To delete it for good:',
 							removedNotice.label,
 							removedNotice.baseUrl
 						)}

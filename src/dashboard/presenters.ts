@@ -127,10 +127,10 @@ export function zeroModelExplanation(hiddenCount: number, answeredCount: number)
 		sentences.push(
 			hiddenCount === 1
 				? l10n.t(
-						"1 server is hidden and serves no models: its entry was removed, or it now points at another URL. The dashboard's server list shows which."
+						"1 server is hidden and serves no models: it was removed here, or its entry now points at another URL. The dashboard's server list shows which."
 					)
 				: l10n.t(
-						"{0} servers are hidden and serve no models: their entries were removed, or they now point at other URLs. The dashboard's server list shows which.",
+						"{0} servers are hidden and serve no models: they were removed here, or their entries now point at other URLs. The dashboard's server list shows which.",
 						hiddenCount
 					)
 		);

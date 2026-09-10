@@ -70,7 +70,7 @@ function gateMessage(problem: SetupProblem): string {
 			);
 		case "hidden-groups":
 			return l10n.t(
-				"LiteLLM: This looks like a setup state, not a bug (a server hidden by your configuration - its entry removed, or pointed at another URL - answers with no models). The dashboard's server list shows why and what to do next, faster than a GitHub issue."
+				"LiteLLM: This looks like a setup state, not a bug (a server hidden by your configuration - removed here, or its entry pointed at another URL - answers with no models). The dashboard's server list shows why and what to do next, faster than a GitHub issue."
 			);
 		case "proxy-not-running":
 			return l10n.t(
