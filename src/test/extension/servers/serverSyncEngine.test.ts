@@ -515,31 +515,44 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 
 		test("an untracked removal is carried until an observation names the group, then tombstones once", async () => {
 			// Cold start: a pre-ledger fingerprint, no ledger, no observation. The
-			// first pass reports the removal untracked, once. When the host later
-			// serves Ghost's labeled group (the wiring re-runs a pass on that), the
-			// carried removal resolves to the observed identity and fires once more,
-			// this time with the URL the tombstone needs; later passes stay quiet.
-			// Declaring Ghost again meanwhile drops the carry without an event.
+			// first pass reports the removal untracked, once, and KEEPS the fingerprint
+			// record - the only durable evidence - so a session ending before the host
+			// reports the group leaves the next session a candidate. When the host
+			// later serves Ghost's labeled group (the wiring re-runs a pass on that),
+			// the carried removal resolves to the observed identity and fires once
+			// more, this time with the URL the tombstone needs, and the record goes;
+			// later passes stay quiet. Declaring Ghost again meanwhile drops the carry
+			// without an event.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			recorded.fingerprints = { Ghost: "pre-ledger-record" };
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 			await engine.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), [{ kind: "removed", label: "Ghost", baseUrl: undefined }]);
+			assert.deepStrictEqual(
+				Object.keys(recorded.fingerprints).sort(),
+				["A", "Ghost"],
+				"the unresolved removal's record survives the pass-end write"
+			);
 
+			// The next session seeds from that store and detects the removal again
+			// (untracked once more), then resolves it once the group is observed.
+			const nextSession = new ServerSyncEngine(recorded.env);
+			await nextSession.syncNow();
 			recorded.observedGroups = { Ghost: ["http://ghost.test"] };
-			await engine.syncNow();
-			await engine.syncNow();
+			await nextSession.syncNow();
+			await nextSession.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), [
+				{ kind: "removed", label: "Ghost", baseUrl: undefined },
 				{ kind: "removed", label: "Ghost", baseUrl: undefined },
 				{ kind: "removed", label: "Ghost", baseUrl: "http://ghost.test" },
 			]);
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the resolved removal's record is pruned");
 			// The aggregate log follows the emitted events, never the carried
-			// candidate: four passes, two events, two lines (the log buffer feeds
-			// issue reports).
+			// candidate (the log buffer feeds issue reports).
 			assert.strictEqual(
 				recorded.logged.filter(([message]) => message.includes("provider groups remain")).length,
-				2,
+				3,
 				"one log line per emitted removal event"
 			);
 

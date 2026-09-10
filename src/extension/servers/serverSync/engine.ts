@@ -410,7 +410,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 * afterwards cannot turn the removal into a rename or a rename into a
 	 * removal. Dropped once resolved, or when the setting declares the label
 	 * again (a malformed container proves nothing: such a pass touches no
-	 * state at all).
+	 * state at all). While unresolved, the label's fingerprint record is
+	 * carried in the persisted map rather than pruned: it is the only durable
+	 * evidence, and a session ending before the host reported the group (a
+	 * dead server's probe takes the full discovery timeout) would otherwise
+	 * leave the next session with no candidate and the group probed forever.
 	 */
 	private readonly unresolvedRemovals = new Map<string, ReadonlyMap<string, string>>();
 	private running: Promise<void> | undefined;
@@ -939,17 +943,6 @@ export class ServerSyncEngine implements vscode.Disposable {
 				this.retry.delete(label);
 			}
 		}
-		// In-memory before the persist: session truth must survive a failing (or
-		// later-reverted) storage write. The persist itself is log-only, because a
-		// throw here must not abort the reconciliation below - the removal's
-		// tombstone and notice would be lost with no later pass able to rediscover
-		// them.
-		this.fingerprints = next;
-		try {
-			await this.env.setFingerprints(next);
-		} catch (error) {
-			this.env.logError("Persisting the pass-end fingerprint map failed", error);
-		}
 		// The identity ledger is read before it is rewritten (above): the old
 		// record is the only thing that still knows a removed label's base URL.
 		// The labels this pass declares with no prior record of any kind
@@ -976,8 +969,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 			const baseUrl = ledger[label] ?? this.soleObservedBaseUrl(label);
 			const carried = this.unresolvedRemovals.get(label);
 			if (baseUrl === undefined) {
-				// Reported untracked exactly once; carried until an observation can
-				// name the group.
+				// Reported untracked once per session (the record survives the
+				// pass-end write, so a later session detects it again) and carried
+				// until an observation can name the group. A rename's other half is
+				// remembered only within the session: after a restart the resolved
+				// leftover reads as removed and is hidden - a reversible Unhide,
+				// accepted over persisting the delta.
 				if (carried === undefined) {
 					this.unresolvedRemovals.set(label, newLabels);
 					events.push({ kind: "removed", label, baseUrl });
@@ -994,6 +991,27 @@ export class ServerSyncEngine implements vscode.Disposable {
 					? { kind: "renamed", oldLabel: label, newLabel: renamedTo, baseUrl }
 					: { kind: "removed", label, baseUrl }
 			);
+		}
+		// An unresolved removal - detected this pass or carried from an earlier
+		// one - keeps its fingerprint record (see unresolvedRemovals): the label
+		// is not declared, so nothing else would carry it, and pruning it would
+		// leave the next session no candidate.
+		for (const label of this.unresolvedRemovals.keys()) {
+			const carried = previous[label] ?? storeRecords[label];
+			if (carried !== undefined && next[label] === undefined) {
+				next[label] = carried;
+			}
+		}
+		// In-memory before the persist: session truth must survive a failing (or
+		// later-reverted) storage write. The persist itself is log-only, because a
+		// throw here must not abort the reconciliation below - the removal's
+		// tombstone and notice would be lost with no later pass able to rediscover
+		// them.
+		this.fingerprints = next;
+		try {
+			await this.env.setFingerprints(next);
+		} catch (error) {
+			this.env.logError("Persisting the pass-end fingerprint map failed", error);
 		}
 		try {
 			// An entry is recorded under its declared URL only when this pass proved
