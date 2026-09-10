@@ -271,19 +271,57 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			]);
 		});
 
-		test("a removal whose base URL another EXISTING entry declares stays a removal, not a rename", async () => {
-			const recorded = makeSyncEnv([
-				{ label: "Old", baseUrl: "http://host.test" },
-				{ label: "Twin", baseUrl: "http://host.test" },
-			]);
-			const engine = new ServerSyncEngine(recorded.env);
-			await engine.syncNow();
+		test("removing Old beside a Twin that was declared all along is a removal, never a rename, whatever Twin's records", async () => {
+			// The rename's other half must be NEW this pass. Twin was declared beside
+			// Old from the start, so removing Old is a removal - whether Twin synced
+			// (fingerprint and ledger), was refused but observed (ledger only), or was
+			// refused and never observed (no record of any kind). Reading a record-less
+			// Twin as new would leave Old's group visible with rename provenance instead
+			// of hidden by a tombstone.
+			const cases: { name: string; twinRefused: boolean; twinObserved: boolean }[] = [
+				{ name: "synced twin", twinRefused: false, twinObserved: true },
+				{ name: "refused, observed twin", twinRefused: true, twinObserved: true },
+				{ name: "refused, unobserved twin", twinRefused: true, twinObserved: false },
+			];
+			for (const { name, twinRefused, twinObserved } of cases) {
+				const recorded = makeSyncEnv([
+					{ label: "Old", baseUrl: "http://host.test" },
+					{ label: "Twin", baseUrl: "http://host.test" },
+				]);
+				if (twinRefused) {
+					recorded.duplicateLabels.add("Twin");
+				}
+				if (twinObserved) {
+					recorded.observedGroups = { Twin: ["http://host.test"] };
+				}
+				const engine = new ServerSyncEngine(recorded.env);
+				await engine.syncNow();
+				assert.deepStrictEqual(
+					recorded.entryBaseUrls,
+					twinObserved || !twinRefused
+						? { Old: "http://host.test", Twin: "http://host.test" }
+						: { Old: "http://host.test" },
+					`${name}: the ledger holds what the pass proved or observed`
+				);
 
-			recorded.setting = [{ label: "Twin", baseUrl: "http://host.test" }];
-			await engine.syncNow();
+				recorded.setting = [{ label: "Twin", baseUrl: "http://host.test" }];
+				await engine.syncNow();
+				assert.deepStrictEqual(
+					recordedEvents(recorded),
+					[{ kind: "removed", label: "Old", baseUrl: "http://host.test" }],
+					name
+				);
+			}
 
-			assert.deepStrictEqual(recordedEvents(recorded), [
-				{ kind: "removed", label: "Old", baseUrl: "http://host.test" },
+			// The record-absence fallback still serves a session's first pass, where a
+			// rename made while VS Code was closed has no declaration baseline.
+			const coldRename = makeSyncEnv([{ label: "New", baseUrl: "http://host.test" }]);
+			coldRename.fingerprints = { Old: "pre-ledger-record" };
+			coldRename.entryBaseUrls = { Old: "http://host.test" };
+			const engine2 = new ServerSyncEngine(coldRename.env);
+			await engine2.syncNow();
+			assert.deepStrictEqual(recordedEvents(coldRename), [
+				{ kind: "renamed", oldLabel: "Old", newLabel: "New", baseUrl: "http://host.test" },
 			]);
 		});
 
@@ -654,30 +692,6 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			fingerprintOnly.setting = [];
 			await engine2.syncNow();
 			assert.strictEqual(recordedEvents(fingerprintOnly).length, 2, "the fingerprint-sourced removal does not replay");
-		});
-
-		test("a removal beside a blocked twin the ledger already knows is a removal, not a rename", async () => {
-			// Both entries were refused by the add-only host (no fingerprints) and
-			// both labeled groups are observed, so both identities sit in the
-			// session ledger. Removing Old must not read Twin - already known to the
-			// ledger - as the rename's new half: that would leave Old's group
-			// visible with rename provenance instead of hidden by a tombstone.
-			const recorded = makeSyncEnv([
-				{ label: "Old", baseUrl: "http://host.test" },
-				{ label: "Twin", baseUrl: "http://host.test" },
-			]);
-			recorded.duplicateLabels.add("Old");
-			recorded.duplicateLabels.add("Twin");
-			recorded.observedGroups = { Old: ["http://host.test"], Twin: ["http://host.test"] };
-			const engine = new ServerSyncEngine(recorded.env);
-			await engine.syncNow();
-			assert.deepStrictEqual(recorded.entryBaseUrls, { Old: "http://host.test", Twin: "http://host.test" });
-
-			recorded.setting = [{ label: "Twin", baseUrl: "http://host.test" }];
-			await engine.syncNow();
-			assert.deepStrictEqual(recordedEvents(recorded), [
-				{ kind: "removed", label: "Old", baseUrl: "http://host.test" },
-			]);
 		});
 
 		test("a ledger record from an earlier session detects a removal made while VS Code was closed, once", async () => {

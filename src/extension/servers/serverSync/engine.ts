@@ -22,7 +22,7 @@ import { fingerprint } from "../../../shared/util/fingerprint";
 import type { StoredSecretsRecord, StoredServerSecrets } from "./secrets";
 import { inlineSecretValues, resolveOwnedSecrets, secretLocations } from "./secrets";
 import type { DeclaredServer } from "./setting";
-import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "./setting";
+import { acceptedEntry, parseServersSetting, rawDeclaredLabels, stillDeclaredIn } from "./setting";
 
 /**
  * Which failure class produced a view's syncFailure. "upsertFailed": the add
@@ -87,10 +87,12 @@ export interface DeclaredEntryIdentity {
 }
 
 /**
- * One entry the pass found gone from the setting, classified. "renamed": a new
- * label (one with no prior fingerprint record) now declares the removed label's
- * base URL, so the old group is a rename leftover, not an explicit removal.
- * "removed" is everything else; its baseUrl comes from the persisted identity
+ * One entry the pass found gone from the setting, classified. "renamed": a
+ * label NEW this pass - absent from the last valid pass's declaration, or,
+ * on a session's first pass with no baseline, with neither a fingerprint nor
+ * a session-ledger record - now declares the removed label's base URL, so the
+ * old group is a rename leftover, not an explicit removal. "removed" is
+ * everything else; its baseUrl comes from the persisted identity
  * ledger, or failing that from the one base URL the host is serving the label's
  * group at, and is undefined when neither resolves it - the env must not
  * tombstone a guess.
@@ -417,6 +419,15 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 * leave the next session with no candidate and the group probed forever.
 	 */
 	private readonly unresolvedRemovals = new Map<string, ReadonlyMap<string, string>>();
+	/**
+	 * Every label the setting declared (accepted or not) at the end of the last
+	 * pass with a valid container: the baseline the rename delta is taken
+	 * against. A label absent from it is NEW this pass; a pre-existing entry
+	 * that never synced or was never observed (blocked, unreadable secrets) is
+	 * not, however few records it has. Undefined until the first valid pass,
+	 * where the delta falls back to record absence.
+	 */
+	private declaredLabelsLastPass: ReadonlySet<string> | undefined;
 	private running: Promise<void> | undefined;
 	private queued: { force: boolean; promise: Promise<void>; resolve: () => void } | undefined;
 	private timer: ReturnType<typeof setTimeout> | undefined;
@@ -945,15 +956,23 @@ export class ServerSyncEngine implements vscode.Disposable {
 		}
 		// The identity ledger is read before it is rewritten (above): the old
 		// record is the only thing that still knows a removed label's base URL.
-		// The labels this pass declares with no prior record of any kind
-		// (fingerprint or session ledger - a blocked twin already known to the
-		// ledger is not new), with the URL each declares: a removed label's host
-		// re-declared under one of them reads as a rename's other half.
+		// The labels NEW this pass, with the URL each declares: a removed label's
+		// host re-declared under one of them reads as a rename's other half. New
+		// means absent from the last valid pass's declaration - a pre-existing
+		// entry with no records (blocked, unreadable secrets) is not new. Only
+		// the first pass of a session, with no baseline yet, falls back to
+		// record absence (fingerprint and session ledger).
+		const baseline = this.declaredLabelsLastPass;
 		const newLabels: ReadonlyMap<string, string> = new Map(
 			entries
-				.filter((entry) => previous[entry.label] === undefined && sessionLedger[entry.label] === undefined)
+				.filter((entry) =>
+					baseline !== undefined
+						? !baseline.has(entry.label)
+						: previous[entry.label] === undefined && sessionLedger[entry.label] === undefined
+				)
 				.map((entry) => [entry.label, normalizeBaseUrl(entry.baseUrl)])
 		);
+		this.declaredLabelsLastPass = rawDeclaredLabels(rawSetting);
 		// Removals still unresolved from earlier passes join this pass's
 		// candidates once more, classified against their own detecting pass's
 		// new labels; the setting declaring the label again ends the carry.
