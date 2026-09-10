@@ -334,7 +334,7 @@ Servers whose groups were added outside this extension (VS Code's own model-mana
 
 An external row offers two actions:
 
-- **Remove** hides the group, same as removing a declared entry; the follow-up notice names Manage Language Models (its Delete action) and opens the models file for permanent deletion.
+- **Remove** hides the group, same as removing a declared entry; the follow-up notice opens the models file for permanent deletion (the object with the row's base URL). It cannot point at Manage Language Models: that editor lists groups by their host-owned name, which the extension does not know for an external group.
 - **Edit** adopts the group into the setting:
 
 1. Click Edit on the external row - that is the adopt action.
