@@ -1027,11 +1027,15 @@ export class ServerSyncEngine implements vscode.Disposable {
 			// untracked (no-tombstone) notice.
 			this.env.logError("Persisting the entry identity ledger failed", error);
 		}
-		if (removed.length > 0) {
-			// The setting entries are gone but the provider groups survive: there is
-			// no programmatic group removal. Labels' SecretStorage blobs are kept on
-			// purpose; re-adding a label picks its secrets up again.
-			this.env.log("Servers setting entries removed; their provider groups remain", { labels: removed });
+		// Logged per EMITTED event, not per candidate: a carried unresolved
+		// removal is a candidate on every pass and would otherwise repeat this
+		// line into the issue-report buffer until its observation arrives. The
+		// setting entries are gone but the provider groups survive: there is no
+		// programmatic group removal. Labels' SecretStorage blobs are kept on
+		// purpose; re-adding a label picks its secrets up again.
+		const reported = events.map((event) => (event.kind === "renamed" ? event.oldLabel : event.label));
+		if (reported.length > 0) {
+			this.env.log("Servers setting entries removed; their provider groups remain", { labels: reported });
 		}
 		await this.env.reconcileEntryIdentities(
 			entries.map((entry) => ({ label: entry.label, baseUrl: normalizeBaseUrl(entry.baseUrl) })),

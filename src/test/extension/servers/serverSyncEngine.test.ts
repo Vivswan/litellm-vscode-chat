@@ -534,6 +534,14 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				{ kind: "removed", label: "Ghost", baseUrl: undefined },
 				{ kind: "removed", label: "Ghost", baseUrl: "http://ghost.test" },
 			]);
+			// The aggregate log follows the emitted events, never the carried
+			// candidate: four passes, two events, two lines (the log buffer feeds
+			// issue reports).
+			assert.strictEqual(
+				recorded.logged.filter(([message]) => message.includes("provider groups remain")).length,
+				2,
+				"one log line per emitted removal event"
+			);
 
 			const redeclared = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			redeclared.fingerprints = { Ghost: "pre-ledger-record" };
