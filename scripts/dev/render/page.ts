@@ -264,6 +264,9 @@ export function buildPageHtml(
 	html = html.replace(dashboardLink, `<link rel="stylesheet" href="./vscode-default.css">\n\t${dashboardLink}`);
 	html = html.replace("</head>", `<link rel="stylesheet" href="./harness.css">\n</head>`);
 	if (tokensCss !== "") {
+		// The value is the host theme's own token CSS, not user input.
+		// The double quote is the one character that could close the style attribute.
+		// nosemgrep: javascript.audit.detect-replaceall-sanitization.detect-replaceall-sanitization
 		const attribute = inlineTokenStyle(tokensCss).replaceAll('"', "&quot;");
 		if (!html.includes("<html ")) {
 			throw new Error("Unexpected dashboard HTML shape: no <html> element to carry the host's token styles");

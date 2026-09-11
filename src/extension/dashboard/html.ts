@@ -27,9 +27,17 @@ export interface DashboardHtmlOptions {
 	readonly accent: UiAccent;
 }
 
-/** Minimal HTML attribute/text escaping for the interpolated values. */
+const HTML_ENTITIES: Readonly<Record<string, string>> = {
+	"&": "&amp;",
+	"<": "&lt;",
+	">": "&gt;",
+	'"': "&quot;",
+	"'": "&#39;",
+};
+
+/** Entity-escapes the interpolated values for text nodes and attributes of either quote style. */
 function escapeHtml(value: string): string {
-	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+	return value.replace(/[&<>"']/g, (character) => HTML_ENTITIES[character] ?? character);
 }
 
 /** JSON hardened for an inline script body: "<" cannot open "</script>" or "<!--"; U+2028/U+2029 escaped too. */

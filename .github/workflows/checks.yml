@@ -15,6 +15,11 @@ name: Checks
 on:
   workflow_call:
 
+# ci.yml's `checks` caller already caps every job here at contents: read.
+# Without this block, a job with no `permissions:` of its own reads as the default grant to zizmor.
+permissions:
+  contents: read
+
 jobs:
   # The full `bun run test` pass (bun tree, unit, activation-production, and
   # both capture-mode host-fidelity suites) on all three OSes; the Linux leg

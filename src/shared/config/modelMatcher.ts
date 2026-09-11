@@ -59,6 +59,9 @@ export function parseMatcherKey(key: string): MatcherParse {
 		}
 		try {
 			// Anchored to the whole ID: a regex key matches the ID, never a substring.
+			// The pattern is the user's own matcher key from their settings, so a slow regex costs only its author.
+			// No untrusted input reaches this constructor.
+			// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
 			return { ok: true, matcher: { kind: "regex", key, pattern: new RegExp(`^(?:${body})$`, flags) } };
 		} catch {
 			return { ok: false, reason: "invalid-regex" };
