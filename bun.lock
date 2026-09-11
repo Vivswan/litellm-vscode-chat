@@ -25,7 +25,7 @@
         "@types/node": "^26.4.1",
         "@types/react": "^19.2.18",
         "@types/react-dom": "^19.2.5",
-        "@types/vscode": "1.134.0",
+        "@types/vscode": "1.136.0",
         "@vscode/l10n-dev": "^0.0.35",
         "@vscode/test-cli": "^0.0.15",
         "@vscode/test-electron": "^3.1.0",
@@ -448,7 +448,7 @@
 
     "@types/statuses": ["@types/statuses@2.0.6", "", {}, "sha512-xMAgYwceFhRA2zY+XbEA7mxYbA093wdiW8Vu6gZPGWy9cmOyU9XesH1tNcEWsKFd5Vzrqx5T3D38PWx1FIIXkA=="],
 
-    "@types/vscode": ["@types/vscode@1.134.0", "", {}, "sha512-NDEu0hg4sF7+vvFsADsktqUJ6f80LHSZvVK2Ovo1XiQ0/VHck1O3zst+ZZyVA/uvz6vo6LcuoqU2q48YMqOwWw=="],
+    "@types/vscode": ["@types/vscode@1.136.0", "", {}, "sha512-DO746VAfnHk8+Y8CsUKYMm2rjWD0mxEuYBZI+ssaqJY7yvLJPf9lcwxSSz9W60gbdvdcGyvHQxHTyByfF9mVqg=="],
 
     "@types/whatwg-mimetype": ["@types/whatwg-mimetype@3.0.2", "", {}, "sha512-c2AKvDT8ToxLIOUlN51gTiHXflsfIFisS4pO7pDPoKouJCESkhZnEy623gwP9laCy5lnLDAw1vAzu2vM2YLOrA=="],
 
