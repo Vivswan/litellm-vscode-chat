@@ -1249,7 +1249,7 @@
 		"zod": "^4.5.4"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.11",
+		"@biomejs/biome": "^2.5.12",
 		"@happy-dom/global-registrator": "^20.12.2",
 		"@tailwindcss/cli": "^4.3.3",
 		"@types/bun": "1.4.0",
