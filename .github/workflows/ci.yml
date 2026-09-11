@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   # Repo-owned: edit checks.yml, not this file (no secrets; permissions
-  # cap at contents: read). The nightly run is fleet-ci's alone.
+  # cap at contents: read). The nightly run is the fleet callers' alone.
   checks:
     if: github.event_name != 'schedule'
     uses: ./.github/workflows/checks.yml
@@ -46,11 +46,23 @@ jobs:
       # The ceiling for the CodeQL analysis calls.
       security-events: write
       actions: read
-      # The ceiling for called jobs that file issues (a called job's grant
-      # must fit the caller's) and for release-health's issue reads.
-      issues: write
+      # The ceiling for release-health's issue reads; no called job here
+      # writes issues (the nightly caller below carries that grant).
+      issues: read
       # The ceiling for release-health's Dependabot-alert reads.
       vulnerability-alerts: read
+
+  # The nightly security scan, behind its own caller because it files the
+  # tracking issue: `issues: write` exceeds the `ci` ceiling, and GitHub
+  # checks a called job's grant before its condition. Not a gate: it is
+  # not in all-green's needs and stays green whatever it finds.
+  nightly:
+    if: github.event_name == 'schedule'
+    uses: Vivswan/repo-platform/.github/workflows/fleet-nightly.yml@build
+    permissions:
+      contents: read
+      issues: write
+      security-events: write
 
   # THE gate: this job's own check run (named all-green, created by the
   # GitHub Actions app) is the ruleset's required check. It needs both
