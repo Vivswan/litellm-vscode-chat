@@ -1,0 +1,24 @@
+# This repository's own typos allowlist; the fleet allowlist in
+# repo-platform's actions/typos/_typos.toml applies underneath it. One-off
+# fixtures that misspell on purpose carry a `// typos: ignore` line marker.
+
+[default]
+extend-ignore-re = [
+  # The plural of catch-all (matcher records, router routes).
+  "\\bcatch-alls\\b",
+  # The deliberate misspelling the settings reference and its generator test
+  # use as the example of an unknown key, in prose and as an escaped regex.
+  "\\bchat\\\\?\\.timout\\b",
+]
+
+[default.extend-identifiers]
+# Acronym plurals typos splits at the case change.
+PNGs = "PNGs"
+IIFEs = "IIFEs"
+# Test fixtures spell cafe with an escaped e-acute (café); the escape
+# ends the identifier, so only the bare token is exempt.
+caf = "caf"
+
+[default.extend-words]
+# look-alikes (Unicode confusables of the sanctioned marks).
+alikes = "alikes"

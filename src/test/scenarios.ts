@@ -333,7 +333,7 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		type: "sse",
 		chunks: [
 			makeChunk({ role: "assistant", content: "Checking the weather. <|tool_call_begin|>get_wea" }),
-			makeChunk({ content: 'ther:0<|tool_call_argument_begin|>{"location":' }),
+			makeChunk({ content: 'ther:0<|tool_call_argument_begin|>{"location":' }), // typos: ignore
 			makeChunk({ content: '"Paris"}<|tool_call_end|>' }),
 			makeChunk({}, "stop"),
 		],

@@ -271,7 +271,9 @@ export const GROUP_UPSERT_FAILED_MESSAGE = "The host rejected the provider group
  * exists (pinned by hostGroupCommand.test.ts).
  */
 export const GROUP_UPDATE_UNAVAILABLE_MESSAGE =
-	"A VS Code provider group already uses this name, and VS Code cannot update an existing group. If the group does not match this entry, delete it in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), then run Sync Models Now.";
+	"A VS Code provider group already uses this name, and VS Code cannot update an existing group. " +
+	"If the group does not match this entry, delete it in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), " +
+	"then run Sync Models Now.";
 
 /**
  * The classified text for an entry whose stored secrets could not be read this

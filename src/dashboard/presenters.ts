@@ -165,7 +165,11 @@ export function zeroModelEnglishDetail(hiddenCount: number, answeredCount: numbe
  * land in public issue reports.
  */
 function entryInactiveText(subject: string): string {
-	return `${subject} (the provider group does not carry this entry's labeled identity); delete the group in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), then run Sync Models Now, or save the entry under a new label`;
+	return (
+		`${subject} (the provider group does not carry this entry's labeled identity); ` +
+		"delete the group in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), " +
+		"then run Sync Models Now, or save the entry under a new label"
+	);
 }
 
 const ENTRY_PARAMS_INACTIVE_TEXT = entryInactiveText("per-entry modelParameters are not applied");

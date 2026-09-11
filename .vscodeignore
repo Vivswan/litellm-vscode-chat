@@ -47,6 +47,7 @@ knip.json
 .repo-platform.yml
 .typography-allow
 .typography-allow.local
+_typos.toml
 
 # Repository docs and release automation (not needed at runtime)
 docs/**

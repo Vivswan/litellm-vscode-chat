@@ -171,15 +171,15 @@ describe("provider/textToolCallParser chunking invariance properties", () => {
 	test("strippable tokens split across chunk boundaries never leak into visible text", () => {
 		const cases: Array<[string, string]> = [
 			["a<|x_sec", "tion_begin|>b"],
-			["a<|tool_call_e", "nd|>b"],
-			["a<|tool_call_argument_e", "nd|>b"],
+			["a<|tool_call_e", "nd|>b"], // typos: ignore
+			["a<|tool_call_argument_e", "nd|>b"], // typos: ignore
 			["a<|tool_call_argument_end|", ">b"],
 		];
 		{
 			const parser = new TextToolCallParser();
 			const events = [
 				...parser.push('<|tool_call_begin|>t<|tool_call_argument_begin|>{"x":1}<|tool_call_argument_e').events,
-				...parser.push("nd|><|tool_call_end|>").events,
+				...parser.push("nd|><|tool_call_end|>").events, // typos: ignore
 				...parser.flush().events,
 			];
 			const calls = events.filter((event) => event.type === "call");

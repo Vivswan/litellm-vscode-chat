@@ -261,7 +261,7 @@ describe("generate-settings-reference CLI", () => {
 			// A typo'd --check must not fall through to generate mode and rewrite docs.
 			const root = makeFixture();
 			const before = fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8");
-			const typo = runCli(root, "--chekc");
+			const typo = runCli(root, "--chekc"); // typos: ignore
 			assert.strictEqual(typo.exitCode, 1);
 			assert.match(typo.stderr, /unknown argument/);
 			assert.strictEqual(fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8"), before);

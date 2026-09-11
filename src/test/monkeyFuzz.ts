@@ -1329,7 +1329,7 @@ export class MonkeySession {
 		const alias = PLAYBACK_MODEL.alias;
 		const values: Record<ParamShape, Record<string, Record<string, unknown>>> = {
 			plain: { [alias]: { temperature, seed: 1000 + action.serial } },
-			invalid: { [alias]: { _monkey: action.serial, model: "monkey-hax-model" } },
+			invalid: { [alias]: { _monkey: action.serial, model: "monkey-hijack-model" } },
 			forced: { [alias]: { temperature, _force: true } },
 			inherited: { "*": { top_p: 0.75, _inheritable: true }, [alias]: { temperature } },
 			barrier: {
@@ -1401,8 +1401,12 @@ export class MonkeySession {
 				);
 				return;
 			case "invalid":
-				assert.notStrictEqual(wire.model, "monkey-hax-model", "the provider-owned model field must not be overridable");
-				assert.ok(!reply.includes("monkey-hax-model"), "%params must not report a hijacked model");
+				assert.notStrictEqual(
+					wire.model,
+					"monkey-hijack-model",
+					"the provider-owned model field must not be overridable"
+				);
+				assert.ok(!reply.includes("monkey-hijack-model"), "%params must not report a hijacked model");
 				return;
 			case "forced":
 				assert.strictEqual(wire.temperature, temperature, "a forced field must beat the runtime option");

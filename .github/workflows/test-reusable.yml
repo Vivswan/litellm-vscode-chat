@@ -86,7 +86,7 @@ jobs:
           fi
 
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
           # Full history: the crediting-convention guard in the unit suite
@@ -95,7 +95,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
 
@@ -123,13 +123,17 @@ jobs:
         shell: bash
         env:
           DOCKER_ONLY: ${{ inputs.docker-only }}
+          SUITE_SCRIPT: ${{ inputs.suite == 'docker' && 'test:docker' || 'test:coverage' }}
         run: |
           if [ -n "$DOCKER_ONLY" ]; then
             xvfb-run -a bun run test:docker --only "$DOCKER_ONLY"
           else
-            xvfb-run -a bun run ${{ inputs.suite == 'docker' && 'test:docker' || 'test:coverage' }}
+            xvfb-run -a bun run "$SUITE_SCRIPT"
           fi
 
       - name: Run tests (Windows/macOS)
         if: runner.os != 'Linux'
-        run: bun run ${{ inputs.suite == 'docker' && 'test:docker' || 'test' }}
+        shell: bash
+        env:
+          SUITE_SCRIPT: ${{ inputs.suite == 'docker' && 'test:docker' || 'test' }}
+        run: bun run "$SUITE_SCRIPT"

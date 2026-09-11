@@ -37,10 +37,10 @@ suite("dockerTestLabels: parseOnlyLabels", () => {
 
 	test("an unknown label throws naming it and every known label", () => {
 		assert.throws(
-			() => parseOnlyLabels("docker,docker-transprot"),
+			() => parseOnlyLabels("docker,docker-transprot"), // typos: ignore
 			(error: unknown) => {
 				const message = error instanceof Error ? error.message : String(error);
-				assert.ok(message.includes('unknown label "docker-transprot"'), message);
+				assert.ok(message.includes('unknown label "docker-transprot"'), message); // typos: ignore
 				for (const label of DOCKER_TEST_LABELS) {
 					assert.ok(message.includes(label), `error message names ${label}: ${message}`);
 				}

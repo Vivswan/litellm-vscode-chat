@@ -646,7 +646,7 @@ suite("provider/streaming generated media", () => {
 		const stream = mediaProcessor();
 		const { parts, progress } = collector();
 
-		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "U", transcript: "Hel" } } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "U", transcript: "Hel" } } }] }, progress); // typos: ignore
 		stream.processDelta({ choices: [{ delta: { audio: { data: "klGRg==", transcript: "lo" } } }] }, progress);
 		stream.processDelta(finish, progress);
 

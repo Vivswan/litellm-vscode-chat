@@ -366,7 +366,9 @@ describe("dashboard/presenters renderers", () => {
 			// Each notice is its own subject plus the clause the composer appends;
 			// the clause is pinned here once, as users paste it into issue reports.
 			const clause =
-				" (the provider group does not carry this entry's labeled identity); delete the group in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), then run Sync Models Now, or save the entry under a new label";
+				" (the provider group does not carry this entry's labeled identity); " +
+				"delete the group in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), " +
+				"then run Sync Models Now, or save the entry under a new label";
 			const notices = [
 				"entry-params-inactive",
 				"entry-capabilities-inactive",

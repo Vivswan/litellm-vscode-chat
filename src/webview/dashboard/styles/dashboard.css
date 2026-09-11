@@ -4182,7 +4182,7 @@
 		}
 		/* The chips take a full line of their own: sharing the matcher's line
 		 squeezed them into a column a word wide, and chip keys break anywhere,
-		 so "temperature" printed as tem-per-a-ture down the row. */
+		 so "temperature" came out stacked a few letters per line. */
 		.record-table .chip-list {
 			flex: 1 1 100%;
 		}
