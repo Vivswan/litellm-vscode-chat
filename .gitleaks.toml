@@ -1,5 +1,5 @@
 # Repo-owned gitleaks config, read by the CI gitleaks job (and local
-# `gitleaks git` runs). Seeded once by repo-platform's template and never
+# `gitleaks git` runs). Seeded once by the fleet sync and never
 # overwritten by sync, so allowlists added here survive updates.
 # [extend] pulls in gitleaks' default ruleset - without it, this file
 # would REPLACE the defaults and disable every stock rule.

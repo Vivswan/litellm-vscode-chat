@@ -26,7 +26,7 @@
 		"url": "https://github.com/Vivswan/litellm-vscode-chat/issues"
 	},
 	"engines": {
-		"vscode": "^1.134.0"
+		"vscode": "^1.136.0"
 	},
 	"categories": [
 		"AI",
@@ -1242,28 +1242,28 @@
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"gpt-tokenizer": "^4.0.0",
-		"openai": "^7.9.0",
+		"openai": "^7.10.0",
 		"react": "^19.2.8",
 		"react-dom": "^19.2.8",
 		"tailwind-merge": "^3.6.0",
 		"zod": "^4.5.4"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.11",
+		"@biomejs/biome": "^2.5.12",
 		"@happy-dom/global-registrator": "^20.12.2",
 		"@tailwindcss/cli": "^4.3.3",
 		"@types/bun": "1.4.0",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^26.4.1",
 		"@types/react": "^19.2.18",
-		"@types/react-dom": "^19.2.5",
-		"@types/vscode": "1.134.0",
+		"@types/react-dom": "^19.3.0",
+		"@types/vscode": "1.136.0",
 		"@vscode/l10n-dev": "^0.0.35",
 		"@vscode/test-cli": "^0.0.15",
 		"@vscode/test-electron": "^3.1.0",
 		"@vscode/vsce": "^3.9.2",
 		"actionlint": "^2.0.6",
-		"eslint": "^10.9.1",
+		"eslint": "^10.10.0",
 		"fast-check": "^4.9.0",
 		"husky": "^9.1.7",
 		"jiti": "^2.7.0",

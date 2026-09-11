@@ -557,5 +557,5 @@ software incorporates into what it produces are output. The software's
 **Use** means anything you do with the software requiring one of your
 licenses.
 
-<!-- The license text between the BEGIN/END markers is managed by Vivswan/repo-platform and replaced on template sync. Repository-specific license notices (third-party components, differently licensed paths) go below the END marker; they are this repository's own and survive template updates. -->
+<!-- The license text between the BEGIN/END markers is managed by Vivswan/repo-platform and replaced on every sync. Repository-specific license notices (third-party components, differently licensed paths) go below the END marker; they are this repository's own and survive every sync. -->
 <!-- END REPO-PLATFORM MANAGED -->

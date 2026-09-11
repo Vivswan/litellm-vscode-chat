@@ -1,5 +1,5 @@
-# This repository's own typos allowlist; the fleet allowlist in
-# repo-platform's actions/typos/_typos.toml applies underneath it. One-off
+# This repository's own typos allowlist; the fleet's allowlist applies
+# underneath it (the central CI passes it as --config). One-off
 # fixtures that misspell on purpose carry a `// typos: ignore` line marker.
 
 [default]

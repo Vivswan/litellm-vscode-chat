@@ -1,9 +1,8 @@
-<!-- BEGIN REPO-PLATFORM MANAGED -->
 # Contributing to litellm-vscode-chat
 
 Thanks for contributing! This document covers the conventions every change in this repository goes through.
 
-CI, settings, and standards files here (including this document between the BEGIN/END markers) are managed by [Vivswan/repo-platform](https://github.com/vivswan/repo-platform); local edits to managed files are replaced on the next template sync.
+CI, settings, and standards files here arrive from the fleet sync; a file whose header says it is managed is replaced on the next sync, so change it at its source, not here.
 
 ## Pull requests
 
@@ -13,7 +12,7 @@ CI, settings, and standards files here (including this document between the BEGI
 
 ## CI
 
-- CI gates on the `all-green` status check - the CI workflow's own `all-green` job, which needs every gating job and fails unless each result is success or skipped, with at least one success (the convention is documented in [repo-platform's all-green guide](https://github.com/vivswan/repo-platform/blob/main/docs/all-green.md)).
+- CI gates on the `all-green` status check - the CI workflow's own `all-green` job, which needs every gating job and fails unless each result is success or skipped, with at least one success.
 - Repository-specific checks live in `.github/workflows/checks.yml`; run the commands it lists locally before pushing.
 - A typography gate enforces plain ASCII punctuation: no curly quotes, em-dashes, or invisible unicode.
 
@@ -23,11 +22,7 @@ Never report vulnerabilities in issues or pull requests - see [SECURITY.md](.git
 
 ## Code of conduct
 
-Participation in this project is governed by the [code of conduct](.github/CODE_OF_CONDUCT.md).
-
-<!-- Repository-specific contributing documentation (dev setup, build and
-     test commands, review expectations) goes outside the BEGIN/END markers - below the END marker, or above BEGIN. It is this repository's own and survives template updates. -->
-<!-- END REPO-PLATFORM MANAGED -->
+Participation in this project is governed by the [Contributor Covenant](https://github.com/Vivswan/.github/blob/main/CODE_OF_CONDUCT.md) that applies to all of Vivswan's repositories.
 
 ## Prerequisites
 

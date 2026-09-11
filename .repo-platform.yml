@@ -1,8 +1,15 @@
-# Generated once by Vivswan/repo-platform and repo-owned from
-# then on: the sync reads this file, it never rewrites it. Its presence
-# marks this repository as participating in push sync. `modules` is this
-# repo's module selection - edit it and the next sync applies the change.
-# An optional `mirrors` list declares byte copies of rendered files
-# (repo-platform's docs/new-repo.md has the contract).
-
-modules: ["bun", "release-please", "issue-templates", "pr-title", "fuzzer", "nightly"]
+# Generated once by the fleet sync and repo-owned from then on: the sync reads this file and never rewrites it.
+modules:
+  - bun
+  - release-please
+  - issue-templates
+  - pr-title
+  - fuzzer
+  - nightly
+project:
+  name: LiteLLM VSCode Chat
+  slug: litellm-vscode-chat
+  description: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM.
+  copyright_holder: Vivswan Shah (https://github.com/Vivswan)
+labels:
+  fuzzer: nightly-fuzz

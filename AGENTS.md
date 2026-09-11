@@ -3,35 +3,35 @@
 
 Guidance for AI coding agents working in this repository. `CLAUDE.md`, `.github/copilot-instructions.md`, and `.github/agents.md` are symlinks to this file, so edit only here.
 
-Everything between the BEGIN and END markers is managed by Vivswan/repo-platform and overwritten by template sync. This repository's own guidance goes below the END marker.
+Everything between the BEGIN and END markers is managed by Vivswan/repo-platform and replaced on every sync. This repository's own guidance goes below the END marker.
 
 ## Project
 
 LiteLLM VSCode Chat: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM.
 
-## Toolchain
-
-- bun: `bun install`, `bun test`, `bun run <script>` (scripts in `package.json`)
-- `.bun-version` is managed by sync; pin another version in a repo-owned workflow's version input, not in the dotfile.
-
 ## Conventions
 
-- PR titles and commit subjects are Conventional Commits; they drive release-please versioning. PRs are squash-merged, so the PR title becomes the commit subject. The `pr-title` check validates the title.
+- PR titles and commit subjects are Conventional Commits; with the release-please module they drive its versioning. PRs are squash-merged, so the PR title becomes the commit subject; with the pr-title module, its check validates the title.
 - CI gates on the `all-green` check, required by the managed ruleset. Under `.github/workflows/`, this repository's test and lint jobs go in `checks.yml`, its green-gated work on main in `post-green.yml` (both repo-owned); `ci.yml` is managed.
-- A green push to main releases through the managed `release.yml`; this repository's release steps go in the repo-owned `update-release.yml` and `update-release-pr.yml` hooks.
+- With the release-please module, a green push to main releases through the fleet's release pipeline; this repository's release steps go in the repo-owned `update-release.yml` and `update-release-pr.yml` hooks.
 - Plain ASCII punctuation only: no curly quotes, em-dashes, or invisible unicode. The check-typography gate enforces it.
 
 ## Managed by repo-platform
 
 - Files whose header says "managed by Vivswan/repo-platform" arrive via sync PRs from that repository. Do not edit them here; change them there.
 - Repository settings are applied from Vivswan/repo-platform's layers plus this repository's own `.github/settings.yml`. Edit that file, never the GitHub UI; the merge rules are in repo-platform's docs/settings.md.
-- Repo-owned, never overwritten by sync: `checks.yml`, `post-green.yml`, `.gitleaks.toml`, `.gitignore` outside its managed region, `.typography-allow.local`, the release hooks and the release-please JSON files.
+- Repo-owned, never overwritten by sync: `checks.yml`, `post-green.yml`, `.gitleaks.toml`, `.gitignore` outside its managed region, `.typography-allow.local`, the release hooks, and the module starters (the release-please JSON files, the `.claude-plugin/` manifests, the nightly workflows).
 - Module selection is the `modules` list in `.repo-platform.yml`; the next sync PR applies a change. The per-module contracts are in repo-platform's docs/new-repo.md.
 - Fleet-wide conventions: repo-platform's docs/fleet-guidelines.md.
 
+## Toolchain
+
+- bun: `bun install`, `bun test`, `bun run <script>` (scripts in `package.json`)
+- `.bun-version` is managed by sync; pin another version in a repo-owned workflow's version input, not in the dotfile.
+
 ## Repository-specific guidance
 
-<!-- Add project-specific instructions below the END marker; they are this repository's own and survive template updates. -->
+<!-- Add project-specific instructions below the END marker; they are this repository's own and survive every sync. -->
 <!-- END REPO-PLATFORM MANAGED -->
 
 Keep shared project facts here; the code is the source of truth for implementation detail.
@@ -115,6 +115,6 @@ Dashboard appearance is reviewed, not gated. `scripts/dev/render-dashboard.ts` s
 
 ### CI
 
-Repo-owned jobs live in `checks.yml` inside the required all-green gate: the full `bun run test` pass (bun tree plus all four host labels, capture-mode host-fidelity-groups included) on three OSes with a Linux merged coverage floor, the promoted docker-stack suite (docker suites, stream fuzzer, live host-fidelity against the dockerized proxy, and a second capture-mode host-fidelity-groups run, split into two time-balanced shards via `test:docker --only`), an elevated fuzz pass that runs only when the diff touches fuzzer-related paths (skipped otherwise, which the gate counts as green; one unit job plus a sharded docker job), a `typecheck` job over all four tsconfig projects (the CI job that catches the `src/webview` and `src/test/bun` type errors compile misses), an OpenRouter catalog job (the run's one live fetch: it validates the payload and uploads the slimmed artifact that format-check's packaged-file-list check downloads instead of fetching again; an unreachable OpenRouter fails the job except on push-to-main runs, where the jobs warn instead of failing, nothing is uploaded, and format-check tolerates the missing artifact, skipping only its catalog assertions - schema drift and any other missing artifact fail closed everywhere), a PR-title credit check (a crediting title must have its ACKNOWLEDGMENTS.md row before merge), and the format-check workflow (including `biome ci`, the packaged-file-list check, and the no-tracked-PNGs guard). `docker-test.yml` is a workflow_dispatch-only wrapper; `nightly-fuzz.yml` runs the docker and property suites at high iteration counts and files `nightly-fuzz` issues with reproduction seeds; after release-please cuts a draft release, the repo-owned `update-release.yml` hook packages the VSIX and publishes it (to the VS Code Marketplace and as a release asset), then the managed `release.yml` attests every uploaded asset and publishes the release; on every run where release-please creates or refreshes the release PR, the managed `release.yml` instead calls the repo-owned `update-release-pr.yml` hook with that PR's number and head branch, which today posts the migration-expiry sticky comment and is the home for anything that must decorate or regenerate on the release PR.
+Repo-owned jobs live in `checks.yml` inside the required all-green gate: the full `bun run test` pass (bun tree plus all four host labels, capture-mode host-fidelity-groups included) on three OSes with a Linux merged coverage floor, the promoted docker-stack suite (docker suites, stream fuzzer, live host-fidelity against the dockerized proxy, and a second capture-mode host-fidelity-groups run, split into two time-balanced shards via `test:docker --only`), an elevated fuzz pass that runs only when the diff touches fuzzer-related paths (skipped otherwise, which the gate counts as green; one unit job plus a sharded docker job), a `typecheck` job over all four tsconfig projects (the CI job that catches the `src/webview` and `src/test/bun` type errors compile misses), an OpenRouter catalog job (the run's one live fetch: it validates the payload and uploads the slimmed artifact that format-check's packaged-file-list check downloads instead of fetching again; an unreachable OpenRouter fails the job except on push-to-main runs, where the jobs warn instead of failing, nothing is uploaded, and format-check tolerates the missing artifact, skipping only its catalog assertions - schema drift and any other missing artifact fail closed everywhere), a PR-title credit check (a crediting title must have its ACKNOWLEDGMENTS.md row before merge), and the format-check workflow (including `biome ci`, the packaged-file-list check, and the no-tracked-PNGs guard). `docker-test.yml` is a workflow_dispatch-only wrapper; `nightly-fuzz.yml` runs the docker and property suites at high iteration counts and files `nightly-fuzz` issues with reproduction seeds; after release-please cuts a draft release, the repo-owned `update-release.yml` hook packages the VSIX and publishes it (to the VS Code Marketplace and as a release asset), then the fleet's publish leg (called from the managed `ci.yml`) attests every uploaded asset and publishes the release; on every run where release-please creates or refreshes the release PR, `ci.yml` instead calls the repo-owned `update-release-pr.yml` hook with that PR's number and head branch, which today posts the migration-expiry sticky comment and is the home for anything that must decorate or regenerate on the release PR.
 
 Three more workflows are repo-owned escape hatches here, beyond the managed list above the marker: `.github/workflows/format-check-reusable.yml` (the format-check job checks.yml calls, including the packaged-file-list and no-tracked-PNGs guards), `.github/workflows/test-reusable.yml` (the test job checks.yml and docker-test.yml call), and `.github/workflows/close-answered-issues.yml` (the issue-triage auto-closer for issues labeled `awaiting-reply`).

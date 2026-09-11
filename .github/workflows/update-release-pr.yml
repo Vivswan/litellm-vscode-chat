@@ -1,11 +1,9 @@
 # The release-PR hook of the release pipeline: repo-owned, generated once
-# by Vivswan/repo-platform and never overwritten by template sync. The
-# managed release.yml calls this workflow whenever release-please creates
-# or refreshes the release PR (independently of any release cut), so
-# everything this repository wants on that PR happens here. Add jobs
-# freely - releases never wait on this path. Until the managed caller
-# lands via template sync, this file has no trigger: workflow_call only,
-# dormant and harmless.
+# by the fleet sync and never overwritten by it. The managed
+# ci.yml calls this workflow whenever release-please creates or refreshes
+# the release PR (independently of any release cut), so everything this
+# repository wants on that PR happens here. Add jobs freely - releases
+# never wait on this path. workflow_call is its only trigger.
 #
 # Today's one job keeps the release PR annotated with a sticky comment
 # listing every live migration and when its dead-man switch (the
