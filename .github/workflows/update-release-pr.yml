@@ -1,5 +1,5 @@
 # The release-PR hook of the release pipeline: repo-owned, generated once
-# by Vivswan/repo-platform and never overwritten by sync. The managed
+# by the fleet sync and never overwritten by it. The managed
 # ci.yml calls this workflow whenever release-please creates or refreshes
 # the release PR (independently of any release cut), so everything this
 # repository wants on that PR happens here. Add jobs freely - releases

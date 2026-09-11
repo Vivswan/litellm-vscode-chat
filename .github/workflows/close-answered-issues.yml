@@ -1,4 +1,4 @@
-# Repo-owned (not managed by repo-platform): auto-closes answered issues.
+# Repo-owned (not managed by the fleet sync): auto-closes answered issues.
 # Label an issue `awaiting-reply` after answering it; if nothing on the issue
 # changes for three days, this closes it with a pointer to reopen. Any
 # activity (a comment, an edit, a label change) resets the clock. Closed

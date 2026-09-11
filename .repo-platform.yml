@@ -1,4 +1,4 @@
-# Generated once by repo-platform and repo-owned from then on: the sync reads this file and never rewrites it.
+# Generated once by the fleet sync and repo-owned from then on: the sync reads this file and never rewrites it.
 modules:
   - bun
   - release-please

@@ -1,10 +1,10 @@
-# Nightly CI starter. Generated once by Vivswan/repo-platform
-# and never overwritten by sync, so edit freely. Replace the
+# Nightly CI starter. Generated once by the fleet sync
+# and never overwritten by it, so edit freely. Replace the
 # placeholder step with this repository's own nightly checks (the suites too
 # slow for every PR: full end-to-end runs, docker image builds, live
 # integration tests); the report job below keeps working unchanged - a red
 # night files or updates one label-deduplicated tracking issue, a green
-# night closes it (see repo-platform's docs/nightly.md).
+# night closes it (the fleet's docs/nightly.md has the contract).
 name: Nightly
 
 on:
@@ -42,7 +42,7 @@ jobs:
           # Any failing step in this job makes the report job below file
           # or update the tracking issue. Until then this step is a green
           # no-op on purpose: an uncustomized starter must not file issues.
-          echo "::warning::nightly starter not customized yet - replace the placeholder step (see repo-platform's docs/nightly.md)"
+          echo "::warning::nightly starter not customized yet - replace the placeholder step (the fleet's docs/nightly.md has the contract)"
 
   # Runs whatever happened to the checks job, and treats a CANCELLED checks
   # job as red: a job that hits its timeout is cancelled, not failed, and a

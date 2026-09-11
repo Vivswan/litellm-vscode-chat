@@ -1,8 +1,7 @@
 # Repo-owned auto-format: label a pull request `fix-lint` (the label ships
-# with the template's settings.yml) and this workflow pushes a formatting
+# with the fleet's settings) and this workflow pushes a formatting
 # commit to the PR branch, then removes the label. Generated once by
-# Vivswan/repo-platform and never overwritten by template
-# sync: adjust the format commands to this repository's tooling.
+# the fleet sync and never overwritten by it: adjust the format commands to this repository's tooling.
 
 name: Auto Format
 
