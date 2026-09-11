@@ -1,9 +1,8 @@
-<!-- BEGIN REPO-PLATFORM MANAGED -->
 # Contributing to litellm-vscode-chat
 
 Thanks for contributing! This document covers the conventions every change in this repository goes through.
 
-CI, settings, and standards files here (including this document between the BEGIN/END markers) are managed by [Vivswan/repo-platform](https://github.com/vivswan/repo-platform); local edits to managed files are replaced on the next template sync.
+CI, settings, and standards files here are managed by [Vivswan/repo-platform](https://github.com/vivswan/repo-platform); files whose header says so are replaced on the next sync, so change them there.
 
 ## Pull requests
 
@@ -23,11 +22,7 @@ Never report vulnerabilities in issues or pull requests - see [SECURITY.md](.git
 
 ## Code of conduct
 
-Participation in this project is governed by the [code of conduct](.github/CODE_OF_CONDUCT.md).
-
-<!-- Repository-specific contributing documentation (dev setup, build and
-     test commands, review expectations) goes outside the BEGIN/END markers - below the END marker, or above BEGIN. It is this repository's own and survives template updates. -->
-<!-- END REPO-PLATFORM MANAGED -->
+Participation in this project is governed by the [Contributor Covenant](https://github.com/Vivswan/.github/blob/main/CODE_OF_CONDUCT.md) that applies to all of Vivswan's repositories.
 
 ## Prerequisites
 

@@ -1,6 +1,6 @@
 # BEGIN REPO-PLATFORM MANAGED
 # This section is managed by Vivswan/repo-platform and
-# replaced on template sync; repository-specific rules live outside the
+# replaced on every sync; repository-specific rules live outside the
 # BEGIN/END markers.
 
 root = true
@@ -18,7 +18,7 @@ trim_trailing_whitespace = false
 indent_style = tab
 
 # Repository-specific rules go below the END marker; they stay yours
-# across template updates. Start each override with its own [section]
+# across every sync. Start each override with its own [section]
 # header - later sections override the managed rules above (and content
 # above BEGIN would sit before `root = true`, where sections are invalid).
 # END REPO-PLATFORM MANAGED

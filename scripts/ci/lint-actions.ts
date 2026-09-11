@@ -13,17 +13,22 @@ async function main(): Promise<void> {
 	const findings: LintResult[] = [];
 
 	// The npm actionlint wasm build lags the upstream binary; drop findings it
-	// raises only because its permission-scope list is stale (CI runs the
-	// current binary via raven-actions/actionlint, which knows these scopes).
-	const staleFindings = [/unknown permission scope "(attestations|vulnerability-alerts)"/];
+	// raises only because its permission-scope list is stale, or because it
+	// does not know the `vars` context inside a `with:` block (CI runs the
+	// current binary via raven-actions/actionlint, which accepts both).
+	const staleScopes = /unknown permission scope "(attestations|vulnerability-alerts)"/;
+	const staleVars = /^undefined variable "vars"\. available variables are/;
+	const isStale = (result: LintResult, lines: string[]): boolean =>
+		staleScopes.test(result.message) || (staleVars.test(result.message) && parentKey(lines, result.line) === "with:");
 
 	for (const file of files) {
 		const input = await fs.readFile(file, "utf8");
+		const lines = input.split("\n");
 		// A fresh linter per file: reusing one instance grows the WASM memory
 		// across calls until the actionlint wrapper crashes out of bounds.
 		const lint = await createLinter();
 		const results = lint(input, path.relative(process.cwd(), file));
-		findings.push(...results.filter((result) => !staleFindings.some((pattern) => pattern.test(result.message))));
+		findings.push(...results.filter((result) => !isStale(result, lines)));
 	}
 
 	if (findings.length === 0) {
@@ -35,6 +40,26 @@ async function main(): Promise<void> {
 	}
 
 	process.exitCode = 1;
+}
+
+/** The trimmed text of the nearest less-indented non-blank, non-comment line above a 1-based line: the YAML key it sits under. */
+function parentKey(lines: string[], line: number): string | undefined {
+	const own = lines[line - 1];
+	if (own === undefined) {
+		return undefined;
+	}
+	const indent = own.length - own.trimStart().length;
+	for (let i = line - 2; i >= 0; i--) {
+		const text = lines[i];
+		const trimmed = text.trim();
+		if (trimmed === "" || trimmed.startsWith("#")) {
+			continue;
+		}
+		if (text.length - text.trimStart().length < indent) {
+			return trimmed;
+		}
+	}
+	return undefined;
 }
 
 main().catch((error) => {
