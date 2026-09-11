@@ -341,7 +341,7 @@ describe("failureExit", () => {
 	const settled = new UnreachableError({ kind: "http", status: 404 }, `HTTP 404 from ${OPENROUTER_MODELS_URL}`);
 	const drift = new DriftError("payload yields 3 usable models (floor 100)");
 	const skipTail =
-		"skipping the live catalog check on this push - pull request runs, ci.yml's weekly schedule, " +
+		"skipping the live catalog check on this push - pull request runs, manual dispatch, " +
 		"and release builds still fail on it";
 	const cases: readonly {
 		readonly name: string;
