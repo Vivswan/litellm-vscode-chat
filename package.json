@@ -751,6 +751,7 @@
 					"litellm-vscode-chat.models.parameters": {
 						"type": "object",
 						"default": {},
+						"restricted": true,
 						"markdownDescription": "%litellm.config.models.parameters.description%",
 						"additionalProperties": {
 							"type": "object"
@@ -759,6 +760,7 @@
 					"litellm-vscode-chat.models.capabilities": {
 						"type": "object",
 						"default": {},
+						"restricted": true,
 						"markdownDescription": "%litellm.config.models.capabilities.description%",
 						"additionalProperties": {
 							"type": "object"

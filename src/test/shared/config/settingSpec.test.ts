@@ -50,6 +50,7 @@ interface SettingSchema {
 	readonly default?: unknown;
 	readonly minimum?: number;
 	readonly scope?: string;
+	readonly restricted?: boolean;
 	readonly required?: readonly string[];
 	readonly additionalProperties?: boolean | { readonly type?: string | readonly string[] };
 	readonly description?: string;
@@ -342,6 +343,19 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 					? "machine"
 					: undefined;
 			assert.strictEqual(settingSchema(properties, key).scope, expected, `${key} scope`);
+		}
+	});
+
+	test("only the two model record settings are restricted in untrusted workspaces", () => {
+		// Restricted Mode still applies a workspace's window-scoped settings unless the schema marks them.
+		// The record settings shape what goes to the user's server and compile user regex matchers.
+		// So an untrusted workspace may not supply them.
+		// Total over ALL_SETTING_KEYS, so a new setting cannot ship with an unruled trust flag.
+		const restricted = new Set<string>([MODEL_PARAMETERS_SETTING_KEY, MODEL_CAPABILITIES_SETTING_KEY]);
+		const properties = allProperties();
+		for (const key of ALL_SETTING_KEYS) {
+			const expected = restricted.has(key) ? true : undefined;
+			assert.strictEqual(settingSchema(properties, key).restricted, expected, `${key} restricted`);
 		}
 	});
 
