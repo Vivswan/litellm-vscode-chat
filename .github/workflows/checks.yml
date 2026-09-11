@@ -81,7 +81,7 @@ jobs:
           # what --only runs.
           pattern='^src/test/(bun/)?(fuzz|monkey|scenarios|fakeStack/|docker-(fuzz|conversation|monkey)\.test\.ts)|^src/test/bun/preload\.ts$|^bunfig\.toml$|^src/provider/transport/streaming/|^scripts/stack/fake-openai-server\.ts$|^scripts/docker-test\.ts$|^src/test/dockerTestLabels\.ts$|\.property\.test\.ts$'
           if [ "$EVENT" != "push" ] && [ "$EVENT" != "pull_request" ]; then
-            # Scheduled and dispatched gate runs have no diff to inspect.
+            # Dispatched gate runs have no diff to inspect.
             echo "hit=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -273,8 +273,8 @@ jobs:
       # ::warning:: headline says which) is one ::warning:: annotation and
       # exit 0 with nothing written, because a third-party failure must not
       # block landing on main; schema drift stays fatal in every mode. Pull
-      # request runs, ci.yml's weekly schedule, and manual dispatch stay fatal,
-      # so the failure is still caught loudly where a human is watching and a
+      # request runs and manual dispatch stay fatal, so the failure is still
+      # caught loudly where a human is watching and a
       # re-run is cheap, and the release build's own fetch (vscode:prepublish)
       # stays fatal too. The file, not the exit code, says whether the catalog
       # was fetched.
