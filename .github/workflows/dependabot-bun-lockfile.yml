@@ -1,12 +1,12 @@
 # This file is managed by Vivswan/repo-platform.
-# Local edits may be replaced during template updates.
+# Local edits are replaced on the next sync.
 #
 # Dependabot bumps the target package but leaves stale nested bun.lock
 # entries behind, so `bun install --frozen-lockfile` fails with
-# mixed-version errors; this regenerates the lockfile on Dependabot's own
-# PRs. --lockfile-only runs no lifecycle scripts next to the write
-# credential. Register REPO_PLATFORM_TOKEN as a DEPENDABOT secret so the
-# fix commit re-runs CI (github.token starts no workflows).
+# mixed-version errors; the dedupe-bun-lockfile action regenerates the
+# lockfile on Dependabot's own PRs. Register REPO_PLATFORM_TOKEN as a
+# DEPENDABOT secret so the fix commit re-runs CI (github.token starts no
+# workflows).
 
 name: Dependabot Bun Lockfile
 
@@ -35,54 +35,19 @@ jobs:
       contents: write
       pull-requests: write # the sticky PR comment below
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      # Every tracked lockfile ('*/bun.lock' is a git pathspec; '*'
-      # crosses '/'). Delete before regenerating: bun keeps a stale
-      # lockfile as a valid resolution, and only a from-scratch resolve
-      # drops the stale entries.
-      - name: Regenerate bun lockfiles
-        shell: bash
-        run: |
-          git ls-files -z -- 'bun.lock' '*/bun.lock' | while IFS= read -r -d '' lock; do
-            rm -- "$lock"
-            bun install --lockfile-only --ignore-scripts --cwd "$(dirname -- "$lock")"
-            # bun deletes an empty lockfile outright; keep the committed one.
-            [ -f "$lock" ] || git checkout -- "$lock"
-          done
-      - name: Commit and push the deduped lockfiles
+      # Regenerates every tracked lockfile from scratch, commits, and pushes
+      # to the PR head; no_retrigger flags a push github.token made.
+      - name: Regenerate, commit, and push the deduped lockfiles
         id: push
-        shell: bash
-        env:
-          TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}
-          CAN_RETRIGGER: ${{ secrets.REPO_PLATFORM_TOKEN != '' }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          if git diff --quiet -- 'bun.lock' '*/bun.lock'; then
-            echo "lockfiles already deduped"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git ls-files -z -- 'bun.lock' '*/bun.lock' | xargs -0 git add --
-          # [dependabot skip] keeps Dependabot rebasing and updating the
-          # PR over this commit.
-          git commit -m "build(deps): dedupe bun lockfile" -m "[dependabot skip]"
-          git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$HEAD_REF"
-          if [ "$CAN_RETRIGGER" = "true" ]; then
-            exit 0
-          fi
-          # github.token starts no workflows: flag it for the sticky PR
-          # comment below and as an annotation, but stay green - the fleet
-          # legitimately runs without the token.
-          echo "no_retrigger=true" >> "$GITHUB_OUTPUT"
-          echo "::warning::lockfile fix pushed without REPO_PLATFORM_TOKEN - checks will not re-run on the new head;" \
-            "close/reopen the PR or register the token as a Dependabot secret"
+        uses: Vivswan/repo-platform/actions/dedupe-bun-lockfile@build
+        with:
+          token: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}
+          can-retrigger: ${{ secrets.REPO_PLATFORM_TOKEN != '' }}
+          head-ref: ${{ github.event.pull_request.head.ref }}
       # One comment per PR, edited in place on later runs; a failed post
       # fails the step.
       - name: Comment that checks will not re-run

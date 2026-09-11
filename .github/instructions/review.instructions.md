@@ -2,7 +2,7 @@
 applyTo: "**"
 ---
 <!-- This file is managed by Vivswan/repo-platform.
-     Local edits may be replaced during template updates. -->
+     Local edits are replaced on the next sync. -->
 # How to write review comments
 
 Copilot code review reads this file when it reviews a pull request. It shapes the wording of each comment.

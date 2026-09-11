@@ -1,33 +1,3 @@
-<!-- BEGIN REPO-PLATFORM MANAGED -->
-# Contributing to litellm-vscode-chat
-
-Thanks for contributing! This document covers the conventions every change in this repository goes through.
-
-CI, settings, and standards files here (including this document between the BEGIN/END markers) are managed by [Vivswan/repo-platform](https://github.com/vivswan/repo-platform); local edits to managed files are replaced on the next template sync.
-
-## Pull requests
-
-- Changes land through pull requests and are squash-merged; the PR title becomes the commit subject on the default branch.
-- The PR title and every pushed commit subject must be a [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/), for example `feat: add X` or `fix(parser): handle Y`. Releases are versioned from these subjects.
-- By opening a pull request, or offering code in an issue or review for inclusion, you agree to the Contributions section of the [LICENSE.md](LICENSE.md), which licenses that code to the licensor - including for relicensing under any terms - unless you conspicuously say otherwise when you submit it.
-
-## CI
-
-- CI gates on the `all-green` status check - the CI workflow's own `all-green` job, which needs every gating job and fails unless each result is success or skipped, with at least one success (the convention is documented in [repo-platform's all-green guide](https://github.com/vivswan/repo-platform/blob/main/docs/all-green.md)).
-- Repository-specific checks live in `.github/workflows/checks.yml`; run the commands it lists locally before pushing.
-- A typography gate enforces plain ASCII punctuation: no curly quotes, em-dashes, or invisible unicode.
-
-## Security
-
-Never report vulnerabilities in issues or pull requests - see [SECURITY.md](.github/SECURITY.md) for the private reporting route.
-
-## Code of conduct
-
-Participation in this project is governed by the [code of conduct](.github/CODE_OF_CONDUCT.md).
-
-<!-- Repository-specific contributing documentation (dev setup, build and
-     test commands, review expectations) goes outside the BEGIN/END markers - below the END marker, or above BEGIN. It is this repository's own and survives template updates. -->
-<!-- END REPO-PLATFORM MANAGED -->
 
 ## Prerequisites
 
