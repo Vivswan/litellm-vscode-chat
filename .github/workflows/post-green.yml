@@ -1,8 +1,8 @@
-# Repo-owned: generated once by Vivswan/repo-platform, never
-# overwritten by sync. Called after the all-green gate on every green push
+# Repo-owned: generated once by the fleet sync, never
+# overwritten by it. Called after the all-green gate on every green push
 # to main, before the release: REPLACE the no-op job with this repository's
 # work (it uses a runner allocation per push until you do; the contract is in
-# repo-platform's docs/all-green.md, "After the gate"). Jobs here run for the
+# the fleet's docs/all-green.md, "After the gate"). Jobs here run for the
 # LATEST green main, not every commit (ci.yml's concurrency group cancels a
 # superseded pending run): act on the repository's current state, never on
 # "what this commit changed", and stay idempotent.

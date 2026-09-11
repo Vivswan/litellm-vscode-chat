@@ -1,4 +1,4 @@
-# Nightly fuzzing on the repo-platform fuzzer starter; repo-platform's
+# Nightly fuzzing on the fleet's fuzzer starter; the fleet's
 # docs/fuzzer.md documents the failure-report contract the fuzz steps follow.
 # The night is split into parallel single-purpose legs (one matrix row each):
 # four legs fuzz the unit property suites (widened from three when the

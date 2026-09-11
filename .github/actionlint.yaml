@@ -1,6 +1,5 @@
 # Repo-owned actionlint configuration. Generated once by
-# Vivswan/repo-platform and never overwritten by template
-# sync, so add this repository's own ignores freely.
+# the fleet sync and never overwritten by it, so add this repository's own ignores freely.
 
 paths:
   .github/workflows/**/*.{yml,yaml}:

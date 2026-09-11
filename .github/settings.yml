@@ -1,5 +1,5 @@
 ---
-# This repository's OWN settings, applied by Vivswan/repo-platform
+# This repository's OWN settings, applied by the fleet's settings sync
 # (and by settings-sync on pushes to this file when the repo carries its
 # own REPO_PLATFORM_TOKEN). Rendered once, repo-owned: sync never
 # rewrites it. Fleet defaults merge UNDER this file - keys here win, null

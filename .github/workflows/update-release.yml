@@ -1,12 +1,12 @@
 # The update stage of the release pipeline: repo-owned, generated once by
-# Vivswan/repo-platform and never overwritten by sync. The managed ci.yml
+# the fleet sync and never overwritten by it. The managed ci.yml
 # calls this workflow between the fleet's release leg cutting the draft
 # release and its attested publish, so everything this repository wants
 # on the release happens here: packaging, asset uploads, note edits. Add
 # jobs freely - publishing waits for every job in this file, and every
 # asset uploaded here is attested at publish time into the release's
 # single attestation.json. Recovery when a run dies mid-pipeline is
-# documented in repo-platform's fleet-release.yml header.
+# documented in the header of the fleet's release workflow (fleet-release.yml).
 
 name: Update Release
 

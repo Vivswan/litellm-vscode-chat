@@ -6,7 +6,7 @@
  */
 
 /**
- * Banned typography: a fast local subset; the repo-platform check-typography
+ * Banned typography: a fast local subset; the fleet's check-typography
  * action in CI is authoritative. This scan is the real gate for the halfwidth
  * look-alikes of the sanctioned fullwidth marks. CJK ideographs and the
  * sanctioned CJK punctuation are not in the ranges. Built per call: a shared

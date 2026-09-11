@@ -2,7 +2,7 @@
 
 Thanks for contributing! This document covers the conventions every change in this repository goes through.
 
-CI, settings, and standards files here are managed by [Vivswan/repo-platform](https://github.com/vivswan/repo-platform); files whose header says so are replaced on the next sync, so change them there.
+CI, settings, and standards files here arrive from the fleet sync; a file whose header says it is managed is replaced on the next sync, so change it at its source, not here.
 
 ## Pull requests
 
@@ -12,7 +12,7 @@ CI, settings, and standards files here are managed by [Vivswan/repo-platform](ht
 
 ## CI
 
-- CI gates on the `all-green` status check - the CI workflow's own `all-green` job, which needs every gating job and fails unless each result is success or skipped, with at least one success (the convention is documented in [repo-platform's all-green guide](https://github.com/vivswan/repo-platform/blob/main/docs/all-green.md)).
+- CI gates on the `all-green` status check - the CI workflow's own `all-green` job, which needs every gating job and fails unless each result is success or skipped, with at least one success.
 - Repository-specific checks live in `.github/workflows/checks.yml`; run the commands it lists locally before pushing.
 - A typography gate enforces plain ASCII punctuation: no curly quotes, em-dashes, or invisible unicode.
 
