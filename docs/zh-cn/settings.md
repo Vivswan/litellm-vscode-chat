@@ -13,7 +13,7 @@
 
 | 事实 | 细节 |
 |---|---|
-| 作用域 | `servers` 是机器作用域的: 仅限用户设置, 永远不能被工作区覆盖, 也永远不由 Settings Sync 携带。工作区 `.vscode/settings.json` 中的 `servers` 值会被 VS Code 自己忽略 (设置编辑器会说它只能应用于用户设置)。功能开关与模型选择 (每个 `*.enabled` 和 `*.model`, 加上 `models.openRouterCatalog`) 是机器可覆盖的 (machine-overridable): 按机器保存的用户设置, Settings Sync 跳过它们, 所以它们从不跟着账号到另一台机器; 工作区仍可打开功能或重新指向其模型, 但只能在自己的 `.vscode/settings.json` 里显式写出条目 - 什么都不会经同步悄悄到达。其他每个设置都像普通的用户/工作区设置一样工作并正常同步。 |
+| 作用域 | `servers` 是机器作用域的: 仅限用户设置, 永远不能被工作区覆盖, 也永远不由 Settings Sync 携带。工作区 `.vscode/settings.json` 中的 `servers` 值会被 VS Code 自己忽略 (设置编辑器会说它只能应用于用户设置)。功能开关与模型选择 (每个 `*.enabled` 和 `*.model`, 加上 `models.openRouterCatalog`) 是机器可覆盖的 (machine-overridable): 按机器保存的用户设置, Settings Sync 跳过它们, 所以它们从不跟着账号到另一台机器; 工作区仍可打开功能或重新指向其模型, 但只能在自己的 `.vscode/settings.json` 里显式写出条目 - 什么都不会经同步悄悄到达。两个模型记录设置 (`models.parameters` 与 `models.capabilities`) 还带有受限 (restricted) 标记: VS Code 尚未信任的工作区 (受限模式) 不能提供它们, 因为它们决定发送给你服务器的内容, 并编译你的正则匹配器。其他每个设置都像普通的用户/工作区设置一样工作并正常同步。 |
 | 生效 | 更改立即应用 - 无需重新加载。影响模型的更改会刷新模型列表; 用量更改会重接轮询器; 超时更改应用于下一个请求。外观设置也一样: 打开着的仪表板会在 `ui.theme` 或 `ui.accent` 变化的那一刻换装, 无论更改来自仪表板自己的选择器还是 settings.json。 |
 | 迁移 | 旧版本的设置在升级时自动重命名和重构; 见[重命名表](#重命名与移除的设置)。无需重新输入任何东西。当新名称的设置已经有值时 (比如 Settings Sync 先从已升级的机器送来了它), 迁移保留它, 只丢弃旧键 - 服务器 URL 限定键有一条注意事项 ([作用域说明](#重命名与移除的设置))。 |
 | 未知键 | 扩展未声明的 `litellm-vscode-chat.*` 键 (打错字, 比如 `chat.timout`) 会被忽略, VS Code 的设置编辑器会在 settings.json 中把它标为未知设置。[重命名](#重命名与移除的设置)之后的旧名称同理。 |
@@ -46,8 +46,8 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | 设置 | 默认值 | 行为 |
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | 声明的 LiteLLM 服务器; [条目属性见下](#服务器条目属性), 完整故事在[服务器](servers.md) |
-| `litellm-vscode-chat.models.parameters` | `{}` | 按模型的请求参数, 以[匹配器](models.md#模型匹配)为键。只发送你设置的。完整故事: [模型 - 参数](models.md#参数) |
-| `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆盖, 以[匹配器](models.md#模型匹配)为键: token 限制、视觉、工具、推理、定价 - 任何 `model_info` 字段, 认识与否皆可; 词汇表是开放的。完整故事: [模型 - 能力](models.md#能力) |
+| `litellm-vscode-chat.models.parameters` | `{}` | 按模型的请求参数, 以[匹配器](models.md#模型匹配)为键。只发送你设置的。不信任的工作区 (受限模式) 中的值不生效。完整故事: [模型 - 参数](models.md#参数) |
+| `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆盖, 以[匹配器](models.md#模型匹配)为键: token 限制、视觉、工具、推理、定价 - 任何 `model_info` 字段, 认识与否皆可; 词汇表是开放的。不信任的工作区 (受限模式) 中的值不生效。完整故事: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.models.openRouterCatalog` | `true` | 用每周刷新的 OpenRouter 公开目录快照填补缺失的能力; 手动刷新用 "LiteLLM: Refresh OpenRouter Catalog"。详情含隐私说明: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.chat.timeout` | `300000` | 单次聊天补全调用, 以及单次提交消息生成、拉取请求描述生成、咨询工具、快速修复或评审评论调用的硬性时间预算, 毫秒。聊天请求从不重试, 所以这是一个请求可占用的总时间, 含流式传输。最小 1000; 更低的值会被钳制。为长推理运行或缓慢的基础设施调大它 |
 | `litellm-vscode-chat.chat.maxToolsPerRequest` | `128` | 一次聊天请求最多可携带的工具数, 超过时扩展在本地拒绝该请求而不发送 (多数 OpenAI 兼容服务器强制 128)。调大到超出你的服务器或模型接受的范围, 只会把失败移到服务器端: 请求会被发送, 然后被服务器拒绝。最小 1 |

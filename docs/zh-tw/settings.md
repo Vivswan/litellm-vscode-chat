@@ -13,7 +13,7 @@
 
 | 事實 | 細節 |
 |---|---|
-| 範圍 | `servers` 是機器範圍的: 僅限使用者設定, 永遠不能被工作區覆寫, 也永遠不由設定同步攜帶。工作區 `.vscode/settings.json` 中的 `servers` 值會被 VS Code 自己忽略 (設定編輯器會說它只能套用於使用者設定)。功能開關與模型選擇 (每個 `*.enabled` 和 `*.model`, 加上 `models.openRouterCatalog`) 是機器可覆寫的 (machine-overridable): 按機器保存的使用者設定, 設定同步會跳過它們, 所以它們從不跟著帳號到另一台機器; 工作區仍可開啟功能或重新指向其模型, 但只能在自己的 `.vscode/settings.json` 裡明確寫出項目 - 什麼都不會經同步悄悄到達。其他每個設定都像一般的使用者/工作區設定一樣運作並正常同步。 |
+| 範圍 | `servers` 是機器範圍的: 僅限使用者設定, 永遠不能被工作區覆寫, 也永遠不由設定同步攜帶。工作區 `.vscode/settings.json` 中的 `servers` 值會被 VS Code 自己忽略 (設定編輯器會說它只能套用於使用者設定)。功能開關與模型選擇 (每個 `*.enabled` 和 `*.model`, 加上 `models.openRouterCatalog`) 是機器可覆寫的 (machine-overridable): 按機器保存的使用者設定, 設定同步會跳過它們, 所以它們從不跟著帳號到另一台機器; 工作區仍可開啟功能或重新指向其模型, 但只能在自己的 `.vscode/settings.json` 裡明確寫出項目 - 什麼都不會經同步悄悄到達。兩個模型記錄設定 (`models.parameters` 與 `models.capabilities`) 還帶有受限 (restricted) 標記: VS Code 尚未信任的工作區 (受限模式) 不能提供它們, 因為它們決定送往您伺服器的內容, 並編譯您的正則比對器。其他每個設定都像一般的使用者/工作區設定一樣運作並正常同步。 |
 | 生效 | 變更立即套用 - 不需重新載入。影響模型的變更會重新整理模型清單; 用量變更會重接輪詢器; 逾時變更套用於下一個請求。外觀設定也一樣: 開啟著的儀表板會在 `ui.theme` 或 `ui.accent` 變化的那一刻換裝, 無論變更來自儀表板自己的選擇器還是 settings.json。 |
 | 移轉 | 舊版本的設定在升級時自動重新命名與重構; 見[重新命名表](#重新命名與移除的設定)。不需重新輸入任何東西。當新名稱的設定已經有值時 (比如設定同步先從已升級的機器送來了它), 移轉保留它, 只捨棄舊鍵 - 伺服器 URL 限定鍵有一條注意事項 ([範圍說明](#重新命名與移除的設定))。 |
 | 未知鍵 | 延伸模組未宣告的 `litellm-vscode-chat.*` 鍵 (打錯字, 比如 `chat.timout`) 會被忽略, VS Code 的設定編輯器會在 settings.json 中把它標為未知設定。[重新命名](#重新命名與移除的設定)之後的舊名稱同理。 |
@@ -46,8 +46,8 @@
 | 設定 | 預設值 | 行為 |
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | 宣告的 LiteLLM 伺服器; [項目屬性見下](#伺服器項目屬性), 完整故事在[伺服器](servers.md) |
-| `litellm-vscode-chat.models.parameters` | `{}` | 按模型的請求參數, 以[比對器](models.md#模型比對)為鍵。只送出您設定的。完整故事: [模型 - 參數](models.md#參數) |
-| `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆寫, 以[比對器](models.md#模型比對)為鍵: token 上限、視覺、工具、推理、定價 - 任何 `model_info` 欄位, 認識與否皆可; 詞彙表是開放的。完整故事: [模型 - 能力](models.md#能力) |
+| `litellm-vscode-chat.models.parameters` | `{}` | 按模型的請求參數, 以[比對器](models.md#模型比對)為鍵。只送出您設定的。不受信任的工作區 (受限模式) 中的值不生效。完整故事: [模型 - 參數](models.md#參數) |
+| `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆寫, 以[比對器](models.md#模型比對)為鍵: token 上限、視覺、工具、推理、定價 - 任何 `model_info` 欄位, 認識與否皆可; 詞彙表是開放的。不受信任的工作區 (受限模式) 中的值不生效。完整故事: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.models.openRouterCatalog` | `true` | 用每週重新整理的 OpenRouter 公開目錄快照填補缺少的能力; 手動重新整理用 "LiteLLM: Refresh OpenRouter Catalog"。詳情含隱私說明: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.chat.timeout` | `300000` | 單次聊天補全呼叫, 以及單次提交訊息產生、提取要求描述產生、諮詢工具、快速修復或審查評論呼叫的硬性時間預算, 毫秒。聊天請求從不重試, 所以這是一個請求可占用的總時間, 含串流。最小 1000; 更低的值會被箝制。為長推理運行或緩慢的基礎設施調大它 |
 | `litellm-vscode-chat.chat.maxToolsPerRequest` | `128` | 一次聊天請求最多可攜帶的工具數, 超過時延伸模組在本機拒絕該請求而不送出 (多數 OpenAI 相容伺服器強制 128)。調高到超出你的伺服器或模型接受的範圍, 只會把失敗移到伺服器端: 請求會被送出, 然後被伺服器拒絕。最小 1 |
