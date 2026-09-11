@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.2...v0.6.3) (2026-09-11)
+
+
+### Bug Fixes
+
+* hide leftover provider groups from observed identity instead of probing them ([#315](https://github.com/Vivswan/litellm-vscode-chat/issues/315), thanks @YuGuorong) ([#317](https://github.com/Vivswan/litellm-vscode-chat/issues/317)) ([fc966b4](https://github.com/Vivswan/litellm-vscode-chat/commit/fc966b4beecd1b51fe9ebed6c1b173fb0e09de60))
+
 ## [0.6.2](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.1...v0.6.2) (2026-09-06)
 
 
