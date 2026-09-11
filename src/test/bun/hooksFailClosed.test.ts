@@ -137,26 +137,16 @@ function requiredBootstrap(tracked: ReadonlyMap<string, string>): readonly strin
 }
 
 describe("hook layer fails closed", () => {
-	// Every write this suite performs must land in a scratch repo under the
-	// tmpdir: linked worktrees share one config file, so a stray git config or
-	// a git init that inherited GIT_DIR rewrites the state every sibling
-	// checkout reads (a leaked GIT_DIR once flipped core.bare there). hostEnv's
-	// strip and these scratch repos are the mechanism; this is the proof.
-	//
-	// The proof reads the shared config's ENTRIES - each key with its value, in
-	// file order - not the file: every leak it guards against - a core.bare
-	// flip, a stray core.hooksPath, a `worktree add -b` landing branch.*.remote
-	// and branch.*.merge here, the CI extraheader - adds, drops, changes, or
-	// reorders an entry, so a rewrite that leaves every entry in place is not a
-	// leak, and inode or timestamp identity bought no coverage while failing on
-	// every concurrent git client (git writes config through config.lock and a
-	// rename). One key is out of scope: VS Code's Git extension appends
-	// branch.<name>.vscode-merge-base for every branch the workspace gains, and
-	// this suite names no branch in REPO_ROOT (its only worktree add is --detach
-	// into the scratch origin), so no code path under test can produce it.
-	// Values are digested rather than embedded because a failing deepStrictEqual
-	// prints both operands, and a CI checkout's config carries the job token as
-	// an auth extraheader.
+	// Every write here must land in a scratch repo under the tmpdir.
+	// Linked worktrees share one config file, so a git init with a leaked GIT_DIR rewrites it for all.
+	// A leaked GIT_DIR once flipped core.bare there; hostEnv's strip and scratch repos prevent that.
+	// This snapshot compares config ENTRIES in file order.
+	// Every guarded leak adds, drops, changes, or reorders an entry.
+	// Inode or timestamp identity failed under concurrent git clients, which write via config.lock.
+	// VS Code's Git extension appends branch.<name>.vscode-merge-base for every branch it sees.
+	// That key is out of scope because this suite's only worktree add is --detach.
+	// The snapshot digests values because a failing deepStrictEqual prints both operands.
+	// A CI checkout's config carries the job token as an auth extraheader.
 	const sharedConfigSnapshot = (): readonly string[] => {
 		const listed = spawnSync("git", ["-C", REPO_ROOT, "config", "--list", "--local", "-z"], {
 			env: repoIndexEnv(),

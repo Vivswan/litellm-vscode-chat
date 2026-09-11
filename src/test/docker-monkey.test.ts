@@ -11,15 +11,14 @@ import type { MonkeyAction } from "./monkeyFuzz";
 import { generateWalk, MAX_SHRINK_RUNS, MonkeySession, monkeyFailureReport, shrinkMonkeyFailure } from "./monkeyFuzz";
 
 /**
- * Interaction (monkey) fuzzer for the docker LiteLLM stack: random walks over the whole management surface -
- * the declarative servers setting, SecretStorage, dashboard intents (valid and junk), settings writes, chats,
- * cancellations - with a cross-cutting oracle after every step and a probe bundle every few steps. The
- * alphabet, oracle, and executor live in monkeyFuzz.ts.
- *
- * Runs LAST in the docker orchestrator, in its own fresh extension host: provider groups are add-only for the
- * host lifetime, so walks deliberately dirty host state that no later suite should inherit (pre-existing
- * groups are tolerated via a baseline snapshot). Reproduce any run with `FUZZ_SEED=<seed> bun run
- * test:docker`; failing walks shrink to a minimal action trace to pin in monkeyCorpus.ts.
+ * The oracle runs after every step.
+ * The alphabet, oracle, and executor live in monkeyFuzz.ts.
+ * This suite must run LAST in the docker orchestrator.
+ * It gets its own fresh extension host.
+ * Provider groups are add-only for the host lifetime, and walks deliberately dirty that state.
+ * A baseline snapshot tolerates groups that existed before the walk.
+ * Reproduce any run with `FUZZ_SEED=<seed> bun run test:docker`.
+ * Failing walks shrink to a minimal action trace to pin in monkeyCorpus.ts.
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";

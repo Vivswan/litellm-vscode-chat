@@ -35,15 +35,12 @@ type RecordAndServe = {
 };
 
 /**
- * One server's cached discovery result: the registered infos plus the raw
- * model IDs discovery returned. Cache hits need the raw-ID set for declared-ID
- * inertness - the registered infos alone may hold only synthetic variants
- * (`foo:cheapest`) of a discovered `foo`, and a declared `foo` must stay
- * inert. The cache stays configuration-free: overrides and declared models
- * are applied where models are served, never stored. The effective API root
- * the models were fetched from is part of the cache KEY (discoveryCacheKey),
- * not the value, so an entry from a rotated root is unreachable by
- * construction rather than checked for.
+ * Cache hits need the raw-ID set for declared-ID inertness.
+ * Registered infos alone may hold only synthetic variants (`foo:cheapest`) of a discovered `foo`.
+ * The cache is configuration-free.
+ * The serve path applies overrides and declared models, and the cache never stores them.
+ * The effective API root is part of the cache KEY (discoveryCacheKey), not the value.
+ * So an entry from a rotated root is unreachable by construction rather than checked for.
  */
 export interface DiscoveredGroupModels {
 	readonly infos: readonly PreAttachModelInfo[];
@@ -60,18 +57,12 @@ export interface DiscoveredGroupModels {
 }
 
 /**
- * The discovery cache key for one group at one effective API root: the group
- * client ID (base URL plus credentials, so a rotation lands on a fresh entry)
- * composed with the root the models are actually fetched from (the entry's
- * apiVersion lives outside the group configuration, so the ID alone cannot
- * cover it). Every cache touch - lookups, loads, invalidation, and the prune
- * keep-set - must compose through here: an entry keyed under a rotated root is
- * unreachable, and pruning by the same composition is what ages it out.
- * JSON-encoded rather than delimiter-joined: both halves are free-form
- * strings (the client ID embeds the base URL, the root embeds the user's
- * apiVersion verbatim), and a delimiter would let content shifted across the
- * boundary collide - the oauthCredentialFingerprint rule.
- * Module-private with cacheKeyFor as the one consumer-facing composition.
+ * The group client ID covers base URL and credentials, so a rotation lands on a fresh entry.
+ * The apiVersion lives outside the group configuration, so the ID alone cannot cover the root.
+ * Every cache touch (lookups, loads, invalidation, the prune keep-set) must compose through here.
+ * An entry under a rotated root is unreachable, and pruning by the same composition ages it out.
+ * The key is JSON-encoded, not delimiter-joined, the oauthCredentialFingerprint rule.
+ * Both halves are free-form strings, and a delimiter would let content shifted across it collide.
  */
 function discoveryCacheKey(groupClientId: string, apiRoot: string): string {
 	return JSON.stringify([groupClientId, apiRoot]);
@@ -111,16 +102,14 @@ export interface GroupDiscoveryOptions {
 export class GroupDiscovery {
 	private readonly _options: GroupDiscoveryOptions;
 	/**
-	 * The latest serve generation per labeled logical group (label + base URL),
-	 * the rotation liveness check recordAndServe consults. Generations are
-	 * claimed SYNCHRONOUSLY by beginServe before the caller's first await (the
-	 * credential overlay's secrets read), so arrival order at the facade - not
-	 * resolver or fetch completion order - decides which serve's record stands:
-	 * cacheKeyFor recomputed from a serve's own frozen groupServer can detect a
-	 * live apiVersion edit but never a credential rotation, since the rotated
-	 * credentials arrive only with a LATER serve's overlaid server. Unlabeled
-	 * groups stay out (two on one host is a documented, deliberate collision).
-	 * Bounded by the labels served this session, like the status window.
+	 * Each labeled logical group (label + base URL) maps to its latest serve generation.
+	 * recordAndServe consults it as the rotation liveness check.
+	 * beginServe claims a generation SYNCHRONOUSLY, before the caller's first await.
+	 * So arrival order at the facade decides which serve's record stands.
+	 * The recomputed cache key alone cannot detect a credential rotation.
+	 * Rotated credentials arrive only with a LATER serve's overlaid server.
+	 * Unlabeled groups stay out, since two on one host is a documented, deliberate collision.
+	 * The map is bounded by the labels served this session, like the status window.
 	 */
 	private readonly _serveGenerations = new Map<string, number>();
 
@@ -181,19 +170,14 @@ export class GroupDiscovery {
 	}
 
 	/**
-	 * Resolve one group's models, preferring the discovery cache: a fresh
-	 * cached result is served without a network call but still reports its
-	 * remembered outcome, so the merged status (and the cycle bookkeeping that
-	 * ages groups out) stays live across cached sweeps. Cache misses go through
-	 * the single-flight fetch, so a burst of host calls for one group costs one
-	 * request. `bypassCache` drops the stored result first, forcing the network.
-	 *
-	 * The cache holds pre-attach infos; the group server is attached on every
-	 * read, so each sweep hands the host fresh objects and nothing the host
-	 * mutates in place can be pinned into later sweeps. Attaching the full group
-	 * server also means cached sweeps route chat requests with the current
-	 * credentials; the cache key fingerprints those credentials, so rotating any
-	 * of them lands on a fresh cache entry.
+	 * Resolve one group's models, preferring the discovery cache.
+	 * A fresh cached result skips the network but still reports its remembered outcome.
+	 * So the merged status and the group-aging cycle bookkeeping stay live across cached sweeps.
+	 * Misses share one single-flight fetch, so a burst of host calls for one group costs one request.
+	 * The cache holds pre-attach infos, and every read attaches the group server.
+	 * So each sweep hands the host fresh objects, and no host mutation leaks into later sweeps.
+	 * Cached sweeps therefore route chat with the current credentials.
+	 * The cache key fingerprints those credentials, so rotating any of them lands on a fresh entry.
 	 */
 	async fetchGroupModels(
 		groupServer: GroupServer,
@@ -239,19 +223,16 @@ export class GroupDiscovery {
 		): AttachedServe => {
 			const discovered = attach(served.discovered);
 			const declared = attach(served.declared);
-			// A serve whose configuration is no longer the group's CURRENT one
-			// yields the record: composed keys let old and new configurations'
-			// fetches run concurrently, so a late completion recording here would
-			// overwrite the newer configuration's models, status, and stale-serve
-			// anchor. Two staleness signals, both needed: the recomputed key
-			// catches a live apiVersion edit on THIS server object, and the serve
-			// generation catches a rotation, whose new credentials only ever
-			// arrive with a LATER serve's overlaid server - claimed before the
-			// overlay's await, so a serve that stalled in the resolver cannot
-			// stamp itself current after a newer one recorded. The CALLER still
-			// gets the models its call was configured for when it started; only
-			// the shared record defers (a racing serve already recorded, or the
-			// next sweep will).
+			// A serve whose configuration is no longer the group's CURRENT one yields the record.
+			// Old and new configurations' fetches run in parallel under their composed keys.
+			// A late completion would overwrite the newer configuration's models, status, and anchor.
+			// Both staleness signals are necessary.
+			// The recomputed key catches a live apiVersion edit on THIS server object.
+			// The serve generation catches a rotation.
+			// Rotated credentials arrive only with a LATER serve.
+			// beginServe claims generations before the overlay's await.
+			// So a serve stalled in the resolver cannot stamp itself current after a newer one recorded.
+			// The CALLER still gets its own configuration's models, and only the shared record defers.
 			const superseded =
 				logicalId !== undefined &&
 				serveGeneration !== undefined &&
@@ -382,19 +363,16 @@ export class GroupDiscovery {
 			}
 			// Both status renderings are constructed at this boundary.
 			const texts = statusErrorTexts(error);
-			// The window's last known models ride along with the error status, so
-			// a group that just failed does not lose its last-served set: a silent
-			// refresh returns those models decorated as stale instead of making
-			// them vanish. Retention is anchored to the last SUCCESSFUL discovery,
-			// and the banner names the same success time, so repeated failures
-			// cannot make the data look freshly checked. Past the window the
-			// failure serves the empty list. The window is the honest source here:
-			// it is this session's live state, unlike the extension layer's
-			// persisted status. Declared models are rebuilt from the current
-			// configuration and merged in un-staled; a declared ID the last
-			// discovery listed stays inert against the stale set. Test Connection
-			// (non-silent) still throws, except that an expected failure with
-			// declared models serves the declared set instead.
+			// The window's last known models ride along with the error status.
+			// A silent refresh returns them marked stale instead of an empty list.
+			// The last SUCCESSFUL discovery anchors retention, and the banner names that same time.
+			// So repeated failures cannot pass stale data off as current.
+			// Past the window the failure serves the empty list.
+			// The window is this session's live state, unlike the extension layer's persisted status.
+			// Declared models rebuild from the current configuration and merge in un-staled.
+			// A declared ID the last discovery listed stays inert against the stale set.
+			// Test Connection (non-silent) still throws.
+			// The exception is an expected failure with declared models, which serves the declared set.
 			const stale = this._options.window.staleServableModels(server.id, groupServer);
 			// A non-silent expected failure serves the declared set ALONE (the
 			// return below), so its record must not count the stale set the silent

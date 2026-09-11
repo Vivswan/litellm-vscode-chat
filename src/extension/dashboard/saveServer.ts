@@ -26,18 +26,14 @@ import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
 
 /**
- * How one save lands in the servers setting, computed once so the pairing
- * checks, the guarded apply, and the cleanup agree on it. A rename copies the
- * old label's secret blob to the new label only when the old blob holds
- * anything (`willCopy`); an empty old blob wipes the new label's leftover
- * fields instead, so either way the new label ends up serving only the renamed
- * entry's own secrets. The same flag decides whether a failed write restores
- * the new label's blob wholesale or field by field.
- *
- * "upsert" is the add form saving onto a label that already has an entry (its
- * documented "saving replaces it"): it writes in place like an edit, but the
- * form showed a blank credential-less draft, so its secrets resolve like a
- * create's - see requireEntryShownByForm.
+ * SaveMode records how one save lands in the servers setting.
+ * A rename copies the old label's blob to the new label only when it holds anything (`willCopy`).
+ * An empty old blob wipes the new label's leftover fields instead.
+ * Either way the new label ends up serving only the renamed entry's own secrets.
+ * `willCopy` also picks the rollback shape, the new label's blob wholesale or field by field.
+ * "upsert" is the add form saving onto a taken label.
+ * It writes in place like an edit.
+ * Its form showed a blank credential-less draft, so its secrets resolve like a create's.
  */
 type SaveMode =
 	| { kind: "create" }
@@ -46,28 +42,14 @@ type SaveMode =
 	| { kind: "rename"; index: number; existing: DeclaredServer; oldLabel: string; willCopy: boolean };
 
 /**
- * The entry the form the user saved was showing, which is what every "keep"
- * directive means, and the one rule the save and the draft-connection test both
- * read so a directive cannot resolve differently on the two paths.
- *
- * Only a draft that identifies the entry it replaces (`replace`, which the
- * edit form always sends and the add form never does) may resolve that entry's
- * credentials - and only that entry's: its inline fields and its own label's
- * blob, never a blob already sitting under the draft's new label. A draft from
- * the blank add form showed every field as "none", so it resolves nothing -
- * whether its label is free (a create) or already taken (an upsert, replacing
- * the entry in place). Otherwise a retired label's leftover blob, or a replaced
- * entry's own key, would ride to whatever host the new draft names; the caller
- * wipes such leftovers for the same reason (the sync engine resolves a label's
- * blob unconditionally).
- *
- * The identity is verified, never assumed: a label alone can be spoofed by
- * time. An entry swapped in under the form's label while the form was open
- * (another window, a hand edit of settings.json) would otherwise hand ITS
- * credentials to the host the form displays - the probe would send the new
- * entry's key to the old host, and a save would write a mixed entry. Gone and
- * changed both refuse as validation failures: nothing durable happened, and
- * the form the refusal returns to still shows the state it was opened on.
+ * Every "keep" directive means the entry the saved form was showing, which this function returns.
+ * The save and testDraftConnection.ts both read this rule, so a keep resolves alike on both.
+ * A draft without `replace` came from the blank add form, which showed every field as "none".
+ * Such a draft resolves nothing, and callers wipe the label's leftover blob for the same reason.
+ * The sync engine resolves a label's blob unconditionally.
+ * A retired label's leftover or a replaced entry's key would otherwise ride to the new host.
+ * Verification matters because a swapped-in entry would hand ITS credentials to the displayed host.
+ * Gone and changed both refuse as validation failures, since nothing durable happened yet.
  */
 export function requireEntryShownByForm(
 	replace: ReplacedEntryIdentity | undefined,
@@ -118,16 +100,14 @@ export function planResolves(plan: SecretPlan): boolean {
 }
 
 /**
- * Resolve every secret directive of a draft into its plan: what the field does
- * and where its value will live. Shared with the draft-connection test, so a
- * directive cannot mean two different values on the two paths. `existing` is
- * the entry the saved form was showing (requireEntryShownByForm) and
- * `storedShown` is
- * that entry's own label's blob (KeepSources.storedOld); an undefined entry
- * means the form showed no credentials at all, and "keep" then resolves
- * NOTHING - a label's leftover SecretStorage blob (removals keep blobs on
- * purpose) must not resurrect under an entry the form showed as
- * credential-less.
+ * Resolve every secret directive of a draft into its plan.
+ * A plan says what the field does and where its value will live.
+ * The draft-connection test shares it, so a directive cannot mean two values on the two paths.
+ * `existing` is the entry the saved form was showing (requireEntryShownByForm).
+ * `storedShown` is that entry's own label's blob (KeepSources.storedOld).
+ * With no `existing` the form showed no credentials, so "keep" resolves NOTHING.
+ * Removals keep blobs on purpose.
+ * A label's leftover blob must not resurrect under an entry the form showed as credential-less.
  */
 export function secretPlans(
 	secrets: Readonly<Record<SecretFieldId, SecretDirective>>,
@@ -158,19 +138,14 @@ export function secretPlans(
 }
 
 /**
- * What "keep" directives resolve against for a draft that writes `label` over
- * the entry `targetLabel` names: the accepted entry being replaced (so a
- * rejected same-label sibling cannot shadow it) and the secure-side blobs
- * involved. Keeps resolve `storedOld` alone - the blob under the label the
- * form was showing, admitted through the ownership check against that entry
- * (a field stamped for a different destination resolves nothing, exactly as
- * the sync engine would refuse it and the dashboard displayed it as "none").
- * The raw records ride along only for the save's overwrite and rollback
- * bookkeeping: `storedNewRecord` is the blob already under the draft's label
- * (on a rename a retired label's leftover, which the save replaces via the
- * copy or wipes), `storedOldRecord` the shown label's blob as stored. Shared
- * with the draft-connection test, so "keep" cannot mean two different values
- * on the two paths.
+ * KeepSources holds what "keep" directives resolve against when `label` overwrites `targetLabel`.
+ * `accepted` is the entry being replaced, so a rejected same-label sibling cannot shadow it.
+ * Keeps resolve `storedOld` alone, the blob under the label the form was showing.
+ * The ownership check admits each field of that blob.
+ * A field stamped for another destination resolves nothing.
+ * The sync engine refuses such a field the same way, and the dashboard displayed it as "none".
+ * The raw records serve only the save's overwrite and rollback bookkeeping.
+ * `storedNewRecord` is the blob already under the draft's label, a retired leftover on a rename.
  */
 export interface KeepSources {
 	readonly accepted: { readonly index: number; readonly entry: DeclaredServer } | undefined;
@@ -218,39 +193,14 @@ function resolveKeptSecret(
 }
 
 /**
- * Apply one saveServerSetting intent in a failure-safe order: validate
- * everything up front, then run the guarded secret operations (set-secure
- * writes; a rename copies the blob to the new label; a save whose form never
- * showed the label's blob - a create, an upsert, or a rename with nothing to
- * copy - wipes the label's leftover blob fields) and the settings write
- * as one guarded unit, and only after the write lands run the destructive
- * cleanup (clears, dropping the stale secure copy behind an inline write,
- * deleting the old rename blob).
- *
- * The staged secrets are observable before the settings write lands (the
- * unit's steps await), which is by design, not a hole: each staged value
- * carries the ownership stamp of the entry being saved, so a sync pass that
- * reads the standing entry with the staged blob refuses the pairing
- * (resolveOwnedSecrets; serverSync.test.ts pins the window), and a stage for
- * an unchanged destination is the user's own credential going where they sent
- * it. The settings write itself lands on a FRESH read of the array with only
- * the target element replaced, refusing when the target drifted, so a
- * concurrent sibling edit is merged instead of silently reverted.
- *
- * If anything in the guarded unit throws, the entry in the setting is
- * unchanged and must keep resolving what it resolved before, so the secure
- * side is rolled back: a rename restores the new label's whole pre-copy blob,
- * otherwise each overwritten field gets its previous value back. When a
- * restore itself fails, the durable state changed after all, so the intent
- * fails as an operation-kind error instead of rethrowing the original as if
- * nothing landed.
- *
- * Cleanup failures after a landed write depend on what they leave behind. A
- * cleared secret that survives its deletion is still effective, so after one
- * retry the intent fails with an actionable message (retrying the save
- * converges). The stale secure copy behind a fresh inline value and the old
- * rename blob are dormant, so those failures log a classification and the
- * intent still succeeds.
+ * Apply one saveServerSetting intent in a failure-safe order.
+ * Validation comes first, then one guarded unit of secret and settings writes, then the cleanup.
+ * Staged secrets are observable before the settings write lands, by design.
+ * Each carries the saved entry's ownership stamp, so a sync pass refuses a mismatched pairing.
+ * A stage for an unchanged destination is the user's own credential going where they sent it.
+ * serverSync.test.ts pins that window.
+ * A throw inside the unit rolls the secure side back.
+ * The entry in the setting is then unchanged and must keep resolving what it resolved before.
  */
 export async function applySaveServerSetting(
 	intent: RequestPayload<"saveServerSetting">,
@@ -397,17 +347,14 @@ export async function applySaveServerSetting(
 	const destinationOf = (field: SecretFieldId): string =>
 		secretDestination(intendedEntry ?? { baseUrl: intent.server.baseUrl.trim() }, field);
 
-	// Phases 1 and 2 as one guarded unit: the guarded secret operations, then
-	// the settings write everything hinges on. Secure values those steps
-	// overwrite or wipe are remembered (pre-write value AND ownership stamp)
-	// for the rollback.
-	// A leftover blob field under the saved label is wiped when no plan can
-	// reference it: a create or upsert form showed no credentials, and a rename
-	// form showed the SOURCE entry, whose copy replaces the target blob only
-	// when the source holds anything (wiping after a copy would delete copied
-	// fields, so the two are exclusive). The wipe precedes the settings write
-	// and every wiped field is rollback-restored on a throw, so the gap's
-	// failure direction is a briefly missing credential, never a leaked one.
+	// The secret operations and the settings write are one guarded unit.
+	// `overwritten` remembers each overwritten or wiped secure value and its stamp for the rollback.
+	// The save wipes a leftover blob field under the saved label when no plan can reference it.
+	// A create or upsert form showed no credentials.
+	// A rename with nothing to copy showed a SOURCE entry whose blob has no ownership-approved values.
+	// Wiping after a copy would delete the copied fields, so the two are exclusive.
+	// The wipe precedes the settings write, and a throw restores every wiped field.
+	// The gap's failure direction is therefore a briefly missing credential, never a leaked one.
 	const wipesLeftovers = showing === undefined || (mode.kind === "rename" && !mode.willCopy);
 	const overwritten = new Map<SecretFieldId, { value: string | undefined; owner: string | undefined }>();
 	try {
@@ -520,17 +467,11 @@ export async function applySaveServerSetting(
 			env.log("A failed save left a secure value unrestored", {
 				error: errorLabel(error),
 			});
-			// A sync is requested because the failed settings write fires no
-			// configuration event (the clean-rollback rethrow below stays
-			// sync-free, nothing durable changed there) - but ONLY when the entry
-			// standing in the setting RIGHT NOW resolves the changed blob (it
-			// carries the saved label) and still names every destination the
-			// user was saving: the intended entry, parsed back like the sync
-			// engine will parse the setting, compared over the whole non-secret
-			// identity - a concurrent re-point of the host OR of the OAuth token
-			// URL during the failed write must not route the stranded credential
-			// there. A create or rename has no standing entry under the label,
-			// so it skips too (the changed values sit unreferenced).
+			// The sync request exists because a failed settings write fires no configuration event.
+			// It runs only when the standing entry still names every destination the user was saving.
+			// A concurrent re-point of the host or the OAuth token URL must not get the stranded credential.
+			// A create or rename has no standing entry under the label, so it skips too.
+			// Its changed values sit unreferenced.
 			const intended = acceptedEntry([newEntry], label);
 			const standing = acceptedEntry(env.readServersSetting(), label);
 			if (
@@ -553,12 +494,12 @@ export async function applySaveServerSetting(
 		throw error;
 	}
 
-	// Phase 3, destructive cleanup, safe now that the write landed. A cleared
-	// secret that survives its deletion is still effective, so the delete
-	// retries once and a second failure fails the intent below; the stale
-	// secure copy behind a fresh inline value (it would silently take over if
-	// the inline value were later removed by hand) and the old rename blob are
-	// dormant, so their failures are log-only.
+	// The destructive cleanup runs only now that the write landed.
+	// A cleared secret that survives its deletion is still effective.
+	// Its delete therefore retries once, and a second failure fails the intent below.
+	// The stale secure copy behind a fresh inline value and the old rename blob are dormant.
+	// Their failures are therefore log-only.
+	// The stale copy would take over silently if someone later removed the inline value by hand.
 	let clearFailed = false;
 	for (const field of SECRET_FIELD_IDS) {
 		const plan = plans[field];

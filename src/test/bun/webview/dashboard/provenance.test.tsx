@@ -30,15 +30,13 @@ import { cleanup, mount } from "../harness";
 afterEach(cleanup);
 
 /**
- * The wire cells' provenance-bearing fields, total both ways: a field added to
- * ResolvedParamCell/ResolvedCapCell fails the satisfies (missing key), and a
- * stale name here fails it too (excess key). The Exact checks then pin the
- * vocabulary input types to the same key sets in BOTH directions, and the
- * conversion functions prove the field types assignable, so a new wire field
- * cannot ship until the vocabulary types carry it - at which point the
- * coverage test below refuses to pass without a registry shape exercising it.
- * The Omit list is the escape hatch and the only one: a wire field that is
- * genuinely not provenance (a display hint, say) belongs in it, deliberately.
+ * A field added to ResolvedParamCell or ResolvedCapCell fails the satisfies as a missing key.
+ * A stale name here fails it as an excess key.
+ * The Exact checks pin the vocabulary input types to the same key sets in BOTH directions.
+ * The conversion functions prove the field types assignable.
+ * So a new wire field cannot ship until the vocabulary types carry it.
+ * At that point the coverage test below refuses to pass without a registry shape exercising it.
+ * The Omit list is the only escape hatch, for a wire field that is not provenance.
  */
 type ParamCellFields = Omit<ResolvedParamCell, "name" | "valueText">;
 type CapCellFields = Omit<ResolvedCapCell, "name" | "valueText">;

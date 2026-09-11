@@ -1,44 +1,26 @@
 /**
- * The lazy-helper census: every top-level helper or class that resolves a
- * localized string at call time, so the module-scope guard can follow calls to
- * it. l10n:check proves the list both ways against the shipped source.
- */
-/**
- * Lazy localization helpers: calling one at module scope defeats its laziness
- * exactly like a direct t() call, so the guard bans these names alongside
- * l10n.t and vscode.l10n.t.
+ * Calling a lazy helper at module scope defeats its laziness exactly like a direct t() call.
+ * The module-scope guard therefore bans these names alongside l10n.t and vscode.l10n.t.
  *
- * Inclusion is a full census, no judgment: EVERY top-level lowercase-named
- * function in shipped src/ whose declaration (default parameters included)
- * resolves l10n.t, directly or transitively. Over-inclusion is harmless -
- * none of these is ever legal at module scope. Matching is by call-site name,
- * so one entry covers same-named helpers.
+ * Inclusion is a full census with no judgment.
+ * EVERY top-level lowercase-named function in shipped src/ that resolves l10n.t belongs here.
+ * Default parameters count, and transitive resolution counts.
+ * Over-inclusion is harmless, since none of these is ever legal at module scope.
+ * Matching is by call-site name, so one entry covers same-named helpers.
  *
- * Enforced both ways: every entry must still name a top-level declaration in
- * shipped source (a rename would disarm its guard silently), and every
- * top-level lowercase function - and every CLASS - the reverse walk
- * (uncensusedLazyHelpers) sees resolving l10n.t must be listed. A class counts
- * because the roots `new` evaluates are walked whole, deferred bodies included.
+ * l10n:check enforces the list both ways.
+ * Every entry must still name a top-level declaration, or a rename would disarm its guard.
+ * Every function or CLASS the reverse walk (uncensusedLazyHelpers) finds must appear here.
+ * A class counts because the walk covers every root `new` evaluates, deferred bodies included.
  *
- * Both directions follow NAMES bound by declaration, assignment, alias, or
- * default - never values in flight. Conservative extensions keep common
- * indirections visible without becoming data-flow analysis: a callee flattens
- * through its choosing shapes (every ternary or fallback branch judged),
- * .call/.apply/.bind links strip off it (`helper.call(...)` reads as
- * `helper`), a member read off a namespace import of a LOCAL module resolves
- * by member name (`helpers.title()`, `helpers["title"]()`, and `const t =
- * helpers.title` all read as `title`), a computed member call reads as its
- * receiver, and an identifier or resolvable member in direct ARGUMENT
- * position taints the calling scope (`register(label)` gives the caller an
- * edge to `label`, since the walk cannot see whether the callee invokes it).
- * What stays invisible: a thunk table's PROPERTY call off a plain object
- * (inactiveSurfacesText is the known case, registered by hand), a member call
- * reaching a class STATIC that localizes (statics stay out of construction
- * evidence), and a name that takes its value at invocation time - a parameter
- * binding, a for-of or catch binding, a destructuring projection, a spread or
- * an identifier nested inside an argument's array or object literal.
- * Following those is data-flow analysis, which this gate deliberately is not;
- * fixtures pin the boundary so it stays a decision rather than a discovery.
+ * Both directions follow NAMES bound by declaration, assignment, alias, or default.
+ * Neither direction follows values in flight.
+ * A thunk table's PROPERTY call off a plain object stays invisible (inactiveSurfacesText).
+ * A member call reaching a class STATIC stays invisible.
+ * A name bound at invocation time (parameter, for-of, catch, destructuring) stays invisible.
+ * A spread or an identifier nested inside an argument's array or object literal stays invisible.
+ * Following those is data-flow analysis, which this gate deliberately is not.
+ * Fixtures pin the boundary so it stays a decision rather than a discovery.
  */
 export const LAZY_L10N_HELPERS: readonly string[] = [
 	"configureNowLabel",

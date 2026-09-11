@@ -196,21 +196,22 @@ function problemSeverity(diagnostic: PageConfigDiagnostic): DiagnosticSeverity {
 }
 
 /**
- * One diagnostic as a line for the copied report. English by construction, not
- * translation: every part is a classification or a structural key the user typed, so
- * the block stays English under a Chinese UI and carries no server-derived text.
- */
-/**
- * A record key or field name as the COPIED report may carry it. A key containing
- * "://" is the removed server-scoped grammar (migrations/settingsRedesign/records.ts,
- * isUrlScopedKey), so the key IS a base URL and may carry credentials in its userinfo -
- * this block lands in public GitHub issues, so it redacts. The substring test is
- * repeated, not imported: the webview tree cannot reach src/extension.
+ * copySafeKey renders a record key as the COPIED report may carry it.
+ * A key containing "://" is the removed server-scoped grammar, so the key IS a base URL.
+ * A URL's userinfo may carry credentials, and this text lands in public GitHub issues.
+ * The substring test repeats migrations/settingsRedesign/records.ts isUrlScopedKey.
+ * It cannot import it, because the webview tree cannot reach src/extension.
  */
 function copySafeKey(key: string): string {
 	return key.includes("://") ? "<url-scoped key>" : `"${key}"`;
 }
 
+/**
+ * englishDiagnosticLine renders one diagnostic as a line for the copied report.
+ * It is English by construction, not translation.
+ * Every part is a classification or a structural key the user typed.
+ * The block therefore stays English under a Chinese UI and carries no server text.
+ */
 function englishDiagnosticLine(diagnostic: PageConfigDiagnostic): string {
 	const tier = problemSeverity(diagnostic);
 	switch (diagnostic.kind) {

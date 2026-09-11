@@ -297,15 +297,13 @@ export function assertThemeCoversStylesheet(stylesheet: string, tokensCss: strin
 }
 
 /**
- * The measurement pin's coverage guard, fail closed: pinning the four font
- * tokens only pins the page if every font-family in the stylesheet resolves
- * through one of them (or inherit). A future utility class or literal font
- * stack would reintroduce silent platform divergence, so it fails the run
- * here instead; the font SHORTHAND also sets the family, so any value there
- * but inherit fails too rather than earn a family parser. The engagement
- * check's utility legs measure the .font-sans/.font-mono rules, so their
- * absence must fail as well instead of letting a leg measure inherited font
- * and prove nothing.
+ * This guard fails closed.
+ * Pinning the four font tokens pins the page only if every font-family resolves through them.
+ * A utility class or literal font stack would reintroduce silent platform divergence.
+ * The font SHORTHAND also sets the family, so any value there but inherit fails too.
+ * Failing the shorthand outright is cheaper than a family parser.
+ * The engagement check's utility legs measure .font-sans and .font-mono, so their absence fails.
+ * A leg measuring inherited font would prove nothing.
  */
 export function assertPinCoversStylesheet(stylesheet: string): void {
 	const pinnedSources = [

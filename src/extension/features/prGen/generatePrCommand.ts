@@ -18,16 +18,12 @@ import { collectBranchContext } from "./branchContext";
 import { createTitleAndDescriptionProvider } from "./provider";
 
 /**
- * The generate-pull-request-description command surface: repository selection,
- * the local branch walk, progress, and the mapping of the flow's typed
- * outcomes to localized notifications. It is the entry point that does NOT
- * depend on the GitHub Pull Requests extension - the registered provider fills
- * that extension's create view, and this command answers everywhere else by
- * putting the draft on the clipboard.
- *
- * The prompt assembly, the send, and the lenient parse are the same pipeline
- * the registered provider runs (provider.ts); only the context's origin and
- * the delivery differ.
+ * This is the generate-pull-request-description command.
+ * This entry point does NOT depend on the GitHub Pull Requests extension.
+ * The registered provider fills that extension's create view.
+ * This command answers everywhere else by putting the draft on the clipboard.
+ * The prompt assembly, the send, and the lenient parse are the pipeline provider.ts runs too.
+ * Only the context's origin and the delivery differ.
  */
 
 export interface GeneratePrDeps {

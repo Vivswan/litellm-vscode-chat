@@ -1,7 +1,7 @@
 /**
- * The server edit surface: the add/edit form, the adopt form, and the field machinery.
- * The boundary outward is deliberately narrow - the draft is dirty, the user asked to
- * leave - and the module knows nothing about what is mounted around it.
+ * The server edit surface holds the add/edit form and its field machinery.
+ * The outward boundary is four callbacks, onDirtyChange, onRequestClose, onTargetGone, and onSaved.
+ * The module knows nothing about what mounts around it.
  */
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
@@ -33,7 +33,6 @@ import {
 	serverFormFieldLabel,
 	staleKeyFieldsOnSave,
 	storedInactiveSecrets,
-	validateAdoptLabel,
 } from "../../dashboard/serverForm";
 import type {
 	DashboardServer,
@@ -52,6 +51,8 @@ import {
 	secretDestination,
 } from "../../shared/serverEntry";
 import { DEFAULT_API_VERSION, mcpEndpointOf } from "../../shared/util/baseUrl";
+import { AdoptForm } from "./adoptForm";
+import { BackToServers } from "./backToServers";
 import type { DocsUrl } from "./docsLinks";
 import {
 	DOCS_LINK_AUTHENTICATION,
@@ -66,7 +67,6 @@ import {
 import { FailureText } from "./failureText";
 import { DocsLink, Help } from "./help";
 import {
-	helpAdoptionSection,
 	helpConnectionSection,
 	helpDiscoverySection,
 	helpEntryModelParameterPrefix,
@@ -76,7 +76,7 @@ import {
 	serverFieldHelp,
 } from "./helpText";
 import { useIntentOutcome, useRpc } from "./hooks";
-import { IconAdd, IconArrowLeft, IconPlug } from "./icons";
+import { IconAdd, IconPlug } from "./icons";
 import { capabilityKeySuggestions } from "./recordGroupFields";
 import type { RecordEditorKind } from "./recordIssues";
 import { capabilityIssueViews, paramIssueViews } from "./recordIssues";
@@ -107,7 +107,6 @@ import { Radio } from "./ui/radio";
 import { SectionHeader } from "./ui/section";
 import { Select } from "./ui/select";
 import { Textarea } from "./ui/textarea";
-import { sendRequest } from "./vscodeApi";
 
 /**
  * Where a saved entry lands. A setting ID is a protocol term (English, module constant);
@@ -390,10 +389,12 @@ export function ServerEditPage({
 		}
 	}, [targetGone, onTargetGone]);
 	const pageRef = useRef<HTMLElement>(null);
-	// Also keyed on the form going away or arriving (the waiting card resolving into it):
-	// the unmounting field or button drops focus on the body - outside the shell that
-	// hears Esc - so the keyboard would stop working.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: targetGone and waitingForProof are the triggers, not values the body reads - a page swap is what leaves focus homeless
+	// The effect also fires when the form arrives or goes away.
+	// The waiting card resolving into the form counts as arriving.
+	// The unmounting field or button drops focus on the body, outside the shell that hears Esc.
+	// The keyboard would then stop working.
+	// targetGone and waitingForProof are triggers, not values the body reads.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the deps are triggers, not read values
 	useEffect(() => {
 		const page = pageRef.current;
 		if (page?.contains(document.activeElement) === true) {
@@ -535,20 +536,6 @@ function resolveEditTarget(
 			candidate.origin === "external" && candidate.adoptHandle === request.handle
 	);
 	return server === undefined ? undefined : { kind: "adopt", server };
-}
-
-/**
- * The way back, at the top: it routes through the same request the rail and Esc do, so a
- * dirty draft gets the same discard-confirm question from all three.
- */
-function BackToServers({ onRequestClose }: { onRequestClose: () => void }) {
-	return (
-		<nav className="page-trail mb-1 text-[12px]" aria-label={l10n.t("Breadcrumb")}>
-			<Button variant="secondary" size="compact" onClick={onRequestClose}>
-				<IconArrowLeft /> {l10n.t("Servers")}
-			</Button>
-		</nav>
-	);
 }
 
 function ServerForm({
@@ -1465,172 +1452,6 @@ function ServerForm({
 					onCancel={() => setStaleKeyFields(undefined)}
 				/>
 			) : null}
-		</div>
-	);
-}
-
-/**
- * The adopt form: turns an external group into a declared entry. Credentials exist
- * extension-side only, so the form offers one storage choice per secret field; the intent
- * carries label, source identity, and choices - never a credential value. The round trip
- * lives in ServerEditPage; the servers list watches the same envelope for its notice.
- */
-function AdoptForm({
-	server,
-	declaredLabels,
-	saving,
-	onDirtyChange,
-	onAdoptPosted,
-	onRequestClose,
-}: {
-	server: ExternalDashboardServer;
-	declaredLabels: readonly string[];
-	/** Whether this form instance's adopt intent is in flight; disables the inputs against a double submit. */
-	saving: boolean;
-	onDirtyChange: (dirty: boolean) => void;
-	/** Hands the posted intent's requestId to the page, which owns the round trip. */
-	onAdoptPosted: (requestId: string) => void;
-	onRequestClose: () => void;
-}) {
-	const [label, setLabel] = useState(server.label);
-	const [touched, setTouched] = useState(false);
-	const [locations, setLocations] = useState<Record<SecretFieldId, "settings" | "secure">>({
-		apiKey: "secure",
-		oauthClientSecret: "secure",
-		virtualKeyValue: "secure",
-	});
-
-	const problem = validateAdoptLabel(label, declaredLabels);
-	const showProblem = problem !== undefined && (touched || label.trim() !== server.label);
-
-	const adopt = () => {
-		if (saving) {
-			return;
-		}
-		if (problem !== undefined) {
-			setTouched(true);
-			return;
-		}
-		const requestId = sendRequest("adoptServer", {
-			label: label.trim(),
-			baseUrl: server.baseUrl,
-			// External rows always carry the handle; the FormTarget union
-			// guarantees only external rows reach this form.
-			sourceHandle: server.adoptHandle,
-			secrets: locations,
-		});
-		onAdoptPosted(requestId);
-	};
-
-	// The credential verdict is coarse (reported for OAuth-only groups too), so the key row drops
-	// out only when the group demonstrably holds no credentials; every row states its own condition.
-	const secretRows: readonly { field: SecretFieldId; hint: string }[] = [
-		...(server.credentials === "present"
-			? [{ field: "apiKey" as const, hint: l10n.t("Copied only if the group has an API key.") }]
-			: []),
-		{ field: "oauthClientSecret" as const, hint: l10n.t("Copied only if the group is configured for OAuth.") },
-		{ field: "virtualKeyValue" as const, hint: l10n.t("Copied only if the group sends a virtual key header.") },
-	];
-
-	return (
-		<div className="form-card server-form">
-			<BackToServers onRequestClose={onRequestClose} />
-			{/* The edit form's header primitive without a docs slot; the 24px above restated for the
-			    same no-<section> reason. */}
-			<SectionHeader titleId="server-form-title" level={3} title={l10n.t("Adopt {0}", server.label)} className="mt-6" />
-			<FormSection title={l10n.t("Adoption")} help={helpAdoptionSection()}>
-				<FieldRow
-					htmlFor="adopt-label"
-					label={l10n.t("Label")}
-					hint={l10n.t(
-						"Names the new entry and its provider group; rename it if a VS Code group already uses the name."
-					)}
-					problem={showProblem ? problem : undefined}
-					errorId="adopt-label-error"
-				>
-					<Input
-						id="adopt-label"
-						type="text"
-						className="min-w-0 flex-1"
-						value={label}
-						disabled={saving}
-						aria-invalid={showProblem}
-						aria-describedby="adopt-label-error"
-						onChange={(event) => {
-							onDirtyChange(true);
-							setLabel(event.currentTarget.value);
-						}}
-						onBlur={() => setTouched(true)}
-					/>
-				</FieldRow>
-				<FieldRow label={l10n.t("Base URL")} hint={l10n.t("Editable after adopting.")}>
-					{/* Plain dimmed text, never a disabled input: a value that cannot
-					    be edited here must not look like one that merely refused. */}
-					<span className="readonly-value font-mono text-[12px] break-all text-muted-foreground">{server.baseUrl}</span>
-				</FieldRow>
-				{secretRows.map(({ field, hint }) => (
-					<FieldRow label={serverFormFieldLabel(field)} hint={hint} key={field}>
-						<span
-							className="secret-where flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground"
-							role="radiogroup"
-							aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
-						>
-							<span className="where-label @max-[700px]/pane:basis-full">{l10n.t("Store in:")}</span>
-							<label className="flex items-center gap-1.5">
-								<Radio
-									name={`adopt-${field}-where`}
-									checked={locations[field] === "secure"}
-									disabled={saving}
-									onChange={() => {
-										onDirtyChange(true);
-										setLocations((current) => ({ ...current, [field]: "secure" }));
-									}}
-								/>
-								{l10n.t("secret storage")}
-							</label>
-							<label className="flex items-center gap-1.5">
-								<Radio
-									name={`adopt-${field}-where`}
-									checked={locations[field] === "settings"}
-									disabled={saving}
-									onChange={() => {
-										onDirtyChange(true);
-										setLocations((current) => ({ ...current, [field]: "settings" }));
-									}}
-								/>
-								{l10n.t("settings (visible)")}
-							</label>
-						</span>
-					</FieldRow>
-				))}
-				<FieldSpan>
-					<p className="hint m-0 text-[11.5px]">
-						{l10n.t("The original group survives: its models appear twice until you delete it from the models file.")}
-					</p>
-				</FieldSpan>
-			</FormSection>
-			{/* Same footer as the edit page's, for the same reasons. */}
-			<div className={COMMIT_BAR_CLASS}>
-				<Button disabled={saving} onClick={adopt}>
-					{saving ? (
-						<>
-							<span className="spinner" aria-hidden="true" /> {l10n.t("Adopting...")}
-						</>
-					) : (
-						l10n.t("Adopt")
-					)}
-				</Button>
-				{/* Cancel routes through the shell's discard policy; a pending
-				    adopt never blocks it - the page owns the round trip. */}
-				<Button variant="secondary" onClick={onRequestClose}>
-					{l10n.t("Cancel")}
-				</Button>
-				{showProblem ? (
-					<span className="error text-[11.5px]" role="alert">
-						{l10n.t("Cannot adopt: fix Label")}
-					</span>
-				) : null}
-			</div>
 		</div>
 	);
 }

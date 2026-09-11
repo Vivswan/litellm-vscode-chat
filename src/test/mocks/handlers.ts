@@ -10,16 +10,14 @@ export const CHAT_COMPLETIONS_URL = `${TEST_BASE_URL}/v1/chat/completions`;
 export const COMPLETIONS_URL = `${TEST_BASE_URL}/v1/completions`;
 
 /**
- * The shared msw server for all unit suites. Suites opt in with useMsw() and
- * register per-test handlers via mswServer.use(); handlers reset between tests,
- * and unhandled requests fail loudly. The two baseline handlers absorb refreshes
- * of panelIntegration's leftover host provider group (VS Code has no
- * group-removal API) and any OpenRouter catalog refresh that fires while msw is
- * listening; both answer with a null body, which discovery retries require (see
- * emptyErrorResponse). msw intercepts nothing between a file's close() and the
- * next file's listen(), so the unit label's primary catalog guard stays the
- * opt-out in util/fingerprintSalt.ts's mochaGlobalSetup. Initial handlers
- * survive resetHandlers(), and per-test use() handlers still take precedence.
+ * The first baseline handler absorbs refreshes of panelIntegration's leftover host provider group.
+ * VS Code has no group-removal API, so that group outlives its suite.
+ * The second absorbs any OpenRouter catalog refresh firing while msw listens.
+ * Both answer with a null body, which discovery retries require (see emptyErrorResponse).
+ * msw intercepts nothing between a file's close() and the next file's listen().
+ * So the unit label's primary catalog guard stays in util/fingerprintSalt.ts's mochaGlobalSetup.
+ * Initial handlers survive resetHandlers().
+ * Per-test use() handlers still take precedence over them.
  */
 export const mswServer = setupServer(
 	http.all("http://localhost:49999/*", () => emptyErrorResponse(503)),

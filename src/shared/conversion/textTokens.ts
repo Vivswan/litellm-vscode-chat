@@ -11,15 +11,13 @@
 export const CHARS_PER_TOKEN = 4;
 
 /**
- * The installed counting mode.
- *
- * - "heuristic": the plain length/4 rule (bytes/4 for undecoded text parts).
- *   The explicit setting, and the window while a picked encoding loads.
- * - "adaptive": the auto setting's interim two-band estimate. Counting a
- *   significantly non-Latin text fires onNonLatinDetected, which starts the
- *   tokenizer load; that call still returns the two-band figure.
- * - "tokenizer": a loaded gpt-tokenizer encoding counts exactly; a throw falls
- *   back to the two-band estimate for that text.
+ * "heuristic" is the plain length/4 rule, or bytes/4 for undecoded text parts.
+ * It is the explicit setting, and also the window while a picked encoding loads.
+ * "adaptive" is the auto setting's interim two-band estimate.
+ * A significantly non-Latin text fires onNonLatinDetected, which starts the tokenizer load.
+ * That call still returns the two-band figure.
+ * "tokenizer" counts exactly with a loaded gpt-tokenizer encoding.
+ * A tokenizer throw falls back to the two-band estimate for that text.
  */
 export type TextTokenCounting =
 	| { readonly kind: "heuristic" }
@@ -38,18 +36,14 @@ export function plainTextTokenEstimate(text: string): number {
 }
 
 /**
- * How the two-band estimate prices one code point. Cheap range checks, not
- * Unicode property lookups: this runs per character on the request path.
- *
- * - COMMON CJK (main Han, kana, Hangul syllables, CJK punctuation): 1 token,
- *   priced by block. The bytes bound is deliberately NOT applied here: it
- *   would triple-price every real Chinese sentence into pre-send over-refusal.
- * - RARE CJK (radicals, jamo, bopomofo, compatibility blocks, extension A,
- *   astral Han extensions): the code point's UTF-8 byte count. BPE merges only
- *   shorten a byte sequence, so bytes can never undercount.
- * - FULLWIDTH AND HALFWIDTH FORMS (U+FF00-FFEF): 2 tokens, measured rather
- *   than bounded by bytes, which would triple-price realistic Japanese text.
- * - Everything else: 0, meaning the caller's chars/4 remainder band.
+ * This uses cheap range checks, not Unicode property lookups, because it runs per character.
+ * Common CJK (main Han, kana, Hangul syllables, CJK punctuation) prices 1 token by block.
+ * The bytes bound would triple-price every real Chinese sentence into pre-send over-refusal.
+ * Fullwidth and halfwidth forms (U+FF00-FFEF) price 2 tokens, measured.
+ * The bytes bound would triple-price realistic Japanese text too.
+ * Rare CJK (radicals, jamo, bopomofo, compatibility, extension A, astral Han) prices its bytes.
+ * BPE merges only shorten a byte sequence, so bytes never undercount.
+ * Everything else prices 0, meaning the caller's chars/4 remainder band.
  */
 function cjkTokenPrice(codePoint: number): number {
 	if (

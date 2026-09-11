@@ -1,28 +1,25 @@
 /**
- * Every bun-tree test or lifecycle hook whose body reaches a child-process spawn, through any chain of same-file
- * helpers and relative imports, must carry a load-proof deadline (CHILD_PROCESS_TIMEOUT_MS, or a literal at least that
- * large), and every one that carries the constant must reach a spawn. A spawn is expensive for environmental reasons
- * the assertion cannot see (see childProcessTimeout.ts), so a new spawning test flakes under load instead of failing
- * here unless something reads the code, and this reads the code: the TypeScript parser, not a regex, over the runtime
- * import closure of the tree (relative value imports anywhere in the repository; a type-only import loads nothing).
- * Scope: this catches an author who forgets the deadline or reaches a spawn through a helper they did not think of,
- * and it fails on anything the walk cannot read; an author who deliberately hides a spawn from the walk is out of
- * scope.
- * Spawns are node:child_process, the Bun surface's process-starting members (spawn, spawnSync, $, openInEditor,
- * WebView), XMLHttpRequest (happy-dom's synchronous form runs in a node child), and `new Worker` from a literal
- * relative path (a second runtime; its module is followed too). Every other external module is either in
- * KNOWN_SAFE_MODULES, with the reason it starts no process, or a failure, because the walk cannot see into a package.
- * Reach is over-approximated: any
- * identifier a body mentions that names a spawning declaration counts, so a false positive is loud and names its site.
- * Every gap in the analysis is a failure rather than a pass: a parse error, an import or export the walk cannot follow,
- * a dynamic import or require without a literal specifier, code the parser never sees (eval, the Function constructor,
- * node:vm, the by-name loaders on process, createRequire, a Worker from anything but a literal relative path or with
- * eval, a computed member of Bun, process, globalThis, require, or Reflect), `Bun` or `require` stored anywhere instead
- * of read as a member base or called, a test callback it cannot see into, any export of the test runner itself,
- * load-time code in any module reaching a spawn, an exception entry matching anything but exactly one registration,
- * a known-safe entry nothing imports or without a reason, a detector that found no spawn anywhere, and a top-level
- * declaration the parser lists that the walk never registered (the control that turns a silently skipped registration
- * step into one loud line instead of hundreds of downstream misses).
+ * Every bun-tree test or hook that can reach a child-process spawn must carry a deadline.
+ * The deadline is CHILD_PROCESS_TIMEOUT_MS or a literal at least that large.
+ * Every test or hook that carries the constant must reach a spawn.
+ * A spawn is expensive for reasons the assertion cannot see; childProcessTimeout.ts explains.
+ * Without this suite a new spawning test flakes under load instead of failing here.
+ * The walk runs the TypeScript parser over the tree's runtime import closure, not a regex.
+ * A type-only import loads nothing, so the walk skips it.
+ * This catches an author who forgets the deadline or reaches a spawn through a helper.
+ * An author who deliberately hides a spawn from the walk is out of scope.
+ * XMLHttpRequest counts as a spawn because happy-dom's synchronous form runs in a node child.
+ * `new Worker` from a literal relative path counts too, and the walk follows its module.
+ * Every other external module must sit in KNOWN_SAFE_MODULES with the reason it starts no process.
+ * Otherwise the walk fails, because it cannot see into a package.
+ * Any identifier a body mentions that names a spawning declaration counts as reach.
+ * So a false positive is loud and names its site.
+ * Every analysis gap fails rather than passes.
+ * Gaps include a parse error and an import, export, or loader the walk cannot follow.
+ * Gaps include code the parser never sees and a test callback it cannot see into.
+ * Gaps include a known-safe entry nothing imports and a detector that found no spawn anywhere.
+ * A top-level declaration the parser lists but the walk never registered fails too.
+ * That control turns a skipped registration step into one loud line, not hundreds of misses.
  */
 import { expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";

@@ -14,15 +14,13 @@ export interface ConsultToolInput {
 }
 
 /**
- * Narrow whatever the host hands the tool to the declared input, or undefined
- * when there is no question to ask. The contributed JSON schema is documentation
- * for the calling model, NOT a guarantee: VS Code 1.134 forwards an input
- * missing a `required` property as-is, so an agent that omits the question
- * reaches invoke with `undefined` in its place. Parsing here is what keeps the
- * literal text "undefined" - or a non-string context's TypeError - out of the
- * prompt the consulted model sees. A blank question counts as none; a context
- * that is not a string reads as absent rather than failing the call, since the
- * question alone is still worth asking.
+ * The contributed JSON schema documents the input for the calling model and guarantees nothing.
+ * VS Code 1.134 forwards an input missing a `required` property as-is.
+ * An agent that omits the question therefore reaches invoke with `undefined` in its place.
+ * Parsing here keeps the literal text "undefined" out of the prompt the consulted model sees.
+ * A blank question counts as none.
+ * A non-string context reads as absent instead of failing the call.
+ * The question alone is still worth asking.
  */
 export function readConsultInput(raw: unknown): ConsultToolInput | undefined {
 	if (typeof raw !== "object" || raw === null) {
@@ -136,15 +134,13 @@ export interface ConsultPromptFit {
 }
 
 /**
- * Fit the assembled prompt into the token budget. Strategy, in order: the
- * untruncated prompt (blank context reads as absent); the question intact
- * with the largest context prefix plus marker; the question intact with the
- * context dropped wholesale; the largest question prefix plus marker with no
- * context. When even the floors overflow, the smaller measured candidate
- * ships flagged withinBudget false, a tie keeping the question intact - the
- * tool answers best-effort, it never throws over its budget. A rejecting
- * countTokens propagates unchanged: cancellation rides the injected counter
- * (the registration binds its CancellationToken into the closure).
+ * Fit the assembled prompt into the token budget.
+ * Context is cut before the question, because the question is the thing being asked.
+ * The tool answers best-effort and never throws over its budget.
+ * When even the floors overflow, the smaller measured candidate ships with withinBudget false.
+ * A tie keeps the question intact.
+ * A rejecting countTokens propagates unchanged.
+ * Cancellation rides the injected counter.
  */
 export async function fitConsultPrompt(
 	input: ConsultToolInput,
@@ -228,22 +224,14 @@ export interface ConsultReplyFit {
 }
 
 /**
- * Fit the consulted model's reply into the budget the CALLER advertised. This
- * is what `tokenBudget` actually governs - vscode documents it as the maximum
- * number of tokens the tool should emit in its RESULT - and the result is the
- * only thing this tool adds to the calling model's context; the question and
- * context came from that model and are already spent there, which is why the
- * outgoing prompt is bounded by its own fixed limit instead (see
- * fitConsultPrompt's caller).
- *
- * The reply is cut from the end, since an answer's opening is where its
- * substance is, and the marker rides along so the caller never mistakes a cut
- * answer for a complete one. Same measured-fit discipline as the prompt
- * search: every non-empty result was measured against the budget. The budget
- * is a MAXIMUM, so when not even the bare marker fits, the tool emits the
- * empty string - the one candidate that cannot exceed any budget - rather than
- * breaking the bound it was given. A NaN budget lands there too, failing
- * closed like every other gate here.
+ * Fit the consulted model's reply into the budget the caller advertised.
+ * `tokenBudget` governs the RESULT, the most tokens vscode says the tool should emit.
+ * The question and context already sit in the caller's context, so they are not budgeted here.
+ * The outgoing prompt has its own fixed bound instead, in fitConsultPrompt's caller.
+ * The reply is cut from the end, because an answer's substance is in its opening.
+ * The marker rides along so the caller never mistakes a cut answer for a complete one.
+ * The budget is a maximum, so when not even the bare marker fits the tool emits the empty string.
+ * A NaN budget lands there too, failing closed.
  */
 export async function fitConsultReply(reply: string, options: ConsultTokenizationOptions): Promise<ConsultReplyFit> {
 	const replyTokens = await options.countTokens(reply);

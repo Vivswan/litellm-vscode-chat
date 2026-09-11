@@ -28,15 +28,13 @@ export interface DataPartWireGates {
 }
 
 /**
- * The single wire-form decision for a DataPart: message conversion switches on
- * this at every position, and token estimation prices conversion's output, so
- * nothing else ever re-decides what form a part takes on the wire.
- *
+ * This is the single wire-form decision for a DataPart.
+ * Message conversion switches on this at every position, and token estimation prices its output.
  * Each position mirrors one conversion path exactly, and the ORDER matters.
- * User messages try the binary blocks first and fall back to the text decode,
- * so an image mime that is also text-decodable (image/foo+json) transmits as
- * text when the vision gate is off. Tool results decode text first and forward
- * only gated images, so that same mime is text there even for vision models.
+ * User messages try the binary blocks first and fall back to the text decode.
+ * A text-decodable image mime (image/foo+json) therefore goes as text when the vision gate is off.
+ * Tool results decode text first and forward only gated images.
+ * That same mime is therefore text in a tool result even for vision models.
  * Assistant and system history has no binary wire shape at all.
  */
 export function dataPartWireForm(

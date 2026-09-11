@@ -75,17 +75,13 @@ export function serverRootOf(baseUrl: string, apiVersion?: string): string {
 }
 
 /**
- * Where an entry serves MCP when it names no explicit endpoint: the base URL
- * as written with `/mcp` appended, under the shared trailing-slash identity.
- * Appending to the base URL as written is deliberate - a base URL ending in
- * /v1 derives .../v1/mcp - and an entry whose endpoint lives elsewhere names
- * it instead.
- *
- * It lives here, in the one module both trees already share, because two
- * places need the SAME answer: the publisher derives the endpoint it actually
- * publishes, and the server form shows the user which address an empty field
- * will publish. A second copy of the rule would let the form promise one
- * address while the publisher used another.
+ * This appends `/mcp` to the base URL as written, under the shared trailing-slash identity.
+ * A base URL ending in /v1 derives .../v1/mcp on purpose.
+ * An entry whose endpoint lives elsewhere names it instead.
+ * Two places need the SAME answer, so the rule lives in the one module both trees share.
+ * The publisher derives the endpoint it publishes from this rule.
+ * The server form shows the user which address an empty field will publish from this rule.
+ * A second copy would let the form promise one address while the publisher used another.
  */
 export function mcpEndpointOf(baseUrl: string): string {
 	return `${normalizeBaseUrl(baseUrl)}/mcp`;

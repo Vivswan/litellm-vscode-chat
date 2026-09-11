@@ -1,42 +1,20 @@
 /**
- * Pins the superset relation the MCP safety argument rests on: the arms of
- * entryUsesSecretField (shared/serverEntry.ts, the ONE wire rule deciding
- * which credential fields an entry's shape would send) must cover every field
- * usageConnectionFor (the usage/spend connection composer) actually lets ride.
- * The pairing gates - resolveOwnedSecrets' refusals, read by the sync engine,
- * the usage poller, and the MCP publisher's resolve boundary - refuse a
- * stale-stamped stored value only when the wire rule says the entry's shape
- * uses its field; a shape the composer sends but the rule denies would let
- * such a value ride to a host it was never stored for, unrefused. Today
- * the two sides agree by parallel implementation; this suite derives BOTH from
- * the real functions and fails closed:
- *
- * - the field universe is SECRET_FIELD_IDS, derived in serverEntry.ts from
- *   OPTIONAL_ENTRY_FIELDS and never re-listed here, so a new secret field
- *   enters every probe by construction;
- * - the shape space is every PRESENCE combination of every entry field both
- *   registries declare (the descriptor's non-secret half, the extension-side
- *   ENTRY_VIEW_FIELD_IDS, and the secret fields themselves through each
- *   resolution source), so a composer branch keying on the presence of ANY
- *   entry field - an auth half, an apiVersion, or another secret alike -
- *   lands inside the probed space. The composer's value-sensitive conditions
- *   (its header-legality checks) only NARROW the send side, and the probe
- *   plants header-legal values, so presence probing over-approximates what
- *   can ride - the safe direction. The probe-value table
- *   below is total over the id union, so a new field fails typecheck here
- *   until it gets a probe value instead of silently shrinking the space;
- * - "the composer sends it" is observed, never modeled: per-field sentinels
- *   are planted (stored and inline, the two resolution sources) and detected
- *   in the composed connection, with a positive control per field so a probe
- *   that stops detecting anything fails instead of passing vacuously.
- *
- * Scope: this pins the usage composer alone. The chat path's sibling
- * narrowing (parseGroupConfiguration's narrowOAuth/narrowVirtualKey, which
- * the wire rule's arms are documented as derived from) is pinned by its own
- * sibling suite (test/provider/catalog/groupModels.wireRule.test.ts, which
- * composes the sync engine's real chain); it composes from
- * resolveOwnedSecrets' resolution, so the raw-blob composition
- * entryConnectionFor feeds this composer is the one this pin covers.
+ * This suite pins the superset relation the MCP safety argument rests on.
+ * entryUsesSecretField (shared/serverEntry.ts) is the ONE wire rule for which fields a shape sends.
+ * Its arms must cover every field usageConnectionFor (the usage/spend composer) lets ride.
+ * The pairing gates refuse a stale-stamped stored value only when the rule says the shape uses it.
+ * Those gates are resolveOwnedSecrets' refusals in the sync engine, the usage poller, and MCP.
+ * A shape the composer sends but the rule denies would let such a value ride to the wrong host.
+ * Today the two sides agree by parallel implementation.
+ * This suite derives BOTH from the real functions and fails closed.
+ * util/wireRuleProbe.ts holds the probe space and record shape, shared with the chat-path pin.
+ * The composer's header-legality checks only NARROW the send side.
+ * The probe plants header-legal values, so presence probing over-approximates what can ride.
+ * The probe observes sends instead of modeling them, with a positive control per field.
+ * So a probe that stops detecting anything fails instead of passing vacuously.
+ * This pins the usage composer alone.
+ * provider/catalog/groupModels.wireRule.test.ts pins the chat path's narrowing.
+ * The raw-blob composition entryConnectionFor feeds this composer is the one this pin covers.
  */
 
 import * as assert from "node:assert";
@@ -125,22 +103,16 @@ suite("extension/servers/usage spendClient wire-rule superset", () => {
 	});
 
 	test("the wire rule's no-server arm denies every field and the usage endpoint cannot form", () => {
-		// The one arm outside the probed space: a base URL that normalizes to
-		// nothing forms no server (parseGroupConfiguration refuses the group),
-		// so entryUsesSecretField answers false for every field while the
-		// composer still carries resolved values in its object. The usage GET
-		// itself can never form - no absolute URL - which is pinned below. This
-		// is deliberately NOT a claim that no byte can leave the process: an
-		// active OAuth unit's token exchange targets the token URL, an absolute
-		// address of its own, before the usage URL is used. Per consumer of
-		// this composer, that residual is closed elsewhere: the usage poller
-		// composes from resolveOwnedSecrets' resolution, which drops a
-		// stamp-mismatched value before it can ride; entryConnectionFor hands
-		// the raw blob to the composer, but its MCP caller only forwards
-		// credentials under sameOrigin, whose URL parse fails closed on an
-		// all-slashes base URL, and the six one-shot feature sends consult no
-		// refusal at all by documented choice (entryConnection.ts) - this arm's
-		// answer never gates them in the first place.
+		// This case covers the only arm outside the probe space.
+		// A base URL that normalizes to nothing forms no server, so the rule denies every field.
+		// The composer still carries resolved values, but the usage GET has no absolute URL to form.
+		// This is NOT a claim that no byte can leave the process.
+		// An active OAuth unit's token exchange targets its own absolute token URL first.
+		// Each consumer closes that residual on its own.
+		// The usage poller composes from resolveOwnedSecrets, which drops a stamp-mismatched value.
+		// entryConnectionFor's MCP caller forwards credentials only under sameOrigin.
+		// sameOrigin's URL parse fails closed on an all-slashes base URL.
+		// The six one-shot feature sends consult no refusal by documented choice (entryConnection.ts).
 		const entry: DeclaredServer = { label: "probe", baseUrl: "/", ...SHAPE_FIELD_VALUES };
 		for (const field of SECRET_FIELD_IDS) {
 			assert.strictEqual(entryUsesSecretField(entry, field), false, `the no-server arm must deny "${field}"`);

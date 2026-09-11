@@ -1,12 +1,9 @@
 #!/usr/bin/env bun
-// scripts/docker-test.ts
-// Runs the docker-stack test suites against the dockerized LiteLLM proxy:
-// brings the compose stack up (postgres-backed, with the usage/budget fixture
-// key seeded), runs the selected labels in the canonical order of
-// src/test/dockerTestLabels.ts (docker-monkey last - it deliberately dirties
-// host state), and tears everything down. --only replaces the default
-// selection with an explicit label list (the CI shards use it); the order
-// stays canonical either way.
+// This script runs the docker-stack test suites against the dockerized LiteLLM proxy.
+// Labels run in the canonical order of src/test/dockerTestLabels.ts.
+// docker-monkey goes last because it deliberately dirties host state.
+// --only replaces the default selection, and the CI shards use it.
+// The order stays canonical under --only as well.
 //
 // Usage:
 //   bun run test:docker                     every label in canonical order (see src/test/dockerTestLabels.ts)

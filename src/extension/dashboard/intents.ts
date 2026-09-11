@@ -96,15 +96,14 @@ export class DashboardOperationError extends Error {
 }
 
 /**
- * The per-feature model probes, keyed by feature: each runs the feature's
- * exact pipeline over a fixed sample (the inline-completions probe is the
- * shared FIM send - connection resolution, `_fim_template` application, fixed
- * bounds). Partial: a feature without a probe has no key, the model row
- * renders no Test button for it, and a forged intent is refused. Read-only;
- * each resolves to the probe's answer text or undefined when the 200 body
- * carried none, and throws the transport's classified error. Declared here
- * because the intent executor is the contract's consumer; the feature wirings
- * build the record and the dashboard wiring passes it through.
+ * Each probe runs its feature's exact pipeline over a fixed sample.
+ * The inline-completions probe is the shared FIM send, applying `_fim_template` with fixed bounds.
+ * A feature without a probe has no key on purpose, so its model row renders no Test button.
+ * The executor refuses a forged intent for such a feature.
+ * A probe resolves to the answer text, or undefined when the 200 body carried none.
+ * It throws the transport's classified error.
+ * The type lives here because the intent executor is the contract's consumer.
+ * The feature wirings build the record and the dashboard wiring passes it through.
  */
 export type FeatureProbes = Readonly<
 	Partial<Record<FeatureModelId, (model: FeatureModelRef) => Promise<string | undefined>>>
@@ -450,14 +449,13 @@ function probeAnswerText(feature: FeatureModelId, characters: number): string {
 }
 
 /**
- * One declared entry's inline secret values, for the edit form's on-demand
- * prefill (the readInlineSecrets request). The entry resolves through
- * acceptedEntry and must still match the DISPLAYED identity the form sends:
- * a same-label replacement racing the prefill gets an empty answer, never its
- * inline values into a form showing another entry. The check is blob-free by
- * construction - inline locations derive from the entry alone, so only fields
- * the identity showed as "settings" are compared and returned. Fields stored
- * securely or absent get NO key: their values must never reach the webview.
+ * The edit form's on-demand prefill reads one declared entry's inline secret values here.
+ * The entry must still match the DISPLAYED identity the form sent.
+ * A same-label replacement racing the prefill gets an empty answer.
+ * Its inline values never land in a form that shows another entry.
+ * The check is blob-free by construction.
+ * Inline locations derive from the entry alone, so only fields shown as "settings" come back.
+ * Fields stored securely or absent get NO key, because their values must never reach the webview.
  * The returned values are never logged.
  */
 export function readInlineSecretValues(

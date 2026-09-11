@@ -193,21 +193,14 @@ export function serverFormFieldLabel(field: ServerFormField): string {
 export type ServerFormProblems = Partial<Record<ServerFormField, string>>;
 
 /**
- * Which fields the draft has moved away from the baseline it opened with (the
- * save bar counts them). The text and secret fields compare what Save would
- * write, not the raw draft - the same parses the intent assembly reads - so a
- * padded label, an inactive auth form's leftover text, or a reshuffled
- * duplicate model line never counts. Text Save would refuse (a bad budget, a
- * picked custom version with no text) still counts by its trimmed form: the bar
- * must not go quiet on an edit that blocks.
- *
- * Four fields deliberately compare the draft instead, because their controls
- * are always visible and a quiet bar under a move the user can see reads as
- * broken: the auth selector (switching it can leave every directive "keep") and
- * the three row grids (whose parsers trim names, prefixes, and keys, and whose
- * rows can sit mid-edit and unparseable). expectedFailures is the one field
- * compared more loosely than the payload - as a set, since the checkboxes
- * canonicalize an order a stored entry does not have.
+ * The save bar counts the fields the draft has moved away from the baseline it opened with.
+ * Text and secret fields compare what Save would write, not the raw draft.
+ * A padded label or an inactive auth form's leftover text therefore never counts.
+ * Text Save would refuse still counts by its trimmed form, so the bar stays loud on a bad edit.
+ * The auth selector compares the raw draft, since switching it can leave every directive "keep".
+ * The row grids compare the raw draft too, since a row can sit mid-edit and unparseable.
+ * Their parsers trim names, prefixes, and keys, so a parsed compare could hide a visible move.
+ * expectedFailures compares as a set, because checkboxes impose an order a stored entry lacks.
  */
 export function changedServerFormFields(draft: ServerFormDraft, baseline: ServerFormDraft): readonly ServerFormField[] {
 	const nowSecrets = parseSecrets(draft);
@@ -334,8 +327,10 @@ function parseInactiveSecret(draft: SecretFieldDraft): SecretParse {
 }
 
 /**
- * Which credential forms the selector makes live: the apiKey field rides on
- * oauth too, and the virtual-key pair on every form but none.
+ * The apiKey field is live on the oauth form too.
+ * The virtual-key pair is live on every form but none.
+ * This is NOT entryUsesSecretField's wire rule.
+ * It keys on the picked auth selector, so a stored-but-unsent value can still block a save.
  */
 function authFormActivity(authForm: AuthFormId): {
 	readonly oauth: boolean;
@@ -879,20 +874,14 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 }
 
 /**
- * The kept stored secrets a save would re-pair with a moved destination: the
- * fields whose directive keeps a secure-stored value (its ownership stamp was
- * written for the destination the form opened on) while the save re-points the
- * destination that field is sent to - the base URL for the keys, the OAuth
- * token URL for the client secret, the SAME per-field rule the stamps record
- * (shared/serverEntry.ts secretDestination, not a webview re-derivation). The
- * save flow asks before posting such an intent - keeping re-stamps the stored
- * value for the new destination host-side, clearing deletes it - and posts
- * without a question when this is empty: no stored secret, an inline value
- * (already visible in settings.json, no stamp to go stale), or a change the
- * stamp rule reads as none. Locations stand in for the stamps the webview
- * deliberately never sees: a field the ownership check refused already
- * displays as "none", so "secure" here means the stamp matched the displayed
- * entry (or predates stamping, which the host re-stamps the same way).
+ * A save re-pairs a kept secure-stored secret when it moves that secret's destination.
+ * The stored value's ownership stamp names the destination the form opened on.
+ * A save that re-points that destination makes the stamp stale.
+ * The destination rule is shared/serverEntry.ts secretDestination, never a webview re-derivation.
+ * The save flow asks before posting such an intent.
+ * Keeping re-stamps the value host-side, and clearing deletes it.
+ * An inline value needs no question, since settings.json already shows it and it has no stamp.
+ * "secure" means the stamp matched or predates stamping, which the host re-stamps the same way.
  */
 export function staleKeyFieldsOnSave(intent: ServerFormIntent): readonly SecretFieldId[] {
 	const original = intent.replace;

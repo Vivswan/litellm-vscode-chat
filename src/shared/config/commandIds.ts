@@ -122,15 +122,13 @@ export function reviewFileCommandTitle(): string {
 }
 
 /**
- * User-facing commands registered at runtime but kept out of
- * contributes.commands on purpose - the palette shows only the manage hub.
- * openGroupsFile opens the host's provider-groups JSON directly: the fallback
- * place a leftover provider group can be deleted when the Manage Language
- * Models editor (HOST_CMD.manageLanguageModels) cannot reach it. quickFixChat is the command a quick-fix lightbulb runs: it takes
- * a structured payload no user could type, so contributing it to the palette
- * would offer an action that fails on every invocation from there. The
- * litellm._test.* harness commands are deliberately not mapped here: they are
- * test-mode-only, and their ids double as oracle strings in the suites.
+ * These commands are registered at runtime but kept out of contributes.commands on purpose.
+ * The palette shows only the manage hub.
+ * openGroupsFile opens the host's provider-groups JSON directly.
+ * That file is where a leftover group the Manage Language Models editor misses can be deleted.
+ * quickFixChat takes a structured payload no user could type, so a palette entry would always fail.
+ * The litellm._test.* harness commands stay unmapped because they are test-mode-only.
+ * Their ids also double as oracle strings in the suites.
  */
 export const INTERNAL_CMD = {
 	manageServers: "litellm.manageServers",

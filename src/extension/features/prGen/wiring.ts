@@ -17,19 +17,14 @@ import type { TitleAndDescriptionContext } from "./prompt";
 import { createTitleAndDescriptionProvider } from "./provider";
 
 /**
- * PR generation wiring: the palette command is registered unconditionally (the
- * palette entry hides behind the enable when-clause, but executeCommand and
- * keybindings do not), while the GitHub Pull Requests integration is
- * registered ONLY while the feature is enabled AND a model is configured -
- * fail-closed by construction, so a half-configured feature never offers a
- * button in that extension's create view.
- *
- * The integration is deferred rather than one-shot: the GitHub extension may
- * be installed, enabled, or updated after this activation, so an
- * extensions.onDidChange listener re-runs the decision, as does a
- * configuration change. `oneShot` is the activation-shared client, so OAuth
- * tokens cache across invocations and across features and invalidate on 401
- * like the chat and usage paths.
+ * The palette command is registered unconditionally.
+ * The palette entry hides behind the when-clause, but executeCommand and keybindings do not.
+ * The GitHub integration registers ONLY while the feature is enabled AND a model is configured.
+ * A half-configured feature therefore never gets a button in that extension's create view.
+ * The integration is deferred, not one-shot.
+ * The GitHub extension may be installed, enabled, or updated after activation.
+ * extensions.onDidChange and configuration changes therefore both re-run the decision.
+ * `oneShot` is the shared client, so OAuth tokens cache across features and invalidate on 401.
  */
 
 /** The GitHub Pull Requests extension's identifier, as published. */
@@ -183,17 +178,13 @@ export function createGhprProvider(
 }
 
 /**
- * The GitHub Pull Requests extension's API, or undefined when it is absent,
- * disabled, or too old to take a provider. Activating it is deliberate and
- * only ever happens once the user has both enabled this feature and picked a
- * model: its exports are unreadable until it activates, and it is the
- * extension the user is asking us to integrate with.
- *
- * `reportActivationFailure` is the caller's channel-only advisory sink
- * (Logger.advisory): the decision reruns on every settings change and every
- * extension change, and the issue-report buffer is a small ring, so a broken
- * install must not evict real history from it - the channel keeps every
- * occurrence instead.
+ * Resolve the GitHub extension's API, or undefined when it is absent, disabled, or too old.
+ * Activation happens only once the user has enabled this feature and picked a model.
+ * Its exports are unreadable until it activates.
+ * It is the extension the user asked us to integrate with.
+ * `reportActivationFailure` is the caller's channel-only advisory sink, Logger.advisory.
+ * The decision reruns on every settings and extension change.
+ * The issue-report buffer is a small ring, so a broken install must not evict real history from it.
  */
 async function resolveGhprApi(
 	reportActivationFailure: (message: string) => void

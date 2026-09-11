@@ -24,19 +24,12 @@ jobs:
     with:
       os: 'matrix'
 
-  # Promoted from its burn-in workflow after a long green streak on main:
-  # docker suite, stream fuzzer, and live host-fidelity against the
-  # dockerized LiteLLM proxy. Two shards, balanced from the per-label wall
-  # times of main run 30593932251 (docker 41s + transport 62s against
-  # serversync 15s + fuzz 5s + conversation 6s + host-fidelity 5s +
-  # monkey 69s; the usage/budget smoke adds well under a second to shard
-  # one, and the two split-off group suites - the provider-group chat path
-  # on shard one, the capture-mode group-label round trip on shard two -
-  # run sub-second each; their cost is one extra extension-host boot per
-  # shard); the drift guard in src/test/stackDrift.test.ts
-  # pins each list to the orchestrator's known labels and the union to the
-  # full set. No `if:` on the shards: a skipped matrix job would count
-  # green in the aggregate (see the header note).
+  # This job runs the docker suite, the stream fuzzer, and live host-fidelity against the proxy.
+  # Measured per-label wall time balances the two shards.
+  # Each split-off group suite runs sub-second but costs one extra extension-host boot.
+  # src/test/stackDrift.test.ts pins each shard's list to the orchestrator's known labels.
+  # The same test pins the union of the shards to the full label set.
+  # The shards carry no `if:`, because a skipped matrix job counts green in the aggregate.
   docker-stack:
     strategy:
       fail-fast: false
@@ -238,18 +231,14 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
         run: bun run check-geometry
 
-  # The run's ONE live fetch of the OpenRouter capability catalog: the fetch
-  # script validates the live payload and the mapping (so payload drift is
-  # caught here instead of by users) and writes the slimmed
-  # dist/openrouter-models.json, which this job hands to format-check's
-  # packaged-file-list check as an artifact. format-check used to fetch the
-  # same URL again on its own runner, and the two fetches doubled the exposure
-  # to a CDN body stall for zero extra coverage (the second one validated the
-  # same payload). The endpoint is unauthenticated and the failure text
-  # distinguishes "OpenRouter did not deliver a usable catalog" (transient or
-  # settled, per the retry rule the script shares with the runtime) from
-  # "schema drift"; unconditional on purpose (a skipped job would count green
-  # in the gate, see the header note).
+  # This is the run's ONE live fetch of the OpenRouter capability catalog.
+  # The script validates the payload and the mapping, so payload drift fails here, not on users.
+  # The slimmed dist/openrouter-models.json reaches format-check as an artifact.
+  # A second fetch there doubled the exposure to a CDN body stall and validated the same payload.
+  # The endpoint is unauthenticated, so this job needs no secret.
+  # The failure text separates "no usable catalog" from schema drift.
+  # The script shares its retry rule with the runtime, which calls a failure transient or settled.
+  # The job is unconditional, because a skipped job counts green in the gate (header note).
   openrouter-catalog:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -266,18 +255,15 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # Push-to-main runs opt into the script's lenient mode: OpenRouter not
-      # delivering a usable catalog (connect failure, header or body timeout,
-      # non-2xx, a body that is not JSON - every UnreachableError, whether the
-      # shared retry rule called it transient or settled; the script's
-      # ::warning:: headline says which) is one ::warning:: annotation and
-      # exit 0 with nothing written, because a third-party failure must not
-      # block landing on main; schema drift stays fatal in every mode. Pull
-      # request runs and manual dispatch stay fatal, so the failure is still
-      # caught loudly where a human is watching and a
-      # re-run is cheap, and the release build's own fetch (vscode:prepublish)
-      # stays fatal too. The file, not the exit code, says whether the catalog
-      # was fetched.
+      # Push-to-main runs use the script's lenient mode.
+      # Every UnreachableError is then one ::warning:: and exit 0 with nothing written.
+      # UnreachableError covers connect failure, header or body timeout, non-2xx, and non-JSON body.
+      # The shared retry rule calls each transient or settled, and the warning headline says which.
+      # A third-party outage must not block landing on main.
+      # Schema drift stays fatal in every mode.
+      # Pull request runs and manual dispatch stay fatal, since a human is watching.
+      # The release build's own fetch (vscode:prepublish) stays fatal too.
+      # The file, not the exit code, says whether the fetch produced a catalog.
       - name: Fetch and validate the live OpenRouter catalog
         id: fetch
         env:

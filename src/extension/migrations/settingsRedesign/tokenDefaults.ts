@@ -1,30 +1,27 @@
 /**
- * The removed default* token settings move into the models.capabilities "*"
- * record: the two below-server settings ride `_fallback`, the input limit
- * stays an override, existing user keys win the merge, and source-key absence
- * is the idempotency signal. The record is marked `_inheritable`, because the
- * old defaults applied to every model regardless of other records, and without
- * the marking any model with a more specific record of its own would lose them
- * wholesale under the most-specific-wins rule.
+ * The removed default* token settings move into the models.capabilities "*" record.
+ * The two below-server defaults ride `_fallback`.
+ * The input limit stays a plain override.
+ * Existing user keys win the merge.
+ * Source-key absence is the idempotency signal.
  *
- * A record this migration authors from scratch carries `_inheritable: true`;
- * merging into a user's existing "*" record instead appends only the fields
- * the migration added to an `_inheritable` list (or leaves a user's own `true`
- * alone), so the user's existing fields never silently start flowing into
- * more-specific records.
+ * The record carries `_inheritable` because the old defaults applied to every model.
+ * Without the mark, any model with a more specific record would lose them under most-specific-wins.
+ * Merging into an existing "*" record appends only the added fields to an `_inheritable` list.
+ * A user's own `true` stays as is.
+ * The user's existing fields therefore never start flowing into more-specific records.
  *
- * The override-placed fill (max_input_tokens beat the server-reported value)
- * must never land demoted, so the merge protects it from the target's own
- * `_fallback`: a `_fallback: true` is expanded to the explicit list of the
- * record's PRE-EXISTING valid fields before the fill lands unmarked, and an
- * inert listed name is dropped rather than left to activate. The cost of the
- * expansion - fields the user adds later are no longer auto-marked - is paid
- * only when a max_input_tokens fill actually lands.
+ * A max_input_tokens fill must never land demoted by the target's own `_fallback: true`.
+ * That `true` therefore expands to the explicit list of the record's pre-existing valid fields.
+ * The expansion happens before the fill lands unmarked.
+ * An inert listed name drops rather than activate.
+ * The expansion costs the auto-marking of fields the user adds later.
+ * That cost is paid only when a max_input_tokens fill lands.
  *
- * Two accepted level shifts: a migrated max_output_tokens counts user-declared
- * (the request path's min(4096, limit) clamp no longer applies), and
- * max_input_tokens as a plain override now also beats an `_openrouter_model`
- * directive.
+ * Two level shifts are accepted.
+ * A migrated max_output_tokens counts as user-declared.
+ * The request path's min(4096, limit) clamp therefore no longer applies to it.
+ * max_input_tokens as a plain override now also beats an `_openrouter_model` directive.
  */
 
 import { isRecord } from "../../../shared/util/json";

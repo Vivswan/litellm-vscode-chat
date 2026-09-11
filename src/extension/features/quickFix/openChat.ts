@@ -16,23 +16,14 @@ import type { QuickFixMode } from "./query";
 import { buildChatQuery, buildFallbackPrompt, selectDiagnostics } from "./query";
 
 /**
- * What an invoked Fix or Explain action does. The primary path is the chat
- * view: the action opens it and SUBMITS "@litellm /fix ..." with the claimed
- * lines attached, so the answer streams into the conversation the user already
- * knows, under the model their picker says, with the whole participant
- * (history, followups, further questions) around it.
- *
- * The fallback exists because that path is not ours: chat.open is another
- * extension's command, and Copilot Chat can be absent, disabled, or refusing.
- * When it fails, the same question goes to the quickFix.model setting as one
- * non-streaming request and the answer opens as an untitled markdown editor.
- * That is a deliberately lesser experience for a case that should be rare - it
- * costs the user nothing to close, and it is the difference between a broken
- * lightbulb and a working one.
- *
- * This module is the quick-fix feature's SINGLE logging boundary (the one-shot
- * caller convention): the transport throws classified and unlogged, and every
- * failure is recorded exactly once here.
+ * The primary path SUBMITS "@litellm /fix ..." to the chat view with the claimed lines attached.
+ * The answer streams into the chat the user already knows, under the model their picker chose.
+ * The fallback exists because that path is not ours.
+ * chat.open is another extension's command, and Copilot Chat can be absent, disabled, or refusing.
+ * Only the fallback uses the quickFix.model setting, as one non-streaming request.
+ * The answer opens as an untitled markdown editor, a lesser experience for a rare case.
+ * This module is the feature's SINGLE logging boundary.
+ * The transport throws classified and unlogged, and every failure is recorded exactly once here.
  */
 
 /** The full setting IDs the dual-reason advice names, derived by the shared gate; sentences stay this feature's own. */

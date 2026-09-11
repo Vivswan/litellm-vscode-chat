@@ -1,43 +1,27 @@
 /**
- * Command dispatch for the fake OpenAI backend: the chat input is the control
- * surface. The last non-empty line of the last user message, when it starts
- * with "%" and names a known verb, selects the response; nothing else does.
+ * The chat input is the control channel.
+ * The last non-empty line of the last user message selects the response.
+ * It must start with "%" and name a known verb; nothing else dispatches.
  * Bare closing-tag lines are transparent to that rule (see ENVELOPE_CLOSER).
- * Everything here is deterministic - no clocks, no Math.random.
- *
- * Why "%": both obvious sigils are intercepted before the text can reach
- * the model. VS Code Copilot Chat's input claims "/"-prefixed text for its
- * own slash commands (and "@" for participants, "#" for references), so a
- * typed /help rendered as a chip, never reached the model, and the host got
- * plain fallback text back (user-verified against the live UI). Agent CLIs
- * like Claude Code claim a leading "!" to execute shell commands, so "!"
- * fails the same way in a different client. "%" is unclaimed by the tested
- * surfaces (verified against VS Code Copilot Chat and Claude Code; other
- * chat surfaces checked by docs only). A "%" at line start can still occur
- * in rare pasted contexts (templating markers, PostScript DSC lines); that
- * is acceptable - only the LAST non-empty line dispatches, and an unknown
- * verb falls through to the fallback, same as before. One hardening exists
- * for exactly that class: %-comment languages (MATLAB, LaTeX, Erlang, csh
- * transcripts) write "% word" and "% word: args" at line start, so the verb
- * tolerates trailing whitespace only (trimEnd, never trim) - "% error: 429"
- * used to return a real HTTP 429 that looked like a genuine proxy failure;
- * now the whole comment class falls through to the fallback, which itself
- * points at %help.
- *
- * The module is dependency-free (node builtins only): the fake-openai
- * container runs it from a read-only repo mount without node_modules.
- *
- * Emission follows the realism-first principle: proper chunk envelopes,
- * word-boundary delta chunking for prose, and a usage trailer gated on
- * stream_options.include_usage. Observed against LiteLLM v1.93: id,
- * system_fingerprint, and service_tier transit VERBATIM and only created is
- * rewritten - assertions still belong on extracted content, never raw bytes.
- *
- * Human-facing diagnostic reports (%help and the introspection verbs) are
- * markdown, since chat hosts render replies as markdown; see the "Markdown
- * report formatting" section. Contract texts stay byte-exact and unformatted:
- * %echo, %play, usage strings, FALLBACK_TEXT, the bad-arguments diagnostic,
- * and the hash-bearing media sentences.
+ * So "<userRequest>\n%help\n</userRequest>" still dispatches %help.
+ * Everything here is deterministic: no clocks, no Math.random.
+ * "%" is the sigil because the obvious ones never reach the model.
+ * VS Code Copilot Chat claims "/" for slash commands, "@" for participants, "#" for references.
+ * A typed /help rendered as a chip and the host got fallback text back, verified in the live UI.
+ * Agent CLIs like Claude Code claim a leading "!" for shell commands.
+ * Neither VS Code Copilot Chat nor Claude Code claims "%"; other clients were checked by docs only.
+ * A pasted "%" at line start (templating markers, PostScript DSC) can still collide.
+ * A pasted "%error:429" on the last line selects the 429 scenario.
+ * The protection is that only the LAST non-empty line dispatches and unknown verbs fall through.
+ * %-comment languages (MATLAB, LaTeX, Erlang, csh) write "% word: args" at line start.
+ * So the verb tolerates trailing whitespace only (trimEnd, never trim).
+ * Before that, "% error: 429" returned a real HTTP 429 that looked like a genuine proxy failure.
+ * This module uses only node builtins because fake-openai runs read-only without node_modules.
+ * Against LiteLLM v1.93, id, system_fingerprint, and service_tier transit VERBATIM.
+ * Only created gets rewritten, and assertions still belong on extracted content, never raw bytes.
+ * Human-facing reports (%help, the introspection verbs) are markdown, as chat hosts render it.
+ * Contract texts stay byte-exact and unformatted.
+ * That set is %echo, %play, usage strings, FALLBACK_TEXT, the bad-arguments text, media sentences.
  */
 
 import { createHash } from "node:crypto";

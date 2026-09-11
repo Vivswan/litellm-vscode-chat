@@ -22,17 +22,14 @@ import { NO_FINDINGS_REPLY, parsePlacements } from "./placements";
 import { buildDiffReviewPrompt } from "./reviewPrompt";
 
 /**
- * Review-comments wiring: the comment controller exists ONLY while the feature
- * is enabled (opt-in by construction - disabled means no controller, no
- * threads, and zero traffic), toggled by a configuration watcher, while every
- * command is registered unconditionally so a keybinding or executeCommand on a
- * disabled feature answers with the enable hint.
- *
- * The stored threads outlive a disable on purpose: disposing the controller
- * takes the threads off the screen without touching workspaceState, so
- * re-enabling brings the same review back. `oneShot` is the activation-shared
- * client, so OAuth tokens cache across features and invalidate on 401 like the
- * chat and usage paths.
+ * The comment controller exists ONLY while the feature is enabled.
+ * Disabled means no controller, no threads, and zero traffic.
+ * Every command is registered unconditionally.
+ * A keybinding or executeCommand on a disabled feature therefore answers with the enable hint.
+ * The stored threads outlive a disable on purpose.
+ * Disposing the controller takes the threads off the screen without touching workspaceState.
+ * Re-enabling therefore brings the same review back.
+ * `oneShot` is the shared client, so OAuth tokens cache across features and invalidate on 401.
  */
 
 /** The canned change the dashboard's Test model button reviews: small, and wrong in a way any model should catch. */

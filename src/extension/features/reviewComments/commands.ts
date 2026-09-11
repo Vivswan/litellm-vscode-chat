@@ -23,17 +23,12 @@ import { REVIEW_FILE_LIMIT, runReview } from "./review";
 import { buildDiffReviewPrompt, buildFileReviewPrompt, buildReplyMessages } from "./reviewPrompt";
 
 /**
- * The review commands' surface: gating, target selection (a repository's
- * uncommitted changes, or the active file), progress, and the mapping of a
- * finished run to a notification. The per-file loop lives in review.ts, the
- * prompts in reviewPrompt.ts, the threads in controller.ts; the one-shot
- * transport in provider/transport/oneShotClient.ts.
- *
- * Every command here is registered unconditionally - the menus hide behind the
- * enable when-clause, but keybindings and executeCommand do not - so each one
- * answers a disabled invocation with the enable hint instead of doing nothing.
- * These handlers are their own single logging boundary: the transport
- * constructs classified errors without logging, and each catch below logs once.
+ * The review commands gate, pick a target, show progress, and turn a finished run into a notice.
+ * Every command here is registered unconditionally.
+ * The menus hide behind the enable when-clause, but keybindings and executeCommand do not.
+ * Each one therefore answers a disabled invocation with the enable hint instead of doing nothing.
+ * These handlers are their own single logging boundary.
+ * The transport constructs classified errors without logging, and each catch below logs once.
  */
 
 export interface ReviewCommandDeps {
@@ -81,16 +76,13 @@ async function openFeatureGate(deps: ReviewCommandDeps): Promise<ReviewCommentCo
 }
 
 /**
- * The model half of the gate: which model answers, or the advice to show and
- * no request. Split from the feature gate because the reply path must bank the
- * user's typed words BEFORE it asks this question - VS Code closes the reply
- * editor either way, so a refusal here would throw away what they wrote.
- *
- * The advice comes back as a thunk rather than being shown here, because the
- * reply path runs inside a thread's queue and a notification settles only when
- * the user dismisses it: showing it in place would let an ignored toast block
- * every later reply to that thread. The review commands, which have no queue,
- * simply invoke it at once.
+ * The model half of the gate answers which model responds, or gives the advice to show instead.
+ * It is split from the feature gate because the reply path must bank the user's words first.
+ * VS Code closes the reply editor either way, so an early refusal would lose what they typed.
+ * The advice comes back as a thunk rather than being shown here.
+ * The reply path runs inside a thread's queue, and a notification settles only when dismissed.
+ * Showing it in place would let an ignored toast block every later reply to that thread.
+ * The review commands have no queue and invoke it at once.
  */
 function reviewModelGate(deps: ReviewCommandDeps): ModelGate {
 	const ref = getFeatureModelRef("reviewComments", (message, data) => {
@@ -158,14 +150,11 @@ function reviewSender(
 
 /**
  * Review every uncommitted change in a repository, one request per file.
- * `diffWith("HEAD")` is what makes "uncommitted" mean staged AND unstaged, and
- * it leaves untracked files out - they have no diff to review, and the
- * whole-file command covers them.
- *
- * Everything after the gate runs inside the shared failure boundary, git
- * activation and the repository pick included: activating the built-in Git
- * extension can reject, and an escaped rejection would leave the command
- * silently dead instead of saying what went wrong.
+ * `diffWith("HEAD")` is what makes "uncommitted" mean staged AND unstaged.
+ * Untracked files stay out, since they have no diff and the whole-file command covers them.
+ * Everything after the gate runs inside the shared failure boundary, git activation included.
+ * Activating the built-in Git extension can reject.
+ * An escaped rejection would leave the command dead instead of saying what went wrong.
  */
 export async function runReviewChanges(deps: ReviewCommandDeps, commandArg: unknown): Promise<void> {
 	const gate = await openGate(deps);
@@ -321,19 +310,14 @@ function applyFindings(
 }
 
 /**
- * A reply typed into a review thread: the user's text lands, then the model
- * answers in the same thread. The user's comment is appended BEFORE the
- * request, so a failure leaves their words in place rather than discarding
- * what they typed. A thread the USER started from the gutter is adopted here -
- * the host created it, so it reaches us unindexed - which makes their question
- * the thread's first turn.
- *
- * Replies to one thread run ONE AT A TIME, queued rather than dropped: the
- * reply widget stays usable while a request runs, and a second submission
- * appended immediately would sit above the answer to the first, so a
- * conversation would read out of order and be REPLAYED to the model that way.
- * Waiting its turn keeps both the words and the order. Different threads are
- * independent and run concurrently.
+ * A reply typed into a review thread lands, then the model answers in the same thread.
+ * The user's comment is appended BEFORE the request, so a failure leaves their words in place.
+ * A thread the USER started from the gutter reaches us unindexed, since the host created it.
+ * It is adopted here, which makes their question the thread's first turn.
+ * Replies to one thread run ONE AT A TIME, queued rather than dropped.
+ * The reply widget stays usable while a request runs.
+ * A second submission appended at once would sit above the first answer and REPLAY out of order.
+ * Different threads are independent and run concurrently.
  */
 export async function runReviewReply(deps: ReviewCommandDeps, reply: vscode.CommentReply): Promise<void> {
 	const controller = await openFeatureGate(deps);
@@ -561,21 +545,14 @@ interface DiffUnits {
 }
 
 /**
- * The repository's uncommitted files as review units, capped. A file whose
- * document cannot be opened (deleted, binary, unreadable) is skipped before
- * its diff is fetched, and a file whose diff came back empty (a pure rename)
- * contributes nothing to review.
- *
- * A file with UNSAVED edits is skipped too, and counted apart: the diff comes
- * from what is on disk while the comments would be anchored into the buffer,
- * so the model would be describing one revision and the comments would land on
- * another. Reviewing the file itself is the answer there, and the notice says
- * so.
- *
- * A repository with no commits yet has no HEAD to diff against; that state is
- * "nothing uncommitted to review" (only untracked files, which the whole-file
- * command covers), and it is the ONLY enumeration failure swallowed here - any
- * other one is a real git failure and belongs to the command's error boundary.
+ * Collect the repository's uncommitted files as review units, capped.
+ * A file with UNSAVED edits is skipped and counted apart.
+ * Its diff comes from disk, but the comments would anchor into a buffer the model never saw.
+ * With no commits yet the comparison lacks a base commit.
+ * Content staged for the first commit may exist, but this comparison cannot describe it.
+ * The notice therefore names the reason and points at the whole-file command.
+ * That is the ONLY enumeration failure swallowed here.
+ * Any other one is a real git failure for the command's error boundary.
  */
 async function diffUnits(repo: Repository, token: vscode.CancellationToken): Promise<DiffUnits | "unborn"> {
 	let changes: readonly Change[];

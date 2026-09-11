@@ -25,20 +25,14 @@ import {
 } from "./invocation";
 
 /**
- * Consult tool wiring: the language-model tool a chat agent calls to ask a
- * second, independently configured LiteLLM model. Opt-in by construction and
- * fail-closed on BOTH halves - the tool registers only while
- * consultTool.enabled is on AND consultTool.model names a pair, so an agent is
- * never offered a tool whose every call could only answer "nothing is
- * configured" - and a configuration watcher disposes and re-registers as those
- * two change. `oneShot` is the activation-shared client, so OAuth tokens cache
- * across consultations and across features and invalidate on 401 like the chat
- * and usage paths.
- *
- * This module is the feature's single logging boundary (the one-shot caller
- * convention): the transport throws classified errors without logging, the
- * invoke boundary logs once, and the error itself travels on to the chat view
- * that invoked the tool. Cancellation is never logged.
+ * The consult tool lets a chat agent ask a second, independently configured LiteLLM model.
+ * The tool registers only while consultTool.enabled is on AND consultTool.model names a pair.
+ * An agent is never offered a tool whose every call could only answer "nothing is configured".
+ * `oneShot` is the shared client, so OAuth tokens cache across features and invalidate on 401.
+ * This module is the feature's single logging boundary.
+ * The transport throws without logging, and the invoke boundary logs once.
+ * The error then travels on to the chat view that invoked the tool.
+ * Cancellation is never logged.
  */
 
 type LogFn = (message: string, data?: unknown) => void;
@@ -224,15 +218,12 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 	}
 
 	/**
-	 * The reply shaped and cut to the budget the caller advertised, which is
-	 * what `tokenizationOptions.tokenBudget` governs. No options means no known
-	 * budget, so the reply travels whole rather than under a guessed bound.
-	 *
-	 * A counting failure must not fail the consultation: the answer is already
-	 * in hand, so an unbudgeted best effort beats losing it. Cancellation still
-	 * propagates (the token is bridged into the counter), and the degradation
-	 * logs a fixed classification - never the counter's own message, which is
-	 * the one error on this path that could quote the text it was counting.
+	 * Shape the reply and cut it to the budget the caller advertised in `tokenizationOptions`.
+	 * No options means no known budget, so the reply travels whole, not under a guessed bound.
+	 * A counting failure must not fail the consultation, because the answer is already in hand.
+	 * Cancellation still propagates, because the token is bridged into the counter.
+	 * The degradation logs a fixed classification, never the counter's own message.
+	 * That message is the one error on this path that could quote the text it was counting.
 	 */
 	private async fitReply(
 		reply: string,

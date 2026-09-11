@@ -11,27 +11,22 @@ import { runQuickFixChat, sendFallbackPrompt } from "./openChat";
 import { buildFallbackPrompt } from "./query";
 
 /**
- * Quick-fix wiring. The code-action provider exists ONLY while the feature is
- * enabled (opt-in by construction: disabled means no provider, so no LiteLLM
- * entry ever appears in a lightbulb), toggled by a configuration watcher. The
- * command behind the actions is registered unconditionally, because keybindings
- * and executeCommand ignore the enable setting and a command that silently
- * does nothing is worse than one that says why.
- *
- * `oneShot` is the activation-shared client, so OAuth tokens cache across
- * features and invalidate on 401 like the chat and usage paths.
+ * This wires the quick-fix feature.
+ * The code-action provider exists ONLY while the feature is enabled.
+ * Disabled means no provider, so no LiteLLM entry ever appears in a lightbulb.
+ * The command behind the actions is registered unconditionally.
+ * Keybindings and executeCommand ignore the enable setting.
+ * A command that does nothing is worse than one that says why.
+ * `oneShot` is the shared client, so OAuth tokens cache across features and invalidate on 401.
  */
 
 /**
- * Where the provider offers actions. `file` alone, deliberately. Not
- * `pattern: "**"`, because a diagnostic can be attached to documents this
- * feature cannot usefully act on (a read-only git diff, an output pane, a
- * settings editor). And not `untitled` either: the chat view's attachment
- * handling gates each file on its existence before attaching it, so on an
- * unsaved buffer the code would be dropped and the model asked to fix
- * diagnostics it cannot see. An action that quietly sends no code is worse
- * than no action, so the lightbulb stays out of unsaved buffers until they are
- * saved.
+ * The provider offers actions for `file` alone, on purpose.
+ * `pattern: "**"` is out, because a diagnostic can sit on documents this feature cannot act on.
+ * A read-only git diff, an output pane, or a settings editor are examples.
+ * `untitled` is out too, because the chat view gates each attachment on the file's existence.
+ * An unsaved buffer would be dropped, leaving the model to fix diagnostics it cannot see.
+ * An action that sends no code is worse than no action.
  */
 const QUICK_FIX_SELECTOR: vscode.DocumentSelector = [{ scheme: "file" }];
 

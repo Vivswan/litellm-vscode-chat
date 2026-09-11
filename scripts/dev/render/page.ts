@@ -108,16 +108,13 @@ export const DETERMINISM_CSS =
 	"*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
 
 /**
- * The scrollbar slice of VS Code's injected webview defaults: the editor
- * writes these into every webview document AHEAD of the extension's
- * stylesheets, inside @layer vscode-default, so any author rule beats them.
- * Current hosts inject the html scrollbar-color rule (read from the shipped
- * webview prelude, vs/workbench/contrib/webview/browser/pre/index.html): a
- * non-auto scrollbar-color inherits into every scroller, paints the track in
- * opaque editor-background, and DISABLES ::-webkit-scrollbar styling wholesale.
- * Older hosts injected the ::-webkit-scrollbar rules instead. Both halves are
- * emulated so a --show-scrollbars render proves the dashboard's own scrollbar
- * rules beat whichever the host injects.
+ * VS Code writes these into every webview document AHEAD of the extension's stylesheets.
+ * They sit inside @layer vscode-default, so any author rule beats them.
+ * Current hosts inject the html scrollbar-color rule (webview/browser/pre/index.html).
+ * A non-auto scrollbar-color inherits into every scroller and paints the track opaque.
+ * It also DISABLES ::-webkit-scrollbar styling wholesale.
+ * Older hosts injected the ::-webkit-scrollbar rules instead.
+ * Emulating both halves lets a --show-scrollbars render prove the dashboard's rules beat either.
  */
 export const VSCODE_DEFAULT_CSS = `@layer vscode-default {
 	html { scrollbar-color: var(--vscode-scrollbarSlider-background) var(--vscode-editor-background); }
@@ -129,24 +126,14 @@ export const VSCODE_DEFAULT_CSS = `@layer vscode-default {
 }`;
 
 /**
- * The measurement-mode font pin. Every measurement run (--widths or
- * --pane-widths) swaps the font tokens - the host pair and Tailwind's - for
- * these faces, whose ascent/descent/line-gap overrides make every line-box
- * metric a fixed fraction of the font size: heights measure the same on every
- * platform, so a green sweep on macOS predicts the Linux-only CI gate (the
- * host's mono fallback once rounded a mixed sans+mono line box 1px taller
- * there).
- * Screenshot runs (--out alone) keep the native stacks: design review judges
- * the host's fonts, measurement judges the pinned ones. Horizontal metrics
- * cannot be overridden in CSS, so the local() chains allow only faces with
- * IDENTICAL advance widths by design (Liberation Sans carries Arial's,
- * Liberation Mono carries Courier New's) and the engagement control measures
- * a reference string against those advances: a platform resolving anything
- * else fails the run loudly instead of measuring different wrap points. The
- * divergent faces are the same sources with deliberately different vertical
- * metrics - same advances, so a swap changes ONLY the metrics - for
- * check-geometry's probe that a text-bearing slot's height does not depend
- * on font metrics at all.
+ * Measurement runs (--widths, --pane-widths) swap every font token for these faces.
+ * Screenshot runs (--out alone) keep the native stacks, because design review judges those.
+ * The vertical metric overrides make every line box a fixed fraction of the font size.
+ * A green local sweep therefore predicts the Linux-only gate.
+ * A mono fallback once rounded a mixed sans+mono line box 1px taller on Linux.
+ * CSS cannot override horizontal metrics, so the local() chains allow only IDENTICAL advances.
+ * The engagement control fails the run on any other face.
+ * The divergent faces differ ONLY in vertical metrics, for check-geometry's metric probe.
  */
 const PINNED_SANS_SOURCES = `local("Arial"), local("Liberation Sans")`;
 

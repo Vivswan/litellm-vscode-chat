@@ -111,16 +111,12 @@ export interface ParsedParameterRecord extends ParsedRecord {
 }
 
 /**
- * Parse one parameters record into the engine's terms: every non-underscore
- * key is a pass-through field (the vocabulary stays open), `_force` marks
- * forced fields (refusing provider-owned and underscore names, and names the
- * record does not set), `_fim_template` is captured when it is a usable
- * template (diagnosed as invalid-directive otherwise), and the shared
- * inheritance directives parse in recordResolution. The capability side's
- * directives (registry-derived) are diagnosed as the wrong record type; truly
- * unknown underscore keys stay silently ignored for forward compatibility.
- * Exported for the record-level consumers; resolution goes through
- * resolveParameterLayer.
+ * The vocabulary stays open, so every non-underscore key is a pass-through field.
+ * `_force` refuses provider-owned names, underscore names, and names the record does not set.
+ * max_tokens is the one provider-owned name `_force` accepts, because the user can set it.
+ * `_fim_template` counts only when it is a usable template, and anything else is invalid.
+ * Unknown underscore keys pass silently, for forward compatibility.
+ * Record-level consumers call this, and resolution goes through resolveParameterLayer.
  */
 export function parseParameterRecord(record: Readonly<Record<string, unknown>>): ParsedParameterRecord {
 	const fields: Record<string, unknown> = {};
@@ -436,15 +432,13 @@ export interface EffectiveParametersProjection {
 }
 
 /**
- * The inspector's view of one model's request, computed from the same
- * resolution the request path runs. A numeric configured max_tokens never
- * appears as a row: it becomes the request's max_tokens value, which the
- * derivation reports with its attribution. A non-numeric one stays a row, not
- * sent.
- *
- * Production consumers moved to projectResolvedParameters; this
- * full-resolution form deliberately stays as the NAIVE side of the
- * seed-pinned equivalence property, not dead code.
+ * This computes the inspector's view of a request from the same resolution the request path runs.
+ * A numeric configured max_tokens never appears as a row.
+ * It becomes the request's max_tokens value, which the derivation reports with its attribution.
+ * A non-numeric one stays a row and is not sent.
+ * Production consumers use projectResolvedParameters.
+ * This full-resolution form is the NAIVE side of the seed-pinned equivalence property.
+ * It is not dead code.
  */
 export function projectEffectiveParameters(input: EffectiveParametersInput): EffectiveParametersProjection {
 	return projectResolvedParameters(

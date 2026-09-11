@@ -123,15 +123,13 @@ const LEVEL_RANK: Readonly<Record<CapabilityLevel, number>> = Object.fromEntries
 ) as Record<CapabilityLevel, number>;
 
 /**
- * Whether a model gets the reasoning-effort control, from the effective
- * fields. Two fields carry a signal - the supports_reasoning flag and
- * reasoning_effort's membership in supported_openai_params - and the one that
- * resolved at the higher-precedence level decides; a tie goes to the flag, so
- * a user's explicit supports_reasoning beats their own params list in one
- * record. The flag's floor level counts as no-signal, not a demotion: it is
- * the walk's backstop `false`, so a user-set params list at any level outranks
- * it. A winning params list WITHOUT reasoning_effort demotes, which is how a
- * user turns the control off.
+ * Two fields carry a signal: supports_reasoning, and reasoning_effort in supported_openai_params.
+ * The field resolved at the higher-precedence level decides.
+ * A tie goes to the flag, so an explicit supports_reasoning beats the params list in one record.
+ * The flag's floor level is the walk's backstop `false` and counts as no signal, not a demotion.
+ * So a user-set params list at any level outranks the floor.
+ * A winning params list WITHOUT reasoning_effort demotes.
+ * That is how a user turns the control off.
  */
 export function reasoningGate(fields: EffectiveCapabilityFields): boolean {
 	const flag = fields.supports_reasoning;
@@ -259,16 +257,12 @@ function advertisesEffective(
 }
 
 /**
- * Apply the capability overrides to one refresh's registered models. Models
- * nothing matches are returned by object identity (and an untouched pass
- * returns the input array itself), so the common no-configuration case costs
- * no copies. A matched model is rebuilt coherently from the effective fields:
- * token limits, the toolCalling/imageInput capabilities, the audio and
- * prompt-caching gates, the reasoning configurationSchema, the pricing block,
- * and the outputLimitSource provenance ("user" for any override level).
- * Pricing is never catalog-sourced: every price a served model carries is
- * re-derived here from the effective cost fields, so nothing but the server's
- * report and the user's records can put a number on a model.
+ * Apply the capability overrides to one refresh's registered models.
+ * Unmatched models come back by identity, and an untouched pass returns the input array itself.
+ * The common no-configuration case therefore costs no copies.
+ * Pricing is never catalog-sourced.
+ * Every price is re-derived here from the effective cost fields.
+ * So only the server's report and the user's records can put a number on a model.
  */
 export function applyCapabilityOverrides(
 	infos: readonly PreAttachModelInfo[],
@@ -336,14 +330,13 @@ export function applyCapabilityOverrides(
 
 /**
  * Build the declared models the current configuration creates on one server.
- * A declared ID that discovery listed is inert - judged against the DISCOVERED
- * raw-ID set, not the registered one, because registration may emit only
- * synthetic variants (`foo:cheapest`) for a discovered `foo`. A declared ID
- * whose exposed form collides with an ID registration is about to emit is
- * suppressed with a logged warning: never two models with one exposed ID.
- * Declared models are always rebuilt from the configuration at hand and never
- * persisted, so removing a declared ID takes effect on the next serve even
- * mid-outage.
+ * A declared ID that discovery listed is inert.
+ * The check reads the DISCOVERED raw IDs, not the registered ones.
+ * Registration may emit only synthetic variants (`foo:cheapest`) for a discovered `foo`.
+ * The build drops a declared ID that collides with an exposed ID about to register, and warns.
+ * Two models must never share an exposed ID.
+ * Declared models are rebuilt from configuration on every serve and never persisted.
+ * So removing a declared ID takes effect on the next serve, even mid-outage.
  */
 export function synthesizeDeclaredModels(
 	discoveredRawIds: ReadonlySet<string>,

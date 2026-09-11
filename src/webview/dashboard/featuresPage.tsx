@@ -185,22 +185,14 @@ function modelRefIdentity(ref: FeatureModelRef): string {
 const CUSTOM_OPTION = "custom";
 
 /**
- * One feature's model-picker row, rendered for every model-picking feature. The select
- * offers "Not set" plus every declared entry's served (server, model) pair; a configured
- * ref no offered pair currently backs stays IN the option list (selected, same rendered
- * text), so the dangling state changes no geometry - its only visible delta is the
- * warning in the covered description slot, which holds the cell's height by the covering
- * contract (check-geometry pins both). A standing write failure for this row outranks the
- * dangling warning: both render in the same covered slot, and the warning never clears
- * on its own, so it must not mask "the last change did not apply".
- *
- * "Custom model ID..." swaps the select for a same-height entry cluster (a declared
- * entry's label plus a free-typed model ID): the escape hatch for models the picker
- * cannot list - completion-mode (FIM) models never register as chat models, and a
- * server may serve IDs discovery cannot see. A feature whose probe activation registered
- * (state.featureProbes) also carries the test button: one probe running the feature's
- * exact pipeline, its outcome rendered as a short tone-styled status beside it (counts
- * and classified messages only, never response text).
+ * A configured ref no offered pair backs stays IN the option list, selected.
+ * The dangling state therefore changes no geometry, and only the covered description slot warns.
+ * check-geometry pins that geometry (geometryRegistry.ts, feature-model-dangling).
+ * A standing write failure outranks that warning in the slot.
+ * The warning never clears on its own, so it must not mask "the last change did not apply".
+ * "Custom model ID..." is the escape hatch for models the picker cannot list.
+ * FIM models never register as chat models, and a server may serve IDs discovery cannot see.
+ * The test button's outcome shows counts and classified messages only, never response text.
  */
 function FeatureModelRow({
 	feature,

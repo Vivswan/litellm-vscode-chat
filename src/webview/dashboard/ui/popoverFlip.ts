@@ -31,17 +31,14 @@ export function shouldFlipAbove(measured: FlipMeasurement): boolean {
 }
 
 /**
- * Measure now and on every change that can move `popover` relative to the
- * viewport's bottom edge, reporting shouldFlipAbove's verdict each time. Three
- * things move it and none implies the others: its own content resizing, the
- * reader scrolling it down there (capture, because the server form's panel is
- * its own scrollport and its scroll does not bubble), and the window resizing
- * under all of it. Returns the unsubscribe.
- *
- * The anchor is read per measurement as the popover's offsetParent - the box
- * the CSS positions against, so flipping moves the popover to exactly its top
- * edge. Under happy-dom there is no offsetParent, which is a reason to measure
- * nothing, not to stop watching.
+ * Measure now and on every change that can move `popover` relative to the viewport bottom.
+ * Three things move it and none implies the others.
+ * Its own content resizes, the reader scrolls, and the window resizes under all of it.
+ * The scroll listener is in capture, because the server form's panel is its own scrollport.
+ * That panel's scroll does not bubble.
+ * The anchor is the popover's offsetParent, the box the CSS positions against.
+ * Flipping therefore moves the popover to exactly its top edge.
+ * Under happy-dom there is no offsetParent, a reason to measure nothing, not to stop watching.
  */
 export function watchPopoverFlip(popover: HTMLElement, gapPx: number, onVerdict: (above: boolean) => void): () => void {
 	const measure = () => {

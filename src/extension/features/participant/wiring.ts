@@ -20,51 +20,35 @@ import { participantSnapshots } from "./snapshots";
 export type { SnapshotSource } from "./snapshots";
 
 /**
- * The @litellm participant's wiring: it adapts the host's ChatRequestHandler
- * signature onto the pure turn handler, owns the ONE logging boundary for the
- * feature, and creates or disposes the participant as chatParticipant.enabled
- * changes. Unlike the other features this one is ON by default and costs
- * nothing until a user types @litellm - it answers with the chat request's own
- * model, so it has no model setting and never picks a model itself.
- *
- * The slash-command registry outlives every participant instance on purpose:
- * a feature that extends the table (quick fixes add /fix and /explain)
- * registers once at activation, and a disable/enable cycle must not drop what
- * it registered.
+ * This wiring adapts the host's ChatRequestHandler onto the pure turn handler.
+ * It owns the feature's ONE logging boundary.
+ * It creates or disposes the participant as chatParticipant.enabled changes.
+ * Unlike the other features it is ON by default.
+ * It costs nothing until a user types @litellm.
+ * It answers with the chat request's own model, so it has no model setting and never picks one.
+ * The slash-command registry outlives every participant instance on purpose.
+ * Quick fixes register /fix and /explain once, and a disable/enable cycle must not drop them.
  */
 
 export interface ChatParticipantWiring {
 	/**
-	 * The slash-command table other features extend the participant through,
-	 * and the one place the live command set can be read.
-	 *
-	 * The contract, in full:
-	 * - Register during activation wiring, before any turn can arrive. It is
-	 *   not a runtime toggle - registering has no effect on turns in flight.
-	 * - `command.name` must be a name package.json contributes under this
-	 *   participant's `commands`. The HOST decides what `/name` routes to us,
-	 *   so a registration the manifest does not declare is never invoked. The
-	 *   contribution test pins the live table and the manifest equal in both
-	 *   directions, which is why the whole registry is exposed rather than a
-	 *   bare register function: a set nothing can read is a set nothing can
-	 *   pin.
-	 * - A duplicate name throws, because a silently shadowed command is a
-	 *   routing bug rather than a last-writer-wins preference.
-	 * - Registration survives the enablement toggle; disabling the feature
-	 *   disposes the participant, not the table.
+	 * Other features extend the participant through this table, the one readable live set.
+	 * Register during activation wiring, before any turn can arrive.
+	 * Registering has no effect on turns in flight, so it is not a runtime toggle.
+	 * `command.name` must be a name package.json contributes under this participant's `commands`.
+	 * The HOST decides what `/name` routes to us, so an undeclared registration is never invoked.
+	 * The contribution test pins the table and manifest equal, which needs a readable registry.
+	 * A duplicate name throws, because a shadowed command is a routing bug, not last-writer-wins.
+	 * Registration survives the enable toggle, because disabling disposes only the participant.
 	 */
 	readonly slashCommands: SlashCommandRegistry;
 	/**
-	 * Whether a live participant exists RIGHT NOW - the enable setting said yes
-	 * AND the host accepted the registration. Read per use, never cached: both
-	 * halves change at runtime.
-	 *
-	 * It exists because the setting alone is not the same fact. Registration can
-	 * refuse (an id conflict, a host that says no), and that failure is
-	 * classified and left unregistered here rather than thrown, so a caller that
-	 * needs @litellm to actually answer - the quick fixes, whose lightbulb
-	 * submits a turn addressed to it - would otherwise send into a name with
-	 * nothing behind it.
+	 * A live participant requires both the setting on and an accepted host registration.
+	 * It is read per use and never cached, because both halves change at runtime.
+	 * The setting alone is not the same fact, because registration can refuse.
+	 * An id conflict or a host that says no is classified and left unregistered here, never thrown.
+	 * The quick fixes' lightbulb submits a turn addressed to @litellm.
+	 * Without this check it would send into a name with nothing behind it.
 	 */
 	readonly isRegistered: () => boolean;
 }
@@ -126,17 +110,13 @@ function unreadableName(reference: vscode.ChatPromptReference): string {
 }
 
 /**
- * Every attachment on the turn, in the order the user wrote them. The host
- * sorts `references` in REVERSE prompt order (last reference first, to make
- * string surgery on the prompt easy), so reading them back to front restores
- * reading order.
- *
- * An attachment that cannot be read - a deleted file, a binary, a scheme with
- * no provider - never fails the turn: the rest of the question is still
- * answerable, and a hard failure here would make one stale editor tab enough
- * to break chat. It is carried through as `unreadable` rather than dropped, so
- * the model is told the user pointed at something it did not receive instead
- * of answering as though it had everything.
+ * Resolve every attachment on the turn, in the order the user wrote them.
+ * The host sorts `references` in REVERSE prompt order, last first, to ease its own string surgery.
+ * Reading them back to front restores reading order.
+ * An unreadable attachment, a deleted file, a binary, an unknown scheme, never fails the turn.
+ * The question is still answerable, and one stale editor tab must not break chat.
+ * It is carried through as `unreadable`, not dropped.
+ * The model is thus told the user pointed at something it did not receive.
  */
 async function resolveReferences(
 	references: readonly vscode.ChatPromptReference[],

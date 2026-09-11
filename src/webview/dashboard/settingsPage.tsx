@@ -465,7 +465,8 @@ function UsageThresholdsRow({
 	const [warningText, setWarningText] = useState(externalWarning);
 	const [errorText, setErrorText] = useState(externalError);
 	const syncKey = `${values.join(",")}@${configuredScope ?? "default"}`;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on syncKey alone; the external texts are read at sync time, not watched
+	// The effect reads the external texts at sync time and does not watch them.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on syncKey alone
 	useEffect(() => {
 		setWarningText(externalWarning);
 		setErrorText(externalError);

@@ -25,17 +25,13 @@ import { expectDefined } from "../pureHelpers";
 import { SLOW_STREAM_CHUNK_COUNT } from "../scenarios";
 
 /**
- * Host-fidelity test suite: the extension through the real VS Code LM API
- * (selectChatModels / sendRequest) rather than calling the provider directly.
- * Every suite stands up its own provider group(s); groups are add-only for the
- * host lifetime, so each suite mints per-group-unique model IDs and scopes its
- * model-list assertions to that universe.
- *
+ * These suites drive the extension through the real VS Code LM API, never the provider directly.
+ * Groups are add-only for the host lifetime.
+ * So each suite mints per-group-unique model IDs and scopes its model-list assertions to them.
  * Capture mode (default) runs against a deterministic local capture server.
- * Live mode (LITELLM_REAL_LIVE=1) smoke-tests the server named by
- * LITELLM_REAL_BASE_URL. Live is an explicit opt-in so ambient LITELLM_REAL_*
- * vars in a shell cannot silently turn `bun run test` into a live run with the
- * capture suites collapsed to skip stubs.
+ * Live mode (LITELLM_REAL_LIVE=1) smoke-tests the server named by LITELLM_REAL_BASE_URL.
+ * Live is an explicit opt-in so ambient LITELLM_REAL_* vars cannot turn `bun run test` live.
+ * In that case the capture suites would collapse to skip stubs unnoticed.
  */
 
 const REAL_BASE_URL = process.env.LITELLM_REAL_BASE_URL || "";

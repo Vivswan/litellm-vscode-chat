@@ -85,16 +85,13 @@ const REQUIRED_SOURCES: readonly string[] = [
 ];
 
 /**
- * Every underscore-prefixed name the file's code spells: string and template
- * literals, plus the identifier routes a literal walk is blind to - property
- * access (`record._force`), object-literal and type-member keys, and
- * destructuring bindings. The remaining blind spot is a name built at runtime.
- * The one-char "_" is the namespace probe, never a name. Reserved
- * object-plumbing names ("__proto__") are exempt by the same predicate the
- * record grammar enforces: isUnsafeRecordKey rejects them as record keys, so
- * no such name could ever be a directive. No such literal exists in code today
- * (the tree's are all in comments); the carve-out pre-empts the next hardening
- * one rather than excusing an existing one.
+ * The identifier routes are property access, object and type-member keys, and destructuring.
+ * The remaining blind spot is a name built at runtime.
+ * The one-char "_" is the namespace probe, never a name.
+ * isUnsafeRecordKey exempts "__proto__" and its kin.
+ * The record grammar enforces the same predicate, so no such name could ever be a directive.
+ * No such literal exists in code today; the tree's are all in comments.
+ * The carve-out pre-empts the next hardening rather than excusing an existing one.
  */
 function underscoreNames(fileName: string): ReadonlySet<string> {
 	const text = fs.readFileSync(path.join(CONFIG_DIR, fileName), "utf8");

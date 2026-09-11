@@ -357,20 +357,14 @@ export function registerSyncModelsCommand(
 }
 
 /**
- * Build the diagnostics snapshot and open a prefilled GitHub issue, behind the
- * setup gate: when the connection status is setup-shaped (not configured, or
- * failed with a setup hint), the user first gets a non-modal offer of the
- * faster fix, and only Report Anyway opens the issue (snapshot built up front,
- * so the report shows what the gate judged).
- *
- * The pass-through path remembers each opened report's diagnostic fingerprint
- * and, when the next attempt fingerprints the same within the recency window,
- * interposes a modal repeat-report hint. A changed fingerprint proceeds
- * without it. The setup gate keeps precedence over the repeat hint.
- *
- * Neither dialog is awaited: the dashboard's executeCommand intent awaits this
- * command inside its serialized message chain, so an unanswered dialog would
- * freeze every subsequent dashboard message.
+ * The setup gate applies when the connection status is not configured or failed with a setup hint.
+ * The user first gets a non-modal offer of the faster fix, and only Report Anyway opens the issue.
+ * Building the snapshot up front makes the report show what the gate judged.
+ * The pass-through path remembers each opened report's diagnostic fingerprint.
+ * A repeat within the recency window gets a modal repeat-report hint.
+ * The setup gate keeps precedence over the repeat hint.
+ * This awaits neither dialog, because the dashboard's executeCommand intent awaits this command.
+ * The await sits in a serialized chain, so an unanswered dialog would freeze every later message.
  */
 export async function runReportIssue(
 	getConnectionStatus: () => ConnectionStatus,
@@ -484,15 +478,13 @@ export function registerReportIssueCommand(
 const GROUPS_FILE_NAME = "chatLanguageModels.json";
 
 /**
- * Open the host's provider-groups JSON in an editor tab: the one place a
- * leftover provider group can be deleted (VS Code offers no removal API).
- * Best-effort by necessity: VS Code exposes no API for this file, and a
- * profile configured to inherit its language models keeps the governing file
- * in another profile's directory. The failure toast covers both ways the open
- * can fail: the file does not exist yet, or this window cannot reach the
- * desktop profile that holds it. The log line stays classification-only: the
- * resolved path embeds the local user name and the log buffer feeds public
- * issue reports.
+ * This opens the one place a user can delete a leftover group, since VS Code has no removal API.
+ * The open is best-effort, because VS Code exposes no API for this file.
+ * A profile configured to inherit its language models keeps the governing file in another profile.
+ * The failure toast covers both ways the open can fail.
+ * The file may not exist yet, or this window cannot reach the desktop profile that holds it.
+ * The log line stays classification-only because the resolved path embeds the local user name.
+ * The log buffer feeds public issue reports.
  */
 export function registerOpenGroupsFileCommand(context: vscode.ExtensionContext, logger: Logger): void {
 	context.subscriptions.push(

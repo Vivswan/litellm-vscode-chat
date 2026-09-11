@@ -15,16 +15,13 @@ import { noEntryForConfiguredServer } from "./modelSettingError";
 export type OneShotChatFeature = Exclude<FeatureModelId, "inlineCompletions">;
 
 /**
- * The one-shot chat features' ONE send composition, at the features/ root
- * because features may not import each other: label-to-connection through the
- * shared entryConnectionFor, the shared no-such-label error naming the
- * feature's own model setting, and one non-streaming /chat/completions call
- * under the feature's error surface (FEATURE_ERROR_SURFACE) bounded by the
- * chat request timeout. Each feature keeps its own prompt assembly and its own
- * error handling around this; only the send composition is shared. The body is
- * exactly what OneShotChatRequest declares - models.parameters records
- * deliberately do NOT apply on this path, and no max_tokens rides along, so
- * the model's own default bounds the answer.
+ * This is the one-shot chat features' one send composition.
+ * It lives at the features/ root because features may not import each other.
+ * Each feature keeps its own prompt assembly and error handling.
+ * Only the send is shared.
+ * The body is exactly what OneShotChatRequest declares.
+ * models.parameters records do NOT apply on this path.
+ * No max_tokens rides along, so the model's own default bounds the answer.
  */
 export async function featureChatSend(
 	feature: OneShotChatFeature,

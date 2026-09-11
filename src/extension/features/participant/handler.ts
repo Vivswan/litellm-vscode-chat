@@ -97,17 +97,14 @@ function noCommandsText(): string {
 }
 
 /**
- * Handle one turn: route a slash command through the registry, answer a plain
- * prompt through the model with the converted history ahead of it, and turn
- * an empty prompt without a runnable command into a short command listing
- * instead of an empty request. A command name the registry does not know
- * falls back to the plain-prompt path with the command preserved in its
- * typed form, so a contribution/registry drift degrades instead of erroring.
- * Every outgoing message array is normalized to wire shape at the send
- * boundary, so dropped history turns cannot produce a leading answer or a
- * same-role run a provider would reject. Errors are caught per turn: the
- * user gets friendly text, the wiring gets a classification, and
- * cancellation alone rides out uncaught.
+ * Handle one turn.
+ * A command name the registry does not know falls back to the plain-prompt path.
+ * The command stays in its typed form, so a manifest drift degrades instead of erroring.
+ * Every outgoing message array is normalized to wire shape at the send boundary.
+ * Dropped history turns therefore cannot produce a leading answer or a same-role run.
+ * Errors are caught per turn.
+ * The user gets friendly text and the wiring gets a classification.
+ * Cancellation alone rides out uncaught.
  */
 export async function handleParticipantTurn(
 	request: ParticipantRequest,

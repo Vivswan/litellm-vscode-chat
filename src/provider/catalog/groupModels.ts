@@ -65,15 +65,13 @@ interface LiteLLMModelMetadataBase {
 }
 
 /**
- * Registration output before any group server is attached. The `never` pins
- * the split: the discovery cache, StatusWindow.record, and every snapshot the
- * dashboard reads hold this type, and a group-attached copy (whose server
- * embeds the group's credentials) does not compile there.
- *
- * `serverDeclared` is registration's post-aggregation server baseline for the
- * capability resolver. Required, so a pre-attach entry without a baseline is
- * unrepresentable rather than silently empty; attach drops it, since the chat
- * path reads only patched values.
+ * Registration emits this type before any group server is attached.
+ * The `never` pins the split.
+ * The discovery cache, StatusWindow.record, and every dashboard snapshot hold this type.
+ * A group-attached copy, whose server embeds the group's credentials, does not compile there.
+ * `serverDeclared` is registration's post-aggregation server baseline for the capability resolver.
+ * It is required, so an entry without a baseline fails to compile instead of reading empty.
+ * Attach drops it, since the chat path reads only patched values.
  */
 export interface PreAttachModelInfo extends LanguageModelChatInformation {
 	readonly litellm: LiteLLMModelMetadataBase & {
@@ -120,27 +118,14 @@ export function overlayGroupCredentials(server: GroupServer, credentials: GroupC
 const GROUP_CLIENT_ID_PREFIX = "group:";
 
 /**
- * Two groups may point at one base URL with different credentials, so group
- * identity includes a non-secret fingerprint over the whole credential
- * material: API key, OAuth client credentials, and virtual key. Two DECLARED
- * entries may even share the URL and every credential, so the entry label
- * joins the identity too - without it both entries would collapse to one
- * status-window identity and the second could never report.
- *
- * The identity is ONE injective encoding: a fixed-arity JSON tuple with one
- * slot per component, absent components as null - the same
- * JSON.stringify-composition rule the fingerprint and the discovery cache key
- * follow. JSON escaping keeps every slot inside its slot, so no free-form
- * value (the raw API key above all) can spell another component or another
- * component combination; the pinned injectivity property drives adversarial
- * JSON-shaped keys through exactly that claim. The tuple is hashed, so no ID
- * embeds credential material. Rotating any part mints a new identity for the
- * same logical group; the status window evicts the retired identity the
- * moment the new one records (StatusWindow.record), so a rotation never
- * leaves a ghost twin. IDs are derived, never stored (the salted fingerprint
- * keeps them stable across sessions for unchanged credentials); the one
- * persisted carrier (the status blob) is version-stamped and restores nothing
- * from other shapes, so a format change costs one blob reset and nothing else.
+ * Groups on one base URL may differ only by credentials, so a credential fingerprint joins the ID.
+ * Two DECLARED entries may share the URL and every credential, so the label joins too.
+ * Without it both would collapse to one status-window identity, and the second could never report.
+ * The fixed-arity JSON tuple is injective, because JSON escaping keeps every value inside its slot.
+ * Hashing the tuple keeps credential material out of every ID.
+ * The salted fingerprint keeps IDs stable across sessions for unchanged credentials.
+ * Rotation mints a new identity, and StatusWindow.record evicts the retired one, so no ghost twin.
+ * The status blob, the one persisted carrier, is version-stamped, so a format change resets it.
  */
 export function groupClientId(server: GroupServer): string {
 	const identity = JSON.stringify([
@@ -234,17 +219,13 @@ function narrowVirtualKey(header: unknown, value: unknown, log?: NarrowLog): Vir
 }
 
 /**
- * Narrow a group configuration to a usable server. Returns undefined when the
- * configuration is not an object or has no usable baseUrl; a missing or
- * non-string apiKey means a keyless server, and partial or malformed OAuth
- * and virtual-key fields degrade to absent rather than failing the group.
- * Unknown fields are ignored for forward compatibility.
- *
- * The entry fields are read through OPTIONAL_ENTRY_FIELDS (the one descriptor
- * of a server entry's fields), and the rest-destructure below is the totality
- * guard: a field added to the descriptor fails this function's compile until
- * the parser consumes it, so nothing buildGroupArgs sends can silently drop
- * on the host-configuration path.
+ * Narrow a group configuration to a usable server, or undefined without a usable baseUrl.
+ * A missing or non-string apiKey means a keyless server.
+ * Partial or malformed OAuth and virtual-key fields degrade to absent, not to a failed group.
+ * The parser ignores unknown fields for forward compatibility.
+ * The rest-destructure below is the totality guard over OPTIONAL_ENTRY_FIELDS.
+ * A field added to the descriptor fails this function's compile until the parser consumes it.
+ * So nothing buildGroupArgs sends can drop unnoticed on the host-configuration path.
  */
 export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog): GroupServer | undefined {
 	if (!isRecord(configuration)) {
@@ -287,15 +268,13 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
 }
 
 /**
- * Attach the resolved server to a pre-attach model entry: the sole
- * constructor of AttachedModelInfo. The detail field is dropped so the host
- * fills it with the group name.
- *
- * The destructure below is a canary, not round-trip safety: when GroupServer
- * grows an optional field, the `unconsumed` assignment stops compiling and
- * forces a visit to this seam. The real work then happens in the copies that
- * cannot carry such a guard - parseAttachedServer and the ServerConnection
- * copies on the request path.
+ * Only this function constructs AttachedModelInfo.
+ * Dropping the detail field lets the host fill it with the group name.
+ * The destructure below is a canary, not round-trip safety.
+ * When GroupServer grows an optional field, the `unconsumed` assignment stops compiling.
+ * That forces a visit to this seam.
+ * The real work then happens in the copies that cannot carry such a guard.
+ * Those are parseAttachedServer and the ServerConnection copies on the request path.
  */
 export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer): AttachedModelInfo {
 	const { detail: _detail, ...rest } = info;
@@ -316,15 +295,13 @@ export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer)
 }
 
 /**
- * Decorate a stale-served model set: a group whose latest silent refresh
- * failed serves its last known models with the picker's warning icon and a
- * hover banner instead of vanishing. The signature accepts and returns
- * AttachedModelInfo only, so decorated copies cannot enter the discovery
- * cache, the status window, or a dashboard snapshot, and the next successful
- * sweep clears the decoration by construction. The banner is a fixed
- * classification plus the LAST SUCCESSFUL sync time: anchoring to the success
- * means repeated failures cannot make stale data look freshly checked, and the
- * failure's display string never rides model metadata into hovers.
+ * Decorate a stale-served model set with the picker's warning icon and a hover banner.
+ * It accepts and returns AttachedModelInfo only.
+ * So decorated copies cannot enter the discovery cache, status window, or a dashboard snapshot.
+ * The next successful sweep clears them.
+ * The banner is a fixed classification plus the LAST SUCCESSFUL sync time.
+ * Anchoring to the success means repeated failures cannot pass stale data off as current.
+ * The failure's display string never rides model metadata into hovers.
  */
 export function markStale(infos: readonly AttachedModelInfo[], lastSyncedDisplay: string): AttachedModelInfo[] {
 	const warningText = {

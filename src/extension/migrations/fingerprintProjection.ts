@@ -1,51 +1,27 @@
 /**
- * Rewrites persisted server-sync fingerprints from the legacy full-args
- * rendering (a salted hash over the whole buildGroupArgs object, credentials
- * included) to the identity-only rendering the engine compares against today
- * (groupArgsFingerprint's "i1:"-prefixed projection). State-detecting and
- * idempotent: the legacy state is a declared entry whose stored record lacks
- * the "i1:" prefix.
+ * This migration retires sync fingerprints hashed over the full group args, credentials included.
+ * The engine compares only the identity-only "i1:" rendering from groupArgsFingerprint.
+ * The legacy state is a declared entry whose stored record lacks the "i1:" prefix.
  *
- * A record is rewritten on either of two proofs, checked in order:
+ * Two proofs rewrite a record, checked in order.
+ * Proof 1 is the identity ledger naming the entry's current normalized base URL for the label.
+ * A pass writes a ledger record only after proving the live group held the entry's configuration.
+ * A ledger match therefore proves identity whatever credentials the legacy hash covered.
+ * That heals a key rotated before the upgrade (#277), whose old hash can never be recomputed.
+ * Proof 2 is the record equaling the legacy rendering of the entry's current args.
+ * The legacy rendering lives only here, and the engine knows only the current one.
+ * Undeclared labels keep their records because removal detection needs them.
+ * Only proof 2 defers on an ownership refusal, since proof 1 reads no secrets.
  *
- * 1. The identity ledger (SYNCED_ENTRY_BASE_URLS_KEY) names the entry's
- *    current normalized base URL for the label. A ledger record is written
- *    only when a pass proved the live group held exactly the entry's
- *    configuration, so a match proves the group's IDENTITY regardless of what
- *    the legacy record's credentials were - this is what heals the #277 state
- *    itself, where the key was rotated before the upgrade and the legacy
- *    rendering can never be recomputed.
- * 2. The record equals the legacy rendering of the entry's current args (the
- *    fallback for labels the ledger predates). The legacy rendering below is
- *    quarantined here on purpose; the engine knows only the current one.
- *
- * Anything else (a record for a re-pointed entry, a blocked entry's carried
- * last-known-good) is left for the engine to classify exactly as before.
- * Undeclared labels' records are left untouched (removal detection needs
- * them). An entry whose stored secret is ownership-refused waits on the
- * legacy path (the engine shows secretsMismatched for it anyway); the ledger
- * path does not read secrets at all.
- *
- * Multi-window note: the write merges the rewrites over a FRESH read of the
- * store, applying each only where the fresh value still equals the record
- * this pass judged, so records another window added or re-synced while this
- * pass ran survive. What remains is globalState's documented last-write-wins
- * hazard: two windows activating at once can interleave whole-key writes and
- * one window's projections can be lost. Three layers bound the damage: the
- * migration reruns on EVERY activation (state-detecting) and the ledger proof
- * needs no secrets, so a lost projection is redone on the next activation;
- * the real env's setFingerprints never overwrites a current-format store
- * record with a carried legacy-format one, so an engine pass in the losing
- * window cannot un-project a label another window already projected; and in
- * the theoretical residue (stale storage reads defeating both, a pre-ledger
- * label, a rotation before any healthy activation) the label degrades to the
- * blocked classification with its documented manual fix - exactly the
- * pre-migration behavior for every rotation, never anything worse.
- * Cross-process atomicity would take the versioned-blob protocol
- * (groupRemovals.ts), the engine's own persistence design, not a migration's.
- * A concurrent OLD-version window writing full-args records back is healed
- * the same way - both versions compare records only by equality, so the churn
- * is non-destructive in both directions.
+ * The write merges over a fresh read.
+ * Each rewrite applies only where the fresh value still equals the record this pass judged.
+ * Records another window wrote meanwhile therefore survive.
+ * globalState stays last-write-wins across windows, so a projection can still be lost.
+ * The migration reruns every activation, so a lost projection is redone next time.
+ * The real env's setFingerprints never overwrites a current-format record with a legacy one.
+ * The residue degrades to the blocked classification, the pre-migration behavior for a rotation.
+ * An old-version window writing full-args records back heals the same way.
+ * Both versions compare records only by equality, so the churn is non-destructive both ways.
  */
 
 import * as vscode from "vscode";

@@ -118,21 +118,14 @@ function collectAuthFields(
 }
 
 /**
- * The flat fields' auth object under the settled primacy rule (oauth > apiKey
- * > virtualKey; a form carries strictly-lower-primacy companions): a
- * structurally usable oauth (BOTH tokenUrl and clientId, matching the old
- * runtime's hasOAuth gate) is the form and demotes apiKey and virtualKey to
- * companions; apiKey beside virtualKey is the apiKey form with the virtualKey
- * companion - exactly the header set the old transport sent for each
- * combination.
- *
- * Lone oauth pieces are DROPPED like other never-honored values: the old
- * runtime ignored a partial oauth entirely, and carrying it forward would make
- * the whole entry misconfigured. A SENDABLE virtualKey HEADER without its
- * value keeps riding - the value may rest in SecretStorage. A VALUE without
- * its header, and a header that is not a valid HTTP header name, can never
- * reach the wire, so they drop like the lone oauth pieces (a stored blob under
- * the label survives and a re-added header finds it).
+ * Primacy is oauth > apiKey > virtualKey, and the form carries lower-primacy fields as companions.
+ * That reproduces exactly the header set the old transport sent for each combination.
+ * Oauth is usable only with BOTH tokenUrl and clientId, the old runtime's hasOAuth gate.
+ * Lone oauth pieces drop because the old runtime ignored a partial oauth.
+ * Carrying a partial oauth forward would make the whole entry misconfigured.
+ * A sendable virtualKey header keeps riding without its value, which may sit in SecretStorage.
+ * A value without its header, or an invalid header name, could never reach the wire, so it drops.
+ * The stored blob survives that drop, and a re-added header finds it.
  */
 function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 	auth: Record<string, unknown> | undefined;
@@ -374,22 +367,14 @@ const LIST_DIRECTIVES: readonly {
 const LIST_DIRECTIVE_NAMES: readonly string[] = LIST_DIRECTIVES.map((directive) => directive.name);
 
 /**
- * Merge a moved scoped record into the entry's own record under the SAME key -
- * the one overlap the move can resolve losslessly, because identical keys
- * match identical models and the old runtime merged the entry record over the
- * scoped one field by field: entry fields win, scoped-only fields fill in.
- *
- * The directives are the delicate half, because adding fields to a record
- * changes what its own `_force`/`_fallback` cover. Two rules keep each field
- * at the level it had:
- *  - an entry-side `true` marked the ENTRY's fields only, so it expands to
- *    that literal list before scoped-only fields land;
- *  - an entry-side list name that marked nothing is dropped when the scoped
- *    record supplies the field, so an inert mark cannot spring to life on a
- *    value that was never marked.
- * The scoped side's marks then follow its surviving fields. A scoped name
- * whose field the entry overrode is dropped rather than re-pointed at the
- * entry's value. Returns undefined when nothing changes.
+ * Same-key collisions are the one overlap the move resolves losslessly.
+ * Identical keys match identical models, and the old runtime merged entry over scoped per field.
+ * Adding fields changes what a record's own `_force`/`_fallback` cover.
+ * Each mark must therefore keep the coverage it had.
+ * An entry-side `true` marked the entry's fields only, so it expands to that literal list first.
+ * An entry-side name that marked nothing drops when the scoped record supplies the field.
+ * Otherwise an inert mark could spring to life on a value that was never marked.
+ * A scoped name whose field the entry overrode drops rather than re-point at the entry's value.
  */
 function mergeCollidingRecords(
 	existing: Record<string, unknown>,

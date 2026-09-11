@@ -4,14 +4,12 @@ import type { Logger } from "../../shared/logger";
 import { commandErrorActions, showActionableMessage } from "../ui/notifier";
 
 /**
- * The command features' ONE failure boundary, at the features/ root (like
- * featureChatSend.ts) because features may not import each other: cancellation
- * is silent by invariant, everything else logs exactly once at the feature's
- * own boundary and answers with the shared error notification. The consult
- * tool deliberately does not call this - it must RETHROW so the classified
- * error travels on to the chat view that invoked it, and a shared helper that
- * sometimes rethrows would be two behaviors under one name.
- *
+ * This is the command features' one failure boundary.
+ * It lives at the features/ root because features may not import each other.
+ * Cancellation stays silent by invariant.
+ * Everything else logs exactly once here.
+ * The consult tool does not call this, because it must rethrow to the chat view that invoked it.
+ * A helper that sometimes rethrows would be two behaviors under one name.
  * `logLine` is log output, so it stays English by policy.
  */
 export async function reportCommandFailure(

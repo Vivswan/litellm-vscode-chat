@@ -64,13 +64,12 @@ export function currentMcpEntries(): McpEntry[] {
 }
 
 /**
- * Whether the endpoint is on the same origin as the entry's base URL, which is
- * what decides if the entry's credentials ride along. The feature publishes a
- * server's OWN MCP endpoint, and a stored secret is paired with the entry's
- * base URL (secretDestination): an endpoint at another origin is a destination
- * nothing authorized it for, so it is published WITHOUT credentials rather
- * than handed them because a URL was typed. Same origin, any path - the
- * documented case is a proxy serving /mcp somewhere other than the root.
+ * Decide whether the endpoint is on the same origin as the entry's base URL.
+ * Credentials are composed only for an endpoint on the entry's own origin.
+ * A stored secret is paired with the entry's base URL by secretDestination.
+ * An endpoint at another origin is a destination nothing authorized it for.
+ * It is published WITHOUT credentials rather than handed them because a URL was typed.
+ * Any path on the same origin counts, since a proxy may serve /mcp away from the root.
  * Unparseable either side reads as "not the same", the fail-closed answer.
  */
 function sameOrigin(endpoint: string, baseUrl: string): boolean {
@@ -167,31 +166,14 @@ export function createMcpServerDefinitionProvider(
 		provideMcpServerDefinitions: () => mcpDescriptors(deps).map(definitionOf),
 
 		/**
-		 * Compose the session's credentials, at the one moment the editor is
-		 * about to open a session. The headers are exactly what a request from
-		 * this extension to the same server would carry (the shared auth
-		 * overlay, OAuth exchange included), so the proxy sees one identity for
-		 * chat and tools alike - but only for an endpoint on the entry's own
-		 * origin (see sameOrigin), and only when the entry's stored secrets are
-		 * stamped for it: credentials handed to the editor are past our reach,
-		 * so an unproven pairing is refused rather than sent and watched.
-		 *
-		 * The definition the editor hands back is treated as a REQUEST, not as
-		 * truth: it may predate an edit that retired the opt-in or moved the
-		 * endpoint, and attaching current credentials to a stale definition
-		 * would send them somewhere the setting no longer names. So the
-		 * publication is re-derived from the setting - before the credential
-		 * reads AND again after them, because an edit can land while the token
-		 * exchange is in flight - and the whole descriptor must still match,
-		 * version included.
-		 *
-		 * That second read narrows the window rather than closing it: the
-		 * rotation counter is written asynchronously while versionOf reads the
-		 * PERSISTED value, so an edit landing mid-exchange can still pass the
-		 * check with pre-edit headers. What the check does guarantee is bounded
-		 * and is the part that matters: same label, same endpoint, same origin,
-		 * all three re-read from the setting. The change event that follows the
-		 * write is what corrects the rest, by making the editor re-resolve.
+		 * Credentials go only when the entry's stored secrets are stamped for that destination.
+		 * Credentials handed to the editor are past our reach, so an unproven pairing is refused.
+		 * The editor's definition is a REQUEST that may predate an edit, never truth.
+		 * So the publication is re-derived from the setting before and after the credential reads.
+		 * The whole descriptor must still match, version included.
+		 * The guarantee is same label, endpoint, and origin, all three re-read from the setting.
+		 * The change event after the write corrects the rest by making the editor re-resolve.
+		 * versionOf's doc describes the window that leaves open.
 		 */
 		resolveMcpServerDefinition: async (server, token) => {
 			// Set by refuse(), which logs its own throw. The class cannot be the

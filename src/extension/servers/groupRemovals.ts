@@ -137,24 +137,14 @@ function parseVersionedRecords(raw: unknown): VersionedRecords {
 }
 
 /**
- * One Memento region under the versioned-blob protocol: the in-memory list is
- * authoritative for this window, every persist bumps the version, and stored
- * snapshots are adopted only when strictly newer. That closes the observed
- * globalState hazard (#220: an
- * awaited update reverted moments later by a stale value - the nightly monkey
- * fuzzer caught removed groups' models never leaving the host list that way),
- * because the revert carries an older-or-equal version and is ignored, while
- * another window's genuine mutation - its dashboard Unhide included - synced
- * before mutating, so its blob is strictly newer and is adopted. Simultaneous
- * mutations from two windows remain last-write-wins.
- *
- * Persistence is best-effort: a failure is reported, never thrown (a thrown
- * persist would make callers report the opposite of the effective state), and
- * the version does not advance. While memory holds records a persist failed
- * to write, adoption is suspended (a foreign snapshot would silently drop
- * them); the next successful persist writes the whole view above every stored
- * version and resumes the shared protocol. A failed persist with no later
- * mutation costs the NEXT session the records, never this one.
+ * This region closes globalState hazard #220, a stale value reverting an awaited update.
+ * The nightly monkey fuzzer caught it as removed groups' models never leaving the host list.
+ * A revert carries an older-or-equal version, so the region ignores it.
+ * Another window's real mutation, Unhide included, synced first, so its blob is newer and adopted.
+ * Two windows mutating at once remain last-write-wins.
+ * A persist failure reports instead of throwing, so callers never report the opposite of reality.
+ * Adoption pauses while memory holds unpersisted records, since a foreign snapshot would drop them.
+ * A failed persist with no later mutation costs the NEXT session the records, never this one.
  */
 class VersionedRegion<T> {
 	private records: readonly T[];

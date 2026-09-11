@@ -26,23 +26,14 @@ import {
 import { expectDefined } from "./pureHelpers";
 
 /**
- * Generative stream fuzzer for the docker LiteLLM stack. The event generators and the assembly oracle live in
- * fuzzStream.ts, shared with the in-process property suites.
- *
- * Each iteration builds a random stream as serializable events (text, delta/inline/duplicated/interleaved
- * tool calls, refusals, citations, reasoning, junk), registers it on the fake backend, selects it by sending
- * %play:<name> as the user message, streams it through the VS Code LM API, and asserts the exact expected
- * outcome: text arrives verbatim (including the space hint and citation trailer the extension adds), tool
- * calls reassemble exactly, and IDs stay unique.
- *
- * Three targets share the generator: through the LiteLLM proxy; directly against the fake backend, which
- * additionally generates what the proxy would reject (malformed chunks, multi-part refusals) to fuzz the
- * extension's leniency contract over a real socket; and the direct shapes through a declared model on the
- * fake backend's no-discovery mirror, exercising declared-model registration and routing. A
- * random-cancellation pass checks streams die promptly and silently when cancelled.
- *
- * Failures shrink to a minimal failing event list before reporting, and the corpus in fuzzCorpus.ts replays
- * past failures first. Reproduce any run with `FUZZ_SEED=<seed> bun run test:docker` (the seed is logged).
+ * Generators and the assembly oracle live in fuzzStream.ts, shared with the in-process suites.
+ * The direct target also generates malformed chunks and multi-part refusals the proxy would reject.
+ * So the extension's leniency contract meets a real socket.
+ * The declared-model target routes the direct shapes through the fake's no-discovery mirror.
+ * Failures shrink to a minimal event list.
+ * fuzzCorpus.ts replays past failures first.
+ * Every run logs its seed.
+ * Reproduce one with `FUZZ_SEED=<seed> bun run test:docker`.
  */
 
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");

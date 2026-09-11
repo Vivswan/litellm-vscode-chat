@@ -1,27 +1,14 @@
 import { stripMarkdownFences } from "../../../shared/util/text";
 
 /**
- * The lenient parse of the one-shot PR answer. The prompt asks for a
- * Title:/Description: pair; models approximate it with label case drift,
- * markdown emphasis, labels on their own line, a missing Description label,
- * no labels at all, a short preamble, or a fence around the whole reply.
- * Total: every reply maps to a value, and the no-usable-answer variant
- * carries nothing, so no response-derived text can ride a failure into logs
- * or issue reports.
- *
- * Fence handling uses the shared stripMarkdownFences only where that helper's
- * documented precondition literally holds - a reply that IS a single fenced
- * block, which means exactly TWO fence lines, the first and the last. Testing
- * only the first and last lines is not that test: a reply whose description
- * merely ends with a code block passes it, and the helper then removes that
- * block's closer, leaving the rest of the PR body rendering as code. The
- * prompt asks for markdown, so multi-block answers are an expected shape here,
- * not an edge case.
- *
- * Every other leading fence costs its own LINE and nothing else. No closing
- * fence anywhere in the reply is removed outside the single-block case, so a
- * wrong guess about the reply's structure can leave a stray line but can never
- * unterminate a block.
+ * Parse the one-shot PR answer leniently, since models only approximate the label pair asked for.
+ * The parse is total, and the empty variant carries nothing, so no response text reaches logs.
+ * stripMarkdownFences runs only when its precondition literally holds, exactly TWO fence lines.
+ * A description that only ends with a code block would otherwise lose that block's closer.
+ * The prompt asks for markdown, so multi-block answers are an expected shape, not an edge case.
+ * Any other leading fence costs its own LINE.
+ * The one other closer removed is the bare fence right after a title that sat in its own block.
+ * A tagged fence, or one arriving later, belongs to the description and stays.
  */
 
 /** A parsed one-shot answer; `empty` means no usable title could be read. */
@@ -104,16 +91,14 @@ function cleanTitle(line: string): string {
 }
 
 /**
- * Parse a reply into title and description. Noise-only lines never hold or
- * block the title. The title label may sit on any of the first
- * TITLE_SCAN_LINES content lines (preamble before it is dropped unless it
- * carries the description); a blank labeled title takes the following content
- * line. Without a title label, the first content line is the title.
- * Everything after the title is the description, with a description label
- * stripped only when it is the remainder's first content line - later
- * label-looking lines are content and are kept. A title that still came out
- * blank takes the description's first line. A blank description is
- * `undefined`; no usable title at all is the empty variant.
+ * Parse a reply into title and description.
+ * Noise-only lines never hold or block the title.
+ * The title label may sit on any of the first TITLE_SCAN_LINES content lines.
+ * Preamble before the title label is dropped unless it carries the description.
+ * Without a title label, the first content line is the title.
+ * A description label is stripped only as the remainder's first content line.
+ * A title that still came out blank takes the description's first line.
+ * A blank description is `undefined`.
  */
 export function parseTitleAndDescription(reply: string): TitleAndDescriptionParse {
 	const normalized = reply.replace(/\r\n?/g, "\n").trim();

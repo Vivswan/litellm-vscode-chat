@@ -1,28 +1,27 @@
 /**
- * A label's secret fields on the secure side (the SecretStorage blob) and
- * inline in the setting, with the precedence rule between them.
+ * A label's secret fields live in the SecretStorage blob or inline in the setting, and inline wins.
  *
- * The blob also records OWNERSHIP: beside the values, a `_owner` map stamps
- * each field with the destination it was stored for (written by every
- * deliberate pairing action - a dashboard save, the palette command, an
- * import, an adoption). resolveOwnedSecrets is the one check that admits a
- * stored value into a pairing with an entry: a stamp naming a different
- * destination refuses the field, so a leftover or surviving blob can never
- * silently authenticate against a host it was not stored for (removals keep
- * blobs on purpose, and a rejected SecretStorage delete can leave one behind).
- * Refusal is scoped by the one wire rule (entryUsesSecretField): a stale stamp
- * on a value the entry cannot send is inert, not a mismatch - the value stays
- * stored under its old stamp and re-enters the check if the entry ever
- * declares the shape that would send it.
- * Fields stored before stamping existed carry no stamp and resolve as before;
- * the stampSecretOwners migration back-fills stamps for declared entries.
+ * The blob also records OWNERSHIP.
+ * A `_owner` map stamps each field with the destination it was stored for.
+ * Every deliberate pairing action writes the stamp.
+ * Those actions are a dashboard save, the palette command, an import, and an adoption.
+ * resolveOwnedSecrets is the one check that admits a stored value into a pairing with an entry.
+ * A stamp naming a different destination refuses the field.
+ * A mismatched stamped field therefore never enters a pairing that gates on this check.
+ * The one-shot feature sends use the raw stored values and let the server's own 401 report it.
+ * Removals keep blobs, and a rejected SecretStorage delete can leave one behind.
+ * The one wire rule, entryUsesSecretField, scopes refusal.
+ * A stale stamp on a value the entry cannot send is inert, not a mismatch.
+ * The value stays stored under its old stamp.
+ * It re-enters the check if the entry ever declares the shape that would send it.
+ * Fields stored before stamping existed carry no stamp and resolve as before.
+ * The stampSecretOwners migration back-fills stamps for declared entries.
  *
- * Writes are read-modify-write over the whole blob, so within one window they
- * are serialized per label (two interleaved writes could otherwise resurrect
- * a cleared field). Across windows SecretStorage offers no compare-and-swap:
- * concurrent writes to one label remain last-write-wins, which the ownership
- * stamp bounds - a lost update can misplace a value, but the stamp still
- * refuses it anywhere it does not belong.
+ * Writes are read-modify-write over the whole blob, so one window serializes them per label.
+ * Two interleaved writes could otherwise resurrect a cleared field.
+ * SecretStorage has no compare-and-swap across windows, so concurrent writes stay last-write-wins.
+ * The stamp bounds that hazard.
+ * A lost update can misplace a value, but the stamp still refuses it anywhere it does not belong.
  */
 
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
@@ -239,25 +238,14 @@ export interface OwnedSecretsResolution {
 }
 
 /**
- * THE ownership check: which of a label's stored values may be paired with
- * `entry`. A field whose stamp names a different destination than the entry's
- * is dropped from the resolution; if the entry would actually have SENT it -
- * entryUsesSecretField says the entry's shape uses the field, and no inline
- * value wins - it is also listed as refused so the caller can refuse the whole
- * pairing instead of proceeding without the credential (the sync engine's
- * add-only host would make a credential-less group permanent). An unstamped
- * field predates stamping and resolves as before. Every consumer that pairs a
- * blob with an entry - the sync engine, the usage poller, the dashboard's
- * keep resolution, the with-secrets export - reads this one function.
- *
- * A stale-stamped value the entry cannot send - a virtualKeyValue with no
- * declared header, an oauthClientSecret with no active OAuth unit - is dropped
- * (and listed in `mismatched` for the export's accounting) but NOT refused: it
- * reaches no wire, so it blocks no sync while inert. It stays in storage under
- * its old stamp ON PURPOSE: the moment the entry declares the shape that uses
- * the field, the same value re-enters this check and the refusal fires then -
- * the moment the value would actually reach a wire, rather than while it
- * cannot matter.
+ * Every consumer that pairs a blob with an entry uses this ownership check.
+ * The check drops a field whose stamp names another destination.
+ * If the entry would SEND that field, the check also refuses it.
+ * The caller can then refuse the whole pairing rather than proceed without the credential.
+ * An add-only host would make a credential-less group permanent.
+ * The check drops a stale-stamped value the entry cannot send but does NOT refuse it.
+ * Such a value, say a virtualKeyValue with no declared header, reaches no wire and blocks no sync.
+ * It stays stored under its old stamp, so the refusal fires once the entry could send it.
  */
 export function resolveOwnedSecrets(entry: DeclaredServer, record: StoredSecretsRecord): OwnedSecretsResolution {
 	const values: { -readonly [K in SecretFieldId]?: string } = {};

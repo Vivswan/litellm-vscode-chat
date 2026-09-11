@@ -12,24 +12,14 @@ export interface EntryConnection {
 	readonly entry: DeclaredServer;
 	readonly connection: UsageConnection;
 	/**
-	 * Stored fields whose ownership stamp names a destination other than this
-	 * entry's, and that the entry would otherwise have used (resolveOwnedSecrets'
-	 * `refused`). A non-empty list means the label's blob was paired with a
-	 * different server - the usual cause is a base URL edited after the secret
-	 * was stored - so sending it would authenticate against a host nothing
-	 * paired it with.
-	 *
-	 * The verdict rides ALONGSIDE the connection rather than gating it, because
-	 * the callers disagree on purpose: the MCP publisher refuses the pairing (it
-	 * hands credentials to the editor, which then talks to the server itself,
-	 * so there is no request of ours to read a 401 from), while all six
-	 * one-shot feature sends - commit generation, inline completions, the
-	 * consult tool, PR generation, the quick-fix fallback, and review comments
-	 * (the chat features through the shared featureChatSend, inline completions
-	 * through its FIM send) - knowingly send anyway and let the server's own
-	 * 401 tell the story, as the original two always have. Making them refuse
-	 * is a behavior change for shipped features and stays parked as its own
-	 * task.
+	 * This lists the stored fields stamped for another destination that this entry would send.
+	 * Non-empty means the blob belongs to a different server.
+	 * The usual cause is a base URL changed after the secret was stored.
+	 * Sending such a value would hit a host it was never paired with.
+	 * The verdict rides alongside the connection instead of gating it because the callers differ.
+	 * The MCP publisher refuses the pairing.
+	 * The editor talks to the server itself there, so there is no request of ours to read a 401 from.
+	 * The one-shot features send anyway and let the server's own 401 report it, as they always have.
 	 */
 	readonly refusedSecrets: readonly SecretFieldId[];
 }

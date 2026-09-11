@@ -117,16 +117,14 @@ export interface LiteLLMChatModelProviderOptions {
 		| ((label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined)
 		| undefined;
 	/**
-	 * Serve- and request-time resolver for a declared entry's CURRENT
-	 * credentials, matched by label and normalized base URL like
-	 * getEntryHeaders. The host's provider-group configuration bakes the
-	 * credentials in at group creation and can never be updated (the group
-	 * command surface is add-only), so a labeled group's baked credentials are
-	 * overlaid with the matching entry's live ones before anything derives
-	 * identity from them; `undefined` (no matching entry, refused secret
-	 * ownership, a failed secrets read) keeps the baked credentials in force -
-	 * they remain the fallback for external groups and leftover groups whose
-	 * entry moved hosts. Never rejects by contract; the facade still guards.
+	 * This resolver reads a declared entry's CURRENT credentials at serve and request time.
+	 * It matches by label and normalized base URL, like getEntryHeaders.
+	 * The host bakes credentials into a group at creation, and its group commands are add-only.
+	 * So live entry credentials replace the baked ones before anything derives identity from them.
+	 * `undefined` keeps the baked credentials in force.
+	 * That covers no matching entry, refused secret ownership, and a failed secrets read.
+	 * They remain the fallback for external groups and leftovers whose entry moved hosts.
+	 * It never rejects by contract, and the facade still guards.
 	 */
 	resolveEntryCredentials?: ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>) | undefined;
 	/**
@@ -138,15 +136,12 @@ export interface LiteLLMChatModelProviderOptions {
 	 */
 	getCatalogLookup?: (() => CapabilityCatalogLookup) | undefined;
 	/**
-	 * Whether a provider group is hidden by the user's configuration: explicitly
-	 * removed (judged by the group's status label and normalized base URL, the
-	 * tombstone identity), or superseded because the entry whose label its
-	 * configuration carries now declares another URL (judged by `entryLabel`,
-	 * absent for unlabeled groups, whose URL-host display label must never read
-	 * as an entry's). A suppressed group answers with an empty model list and
-	 * skips the network entirely; its group-side status still reports, so the
-	 * status window and the dashboard stay coherent. Default: nothing is
-	 * suppressed.
+	 * A removed group's tombstone identity is its status label plus normalized base URL.
+	 * A superseded group's entry, found by `entryLabel`, now declares another URL.
+	 * Unlabeled groups pass no `entryLabel`, so a URL-host display label never reads as an entry's.
+	 * A suppressed group answers with an empty model list and skips the network.
+	 * Its group-side status still reports, so the status window and the dashboard stay coherent.
+	 * The default suppresses nothing.
 	 */
 	isGroupSuppressed?: ((label: string, baseUrl: string, entryLabel: string | undefined) => boolean) | undefined;
 	/** Cache seam for tests (fake TTL clock); the provider owns a real one by default. */
@@ -313,17 +308,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
-	 * Evict per-server state for servers no longer being served: SDK clients
-	 * and cached discovery results move in lockstep, because both embed the
-	 * server's credentials (a rotated key mints a new group client ID). The
-	 * discovery cache keys compose the group ID with the effective API root
-	 * (GroupDiscovery.cacheKeyFor), so its keep-set is built through the same
-	 * composition: a kept group keeps exactly its current-root entry, and an
-	 * entry a root rotation left unreachable ages out here. A kept ID the
-	 * status window cannot resolve (never observed today: every windowed ID
-	 * carries its group server) contributes no key, which fails safe - the
-	 * worst case is one extra discovery round trip, never a wrongly kept
-	 * credential-bearing entry.
+	 * This prunes SDK clients and cached discovery results in lockstep.
+	 * Both embed the server's credentials, and a rotated key mints a new group client ID.
+	 * The keep-set composes through GroupDiscovery.cacheKeyFor, like the cache keys themselves.
+	 * So a kept group keeps only its current-root entry, and a rotated root's leftover ages out.
+	 * A kept ID the status window cannot resolve contributes no key.
+	 * Every windowed ID carries its group server today, so that case has not occurred.
+	 * It also fails safe.
+	 * The worst case is one extra discovery round trip, never a wrongly kept credential entry.
 	 */
 	private pruneServerCaches(keep: readonly string[]): void {
 		this._client.pruneClients(keep);

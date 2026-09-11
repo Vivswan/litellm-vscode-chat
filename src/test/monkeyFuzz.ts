@@ -1,30 +1,26 @@
 /**
- * The interaction (monkey) fuzzer's action alphabet, oracle, generator, and
- * executor, shared by docker-monkey.test.ts and the corpus replays.
+ * The docker-monkey suite and corpus replays share this alphabet, oracle, generator, and executor.
+ * Actions are JSON-serializable and environment-independent.
+ * Labels are abstract tokens the executor namespaces per run.
+ * Credential modes are symbols it resolves against the live stack.
+ * So the serialized actions are the whole reproduction for replay and shrinking.
  *
- * Actions are JSON-serializable and environment-independent (abstract label
- * tokens the executor namespaces per run, symbolic credential modes it
- * resolves against the live stack), so the serialized actions are the whole
- * reproduction for replay and shrinking.
+ * The oracle calls the REAL pure functions the extension runs.
+ * Those are parseServersSetting, buildGroupArgs, and resolveOwnedSecrets.
+ * So the oracle cannot drift from the sync engine's rules.
+ * Under VS Code's add-only group command a label's first synced configuration is immutable.
+ * The engine fingerprints only the group IDENTITY (name, vendor, baseUrl, label).
+ * The provider overlays credentials live at serve and request time.
+ * So only an identity divergence expects GROUP_UPDATE_UNAVAILABLE_MESSAGE.
+ * A credential-only divergence is in-sync with no failure.
+ * A stored secret whose stamp refuses the pairing expects SECRET_OWNERSHIP_MISMATCH_MESSAGE first.
  *
- * The oracle is built from the REAL pure functions the extension runs
- * (parseServersSetting, buildGroupArgs, resolveOwnedSecrets), so it cannot
- * drift from the sync engine's rules. Its structural insight: under VS Code's
- * add-only provider-group command a label's first successfully synced
- * configuration is immutable for the host lifetime, but the engine fingerprints
- * only the group IDENTITY (name, vendor, baseUrl, label) - credentials are
- * overlaid live at serve and request time - so only an identity divergence
- * expects GROUP_UPDATE_UNAVAILABLE_MESSAGE, a credential-only divergence is
- * in-sync with no failure, and a stored secret whose ownership stamp refuses
- * the entry pairing at the engine's read boundary expects
- * SECRET_OWNERSHIP_MISMATCH_MESSAGE before either.
- *
- * Known oracle limitations: the storage probe covers Memento keys only
- * (SecretStorage has no enumeration API); model attribution is a lower bound,
- * since per-group copies share raw IDs, so probes count copies per healthy
- * non-hidden group and grandfather pre-existing models via a baseline; the
- * secret-leak scan is a substring scan over the session log tee for the
- * minted secrets (sk-monkey-<seed>-<n>, monkey-oauth-secret-<n>).
+ * Three oracle limitations are known.
+ * The storage probe covers Memento keys only, since SecretStorage has no enumeration API.
+ * Model attribution is a lower bound, because per-group copies share raw IDs.
+ * So probes count copies per healthy non-hidden group and grandfather pre-existing models.
+ * The secret-leak scan is a substring scan over the session log tee for the minted secrets.
+ * Minted secrets look like sk-monkey-<seed>-<n> and monkey-oauth-secret-<n>.
  */
 
 import * as assert from "node:assert";

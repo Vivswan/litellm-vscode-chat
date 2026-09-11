@@ -216,15 +216,12 @@ export type ModelConfigurationRequestParams = {
 };
 
 /**
- * Map the host-resolved modelConfiguration onto wire request parameters. Only
- * the properties this extension declared in its configuration schema are
- * mapped, each under its explicit wire key; the object is never spread
- * blindly, so host-added properties this version never declared cannot leak
- * into the request. The level vocabulary is open on purpose, so any non-empty
- * string except the PROVIDER_DEFAULT sentinel goes out as-is, and the
- * sentinel's drop is how an unset picker sends nothing at all. Non-strings
- * still drop: the host merges the group's stored settings into
- * modelConfiguration verbatim, without checking them against the schema.
+ * Map the host-resolved modelConfiguration onto wire request parameters.
+ * Only schema-declared properties go out, each under its explicit wire key.
+ * The object is never spread, so host-added properties this version never declared cannot leak.
+ * The level vocabulary is open, so any non-empty string goes out as-is.
+ * Dropping the PROVIDER_DEFAULT sentinel is how an unset picker sends nothing at all.
+ * Non-strings still drop, because the host merges stored group settings in without a schema check.
  */
 export function requestParamsFromModelConfiguration(modelConfiguration: unknown): ModelConfigurationRequestParams {
 	if (!isRecord(modelConfiguration)) {

@@ -309,19 +309,14 @@ describe("extension/features/prGen collectBranchContext", () => {
 	});
 
 	test("the collected patches survive prompt assembly whole - no tail file lost to the second cut", async () => {
-		// The property the per-block overhead charge exists for: the prompt cuts
-		// the ASSEMBLED blocks (File: headers and separators included) at the same
-		// constant, so a collection charged only for raw patch text would lose its
-		// last files there.
-		//
-		// The paths must DIVERGE, not merely be long: patchBlocks relativizes
-		// against the common prefix, so files sharing one deep directory collapse
-		// to bare basenames and the assembled cost stays tiny however long the
-		// URIs are. Here only "/repo/src/" is shared, so each header carries ~180
-		// characters and the real per-block cost is impossible to under-reserve
-		// by accident. Measured: a flat 32-character reserve accepts 60 blocks (59
-		// whole plus a truncated stub) and the prompt truncates; the per-block
-		// charge accepts 55 and it does not.
+		// The prompt cuts the ASSEMBLED blocks, File: headers and separators included.
+		// So a collection charged only for raw patch text would lose its last files there.
+		// The paths must DIVERGE, not merely be long.
+		// patchBlocks relativizes against the common prefix.
+		// So files sharing one deep directory collapse to bare basenames however long the URIs are.
+		// These paths share only "/repo/src/", so each header carries about 180 characters.
+		// A flat 32-character reserve was measured to accept 60 blocks, and the prompt then truncates.
+		// The per-block charge was measured to accept 55 blocks, and the prompt does not truncate.
 		const files = Array.from(
 			{ length: 100 },
 			(_value, index) => `/repo/src/pkg${index}/${"deeply/nested/".repeat(12)}file${index}.ts`

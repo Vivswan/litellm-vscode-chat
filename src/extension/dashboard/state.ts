@@ -169,19 +169,14 @@ function buildServer(
 }
 
 /**
- * The state slice of a declared row, decided by the shared sync-failure rule
- * (declaredPresentation): a sync error outranks the live status - even a
- * healthy one, since the group still serving is the entry's OLD configuration
- * and the remove-and-resync instruction must show - while the served count
- * stays the live truth for every label whose models actually render
- * (`labelServes`; an upsertFailed claimant excluded from a shared snapshot's
- * labels serves nothing). The status bar's overlay (applySyncFailures)
- * consumes the same presentation rule, and it carries ONE status per snapshot,
- * so the two surfaces agree by summation: the per-claimant rows' counts add up
- * to the overlay's single per-snapshot count. `errorEnglish` (the
- * transport error's log-safe English) and `classification` (enum ids only,
- * protocol-legal) ride exactly when the row's error IS the transport error; a
- * sync error carries neither.
+ * declaredPresentation's sync-failure rule decides the state slice of a declared row.
+ * A sync error outranks the live status, even a healthy one.
+ * The serving group runs the entry's OLD configuration, so the remove-and-resync line must show.
+ * The served count stays the live truth for every label whose models actually render.
+ * The status bar's overlay (applySyncFailures) reads the same rule with ONE status per snapshot.
+ * The two surfaces agree by summation, since per-claimant counts add up to the overlay's.
+ * `errorEnglish` and `classification` ride exactly when the row's error IS the transport error.
+ * A sync error carries neither.
  */
 function declaredOutcome(
 	status: ServerStatus | undefined,
@@ -312,27 +307,14 @@ export function rejectsWithOwnRow(
 }
 
 /**
- * The servers section merges two sources: entries declared in the servers
- * setting (with their secret locations, for the edit form) and the live
- * provider groups the status window saw (reachability, model counts). A
- * declared entry the status window has not seen renders "unchecked"; a live
- * group with no settings entry renders as external.
- *
- * Snapshots are labeled by URL host (the host never hands the group name to
- * the extension), so the join cannot require a label match; see joinDeclared.
- * `snapshotLabels` maps each snapshot to the labels its models render under:
- * every claiming entry's label when joined (the host registers those models
- * once per group, so the models table must list them per claimant to match the
- * picker), the snapshot's own label otherwise. The one exclusion is a claimant
- * whose sync failed as upsertFailed - the host has no group for it, so a copy
- * would be phantom - while blocked claimants keep theirs; the snapshot still
- * renders under the first claimant when every claimant is excluded. Exact host
- * cardinality is not recoverable from declarations alone.
- *
- * Removal bookkeeping (removedGroups) applies to external rows only: a
- * tombstoned external snapshot leaves the table (the hidden-groups line states
- * it instead) and contributes no models, and the remaining external rows carry
- * their recorded provenance when one exists.
+ * Snapshots are labeled by URL host, since VS Code never hands the extension the group name.
+ * The join with declared entries therefore cannot require a label match (see joinDeclared).
+ * `snapshotLabels` names every joined claimant, because the picker lists the models under each one.
+ * Exact host cardinality is not recoverable from declarations alone.
+ * The list drops an upsertFailed claimant, since the host has no group for it.
+ * Blocked claimants keep theirs, and an all-excluded snapshot renders under its first claimant.
+ * Removal bookkeeping applies to external rows only.
+ * A tombstoned snapshot leaves the table for the hidden-groups line and contributes no models.
  */
 function buildServers(
 	labeled: readonly LabeledSnapshot[],
@@ -841,17 +823,14 @@ export interface HiddenGroupsInputs {
 }
 
 /**
- * The hidden-groups view both the servers section and Configuration
- * diagnostics render. Removed groups render from the tombstones themselves,
- * never live snapshots (an unhide must stay offered after the suppressed
- * group's snapshot ages out of the status window), gated by the session-sticky
- * observation set so a tombstone whose group the host no longer holds is not
- * offered as a ghost. Superseded leftovers render from the live snapshots, and
- * the same rule classifies a tombstone whose identity was seen as a LABELED
- * group and whose entry now declares another URL: it renders superseded, not
- * removed, whether or not its snapshot is in the window this moment (an idle
- * window evicts and re-reports live groups), because an Unhide could not lift
- * that suppression.
+ * Both the servers section and Configuration diagnostics render this hidden-groups view.
+ * Removed groups render from the tombstones, never live snapshots.
+ * An unhide must stay offered after the suppressed group's snapshot ages out of the window.
+ * The session-sticky observation set gates them.
+ * A tombstone whose group the host no longer holds is therefore not offered as a ghost.
+ * A tombstone seen as a LABELED group whose entry now declares another URL renders superseded.
+ * An Unhide could not lift that suppression, so "removed" would offer a dead action.
+ * That holds without a live snapshot too, because an idle window evicts and re-reports groups.
  */
 export function visibleHiddenGroups(inputs: HiddenGroupsInputs): HiddenGroup[] {
 	const { removedGroups, snapshots, declared, wasGroupObserved, wasLabeledGroupObserved } = inputs;

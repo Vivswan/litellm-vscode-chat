@@ -1,26 +1,22 @@
 /**
- * Sweeps registered STATE PAIRS for geometry drift: renders a fixture, measures
- * a target, induces a state, measures again, and fails when the geometry moved.
- * check-overflow.ts proves "the page fits"; this proves "a state change does
- * not move what it marks", plus a width leg asserting each registered surface
- * reaches the pane's content edge at 2000px.
+ * check-overflow.ts proves "the page fits".
+ * This sweep proves "a state change does not move what it marks".
+ * A width leg adds that each registered surface reaches the pane's content edge at 2000px.
  *
- * THE REGISTRIES (geometryRegistry.ts) ARE THE COVERAGE CLAIM. A new stateful
- * element - anything that gains a mark, a reveal, an error, or an overlay
- * without meaning to move - gets a STATE_PAIRS entry; a new destination or
- * structural container gets a WIDTH_SURFACES entry. Disclosure is deliberately
- * not a pair: open-vs-closed EXISTS to move geometry. Pairs are for "same box,
- * different paint".
+ * THE REGISTRIES (geometryRegistry.ts) ARE THE COVERAGE CLAIM.
+ * A new element that changes state without meaning to move gets a STATE_PAIRS entry.
+ * Marks, reveals, errors, and overlays are such states.
+ * A new destination or structural container gets a WIDTH_SURFACES entry.
+ * Disclosure is deliberately not a pair, since open-vs-closed EXISTS to move geometry.
  *
- * Every case runs in the harness's measurement mode, so it measures the
- * pinned font faces (render-dashboard.ts), not the platform's: a green sweep
- * here predicts the Linux-only CI gate. A text-bearing slot additionally
- * names itself in metricProbe to prove its height survives divergent fonts.
+ * Every case runs in measurement mode and measures the pinned faces (render-dashboard.ts).
+ * A green sweep here therefore predicts the Linux-only gate.
+ * A text-bearing slot also names itself in metricProbe to prove its height survives font changes.
  *
- * Exit 1 means geometry moved, a fixture guard is missing, or the runner itself
- * failed. Exit 2 means a case never ran (a vanished selector, a toggle that no
- * longer induces its state, a baseline already toggled) or an expectedDrift
- * marker whose drift is gone: a stale entry is its own failure, never a green.
+ * Exit 1 means geometry moved, a fixture guard is missing, or the runner failed.
+ * Exit 2 means a case never ran or an expectedDrift marker's drift is gone.
+ * A case never runs when its selector vanished, its toggle is inert, or its baseline is toggled.
+ * A stale entry is never green.
  *
  * Usage:
  *   bun scripts/dev/check-geometry.ts [--only <substring>] [--jobs 4]
