@@ -43,7 +43,6 @@ knip.json
 .gitleaks.toml
 .file-size-allow.local
 .yamllint
-.copier-answers.yml
 .repo-platform.yml
 .typography-allow
 .typography-allow.local

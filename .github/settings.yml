@@ -1,7 +1,7 @@
 ---
 # This repository's OWN settings, applied by Vivswan/repo-platform
 # (and by settings-sync on pushes to this file when the repo carries its
-# own REPO_PLATFORM_TOKEN). Rendered once, repo-owned: template sync never
+# own REPO_PLATFORM_TOKEN). Rendered once, repo-owned: sync never
 # rewrites it. Fleet defaults merge UNDER this file - keys here win, null
 # opts out, labels replace by name, rulesets MERGE by name; both must stay
 # lists. The fleet invariants (squash-only merging, the protection

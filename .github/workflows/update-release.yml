@@ -1,12 +1,12 @@
 # The update stage of the release pipeline: repo-owned, generated once by
-# Vivswan/repo-platform and never overwritten by template
-# sync. The managed release.yml calls this workflow between cutting the
-# draft release and the attested publish, so everything this repository
-# wants on the release happens here: packaging, asset uploads, note edits.
-# Add jobs freely - publishing waits for every job in this file, and every
+# Vivswan/repo-platform and never overwritten by sync. The managed ci.yml
+# calls this workflow between the fleet's release leg cutting the draft
+# release and its attested publish, so everything this repository wants
+# on the release happens here: packaging, asset uploads, note edits. Add
+# jobs freely - publishing waits for every job in this file, and every
 # asset uploaded here is attested at publish time into the release's
 # single attestation.json. Recovery when a run dies mid-pipeline is
-# documented in release.yml.
+# documented in repo-platform's fleet-release.yml header.
 
 name: Update Release
 
@@ -25,8 +25,8 @@ jobs:
   # draft release asset. vscode:prepublish runs the production typecheck,
   # the Rolldown bundle, and the ThirdPartyNotices generation. If a step
   # fails after the Marketplace publish, the release stays an invisible
-  # draft; finish by hand as release.yml's header describes. This job no
-  # longer attests the VSIX itself: the managed publish-release attests
+  # draft; finish by hand as fleet-release.yml's header describes. This
+  # job does not attest the VSIX itself: the fleet's publish leg attests
   # every uploaded asset centrally into the release's attestation.json.
   update-release:
     runs-on: ubuntu-latest

@@ -1,5 +1,5 @@
 # Nightly CI starter. Generated once by Vivswan/repo-platform
-# and never overwritten by template sync, so edit freely. Replace the
+# and never overwritten by sync, so edit freely. Replace the
 # placeholder step with this repository's own nightly checks (the suites too
 # slow for every PR: full end-to-end runs, docker image builds, live
 # integration tests); the report job below keeps working unchanged - a red
