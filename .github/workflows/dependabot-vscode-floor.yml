@@ -24,9 +24,11 @@ concurrency:
 
 jobs:
   raise-floor:
-    # Dependabot's own pushes only (the fix commit and human pushes must
-    # not re-fire it); same-repo only: the token cannot push to a fork.
-    if: github.actor == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    # Dependabot's own pushes only, same-repo only (the token cannot push
+    # to a fork). github.actor on purpose, as in the managed
+    # dependabot-bun-lockfile.yml: gating on the PR author instead would
+    # re-fire on the fix commit this job pushes.
+    if: github.actor == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository # zizmor: ignore[bot-conditions]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

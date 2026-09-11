@@ -37,12 +37,9 @@ concurrency:
   group: nightly-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'scheduled' }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
-# issues: write lets the fuzz-issue action file/close the tracking issue;
-# actions: write lets the failure path dispatch auto-assign at it.
+# The fuzz legs only read; the report job below carries the write scopes.
 permissions:
   contents: read
-  issues: write
-  actions: write
 
 jobs:
   fuzz:
@@ -293,6 +290,12 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # issues: write lets the fuzz-issue action file/close the tracking issue;
+    # actions: write lets the failure path dispatch auto-assign at it.
+    permissions:
+      contents: read
+      issues: write
+      actions: write
     env:
       # Every gh call in this job needs an explicit repo context: the job
       # never checks out the repo, so gh cannot resolve one from a git remote.
