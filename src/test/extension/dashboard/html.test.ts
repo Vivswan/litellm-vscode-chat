@@ -46,13 +46,16 @@ suite("extension/dashboard/html", () => {
 	test("interpolated values are attribute-escaped", () => {
 		const html = buildDashboardHtml({
 			...options,
-			scriptUri: 'https://webview.test/x?a=1&b="2"',
+			scriptUri: "https://webview.test/x?a=1&b=\"2\"&e='5'",
 			styleUri: 'https://webview.test/y?c=3&d="4"',
 		});
 
-		assert.ok(html.includes("a=1&amp;b=&quot;2&quot;"), "special characters must be escaped");
+		assert.ok(html.includes("a=1&amp;b=&quot;2&quot;&amp;e=&#39;5&#39;"), "special characters must be escaped");
 		assert.ok(html.includes("c=3&amp;d=&quot;4&quot;"), "the style URI must be escaped like the script URI");
-		assert.ok(!html.includes('b="2"') && !html.includes('d="4"'), "raw quotes must not survive into the attribute");
+		assert.ok(
+			!html.includes('b="2"') && !html.includes('d="4"') && !html.includes("e='5'"),
+			"raw quotes of either style must not survive into the attribute"
+		);
 	});
 
 	test("the html element carries the host's display language, attribute-escaped", () => {

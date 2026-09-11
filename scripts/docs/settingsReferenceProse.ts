@@ -20,17 +20,18 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		zhTw: "宣告的 LiteLLM 伺服器; [項目屬性見下](#伺服器項目屬性), 完整故事在[伺服器](servers.md)",
 	},
 	"models.parameters": {
-		en: "Request parameters per model, keyed by [matchers](models.md#model-matching). Only what you set is sent. Full story: [Models - Parameters](models.md#parameters)",
-		zhCn: "按模型的请求参数, 以[匹配器](models.md#模型匹配)为键。只发送你设置的。完整故事: [模型 - 参数](models.md#参数)",
-		zhTw: "按模型的請求參數, 以[比對器](models.md#模型比對)為鍵。只送出您設定的。完整故事: [模型 - 參數](models.md#參數)",
+		en: "Request parameters per model, keyed by [matchers](models.md#model-matching). Only what you set is sent. Not applied from an untrusted (Restricted Mode) workspace. Full story: [Models - Parameters](models.md#parameters)",
+		zhCn: "按模型的请求参数, 以[匹配器](models.md#模型匹配)为键。只发送你设置的。不信任的工作区 (受限模式) 中的值不生效。完整故事: [模型 - 参数](models.md#参数)",
+		zhTw: "按模型的請求參數, 以[比對器](models.md#模型比對)為鍵。只送出您設定的。不受信任的工作區 (受限模式) 中的值不生效。完整故事: [模型 - 參數](models.md#參數)",
 	},
 	"models.capabilities": {
 		en:
 			"Capability overrides per model, keyed by [matchers](models.md#model-matching): token limits, vision, tools, " +
-			"reasoning, pricing - any `model_info` field, known or not; the vocabulary is open. Full story: [Models - " +
+			"reasoning, pricing - any `model_info` field, known or not; the vocabulary is open. Not applied from an " +
+			"untrusted (Restricted Mode) workspace. Full story: [Models - " +
 			"Capabilities](models.md#capabilities)",
-		zhCn: "按模型的能力覆盖, 以[匹配器](models.md#模型匹配)为键: token 限制、视觉、工具、推理、定价 - 任何 `model_info` 字段, 认识与否皆可; 词汇表是开放的。完整故事: [模型 - 能力](models.md#能力)",
-		zhTw: "按模型的能力覆寫, 以[比對器](models.md#模型比對)為鍵: token 上限、視覺、工具、推理、定價 - 任何 `model_info` 欄位, 認識與否皆可; 詞彙表是開放的。完整故事: [模型 - 能力](models.md#能力)",
+		zhCn: "按模型的能力覆盖, 以[匹配器](models.md#模型匹配)为键: token 限制、视觉、工具、推理、定价 - 任何 `model_info` 字段, 认识与否皆可; 词汇表是开放的。不信任的工作区 (受限模式) 中的值不生效。完整故事: [模型 - 能力](models.md#能力)",
+		zhTw: "按模型的能力覆寫, 以[比對器](models.md#模型比對)為鍵: token 上限、視覺、工具、推理、定價 - 任何 `model_info` 欄位, 認識與否皆可; 詞彙表是開放的。不受信任的工作區 (受限模式) 中的值不生效。完整故事: [模型 - 能力](models.md#能力)",
 	},
 	"models.openRouterCatalog": {
 		en: 'Fill missing capabilities from a weekly-refreshed snapshot of OpenRouter\'s public catalog; manual refresh via "LiteLLM: Refresh OpenRouter Catalog". Details incl. privacy notes: [Models - Capabilities](models.md#capabilities)',

@@ -2,7 +2,7 @@
 	"name": "litellm-vscode-chat",
 	"displayName": "%litellm.displayName%",
 	"description": "%litellm.description%",
-	"version": "0.6.2",
+	"version": "0.6.3",
 	"publisher": "vivswan",
 	"license": "SEE LICENSE IN LICENSE.md",
 	"icon": "assets/logo.png",
@@ -751,6 +751,7 @@
 					"litellm-vscode-chat.models.parameters": {
 						"type": "object",
 						"default": {},
+						"restricted": true,
 						"markdownDescription": "%litellm.config.models.parameters.description%",
 						"additionalProperties": {
 							"type": "object"
@@ -759,6 +760,7 @@
 					"litellm-vscode-chat.models.capabilities": {
 						"type": "object",
 						"default": {},
+						"restricted": true,
 						"markdownDescription": "%litellm.config.models.capabilities.description%",
 						"additionalProperties": {
 							"type": "object"
