@@ -24,16 +24,18 @@ concurrency:
 
 jobs:
   raise-floor:
-    # Dependabot's own pushes only (the fix commit and human pushes must
-    # not re-fire it); same-repo only: the token cannot push to a fork.
-    if: github.actor == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    # Dependabot's own pushes only, same-repo only (the token cannot push
+    # to a fork). github.actor on purpose, as in the managed
+    # dependabot-bun-lockfile.yml: gating on the PR author instead would
+    # re-fire on the fix commit this job pushes.
+    if: github.actor == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository # zizmor: ignore[bot-conditions]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write # the no-retrigger-token sticky comment below
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The event's own commit, not the mutable branch: the actor gate
           # authenticates the event, and a branch moved after it must not
@@ -41,7 +43,7 @@ jobs:
           # just loses the push race below and fails loudly.
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
       - name: Raise engines.vscode and the doc floors to the @types/vscode pin

@@ -37,12 +37,9 @@ concurrency:
   group: nightly-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'scheduled' }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
-# issues: write lets the fuzz-issue action file/close the tracking issue;
-# actions: write lets the failure path dispatch auto-assign at it.
+# The fuzz legs only read; the report job below carries the write scopes.
 permissions:
   contents: read
-  issues: write
-  actions: write
 
 jobs:
   fuzz:
@@ -139,10 +136,10 @@ jobs:
           echo "SEED=$SEED" >> "$GITHUB_ENV"
 
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
 
@@ -267,7 +264,7 @@ jobs:
 
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-failures-${{ matrix.leg }}-${{ github.run_attempt }}
           path: .fuzz-failures/
@@ -293,6 +290,10 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # issues: write lets the fuzz-issue action file/close the tracking issue.
+    permissions:
+      contents: read
+      issues: write
     env:
       # Every gh call in this job needs an explicit repo context: the job
       # never checks out the repo, so gh cannot resolve one from a git remote.
@@ -305,14 +306,13 @@ jobs:
         # fuzzing): the action then files its bare no-report notice instead of
         # this step failing on an empty pattern match.
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: fuzz-failures-*
           path: .fuzz-failures
           merge-multiple: true
 
       - name: File or update the fuzz issue
-        id: file-issue
         if: needs.fuzz.result != 'success'
         uses: Vivswan/repo-platform/actions/fuzz-issue@build
         with:
@@ -321,14 +321,6 @@ jobs:
           title: Nightly fuzz failures
           artifacts-dir: .fuzz-failures
           artifact-name: fuzz-failures-*
-
-      # A GITHUB_TOKEN-created issue fires no triggers, so dispatch auto-assign.
-      - name: Trigger auto-assign for the filed issue
-        if: needs.fuzz.result != 'success' && steps.file-issue.outputs.issue-number != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ steps.file-issue.outputs.issue-number }}
-        run: gh workflow run auto-assign.yml -f "issue=$ISSUE_NUMBER" || echo "::warning::could not dispatch auto-assign.yml"
 
       - name: Close the fuzz issue on a green night
         if: needs.fuzz.result == 'success'

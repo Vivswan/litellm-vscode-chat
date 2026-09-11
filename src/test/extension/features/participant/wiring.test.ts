@@ -296,7 +296,7 @@ suite("extension/features/participant wiring", () => {
 			});
 			const handler = spies.participants[0]?.handler;
 			assert.ok(handler !== undefined);
-			const { request, sends } = fakeRequest({ prompt: "explain this", fragments: ["Hel", "lo"] });
+			const { request, sends } = fakeRequest({ prompt: "explain this", fragments: ["Hel", "lo"] }); // typos: ignore
 			const { stream, reported } = recordingStream();
 			const source = new vscode.CancellationTokenSource();
 			try {
@@ -306,7 +306,7 @@ suite("extension/features/participant wiring", () => {
 			}
 			assert.strictEqual(sends.length, 1, "exactly one request, to the request's own model");
 			assert.strictEqual(sends[0]?.token, source.token, "the turn's token must ride along so cancel works");
-			assert.deepStrictEqual(reported, ["Hel", "lo"], "fragments forward in order, unmerged");
+			assert.deepStrictEqual(reported, ["Hel", "lo"], "fragments forward in order, unmerged"); // typos: ignore
 			const [message] = sends[0]?.messages ?? [];
 			assert.strictEqual(message?.role, vscode.LanguageModelChatMessageRole.User);
 		});

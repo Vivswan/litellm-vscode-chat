@@ -196,7 +196,7 @@ describe("shared/conversion/textTokens: the non-Latin detection threshold", () =
 	test("Latin-script European text and typographic punctuation never fire", () => {
 		assert.strictEqual(detections("a".repeat(4000)), 0);
 		// Accented Latin (French) stays below the 0x0370 line.
-		assert.strictEqual(detections("Réécrivez cette fonction en une fonction pure, s'il vous plaît déjà."), 0);
+		assert.strictEqual(detections("Réécrivez cette fonction en une fonction pure, s'il vous plaît déjà."), 0); // typos: ignore
 		// Curly quotes and dashes live in the excluded 0x2000-0x2E7F blocks
 		// (escaped so the fixture itself passes the repo's typography gate).
 		assert.strictEqual(detections("\u201Cquoted\u201D \u2014 \u2018more\u2019 \u2013 again".repeat(4)), 0);
