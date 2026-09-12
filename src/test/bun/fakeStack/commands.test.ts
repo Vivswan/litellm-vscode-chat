@@ -779,8 +779,8 @@ describe("fakeStack commands: tool flow", () => {
 });
 
 describe("fakeStack commands: docs drift guard", () => {
-	// docs/development.md and AGENTS.md cannot import COMMAND_SIGIL, so this
-	// suite turns their prose copies of the grammar into CI-enforced mirrors:
+	// docs/development.md cannot import COMMAND_SIGIL, so this suite turns
+	// its prose copy of the grammar into a CI-enforced mirror:
 	// verb coverage and the sigil byte are pinned, the sentences stay free.
 	const sigilPattern = COMMAND_SIGIL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -816,11 +816,6 @@ describe("fakeStack commands: docs drift guard", () => {
 		}
 		const declared = new Set(COMMANDS.map((command) => command.verb));
 		assert.deepStrictEqual([...mentioned].sort(), [...declared].sort(), "cheat-sheet rows mirror the dispatch table");
-	});
-
-	test("the AGENTS.md grammar mention uses the live sigil", () => {
-		const agents = fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8");
-		assert.ok(agents.includes(`${COMMAND_SIGIL}play:<name>`), "AGENTS.md points at the sigil-derived play command");
 	});
 
 	test("the development doc model-list table names exactly the catalog's aliases", () => {
