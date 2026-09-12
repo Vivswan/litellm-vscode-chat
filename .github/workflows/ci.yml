@@ -24,8 +24,11 @@ on:
 permissions:
   contents: read
 
+# Keyed by the commit on a push: every merge to main gets its own complete run and verdict.
+# A ref-keyed group keeps one pending run and cancels the older one, so a burst of merges leaves the tip unjudged.
+# Pull-request runs stay keyed by the ref: a newer push cancels the stale run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -41,7 +44,7 @@ jobs:
     uses: Vivswan/repo-platform/.github/workflows/fleet-ci.yml@build
     permissions:
       contents: read
-      # validate-template posts its sticky findings comment.
+      # validate-managed-files posts its sticky findings comment.
       pull-requests: write
       # The ceiling for the CodeQL analysis calls.
       security-events: write
@@ -89,9 +92,11 @@ jobs:
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main'
     permissions:
-      # A hook may publish a fast-forward branch (a packaged latest) with
-      # GITHUB_TOKEN, and a called job cannot exceed its caller.
+      # contents write lets the hook push a fast-forward branch (a packaged latest).
+      # id-token write lets it mint the run's OIDC token for trusted publishing (npm, PyPI).
+      # A called job cannot exceed its caller, so both scopes are granted here.
       contents: write
+      id-token: write
     uses: ./.github/workflows/post-green.yml
     with:
       sha: ${{ github.sha }}
@@ -104,8 +109,10 @@ jobs:
   # hence the quoted module name. `ci` sits in each needs list because a
   # job reads outputs only from its direct dependencies. The release runs
   # downstream of the gate AND the repo-owned hook, so the repository's own
-  # green-gated work lands before the tag is minted; the lane it holds is
-  # one no called job takes (a shared name would deadlock).
+  # green-gated work lands before the tag is minted.
+  # No lane here: a shared lane keeps one pending call and cancels the older one,
+  # so a release commit's call could be cancelled.
+  # The called job holds its own lane keyed by the judged commit, so only a re-run of the same commit ever waits.
   release:
     needs: [ci, all-green, post-green]
     if: >-
@@ -114,9 +121,6 @@ jobs:
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       contains(needs.ci.outputs.modules, '"release-please"')
-    concurrency:
-      group: post-green-release
-      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
@@ -191,44 +195,20 @@ jobs:
     secrets: inherit # zizmor: ignore[secrets-inherit]
 
   # The Pages deploy, in the SAME run as the gate (github.sha IS the judged
-  # commit): a red main never reaches the site. Ordered behind the publish
-  # so a release commit's own deploy serves its new tag; !cancelled() keeps
-  # the edge an order, not a gate: a skipped or red release still deploys.
-  # The called workflow configures itself from this repository's
-  # registration; the nightly rebuild and the dispatch live in pages.yml.
-  pages:
-    needs: [ci, all-green, publish-release]
-    if: >-
-      !cancelled() &&
-      needs.all-green.result == 'success' &&
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      contains(needs.ci.outputs.modules, '"pages"')
-    concurrency:
-      group: pages
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-      issues: write
-    uses: Vivswan/repo-platform/.github/workflows/reusable-pages.yml@build
-    with:
-      sha: ${{ github.sha }}
-      custom_domain: ${{ vars.CUSTOM_DOMAIN }}
-
-  # The docs deploy, the same shape, ordered behind the hook too so the
-  # site picks up what it landed. Stands down where pages is selected:
-  # that deploy carries the docs as a mount (docs/docs-site.md).
-  docs-site:
+  # commit): a red main never reaches the site. Ordered behind the hook and
+  # the publish so a release commit's own deploy serves its new tag;
+  # !cancelled() keeps those edges orders, not gates: a skipped or red
+  # release still deploys. No push clause: the leg runs on every main run,
+  # so the nightly schedule IS the rebuild and a dispatch IS the manual
+  # deploy. The called workflow runs the repo-owned site-build hook from
+  # the checkout and reads the docs configuration from the registration.
+  site:
     needs: [ci, all-green, post-green, publish-release]
     if: >-
       !cancelled() &&
       needs.all-green.result == 'success' &&
-      github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      contains(needs.ci.outputs.modules, '"docs-site"') &&
-      !contains(needs.ci.outputs.modules, '"pages"')
+      contains(needs.ci.outputs.modules, '"site"')
     concurrency:
       group: pages
       cancel-in-progress: false
@@ -237,7 +217,7 @@ jobs:
       pages: write
       id-token: write
       issues: write
-    uses: Vivswan/repo-platform/.github/workflows/reusable-pages.yml@build
+    uses: Vivswan/repo-platform/.github/workflows/reusable-site.yml@build
     with:
       sha: ${{ github.sha }}
       custom_domain: ${{ vars.CUSTOM_DOMAIN }}
