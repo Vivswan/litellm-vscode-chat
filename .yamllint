@@ -10,8 +10,7 @@ ignore:
   - dist
   - build
   - coverage
-  # Local git worktrees (some repos keep them under .worktrees/); CI never
-  # sees them, but local yamllint runs scan the filesystem.
+  # The fleet's local worktree directory: CI never sees it, but a local yamllint run scans the filesystem.
   - .worktrees
 
 rules:

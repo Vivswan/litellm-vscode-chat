@@ -42,6 +42,9 @@ labels:
   - name: fix-lint
     color: fbca04
     description: Lint / formatting fixes
+  - name: merge-when-green
+    color: 0e8a16
+    description: "Owner approved: merge once every gate is green"
   - name: security-nightly
     color: 1d76db
     description: Automated nightly security scan findings
@@ -66,7 +69,7 @@ labels:
   - name: auto-closed
     color: ededed
     description: Closed by the close-answered-issues workflow after no reply
-  - name: nightly-fuzz
+  - name: fuzz-nightly
     color: B60205
     description: Automated nightly fuzz failure
   - name: nightly-failure
@@ -118,7 +121,7 @@ rulesets:
           code_scanning_tools:
             - tool: CodeQL
               security_alerts_threshold: high_or_higher
-              alerts_threshold: errors_and_warnings
+              alerts_threshold: errors
       - type: deletion
       - type: non_fast_forward
       - type: required_linear_history
