@@ -64,18 +64,20 @@ jobs:
 
   # THE gate: this job's own check run (named all-green, created by the
   # GitHub Actions app) is the ruleset's required check. It needs both
-  # caller jobs and fails unless each result is success or skipped, with
-  # at least one success - so a failed job anywhere in either called
-  # workflow blocks the merge.
+  # caller jobs and passes only when each result is success - so a failed
+  # or cancelled job anywhere in either called workflow blocks the merge.
+  # `checks` alone may skip (the schedule run); `ci` never may, so an
+  # all-skipped run cannot pass.
   all-green:
     needs: [checks, ci]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: Vivswan/repo-platform/actions/all-green@stable
+      - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
-          needs: ${{ toJSON(needs) }}
+          jobs: ${{ toJSON(needs) }}
+          allowed-skips: checks
 
   # Repo-owned: edit post-green.yml, not this file. No job lane here: a caller holding a lane a called job takes deadlocks the call.
   post-green:
