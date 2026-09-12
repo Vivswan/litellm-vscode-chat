@@ -185,14 +185,12 @@ function modelRefIdentity(ref: FeatureModelRef): string {
 const CUSTOM_OPTION = "custom";
 
 /**
- * A configured ref no offered pair backs stays IN the option list, selected.
- * The dangling state therefore changes no geometry, and only the covered description slot warns.
- * check-geometry pins that geometry (geometryRegistry.ts, feature-model-dangling).
- * A standing write failure outranks that warning in the slot.
- * The warning never clears on its own, so it must not mask "the last change did not apply".
- * "Custom model ID..." is the escape hatch for models the picker cannot list.
- * FIM models never register as chat models, and a server may serve IDs discovery cannot see.
- * The test button's outcome shows counts and classified messages only, never response text.
+ * A configured ref no offered pair backs stays IN the option list, selected with the same rendered text, so the
+ * dangling state changes no geometry (check-geometry pins it, feature-model-dangling). A standing write failure
+ * outranks the dangling warning in the covered slot, because the warning never clears on its own.
+ *
+ *   "Custom model ID..." -> the escape hatch for models the picker cannot list (FIM models never register as chat models)
+ *   test button outcome  -> counts and classified messages; the model's completion text never renders
  */
 function FeatureModelRow({
 	feature,

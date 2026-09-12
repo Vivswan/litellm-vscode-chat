@@ -1,14 +1,9 @@
 import { stripMarkdownFences } from "../../../shared/util/text";
 
 /**
- * Parse the one-shot PR answer leniently, since models only approximate the label pair asked for.
- * The parse is total, and the empty variant carries nothing, so no response text reaches logs.
- * stripMarkdownFences runs only when its precondition literally holds, exactly TWO fence lines.
- * A description that only ends with a code block would otherwise lose that block's closer.
- * The prompt asks for markdown, so multi-block answers are an expected shape, not an edge case.
- * Any other leading fence costs its own LINE.
- * The one other closer removed is the bare fence right after a title that sat in its own block.
- * A tagged fence, or one arriving later, belongs to the description and stays.
+ * The empty variant carries nothing, so no response-derived text can ride a failure into logs or issue reports.
+ * stripMarkdownFences runs only when its precondition literally holds, exactly TWO fence lines, because a
+ * description that merely ends with a code block passes a first-and-last-line test and would lose that block's closer.
  */
 
 /** A parsed one-shot answer; `empty` means no usable title could be read. */
@@ -90,16 +85,6 @@ function cleanTitle(line: string): string {
 	return stripWrappingPairs(stripLabelNoise(unwrapped.replace(/^[#>\s]+/, "")));
 }
 
-/**
- * Parse a reply into title and description.
- * Noise-only lines never hold or block the title.
- * The title label may sit on any of the first TITLE_SCAN_LINES content lines.
- * Preamble before the title label is dropped unless it carries the description.
- * Without a title label, the first content line is the title.
- * A description label is stripped only as the remainder's first content line.
- * A title that still came out blank takes the description's first line.
- * A blank description is `undefined`.
- */
 export function parseTitleAndDescription(reply: string): TitleAndDescriptionParse {
 	const normalized = reply.replace(/\r\n?/g, "\n").trim();
 	// Both ends, never a lone opener: see the module comment.

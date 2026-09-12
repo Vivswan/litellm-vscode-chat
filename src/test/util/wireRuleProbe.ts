@@ -1,20 +1,8 @@
 /**
- * Both wire-rule suites share this probe walk.
- * One is extension/servers/usage/spendClient.wireRule.test.ts.
- * The other is provider/catalog/groupModels.wireRule.test.ts.
- * Each suite supplies its own composition and probe-value table.
- * This module owns the probe space both walk and the record shape both assert over.
- * So the pins cannot drift in WHAT they enumerate.
- * serverEntry.ts derives SECRET_FIELD_IDS from OPTIONAL_ENTRY_FIELDS; nothing here re-lists it.
- * So a new secret field enters every probe by construction.
- * The shape space is every PRESENCE combination of every entry field both registries declare.
- * So a branch anywhere in a composition keying on the presence of ANY entry field lands inside.
- * ShapeFieldValues is total over the shape-field id union.
- * So a new field fails each suite's table typecheck until it gets a probe value.
- * The walk observes sends rather than modeling them.
- * It plants per-field sentinels through both resolution sources, stored and inline.
- * It detects them in the suite's own serialization.
- * The safety argument each pin rests on stays in that suite's own header.
+ * The shared probe harness behind the two wire-rule superset pins (extension/servers/usage/spendClient.wireRule.test.ts
+ * and provider/catalog/groupModels.wireRule.test.ts). Each suite supplies its own composition and probe-value table,
+ * while this module owns the probe space both walk and the record shape both assert over, so the two pins cannot
+ * drift apart in WHAT they enumerate and the safety argument each rests on stays in its own header.
  */
 
 import * as assert from "node:assert";
@@ -130,12 +118,10 @@ function allPlantings(): { name: string; sources: ReadonlyMap<SecretFieldId, Sec
 }
 
 /**
- * The walk is memoized because every superset test in a suite reads it.
- * Detection is textual over the composition's serialization on purpose.
- * It needs no knowledge of WHERE the composition carries a value.
- * So a restructured connection or server shape cannot hide a ride from the probe.
- * The suite serializes its own composed value, so this extraction owns no refusal policy.
- * A composition that can refuse decides whether a refusal serializes as no rides or crashes.
+ * Memoized because every superset test in a suite reads it, and detection is textual over the composition's
+ * serialization so a restructured connection or server shape cannot hide a ride from the probe. The suite
+ * serializes its own composed value, so this extraction owns no refusal policy and a composition that can refuse
+ * decides for itself whether a refusal serializes (no rides) or crashes the walk.
  */
 export function memoizedWireRuleWalk(
 	values: ShapeFieldValues,

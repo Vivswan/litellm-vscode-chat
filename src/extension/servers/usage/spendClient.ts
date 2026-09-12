@@ -75,14 +75,10 @@ export interface UsageConnection {
 }
 
 /**
- * This resolves a connection the way the sync engine resolves group args.
- * Inline settings values outrank the label's SecretStorage blob.
- * OAuth is one unit of token URL plus client ID.
- * The virtual key is both-or-neither AND must be header-legal.
- * An invalid name or value would make fetch throw a TypeError embedding the full plaintext value.
- * narrowVirtualKey applies the same rule on the chat path.
- * Normalizing the base URL keeps a trailing slash from doubling up in the endpoint paths.
- * LiteLLM answers `//key/info` with a 404, which would read as usage-unsupported.
+ * The virtual key must be header-legal because an invalid name or value makes the platform's fetch throw a
+ * TypeError, and such an error can expose the plaintext value (narrowVirtualKey applies the same rule on the
+ * chat path). The base URL is normalized because a doubled slash reaches LiteLLM as `//key/info`, which answers
+ * 404 and would misclassify the server as usage-unsupported.
  */
 export function usageConnectionFor(entry: DeclaredServer, stored: StoredServerSecrets): UsageConnection {
 	const inline = inlineSecretValues(entry);

@@ -146,14 +146,10 @@ const messagesArb = fc.array(
 const gatesArb = fc.record({ imageInput: fc.boolean(), audioInput: fc.boolean() });
 
 /**
- * This walk is independent of the estimator.
- * Token counting is non-linear.
- * Each priced string ceils on its own.
- * BPE splits at string boundaries.
- * So the guard compares segment sequences, not summed characters.
- * A walk that joins or splits differently fails even when the totals happen to agree.
- * Binary payloads (base64 images, files, audio) are not text on either side.
- * Neither side prices roles, ids, or JSON punctuation.
+ * Token counting is non-linear (each priced string ceils on its own and BPE splits at boundaries), so the guard
+ * compares segment sequences rather than summed characters, and a walk that joins or splits differently fails even
+ * when the totals agree. Binary payloads are not text on either side, and roles, ids, and JSON punctuation are
+ * wire scaffolding neither side prices.
  */
 function shippedTextSegments(messages: OpenAIChatMessage[]): string[] {
 	const segments: string[] = [];

@@ -309,14 +309,12 @@ describe("extension/features/prGen collectBranchContext", () => {
 	});
 
 	test("the collected patches survive prompt assembly whole - no tail file lost to the second cut", async () => {
-		// The prompt cuts the ASSEMBLED blocks, File: headers and separators included.
-		// So a collection charged only for raw patch text would lose its last files there.
-		// The paths must DIVERGE, not merely be long.
-		// patchBlocks relativizes against the common prefix.
-		// So files sharing one deep directory collapse to bare basenames however long the URIs are.
-		// These paths share only "/repo/src/", so each header carries about 180 characters.
-		// A flat 32-character reserve was measured to accept 60 blocks, and the prompt then truncates.
-		// The per-block charge was measured to accept 55 blocks, and the prompt does not truncate.
+		// The paths must DIVERGE rather than merely run long, since patchBlocks relativizes against the common prefix
+		// and files sharing one deep directory collapse to bare basenames however long the URIs are. Sharing only
+		// "/repo/src/" leaves each header about 180 characters, a per-block cost impossible to under-reserve by accident.
+		//
+		//   flat 32-character reserve -> accepts 60 blocks, the prompt truncates
+		//   per-block charge          -> accepts 55 blocks, the prompt stays whole
 		const files = Array.from(
 			{ length: 100 },
 			(_value, index) => `/repo/src/pkg${index}/${"deeply/nested/".repeat(12)}file${index}.ts`

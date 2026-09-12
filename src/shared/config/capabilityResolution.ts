@@ -144,14 +144,11 @@ export interface ParsedCapabilityRecord extends ParsedRecord {
 }
 
 /**
- * This is the one typing boundary of the capability vocabulary.
- * An invalid consumed value earns a diagnostic and stays unset.
- * A valid value from a lower precedence source can therefore still win.
- * Validation is advisory, never gating, so every other non-underscore key stays verbatim.
- * Unknown underscore keys pass without diagnosis, for forward compatibility.
- * That silence also keeps a hostile own "__proto__" key out of the field object.
- * Other prototype names like "toString" are legal open fields.
- * Every dynamic read downstream is hasOwn-guarded.
+ * The one typing boundary of the capability vocabulary; validation is advisory, never gating.
+ * Every dynamic read downstream is hasOwn-guarded, so prototype names like "toString" are legal open fields.
+ *
+ *   consumed field, invalid value -> diagnosed and left unset, so a lower-precedence source's valid value can still win
+ *   unknown underscore key        -> silently ignored for forward compatibility, which also keeps a hostile own "__proto__" out
  */
 export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>): ParsedCapabilityRecord {
 	// Field keys are TRIMMED at this parse boundary, matching the editor, which
@@ -424,14 +421,6 @@ export interface ResolvedCapabilityOverrides {
 	readonly diagnostics: readonly CapabilityDiagnostic[];
 }
 
-/**
- * The entry result beats the global result field by field.
- * A field its record marks `_fallback` leaves the override chain and becomes a fallback candidate.
- * The two chains merge independently, so a global override still beats an entry fallback.
- * The `_openrouter_model` directive belongs to a layer's WINNING record only.
- * A directive is never inherited, and the entry winner's directive beats the global winner's.
- * The directive's catalog fields fill only fields no explicit override set.
- */
 export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInput): ResolvedCapabilityOverrides {
 	const { rawModelId, globalCapabilities, entryCapabilities, catalog } = input;
 
@@ -685,16 +674,6 @@ const LEVEL_IS_USER_SET: Readonly<Record<CapabilityLevel, boolean>> = {
 	floor: false,
 };
 
-/**
- * Per field, the first level that carries a value wins.
- * Explicit fields (entry, then global) beat the `_openrouter_model` catalog and the server report.
- * Those beat `_fallback` fields (entry, then global), the implicit catalog, and the floor.
- * Only the core fields have a floor, and max_input_tokens derives max(1, context - output).
- * Any other field walks the same chain with no backstop, so a field no level carries is absent.
- * Explicit and `_fallback` user fields count as a "user" output limit.
- * The server level counts as "provider" only under the every-contributor rule.
- * Both catalog paths stay "defaults", so guessed limits keep the wire clamp.
- */
 export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): EffectiveCapabilities {
 	const overrides = resolveCapabilityOverrides(input);
 	const serverValues: Readonly<Record<string, CapabilityJsonValue | undefined>> =

@@ -1,25 +1,7 @@
 /**
- * Every bun-tree test or hook that can reach a child-process spawn must carry a deadline.
- * The deadline is CHILD_PROCESS_TIMEOUT_MS or a literal at least that large.
- * Every test or hook that carries the constant must reach a spawn.
- * A spawn is expensive for reasons the assertion cannot see; childProcessTimeout.ts explains.
- * Without this suite a new spawning test flakes under load instead of failing here.
- * The walk runs the TypeScript parser over the tree's runtime import closure, not a regex.
- * A type-only import loads nothing, so the walk skips it.
- * This catches an author who forgets the deadline or reaches a spawn through a helper.
- * An author who deliberately hides a spawn from the walk is out of scope.
- * XMLHttpRequest counts as a spawn because happy-dom's synchronous form runs in a node child.
- * `new Worker` from a literal relative path counts too, and the walk follows its module.
- * Every other external module must sit in KNOWN_SAFE_MODULES with the reason it starts no process.
- * Otherwise the walk fails, because it cannot see into a package.
- * Any identifier a body mentions that names a spawning declaration counts as reach.
- * So a false positive is loud and names its site.
- * Every analysis gap fails rather than passes.
- * Gaps include a parse error and an import, export, or loader the walk cannot follow.
- * Gaps include code the parser never sees and a test callback it cannot see into.
- * Gaps include a known-safe entry nothing imports and a detector that found no spawn anywhere.
- * A top-level declaration the parser lists but the walk never registered fails too.
- * That control turns a skipped registration step into one loud line, not hundreds of misses.
+ * A spawn's cost is environmental (childProcessTimeout.ts), so without this audit a new spawning test flakes under
+ * load instead of failing here. The walk fails on every gap it cannot read and over-approximates reach, so a false
+ * positive is loud and names its site, while a spawn deliberately hidden from it is out of scope.
  */
 import { expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";

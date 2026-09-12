@@ -1,27 +1,16 @@
 /**
- * The chat input is the control channel.
- * The last non-empty line of the last user message selects the response.
- * It must start with "%" and name a known verb; nothing else dispatches.
- * Bare closing-tag lines are transparent to that rule (see ENVELOPE_CLOSER).
- * So "<userRequest>\n%help\n</userRequest>" still dispatches %help.
- * Everything here is deterministic: no clocks, no Math.random.
- * "%" is the sigil because the obvious ones never reach the model.
- * VS Code Copilot Chat claims "/" for slash commands, "@" for participants, "#" for references.
- * A typed /help rendered as a chip and the host got fallback text back, verified in the live UI.
- * Agent CLIs like Claude Code claim a leading "!" for shell commands.
- * Neither VS Code Copilot Chat nor Claude Code claims "%"; other clients were checked by docs only.
- * A pasted "%" at line start (templating markers, PostScript DSC) can still collide.
- * A pasted "%error:429" on the last line selects the 429 scenario.
- * The protection is that only the LAST non-empty line dispatches and unknown verbs fall through.
- * %-comment languages (MATLAB, LaTeX, Erlang, csh) write "% word: args" at line start.
- * So the verb tolerates trailing whitespace only (trimEnd, never trim).
- * Before that, "% error: 429" returned a real HTTP 429 that looked like a genuine proxy failure.
- * This module uses only node builtins because fake-openai runs read-only without node_modules.
- * Against LiteLLM v1.93, id, system_fingerprint, and service_tier transit VERBATIM.
- * Only created gets rewritten, and assertions still belong on extracted content, never raw bytes.
- * Human-facing reports (%help, the introspection verbs) are markdown, as chat hosts render it.
- * Contract texts stay byte-exact and unformatted.
- * That set is %echo, %play, usage strings, FALLBACK_TEXT, the bad-arguments text, media sentences.
+ * The chat input is the fake OpenAI backend's control surface, and "%" is the sigil because every obvious one is
+ * intercepted before the text reaches the model (verified in VS Code Copilot Chat and Claude Code, other chat
+ * surfaces by docs only). Everything here is deterministic (no clocks, no Math.random) and node builtins only,
+ * since the fake-openai container runs it from a read-only repo mount without node_modules.
+ *
+ *   "/", "@", "#"     -> Copilot Chat claims them (slash commands, participants, references); a typed /help
+ *                        rendered as a chip and the host got plain fallback text back
+ *   "!"               -> agent CLIs like Claude Code run it as a shell command
+ *   "%" at line start -> rare in pasted text (templating markers, PostScript DSC) and accepted, since only the
+ *                        line lastNonEmptyLine picks dispatches and an unknown verb falls through to the fallback
+ *   "% word: args"    -> %-comment languages (MATLAB, LaTeX, Erlang, csh) write this, so the verb tolerates
+ *                        trailing whitespace only (trimEnd, never trim); "% error: 429" once returned a real 429
  */
 
 import { createHash } from "node:crypto";
@@ -153,9 +142,9 @@ function sha256Hex(data: string | Uint8Array): string {
 }
 
 /**
- * Deterministic per-request envelope: the id hashes the CANONICAL FULL request
- * body, so requests differing in any field carry different ids. Cached per
- * request, not per chunk: large attachment bodies would hash quadratically.
+ * Cached per request rather than per chunk, because large attachment bodies would hash quadratically. Against
+ * LiteLLM v1.93, id, system_fingerprint, and service_tier transit VERBATIM and only created is rewritten, so
+ * assertions still belong on extracted content, never raw bytes.
  */
 const envelopeCache = new WeakMap<object, Record<string, unknown>>();
 
@@ -260,10 +249,10 @@ function numberedChunks(context: CommandContext, count: number): unknown[] {
 
 // ── Markdown report formatting ───────────────────────────────────────────────
 //
-// Diagnostic reports emit one "- " bullet per fact and blank lines between
-// logical sections, with every VARIABLE value inside a backtick code span, so
-// content-derived text cannot style the report. Single-sentence replies stay
-// bare - their bytes are pinned by the suites.
+// Diagnostic reports (%help, the introspection verbs) are markdown because chat hosts render replies as markdown,
+// and every VARIABLE value sits in a code span so content-derived text cannot style the report. Contract texts
+// (%echo, %play, usage strings, FALLBACK_TEXT, the bad-arguments diagnostic, the hash-bearing media sentences) stay
+// byte-exact and unformatted because the suites pin their bytes.
 
 /**
  * A code span around one variable value. Newlines collapse to spaces first (a

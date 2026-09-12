@@ -15,13 +15,11 @@ const NARROW_PROBE_WIDTH = 320;
 const WIDE_PROBE_WIDTH = 1920;
 
 /**
- * The page-level number is the whole claim, and the names under it are a diagnostic.
- * The two questions fail in opposite directions.
- * Boxes past the edge miss an unbreakable text run inside a block that stays in bounds.
- * Boxes overflowing THEMSELVES catch that run.
- * They also catch the min-width ancestor the deepest-offender filter drops.
- * The probe skips anything inside a scroller.
- * A deliberate overflow-x adds nothing to the document's own scroll.
+ * The page-level number is the whole claim; the names under it are a diagnostic from two questions that fail in opposite directions.
+ * Anything inside a scroller is skipped in both, since a deliberate overflow-x adds nothing to the document's own scroll.
+ *
+ *   boxes reaching past the edge -> miss an unbreakable text run inside a block that stays in bounds
+ *   boxes overflowing THEMSELVES -> catch that run, plus the min-width ancestor the deepest-offender filter drops
  */
 const OVERFLOW_PROBE = `(() => {
 	const root = document.documentElement;
@@ -152,13 +150,10 @@ async function measurePane(cdp: CdpConnection): Promise<number> {
 }
 
 /**
- * The breakpoints are container queries on the pane, not on the window.
- * A window set to a pane threshold therefore tests a width no breakpoint cares about.
- * Each target is SOLVED (set, measure, correct, repeat) rather than modelled from the layout.
- * The relation has slope one where uncapped, so it converges in a step or two.
- * Where capped or discontinuous it fails to converge, and the run reports that.
- * The rail's collapse takes about 170px of the offset with it, hiding some pane widths.
- * Solving from both ends reaches the widths only one side can produce.
+ * The breakpoints are container queries on the pane, so a window set to a pane threshold tests a width no breakpoint cares
+ * about; each target is SOLVED by measuring rather than modelled from the layout, and a capped or discontinuous relation is
+ * reported, not guessed. The rail's collapse takes about 170px of the offset with it, so solving from both ends reaches the
+ * pane widths only one side can produce.
  */
 export async function windowWidthsForPanes(
 	cdp: CdpConnection,

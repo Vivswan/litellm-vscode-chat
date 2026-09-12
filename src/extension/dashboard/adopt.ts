@@ -112,14 +112,9 @@ export function resolveAdoptableCredentials(
 }
 
 /**
- * The external group's configuration becomes a new declared entry.
- * The webview names only the group handle and the storage locations.
- * The values come from the provider's in-memory lookup, and only for a still-external group.
- * A missing lookup still writes the plain entry with a caveat, because the user asked for it.
- * The failure ordering mirrors applySaveServerSetting's guarded unit.
- * Secure writes and stale-blob clears run first, then the settings write.
- * If any step fails, the rollback restores the secure values changed under this label.
- * The stale clears are safe before the write because no entry exists under the label yet.
+ * A missing credential lookup still writes the plain entry and reports the caveat, because the user asked for the
+ * entry either way. The failure ordering mirrors applySaveServerSetting's guarded unit, and the stale-blob clears
+ * are safe before the settings write because no entry exists under the label yet.
  */
 export async function applyAdoptServer(
 	intent: RequestPayload<"adoptServer">,

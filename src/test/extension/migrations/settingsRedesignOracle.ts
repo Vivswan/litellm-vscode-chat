@@ -1,25 +1,22 @@
 /**
- * resolveOldWorld runs the FROZEN resolvers in oldWorldResolvers.ts over an old-world snapshot.
- * resolveNewWorldReference runs the LIVE resolvers over a MIGRATED one.
- * Both accept the entry by one rule, so the property isolates RESOLVER equivalence.
+ * resolveOldWorld runs the FROZEN pre-redesign resolvers (oldWorldResolvers.ts) and resolveNewWorldReference the
+ * LIVE ones, both accepting the entry by the same rule, so the property isolates RESOLVER equivalence.
  *
- * The oracle characterizes two INTENTIONAL divergences rather than hiding them.
- * The migrated defaultMaxOutputTokens fill counts user-set, which is the clamp lift.
- * So provenance may move "defaults" -> "user" when the trio output was configured.
- * The `_declare`+`_fallback` ban is RETIRED, so the old view resolves BAN-FREE.
- * The oracle reports the rescued fields separately.
+ * Two INTENTIONAL divergences are characterized, not hidden:
+ *   the migrated defaultMaxOutputTokens fill counts user-set -> provenance may move from "defaults" to "user"
+ *                                                               when the trio output was configured (the clamp lift)
+ *   the `_declare`+`_fallback` ban is RETIRED                -> the old view resolves BAN-FREE and the rescued
+ *                                                               fields are reported separately
  *
- * The property SKIPS five divergences, and a test in the divergence suite pins each one.
- * The old rule "a scoped global record replaces the unscoped one WHOLE" cannot move to entry level.
- * The entry merges field by field.
- * A scoped winner competing with an entry record under a DIFFERENT key resolves differently.
- * Two levels once merged per field; one level now resolves most-specific-wholesale.
- * The old default* trio applied to EVERY model below records.
- * The migrated "*" fill rides the matcher chain instead.
- * A star-bearing old key migrates to an escaped anchored-prefix regex whose TIER ranks below globs.
- * So ordering against another matching key can differ.
- * `_inheritable` and `_inherit_from` were inert keys that would ACTIVATE under the new grammar.
- * So the migration rides them verbatim and generators never emit them.
+ * Five divergences the property SKIPS (the first two are pinned in the divergence suite):
+ *   scoped global record replaced the unscoped one WHOLE      -> the entry level merges field by field
+ *   scoped winner vs an entry record under a DIFFERENT key    -> two levels merged per field, one level now
+ *                                                                resolves most-specific-wholesale
+ *   old default* trio applied to EVERY model below records    -> the migrated "*" fill rides the matcher chain
+ *   star-bearing old key, now an anchored-prefix regex        -> its TIER ranks below globs, so ordering against
+ *                                                                another matching key can differ
+ *   `_inheritable`/`_inherit_from` were inert underscore keys -> they would ACTIVATE under the new grammar, so the
+ *                                                                migration rides them verbatim and generators never emit them
  */
 
 import {

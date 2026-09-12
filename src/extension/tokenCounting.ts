@@ -43,14 +43,8 @@ export interface TokenCountingController {
 }
 
 /**
- * Counting itself stays synchronous so nothing here can throw into the request path.
- * A mode that wants a tokenizer counts by its heuristic until the load lands.
- * A failed load logs once and leaves that heuristic standing.
- * "heuristic" never loads.
- * The explicit encodings load on apply.
- * "auto" loads o200k_base on apply under a non-English UI.
- * Otherwise "auto" waits for the counter's non-Latin detection.
- * A load resolving after the mode changed installs nothing.
+ * Counting itself stays synchronous, so nothing here can throw into the request path. A mode that wants a
+ * tokenizer counts by its heuristic until the load lands, and a failed load logs once and leaves it standing.
  */
 export function createTokenCountingController(deps: TokenCountingDeps): TokenCountingController {
 	const loadEncoding = deps.loadEncoding ?? importEncoding;

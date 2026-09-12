@@ -26,14 +26,9 @@ import {
 import { expectDefined } from "./pureHelpers";
 
 /**
- * Generators and the assembly oracle live in fuzzStream.ts, shared with the in-process suites.
- * The direct target also generates malformed chunks and multi-part refusals the proxy would reject.
- * So the extension's leniency contract meets a real socket.
- * The declared-model target routes the direct shapes through the fake's no-discovery mirror.
- * Failures shrink to a minimal event list.
- * fuzzCorpus.ts replays past failures first.
- * Every run logs its seed.
- * Reproduce one with `FUZZ_SEED=<seed> bun run test:docker`.
+ * The event generators and the assembly oracle live in fuzzStream.ts, shared with the in-process property
+ * suites. Failures shrink to a minimal event list, fuzzCorpus.ts replays past failures first, and the seed is
+ * always logged (`FUZZ_SEED=<seed> bun run test:docker` reproduces a run).
  */
 
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");

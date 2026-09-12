@@ -117,14 +117,10 @@ export interface LiteLLMChatModelProviderOptions {
 		| ((label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined)
 		| undefined;
 	/**
-	 * This resolver reads a declared entry's CURRENT credentials at serve and request time.
-	 * It matches by label and normalized base URL, like getEntryHeaders.
-	 * The host bakes credentials into a group at creation, and its group commands are add-only.
-	 * So live entry credentials replace the baked ones before anything derives identity from them.
-	 * `undefined` keeps the baked credentials in force.
-	 * That covers no matching entry, refused secret ownership, and a failed secrets read.
-	 * They remain the fallback for external groups and leftovers whose entry moved hosts.
-	 * It never rejects by contract, and the facade still guards.
+	 * The host bakes credentials into a group at creation and its group commands are add-only, so the entry's
+	 * CURRENT credentials (matched like getEntryHeaders) overlay the baked ones before anything derives identity.
+	 * `undefined` (no matching entry, refused secret ownership, a failed secrets read) keeps the baked ones
+	 * in force, the fallback for external groups and leftovers whose entry moved hosts.
 	 */
 	resolveEntryCredentials?: ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>) | undefined;
 	/**
@@ -136,12 +132,12 @@ export interface LiteLLMChatModelProviderOptions {
 	 */
 	getCatalogLookup?: (() => CapabilityCatalogLookup) | undefined;
 	/**
-	 * A removed group's tombstone identity is its status label plus normalized base URL.
-	 * A superseded group's entry, found by `entryLabel`, now declares another URL.
-	 * Unlabeled groups pass no `entryLabel`, so a URL-host display label never reads as an entry's.
-	 * A suppressed group answers with an empty model list and skips the network.
-	 * Its group-side status still reports, so the status window and the dashboard stay coherent.
-	 * The default suppresses nothing.
+	 * A suppressed group answers empty and skips the network, while its group-side status still reports, so
+	 * the status window and the dashboard stay coherent.
+	 *
+	 *   removed    -> judged by the group's status label and normalized base URL, the tombstone identity
+	 *   superseded -> the entry carrying `entryLabel` now declares another URL; unlabeled groups pass no
+	 *                 `entryLabel`, so a URL-host display label never reads as an entry's
 	 */
 	isGroupSuppressed?: ((label: string, baseUrl: string, entryLabel: string | undefined) => boolean) | undefined;
 	/** Cache seam for tests (fake TTL clock); the provider owns a real one by default. */
@@ -308,14 +304,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
-	 * This prunes SDK clients and cached discovery results in lockstep.
-	 * Both embed the server's credentials, and a rotated key mints a new group client ID.
-	 * The keep-set composes through GroupDiscovery.cacheKeyFor, like the cache keys themselves.
-	 * So a kept group keeps only its current-root entry, and a rotated root's leftover ages out.
-	 * A kept ID the status window cannot resolve contributes no key.
-	 * Every windowed ID carries its group server today, so that case has not occurred.
-	 * It also fails safe.
-	 * The worst case is one extra discovery round trip, never a wrongly kept credential entry.
+	 * Clients and cached discovery results prune in lockstep, since both key on the group client ID and its
+	 * credential fingerprint. The keep-set composes through GroupDiscovery.cacheKeyFor like the keys themselves.
+	 *
+	 *   root rotated                  -> the old root's entry is unreachable and ages out here
+	 *   kept ID the window cannot map -> contributes no key; fails safe as one extra discovery round trip
 	 */
 	private pruneServerCaches(keep: readonly string[]): void {
 		this._client.pruneClients(keep);

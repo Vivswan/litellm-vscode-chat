@@ -108,14 +108,14 @@ export class OAuthTokenSource {
 	private readonly pending = new Map<string, Promise<string>>();
 
 	/**
-	 * The cached token serves until it is due for refresh, then a fresh exchange replaces it.
-	 * `budget` carries the setting owning the caller's bound, so timeout advice names it or nothing.
-	 * Concurrent calls for the same credentials share ONE live exchange and one invalidation path.
-	 * Every waiter keeps its own bounds and error surface.
-	 * A joiner's clock or `signal` ends only its own wait, and the exchange continues for the others.
-	 * Other waiters never see an exchange that died of its ORIGINATOR's own bounds.
-	 * They fall through to a fresh join or exchange, so no waiter renders a bound it did not own.
-	 * Each exchange gets a fresh `budget`, so a recovering call can take a join wait plus one budget.
+	 * The cached token until it is due for refresh, else a fresh exchange bounded by `budget` (whose setting
+	 * identity is what timeout advice names, or none) and, when given, by `signal`. Concurrent calls for the
+	 * same credentials share ONE live exchange, yet every waiter's bounds and error surface stay its own.
+	 *
+	 *   a joiner's clock or `signal` fires -> only its own wait ends; the exchange continues for the others
+	 *   the shared exchange fails          -> each waiter renders it through its OWN surface
+	 *   it died of its ORIGINATOR's bounds -> joiners never render a bound they did not own; they fall through to a
+	 *                                         fresh join or exchange on its own fresh `budget` (join wait + one budget)
 	 */
 	async getToken(
 		config: OAuthConfig,
@@ -260,14 +260,9 @@ function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> 
 }
 
 /**
- * This carries a failed shared exchange before any caller's error surface is chosen.
- * Every waiter renders the same failure through its OWN surface via `render`.
- * Each call mints a fresh RequestError, so N waiters never share one error object.
- * `originatorBound` marks a death by the ORIGINATING caller's clock.
- * Its elapsed ms and advice fit the originator alone, so joiners recover instead of rendering it.
- * The class is module-internal by design.
- * getToken renders it before anything escapes, so no caller sees this type.
- * Only cancellation reasons pass through unrendered.
+ * `render` mints a fresh RequestError per waiter, since N waiters must never share one error object.
+ * `originatorBound` marks a death by the ORIGINATING caller's clock, the one failure whose elapsed ms and
+ * setting advice are truthful for the originator alone, so joiners recover instead of rendering it.
  */
 class OAuthExchangeFailure extends Error {
 	constructor(
@@ -280,14 +275,9 @@ class OAuthExchangeFailure extends Error {
 }
 
 /**
- * The exchange-timeout advice names the setting that owns the elapsed bound.
- * The identity rides the TimeoutBudget from the ONE place each caller reads its number.
- * So the advice cannot drift from the budget choice.
- * A budget whose `setting` is undefined (the fixed inline-completion bound) names none.
- * Advice to raise a setting that cannot extend the bound is a lie.
- * The switch is exhaustive on purpose, not an if-ladder.
- * A ladder's fall-through hands a new setting another setting's advice with no compile error.
- * The satisfies-never default fails to compile until the new member states its own.
+ * The advice rides the TimeoutBudget minted where the number was read, so it cannot drift from the budget
+ * choice, and an undefined `setting` (the fixed inline-completion bound) gets none, since advising a setting
+ * that cannot extend the bound is a lie. The switch is exhaustive on purpose; a ladder's fall-through would misattribute a new setting.
  */
 function timeoutError(tokenUrl: string, budget: TimeoutBudget, cause?: unknown): RequestError {
 	const url = displayUrl(tokenUrl);
@@ -434,14 +424,9 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 }
 
 /**
- * POST the client-credentials grant to the token endpoint.
- * Network failures and 5xx retry up to the discovery cap, because the exchange is idempotent.
- * `budget.ms` is a hard bound across all attempts.
- * A `signal` abort rethrows as-is, preserving the caller's cancellation or timeout classification.
- * Credential rejections (400/401/403) and malformed responses fail at once with distinct messages.
- * Every concurrent getToken caller shares this exchange.
- * So every non-cancellation failure leaves as a surface-free OAuthExchangeFailure.
- * Each waiter then renders it toward its own surface.
+ * Retries like the discovery GETs because the exchange is idempotent, under `budget.ms` as a hard bound
+ * across all attempts. Every concurrent getToken caller shares this exchange, so non-cancellation failures
+ * leave surface-free as OAuthExchangeFailure, while a `signal` abort rethrows as-is so the caller attributes it truthfully.
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,

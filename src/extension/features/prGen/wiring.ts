@@ -17,14 +17,11 @@ import type { TitleAndDescriptionContext } from "./prompt";
 import { createTitleAndDescriptionProvider } from "./provider";
 
 /**
- * The palette command is registered unconditionally.
- * The palette entry hides behind the when-clause, but executeCommand and keybindings do not.
- * The GitHub integration registers ONLY while the feature is enabled AND a model is configured.
- * A half-configured feature therefore never gets a button in that extension's create view.
- * The integration is deferred, not one-shot.
- * The GitHub extension may be installed, enabled, or updated after activation.
- * extensions.onDidChange and configuration changes therefore both re-run the decision.
- * `oneShot` is the shared client, so OAuth tokens cache across features and invalidate on 401.
+ * The GitHub Pull Requests extension may be installed, enabled, or updated after this activation, so the
+ * integration re-decides on extensions.onDidChange as well as on configuration changes.
+ *
+ *   palette command  -> registered unconditionally, the palette entry hides behind the when-clause but executeCommand and keybindings do not
+ *   GHPR integration -> ONLY while enabled AND a model is configured, so a half-configured feature never offers a button in that create view
  */
 
 /** The GitHub Pull Requests extension's identifier, as published. */
@@ -178,13 +175,10 @@ export function createGhprProvider(
 }
 
 /**
- * Resolve the GitHub extension's API, or undefined when it is absent, disabled, or too old.
- * Activation happens only once the user has enabled this feature and picked a model.
- * Its exports are unreadable until it activates.
- * It is the extension the user asked us to integrate with.
- * `reportActivationFailure` is the caller's channel-only advisory sink, Logger.advisory.
- * The decision reruns on every settings and extension change.
- * The issue-report buffer is a small ring, so a broken install must not evict real history from it.
+ * Activating the other extension is deliberate and happens only once the user has enabled this feature and
+ * picked a model, since its exports are unreadable until it activates. `reportActivationFailure` is the
+ * caller's channel-only advisory sink, Logger.advisory, because the decision reruns on every settings and
+ * extension change, and a broken install must not evict real history from the small issue-report ring.
  */
 async function resolveGhprApi(
 	reportActivationFailure: (message: string) => void

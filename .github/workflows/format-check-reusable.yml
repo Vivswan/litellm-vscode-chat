@@ -72,16 +72,9 @@ jobs:
           name: ${{ inputs.catalog-artifact }}
           path: dist
 
-      # This step fails closed, with one declared gap.
-      # This job never fetches the catalog on its own.
-      # A missing artifact passes only when the producer reported catalog=skipped.
-      # The catalog assertions below then skip, and the bundle still runs without the catalog.
-      # Bundling without it is fine because builds are network-free by design.
-      # The runtime tolerates a missing catalog as well.
-      # The producer's warning already says transient or settled, and nothing here re-classifies it.
-      # A fresh run then shows the gap as one ::warning:: from the producer and one from this job.
-      # A re-run whose earlier attempt uploaded finds that same-commit artifact and stays quiet.
-      # A missing artifact with any other producer outcome is an error.
+      # Fails closed with one declared gap; a missing artifact passes only when the producer reported catalog=skipped, nothing here
+      # re-classifies its warning, and a re-run whose earlier attempt did upload finds that same-commit artifact and posts none.
+      # Bundling still runs without the catalog, because builds are network-free by design and the runtime tolerates a missing one.
       - name: The catalog artifact must have arrived unless the producer reported catalog=skipped
         id: present
         env:

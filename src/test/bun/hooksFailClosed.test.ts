@@ -137,16 +137,16 @@ function requiredBootstrap(tracked: ReadonlyMap<string, string>): readonly strin
 }
 
 describe("hook layer fails closed", () => {
-	// Every write here must land in a scratch repo under the tmpdir.
-	// Linked worktrees share one config file, so a git init with a leaked GIT_DIR rewrites it for all.
-	// A leaked GIT_DIR once flipped core.bare there; hostEnv's strip and scratch repos prevent that.
-	// This snapshot compares config ENTRIES in file order.
-	// Every guarded leak adds, drops, changes, or reorders an entry.
-	// Inode or timestamp identity failed under concurrent git clients, which write via config.lock.
-	// VS Code's Git extension appends branch.<name>.vscode-merge-base for every branch it sees.
-	// That key is out of scope because this suite's only worktree add is --detach.
-	// The snapshot digests values because a failing deepStrictEqual prints both operands.
-	// A CI checkout's config carries the job token as an auth extraheader.
+	// Every write this suite performs must land in a scratch repo under the tmpdir. Linked worktrees share one
+	// config file, so a git init that inherited GIT_DIR rewrites what every sibling checkout reads (a leaked
+	// GIT_DIR once flipped core.bare there), and this snapshot proves hostEnv's strip and the scratch repos hold.
+	//
+	//   entries, not inode or timestamp -> every guarded leak adds, drops, changes, or reorders one, and every
+	//                                      concurrent git client rewrites the file through config.lock
+	//   values digested, not embedded   -> a failing deepStrictEqual prints both operands, and a CI checkout's
+	//                                      config carries the job token as an auth extraheader
+	//   branch.<name>.vscode-merge-base -> VS Code's Git extension appends it, and nothing under test can, since
+	//                                      the suite's only worktree add is --detach
 	const sharedConfigSnapshot = (): readonly string[] => {
 		const listed = spawnSync("git", ["-C", REPO_ROOT, "config", "--list", "--local", "-z"], {
 			env: repoIndexEnv(),

@@ -953,14 +953,13 @@ function rawEntriesOf(raw: unknown, label: string): unknown[] {
 const UNDO_CLEAR_FAILURE_LOG = "Undo import: re-clearing a restored secret under an unrestored entry failed";
 
 /**
- * A stored credential belongs only under the entry it was recorded for.
- * While the live entry is some OTHER configuration, the credential would reach the wrong host.
- * Withholding the sync alone only defers the hazard, since activation and servers edits sync too.
- * A failed write can leave a label half-restored, so success is not tracked.
- * The kept snapshot holds the pre-import value and restores whatever this removes on retry.
- * The imported credential stays recoverable in the user's import file.
- * A base URL compare alone would miss the other routing fields, an OAuth token URL among them.
- * A needless clear is recoverable, while a served retired credential is not.
+ * A stored credential belongs only under the entry it was recorded for, so while the live entry is some OTHER
+ * configuration (an undo's still-imported entry, a rollback's still-pre-import one) it is cleared. Withholding
+ * the sync alone would not do, since activation force-syncs and any servers edit syncs too.
+ *
+ *   pre-import value -> in the snapshot slot; the kept snapshot restores whatever this removes once a retry lands the entries too
+ *   imported value   -> in the user's import file
+ *   failed write     -> can leave a label half-restored, so success is not tracked and every label is re-checked on retry
  */
 async function clearMismatchedBlobs(
 	env: SettingsTransferEnv,
@@ -971,6 +970,8 @@ async function clearMismatchedBlobs(
 	let failures = 0;
 	const liveServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
 	for (const label of new Set(labels)) {
+		// Byte-identical entries, because a base URL compare alone would miss the other routing fields (an OAuth
+		// token URL among them), and a needless clear is recoverable while a served retired credential is not.
 		if (
 			JSON.stringify(rawEntriesOf(liveServersRaw, label)) === JSON.stringify(rawEntriesOf(referenceServersRaw, label))
 		) {

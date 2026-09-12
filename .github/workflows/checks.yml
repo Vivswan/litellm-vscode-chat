@@ -29,12 +29,8 @@ jobs:
     with:
       os: 'matrix'
 
-  # This job runs the docker suite, the stream fuzzer, and live host-fidelity against the proxy.
-  # Measured per-label wall time balances the two shards.
-  # Each split-off group suite runs sub-second but costs one extra extension-host boot.
-  # src/test/stackDrift.test.ts pins each shard's list to the orchestrator's known labels.
-  # The same test pins the union of the shards to the full label set.
-  # The shards carry no `if:`, because a skipped matrix job counts green in the aggregate.
+  # src/test/stackDrift.test.ts pins each shard's label list to the orchestrator's known labels and their union to the full set.
+  # No `if:` on the shards, because a skipped matrix job would count green in the aggregate (see the header note).
   docker-stack:
     strategy:
       fail-fast: false
@@ -236,14 +232,9 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
         run: bun run check-geometry
 
-  # This is the run's ONE live fetch of the OpenRouter capability catalog.
-  # The script validates the payload and the mapping, so payload drift fails here, not on users.
-  # The slimmed dist/openrouter-models.json reaches format-check as an artifact.
-  # A second fetch there doubled the exposure to a CDN body stall and validated the same payload.
-  # The endpoint is unauthenticated, so this job needs no secret.
-  # The failure text separates "no usable catalog" from schema drift.
-  # The script shares its retry rule with the runtime, which calls a failure transient or settled.
-  # The job is unconditional, because a skipped job counts green in the gate (header note).
+  # The run's ONE live fetch of the OpenRouter catalog; format-check reads the slimmed file as an artifact, because its own second
+  # fetch doubled the exposure to a CDN body stall for zero extra coverage. Unconditional on purpose, because a skipped job would
+  # count green in the gate (see the header note).
   openrouter-catalog:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -260,15 +251,12 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # Push-to-main runs use the script's lenient mode.
-      # Every UnreachableError is then one ::warning:: and exit 0 with nothing written.
-      # UnreachableError covers connect failure, header or body timeout, non-2xx, and non-JSON body.
-      # The shared retry rule calls each transient or settled, and the warning headline says which.
-      # A third-party outage must not block landing on main.
-      # Schema drift stays fatal in every mode.
-      # Pull request runs and manual dispatch stay fatal, since a human is watching.
-      # The release build's own fetch (vscode:prepublish) stays fatal too.
-      # The file, not the exit code, says whether the fetch produced a catalog.
+      # A third-party outage must not block landing on main, so push-to-main runs opt into the script's lenient mode.
+      # The file, not the exit code, says whether the catalog was fetched.
+      #
+      #   no usable catalog (any UnreachableError)                       -> one ::warning:: naming transient or settled, exit 0, nothing written
+      #   schema drift                                                   -> fatal in every mode
+      #   pull request runs, manual dispatch, vscode:prepublish's fetch  -> stay fatal, where a human is watching and a re-run is cheap
       - name: Fetch and validate the live OpenRouter catalog
         id: fetch
         env:

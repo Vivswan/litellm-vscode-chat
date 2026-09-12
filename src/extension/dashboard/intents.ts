@@ -96,14 +96,11 @@ export class DashboardOperationError extends Error {
 }
 
 /**
- * Each probe runs its feature's exact pipeline over a fixed sample.
- * The inline-completions probe is the shared FIM send, applying `_fim_template` with fixed bounds.
- * A feature without a probe has no key on purpose, so its model row renders no Test button.
- * The executor refuses a forged intent for such a feature.
- * A probe resolves to the answer text, or undefined when the 200 body carried none.
- * It throws the transport's classified error.
- * The type lives here because the intent executor is the contract's consumer.
- * The feature wirings build the record and the dashboard wiring passes it through.
+ * Partial on purpose, so a feature without a probe has no key, its model row renders no Test button, and a forged
+ * intent is refused. Declared here because the intent executor is the contract's consumer.
+ *
+ *   undefined -> no usable feature answer (an empty body, or a reply the feature's own parser rejects)
+ *   throw     -> a configuration or transport failure, classified
  */
 export type FeatureProbes = Readonly<
 	Partial<Record<FeatureModelId, (model: FeatureModelRef) => Promise<string | undefined>>>
@@ -449,14 +446,9 @@ function probeAnswerText(feature: FeatureModelId, characters: number): string {
 }
 
 /**
- * The edit form's on-demand prefill reads one declared entry's inline secret values here.
- * The entry must still match the DISPLAYED identity the form sent.
- * A same-label replacement racing the prefill gets an empty answer.
- * Its inline values never land in a form that shows another entry.
- * The check is blob-free by construction.
- * Inline locations derive from the entry alone, so only fields shown as "settings" come back.
- * Fields stored securely or absent get NO key, because their values must never reach the webview.
- * The returned values are never logged.
+ * The entry must still match the DISPLAYED identity, so a same-label replacement racing the prefill gets an empty
+ * answer, never its inline values into a form showing another entry. Fields stored securely or absent get NO key,
+ * because their values must never reach the webview, and the returned values are never logged.
  */
 export function readInlineSecretValues(
 	raw: unknown,

@@ -1,22 +1,16 @@
 /**
- * check-overflow.ts proves "the page fits".
- * This sweep proves "a state change does not move what it marks".
- * A width leg adds that each registered surface reaches the pane's content edge at 2000px.
+ * check-overflow.ts proves "the page fits"; this sweep proves "a state change does not move what it marks", plus a width
+ * leg proving each registered surface reaches the pane's content edge at 2000px. THE REGISTRIES (geometryRegistry.ts) ARE
+ * THE COVERAGE CLAIM, and every case measures under the pinned faces (render-dashboard.ts), so a green sweep here predicts
+ * the Linux-only gate.
  *
- * THE REGISTRIES (geometryRegistry.ts) ARE THE COVERAGE CLAIM.
- * A new element that changes state without meaning to move gets a STATE_PAIRS entry.
- * Marks, reveals, errors, and overlays are such states.
- * A new destination or structural container gets a WIDTH_SURFACES entry.
- * Disclosure is deliberately not a pair, since open-vs-closed EXISTS to move geometry.
+ *   an element gaining a mark, reveal, error, or overlay without moving -> STATE_PAIRS entry
+ *   a new destination or structural container                           -> WIDTH_SURFACES entry
+ *   a text-bearing slot                                                 -> also names itself in metricProbe; its height must survive divergent fonts
+ *   disclosure                                                          -> deliberately no pair; open-vs-closed EXISTS to move geometry
  *
- * Every case runs in measurement mode and measures the pinned faces (render-dashboard.ts).
- * A green sweep here therefore predicts the Linux-only gate.
- * A text-bearing slot also names itself in metricProbe to prove its height survives font changes.
- *
- * Exit 1 means geometry moved, a fixture guard is missing, or the runner failed.
- * Exit 2 means a case never ran or an expectedDrift marker's drift is gone.
- * A case never runs when its selector vanished, its toggle is inert, or its baseline is toggled.
- * A stale entry is never green.
+ * A stale entry is its own failure, never a green. A case that never ran (vanished selector, inert toggle, baseline already
+ * toggled) or an expectedDrift marker whose drift is gone exits 2, apart from the exit 1 of moved geometry.
  *
  * Usage:
  *   bun scripts/dev/check-geometry.ts [--only <substring>] [--jobs 4]

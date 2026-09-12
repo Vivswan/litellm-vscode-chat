@@ -5,14 +5,11 @@ export function isToolResultPart(value: unknown): value is vscode.LanguageModelT
 }
 
 /**
- * This is the one answer to which id pairs an assistant tool call with its tool result.
- * Validation and conversion both read this answer, so the policy is decided once.
- * A pair whose intent is recoverable gets a deterministic, pair-stable minted id.
- * An empty callId is a real backend artifact, and rejecting it would strand the conversation.
- * A result answering no live call is reported for validation to reject.
- * A call id reused while still awaiting its result, or by two calls of one message, is reported.
- * A call no result answers is reported.
- * Conversion consumes only the id assignments, so it stays total.
+ * The one answer to which id pairs a tool call with its result, decided once for validation and conversion alike.
+ * An empty callId is a real backend artifact, and rejecting it would strand the whole conversation, so it is minted instead.
+ *
+ *   empty-id call and its result                             -> the same deterministic, pair-stable minted id on both halves
+ *   stray result, live id reuse, or a call no result answers -> reported for validation to reject
  */
 export interface ToolCallPairing {
 	/** Wire id for every tool-call and tool-result part, keyed by wireIdKey. */
@@ -21,10 +18,7 @@ export interface ToolCallPairing {
 	readonly unpairedCallIds: readonly string[];
 	/** Tool results answering no call still awaiting one at their position. */
 	readonly strayResultIds: readonly string[];
-	/**
-	 * These ids recur on a call while an earlier call with the same id still awaits its result.
-	 * Ids shared by two calls of one message count too, since they ship in one tool_calls array.
-	 */
+	/** Ids reused while still live, by a later call or by two calls of one message. */
 	readonly duplicateLiveCallIds: readonly string[];
 }
 
@@ -33,14 +27,10 @@ export function wireIdKey(messageIndex: number, partIndex: number): string {
 }
 
 /**
- * This pairs across the whole message list, in part order and role-agnostic.
- * Conversion ships these parts wherever they sit, so pairing must see what the wire will carry.
- * A call may reuse an id once a result answered the earlier call.
- * Some backends mint the same id every turn.
- * Two calls of one message may never share an id, since they ship in a single tool_calls array.
- * That reuse is live on the wire even when a result part sits between the two calls.
- * An empty-id result pairs FIFO with the oldest still-open empty-id call.
- * Both halves of such a pair receive the same minted id.
+ * Pairing is role-agnostic and in part order because conversion ships these parts wherever they sit.
+ *
+ *   an id reused after its earlier call was answered -> allowed; some backends mint the same id every turn
+ *   an id shared by two calls of one message         -> duplicate; they ship in one tool_calls array, live even with a result part between
  */
 export function pairToolCallIds(messages: readonly vscode.LanguageModelChatRequestMessage[]): ToolCallPairing {
 	const rawIds = new Set<string>();

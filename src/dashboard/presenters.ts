@@ -12,13 +12,8 @@ import type { HeaderScalar } from "../shared/util/headers";
 import type { DashboardServer, DeclaredServerNotice, SettingScope } from "./viewModels";
 
 /**
- * One verdict summarizes the whole configuration.
- * The hero, the status bar, the notifier, and the Diagnostics tab share it.
- * Sharing one verdict keeps their headline judgement from drifting.
- * Unchecked entries stay neutral, and so do failures the entry's expectedFailures declares.
- * Misconfigured entries are neutral too, unless every entry is misconfigured.
- * A configuration of only misconfigured entries is an error, not "waiting".
- * Serving through failure is degraded, never dead, matching the row pills.
+ * Shared by the hero, the status bar, the notifier, and the Diagnostics tab, so their headline judgement cannot
+ * drift; serving through an unexpected failure reads "degraded", never dead, matching the row pills.
  */
 export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting" | "connected" | "needs-declare";
 

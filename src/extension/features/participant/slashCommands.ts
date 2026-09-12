@@ -77,12 +77,9 @@ function instructed(instruction: string, prompt: string): string {
 }
 
 /**
- * A prompt-shaping command sends history, then one instructed user message, attachments below.
- * These commands' sample requests say "the selected function", so they must not arrive without it.
- * It is exported because the quick-fix feature's /fix and /explain are the same shape.
- * A second copy would be a second answer to what a prompt-shaping command does with attachments.
- * Their definitions sit at the features/ root in quickFixChatCommands.ts.
- * The sibling-import ban is per feature directory, and that bridge belongs to neither tree.
+ * The commands whose sample requests say "the selected function", so they must not arrive without the turn's
+ * attachments. Exported because the quick-fix /fix and /explain in quickFixChatCommands.ts are the same shape,
+ * and a second copy would be a second answer to what a prompt-shaping command does with attachments.
  */
 export function promptCommand(name: string, description: string, instruction: string): SlashCommand {
 	return {

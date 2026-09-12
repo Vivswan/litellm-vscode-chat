@@ -20,35 +20,25 @@ import { participantSnapshots } from "./snapshots";
 export type { SnapshotSource } from "./snapshots";
 
 /**
- * This wiring adapts the host's ChatRequestHandler onto the pure turn handler.
- * It owns the feature's ONE logging boundary.
- * It creates or disposes the participant as chatParticipant.enabled changes.
- * Unlike the other features it is ON by default.
- * It costs nothing until a user types @litellm.
- * It answers with the chat request's own model, so it has no model setting and never picks one.
- * The slash-command registry outlives every participant instance on purpose.
- * Quick fixes register /fix and /explain once, and a disable/enable cycle must not drop them.
+ * Unlike the other features this one is ON by default and answers with the chat request's own model, so it has
+ * no model setting and never picks one. The slash-command registry outlives every participant instance because
+ * quick fixes register /fix and /explain once at activation and a disable/enable cycle must not drop them.
  */
 
 export interface ChatParticipantWiring {
 	/**
-	 * Other features extend the participant through this table, the one readable live set.
-	 * Register during activation wiring, before any turn can arrive.
-	 * Registering has no effect on turns in flight, so it is not a runtime toggle.
-	 * `command.name` must be a name package.json contributes under this participant's `commands`.
-	 * The HOST decides what `/name` routes to us, so an undeclared registration is never invoked.
-	 * The contribution test pins the table and manifest equal, which needs a readable registry.
-	 * A duplicate name throws, because a shadowed command is a routing bug, not last-writer-wins.
-	 * Registration survives the enable toggle, because disabling disposes only the participant.
+	 * The table other features extend the participant through. contribution.test.ts pins the command factories
+	 * equal to package.json's `commands` in both directions, so a new command needs a manifest entry too.
+	 *
+	 *   register during activation wiring  -> turns in flight are unaffected, this is not a runtime toggle
+	 *   name package.json does not declare -> never invoked, the HOST decides what `/name` routes to us
 	 */
 	readonly slashCommands: SlashCommandRegistry;
 	/**
-	 * A live participant requires both the setting on and an accepted host registration.
-	 * It is read per use and never cached, because both halves change at runtime.
-	 * The setting alone is not the same fact, because registration can refuse.
-	 * An id conflict or a host that says no is classified and left unregistered here, never thrown.
-	 * The quick fixes' lightbulb submits a turn addressed to @litellm.
-	 * Without this check it would send into a name with nothing behind it.
+	 * The setting alone is not this fact, because the host can refuse the registration, and that refusal is
+	 * classified and left unregistered rather than thrown. Read per use, never cached, since both halves change
+	 * at runtime and the quick fixes' lightbulb would otherwise submit a turn addressed to a name with nothing
+	 * behind it.
 	 */
 	readonly isRegistered: () => boolean;
 }
@@ -110,13 +100,10 @@ function unreadableName(reference: vscode.ChatPromptReference): string {
 }
 
 /**
- * Resolve every attachment on the turn, in the order the user wrote them.
- * The host sorts `references` in REVERSE prompt order, last first, to ease its own string surgery.
- * Reading them back to front restores reading order.
- * An unreadable attachment, a deleted file, a binary, an unknown scheme, never fails the turn.
- * The question is still answerable, and one stale editor tab must not break chat.
- * It is carried through as `unreadable`, not dropped.
- * The model is thus told the user pointed at something it did not receive.
+ * The host sorts `references` in REVERSE prompt order, last reference first, so reading them back to front
+ * restores the order the user wrote them in. An unreadable attachment, a deleted file, a binary, a scheme with
+ * no provider, is carried through as `unreadable` rather than failing the turn, because one stale editor tab
+ * must not break chat and the model should know the user pointed at something it did not receive.
  */
 async function resolveReferences(
 	references: readonly vscode.ChatPromptReference[],

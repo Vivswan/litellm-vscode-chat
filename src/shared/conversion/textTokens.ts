@@ -10,15 +10,6 @@
 
 export const CHARS_PER_TOKEN = 4;
 
-/**
- * "heuristic" is the plain length/4 rule, or bytes/4 for undecoded text parts.
- * It is the explicit setting, and also the window while a picked encoding loads.
- * "adaptive" is the auto setting's interim two-band estimate.
- * A significantly non-Latin text fires onNonLatinDetected, which starts the tokenizer load.
- * That call still returns the two-band figure.
- * "tokenizer" counts exactly with a loaded gpt-tokenizer encoding.
- * A tokenizer throw falls back to the two-band estimate for that text.
- */
 export type TextTokenCounting =
 	| { readonly kind: "heuristic" }
 	| { readonly kind: "adaptive"; readonly onNonLatinDetected: () => void }
@@ -36,14 +27,11 @@ export function plainTextTokenEstimate(text: string): number {
 }
 
 /**
- * This uses cheap range checks, not Unicode property lookups, because it runs per character.
- * Common CJK (main Han, kana, Hangul syllables, CJK punctuation) prices 1 token by block.
- * The bytes bound would triple-price every real Chinese sentence into pre-send over-refusal.
- * Fullwidth and halfwidth forms (U+FF00-FFEF) price 2 tokens, measured.
- * The bytes bound would triple-price realistic Japanese text too.
- * Rare CJK (radicals, jamo, bopomofo, compatibility, extension A, astral Han) prices its bytes.
- * BPE merges only shorten a byte sequence, so bytes never undercount.
- * Everything else prices 0, meaning the caller's chars/4 remainder band.
+ * Cheap range checks, not Unicode property lookups, because this runs per character on the request path.
+ *
+ *   common CJK (main Han, kana, Hangul syllables, CJK punctuation)    -> 1 token; a bytes bound would triple-price real Chinese
+ *   fullwidth and halfwidth forms (U+FF00-FFEF)                       -> 2 tokens, measured; a bytes bound would triple-price Japanese
+ *   rare CJK (radicals, jamo, bopomofo, compatibility, ext A, astral) -> the UTF-8 byte count; BPE merges only shorten, so no undercount
  */
 function cjkTokenPrice(codePoint: number): number {
 	if (

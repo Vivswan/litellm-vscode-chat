@@ -64,14 +64,14 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * This must run before anything computes a fingerprint, because fingerprint() throws until then.
- * This never regenerates an existing salt, because re-keying would churn every stored identity.
- * A failed read never writes, because it cannot tell "no salt yet" from "keychain unavailable".
- * Any other failure yields a session-only salt, so fingerprints work but nothing persists them.
- * No SecretStorage catch binds its error, and every log line is a fixed string.
- * A hostile SecretStorage error could echo the salt, even from a property getter, into public logs.
- * A salt lost to a keychain wipe regenerates as fresh, and old sync records then match nothing.
- * `install` and `timings` are test seams, since initFingerprintSalt latches process-global state.
+ * Runs before anything calls fingerprint(), which shared/util/fingerprint.ts makes throw until a salt is
+ * installed. No SecretStorage catch here binds its error and every log line is a fixed string, because a
+ * hostile failure could echo the salt through a property getter into the public issue-report buffer.
+ *
+ *   stored salt found                    -> adopted as-is; re-keying would churn every stored credential identity
+ *   read succeeded, nothing stored       -> the lock winner generates, losers wait; a wiped keychain lands here and old sync records match nothing
+ *   read failed                          -> session-only and no write; "no salt yet" looks like "keychain unavailable"
+ *   store, read-back, or lock wait fails -> session-only; fingerprints work while nothing persists them
  */
 export async function loadFingerprintSalt(
 	secrets: vscode.SecretStorage,

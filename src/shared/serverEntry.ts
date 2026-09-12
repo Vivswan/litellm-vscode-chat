@@ -72,14 +72,12 @@ export function pickNonSecretOptionalFields(source: NonSecretOptionalFields): No
 export type SecretLocation = "settings" | "secure" | "none";
 
 /**
- * Keys pair with the base URL under the shared normalization.
- * The transport treats a trailing slash on the base URL as insignificant.
- * The OAuth client secret pairs with the token URL VERBATIM.
- * The token exchange fetches the configured URL exactly, so /token and /token/ differ.
- * An entry without a token URL stamps "", a real stamp.
- * Gaining a token URL later therefore still requires a deliberate re-pairing.
- * serverSync/secrets.ts records this at store time, and resolveOwnedSecrets compares it at use.
- * The dashboard's stale-key detection reads the SAME rule instead of re-deriving it.
+ * The ownership stamp serverSync/secrets.ts records at store time and resolveOwnedSecrets compares at use time.
+ * src/dashboard/serverForm.ts's stale-key detection reads this same rule instead of re-deriving it webview-side.
+ *
+ *   key                 -> base URL, normalized (the transport treats a trailing slash there as insignificant)
+ *   OAuth client secret -> token URL VERBATIM (the exchange fetches it exactly, so /token and /token/ differ)
+ *   no token URL        -> "", a real stamp, so gaining a token URL later still needs a deliberate re-pairing
  */
 export function secretDestination(
 	entry: { readonly baseUrl: string; readonly oauthTokenUrl?: string | undefined },
@@ -89,14 +87,12 @@ export function secretDestination(
 }
 
 /**
- * This is the ONE "entry uses this credential field" judgment, mirroring parseGroupConfiguration.
- * This judges the ENTRY alone, so a caller with just a value's existence errs toward "uses it".
- * narrowVirtualKey also drops a header-value-illegal virtual key, which needs the value in hand.
- * The wire narrowing still drops what cannot ride, so consumers gate refusals, never the send.
- * resolveOwnedSecrets' refusals gate the secretsMismatched skip, usage probe, and MCP's resolve.
- * A resolved Authorization-named header skips the OAuth exchange.
- * A resolved X-API-Key-named header owns that carrier.
- * The entry cannot show a value resolving, so a declared header lowers no other field's judgment.
+ * The ONE "entry uses this credential field" judgment; it judges the ENTRY alone, so it errs toward "uses it".
+ * Wire narrowing still drops what cannot ride, so consumers gate refusals, never the send.
+ *
+ * Authorization-named header resolved  -> skips the OAuth exchange
+ * X-API-Key-named header resolved      -> owns that carrier
+ * declared header, value unknown       -> lowers no other field's judgment
  */
 export function entryUsesSecretField(
 	entry: {
@@ -157,12 +153,8 @@ export type McpOptIn = true | { readonly url?: string | undefined };
 type EntryModelRecordMap = ModelRecordMap;
 
 /**
- * This registry pairs with OPTIONAL_ENTRY_FIELDS for what an entry declares BEYOND credentials.
- * These fields stay extension-side and must never reach the provider-group args or fingerprint.
- * buildGroupArgs walks OPTIONAL_ENTRY_FIELDS alone, so this table's order is NOT load-bearing.
- * EntryViewFields and pickEntryViewFields feed every copy site from this one table.
- * A field added here therefore rides every copy site by construction.
- * A field added to only this table or only ENTRY_VIEW_FIELD_SET below does not compile.
+ * These fields must never reach the provider-group args or their fingerprint; buildGroupArgs walks OPTIONAL_ENTRY_FIELDS alone,
+ * so unlike that descriptor this table's order is NOT load-bearing.
  */
 export interface EntryViewFieldValues {
 	/** What apiRootOf appends to the base URL: "" is a real value (append nothing), absent means auto-detect. */

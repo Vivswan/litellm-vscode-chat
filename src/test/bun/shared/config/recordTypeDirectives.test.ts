@@ -85,13 +85,11 @@ const REQUIRED_SOURCES: readonly string[] = [
 ];
 
 /**
- * The identifier routes are property access, object and type-member keys, and destructuring.
- * The remaining blind spot is a name built at runtime.
- * The one-char "_" is the namespace probe, never a name.
- * isUnsafeRecordKey exempts "__proto__" and its kin.
- * The record grammar enforces the same predicate, so no such name could ever be a directive.
- * No such literal exists in code today; the tree's are all in comments.
- * The carve-out pre-empts the next hardening rather than excusing an existing one.
+ * A literal-only walk is blind to the identifier routes (`record._force`, object and type-member keys,
+ * destructuring), so they are collected too. The remaining blind spot is a name built at runtime.
+ *
+ *   "_" alone                       -> the namespace probe, never a name
+ *   isUnsafeRecordKey ("__proto__") -> the record grammar rejects it as a key, so it can never be a directive
  */
 function underscoreNames(fileName: string): ReadonlySet<string> {
 	const text = fs.readFileSync(path.join(CONFIG_DIR, fileName), "utf8");

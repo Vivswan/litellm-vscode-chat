@@ -8,12 +8,9 @@ import {
 } from "../../shared/config/settingSpec";
 
 /**
- * This module is the features' one refusal vocabulary.
- * It lives at the features/ root because features may not import each other.
- * The feature name and setting IDs come from the same registries the getters read.
- * A rename therefore fails this compile instead of leaving advice pointing at a dead setting.
- * Shared gate messages keep per-feature wording from drifting.
- * quickFix's dual-reason advice calls the ID derivations but owns its own sentences.
+ * The features' one refusal vocabulary, at the features/ root because features may not import each other. The
+ * setting IDs derive from the key registries settings.ts reads and the feature name from dashboard/featureNames.ts,
+ * so a rename fails this compile instead of leaving advice pointing at a dead setting.
  */
 
 /** The full enable-setting ID a disabled-feature hint names and its open-settings action targets. */

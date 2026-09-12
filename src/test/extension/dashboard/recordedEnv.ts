@@ -138,8 +138,8 @@ export interface RecordedEnv {
 	/** When set, runs after each readServerSecrets call: the seam for injecting a concurrent edit between the plan read and the guarded unit. */
 	onSecretsRead?: ((label: string) => void) | undefined;
 	/**
-	 * afterWrite lets tests inject a concurrent edit between the write and the cleanup.
-	 * It runs after each successful writeServersSetting with the now-visible array.
+	 * Runs after each successful writeServersSetting with the now-visible array,
+	 * the seam for injecting a concurrent edit between the write and the cleanup.
 	 */
 	afterWrite?: (current: unknown[]) => void;
 	/** What resolveAdoptionCredentials returns; every call is recorded in adoptionLookups. */

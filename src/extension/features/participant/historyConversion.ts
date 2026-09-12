@@ -106,14 +106,9 @@ export function normalizeForWire(messages: readonly ChatMessage[]): ChatMessage[
 }
 
 /**
- * Convert prior turns to messages, in order.
- * Wire shape, user-first and alternating roles, is normalizeForWire's job at the send boundary.
- * A prior turn's ATTACHMENTS are not re-read from its `references`.
- * A thread about one file would otherwise ship that file once per turn.
- * The host re-attaches the live editor context on every turn, so a follow-up still has its file.
- * A file attached once, then edited elsewhere and referred back to, is lost until re-attached.
- * Whitespace-only turns, such as a tool-only response or an empty prompt, are dropped.
- * Past HISTORY_CHAR_LIMIT the oldest whole messages fall off, possibly all of them.
+ * A prior turn's ATTACHMENTS are deliberately not re-read from its `references`, or a thread about one file
+ * would ship that file once per turn. The host re-attaches the live editor context every turn, so what is lost
+ * is only a file attached once, edited away from, and referred back to, which the user can re-attach.
  */
 export function historyMessages(turns: readonly HistoryTurn[]): ChatMessage[] {
 	const messages: ChatMessage[] = [];

@@ -60,11 +60,9 @@ export type DeclaredServer = {
 	OptionalEntryFields;
 
 /**
- * The base URL, apiVersion, and non-secret auth fields decide WHERE resolved secrets go.
- * The OAuth client secret goes to the token URL, and the keys go to the base URL.
- * Any drift therefore means the label's stored values no longer belong to those hosts.
- * `other` may be a displayed form identity, another parsed entry, or a quick-pick snapshot.
- * The dashboard's save and probe paths and the Set Server Secret palette all refuse through this.
+ * These fields decide WHERE resolved secrets are sent (the OAuth client secret to the token URL, the keys to
+ * the base URL), so any drift means the label's stored values no longer belong to those destinations. The
+ * dashboard's save and probe paths and the Set Server Secret palette all refuse through this one comparison.
  */
 export function nonSecretIdentityMatches(
 	entry: DeclaredServer,
@@ -566,14 +564,11 @@ export function declaredEntryLabel(rawEntry: unknown): string | undefined {
 }
 
 /**
- * Every removal decision shares this still-declared predicate.
- * The sync engine's removal detector and the usage poller's prunes both read it.
- * A label is declared while ANY raw entry carries it, acceptance aside.
- * A mid-edit malformed entry therefore stays present.
- * A pass thus never mistakes "could not accept it" for "the user removed it".
- * Only an array container proves a removal.
- * The schema is an array with a [] default, so "remove everything" arrives as an empty array.
- * Undefined, null, or any other non-array is a malformed state, so everything reads as present.
+ * Presence rather than acceptance, so a mid-edit malformed entry stays declared and "the user removed it" is
+ * never confused with "this pass could not accept it".
+ *
+ *   []                            -> a real "remove everything"; the setting declares an array schema with a [] default
+ *   undefined, null, or non-array -> a mid-edit or partial state that proves nothing, so every label reads as present
  */
 export function stillDeclaredIn(raw: unknown): (label: string) => boolean {
 	if (!Array.isArray(raw)) {
@@ -584,12 +579,10 @@ export function stillDeclaredIn(raw: unknown): (label: string) => boolean {
 }
 
 /**
- * The match is label plus URL under the shared normalization, and credentials play no part.
- * Any group carrying the entry's label at its URL resolves, a hand-labeled native group included.
- * A same-label group at another URL proves nothing about the connection.
- * It resolves to nothing and gets only the global settings.
- * The credential overlay's resolver in entryCredentials.ts imports it.
- * That resolver must match by the exact same rule as headers, parameters, and capabilities.
+ * Label plus base URL under the shared normalization, credentials deliberately playing no part, so a
+ * hand-labeled native group at the entry's URL resolves while a same-label group at another URL gets only the
+ * global settings. entryCredentials.ts's overlay resolver must match by this exact rule, the one headers,
+ * parameters, and capabilities resolve by.
  */
 export function matchedEntryFor(raw: unknown, label: string, baseUrl: string): DeclaredServer | undefined {
 	const match = acceptedEntry(raw, label);
@@ -600,13 +593,10 @@ export function matchedEntryFor(raw: unknown, label: string, baseUrl: string): D
 }
 
 /**
- * This is the one supersession rule.
- * A LABELED live group with an entry's label at another URL is that entry's superseded leftover.
- * The host kept the group under the old connection when the user re-pointed the entry.
- * Add-only hosts refuse the update, and one label cannot name two servers.
- * The provider's suppression predicate, entrySupersedingBaseUrl, reads it over the live setting.
- * The dashboard reads it over the engine's declared views, so both hide the same groups.
- * matchedEntryFor is its complement, same label and same URL.
+ * A LABELED live group carrying an entry's label at another URL is that entry's superseded leftover, because
+ * the add-only host kept the old connection when the entry was re-pointed and one label cannot honestly name
+ * two servers. The provider (entrySupersedingBaseUrl, over the live setting) and the dashboard (over the
+ * engine's declared views) hide groups through this one rule; matchedEntryFor is its complement.
  */
 export function supersedingBaseUrl(
 	declared: readonly { readonly label: string; readonly baseUrl: string }[],

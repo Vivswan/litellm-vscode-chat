@@ -73,14 +73,6 @@ export interface LiteLLMArchitecture {
 	output_modalities?: string[];
 }
 
-/**
- * Discovery decides how a model registers, and registration switches on it.
- * "deployment" is a /v1/model/info entry, or several merged deployments, with one provider.
- * It registers once, with pricing.
- * "bare" is a /v1/models entry without provider data, registering once on defaults.
- * "group" is a providers-array entry.
- * It registers cheapest/fastest aggregates and per-provider entries, or one untooled base entry.
- */
 export type ModelShape =
 	| { readonly kind: "deployment"; readonly provider: LiteLLMProvider }
 	| { readonly kind: "bare" }

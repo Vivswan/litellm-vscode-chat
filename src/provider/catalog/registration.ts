@@ -92,14 +92,14 @@ function configurationSchemaFor(
 }
 
 /**
- * The picker's pricing metadata uses VS Code's per-million-token unit.
- * Pricing rides only routes that pin the serving deployment's COST.
- * Elsewhere the proxy's routing decides what a request costs, so no number would be honest.
- * A long-context tier rides only beside its base field, or it would face an empty Default cell.
- * The result omits a tier equal to the base cost, as the host shows tiers only when they differ.
- * The `pricing` label rides only when both base costs survive the per-million rounding.
- * The numeric hover table is entitlement-gated, so the label is often the only cost line shown.
- * A raw 0/0 pair prices as free, because serverCostsOf already removed LiteLLM's no-pricing stamp.
+ * Registration prices only entries whose route pins the serving deployment's COST; for the cheapest/fastest
+ * aggregates and the untooled base entry the proxy's routing decides what a request costs, so only a user
+ * cost record can put a number on them.
+ *
+ *   long-context tier -> rides only beside its base field (alone it would face an empty Default cell) and
+ *                        is omitted when equal to it, since the host shows tiers only when they differ
+ *   `pricing` label   -> the hover's numeric cost table is entitlement-gated, so for a typical LiteLLM user
+ *                        this label is the only cost line the hover can show
  */
 export function pricingFromCosts(costs: PerTokenCosts, currencySymbol: string): ModelPricing {
 	// The raw zero pair, before the per-million rounding: pairs that merely

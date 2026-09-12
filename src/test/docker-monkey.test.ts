@@ -11,14 +11,10 @@ import type { MonkeyAction } from "./monkeyFuzz";
 import { generateWalk, MAX_SHRINK_RUNS, MonkeySession, monkeyFailureReport, shrinkMonkeyFailure } from "./monkeyFuzz";
 
 /**
- * The oracle runs after every step.
- * The alphabet, oracle, and executor live in monkeyFuzz.ts.
- * This suite must run LAST in the docker orchestrator.
- * It gets its own fresh extension host.
- * Provider groups are add-only for the host lifetime, and walks deliberately dirty that state.
- * A baseline snapshot tolerates groups that existed before the walk.
- * Reproduce any run with `FUZZ_SEED=<seed> bun run test:docker`.
- * Failing walks shrink to a minimal action trace to pin in monkeyCorpus.ts.
+ * Runs LAST in the docker orchestrator, in its own fresh extension host, because provider groups are add-only for
+ * the host lifetime and walks deliberately dirty host state no later suite should inherit (pre-existing groups are
+ * tolerated via a baseline snapshot). `FUZZ_SEED=<seed> bun run test:docker` reproduces a run, and failing walks
+ * shrink to a minimal action trace to pin in monkeyCorpus.ts.
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";

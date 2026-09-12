@@ -59,7 +59,7 @@ export interface CaptureServer {
 	setScenario(name: string): void;
 	getLastRequest(): Record<string, unknown> | null;
 	/**
-	 * Headers seen inside the _test introspection block are excluded; the rest are kept verbatim.
+	 * Every distinct Authorization header seen past the _test introspection block, verbatim.
 	 * Membership is race-free where a last-write-wins field is not.
 	 */
 	getSeenAuthorizations(): readonly string[];

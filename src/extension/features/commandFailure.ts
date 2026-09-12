@@ -4,13 +4,9 @@ import type { Logger } from "../../shared/logger";
 import { commandErrorActions, showActionableMessage } from "../ui/notifier";
 
 /**
- * This is the command features' one failure boundary.
- * It lives at the features/ root because features may not import each other.
- * Cancellation stays silent by invariant.
- * Everything else logs exactly once here.
- * The consult tool does not call this, because it must rethrow to the chat view that invoked it.
- * A helper that sometimes rethrows would be two behaviors under one name.
- * `logLine` is log output, so it stays English by policy.
+ * The command features' one failure boundary, at the features/ root because features may not import each other.
+ * The consult tool deliberately does not call it, because it must rethrow so the classified error reaches the
+ * chat view that invoked it, and a helper that sometimes rethrows would be two behaviors under one name.
  */
 export async function reportCommandFailure(
 	deps: { readonly logger: Logger; readonly outputChannel: vscode.OutputChannel },

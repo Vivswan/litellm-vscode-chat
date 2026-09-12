@@ -4,12 +4,8 @@ import path from "node:path";
 import ts from "typescript";
 
 /**
- * Every anchor the visual-language charter cites must resolve against today's source.
- * So a renamed selector or a deleted component fails HERE, with the charter line to fix.
- * Line-number citations are banned because they rot within days of landing.
- * The charter documents the citation grammar at its top, and this file implements it.
- * A backtick span may wrap across a line break, and the test collapses its whitespace.
- * In a TS/TSX file the anchor must appear in code or a string literal, never only in a comment.
+ * Line-number citations are banned outright because they rot within days of landing. The citation grammar this
+ * file implements is documented at the top of docs/dashboard-visual-language.md.
  */
 const repoRoot = path.resolve(import.meta.dir, "../../../..");
 const charterPath = path.join(repoRoot, "docs/dashboard-visual-language.md");

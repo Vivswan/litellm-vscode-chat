@@ -60,14 +60,13 @@ function syncFailureStatus(
 }
 
 /**
- * The overlay joins through joinDeclared like the servers table, so both blame one snapshot.
- * A sync-failed entry's live status becomes an error that keeps its served count.
- * An upsertFailed entry with no live status appends an error serving nothing.
- * upsertFailed alone proves no group exists.
- * A live group holds a blocked entry's name, and a skipped pass leaves the live groups serving.
- * For those an absent status means "not reported yet".
- * A synthesized dead error would race the first report red and fire a toast nothing can retract.
- * Entries without a sync error change nothing, so an unchecked entry stays out of the window.
+ * Joined by the same passes the dashboard's servers table renders from (joinDeclared), so both surfaces blame
+ * one snapshot.
+ *
+ *   upsertFailed, no live status       -> synthetic error serving nothing, so the failed add shows before any group reports
+ *   blocked or skipped, no live status -> nothing; a live group may hold the name or keep serving, so absence proves nothing about the group
+ *
+ * A synthesized dead error there would race the first discovery report red and fire a toast no later report can retract.
  */
 export function applySyncFailures(
 	statuses: readonly ServerStatus[],

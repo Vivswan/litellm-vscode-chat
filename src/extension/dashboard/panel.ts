@@ -325,14 +325,9 @@ export class DashboardController implements vscode.Disposable {
 	}
 
 	/**
-	 * Every message, webview-posted or injected, enqueues through this one path.
-	 * Arrival captures the page generation, not handling.
-	 * The chain may drain a message after the page that sent it died.
-	 * A late ready must not vouch for the next page.
-	 * "concurrent" methods run OFF the chain because they never read-modify-write the servers array.
-	 * The draft-connection probe among them can block for a whole discovery timeout.
-	 * Chaining it would stall every later Save behind a slow probe.
-	 * Their rejection guard mirrors the chain's, so a thrown handler never escapes unhandled.
+	 * The page generation is captured at arrival, not handling, because the chain may drain a message after its page
+	 * died and a late ready must not vouch for the next page. "concurrent" methods skip the chain because the
+	 * draft-connection probe can block a whole discovery timeout, which would stall every later Save behind it.
 	 */
 	private enqueueMessage(raw: unknown): Promise<DashboardMessageOutcome> {
 		const arrivalGeneration = this._pageGeneration;
@@ -780,12 +775,9 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
 }
 
 /**
- * This seam answers what the request path resolves as a snapshot server's per-entry parameters.
- * It composes the request path's own pieces, the group lookup and the (label, baseUrl) resolver.
- * It skips the stricter labeled-identity join behind the entry-params-inactive notice.
- * A group with rotated credentials still carries the entry's label and URL.
- * Requests through it still receive the entry's parameters, and the inspector must say so.
- * Unlabeled groups resolve to nothing, matching the request path exactly.
+ * Composed from the request path's own pieces and NOT from the stricter labeled-identity join behind the
+ * entry-params-inactive notice, because a group with rotated credentials still carries the entry's label and URL,
+ * so requests through it still receive the entry's parameters and the inspector must say so.
  */
 export function entryParametersResolver(
 	// Structurally GroupServer's label and baseUrl; unbranded because the
@@ -804,14 +796,8 @@ export function entryParametersResolver(
 }
 
 /**
- * The setting alone yields these DeclaredServerView equivalents.
- * They serve the window right after activation, before the sync engine's first pass lands.
- * Secret locations reflect only what the setting can prove.
- * An inline value reads as "settings", anything else as "none".
- * A secure blob may exist, but checking it is async and pushes carry locations, never values.
- * This function therefore feeds the shared rule an empty blob.
- * These views carry the "settings-fallback" tag, so the state builder reads "none" as unproven.
- * The first pass replaces these views with the engine's proven ones.
+ * Checking a secure blob is async and state pushes carry locations, never values, so the shared rule is fed an
+ * empty blob. The "settings-fallback" tag tells state.ts to read the resulting "none" as unproven, not fact.
  */
 export function declaredViewsFromSetting(raw: unknown): DeclaredServersInput {
 	const views = parseServersSetting(raw).entries.map((entry) => {

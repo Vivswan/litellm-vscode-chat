@@ -181,15 +181,13 @@ const COPY_TOOL = ".diagnostics-tools li:nth-child(3) button";
 const RAIL_MODELS_TAB = '.rail-nav [role="tab"][id="tab-models"]';
 
 /**
- * The cover is out of flow, so a cover that fails to fill the row moves no target.
- * The pair's held dimensions cannot see that, so the verify states the claim itself.
- * Edges must MATCH, not merely contain, since a cover spilling past the row would hide neighbours.
- * "both" makes left an equality too, for the floor tier where the cover takes the whole row.
- * A shrink-to-fit box there would leave the row's first characters readable beside the confirm.
+ * The cover is out of flow, so a cover that fails to fill the row moves no target and every held dimension still passes.
+ * Top, bottom, and right must MATCH, not merely contain, since a cover spilling past the row would hide neighbours it has no
+ * business covering; left is equality only at the floor tier ("both").
  */
 function coversTheRow(item: string, axes: "block" | "both"): string {
-	// Left is containment at the wider tiers (the cover may end where its
-	// content does, but never past the row) and equality at the floor.
+	// Left is containment at the wider tiers (the cover may end where its content does, but never past the row) and
+	// equality at the floor, where a shrink-to-fit box would leave the row's first characters readable beside the confirm.
 	const left = axes === "both" ? "Math.abs(box.left - covered.left) <= 0.5" : "box.left >= covered.left - 0.5";
 	return `(() => {
 		const cover = document.querySelector(${JSON.stringify(`${item} .server-actions.armed`)});

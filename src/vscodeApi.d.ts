@@ -1,27 +1,25 @@
 /**
- * These APIs exist at runtime but are missing from the pinned @types/vscode.
- * @types/vscode is an exact pin at or below the engines.vscode floor.
- * scripts/ci/check-vscode-types.ts gates that ceiling.
- * Picking the newest release under the ceiling is the convention.
- * Each member below matched the VS Code sources when it was added.
- * The extension host passes or reads it with no API-proposal gate (extHostLanguageModels.ts).
- * The sources are vscode.proposed.chatProvider.d.ts and vscode.proposed.languageModelPricing.d.ts.
- * Declarations mirror those two files character for character.
- * So a future @types/vscode release merges as identical declarations under skipLibCheck.
- * Delete each declaration (and this file, eventually) once the pinned @types/vscode declares it.
- * Do not add `capabilities.editTools`.
- * The host throws for a Marketplace build that sets it without the chatProvider proposal.
- * $provideLanguageModelChatInfo copies `priceCategory`, `statusIcon`, and `warningText` ungated.
- * The picker renders them for every vendor (modelPickerHover.ts, modelPickerItemPrimitives.ts).
- * The host also copies the pricing fields onto the LanguageModelChat selectChatModels() returns.
- * That copy is equally ungated.
- * languageModelPricing's `category` stays out deliberately.
- * It renders fine, but LiteLLM's model data cannot honestly populate a capability tier.
- * Three watched APIs are currently out of reach; re-check when their gates move.
- * chatInputNotification and chatStatusItem sit behind proposals.
- * Third-party prompt-cache breakpoints hit a hardcoded host vendor set (microsoft/vscode#313920).
- * stateful_marker and context_management data parts are consumed ungated.
- * But they carry Responses/Messages server state the /chat/completions transport cannot produce.
+ * Ambient augmentation of "vscode" with Language Model provider API that exists at runtime for published
+ * extensions but is missing from the installed @types/vscode, an exact pin the guard keeps at or below the
+ * engines.vscode floor (scripts/ci/check-vscode-types.ts gates the ceiling, and the newest such release is the
+ * convention). Declarations mirror vscode.proposed.chatProvider.d.ts and vscode.proposed.languageModelPricing.d.ts
+ * character for character, so a future @types/vscode release merges as identical declarations instead of diverging
+ * silently under skipLibCheck, and each is deleted (this file eventually) once the pin declares it.
+ *
+ *   every member below                     -> verified ungated in microsoft/vscode's extHostLanguageModels.ts
+ *   priceCategory, statusIcon, warningText -> copied ungated by $provideLanguageModelChatInfo and rendered
+ *                                             vendor-agnostically (modelPickerHover.ts, modelPickerItemPrimitives.ts)
+ *   pricing fields on LanguageModelChat    -> copied ungated onto the object selectChatModels() hands out
+ *   languageModelPricing's `category`      -> excluded; it renders fine, but LiteLLM's model data cannot honestly
+ *                                             populate a capability tier
+ *   capabilities.editTools                 -> never add; the host throws for an extension setting it without the
+ *                                             chatProvider proposal, a permanent exclusion for a Marketplace build
+ *
+ * Watched, out of reach until their gates move:
+ *   chatInputNotification, chatStatusItem     -> proposal-gated
+ *   third-party prompt-cache breakpoints      -> the host hardcodes the vendor set (microsoft/vscode#313920)
+ *   stateful_marker, context_management parts -> consumed ungated, but they carry Responses/Messages-style server
+ *                                                state the pinned /chat/completions transport cannot produce
  */
 declare module "vscode" {
 	/**

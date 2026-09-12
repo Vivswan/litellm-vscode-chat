@@ -18,11 +18,8 @@ import { catalogOff, ensureActivated, extractText, waitForHostModels } from "./h
 import { expectDefined } from "./pureHelpers";
 
 /**
- * Every scenario runs through the LiteLLM proxy (the playback model) and directly against the fake.
- * The tests are directed and use no seeds.
- * Assertions hold classifications and user-facing message text, never raw response bytes.
- * Raw-framing scenarios run direct only.
- * The proxy re-serializes streams, so malformed bytes cannot survive the hop.
+ * Raw-framing scenarios run direct only, because the proxy re-serializes streams and malformed bytes cannot
+ * survive the hop. Assertions hold classifications and user-facing text, never raw response bytes.
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";

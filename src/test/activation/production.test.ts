@@ -24,13 +24,8 @@ import { expectDefined } from "../pureHelpers";
 import { makeExtensionStorage } from "../testUtils";
 
 /**
- * activate() runs ONCE here, against a fake Production-mode context.
- * A second activate() throws on duplicate command registration.
- * Executing any contributed litellm.* command would activate the real extension and collide too.
- * So these tests only observe, never dispatch.
- * The artifact-present suite at the bottom disposes this activation before it re-activates.
- * extensionUri and globalStorageUri are fresh tmpdirs, so each activation chooses its catalog file.
- * blockCatalogNetwork blocks the OpenRouter fetch, so no live snapshot can swap in.
+ * Two production activations cannot overlap in one host, since a second activate() throws on duplicate command
+ * registration, so the re-activation suite at the bottom disposes this one's subscriptions first.
  */
 suite("production activation", () => {
 	const infoMessages: string[] = [];

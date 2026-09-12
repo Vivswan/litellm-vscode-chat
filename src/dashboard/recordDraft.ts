@@ -1020,14 +1020,8 @@ export function directiveRowAbsorbed(
 }
 
 /**
- * Toggle one field's membership in the group's `_fallback`/`_force`/`_inheritable` list.
- * `field` must arrive in the resolver's reading (resolvedFieldName).
- * Membership compares entries in that same reading, so unmarking removes every spelling.
- * Parameter names stay verbatim, so a padded params `field` matches only its padded entry.
- * Capability names trim, so a padded caps `field` leaves the mark intact.
- * A hand-written `true` survives loading and expands to the explicit list on the first toggle.
- * Entries for OTHER fields stay put, invalid ones included.
- * The toggle rewrites wholesale only a value that is no list at all.
+ * `field` must arrive in the resolver's reading (resolvedFieldName), which membership compares in too, so unmarking
+ * removes every spelling that names the field and a padded entry cannot survive its own checkbox.
  */
 export function toggleDirectiveField(
 	kind: "params" | "caps",

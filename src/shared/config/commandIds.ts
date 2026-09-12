@@ -122,13 +122,11 @@ export function reviewFileCommandTitle(): string {
 }
 
 /**
- * These commands are registered at runtime but kept out of contributes.commands on purpose.
- * The palette shows only the manage hub.
- * openGroupsFile opens the host's provider-groups JSON directly.
- * That file is where a leftover group the Manage Language Models editor misses can be deleted.
- * quickFixChat takes a structured payload no user could type, so a palette entry would always fail.
- * The litellm._test.* harness commands stay unmapped because they are test-mode-only.
- * Their ids also double as oracle strings in the suites.
+ * Registered at runtime but kept out of contributes.commands on purpose, so the palette never offers them.
+ * The litellm._test.* harness commands are deliberately not mapped here; they are test-mode-only and their ids double as oracle strings.
+ *
+ *   openGroupsFile -> the host's provider-groups JSON, the fallback for deleting a group the Manage Language Models editor cannot reach
+ *   quickFixChat   -> takes a structured payload no user could type, so a palette entry would fail on every invocation
  */
 export const INTERNAL_CMD = {
 	manageServers: "litellm.manageServers",

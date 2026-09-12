@@ -214,14 +214,12 @@ function codeSpan(text: string): string {
 }
 
 /**
- * The excerpt goes inside a fence long enough to survive backtick runs in the kept text.
- * The marker sits OUTSIDE the fence so the code block stays well-formed.
- * The info string drops backticks and newlines, which break a fence and appear in no language ID.
- * The marker means exactly one thing, that the excerpt did not fit.
- * An excerpt inside the budget goes through verbatim, even one ending in an unpaired surrogate.
- * That is the user's own code, and trimming it would claim a truncation that never happened.
- * JSON.stringify escapes lone units on the way to the wire, so nothing malformed leaves here.
- * Cuts still drop a dangling half in truncateKeepingHead, because there the half is our artifact.
+ * The excerpt is the user's own code, so within budget it goes through verbatim even when it ends in an unpaired
+ * surrogate, since trimming it would claim a truncation that never happened and JSON.stringify escapes lone
+ * units on the way to the wire.
+ *
+ *   excerpt over budget                    -> cut, and the dangling half dropped, because there the half is our artifact
+ *   backtick or newline in the language ID -> dropped, both invalidate a fence and no real language ID carries either
  */
 function fencedExcerpt(excerpt: string, languageId: string): string {
 	const info = languageId.replace(/[`\r\n]/g, "").trim();

@@ -1,26 +1,13 @@
 /**
- * Calling a lazy helper at module scope defeats its laziness exactly like a direct t() call.
- * The module-scope guard therefore bans these names alongside l10n.t and vscode.l10n.t.
+ * Calling one of these at module scope defeats its laziness exactly like a direct t() call, so the module-scope guard bans
+ * them alongside l10n.t and vscode.l10n.t. l10n:check (scripts/l10n/lib.ts, uncensusedLazyHelpers) enforces the list both
+ * ways, since a rename would otherwise disarm a guard silently and an unregistered helper would never be caught.
  *
- * Inclusion is a full census with no judgment.
- * EVERY top-level lowercase-named function in shipped src/ that resolves l10n.t belongs here.
- * Default parameters count, and transitive resolution counts.
- * Over-inclusion is harmless, since none of these is ever legal at module scope.
- * Matching is by call-site name, so one entry covers same-named helpers.
- *
- * l10n:check enforces the list both ways.
- * Every entry must still name a top-level declaration, or a rename would disarm its guard.
- * Every function or CLASS the reverse walk (uncensusedLazyHelpers) finds must appear here.
- * A class counts because the walk covers every root `new` evaluates, deferred bodies included.
- *
- * Both directions follow NAMES bound by declaration, assignment, alias, or default.
- * Neither direction follows values in flight.
- * A thunk table's PROPERTY call off a plain object stays invisible (inactiveSurfacesText).
- * A member call reaching a class STATIC stays invisible.
- * A name bound at invocation time (parameter, for-of, catch, destructuring) stays invisible.
- * A spread or an identifier nested inside an argument's array or object literal stays invisible.
- * Following those is data-flow analysis, which this gate deliberately is not.
- * Fixtures pin the boundary so it stays a decision rather than a discovery.
+ *   every top-level lowercase function in shipped src/ resolving l10n.t -> listed; default parameters and transitive calls count
+ *   every CLASS doing the same                                          -> listed; the roots `new` evaluates are walked whole
+ *   a helper the reverse walk cannot see                                -> listed by hand (inactiveSurfacesText, a thunk table's PROPERTY call)
+ *   over-inclusion                                                      -> harmless; none of these is ever legal at module scope
+ *   matching                                                            -> by call-site name, so one entry covers same-named helpers
  */
 export const LAZY_L10N_HELPERS: readonly string[] = [
 	"configureNowLabel",

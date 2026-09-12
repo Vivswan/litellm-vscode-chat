@@ -45,14 +45,12 @@ function requireSalt(): string {
 }
 
 /**
- * This is a non-secret identity for values nothing may store or compare in the clear.
- * A colliding pair of keys would share a cached client and put the wrong credentials on the wire.
- * The secret random salt is the entire defense.
- * Without the keychain there is nothing to verify guesses against, at any work factor.
- * A low-entropy key like the docs' "sk-1234" thus reveals nothing through a stored fingerprint.
- * Iterations stay at 1 because this runs on hot paths (client cache lookups, group resolution).
- * This is a keyed identity, not stored password verification.
- * PBKDF2 is the right keyed construction here and a recognized password-hashing algorithm.
+ * A colliding pair of keys would share a cached client and put the wrong credentials on the wire. The secret random salt is the
+ * entire defense, since without the keychain nothing verifies a guess at any work factor, so a low-entropy key (LiteLLM's docs
+ * use "sk-1234") reveals nothing through a fingerprint read from globalState.
+ *
+ *   iterations 1 -> a keyed identity on hot paths (client cache lookups, group resolution), not password verification
+ *   PBKDF2       -> the right keyed construction here, and a recognized password-hashing algorithm
  */
 export function fingerprint(text: string): Fingerprint {
 	return fingerprintSchema.parse(pbkdf2Sync(text, requireSalt(), 1, 32, "sha256").toString("hex").slice(0, 32));

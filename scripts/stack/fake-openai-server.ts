@@ -1,29 +1,7 @@
 #!/usr/bin/env bun
-// This is the OpenAI-compatible fake backend for the docker LiteLLM stack.
-// The chat input is the control surface.
-// A "%" command on the last non-empty line of the last user message selects the response.
-// The command grammar lives in src/test/fakeStack/commands.ts.
-// Anything else gets the fixed reply pointing at %help.
-// The model id routes nothing.
-//
-// Routes:
-//   GET  /health                  answers the compose healthcheck's liveness probe.
-//   GET  /v1/models               lists the fake upstream ids, blocked deployments excluded.
-//   POST /v1/chat/completions     dispatches a command, else returns the fixed reply.
-//   POST /v1/completions          echoes a prompt-derived completion for the FIM model.
-//                                 It applies no command grammar and never streams.
-//   POST /oauth/token             grants client-credentials tokens (src/test/fakeStack/oauth.ts).
-//   *    /authed/...              mirrors /health, the /v1 routes, and the /_test capture routes.
-//                                 A live token dispatches normally, and anything else gets 401.
-//                                 The token and statistics endpoints require unprefixed paths.
-//   *    /nodiscovery/...         mirrors the same routes but answers the discovery GETs with 404.
-//                                 See src/test/fakeStack/noDiscovery.ts.
-//   PUT  /_test/custom-scenario   registers {name, config} at runtime, up to 1 MiB.
-//   GET  /_test/last-request      returns the last parsed chat completion body.
-//   GET  /_test/last-completion-request  returns the last parsed text completion body.
-//   GET  /_test/oauth-stats       returns { issued, rejected, live }.
-//   POST /_test/oauth-revoke      revokes every live token.
-//   GET  /_test/nodiscovery-stats returns per-bearer counts of the blanked discovery GETs.
+// The OpenAI-compatible fake backend for the docker LiteLLM stack; the model id routes nothing, so one grammar serves every fake upstream.
+// A "%" command on the last user message's last non-empty line selects the response (grammar in src/test/fakeStack/commands.ts);
+// the OAuth fixture is src/test/fakeStack/oauth.ts and the blanked discovery routes are src/test/fakeStack/noDiscovery.ts.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";

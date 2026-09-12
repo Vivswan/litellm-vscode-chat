@@ -193,14 +193,13 @@ export function serverFormFieldLabel(field: ServerFormField): string {
 export type ServerFormProblems = Partial<Record<ServerFormField, string>>;
 
 /**
- * The save bar counts the fields the draft has moved away from the baseline it opened with.
- * Text and secret fields compare what Save would write, not the raw draft.
- * A padded label or an inactive auth form's leftover text therefore never counts.
- * Text Save would refuse still counts by its trimmed form, so the bar stays loud on a bad edit.
- * The auth selector compares the raw draft, since switching it can leave every directive "keep".
- * The row grids compare the raw draft too, since a row can sit mid-edit and unparseable.
- * Their parsers trim names, prefixes, and keys, so a parsed compare could hide a visible move.
- * expectedFailures compares as a set, because checkboxes impose an order a stored entry lacks.
+ * The save bar counts these, so a quiet bar under a move the user can see reads as broken, and one that goes quiet
+ * on an edit that blocks is worse.
+ *
+ *   text and secret fields -> compare what Save would write, so padding or an inactive form's leftover never counts
+ *   text Save would refuse -> still counts, by its trimmed form
+ *   authForm               -> raw draft; switching it can leave every directive "keep"
+ *   the three row grids    -> raw draft; a row can sit mid-edit and unparseable
  */
 export function changedServerFormFields(draft: ServerFormDraft, baseline: ServerFormDraft): readonly ServerFormField[] {
 	const nowSecrets = parseSecrets(draft);
@@ -327,10 +326,8 @@ function parseInactiveSecret(draft: SecretFieldDraft): SecretParse {
 }
 
 /**
- * The apiKey field is live on the oauth form too.
- * The virtual-key pair is live on every form but none.
- * This is NOT entryUsesSecretField's wire rule.
- * It keys on the picked auth selector, so a stored-but-unsent value can still block a save.
+ * Keyed on the picked selector, NOT on entryUsesSecretField's wire rule, so a stored-but-unsent value can still
+ * block a save.
  */
 function authFormActivity(authForm: AuthFormId): {
 	readonly oauth: boolean;
@@ -874,14 +871,12 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 }
 
 /**
- * A save re-pairs a kept secure-stored secret when it moves that secret's destination.
- * The stored value's ownership stamp names the destination the form opened on.
- * A save that re-points that destination makes the stamp stale.
- * The destination rule is shared/serverEntry.ts secretDestination, never a webview re-derivation.
- * The save flow asks before posting such an intent.
- * Keeping re-stamps the value host-side, and clearing deletes it.
- * An inline value needs no question, since settings.json already shows it and it has no stamp.
- * "secure" means the stamp matched or predates stamping, which the host re-stamps the same way.
+ * Judged by shared/serverEntry.ts secretDestination, never a webview re-derivation, so the question matches the
+ * stamps the host wrote. "secure" means the stamp matched the displayed entry or predates stamping, which the host
+ * re-stamps the same way.
+ *
+ *   kept stored secret, destination moved -> the save flow asks first; keeping re-stamps host-side, clearing deletes
+ *   inline value                          -> no question; it has no stamp and already sits in settings.json
  */
 export function staleKeyFieldsOnSave(intent: ServerFormIntent): readonly SecretFieldId[] {
 	const original = intent.replace;

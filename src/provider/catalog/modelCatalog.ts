@@ -203,14 +203,9 @@ export interface DiscoveredBaselineInput {
 }
 
 /**
- * ANY contributor's report keeps a limit or flag FIELD present.
- * Its VALUE is registration's conservative aggregate, exactly as advertised.
- * So a catalog guess never displaces a server minimum, and unreported fields stay absent for it.
- * The two string lists are present only when EVERY contributor carries one.
- * Costs are present only for pricing-eligible shapes, so aggregates omit them even when reported.
- * outputDeclared is the stricter every-contributor rule and gates only the request-side cap.
- * max_input_tokens counts as reported when ANY limit was, since re-deriving it can overstate it.
- * A modality array marks all modality flags reported, conflating false with unreported on purpose.
+ * VALUES are registration's aggregates exactly as advertised, so a lower-precedence catalog guess never
+ * displaces a server minimum, while a field no contributor reported stays absent for the catalog to fill.
+ * max_input_tokens counts as reported whenever ANY limit was, since re-deriving it from the collapse can overstate it.
  */
 export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): ServerDeclaredCapabilities {
 	const { providers, modalities, toolCalling, reasoning } = input;

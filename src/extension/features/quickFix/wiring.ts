@@ -11,22 +11,17 @@ import { runQuickFixChat, sendFallbackPrompt } from "./openChat";
 import { buildFallbackPrompt } from "./query";
 
 /**
- * This wires the quick-fix feature.
- * The code-action provider exists ONLY while the feature is enabled.
- * Disabled means no provider, so no LiteLLM entry ever appears in a lightbulb.
- * The command behind the actions is registered unconditionally.
- * Keybindings and executeCommand ignore the enable setting.
- * A command that does nothing is worse than one that says why.
- * `oneShot` is the shared client, so OAuth tokens cache across features and invalidate on 401.
+ * A command that silently does nothing is worse than one that says why, so only the provider is gated.
+ *
+ *   code-action provider -> exists ONLY while enabled, so no LiteLLM entry appears in a lightbulb while it is off
+ *   command              -> registered unconditionally, because keybindings and executeCommand ignore the enable setting
  */
 
 /**
- * The provider offers actions for `file` alone, on purpose.
- * `pattern: "**"` is out, because a diagnostic can sit on documents this feature cannot act on.
- * A read-only git diff, an output pane, or a settings editor are examples.
- * `untitled` is out too, because the chat view gates each attachment on the file's existence.
- * An unsaved buffer would be dropped, leaving the model to fix diagnostics it cannot see.
- * An action that sends no code is worse than no action.
+ * `file` alone, deliberately, because an action that quietly sends no code is worse than no action.
+ *
+ *   `pattern: "**"` -> a diagnostic can sit on documents this feature cannot act on, a git diff, an output pane
+ *   `untitled`      -> the chat view attaches only files that exist, so the model would be asked to fix code it cannot see
  */
 const QUICK_FIX_SELECTOR: vscode.DocumentSelector = [{ scheme: "file" }];
 

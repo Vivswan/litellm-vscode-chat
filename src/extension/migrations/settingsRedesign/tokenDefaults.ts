@@ -1,27 +1,12 @@
 /**
- * The removed default* token settings move into the models.capabilities "*" record.
- * The two below-server defaults ride `_fallback`.
- * The input limit stays a plain override.
- * Existing user keys win the merge.
- * Source-key absence is the idempotency signal.
+ * The removed default* token settings move into the models.capabilities "*" record, each at the level its
+ * removed reader had. The record is marked `_inheritable` because the old defaults applied to every model, and
+ * without the mark any model with a more specific record of its own would lose them under most-specific-wins.
  *
- * The record carries `_inheritable` because the old defaults applied to every model.
- * Without the mark, any model with a more specific record would lose them under most-specific-wins.
- * Merging into an existing "*" record appends only the added fields to an `_inheritable` list.
- * A user's own `true` stays as is.
- * The user's existing fields therefore never start flowing into more-specific records.
- *
- * A max_input_tokens fill must never land demoted by the target's own `_fallback: true`.
- * That `true` therefore expands to the explicit list of the record's pre-existing valid fields.
- * The expansion happens before the fill lands unmarked.
- * An inert listed name drops rather than activate.
- * The expansion costs the auto-marking of fields the user adds later.
- * That cost is paid only when a max_input_tokens fill lands.
- *
- * Two level shifts are accepted.
- * A migrated max_output_tokens counts as user-declared.
- * The request path's min(4096, limit) clamp therefore no longer applies to it.
- * max_input_tokens as a plain override now also beats an `_openrouter_model` directive.
+ *   context_length, max_output_tokens       -> ride `_fallback`; max_output_tokens now reads as user-declared and escapes the min(4096, limit) clamp
+ *   max_input_tokens                        -> plain override, it beat the server's value; now also beats an `_openrouter_model` directive
+ *   existing "*" record                     -> only added fields join its `_inheritable` list (a user's `true` stays); no old field is newly marked
+ *   `_fallback: true` as an override lands  -> expands to the pre-existing valid fields so the fill lands unmarked; later fields lose auto-marking
  */
 
 import { isRecord } from "../../../shared/util/json";

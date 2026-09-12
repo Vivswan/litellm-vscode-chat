@@ -137,14 +137,14 @@ function parseVersionedRecords(raw: unknown): VersionedRecords {
 }
 
 /**
- * This region closes globalState hazard #220, a stale value reverting an awaited update.
- * The nightly monkey fuzzer caught it as removed groups' models never leaving the host list.
- * A revert carries an older-or-equal version, so the region ignores it.
- * Another window's real mutation, Unhide included, synced first, so its blob is newer and adopted.
- * Two windows mutating at once remain last-write-wins.
- * A persist failure reports instead of throwing, so callers never report the opposite of reality.
- * Adoption pauses while memory holds unpersisted records, since a foreign snapshot would drop them.
- * A failed persist with no later mutation costs the NEXT session the records, never this one.
+ * Closes the #220 globalState hazard, an awaited update reverting moments later to a stale value.
+ *
+ *   stale revert of our own write     -> older-or-equal version, ignored
+ *   another window's genuine mutation -> it synced before mutating, so strictly newer and adopted
+ *   two windows mutating at once      -> last-write-wins
+ *
+ * A persist failure is reported, never thrown, since a throwing persist would make callers report the
+ * opposite of the effective state; with no later successful persist the loss lands on the NEXT session, never this one.
  */
 class VersionedRegion<T> {
 	private records: readonly T[];

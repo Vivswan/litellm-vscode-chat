@@ -1,20 +1,9 @@
 /**
- * This suite pins the superset relation the MCP safety argument rests on.
- * entryUsesSecretField (shared/serverEntry.ts) is the ONE wire rule for which fields a shape sends.
- * Its arms must cover every field usageConnectionFor (the usage/spend composer) lets ride.
- * The pairing gates refuse a stale-stamped stored value only when the rule says the shape uses it.
- * Those gates are resolveOwnedSecrets' refusals in the sync engine, the usage poller, and MCP.
- * A shape the composer sends but the rule denies would let such a value ride to the wrong host.
- * Today the two sides agree by parallel implementation.
- * This suite derives BOTH from the real functions and fails closed.
- * util/wireRuleProbe.ts holds the probe space and record shape, shared with the chat-path pin.
- * The composer's header-legality checks only NARROW the send side.
- * The probe plants header-legal values, so presence probing over-approximates what can ride.
- * The probe observes sends instead of modeling them, with a positive control per field.
- * So a probe that stops detecting anything fails instead of passing vacuously.
- * This pins the usage composer alone.
- * provider/catalog/groupModels.wireRule.test.ts pins the chat path's narrowing.
- * The raw-blob composition entryConnectionFor feeds this composer is the one this pin covers.
+ * The arms of entryUsesSecretField (shared/serverEntry.ts, the ONE wire rule deciding which credential fields an
+ * entry's shape would send) must cover every field usageConnectionFor (the raw-blob composer entryConnectionFor
+ * feeds) lets ride, or a stale-stamped stored value the pairing gates never refused rides to a host it was never
+ * stored for. The composer's header-legality checks only NARROW the send side and the probe plants header-legal
+ * values, so presence probing over-approximates what can ride, the safe direction.
  */
 
 import * as assert from "node:assert";
@@ -103,16 +92,14 @@ suite("extension/servers/usage spendClient wire-rule superset", () => {
 	});
 
 	test("the wire rule's no-server arm denies every field and the usage endpoint cannot form", () => {
-		// This case covers the only arm outside the probe space.
-		// A base URL that normalizes to nothing forms no server, so the rule denies every field.
-		// The composer still carries resolved values, but the usage GET has no absolute URL to form.
-		// This is NOT a claim that no byte can leave the process.
-		// An active OAuth unit's token exchange targets its own absolute token URL first.
-		// Each consumer closes that residual on its own.
-		// The usage poller composes from resolveOwnedSecrets, which drops a stamp-mismatched value.
-		// entryConnectionFor's MCP caller forwards credentials only under sameOrigin.
-		// sameOrigin's URL parse fails closed on an all-slashes base URL.
-		// The six one-shot feature sends consult no refusal by documented choice (entryConnection.ts).
+		// A base URL that normalizes to nothing forms no server, so the rule denies every field while the composer
+		// still carries resolved values and the usage GET has no absolute URL to form. This is NOT a claim that no
+		// byte can leave the process, since an active OAuth unit's token exchange targets its own absolute token URL
+		// first; the per-consumer policies below decide that residual.
+		//
+		//   usage poller      -> composes from resolveOwnedSecrets, which drops a stamp-mismatched value first
+		//   MCP publisher     -> forwards credentials only under sameOrigin, whose URL parse fails closed on "/"
+		//   one-shot features -> consult no refusal at all, by documented choice (entryConnection.ts)
 		const entry: DeclaredServer = { label: "probe", baseUrl: "/", ...SHAPE_FIELD_VALUES };
 		for (const field of SECRET_FIELD_IDS) {
 			assert.strictEqual(entryUsesSecretField(entry, field), false, `the no-server arm must deny "${field}"`);

@@ -118,14 +118,13 @@ function collectAuthFields(
 }
 
 /**
- * Primacy is oauth > apiKey > virtualKey, and the form carries lower-primacy fields as companions.
- * That reproduces exactly the header set the old transport sent for each combination.
- * Oauth is usable only with BOTH tokenUrl and clientId, the old runtime's hasOAuth gate.
- * Lone oauth pieces drop because the old runtime ignored a partial oauth.
- * Carrying a partial oauth forward would make the whole entry misconfigured.
- * A sendable virtualKey header keeps riding without its value, which may sit in SecretStorage.
- * A value without its header, or an invalid header name, could never reach the wire, so it drops.
- * The stored blob survives that drop, and a re-added header finds it.
+ * Primacy is oauth > apiKey > virtualKey with lower forms riding as companions, because that is exactly the
+ * header set the old transport sent for each combination. Drops mirror what the old runtime never honored, so
+ * nothing carried forward can turn a working entry into a misconfigured one.
+ *
+ *   tokenUrl or clientId alone (the old hasOAuth gate) -> dropped; the old runtime ignored a partial oauth outright
+ *   virtualKey header without its value                -> kept; the value may rest in SecretStorage
+ *   value without a header, or an illegal header name  -> dropped; it never reaches the wire, and the stored blob waits for a re-added header
  */
 function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 	auth: Record<string, unknown> | undefined;
@@ -367,14 +366,13 @@ const LIST_DIRECTIVES: readonly {
 const LIST_DIRECTIVE_NAMES: readonly string[] = LIST_DIRECTIVES.map((directive) => directive.name);
 
 /**
- * Same-key collisions are the one overlap the move resolves losslessly.
- * Identical keys match identical models, and the old runtime merged entry over scoped per field.
- * Adding fields changes what a record's own `_force`/`_fallback` cover.
- * Each mark must therefore keep the coverage it had.
- * An entry-side `true` marked the entry's fields only, so it expands to that literal list first.
- * An entry-side name that marked nothing drops when the scoped record supplies the field.
- * Otherwise an inert mark could spring to life on a value that was never marked.
- * A scoped name whose field the entry overrode drops rather than re-point at the entry's value.
+ * A same-key collision is the one overlap the move resolves losslessly, since identical keys match identical
+ * models and the old runtime merged entry over scoped field by field. Adding fields changes what a record's own
+ * `_force`/`_fallback` cover, so every mark keeps exactly the coverage it had.
+ *
+ *   entry-side `true`                          -> expands to the entry's literal field list before scoped fields land
+ *   entry-side name that marked nothing        -> dropped once the scoped record supplies the field, so it cannot spring to life
+ *   scoped name whose field the entry overrode -> dropped, never re-pointed at the entry's value
  */
 function mergeCollidingRecords(
 	existing: Record<string, unknown>,

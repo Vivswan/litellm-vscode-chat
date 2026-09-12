@@ -122,13 +122,9 @@ export type SecretDirective =
 	| { readonly action: "set"; readonly location: "settings" | "secure"; readonly value: string };
 
 /**
- * ReplacedEntryIdentity is the entry an edit form is replacing, as the form displayed it.
- * The extension re-checks this identity before it resolves any "keep" directive.
- * A label alone is spoofable by time.
- * A swapped-in entry would hand its credentials to the hosts the form shows.
- * The non-secret auth fields belong here because they pick each secret's destination.
- * The OAuth client secret goes to the token URL, the keys to the base URL.
- * It carries locations only, never values.
+ * saveServer.ts requireEntryShownByForm re-checks this identity before resolving any "keep" directive, because a
+ * label alone is spoofable by time and an entry swapped in under it would send ITS credentials to the displayed
+ * hosts. Locations only, never values; the non-secret auth fields ride because they pick each secret's destination.
  */
 export interface ReplacedEntryIdentity extends NonSecretOptionalFields {
 	readonly label: string;
@@ -180,13 +176,13 @@ export interface SaveServerPayload extends NonSecretOptionalFields {
 }
 
 /**
- * A spec says how one method's outcome returns and which queue its handling joins.
- * A "read" answers with a correlated response.
- * An "acked" method posts a correlated ack or fail, then the state push its write triggers.
- * A "fire-and-forget" method gets no ack.
- * Its following push is the success signal.
- * "chained" methods run one at a time, because two concurrent saves would lose an update.
- * Only non-mutating methods go "concurrent".
+ * How one method's outcome returns and which queue its handling joins.
+ *
+ *   outcome "read"            -> a correlated response
+ *   outcome "acked"           -> a correlated ack or fail; only success is followed by the state push its write triggers
+ *   outcome "fire-and-forget" -> no ack; the following push is the success signal
+ *   channel "chained"         -> one at a time on the mutation chain (two concurrent saves would lose an update)
+ *   channel "concurrent"      -> off the chain; only non-mutating methods
  */
 type DashboardEndpointSpec =
 	| { readonly outcome: "read" | "acked"; readonly channel: "chained" | "concurrent" }
@@ -194,13 +190,13 @@ type DashboardEndpointSpec =
 			readonly outcome: "fire-and-forget";
 			readonly channel: "chained" | "concurrent";
 			/**
-			 * `fail` says where a refused fire-and-forget intent's standing notice renders.
-			 * Acked and read failures answer their posting hook instead, so they carry no `fail`.
-			 * "settings-row" carries the owning settings row on the fail envelope.
-			 * Marking a row forces its SETTING_WRITE_ROWS entry to exist through SettingWriteMethod.
-			 * "pane-top" is the shell's pane-top line (PANE_TOP_FAIL_METHODS).
-			 * "log-only" refusals reach the output log alone.
-			 * Their following push carries the outcome.
+			 * Where a refused fire-and-forget intent's standing notice renders. Acked failures answer their posting
+			 * hook instead, so only this variant carries `fail`.
+			 *
+			 *   "settings-row" -> the owning settings row; SettingWriteMethod derives from this mark, so the
+			 *                     SETTING_WRITE_ROWS entry must exist before the table compiles
+			 *   "pane-top"     -> the shell's pane-top line (PANE_TOP_FAIL_METHODS)
+			 *   "log-only"     -> the output log alone; the following push carries the outcome
 			 */
 			readonly fail: "settings-row" | "pane-top" | "log-only";
 	  };
@@ -327,14 +323,8 @@ interface DashboardEndpointIO {
 	/** The commitGeneration.prompt text; the empty string resets the setting (the built-in instruction applies). */
 	setCommitPrompt: { request: { readonly value: string } };
 	/**
-	 * Patch the inline-completions language filter.
-	 * Each settings row sends only its own half, so the wire shape is one field per request.
-	 * The schema refuses a payload naming both or neither.
-	 * The extension merges the patch onto the STORED filter on the chained channel.
-	 * Two quick writes from different rows therefore cannot revert each other.
-	 * Block mode with the empty list resets the setting, because that IS the default.
-	 * The type stays optional so executeDashboardIntent keeps its own empty-patch refusal.
-	 * That refusal covers a caller that bypasses the schema.
+	 * One field per request because each settings row sends only its own half (the schema refuses both or neither).
+	 * The type stays the optional pair so executeDashboardIntent keeps its own empty-patch refusal for a bypassing caller.
 	 */
 	setLanguageFilter: {
 		request: {

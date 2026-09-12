@@ -35,13 +35,8 @@ import { expectDefined } from "./pureHelpers";
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 /**
- * The OpenRouter catalog path runs catalog-ON here alone.
- * Every other docker host runs catalog-OFF for hermeticity.
- * The suite seeds the pinned fixture through litellm._test.seedOpenRouterCatalog.
- * It restores the hermetic state afterwards.
- * The models.parameters record directives run catalog-OFF.
- * The tests read them off the request LiteLLM forwarded.
- * Run via `bun run test:docker` (label docker-resolution).
+ * The catalog backfill world runs catalog ON here alone, since every other docker host runs catalog OFF for
+ * hermeticity, and the record-directive world sharing this label stays OFF.
  */
 
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");

@@ -1,9 +1,6 @@
 /**
- * The adopt form turns an external group into a declared entry.
- * Credentials exist extension-side only, so the form offers one storage choice per secret field.
- * The intent carries label, source identity, and choices, never a credential value.
- * The round trip lives in ServerEditPage.
- * The servers list watches the same envelope for its notice.
+ * Credentials exist extension-side only, so the form offers one storage choice per secret field and the intent
+ * carries no credential value. ServerEditPage owns the round trip, and servers.tsx watches the same envelope for its notice.
  */
 import * as l10n from "@vscode/l10n";
 import { useState } from "react";
@@ -29,10 +26,6 @@ export function AdoptForm({
 }: {
 	server: ExternalDashboardServer;
 	declaredLabels: readonly string[];
-	/**
-	 * This flag says whether this form instance's adopt intent is in flight.
-	 * The inputs disable against a double submit while it is.
-	 */
 	saving: boolean;
 	onDirtyChange: (dirty: boolean) => void;
 	/** Hands the posted intent's requestId to the page, which owns the round trip. */
@@ -61,8 +54,6 @@ export function AdoptForm({
 		const requestId = sendRequest("adoptServer", {
 			label: label.trim(),
 			baseUrl: server.baseUrl,
-			// External rows always carry the handle; the FormTarget union
-			// guarantees only external rows reach this form.
 			sourceHandle: server.adoptHandle,
 			secrets: locations,
 		});
@@ -111,7 +102,7 @@ export function AdoptForm({
 					/>
 				</FieldRow>
 				<FieldRow label={l10n.t("Base URL")} hint={l10n.t("Editable after adopting.")}>
-					{/* Plain dimmed text, never a disabled input: a value that cannot
+					{/* Plain dimmed text, never a disabled input, because a value that cannot
 					    be edited here must not look like one that merely refused. */}
 					<span className="readonly-value font-mono text-[12px] break-all text-muted-foreground">{server.baseUrl}</span>
 				</FieldRow>
@@ -156,7 +147,6 @@ export function AdoptForm({
 					</p>
 				</FieldSpan>
 			</FormSection>
-			{/* Same footer as the edit page's, for the same reasons. */}
 			<div className={COMMIT_BAR_CLASS}>
 				<Button disabled={saving} onClick={adopt}>
 					{saving ? (
@@ -168,7 +158,7 @@ export function AdoptForm({
 					)}
 				</Button>
 				{/* Cancel routes through the shell's discard policy; a pending
-				    adopt never blocks it - the page owns the round trip. */}
+				    adopt never blocks it, because the page owns the round trip. */}
 				<Button variant="secondary" onClick={onRequestClose}>
 					{l10n.t("Cancel")}
 				</Button>

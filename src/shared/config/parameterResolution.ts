@@ -110,14 +110,7 @@ export interface ParsedParameterRecord extends ParsedRecord {
 	readonly fimTemplateDeclared?: true;
 }
 
-/**
- * The vocabulary stays open, so every non-underscore key is a pass-through field.
- * `_force` refuses provider-owned names, underscore names, and names the record does not set.
- * max_tokens is the one provider-owned name `_force` accepts, because the user can set it.
- * `_fim_template` counts only when it is a usable template, and anything else is invalid.
- * Unknown underscore keys pass silently, for forward compatibility.
- * Record-level consumers call this, and resolution goes through resolveParameterLayer.
- */
+/** The vocabulary stays open, so every non-underscore key passes through; unknown underscore keys are silently ignored for forward compatibility. */
 export function parseParameterRecord(record: Readonly<Record<string, unknown>>): ParsedParameterRecord {
 	const fields: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(record)) {
@@ -431,15 +424,7 @@ export interface EffectiveParametersProjection {
 	readonly diagnostics: readonly ParameterDiagnostic[];
 }
 
-/**
- * This computes the inspector's view of a request from the same resolution the request path runs.
- * A numeric configured max_tokens never appears as a row.
- * It becomes the request's max_tokens value, which the derivation reports with its attribution.
- * A non-numeric one stays a row and is not sent.
- * Production consumers use projectResolvedParameters.
- * This full-resolution form is the NAIVE side of the seed-pinned equivalence property.
- * It is not dead code.
- */
+/** The NAIVE side of the seed-pinned equivalence property (src/test/shared/config/parameterResolution.property.test.ts), not dead code. */
 export function projectEffectiveParameters(input: EffectiveParametersInput): EffectiveParametersProjection {
 	return projectResolvedParameters(
 		resolveModelParameters({

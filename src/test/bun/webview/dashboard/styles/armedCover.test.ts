@@ -2,14 +2,10 @@ import { expect, test } from "bun:test";
 import { type Block, blocks, compileDashboard } from "./compileStyles";
 
 /**
- * An absolutely positioned grid child inherits the cluster's self-alignment and bands mid-row.
- * The same inheritance can leave the row's first characters beside the cover.
- * happy-dom runs no cascade, so this suite pins the sheet while check-geometry pins the render.
- * The armed-cover floor twin reaches sub-400 via paneWidth and asserts the cover fills both axes.
- * The pin sweeps EVERY rule outside the width tiers whose subject compound can target the cluster.
- * Each property family must appear exactly where expected, longhands and shorthands together.
- * So a higher-specificity respelling or an `inset:` shorthand fails the equality.
- * `all` is banned outright.
+ * An absolutely positioned grid child inherits the resting cluster's self-alignment into its sizing, banding the
+ * armed Remove cover mid-row or leaving the row's first characters beside it. happy-dom runs no cascade, so this
+ * suite pins the compiled sheet outside the width tiers, which rewrite the cover on purpose and are
+ * check-geometry's armed-cover pairs to measure.
  */
 
 /**

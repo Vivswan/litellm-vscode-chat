@@ -97,14 +97,8 @@ function noCommandsText(): string {
 }
 
 /**
- * Handle one turn.
- * A command name the registry does not know falls back to the plain-prompt path.
- * The command stays in its typed form, so a manifest drift degrades instead of erroring.
- * Every outgoing message array is normalized to wire shape at the send boundary.
- * Dropped history turns therefore cannot produce a leading answer or a same-role run.
- * Errors are caught per turn.
- * The user gets friendly text and the wiring gets a classification.
- * Cancellation alone rides out uncaught.
+ * A command name the registry does not know, with a nonempty prompt beside it, takes the plain-prompt path with
+ * the command kept in its typed form, so a manifest-versus-registry drift degrades instead of erroring.
  */
 export async function handleParticipantTurn(
 	request: ParticipantRequest,

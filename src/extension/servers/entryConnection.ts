@@ -12,14 +12,12 @@ export interface EntryConnection {
 	readonly entry: DeclaredServer;
 	readonly connection: UsageConnection;
 	/**
-	 * This lists the stored fields stamped for another destination that this entry would send.
-	 * Non-empty means the blob belongs to a different server.
-	 * The usual cause is a base URL changed after the secret was stored.
-	 * Sending such a value would hit a host it was never paired with.
-	 * The verdict rides alongside the connection instead of gating it because the callers differ.
-	 * The MCP publisher refuses the pairing.
-	 * The editor talks to the server itself there, so there is no request of ours to read a 401 from.
-	 * The one-shot features send anyway and let the server's own 401 report it, as they always have.
+	 * resolveOwnedSecrets' `refused` for this entry; non-empty means the label's blob was paired with another
+	 * server, usually a base URL edited after the secret was stored. The verdict rides beside the connection
+	 * instead of gating it because the callers disagree on purpose.
+	 *
+	 *   MCP publisher (features/mcp/provider.ts) -> refuses; the editor talks to the server itself, so no request of ours sees a 401
+	 *   one-shot feature sends                   -> send anyway and let the server's own 401 tell the story
 	 */
 	readonly refusedSecrets: readonly SecretFieldId[];
 }

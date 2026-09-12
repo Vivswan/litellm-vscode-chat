@@ -110,13 +110,9 @@ export function plainFetchBaseHeaders(config: {
 }
 
 /**
- * Apply the OAuth and virtual-key overlay onto `headers`, in place.
- * A virtual key naming the Authorization header (any casing) owns it outright.
- * The overlay then skips the token exchange.
- * An unreachable identity provider must not fail a request that would not carry the token anyway.
- * The returned scope owns the sent token's 401 invalidation.
- * The scope captures the bearer token the headers carry.
- * So a later rejection never re-parses the header, and no caller handles the token value itself.
+ * A virtual key naming the Authorization header (any casing) skips the token exchange, because an
+ * unreachable identity provider must not fail a request that would not carry the token anyway. The returned
+ * scope captures the bearer token it sent, so no caller handles the token value or re-parses the header.
  */
 export async function applyAuthOverlay(
 	headers: Record<string, string>,

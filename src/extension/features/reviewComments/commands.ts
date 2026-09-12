@@ -23,12 +23,9 @@ import { REVIEW_FILE_LIMIT, runReview } from "./review";
 import { buildDiffReviewPrompt, buildFileReviewPrompt, buildReplyMessages } from "./reviewPrompt";
 
 /**
- * The review commands gate, pick a target, show progress, and turn a finished run into a notice.
- * Every command here is registered unconditionally.
- * The menus hide behind the enable when-clause, but keybindings and executeCommand do not.
- * Each one therefore answers a disabled invocation with the enable hint instead of doing nothing.
- * These handlers are their own single logging boundary.
- * The transport constructs classified errors without logging, and each catch below logs once.
+ * Every command here is registered unconditionally, because the menus hide behind the enable when-clause but
+ * keybindings and executeCommand do not, so the review and reply commands answer a disabled invocation with the
+ * enable hint instead of doing nothing. These handlers are their own single logging boundary.
  */
 
 export interface ReviewCommandDeps {
@@ -76,13 +73,10 @@ async function openFeatureGate(deps: ReviewCommandDeps): Promise<ReviewCommentCo
 }
 
 /**
- * The model half of the gate answers which model responds, or gives the advice to show instead.
- * It is split from the feature gate because the reply path must bank the user's words first.
- * VS Code closes the reply editor either way, so an early refusal would lose what they typed.
- * The advice comes back as a thunk rather than being shown here.
- * The reply path runs inside a thread's queue, and a notification settles only when dismissed.
- * Showing it in place would let an ignored toast block every later reply to that thread.
- * The review commands have no queue and invoke it at once.
+ * Split from the feature gate because the reply path must bank the user's typed words BEFORE asking this, since
+ * VS Code closes the reply editor either way and a refusal first would throw away what they wrote. The advice
+ * comes back as a thunk because the reply path runs inside a thread's queue and a notification settles only
+ * when the user dismisses it, so an ignored toast shown in place would block every later reply to that thread.
  */
 function reviewModelGate(deps: ReviewCommandDeps): ModelGate {
 	const ref = getFeatureModelRef("reviewComments", (message, data) => {
@@ -149,12 +143,9 @@ function reviewSender(
 }
 
 /**
- * Review every uncommitted change in a repository, one request per file.
- * `diffWith("HEAD")` is what makes "uncommitted" mean staged AND unstaged.
- * Untracked files stay out, since they have no diff and the whole-file command covers them.
- * Everything after the gate runs inside the shared failure boundary, git activation included.
- * Activating the built-in Git extension can reject.
- * An escaped rejection would leave the command dead instead of saying what went wrong.
+ * `diffWith("HEAD")` is what makes "uncommitted" mean staged AND unstaged, and untracked files have no diff, so
+ * the whole-file command covers them. Git activation runs inside the failure boundary too, because activating
+ * the built-in Git extension can reject and an escaped rejection would leave the command silently dead.
  */
 export async function runReviewChanges(deps: ReviewCommandDeps, commandArg: unknown): Promise<void> {
 	const gate = await openGate(deps);
@@ -310,14 +301,10 @@ function applyFindings(
 }
 
 /**
- * A reply typed into a review thread lands, then the model answers in the same thread.
- * The user's comment is appended BEFORE the request, so a failure leaves their words in place.
- * A thread the USER started from the gutter reaches us unindexed, since the host created it.
- * It is adopted here, which makes their question the thread's first turn.
- * Replies to one thread run ONE AT A TIME, queued rather than dropped.
- * The reply widget stays usable while a request runs.
- * A second submission appended at once would sit above the first answer and REPLAY out of order.
- * Different threads are independent and run concurrently.
+ * A thread the USER started from the gutter reaches us unindexed, since the host created it, and adopting it
+ * makes their question the thread's first turn. Replies to one thread run ONE AT A TIME, queued rather than
+ * dropped, because a second submission appended while the first request runs would sit above its answer and be
+ * REPLAYED to the model out of order.
  */
 export async function runReviewReply(deps: ReviewCommandDeps, reply: vscode.CommentReply): Promise<void> {
 	const controller = await openFeatureGate(deps);
@@ -545,14 +532,10 @@ interface DiffUnits {
 }
 
 /**
- * Collect the repository's uncommitted files as review units, capped.
- * A file with UNSAVED edits is skipped and counted apart.
- * Its diff comes from disk, but the comments would anchor into a buffer the model never saw.
- * With no commits yet the comparison lacks a base commit.
- * Content staged for the first commit may exist, but this comparison cannot describe it.
- * The notice therefore names the reason and points at the whole-file command.
- * That is the ONLY enumeration failure swallowed here.
- * Any other one is a real git failure for the command's error boundary.
+ * A file with UNSAVED edits is skipped and counted apart, because its diff describes what is on disk while the
+ * comments would anchor into the buffer, so the model would review one revision and the comments land on
+ * another. An unborn repository is the ONLY enumeration failure swallowed here, and any other one is a real git
+ * failure that belongs to the command's error boundary.
  */
 async function diffUnits(repo: Repository, token: vscode.CancellationToken): Promise<DiffUnits | "unborn"> {
 	let changes: readonly Change[];

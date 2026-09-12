@@ -14,14 +14,9 @@ import { updateServerSecret } from "./servers/serverSync";
 import { createSettingsAccess } from "./settingsAccess";
 
 /**
- * This module seeds development servers for `bun run dev`.
- * Production activations never look for the file.
- * The launcher writes the seed file that shared/devSeed.ts shapes.
- * Activation consumes the file once.
- * Seed entries land as ordinary user-scope `servers` entries.
- * API keys land inline because the dashboard edit form's prefill exercises that case.
- * The seed owns exactly the record keys it names.
- * Other keys in the record settings survive.
+ * The `bun run dev` launcher writes the seed file (shared/devSeed.ts owns its name and shape) into the
+ * extension folder, and extension.ts reads it only outside Production mode. Seed API keys land inline in
+ * their entries on purpose, since that is the case the dashboard edit form's prefill exercises.
  */
 
 const DEFAULT_SEED_LABEL = "Fake LiteLLM";

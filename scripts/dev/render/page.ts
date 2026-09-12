@@ -108,13 +108,12 @@ export const DETERMINISM_CSS =
 	"*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
 
 /**
- * VS Code writes these into every webview document AHEAD of the extension's stylesheets.
- * They sit inside @layer vscode-default, so any author rule beats them.
- * Current hosts inject the html scrollbar-color rule (webview/browser/pre/index.html).
- * A non-auto scrollbar-color inherits into every scroller and paints the track opaque.
- * It also DISABLES ::-webkit-scrollbar styling wholesale.
- * Older hosts injected the ::-webkit-scrollbar rules instead.
- * Emulating both halves lets a --show-scrollbars render prove the dashboard's rules beat either.
+ * VS Code writes these into every webview document AHEAD of the extension's stylesheets, so any author rule beats them.
+ * Both halves are emulated so a --show-scrollbars render proves the dashboard's scrollbar rules beat whichever the host injects.
+ *
+ *   current hosts -> the html scrollbar-color rule (webview/browser/pre/index.html); a non-auto value inherits into every
+ *                    scroller, paints the track in opaque editor-background, and DISABLES ::-webkit-scrollbar styling wholesale
+ *   older hosts   -> the ::-webkit-scrollbar rules
  */
 export const VSCODE_DEFAULT_CSS = `@layer vscode-default {
 	html { scrollbar-color: var(--vscode-scrollbarSlider-background) var(--vscode-editor-background); }
@@ -126,14 +125,14 @@ export const VSCODE_DEFAULT_CSS = `@layer vscode-default {
 }`;
 
 /**
- * Measurement runs (--widths, --pane-widths) swap every font token for these faces.
- * Screenshot runs (--out alone) keep the native stacks, because design review judges those.
- * The vertical metric overrides make every line box a fixed fraction of the font size.
- * A green local sweep therefore predicts the Linux-only gate.
- * A mono fallback once rounded a mixed sans+mono line box 1px taller on Linux.
- * CSS cannot override horizontal metrics, so the local() chains allow only IDENTICAL advances.
- * The engagement control fails the run on any other face.
- * The divergent faces differ ONLY in vertical metrics, for check-geometry's metric probe.
+ * Measurement runs (--widths, --pane-widths) swap every font token for these faces; screenshot runs (--out alone) keep the
+ * native stacks, since design review judges the host's fonts and measurement judges the pinned ones.
+ *
+ *   vertical overrides -> every line box is a fixed fraction of the font size, so a green macOS sweep predicts the Linux-only
+ *                         gate (the host's mono fallback once rounded a mixed sans+mono line box 1px taller there)
+ *   local() chains     -> CSS cannot override advances, so only faces with IDENTICAL advances pass (Liberation Sans carries
+ *                         Arial's, Liberation Mono carries Courier New's); the engagement control fails any other face
+ *   divergent faces    -> the same sources with other vertical metrics, so a swap changes ONLY the metrics (check-geometry's metric probe)
  */
 const PINNED_SANS_SOURCES = `local("Arial"), local("Liberation Sans")`;
 

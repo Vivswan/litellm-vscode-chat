@@ -16,14 +16,13 @@ import {
 import { expectDefined } from "./pureHelpers";
 
 /**
- * gpt-5.2-mini is a single deployment, chosen so responses cannot vary by routing.
- * Assertions target extracted content only, because LiteLLM stamps its own created on every chunk.
- * The suite skips %deployment because its oracle is relational; a directed docker test covers it.
- * CONVERSATION_ITERATIONS (default 10) is its own knob, separate from FUZZ_ITERATIONS.
- * So nightly's FUZZ_ITERATIONS=500 cannot multiply multi-round-trip conversations into the budget.
- * FUZZ_SEED=<seed> reproduces a run.
- * The stream fuzzer shares that knob.
- * Every run logs its seed.
+ * Conversations run against gpt-5.2-mini, a single deployment so responses cannot vary by routing, and assert on
+ * extracted content only because LiteLLM stamps its own created on every chunk.
+ *
+ *   %deployment excluded                 -> its oracle is relational, and a directed docker test covers it
+ *   CONVERSATION_ITERATIONS (default 10) -> own knob, so nightly's FUZZ_ITERATIONS=500 cannot multiply
+ *                                           multi-round-trip conversations into the job budget
+ *   FUZZ_SEED=<seed>                     -> reproduces a run (shared with the stream fuzzer, always logged)
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";

@@ -64,13 +64,9 @@ export function currentMcpEntries(): McpEntry[] {
 }
 
 /**
- * Decide whether the endpoint is on the same origin as the entry's base URL.
- * Credentials are composed only for an endpoint on the entry's own origin.
- * A stored secret is paired with the entry's base URL by secretDestination.
- * An endpoint at another origin is a destination nothing authorized it for.
- * It is published WITHOUT credentials rather than handed them because a URL was typed.
- * Any path on the same origin counts, since a proxy may serve /mcp away from the root.
- * Unparseable either side reads as "not the same", the fail-closed answer.
+ * secretDestination pairs a stored proxy key with the entry's base URL and the OAuth client secret with its token
+ * URL, so an endpoint at another origin is a destination nothing authorized it for and is published WITHOUT
+ * credentials. Any path on that origin counts, because a proxy may serve /mcp away from the root.
  */
 function sameOrigin(endpoint: string, baseUrl: string): boolean {
 	try {
@@ -166,14 +162,12 @@ export function createMcpServerDefinitionProvider(
 		provideMcpServerDefinitions: () => mcpDescriptors(deps).map(definitionOf),
 
 		/**
-		 * Credentials go only when the entry's stored secrets are stamped for that destination.
-		 * Credentials handed to the editor are past our reach, so an unproven pairing is refused.
-		 * The editor's definition is a REQUEST that may predate an edit, never truth.
-		 * So the publication is re-derived from the setting before and after the credential reads.
-		 * The whole descriptor must still match, version included.
-		 * The guarantee is same label, endpoint, and origin, all three re-read from the setting.
-		 * The change event after the write corrects the rest by making the editor re-resolve.
-		 * versionOf's doc describes the window that leaves open.
+		 * The editor's definition is a REQUEST that may predate an edit, never truth, so credentials attach only
+		 * to a publication re-derived from the setting. Credentials handed to the editor are past our reach.
+		 *
+		 *   re-derive from the setting -> read the credentials -> re-derive again -> whole descriptor must match
+		 *
+		 * What holds: same label, same endpoint, same origin, all three re-read from the setting.
 		 */
 		resolveMcpServerDefinition: async (server, token) => {
 			// Set by refuse(), which logs its own throw. The class cannot be the

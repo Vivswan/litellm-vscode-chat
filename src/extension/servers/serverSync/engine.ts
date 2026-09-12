@@ -25,14 +25,14 @@ import type { DeclaredServer } from "./setting";
 import { acceptedEntry, parseServersSetting, rawDeclaredLabels, stillDeclaredIn } from "./setting";
 
 /**
- * Consumers key on the class alone, never on message text.
- * "upsertFailed" means the add failed outright, so the host provably has no group for this entry.
- * "blocked" means a group with the name exists and the host refused the duplicate.
- * "secretsUnreadable" means the blob read failed, so the view's secret locations are a guess.
- * "secretsMismatched" means the read succeeded but a value's ownership stamp refused the pairing.
- * "saltUnavailable" means the read succeeded and only the unconfirmed salt stopped the pass.
- * The dashboard duplicates a shared snapshot's models per claiming entry, EXCEPT for upsertFailed.
- * The dashboard marks a view's locations unproven only for "secretsUnreadable".
+ * Consumers key on the class alone, never on message text. extension/dashboard/state.ts denies only an
+ * upsertFailed claimant a shared snapshot's models and marks only a secretsUnreadable view's locations unproven.
+ *
+ *   upsertFailed      -> this add attempt failed outright, so the entry may have no group at all
+ *   blocked           -> a group with the name exists and the host refused the duplicate
+ *   secretsUnreadable -> the blob read itself failed; the view's locations degraded to the inline-only guess
+ *   secretsMismatched -> the read succeeded but a stored value's ownership stamp refused the pairing
+ *   saltUnavailable   -> the read succeeded and only the unconfirmed fingerprint salt stopped the pass
  */
 type SyncErrorClass = "upsertFailed" | "blocked" | "secretsUnreadable" | "secretsMismatched" | "saltUnavailable";
 
@@ -81,14 +81,9 @@ export interface DeclaredEntryIdentity {
 }
 
 /**
- * "renamed" means a label NEW this pass now declares the removed label's base URL.
- * The old group is then a rename leftover, not an explicit removal.
- * New means absent from the last valid pass's declaration.
- * Without a baseline on the first pass, new means no fingerprint and no session-ledger record.
- * "removed" is everything else.
- * Its baseUrl comes from the persisted identity ledger.
- * Failing that, it comes from the one base URL the host serves the label's group at.
- * It is undefined when neither resolves it, because the env must never tombstone a guess.
+ * "renamed" means a label NEW this pass (see declaredLabelsLastPass) now declares the removed label's base URL,
+ * so the old group is a rename leftover rather than an explicit removal. A "removed" baseUrl is undefined when
+ * neither the ledger nor an unambiguous host observation names it, because the env must never tombstone a guess.
  */
 export type RemovedEntryEvent =
 	| { readonly kind: "removed"; readonly label: string; readonly baseUrl: string | undefined }
@@ -122,36 +117,24 @@ export interface ServerSyncEnv {
 	getFingerprints(): Readonly<Record<string, string>>;
 	setFingerprints(map: Readonly<Record<string, string>>): Promise<void>;
 	/**
-	 * The ledger maps each label earlier passes saw declared to its normalized base URL.
-	 * It says which host a just-removed label's group pointed at.
-	 * A removal's tombstone stands on it.
-	 * Stale storage reads affect it like the fingerprints, so the `ledger` field seeds once from it.
-	 * Later reads are presence-only gap fillers.
-	 * Reads carry the same boundary validation: no reserved keys, no non-string values.
-	 * Unlike the fingerprints it carries no credential material and no salt dependence.
-	 * Its writes therefore go out unguarded.
+	 * Label -> normalized base URL for the entries earlier passes saw declared; a removal's tombstone stands on
+	 * it, and it suffers stale storage reads like getFingerprints, so the engine seeds a session copy once (see
+	 * ServerSyncEngine.ledger). Unlike the fingerprints it carries no credential material and no salt
+	 * dependence, so writes go out unguarded.
 	 */
 	getEntryBaseUrls(): Readonly<Record<string, string>>;
 	setEntryBaseUrls(map: Readonly<Record<string, string>>): Promise<void>;
 	/**
-	 * This callback returns the normalized base URLs of LABELED groups the host serves under `label`.
-	 * The source is the provider's status window, which holds the current and previous sweeps.
-	 * The observation is the second source of a label's group identity, behind the ledger.
-	 * An entry that never synced, because it was blocked or predates the ledger, may lack a record.
-	 * The host still hands its group to the provider on every refresh, so the observation is evidence.
-	 * A natively deleted group leaves the window within a sweep.
-	 * The callback must not throw.
-	 * The wiring re-runs a sync pass when a labeled group enters the window, so late evidence counts.
+	 * An entry whose add never landed (blocked, or older than the ledger) may have no ledger record, yet the host
+	 * still hands its group to the provider on every refresh, so an unambiguous observation is evidence rather
+	 * than a guess and the ledger's second source. Live, not historical, so a natively deleted group leaves
+	 * within a sweep; wiring/servers.ts re-runs a pass when a labeled group enters, so late evidence is not lost.
 	 */
 	observedGroupBaseUrls(label: string): readonly string[];
 	/**
-	 * The pass calls this identity reconciliation once, at its end.
-	 * The env clears removal tombstones matching a declared identity.
-	 * A re-declared group must never stay suppressed.
-	 * The env records tombstones and provenance for the events and raises the notice.
-	 * Deleting the group itself means editing the models file, since the host has no removal command.
-	 * The pass awaits it so reconciliations stay serialized with the passes that produced them.
-	 * A removal's tombstone can then never land after a later pass's re-add cleared it.
+	 * A re-declared group must never stay suppressed, so the env clears matching removal tombstones before
+	 * recording the events; extensions cannot delete the group itself, only the user can. The pass awaits it so
+	 * reconciliations stay serialized with their passes, and a tombstone can never land after a later re-add cleared it.
 	 */
 	reconcileEntryIdentities(
 		declared: readonly DeclaredEntryIdentity[],
@@ -162,14 +145,13 @@ export interface ServerSyncEnv {
 }
 
 /**
- * The fingerprint and fingerprintProjection migration both render it, so the field order is frozen.
- * The parser flattens the nested settings shape onto these fields, so old fingerprints stay stable.
- * serverSyncEntryShape.test.ts pins that stability across the entry restructure.
- * `label` repeats the group name because the host echoes only the configuration, never the name.
- * That repeat is what keeps entries sharing a URL and credentials distinct.
- * Headers, model records, expectedFailures, declaredModels, budget, and mcp stay out of the args.
- * The extension reads those itself, so editing them must not churn the group.
- * entryCredentials.ts overlays current credentials at serve and request time, so no edit churns.
+ * The field order is frozen because the persisted fingerprint hashes groupIdentityArgs' projection of this
+ * object and migrations/fingerprintProjection.ts re-renders the legacy full-args JSON, so both renderings must
+ * stay byte-stable (serverSyncEntryShape.test.ts pins them across the nested-settings restructure).
+ *
+ *   label             -> repeats the group name; the host echoes only the configuration back, and it keeps same-URL same-credential entries distinct
+ *   credential fields -> a baked fallback only; entryCredentials.ts overlays the entry's current values at serve and request time
+ *   everything else   -> headers, model records, expectedFailures, declaredModels, budget, mcp; extension-read, so edits must not churn the group
  */
 export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecrets): Record<string, string> {
 	const args: Record<string, string> = {
@@ -190,13 +172,12 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
 }
 
 /**
- * This projection derives from buildGroupArgs's output, never from the entry, so it cannot drift.
- * baseUrl rides verbatim as the args carry it, so a base URL text edit still reads as a new group.
- * Credential fields stay out because the host is add-only and never sees a credential change.
- * The serve-time overlay in entryCredentials.ts applies the entry's current secrets instead.
- * A rotation must read as in-sync, not as a doomed re-add.
- * The fuzz oracle imports it to compare identities through this exact projection.
- * The oracle cannot call the salted fingerprint, because the real extension owns the process salt.
+ * Derived from buildGroupArgs's output, never from the entry, so the two renderings cannot drift.
+ *
+ *   baseUrl     -> verbatim, so a base URL text edit still reads as a different group
+ *   credentials -> out; the add-only host never sees a change and entryCredentials.ts overlays current ones at serve time, so a rotation is in-sync
+ *
+ * Exported for the fuzz oracle (test/monkeyFuzz.ts), which compares identities through this exact projection but cannot call the salted fingerprint.
  */
 export function groupIdentityArgs(args: Record<string, string>): Record<string, string> {
 	const { name, vendor, baseUrl, label } = args;
@@ -210,14 +191,10 @@ export function groupIdentityArgs(args: Record<string, string>): Record<string, 
 }
 
 /**
- * Without the "i1:" prefix this rendering and the legacy full-args one would both be opaque hex.
- * The fingerprintProjection migration and the fuzz oracle rely on that prefix to tell them apart.
- * Older extension versions compare records only by equality, so the prefix is downgrade-safe.
- * The engine compares stored records against this rendering ONLY.
- * The migration rewrites legacy records, and nothing here accepts them.
- * An entry whose record matches nothing degrades to the blocked classification.
- * It stays carried, never overwritten, until the user reverts, renames, or removes the entry.
- * The legacy rendering itself lives only in the migration.
+ * The "i1:" prefix lets migrations/fingerprintProjection.ts and the fuzz oracle tell this rendering from the
+ * legacy one (both otherwise opaque hex); older versions compare records only by equality, so it is
+ * downgrade-safe. The engine compares against this rendering ONLY, so an unmatched record sends the entry back
+ * to the host, and a duplicate refusal there reads as blocked, carried until the entry is reverted, renamed, or removed.
  */
 export function groupArgsFingerprint(args: Record<string, string>): string {
 	return `i1:${fingerprint(JSON.stringify(groupIdentityArgs(args)))}`;
@@ -299,14 +276,12 @@ function isDuplicateGroupError(error: unknown): boolean {
 }
 
 /**
- * This records why a label's last add did not land, keyed to the fingerprint it concerned.
- * "blocked" means the host refused the add as a duplicate while the entry had changed.
- * The host has no update API, so no retry with the same configuration can help.
- * Unforced passes therefore skip the host call and keep the actionable error instead of hammering.
- * A forced pass retries anyway, since the user may have removed the stale group natively.
- * "upsertFailed" means the add failed for a non-duplicate reason.
- * The persisted fingerprint map holds last-known-good only, so this is the separate retry signal.
- * An unforced pass re-calls the host while the entry still holds the failed configuration.
+ * Why a label's last add did not land, keyed to the fingerprint it concerned; the persisted map holds
+ * last-known-good only, so this is the retry signal between passes.
+ *
+ *   blocked, unforced pass -> skip the host call and keep the error; the host has no update API, so the same configuration cannot land
+ *   blocked, forced pass   -> retry anyway; the user may have removed the stale group natively
+ *   upsertFailed, revert   -> in sync without a call; the map's last-known-good already describes the live group
  */
 interface RetryState {
 	kind: "blocked" | "upsertFailed";
@@ -324,38 +299,31 @@ interface RetryState {
 export class ServerSyncEngine implements vscode.Disposable {
 	private views: DeclaredServerView[] = [];
 	/**
-	 * The first pass seeds this map from the store, and it is session truth from then on.
-	 * Decisions never trust store re-reads, with two presence-only exceptions.
-	 * syncPass takes a fresh read as proof that another window synced the same configuration.
-	 * carryLastGood keeps a store record this map has never seen for an unsynced entry.
-	 * Presence and matches are safe, but absences prove nothing.
-	 * The monkey fuzzer caught a stale value reverting an awaited globalState.update moments later.
-	 * A pass trusting that read re-adds its own group.
-	 * It then misreads the duplicate rejection as a foreign name conflict and keeps the error forever.
+	 * Seeded from the store on the first pass and session truth from then on; syncPass's duplicate confirmation
+	 * and carryLastGood take a store re-read presence-only, where a match proves the live group and an absence
+	 * proves nothing. The monkey fuzzer showed why trusting more wedges entries, since an awaited
+	 * globalState.update can revert moments later to a stale whole-key value.
+	 *
+	 *   stale read -> pass re-adds its own group -> duplicate rejection read as a foreign name conflict -> no last-known-good to carry -> error forever
 	 */
 	private fingerprints: Record<string, string> | undefined;
 	/**
-	 * This ledger seeds once like `fingerprints`, for the same reason.
-	 * The nightly monkey fuzzer caught removals losing their tombstones (#220).
-	 * A fresh read had reverted to a pre-declare version, so the removed label read as ledger-less.
-	 * Each pass still takes one fresh store read, merged presence-only underneath the session copy.
-	 * Another window's records therefore fill gaps but never shadow a record this session holds.
-	 * A stale store CAN re-surface a label this session already dropped, harmlessly.
-	 * Removal candidates key on the fingerprint map and THIS ledger, never the merged read.
-	 * The pass-end rewrite prunes the label, and only unresolvedRemovals revisits a dropped label.
+	 * Seed-once like `fingerprints` and for the same reason, with each pass merging one fresh store read
+	 * presence-only underneath, so another window's records fill gaps but never shadow a record this session
+	 * holds. #220 was this hazard on the ledger.
+	 *
+	 *   fresh read reverted to a pre-declare version -> removed label read as ledger-less -> untracked notice -> its models never left the host list
 	 */
 	private ledger: Record<string, string> | undefined;
 	/** Per-label retry state that must survive between passes; see RetryState. */
 	private retry = new Map<string, RetryState>();
 	/**
-	 * This map holds removed labels no pass could resolve yet, with the labels NEW at detection.
-	 * The usual case is a cold-start removal detected before the host reported any group.
-	 * The event fired once, untracked, so the engine carries the label for a later pass to resolve.
-	 * Classification uses the detecting pass's declaration delta, never a later one.
-	 * An entry added or re-pointed later thus cannot turn the removal into a rename or the reverse.
-	 * The pass-end write carries the label's fingerprint record too, as the only durable evidence.
-	 * A dead server's probe takes the full discovery timeout, so a session can end before the report.
-	 * Without the carried record the next session would have no candidate and probe the group forever.
+	 * Removed labels whose group identity no pass could resolve yet (typically a cold-start removal, before the
+	 * host reported any group), each with the labels NEW at detection so a later add or re-point cannot flip the
+	 * removal into a rename or the reverse. The label's fingerprint record is carried in the persisted map
+	 * meanwhile, because it is the only durable evidence.
+	 *
+	 *   no carried fingerprint, session ends before the host reports the group (a dead server probes for the timeout) -> no candidate -> probed forever
 	 */
 	private readonly unresolvedRemovals = new Map<string, ReadonlyMap<string, string>>();
 	/**
@@ -394,14 +362,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
-	 * The returned record carries resolved secrets verbatim.
-	 * Like buildGroupArgs's output, it must never reach a log or a state push.
-	 * The group serving path is otherwise host-invoked only.
-	 * The litellm._test.refreshEntryModels command resolves through this to drive that path.
-	 * A refused stored field stays out because this path serves only the internal test command.
-	 * That command must never send a credential the engine itself would refuse.
-	 * The provider's credential overlay resolves through entryCredentials.ts instead.
-	 * That overlay also matches the base URL and fails closed on any refusal.
+	 * Exactly what a sync pass would submit, so litellm._test.refreshEntryModels can drive the otherwise
+	 * host-invoked group serving path; like buildGroupArgs's output it carries resolved secrets verbatim and
+	 * must never be logged or ride a state push. A refused stored field stays out, since this path must never
+	 * send a credential the engine itself would refuse (the provider's real overlay, entryCredentials.ts, fails
+	 * closed on any refusal too).
 	 */
 	async resolveGroupArgs(label: string): Promise<Record<string, string> | undefined> {
 		const match = acceptedEntry(this.env.readServersSetting(), label);
@@ -503,14 +468,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
-	 * This check fails closed before the irreversible add.
-	 * An entry gone or renamed, a re-pointed base URL, or a refused pairing reads as "not current".
-	 * A failed read does too, and the pass then skips the add.
-	 * The pass that follows the change reads truth.
-	 * A mid-pass credential EDIT no longer blocks the add.
-	 * The identity fingerprint does not cover credentials.
-	 * The baked values are only a serve-time-overridden fallback.
-	 * Pairing pass-start secrets with a freshly edited entry is harmless where it was once permanent.
+	 * A failed read counts as "not current" too, so the add is skipped and the pass that follows whatever changed
+	 * reads truth. A mid-pass credential EDIT does not block the add, since the identity fingerprint does not
+	 * cover credentials and the baked values are a serve-time-overridden fallback, so pairing pass-start secrets
+	 * with a freshly edited entry is harmless.
 	 */
 	private async entryStillCurrent(label: string, printed: string): Promise<boolean> {
 		try {

@@ -580,12 +580,10 @@ function NumberField({
 	// keep type="number".
 	const freeText = unitBehavior(id).freeTextInput;
 
-	// The sync effect keys on draftSyncKey, not on the value alone.
-	// Resetting a value pinned to exactly its default changes only the configured scope.
-	// A stale rejected draft must resync on that push too.
+	// Keyed on draftSyncKey, not on the value alone. A successful reset of a value pinned to exactly its
+	// default changes only the configured scope, and a stale rejected draft must resync on that push too.
 	const syncKey = draftSyncKey(value, configuredScope);
-	// The effect reads the values at sync time and does not watch them.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on syncKey alone (see above)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on syncKey alone (see above); the values are read at sync time, not watched
 	useEffect(() => {
 		setText(value === null ? "" : String(value));
 		setBlurred(false);
@@ -793,11 +791,9 @@ export function commaListCustom(values: readonly string[], lossy: boolean): bool
 }
 
 /**
- * CommaListRow is the ONE comma-separated list editor behind the keywords and language-filter rows.
- * The list bounds are WIRE_LIMITS entries, the same numbers the host's intent schema reads.
- * This editor therefore refuses an oversize paste with a reason, not a generic envelope failure.
- * A list the box cannot round-trip (commaListCustom) renders read-only beside the reveal button.
- * The dashboard therefore never destroys such a list.
+ * The bounds are WIRE_LIMITS entries, the numbers the host's intent schema reads, so an oversize paste is refused
+ * here with a reason instead of a generic envelope failure. A stored list the box cannot round-trip (commaListCustom)
+ * renders read-only with the reveal button, so the dashboard never destroys it.
  */
 export function CommaListRow({
 	settingId,

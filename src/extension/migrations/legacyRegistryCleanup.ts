@@ -118,13 +118,9 @@ async function cleanUpLegacyRegistryState(ctx: MigrationContext): Promise<Migrat
 }
 
 /**
- * This migration retires the registry-backed server storage of v0.2.2 through v0.3.1.
- * It also deletes the group migration's progress markers every post-v0.3.1 install carries.
- * It deletes the retired label-scoped modelParameters expansion's label map and entry-copy ledger.
- * It deletes the settings-redesign migration's retired parked-global-headers record.
- * It only deletes, with no import and no user notice.
- * Installs still carrying legacy servers re-add them through the dashboard or the servers setting.
- * The runner's one "migrated" line is the only log output, and stored values never appear.
+ * Deletes only, with no import and no user notice, so an install still carrying legacy servers re-adds them
+ * through the dashboard or the servers setting. A successful cleanup logs only the runner's "migrated" line,
+ * and no stored value reaches any log line.
  */
 export const legacyRegistryCleanupMigration: ExtensionMigration = {
 	state: "legacy-registry-state",

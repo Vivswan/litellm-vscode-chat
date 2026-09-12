@@ -249,14 +249,14 @@ const UPDATE_UNAVAILABLE =
 	"A VS Code provider group already uses this name, and VS Code cannot update an existing group.";
 
 /**
- * Never-checked and misconfigured entries have no discovery report, so their window is EMPTY.
- * Sync failures never enter the window; the sync-failure rows pin the applySyncFailures overlay.
- * A blocked or skipped entry with no live status shows a red row while the bar spins.
- * The overlay synthesizes only for upsertFailed, the one class proving no group exists.
- * Synthesizing for the other classes raced the first discovery report red.
- * That is transient for a blocked entry (its group reports) but permanent for unreadable secrets.
- * Sync-failed claimants sharing one snapshot collapse to one window status, one row each.
- * Zero served beside a clean claimant then reads "error" in the window and "degraded" in the rows.
+ * The never-checked and misconfigured rows have an EMPTY window on purpose, since neither reaches a discovery
+ * pass, and the two sync-failure rows pin the applySyncFailures overlay. Two residuals stay, each needing plumbing
+ * or a vocabulary ruling of its own:
+ *
+ *   blocked or skipped entry, no live status   -> red dashboard row beside a spinning bar (the overlay synthesizes
+ *                                                 only for upsertFailed); persists while secret reads keep failing
+ *   sync-failed claimants sharing one snapshot -> one window status against one row each; zero served beside a clean
+ *                                                 claimant reads "error" in the window and "degraded" in the rows
  */
 export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 	{

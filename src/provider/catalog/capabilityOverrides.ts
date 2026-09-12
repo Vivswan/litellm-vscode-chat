@@ -123,13 +123,8 @@ const LEVEL_RANK: Readonly<Record<CapabilityLevel, number>> = Object.fromEntries
 ) as Record<CapabilityLevel, number>;
 
 /**
- * Two fields carry a signal: supports_reasoning, and reasoning_effort in supported_openai_params.
- * The field resolved at the higher-precedence level decides.
- * A tie goes to the flag, so an explicit supports_reasoning beats the params list in one record.
- * The flag's floor level is the walk's backstop `false` and counts as no signal, not a demotion.
- * So a user-set params list at any level outranks the floor.
- * A winning params list WITHOUT reasoning_effort demotes.
- * That is how a user turns the control off.
+ * A winning params list WITHOUT reasoning_effort demotes, which is how a user turns the control off.
+ * The flag's floor level is the walk's backstop `false`, not an explicit demotion, so it counts as no signal.
  */
 export function reasoningGate(fields: EffectiveCapabilityFields): boolean {
 	const flag = fields.supports_reasoning;
@@ -257,12 +252,9 @@ function advertisesEffective(
 }
 
 /**
- * Apply the capability overrides to one refresh's registered models.
- * Unmatched models come back by identity, and an untouched pass returns the input array itself.
- * The common no-configuration case therefore costs no copies.
- * Pricing is never catalog-sourced.
- * Every price is re-derived here from the effective cost fields.
- * So only the server's report and the user's records can put a number on a model.
+ * The verified fast path (no rebuild-triggering field, no directive, and advertisesEffective holds) keeps the
+ * model and the input array by identity, so the common no-configuration case costs no copies.
+ * Pricing is re-derived from the effective cost fields, which the walk never fills from the catalog.
  */
 export function applyCapabilityOverrides(
 	infos: readonly PreAttachModelInfo[],
@@ -329,14 +321,9 @@ export function applyCapabilityOverrides(
 }
 
 /**
- * Build the declared models the current configuration creates on one server.
- * A declared ID that discovery listed is inert.
- * The check reads the DISCOVERED raw IDs, not the registered ones.
- * Registration may emit only synthetic variants (`foo:cheapest`) for a discovered `foo`.
- * The build drops a declared ID that collides with an exposed ID about to register, and warns.
- * Two models must never share an exposed ID.
- * Declared models are rebuilt from configuration on every serve and never persisted.
- * So removing a declared ID takes effect on the next serve, even mid-outage.
+ * Declared models are rebuilt every serve and never persisted, so removing a declared ID takes effect on
+ * the next serve, even mid-outage. Inertness is judged against the DISCOVERED raw IDs, not the registered
+ * ones, since registration.ts may emit only synthetic variants (`foo:cheapest`) of a discovered `foo`.
  */
 export function synthesizeDeclaredModels(
 	discoveredRawIds: ReadonlySet<string>,

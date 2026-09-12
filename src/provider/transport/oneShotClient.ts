@@ -11,13 +11,9 @@ import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
 import { parseCompletionText } from "./fim";
 
 /**
- * The extension-side features send single plain-fetch POSTs through this transport.
- * The background chat features use /chat/completions, and inline completions use /completions.
- * There is no SDK client cache and no retry, since completions never retry.
- * Error ownership follows the transport-module convention.
- * Each call builds specific errors through the shared pipeline under its caller's error surface.
- * It throws WITHOUT logging, and the caller's boundary logs once.
- * Cancellation surfaces as vscode.CancellationError and is never logged.
+ * No retries, since completions never retry. Transport-module error ownership applies, so every call throws
+ * specific errors under its caller's error surface WITHOUT logging, the caller's boundary logs once, and
+ * cancellation surfaces as vscode.CancellationError, never logged.
  */
 
 /** One wire message of a one-shot request; this path carries plain text only, no multimodal parts. */
@@ -249,14 +245,11 @@ export class OneShotClient {
 	}
 
 	/**
-	 * Compose the headers the MCP publisher hands the editor for its own MCP endpoint calls.
-	 * Sharing this client shares its token cache, so publishing reuses a chat feature's live token.
-	 * The editor owns 401s here, so a token the server stops accepting lasts until the next expiry.
-	 * Only the exchange can block, so a whole-call timeout would race it and bury the OAuth advice.
-	 * getToken JOINS an exchange already in flight for the same credentials from another feature.
-	 * The join waits under this call's budget and reports failures through this surface.
-	 * Cancellation releases only this waiter.
-	 * A recovering join runs a fresh exchange on a second full budget (auth.ts), uncapped here.
+	 * The editor sends these headers itself and owns the 401s, so a token the server stops accepting is
+	 * corrected by the next exchange after expiry, never by a rejection here.
+	 *
+	 * Deliberately NO whole-call timeout of its own, because only the token exchange can block and a second
+	 * bound sharing that budget would race the exchange's own, burying the OAuth message that names the setting to raise.
 	 */
 	async authHeaders(
 		connection: OneShotConnection,

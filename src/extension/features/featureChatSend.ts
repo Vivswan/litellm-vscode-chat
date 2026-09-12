@@ -15,13 +15,9 @@ import { noEntryForConfiguredServer } from "./modelSettingError";
 export type OneShotChatFeature = Exclude<FeatureModelId, "inlineCompletions">;
 
 /**
- * This is the one-shot chat features' one send composition.
- * It lives at the features/ root because features may not import each other.
- * Each feature keeps its own prompt assembly and error handling.
- * Only the send is shared.
- * The body is exactly what OneShotChatRequest declares.
- * models.parameters records do NOT apply on this path.
- * No max_tokens rides along, so the model's own default bounds the answer.
+ * The one-shot chat features' one send composition, at the features/ root because features may not import each
+ * other. models.parameters records deliberately do NOT apply on this send composition, and no max_tokens rides
+ * along, so the model's own default bounds the answer.
  */
 export async function featureChatSend(
 	feature: OneShotChatFeature,

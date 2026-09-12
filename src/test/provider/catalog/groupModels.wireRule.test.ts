@@ -1,27 +1,23 @@
 /**
- * This suite pins the wire rule as a superset of the CHAT path's narrowing.
- * entryUsesSecretField (shared/serverEntry.ts) is the ONE wire rule for which fields a shape sends.
- * Its arms must cover every field parseGroupConfiguration lets into a composed GroupServer.
- * The arms derive from the parser's narrowOAuth and narrowVirtualKey in groupModels.ts.
- * On this chain resolveOwnedSecrets drops a stamp-mismatched stored value before it can ride.
- * So a shape sent but denied means the refusal never fires.
- * The sync engine then upserts a CREDENTIAL-LESS group at the new host, unflagged.
- * That group is permanent because the host is add-only.
- * The rule is one function, so a stale arm also fails the raw-blob composer MCP refuses through.
- * There the wrong-host ride is real.
- * parseGroupConfiguration receives host-stored configurations, not entries.
- * So composeGroupServer below runs the REAL chain: resolveOwnedSecrets, buildGroupArgs, the parser.
- * The probe writes every stamp with secretDestination, so every planted value resolves.
- * That is the maximal reachable send side, since the ownership check only ever drops values.
- * Production puts the host's configuration store between the last two steps.
- * That round trip can only drop or reshape what buildGroupArgs wrote.
- * parseAttachedServer's re-parse can likewise only drop further.
- * This suite claims nothing for credentials that ride in the HOST-held configuration itself.
- * Those are externally managed groups and pre-label groups an older version pushed.
- * No refusal gate stands there, even when an entry mirrors the server or adoption copied them.
- * util/wireRuleProbe.ts shares the probe space and record shape with spendClient.wireRule.test.ts.
- * narrowVirtualKey's header-legality checks only NARROW the send side.
- * The probe plants header-legal values, so presence probing over-approximates what can ride.
+ * The arms of entryUsesSecretField (shared/serverEntry.ts, the ONE wire rule deciding which credential fields an
+ * entry's shape would send) are documented as derived from parseGroupConfiguration's narrowOAuth/narrowVirtualKey
+ * and must cover every field the parser lets into a composed GroupServer. narrowVirtualKey's header-legality
+ * checks only NARROW the send side and the probe plants header-legal values, so presence probing over-approximates
+ * what can ride, the safe direction.
+ *
+ * What a shape the chat path sends but the rule denies would do, the rule being ONE function:
+ *   this chain    -> resolveOwnedSecrets drops the stamp-mismatched value first, so the refusal never fires and the
+ *                    sync engine upserts a CREDENTIAL-LESS group at the new host, permanent under the add-only host
+ *   raw-blob path -> the MCP publisher refuses through the same arms, and there the wrong-host ride is real
+ *
+ * What the claim covers, the parser receiving host-stored configurations rather than entries:
+ *   the REAL sync chain (composeGroupServer)   -> claimed; the maximal reachable send side, since the ownership
+ *                                                 check only ever drops values
+ *   the host's configuration-store round trip  -> no claim needed; it can only drop or reshape what buildGroupArgs wrote
+ *   parseAttachedServer's re-parse             -> no claim needed; it reuses the narrowing helpers and can only drop further
+ *   credentials in the HOST-held configuration -> not claimed; external and pre-label groups bypass the chain, so no
+ *                                                 refusal gate stands before the parser even when an entry mirrors
+ *                                                 the server or an adoption copied them
  */
 
 import * as assert from "node:assert";
@@ -133,15 +129,13 @@ suite("provider/catalog groupModels wire-rule superset", () => {
 	});
 
 	test("the wire rule's no-server arm and the parser's refusal coincide: no server forms, no field is used", () => {
-		// This case covers the only arm outside the probe space.
-		// The two sides refuse by DIFFERENT judgments that coincide here.
-		// The rule normalizes the raw base URL; the parser trims first and then normalizes.
-		// So every URL the rule refuses the parser refuses too, and its refusal set is strictly wider.
-		// The parser refusing means the chat path composes no server, so no field can ride a request.
-		// It is NOT a claim that no resolved value leaves the process.
-		// The settings parser accepts a "/" base URL, so the sync engine still calls add-group.
-		// That resolution has already dropped a stamp-mismatched value; matching or inline ones stay.
-		// The value then sits in the host store, refused by this parser on every call.
+		// Two DIFFERENT judgments coincide here, since the rule normalizes the raw base URL and the parser trims
+		// first, so every URL the rule refuses the parser refuses too (its set is
+		// strictly wider) and the chat path composes no server. It is NOT a claim that no resolved value leaves the
+		// process:
+		//
+		//   settings parser accepts "/" -> sync engine hands buildGroupArgs' resolution (stamp-mismatched value dropped,
+		//   matching or inline kept) to the host's add-group command -> sits in the host store, refused here on every call
 		const entry: DeclaredServer = { label: "probe", baseUrl: "/", ...SHAPE_FIELD_VALUES };
 		for (const field of SECRET_FIELD_IDS) {
 			assert.strictEqual(entryUsesSecretField(entry, field), false, `the no-server arm must deny "${field}"`);

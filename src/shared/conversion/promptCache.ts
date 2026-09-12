@@ -9,14 +9,13 @@ import type {
 } from "./wire";
 
 /**
- * This pass owns every `cache_control` marker and never mutates its input.
- * Anthropic caches the prefix up to each breakpoint and allows at most four per request.
- * The four go to the prefixes that stay byte-identical across an agent session's turns.
- * The first cacheable user message is the stable session anchor.
- * The last text-bearing message is the rolling anchor.
- * LiteLLM's Anthropic adapter wraps a tool-role message in a tool_result block.
- * Only `message.cache_control` lands on that top-level block, the only cacheable position.
- * The tools marker goes on the last tool definition, which the Anthropic and Bedrock adapters read.
+ * Anthropic allows four breakpoints and caches the prefix up to each, so the anchors (tools, system, first user, rolling last)
+ * are the prefixes that stay byte-identical across an agent session's turns. Placement per role is what LiteLLM's Anthropic
+ * adapter reads:
+ *
+ *   tool-role message -> message-level; the adapter wraps it in a tool_result block whose top level is the only cacheable spot
+ *   any other message -> block-level on its last non-empty text block
+ *   last tool def     -> tool-level, which the Anthropic and Bedrock adapters both read
  */
 
 const CACHE_CONTROL: EphemeralCacheControl = Object.freeze({ type: "ephemeral" });

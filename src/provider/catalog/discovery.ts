@@ -87,14 +87,12 @@ const NO_SERVER_COSTS: ServerCosts = {
 };
 
 /**
- * Both mapping sites read a server report's cost fields through this one function.
- * LiteLLM stamps input/output_cost_per_token: 0 onto entries that declare no pricing at all.
- * A raw ZERO PAIR maps every cost field to undefined here, at ingest.
- * So downstream a present server cost means declared, and no consumer re-detects the stamp.
- * A user-written 0/0 record still prices as free, because records never pass through here.
- * Behind LiteLLM a real 0/0 price is indistinguishable from the stamp, so it loses its $0 display.
- * Unknown-as-free is the worse failure.
- * Every field comes back, so spreading the result overrides look-alike keys on lenient entries.
+ * LiteLLM stamps input/output_cost_per_token: 0 onto entries that declare no pricing, so this ingest
+ * mapping is where the stamp dies and a present server cost downstream means declared.
+ *
+ *   server 0/0 pair         -> every cost undefined; a genuinely free model loses its $0 display, because
+ *                              behind LiteLLM the shapes are indistinguishable and unknown-as-free is worse
+ *   user-written 0/0 record -> never passes through here, so it still prices as free
  */
 function serverCostsOf(entry: unknown): ServerCosts {
 	const record = isRecord(entry) ? entry : {};
@@ -113,14 +111,9 @@ function serverCostsOf(entry: unknown): ServerCosts {
 }
 
 /**
- * Read a model's long-context tier costs from LiteLLM's threshold-suffixed keys.
- * VS Code's pricing metadata has a single long-context tier.
- * When a model declares several thresholds, the lowest wins, the first boundary a prompt crosses.
- * The result reports only fields declared at that threshold.
- * Only keys holding a usable cost take part in the selection.
- * So a tier whose every value is malformed cannot mask a well-formed higher one.
- * All four fields come back, undefined when absent.
- * So spreading the result overrides look-alike keys on lenient pass-through entries.
+ * VS Code's pricing metadata has one long-context tier, so the lowest declared threshold wins (the first
+ * boundary a growing prompt crosses). Only keys holding a usable cost enter the selection, so an
+ * all-malformed tier cannot mask a well-formed higher one.
  */
 function longContextCosts(entry: unknown): LongContextCosts {
 	const tiered: { threshold: number; baseKey: string; cost: number }[] = [];
@@ -276,14 +269,14 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
 }
 
 /**
- * LiteLLM reports one /v1/model/info entry per deployment of a load-balanced model_name.
- * Unmerged, such a model would register duplicate IDs and overwrite its own routes.
- * The merge stores a limit ONLY when some deployment reported it.
- * A stored floor fill would occupy the capability walk's server level and block catalog backfill.
- * The input limit stays whenever ANY limit was reported, since re-deriving it can overstate it.
- * outputLimitSource records whether the stored output limit counts as server-declared.
- * So a floor-filled contributor cannot launder its guess into a declared limit.
- * Pricing carries over only when every deployment agrees, because routing picks the serving one.
+ * LiteLLM reports one /v1/model/info entry per deployment of a load-balanced model_name; unmerged, the
+ * model would register duplicate IDs and overwrite its own routes.
+ *
+ *   limits            -> stored ONLY when some deployment reported them; a stored floor fill would occupy the
+ *                        capability walk's server level and block catalog backfill
+ *   outputLimitSource -> keeps a floor-filled contributor from laundering its guess into a declared output limit
+ *   pricing           -> only when every deployment agrees; routing picks the serving deployment, so either
+ *                        differing number would lie
  */
 export function mergeModelDeployments(deployments: ModelDeployments): MappedModelInfo {
 	const [first, ...rest] = deployments;
@@ -655,10 +648,7 @@ interface NarrowedModelInfoData {
 	observedModelInfoKeys: readonly string[];
 }
 
-/**
- * The union sorts before it truncates to OBSERVED_MODEL_INFO_KEYS_MAX.
- * The union drops an oversized key rather than clipping it, so truncation cannot alias two keys.
- */
+/** Sorted before truncation, and an oversized key is dropped, never clipped, so truncation cannot alias two keys. */
 const OBSERVED_MODEL_INFO_KEYS_MAX = 512;
 const OBSERVED_MODEL_INFO_KEY_MAX_LENGTH = 128;
 

@@ -1,7 +1,7 @@
 /**
- * The server edit surface holds the add/edit form and its field machinery.
- * The outward boundary is four callbacks, onDirtyChange, onRequestClose, onTargetGone, and onSaved.
- * The module knows nothing about what mounts around it.
+ * The server edit surface, the add/edit form and its field machinery. The boundary outward is four
+ * callbacks (onDirtyChange, onRequestClose, onTargetGone, onSaved), and the module knows nothing about what
+ * is mounted around it.
  */
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
@@ -389,11 +389,9 @@ export function ServerEditPage({
 		}
 	}, [targetGone, onTargetGone]);
 	const pageRef = useRef<HTMLElement>(null);
-	// The effect also fires when the form arrives or goes away.
-	// The waiting card resolving into the form counts as arriving.
-	// The unmounting field or button drops focus on the body, outside the shell that hears Esc.
-	// The keyboard would then stop working.
-	// targetGone and waitingForProof are triggers, not values the body reads.
+	// Also keyed on the form arriving or going away (the waiting card resolving into it counts), because the
+	// unmounting field or button drops focus on the body, outside the shell that hears Esc, so the keyboard
+	// would stop working. targetGone and waitingForProof are triggers, not values the body reads.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the deps are triggers, not read values
 	useEffect(() => {
 		const page = pageRef.current;

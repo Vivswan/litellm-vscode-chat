@@ -45,14 +45,13 @@ function readCounters(store: VersionStore): Record<string, number> {
 }
 
 /**
- * Digest everything about an entry that decides what a resolve sends.
- * It is WIDER than the secrets on purpose.
- * What matters to the editor is whether the next session would authenticate differently.
- * `baseUrl` is in here because it AUTHORIZES rather than addresses.
- * It is the origin an endpoint must match and the destination a secret's ownership stamp names.
- * With a custom `mcp.url` the endpoint does not move when the base URL does.
- * Without it, a base URL edit would flip both verdicts while the editor never re-resolved.
- * The JSON is field-keyed, so field sets cannot collide and a moved value counts as a change.
+ * Deliberately WIDER than the secrets, because what matters to the editor is whether the next session would
+ * authenticate differently. Field-keyed JSON, so two field sets cannot serialize identically and a value moved
+ * between fields counts as the change it is.
+ *
+ *   non-secret auth text    -> renaming the virtual-key header changes authentication as surely as rotating its value
+ *   baseUrl                 -> also AUTHORIZES, as the origin an endpoint must match and the destination a proxy key's stamp names
+ *   baseUrl, custom mcp.url -> the endpoint does not move when the base URL does, so nothing else tells the editor to re-resolve
  */
 function credentialDigestOf(entry: DeclaredServer): string {
 	const parts: Record<string, unknown> = { baseUrl: entry.baseUrl };
@@ -90,10 +89,9 @@ export class McpVersionCounters {
 	constructor(private readonly store: VersionStore) {}
 
 	/**
-	 * Return the version to publish for `label`.
-	 * An entry never yet rotated publishes 0.
-	 * It reads the PERSISTED value, so a bump still queued behind `writes` is not visible yet.
-	 * A resolve racing that bump can therefore pass the provider's re-check with pre-edit headers.
+	 * Reads the PERSISTED value, so a bump still queued behind `writes` is not visible yet and a resolve racing
+	 * it can pass the provider's re-check with pre-edit headers. The change event that follows the write is
+	 * what corrects that, by making the editor re-resolve.
 	 */
 	versionOf(label: string): number {
 		return readCounters(this.store)[label] ?? 0;
@@ -115,14 +113,12 @@ export class McpVersionCounters {
 	}
 
 	/**
-	 * Fold in this pass's entries and return the labels whose credentials changed since last time.
-	 * Undeclared labels are forgotten, and a returning one is a new pairing with its old counter.
-	 * The FIRST sighting of a label never counts, because activation has no previous digest.
-	 * Reading "we just started" as a rotation would announce one in every window.
-	 * Every entry produces a digest, so absence in the map means "never seen" and nothing else.
-	 * A reported label's new digest commits here, so each rotation is reported exactly once.
-	 * If the caller's counter write then fails, nothing recovers it.
-	 * The version is an opaque token, so the stale credential lasts only until the NEXT rotation.
+	 * The new digest commits here, so each rotation is reported exactly once, and every entry produces a digest,
+	 * so absence in the map means "never seen" and nothing else.
+	 *
+	 *   first sighting of a label      -> no rotation, activation has no previous digest to compare against
+	 *   label the setting dropped      -> digest forgotten, a returning label is a new pairing on its old counter
+	 *   counter write fails afterwards -> not recovered, the version is an opaque token the NEXT rotation bumps anyway
 	 */
 	observeCredentials(entries: readonly DeclaredServer[]): readonly string[] {
 		const rotated: string[] = [];

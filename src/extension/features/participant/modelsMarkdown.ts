@@ -32,13 +32,12 @@ function cell(text: string): string {
 }
 
 /**
- * Render a model ID as a code span where one can hold it.
- * Code-span content is literal except the pipe, the one escape GFM processes inside a table cell.
- * The cell scanner has no code-span awareness, so a backslash next to a pipe would split the row.
- * Backslash-bearing IDs take the plain cell() path instead.
- * The fence is one backtick longer than the ID's longest run, so no ID can unbalance the span.
- * Backtick or space edges get padding, or they would merge with the fence or be stripped.
- * A blank ID stays plain text, because CommonMark has no empty code span.
+ * GFM's table-cell scanner has no code-span awareness, and the pipe is the one escape it processes inside a
+ * span, so a backslash adjacent to a pipe is not representable there.
+ *
+ *   ID holds a backslash      -> plain cell(), giving up the monospace styling
+ *   blank ID                  -> plain text, CommonMark has no empty code span
+ *   backtick or space at edge -> padded, or it merges with the fence or CommonMark strips it
  */
 function idCell(id: string): string {
 	if (id.includes("\\")) {

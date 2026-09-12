@@ -357,14 +357,9 @@ export function registerSyncModelsCommand(
 }
 
 /**
- * The setup gate applies when the connection status is not configured or failed with a setup hint.
- * The user first gets a non-modal offer of the faster fix, and only Report Anyway opens the issue.
- * Building the snapshot up front makes the report show what the gate judged.
- * The pass-through path remembers each opened report's diagnostic fingerprint.
- * A repeat within the recency window gets a modal repeat-report hint.
- * The setup gate keeps precedence over the repeat hint.
- * This awaits neither dialog, because the dashboard's executeCommand intent awaits this command.
- * The await sits in a serialized chain, so an unanswered dialog would freeze every later message.
+ * The snapshot is built before the setup gate so a gated report still shows what the gate judged. Neither
+ * dialog is awaited, because the dashboard's executeCommand intent awaits this command inside its serialized
+ * message chain, and an unanswered dialog would freeze later messages on that chain.
  */
 export async function runReportIssue(
 	getConnectionStatus: () => ConnectionStatus,
@@ -478,13 +473,11 @@ export function registerReportIssueCommand(
 const GROUPS_FILE_NAME = "chatLanguageModels.json";
 
 /**
- * This opens the one place a user can delete a leftover group, since VS Code has no removal API.
- * The open is best-effort, because VS Code exposes no API for this file.
- * A profile configured to inherit its language models keeps the governing file in another profile.
- * The failure toast covers both ways the open can fail.
- * The file may not exist yet, or this window cannot reach the desktop profile that holds it.
- * The log line stays classification-only because the resolved path embeds the local user name.
- * The log buffer feeds public issue reports.
+ * Extensions have no removal API, so the host's provider-groups JSON is the fallback route for deleting a
+ * leftover group beside Manage Language Models; VS Code has no API for this file either, and a profile that
+ * inherits its language models keeps it in another profile's directory, so the open is best-effort. The log
+ * line stays classification-only because the resolved path embeds the local user name and the log buffer feeds
+ * public issue reports.
  */
 export function registerOpenGroupsFileCommand(context: vscode.ExtensionContext, logger: Logger): void {
 	context.subscriptions.push(

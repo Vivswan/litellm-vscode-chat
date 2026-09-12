@@ -286,16 +286,6 @@ export function lintRecordMap(
 	return diagnostics;
 }
 
-/**
- * The chain of matching records walks broadest to most specific.
- * What flows past a record is exactly its resolved view.
- * That pass-through rule is what makes `_inherit_from: false` a barrier.
- * An `_inherit_from` list replaces the flow with the named records' literal fields.
- * The named records apply nearest first by specificity, with own fields still on top.
- * A named record reaches around any barrier.
- * A named key must exist in the map, or a diagnostic reports it.
- * A named record must also match the model to contribute, else it stays silently inert.
- */
 export function resolveRecordChain(
 	id: string,
 	records: ModelRecordMap,

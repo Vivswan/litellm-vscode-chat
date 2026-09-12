@@ -1,27 +1,14 @@
 /**
- * This migration retires sync fingerprints hashed over the full group args, credentials included.
- * The engine compares only the identity-only "i1:" rendering from groupArgsFingerprint.
- * The legacy state is a declared entry whose stored record lacks the "i1:" prefix.
+ * Retires the fingerprints hashed over the full group args; the engine compares only the "i1:" identity
+ * rendering, and the legacy rendering lives here alone. Only a confirmed sync or an unambiguous host
+ * observation writes the ledger, so a ledger URL equal to the entry's current normalized URL proves identity
+ * whatever the old hash covered, which heals a key rotated before the upgrade (#277).
  *
- * Two proofs rewrite a record, checked in order.
- * Proof 1 is the identity ledger naming the entry's current normalized base URL for the label.
- * A pass writes a ledger record only after proving the live group held the entry's configuration.
- * A ledger match therefore proves identity whatever credentials the legacy hash covered.
- * That heals a key rotated before the upgrade (#277), whose old hash can never be recomputed.
- * Proof 2 is the record equaling the legacy rendering of the entry's current args.
- * The legacy rendering lives only here, and the engine knows only the current one.
- * Undeclared labels keep their records because removal detection needs them.
- * Only proof 2 defers on an ownership refusal, since proof 1 reads no secrets.
- *
- * The write merges over a fresh read.
- * Each rewrite applies only where the fresh value still equals the record this pass judged.
- * Records another window wrote meanwhile therefore survive.
- * globalState stays last-write-wins across windows, so a projection can still be lost.
- * The migration reruns every activation, so a lost projection is redone next time.
- * The real env's setFingerprints never overwrites a current-format record with a legacy one.
- * The residue degrades to the blocked classification, the pre-migration behavior for a rotation.
- * An old-version window writing full-args records back heals the same way.
- * Both versions compare records only by equality, so the churn is non-destructive both ways.
+ *   ownership-refused secret, no ledger match            -> left alone; the engine shows secretsMismatched anyway
+ *   undeclared label                                     -> left alone; removal detection needs its record
+ *   projection lost to globalState's last-write-wins     -> redone next activation; vscodeEnv.ts never lets a legacy record overwrite an "i1:" one
+ *   old-version window writing full-args records back    -> healed the same way; both versions compare only by equality
+ *   record matching neither proof                        -> left for the engine, which re-adds and reads a duplicate refusal as blocked, as before
  */
 
 import * as vscode from "vscode";

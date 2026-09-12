@@ -222,14 +222,9 @@ export class ChatClient {
 	}
 
 	/**
-	 * The cached SDK client cannot bake in the OAuth token or the virtual-key header.
-	 * The shared overlay (authOverlay.ts) applies them, as it does for the plain-fetch transports.
-	 * Both surfaces this client serves bound the exchange by the discovery timeout.
-	 * It is auth plumbing, not a chat call, so `timeout` arrives minted at getDiscoveryTimeout.
-	 * `signal`, when the triggering call carries one, also interrupts the exchange.
-	 * So user cancellation and the chat timeout cut in too.
-	 * `auth` is the overlay scope owning 401 invalidation for the token the returned headers carry.
-	 * The caller routes the request's classified failure through `auth.fail`.
+	 * Both surfaces this client serves bound the exchange by the discovery timeout (auth plumbing, not a chat
+	 * call), so `timeout` arrives minted at the caller's getDiscoveryTimeout read. `signal`, when the triggering
+	 * call carries one, also interrupts the exchange, so user cancellation and the chat timeout cut in.
 	 */
 	private async resolveAuthHeaders(
 		credentials: { oauth?: OAuthConfig | undefined; virtualKey?: VirtualKeyConfig | undefined },
