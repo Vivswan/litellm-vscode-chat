@@ -40,7 +40,8 @@ A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Lan
 
 - **Never launch VS Code or any GUI to verify.** Humans test with `F5` or `bun run dev`.
 - **`bun run typecheck` after any TypeScript change.** It covers all four tsconfig projects; `compile` builds only the root one, and `lint:types` typechecks nothing despite its name.
-- **The provider owns exactly `model`, `messages`, `stream`, `stream_options`, `max_tokens`, and `tools`/`tool_choice`.** Nothing else is injected; user records and runtime options reach LiteLLM unchanged, and underscore keys are directives that are never sent (`src/shared/config/parameterResolution.ts`).
+- **The provider owns exactly `model`, `messages`, `stream`, `stream_options`, `max_tokens`, and `tools`/`tool_choice`** (`src/shared/config/parameterResolution.ts`). Nothing else is injected.
+- **User records and runtime options reach LiteLLM unchanged.** Underscore keys are directives and are never sent.
 - **Capabilities come from the server, parameters from the user.** The capability vocabulary is open and the user is right about their server (`src/shared/config/capabilityResolution.ts`).
 - **Chat completions never retry; discovery GETs do.** Transport throws without logging, `src/provider/index.ts` is the provider's one logging boundary, and cancellation is `vscode.CancellationError`, never logged.
 - **Logs carry classifications, never response-derived text.** They feed the public issue report. `console.*` is banned in `src/` outside tests, and a localized error that can reach a log carries an English mirror (`MirroredError`).
