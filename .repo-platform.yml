@@ -2,7 +2,6 @@
 modules:
   - bun
   - release-please
-  - issue-templates
   - pr-title
   - fuzzer
   - nightly
@@ -11,5 +10,3 @@ project:
   slug: litellm-vscode-chat
   description: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM.
   copyright_holder: Vivswan Shah (https://github.com/Vivswan)
-labels:
-  fuzzer: nightly-fuzz
