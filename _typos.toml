@@ -22,3 +22,6 @@ caf = "caf"
 [default.extend-words]
 # look-alikes (Unicode confusables of the sanctioned marks).
 alikes = "alikes"
+# The spelling the wire values, log classifications, and prose use throughout;
+# typos prefers "unparsable".
+unparseable = "unparseable"

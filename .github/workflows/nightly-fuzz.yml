@@ -11,7 +11,7 @@
 # night's coverage is the sum over legs. A failing leg writes a report naming
 # the leg (and, when seeded, its seed), with the exact replay command, under
 # .fuzz-failures/<leg>/; the report job merges every failing leg's report
-# into the one label-deduplicated nightly-fuzz tracking issue. A green
+# into the one label-deduplicated fuzz-nightly tracking issue. A green
 # night closes it.
 
 name: Nightly Fuzz
@@ -319,7 +319,7 @@ jobs:
         uses: Vivswan/repo-platform/actions/fuzz-issue@build
         with:
           mode: report
-          label: nightly-fuzz
+          label: fuzz-nightly
           title: Nightly fuzz failures
           artifacts-dir: .fuzz-failures
           artifact-name: fuzz-failures-*
@@ -329,4 +329,4 @@ jobs:
         uses: Vivswan/repo-platform/actions/fuzz-issue@build
         with:
           mode: resolve
-          label: nightly-fuzz
+          label: fuzz-nightly
