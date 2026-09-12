@@ -72,6 +72,7 @@ jobs:
           # settings-sync declaration.
           label-color: "D93F0B"
           label-description: Automated nightly CI failure
+          stream: generic
 
       - name: Close the nightly issue on a green night
         if: needs.checks.result == 'success'
