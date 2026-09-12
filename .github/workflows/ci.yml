@@ -1,13 +1,8 @@
 # This file is managed by Vivswan/repo-platform.
 # Local edits are replaced on the next sync.
 #
-# The same file in every repository: fleet-ci.yml@build's plan job reads
-# .repo-platform.yml and outputs the module selection, so the legs after
-# the gate are static jobs that each gate themselves on that output; an
-# edit there changes this repository's CI with no PR here. Branch
-# protection requires the `all-green` job's own check run: it needs every
-# gating job and fails unless each result is success or skipped, with at
-# least one success.
+# The same file in every repository: the legs after the gate are static jobs gated on the plan's module output,
+# so a change to fleet-ci.yml@stable changes this repository's CI with no PR here.
 
 name: CI
 
@@ -24,9 +19,9 @@ on:
 permissions:
   contents: read
 
-# Keyed by the commit on a push: every merge to main gets its own complete run and verdict.
-# A ref-keyed group keeps one pending run and cancels the older one, so a burst of merges leaves the tip unjudged.
-# Pull-request runs stay keyed by the ref: a newer push cancels the stale run.
+# A ref-keyed group keeps one pending run and cancels the older one, so a burst of merges would leave intermediate commits unjudged.
+#   push          -> keyed by the commit: every merge to main gets its own complete run and verdict
+#   pull_request  -> keyed by the ref: a newer push cancels the stale run
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -41,7 +36,7 @@ jobs:
   # This caller's permissions are the ceiling for every called job and
   # must stay UNCONDITIONAL: GitHub validates skipped jobs' grants too.
   ci:
-    uses: Vivswan/repo-platform/.github/workflows/fleet-ci.yml@build
+    uses: Vivswan/repo-platform/.github/workflows/fleet-ci.yml@stable
     permissions:
       contents: read
       # validate-managed-files posts its sticky findings comment.
@@ -61,7 +56,7 @@ jobs:
   # not in all-green's needs and stays green whatever it finds.
   nightly:
     if: github.event_name == 'schedule'
-    uses: Vivswan/repo-platform/.github/workflows/fleet-nightly.yml@build
+    uses: Vivswan/repo-platform/.github/workflows/fleet-nightly.yml@stable
     permissions:
       contents: read
       issues: write
@@ -78,13 +73,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: Vivswan/repo-platform/actions/all-green@build
+      - uses: Vivswan/repo-platform/actions/all-green@stable
         with:
           needs: ${{ toJSON(needs) }}
 
-  # Repo-owned: edit post-green.yml, not this file. Runs after the gate,
-  # before the release, on the judged commit; no job lane here (a caller
-  # holding a lane a called job takes deadlocks the call).
+  # Repo-owned: edit post-green.yml, not this file. No job lane here: a caller holding a lane a called job takes deadlocks the call.
   post-green:
     needs: [all-green]
     if: >-
@@ -104,15 +97,12 @@ jobs:
     # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit # zizmor: ignore[secrets-inherit]
 
-  # The legs below exist in every repository and gate themselves on the
-  # plan's modules output: a substring test on the compact JSON array,
-  # hence the quoted module name. `ci` sits in each needs list because a
-  # job reads outputs only from its direct dependencies. The release runs
-  # downstream of the gate AND the repo-owned hook, so the repository's own
-  # green-gated work lands before the tag is minted.
-  # No lane here: a shared lane keeps one pending call and cancels the older one,
-  # so a release commit's call could be cancelled.
-  # The called job holds its own lane keyed by the judged commit, so only a re-run of the same commit ever waits.
+  # The legs below gate themselves on the plan's modules output, a substring test on the compact JSON array, hence the quoted module name.
+  # `ci` sits in each needs list because a job reads outputs only from its direct dependencies.
+  #
+  #   needs post-green  -> the repository's own green-gated work lands before the tag is minted
+  #   no lane here      -> a shared lane keeps one pending call and cancels the older, so a release commit's call could be cancelled;
+  #                        the called job holds its own lane keyed by the judged commit
   release:
     needs: [ci, all-green, post-green]
     if: >-
@@ -126,20 +116,14 @@ jobs:
       pull-requests: write
       issues: read
       vulnerability-alerts: read
-    uses: Vivswan/repo-platform/.github/workflows/fleet-release.yml@build
+    uses: Vivswan/repo-platform/.github/workflows/fleet-release.yml@stable
     with:
       sha: ${{ github.sha }}
       tracking-labels: ${{ needs.ci.outputs.tracking-labels }}
-    secrets:
-      REPO_PLATFORM_TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN }}
 
-  # Repo-owned: edit update-release.yml, not this file. Packaging, asset
-  # uploads, and note edits for the draft; publishing waits for every job
-  # in it. The ceiling here and on update-release-pr is the contract with
-  # the repo-owned hooks: a hook may need up to these grants and narrows
-  # itself per job. A narrower caller ceiling rejects an existing hook
-  # that asks for more (a hook requesting packages: read failed against
-  # a ceiling without it).
+  # Repo-owned: edit update-release.yml, not this file.
+  # The ceiling here and on update-release-pr is the contract with the repo-owned hooks: a hook narrows itself per job,
+  # and a narrower caller ceiling rejects an existing hook that asks for more (one requesting packages: read failed against a ceiling without it).
   update-release:
     needs: [release]
     if: needs.release.outputs.release_created == 'true'
@@ -158,7 +142,6 @@ jobs:
     # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit # zizmor: ignore[secrets-inherit]
 
-  # Attests every asset the hook uploaded and flips the draft live.
   publish-release:
     needs: [release, update-release]
     if: needs.release.outputs.release_created == 'true'
@@ -166,15 +149,11 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    uses: Vivswan/repo-platform/.github/workflows/fleet-release-publish.yml@build
+    uses: Vivswan/repo-platform/.github/workflows/fleet-release-publish.yml@stable
     with:
       tag: ${{ needs.release.outputs.tag_name }}
-    secrets:
-      REPO_PLATFORM_TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN }}
 
-  # Repo-owned: edit update-release-pr.yml, not this file. Regenerates the
-  # files that ride in the release commit; independent of the publish. The
-  # ceiling is update-release's, under the same contract.
+  # Repo-owned: edit update-release-pr.yml, not this file. The ceiling is update-release's, under the same contract.
   update-release-pr:
     needs: [release]
     if: needs.release.outputs.prs_created == 'true'
@@ -194,14 +173,10 @@ jobs:
     # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit # zizmor: ignore[secrets-inherit]
 
-  # The Pages deploy, in the SAME run as the gate (github.sha IS the judged
-  # commit): a red main never reaches the site. Ordered behind the hook and
-  # the publish so a release commit's own deploy serves its new tag;
-  # !cancelled() keeps those edges orders, not gates: a skipped or red
-  # release still deploys. No push clause: the leg runs on every main run,
-  # so the nightly schedule IS the rebuild and a dispatch IS the manual
-  # deploy. The called workflow runs the repo-owned site-build hook from
-  # the checkout and reads the docs configuration from the registration.
+  # Same run as the gate, so github.sha IS the judged commit and a red main never reaches the site.
+  #   needs post-green, publish-release  -> a release commit's own deploy serves its new tag
+  #   !cancelled()                        -> those edges are orders, not gates: a skipped or red release still deploys
+  #   no push clause                      -> every main run deploys, so the nightly schedule IS the rebuild and a dispatch IS the manual deploy
   site:
     needs: [ci, all-green, post-green, publish-release]
     if: >-
@@ -217,7 +192,7 @@ jobs:
       pages: write
       id-token: write
       issues: write
-    uses: Vivswan/repo-platform/.github/workflows/reusable-site.yml@build
+    uses: Vivswan/repo-platform/.github/workflows/reusable-site.yml@stable
     with:
       sha: ${{ github.sha }}
       custom_domain: ${{ vars.CUSTOM_DOMAIN }}

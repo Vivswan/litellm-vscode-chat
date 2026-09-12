@@ -26,5 +26,27 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        with:
+          # The squash subject then meets actions/validate-commit-names, whose grammar
+          # allows ONE scope and trims the subject; the action's default pattern takes
+          # `fix(sync,writer): ...` and its parser keeps `fix:  ` (a blank description),
+          # and either landed subject reds main. types and headerPattern are that grammar
+          # verbatim (subject.ts allowedTypes and scopeCharacterClass); subjectPattern
+          # must match the whole subject, so it asks for one non-blank character. A change
+          # on one side alone reds tests/workflows/pr_title_shape.test.ts.
+          types: |
+            build
+            chore
+            ci
+            docs
+            feat
+            fix
+            perf
+            refactor
+            revert
+            style
+            test
+          headerPattern: '^(\w*)(?:\(([A-Za-z0-9._/-]+)\))?!?: (.*)$'
+          subjectPattern: '^\s*\S.*$'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
