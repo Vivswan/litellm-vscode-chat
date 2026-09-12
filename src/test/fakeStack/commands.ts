@@ -56,7 +56,7 @@ const ERROR_STATUSES = new Set([400, 401, 403, 404, 408, 409, 422, 429, 500, 502
 /**
  * The command sigil: the mandatory first byte of a command line. The whole
  * grammar derives from this constant, so swapping it is a one-character edit
- * here plus the prose docs (docs/development.md, AGENTS.md).
+ * here plus the prose doc (docs/development.md).
  */
 export const COMMAND_SIGIL = "%";
 

@@ -40,7 +40,7 @@ import { resolveNls } from "../../util/nls";
 
 /**
  * Drift guards between the shared setting spec and its prose mirrors: package.json's
- * contributed configuration and the settings numbers in docs/ and AGENTS.md. The spec is
+ * contributed configuration and the settings numbers in docs/. The spec is
  * the code-side truth. Tests run from out/test/shared/config, so the root is four up.
  */
 const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
@@ -96,12 +96,6 @@ function readSettingsDoc(): string {
 
 function readModelsDoc(): string {
 	return fs.readFileSync(path.join(repoRoot, "docs", "models.md"), "utf8");
-}
-
-// AGENTS.md is the real file (CLAUDE.md is a symlink to it, which a Windows
-// checkout may materialize as a plain link-target stub), so read it directly.
-function readAgentsDoc(): string {
-	return fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
 }
 
 function settingSchema(properties: Record<string, SettingSchema>, id: string): SettingSchema {
@@ -285,23 +279,6 @@ suite("shared/config/settingSpec: docs drift guard", () => {
 	});
 });
 
-suite("shared/config/settingSpec: AGENTS.md drift guard", () => {
-	test("the request pass-through invariant quotes DEFAULT_MAX_TOKENS_CAP", () => {
-		const quoted = /min\((\d+), model max output tokens\)/.exec(readAgentsDoc())?.[1];
-		assert.ok(quoted, "AGENTS.md states the max_tokens fallback cap");
-		assert.strictEqual(quoted, String(DEFAULT_MAX_TOKENS_CAP));
-	});
-
-	test("the stale-serve invariant names discovery.staleServeWindow and quotes its live default", () => {
-		// The error-ownership invariant describes the stale-serve rule as the
-		// setting plus its default; the sentence may be rephrased, but the
-		// setting name and the default it quotes must track the spec.
-		const quoted = /`discovery\.staleServeWindow` setting \(default (\d+) ms/.exec(readAgentsDoc())?.[1];
-		assert.ok(quoted, "AGENTS.md names the discovery.staleServeWindow setting with its default");
-		assert.strictEqual(quoted, String(NUMBER_SETTING_SPECS["discovery.staleServeWindow"].default));
-	});
-});
-
 suite("shared/config/settings: object-setting contributions drift guard", () => {
 	// The scalar suites above skip object settings by design (no scalar spec);
 	// these pin the object settings' keys and value shapes instead, against
@@ -313,7 +290,7 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 	});
 
 	test("the servers setting is machine-scoped", () => {
-		// Load-bearing (see AGENTS.md, Storage): user settings only, so a workspace
+		// Load-bearing: user settings only, so a workspace
 		// cannot re-point a label at another host to harvest its stored secrets. The
 		// panel and dev seed read and write the Global scope on that basis.
 		const schema = settingSchema(allProperties(), SERVERS_SETTING_KEY);
@@ -321,7 +298,7 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 	});
 
 	test("every setting carries exactly its ruled scope tier", () => {
-		// Load-bearing (see AGENTS.md, Storage): every feature's enable boolean and
+		// Load-bearing: every feature's enable boolean and
 		// model ref decide whether requests happen and which server and model they
 		// reach, and the catalog toggle causes OpenRouter fetches, so they are
 		// machine-overridable - per-machine, skipped by Settings Sync, overridden
