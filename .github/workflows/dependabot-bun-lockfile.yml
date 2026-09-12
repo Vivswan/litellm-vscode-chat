@@ -57,5 +57,7 @@ jobs:
           header: repo-platform/dependabot-bun-lockfile
           message: >
             Pushed a lockfile dedupe commit with the default workflow token, which starts no workflows,
-            so checks will not re-run on the new head. Close and reopen this PR to re-run them, or register
-            `REPO_PLATFORM_TOKEN` as a Dependabot secret so future fixes re-trigger CI automatically.
+            so the new head's `pull_request` run waits for approval.
+            Open it in the Actions tab and choose **Approve and run**, or push an empty commit.
+            Durable fix: register `REPO_PLATFORM_TOKEN` as a Dependabot secret
+            (Settings > Secrets and variables > Dependabot) so the push comes from the PAT and its run starts on its own.

@@ -1,0 +1,39 @@
+# Repo-owned: generated once by Vivswan/repo-platform, never
+# overwritten by sync. ci.yml's `site` leg runs this action on the judged
+# commit before the fleet renders docs/ and deploys: build this repository's
+# own website here. Contract and examples: repo-platform's docs/site.md.
+
+name: Site Build
+description: Builds this repository's own website for the fleet's Pages deploy.
+
+inputs:
+  base-path:
+    description: The URL path the site is served under ("/" with a custom domain, else "/<repo>/")
+    required: true
+  origin:
+    description: The site's origin (https://<owner>.github.io, or https://<domain>)
+    required: true
+
+outputs:
+  dist:
+    description: The built site's directory, relative to the repository root; empty = no repository site
+    value: ${{ steps.build.outputs.dist }}
+
+runs:
+  using: composite
+  steps:
+    # A bun repository replaces the no-op step below with, for example:
+    #   - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+    #     with: {bun-version-file: .bun-version}
+    #   - {run: bun install --frozen-lockfile, shell: bash}
+    #   - id: build
+    #     shell: bash
+    #     env: {PAGES_BASE_PATH: "${{ inputs.base-path }}", PAGES_ORIGIN: "${{ inputs.origin }}"}
+    #     run: |
+    #       bun run build:web
+    #       echo "dist=apps/web/dist" >> "$GITHUB_OUTPUT"
+    - id: build
+      shell: bash
+      run: |
+        echo "site-build hook: no repository site configured; docs/ publishes alone when present"
+        echo "dist=" >> "$GITHUB_OUTPUT"
