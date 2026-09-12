@@ -74,13 +74,21 @@ Press `F5` to launch the Extension Development Host. [Development](docs/developm
 
 ## Privacy
 
-Your prompts and completions travel only between VS Code and the LiteLLM servers you configure, with one boundary worth naming: anything sent as a chat turn goes wherever the model the chat picker names goes, which is a built-in Copilot model unless you selected one of yours.
+Your prompts and completions travel only between VS Code and the LiteLLM servers you configure. A chat turn goes wherever the model the chat picker names goes: a built-in Copilot model unless you selected one of yours.
 
-- **Inline completions.** When inline completions are enabled, the file content around your cursor is sent to the LiteLLM server you configured for them automatically as you type - the same trust boundary as chat, but without a per-request action from you, which is why the feature ships off and takes an explicit model.
-- **Commit message generation.** When you invoke commit message generation, the staged or working-tree diff, the names of untracked files, and your last five commit subjects are sent to the LiteLLM server you configured for it - on your explicit invocation only, and covered by the same usage tracking and budget alerts as chat.
-- **Quick fixes.** When you pick Fix or Explain from a quick-fix lightbulb, the diagnostic messages and the lines they sit on are sent as an ordinary chat turn to whichever model the chat picker names - one of your LiteLLM models if you selected one, a built-in Copilot model otherwise, exactly as any chat turn goes where that model goes - or, when the chat view cannot answer, to the server behind `quickFix.model`.
+| Feature | What is sent | To | When |
+| --- | --- | --- | --- |
+| Chat | your prompt, attachments, tool definitions | the model the chat picker names | each turn |
+| Inline completions | the file content around your cursor | the server behind `inlineCompletions.model` | automatically as you type; ships off and needs an explicit model |
+| Commit message generation | the staged or working-tree diff, untracked file names, your last five commit subjects | the server behind `commitGeneration.model` | on your invocation only |
+| Quick fixes | the diagnostic messages and the surrounding code | the chat picker's model, or `quickFix.model` when the chat view cannot answer | when you pick Fix or Explain |
 
-One default-on exception: about once a week the extension refreshes its bundled catalog of model capabilities from `https://openrouter.ai/api/v1/models`, a public, unauthenticated model list - the request carries no prompts, no usage, and nothing about you or your servers. Set `litellm-vscode-chat.models.openRouterCatalog` to `false` to turn the refresh and the automatic matching off; explicit `_openrouter_model` directives keep working offline from the bundled snapshot.
+Requests to your LiteLLM servers count toward the same usage tracking and budget alerts as chat. Turns that go to a built-in Copilot model do not.
+
+One default-on exception, the model catalog refresh:
+
+- About once a week the extension fetches `https://openrouter.ai/api/v1/models`, a public, unauthenticated model list. The request carries no prompts, no usage, and nothing about you or your servers.
+- Set `litellm-vscode-chat.models.openRouterCatalog` to `false` to turn the refresh and the automatic matching off. Explicit `_openrouter_model` directives keep working offline from the bundled snapshot.
 
 Details in [Model capabilities](docs/models.md#the-openrouter-catalog) and [Privacy and data](docs/troubleshooting.md#privacy-and-data).
 

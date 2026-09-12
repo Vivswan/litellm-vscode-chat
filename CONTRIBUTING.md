@@ -8,7 +8,7 @@ CI, settings, and standards files here arrive from the fleet sync; a file whose 
 
 - Changes land through pull requests and are squash-merged; the PR title becomes the commit subject on the default branch.
 - The PR title and every pushed commit subject must be a [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/), for example `feat: add X` or `fix(parser): handle Y`. Releases are versioned from these subjects.
-- By opening a pull request, or offering code in an issue or review for inclusion, you agree to the Contributions section of the [LICENSE.md](LICENSE.md), which licenses that code to the licensor - including for relicensing under any terms - unless you conspicuously say otherwise when you submit it.
+- Opening a pull request, or offering code in an issue or review for inclusion, means you agree to the Contributions section of the [LICENSE.md](LICENSE.md). It licenses that code to the licensor, including for relicensing under any terms, unless you conspicuously say otherwise when you submit it.
 
 ## CI
 
@@ -60,7 +60,7 @@ bun run test         # run the VS Code extension tests
 bun run format       # format files with Biome
 ```
 
-A Husky pre-commit hook runs formatting, workflow linting, a guard that `@types/vscode` does not outrun `engines.vscode`, source linting, `typecheck` over all four tsconfig projects, the localization gate (`l10n:check`), and the tests; it refuses the commit when dependencies are not installed.
+The Husky pre-commit hook (`.husky/pre-commit`) runs before every commit: staged-file formatting, workflow lint, the `@types/vscode` versus `engines.vscode` guard, lint, typecheck, the localization gate, and the tests. It refuses the commit when dependencies are not installed.
 
 ## Code style
 

@@ -2,9 +2,10 @@
 
 ## Supported versions
 
-Only the latest release is supported. For this extension, that means the latest VS Code Marketplace release; the tip of `main` is supported too. The project is pre-1.0, so security fixes land on `main` and go out through the normal release flow. Keep security reports out of public pull requests and discussions as well as issues.
-
-As a small, volunteer-maintained project we cannot commit to a fixed response or remediation timeline; acknowledgement and fixes are best-effort.
+- Supported: the latest VS Code Marketplace release and the tip of `main`.
+- The project is pre-1.0. Security fixes land on `main` and ship through the normal release flow.
+- Keep security reports out of public issues, pull requests, and discussions.
+- A small, volunteer-maintained project: acknowledgement and fixes are best-effort, with no fixed timeline.
 
 ## Reporting a vulnerability
 
@@ -22,7 +23,9 @@ Never include real credentials in a report; redact everything that looks like a 
 
 `litellm-vscode-chat` is a VS Code extension that connects VS Code's Language Model Chat Provider API to user-configured LiteLLM servers.
 
-- Servers (label, base URL, credentials) live in the `servers` user setting, which is machine-scoped so a workspace cannot re-point a label at another host. Each entry's secret fields may sit inline in that setting or, per entry, in VS Code SecretStorage. The dashboard's state carries where each secret lives, not its value; the one value path to the dashboard is the edit form's prefill of inline-stored fields, which are already plaintext in the settings file, and SecretStorage values never render.
+- Servers (label, base URL, credentials) live in the `servers` user setting. It is machine-scoped, so a workspace cannot re-point a label at another host.
+- Each entry's secret fields sit inline in that setting or, per entry, in VS Code SecretStorage.
+- The dashboard receives where each secret lives, not its value. The edit form prefills only inline-stored fields, which are already plaintext in the settings file; SecretStorage values never render.
 - The extension sends prompts, tool definitions, and supported attachment data to the LiteLLM server the user configured. Only configure servers you trust.
 - The extension ships no provider API keys; model-provider credentials are managed by the user's LiteLLM deployment.
 - Dependencies are pinned via the committed `bun.lock` and installed with `bun install --frozen-lockfile` in CI and setup scripts.
