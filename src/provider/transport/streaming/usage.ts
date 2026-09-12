@@ -43,16 +43,11 @@ export function knownUsageCounts(usage: object): Record<string, number> {
 }
 
 /**
- * The sanitized payload of the end-of-stream "usage" DataPart, or undefined
- * when the trailer lacks any of the three required counts (the consumer's
- * shape check rejects such a payload outright). The trailer is response-owned,
- * so it is never forwarded verbatim: only these known numeric counts pass.
- * Cache accounting reads the OpenAI-style prompt_tokens_details keys first and
- * falls back to the top-level cache_read_input_tokens/
- * cache_creation_input_tokens fields LiteLLM emits on Anthropic routes,
- * mapping both shapes onto the keys the consumer reads. Number.isFinite guards
- * every count: a literal like 1e999 would serialize as null and make the
- * consumer reject the whole payload.
+ * The trailer is response-owned, so only known numeric counts pass, never the object verbatim. Number.isFinite
+ * guards every count because a literal like 1e999 serializes as null, which makes the consumer reject the whole payload.
+ *
+ *   prompt_tokens_details.cached_tokens / cache_creation_input_tokens -> the OpenAI shape, read first
+ *   top-level cache_read_input_tokens / cache_creation_input_tokens   -> LiteLLM's shape on Anthropic routes
  */
 export function usageDataPartPayload(usage: Record<string, unknown>): Record<string, unknown> | undefined {
 	const num = (value: unknown): number | undefined => (Number.isFinite(value) ? (value as number) : undefined);

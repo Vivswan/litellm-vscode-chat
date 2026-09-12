@@ -142,18 +142,10 @@ function boundedMessages(messages: readonly string[]): string[] {
 }
 
 /**
- * The character bound, spent ACROSS the messages that survived the count bound
- * rather than by truncating the joined text. Head-truncating the join would
- * keep whichever end came first and so would put the whole selection back at
- * the mercy of the inferred order - the thing the middle thinning above exists
- * to prevent.
- *
- * The share-out is water-filling: shortest first, each message offered an equal
- * share of what is left and taking only what it needs, so the surplus short
- * messages leave behind goes to the long ones. A list that already fits is
- * returned untouched, and a lone message gets the whole budget. Every cap
- * depends only on the multiset of lengths, never on position, so reversing the
- * list changes the order and nothing else.
+ * Spent ACROSS the surviving messages rather than by truncating the joined text, because head-truncating the
+ * join keeps whichever end came first and puts the selection back at the mercy of the inferred order the
+ * middle thinning above exists to defeat. Caps depend on the multiset of lengths alone, except that rounding
+ * leftovers land by position, so reversing the list can move one allocated cap by one UTF-16 unit.
  */
 function charBoundedMessages(messages: readonly string[]): string[] {
 	// The blank line between messages is part of the assembled section, so the

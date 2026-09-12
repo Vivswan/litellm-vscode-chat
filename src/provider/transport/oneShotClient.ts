@@ -11,19 +11,9 @@ import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
 import { parseCompletionText } from "./fim";
 
 /**
- * The one-shot transport: single plain-fetch POSTs for the extension-side
- * features - /chat/completions for the background chat features and
- * /completions for inline completions (FIM). sendJson is the core every call
- * shares: header composition through the shared auth overlay, the whole-call
- * timeout, the one error pipeline (mapSdkError), and OAuth invalidation on a
- * rejected token. On top of it sit the completion helpers: completeChatOnce
- * (one non-streaming reply string) and completeFim (one completion text). No
- * SDK client cache, no retries (completions never retry).
- *
- * Error ownership follows the transport-module convention: construct specific
- * errors through the shared error pipeline - each call under its caller's
- * error surface - and throw WITHOUT logging; the caller's boundary logs once.
- * Cancellation surfaces as vscode.CancellationError and is never logged.
+ * No retries, since completions never retry. Transport-module error ownership applies, so every call throws
+ * specific errors under its caller's error surface WITHOUT logging, the caller's boundary logs once, and
+ * cancellation surfaces as vscode.CancellationError, never logged.
  */
 
 /** One wire message of a one-shot request; this path carries plain text only, no multimodal parts. */
@@ -255,30 +245,11 @@ export class OneShotClient {
 	}
 
 	/**
-	 * The credential headers a request to this server would carry, composed
-	 * without sending one. The MCP publisher hands these to the editor, which
-	 * then talks to the server's MCP endpoint itself; sharing this client
-	 * shares its OAuth token cache, so publishing costs no extra exchange when
-	 * a chat feature already holds a live token. There is no 401 invalidation
-	 * counterpart here - the editor owns those responses - so a token the
-	 * server stops accepting is corrected by the next exchange after expiry
-	 * rather than by a rejection.
+	 * The editor sends these headers itself and owns the 401s, so a token the server stops accepting is
+	 * corrected by the next exchange after expiry, never by a rejection here.
 	 *
-	 * Deliberately NO whole-call timeout of its own: the only thing that can
-	 * block here is the token exchange, and a second bound sharing that budget
-	 * would race the exchange's own and win, re-attributing the failure to
-	 * whatever the surface calls a timed-out request - "model discovery timed
-	 * out" for an MCP session start - instead of the OAuth-specific message
-	 * that names the setting to raise.
-	 *
-	 * When an exchange for the same credentials is already in flight for
-	 * another feature, getToken JOINS it, and the join stays this call's own:
-	 * it waits under this call's timeout budget, reports failures through this
-	 * surface, and cancellation releases only this waiter. A join that has to
-	 * recover - the exchange died of its originator's own cancellation or
-	 * clock - starts a fresh exchange on a second full budget (auth.ts), which
-	 * nothing here caps: that budget is the exchange's own, per the
-	 * per-request-bounds rule.
+	 * Deliberately NO whole-call timeout of its own, because only the token exchange can block and a second
+	 * bound sharing that budget would race the exchange's own, burying the OAuth message that names the setting to raise.
 	 */
 	async authHeaders(
 		connection: OneShotConnection,

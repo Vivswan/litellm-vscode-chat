@@ -72,17 +72,12 @@ export function pickNonSecretOptionalFields(source: NonSecretOptionalFields): No
 export type SecretLocation = "settings" | "secure" | "none";
 
 /**
- * The destination one secret field's value is sent to when paired with an
- * entry: the keys go to the base URL (compared under the shared normalization,
- * because the transport itself treats a trailing slash there as insignificant)
- * and the OAuth client secret to the token URL, compared VERBATIM as parsed -
- * the token exchange fetches the configured URL exactly, so /token and /token/
- * are different wire requests and must be different stamps ("" when the entry
- * configures none - a real stamp, so gaining a token URL later still requires
- * a deliberate re-pairing). This is what ownership stamps record at store time
- * (serverSync/secrets.ts) and what resolveOwnedSecrets compares at use time;
- * it lives here so the dashboard's stale-key detection reads the SAME rule the
- * extension stamps by, instead of a webview-side re-derivation.
+ * The ownership stamp serverSync/secrets.ts records at store time and resolveOwnedSecrets compares at use time.
+ * src/dashboard/serverForm.ts's stale-key detection reads this same rule instead of re-deriving it webview-side.
+ *
+ *   key                 -> base URL, normalized (the transport treats a trailing slash there as insignificant)
+ *   OAuth client secret -> token URL VERBATIM (the exchange fetches it exactly, so /token and /token/ differ)
+ *   no token URL        -> "", a real stamp, so gaining a token URL later still needs a deliberate re-pairing
  */
 export function secretDestination(
 	entry: { readonly baseUrl: string; readonly oauthTokenUrl?: string | undefined },
@@ -92,36 +87,12 @@ export function secretDestination(
 }
 
 /**
- * Whether an entry's shape would actually SEND a value in `field`, were one to
- * resolve (inline or from SecretStorage): the ONE judgment of "this entry uses
- * this credential field", each arm derived from the wire narrowing in
- * provider/catalog's parseGroupConfiguration. An entry whose base URL
- * normalizes to nothing forms no server at all (parseGroupConfiguration
- * refuses it), so it uses no field. Otherwise: a resolved apiKey is sent on
- * every entry shape - the transport carries it on each request regardless of
- * the other auth fields, and a missing key merely means a keyless server; the
- * OAuth client secret goes out only through an active oauth unit (narrowOAuth
- * requires BOTH tokenUrl and clientId - the settings parser also rejects one
- * without the other, so on parsed entries checking both is equivalent to
- * checking either); a virtual key value goes out only through a declared
- * header (narrowVirtualKey requires both halves; on a parsed entry the header
- * NAME's validity is already enforced by the parser).
+ * The ONE "entry uses this credential field" judgment; it judges the ENTRY alone, so it errs toward "uses it".
+ * Wire narrowing still drops what cannot ride, so consumers gate refusals, never the send.
  *
- * Deliberately a judgment of the ENTRY alone, given some value: the VALUE's
- * own sendability (narrowVirtualKey also drops a header-value-illegal virtual
- * key) cannot be judged without the value in hand, so a caller holding only a
- * stored value's existence errs toward "uses it" - the safe direction, since
- * consumers gate refusals about stored values (resolveOwnedSecrets' refused
- * fields: the sync engine's secretsMismatched skip, the usage poller's probe
- * skip, MCP's resolve refusal), never the send itself: the wire narrowing
- * still drops what cannot ride. Header-name collisions are value-contingent
- * the same way: a virtual key displaces another credential (an
- * Authorization-named header skips the OAuth exchange, an X-API-Key-named one
- * owns that carrier) only when its own value RESOLVES, which the entry cannot
- * show - so a declared header never lowers another field's judgment. The
- * dashboard form's activity ring (serverForm's authFormActivity) is
- * deliberately NOT this rule: it keys on the picked auth selector so a
- * stored-but-unsent value can still block a save.
+ * Authorization-named header resolved  -> skips the OAuth exchange
+ * X-API-Key-named header resolved      -> owns that carrier
+ * declared header, value unknown       -> lowers no other field's judgment
  */
 export function entryUsesSecretField(
 	entry: {
@@ -182,17 +153,8 @@ export type McpOptIn = true | { readonly url?: string | undefined };
 type EntryModelRecordMap = ModelRecordMap;
 
 /**
- * The value each extension-side entry field carries: the sibling registry to
- * OPTIONAL_ENTRY_FIELDS for everything an entry declares BEYOND label,
- * baseUrl, and the flat credential fields. These fields are read
- * extension-side only and must never reach the provider-group args or their
- * fingerprint (buildGroupArgs walks OPTIONAL_ENTRY_FIELDS alone), so unlike
- * that descriptor this registry's order is NOT load-bearing. One table drives
- * the parsed entry type, the sync engine's views, the dashboard's fallback
- * views, and the state push's config, via EntryViewFields and
- * pickEntryViewFields: a field added here rides every copy site by
- * construction, and a field added to only one half of the registry (this
- * table or ENTRY_VIEW_FIELD_SET below) does not compile.
+ * These fields must never reach the provider-group args or their fingerprint; buildGroupArgs walks OPTIONAL_ENTRY_FIELDS alone,
+ * so unlike that descriptor this table's order is NOT load-bearing.
  */
 export interface EntryViewFieldValues {
 	/** What apiRootOf appends to the base URL: "" is a real value (append nothing), absent means auto-detect. */

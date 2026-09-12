@@ -1,29 +1,8 @@
 /**
- * The shared probe harness behind the two wire-rule superset pins
- * (extension/servers/usage/spendClient.wireRule.test.ts and
- * provider/catalog/groupModels.wireRule.test.ts). Each suite supplies its own
- * composition - the real chain whose sends it pins - and its own probe-value
- * table; this module owns the probe space both walk and the record shape both
- * assert over, so the two pins cannot drift apart in WHAT they enumerate:
- *
- * - the field universe is SECRET_FIELD_IDS, derived in serverEntry.ts from
- *   OPTIONAL_ENTRY_FIELDS and never re-listed here, so a new secret field
- *   enters every probe by construction;
- * - the shape space is every PRESENCE combination of every entry field both
- *   registries declare (the descriptor's non-secret half, the extension-side
- *   ENTRY_VIEW_FIELD_IDS, and the secret fields themselves through each
- *   resolution source), so a branch anywhere in a suite's composition keying
- *   on the presence of ANY entry field lands inside the probed space;
- * - ShapeFieldValues is total over the shape-field id union, so a new field
- *   fails each suite's table typecheck until it gets a probe value instead of
- *   silently shrinking the space;
- * - "the composition sends it" is observed, never modeled: per-field
- *   sentinels are planted (stored and inline, the two resolution sources) and
- *   detected textually in the suite's own serialization of what it composed.
- *
- * The safety argument each pin rests on - which refusal gates read the wire
- * rule, and what a shape sent-but-denied would let through - stays in each
- * suite's own header, as do the assertions and their failure messages.
+ * The shared probe harness behind the two wire-rule superset pins (extension/servers/usage/spendClient.wireRule.test.ts
+ * and provider/catalog/groupModels.wireRule.test.ts). Each suite supplies its own composition and probe-value table,
+ * while this module owns the probe space both walk and the record shape both assert over, so the two pins cannot
+ * drift apart in WHAT they enumerate and the safety argument each rests on stays in its own header.
  */
 
 import * as assert from "node:assert";
@@ -139,15 +118,10 @@ function allPlantings(): { name: string; sources: ReadonlyMap<SecretFieldId, Sec
 }
 
 /**
- * The one exhaustive walk, memoized because every superset test in a suite
- * reads it: for every shape and planting vector, run the suite's composition
- * once and record, per planted field, whether its sentinel rode and what the
- * wire rule says. Detection is textual over the composition's serialization
- * on purpose: it needs no knowledge of WHERE the composition carries a value,
- * so a restructured connection or server shape cannot hide a ride from the
- * probe. The suite serializes its own composed value so this extraction owns
- * no refusal policy: a composition that can refuse decides for itself whether
- * a refusal serializes (no rides) or crashes the walk.
+ * Memoized because every superset test in a suite reads it, and detection is textual over the composition's
+ * serialization so a restructured connection or server shape cannot hide a ride from the probe. The suite
+ * serializes its own composed value, so this extraction owns no refusal policy and a composition that can refuse
+ * decides for itself whether a refusal serializes (no rides) or crashes the walk.
  */
 export function memoizedWireRuleWalk(
 	values: ShapeFieldValues,

@@ -39,7 +39,6 @@ export function ConfirmDialog({
 	detail?: string | undefined;
 	/** The destructive verb; danger rank, reached only deliberately. */
 	confirmLabel: string;
-	/** An optional second affirmative verb between cancel and confirm; it takes the PRIMARY rank (the cancel steps down to secondary) while default focus stays on cancel. */
 	alternateLabel?: string | undefined;
 	/** The safe verb; default focus, so Enter and Esc are the same answer. */
 	cancelLabel: string;

@@ -580,11 +580,10 @@ function NumberField({
 	// keep type="number".
 	const freeText = unitBehavior(id).freeTextInput;
 
-	// Keyed on draftSyncKey, not on the value alone: a successful reset of a
-	// value pinned to exactly its default changes only the configured scope,
-	// and a stale rejected draft must resync on that push too.
+	// Keyed on draftSyncKey, not on the value alone. A successful reset of a value pinned to exactly its
+	// default changes only the configured scope, and a stale rejected draft must resync on that push too.
 	const syncKey = draftSyncKey(value, configuredScope);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on syncKey alone (see above); the values are read at sync time, not watched
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on syncKey alone (see above); the values are read at sync time, not watched
 	useEffect(() => {
 		setText(value === null ? "" : String(value));
 		setBlurred(false);
@@ -792,15 +791,9 @@ export function commaListCustom(values: readonly string[], lossy: boolean): bool
 }
 
 /**
- * The intent schema's list bounds are WIRE_LIMITS entries (both sides of the
- * wire read the same numbers), so a paste the host would reject is refused
- * here with a reason instead of surfacing as a generic envelope failure.
- *
- * The ONE comma-separated list editor behind the keywords and language-filter list rows:
- * one draft (trimmed, empties dropped, deduplicated in order), committed on blur or Enter
- * when it differs from the stored list; a draft past the wire bounds shows the bound and
- * never commits; and a stored list the box cannot round-trip (commaListCustom) renders
- * read-only with the reveal button, so the dashboard never destroys it.
+ * The bounds are WIRE_LIMITS entries, the numbers the host's intent schema reads, so an oversize paste is refused
+ * here with a reason instead of a generic envelope failure. A stored list the box cannot round-trip (commaListCustom)
+ * renders read-only with the reveal button, so the dashboard never destroys it.
  */
 export function CommaListRow({
 	settingId,

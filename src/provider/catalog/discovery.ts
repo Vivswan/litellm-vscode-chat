@@ -87,18 +87,12 @@ const NO_SERVER_COSTS: ServerCosts = {
 };
 
 /**
- * The one reading of a server report's cost fields, shared by both mapping
- * sites (/v1/models provider entries and /v1/model/info entries). LiteLLM
- * stamps input/output_cost_per_token: 0 onto entries that declare no pricing
- * at all, so a raw ZERO PAIR maps every cost field to undefined right here at
- * ingest: downstream, a present server cost means declared by construction,
- * and no consumer re-detects the stamp. A user-written 0/0 capability record
- * still prices as genuinely free - records never pass through this mapping.
- * Models genuinely priced 0/0 by the server lose their $0 display under this
- * rule; behind LiteLLM that shape is indistinguishable from the stamp, and
- * unknown-as-free is the worse failure. All fields come back explicitly
- * (undefined when absent) so spreading the result always overrides look-alike
- * keys on lenient pass-through entries.
+ * LiteLLM stamps input/output_cost_per_token: 0 onto entries that declare no pricing, so this ingest
+ * mapping is where the stamp dies and a present server cost downstream means declared.
+ *
+ *   server 0/0 pair         -> every cost undefined; a genuinely free model loses its $0 display, because
+ *                              behind LiteLLM the shapes are indistinguishable and unknown-as-free is worse
+ *   user-written 0/0 record -> never passes through here, so it still prices as free
  */
 function serverCostsOf(entry: unknown): ServerCosts {
 	const record = isRecord(entry) ? entry : {};
@@ -117,15 +111,9 @@ function serverCostsOf(entry: unknown): ServerCosts {
 }
 
 /**
- * Read a model's long-context tier costs from LiteLLM's threshold-suffixed
- * keys, e.g. input_cost_per_token_above_200k_tokens. VS Code's pricing
- * metadata has exactly one long-context tier, so when a model declares more
- * than one threshold the lowest wins (the first boundary a growing prompt
- * crosses) and only fields declared at that threshold are reported. Only keys
- * holding a usable cost participate in the selection, so a tier declared
- * entirely in malformed values cannot mask a well-formed higher one. All four
- * fields come back explicitly (undefined when absent) so spreading the result
- * always overrides look-alike keys on lenient pass-through entries.
+ * VS Code's pricing metadata has one long-context tier, so the lowest declared threshold wins (the first
+ * boundary a growing prompt crosses). Only keys holding a usable cost enter the selection, so an
+ * all-malformed tier cannot mask a well-formed higher one.
  */
 function longContextCosts(entry: unknown): LongContextCosts {
 	const tiered: { threshold: number; baseKey: string; cost: number }[] = [];
@@ -281,28 +269,14 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
 }
 
 /**
- * Collapse the deployments of one load-balanced model_name into a single entry
- * advertising the conservative intersection of their capabilities. LiteLLM
- * reports one /v1/model/info entry per deployment, so without this a
- * load-balanced model would register duplicate ids and overwrite its own routes.
+ * LiteLLM reports one /v1/model/info entry per deployment of a load-balanced model_name; unmerged, the
+ * model would register duplicate IDs and overwrite its own routes.
  *
- * Token limits collapse through collapseTokenConstraints, and a field is stored
- * ONLY when some deployment reported it: a floor-filled number stored as if
- * reported would occupy the capability walk's server level and block catalog
- * backfill. The input limit is stored whenever ANY limit was reported, because
- * re-deriving it from the collapsed pair can overstate it. outputLimitSource
- * records whether the stored output limit counts as server-declared, so a
- * floor-filled contributor cannot launder its guess into a declared limit.
- *
- * Capability flags hold only when every deployment advertises them; modalities
- * and the param lists intersect. Pricing carries over only when every
- * deployment advertises the identical per-field cost - routing decides which
- * deployment serves a request, so advertising either differing number would lie.
- * Two deployments that both carried LiteLLM's 0/0 no-pricing stamp cannot
- * false-agree into declared-free here: serverCostsOf already mapped each
- * stamped pair to undefined at ingest, and agreedCost reads undefined as no
- * declaration. Non-constraint metadata follows the first deployment, so a
- * merged model's family is its first deployment's litellm_provider.
+ *   limits            -> stored ONLY when some deployment reported them; a stored floor fill would occupy the
+ *                        capability walk's server level and block catalog backfill
+ *   outputLimitSource -> keeps a floor-filled contributor from laundering its guess into a declared output limit
+ *   pricing           -> only when every deployment agrees; routing picks the serving deployment, so either
+ *                        differing number would lie
  */
 export function mergeModelDeployments(deployments: ModelDeployments): MappedModelInfo {
 	const [first, ...rest] = deployments;
@@ -674,7 +648,7 @@ interface NarrowedModelInfoData {
 	observedModelInfoKeys: readonly string[];
 }
 
-/** Defensive bounds on the observed-key union: sort first, then truncate, and drop (never clip) an oversized key so truncation cannot alias two keys. */
+/** Sorted before truncation, and an oversized key is dropped, never clipped, so truncation cannot alias two keys. */
 const OBSERVED_MODEL_INFO_KEYS_MAX = 512;
 const OBSERVED_MODEL_INFO_KEY_MAX_LENGTH = 128;
 

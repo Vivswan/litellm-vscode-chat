@@ -130,15 +130,9 @@ const persistedClassificationFields = z.object({
 const persistedClassificationSchema = persistedClassificationFields.optional().catch(undefined);
 
 /**
- * The exhaustive-reconstruction guard for the restore path: the `-?` mapping
- * makes EVERY key of the target type required at the compile level, so a
- * field the live type or the schema gains cannot be silently omitted from a
- * restore - the rebuild literal stops compiling until it names the field.
- * Only keys the target type itself allows to be undefined (its optionals) may
- * be supplied as undefined; a required key demands a real value, so no call
- * site can compile its way into dropping one. Undefined-valued keys are then
- * stripped so restored statuses stay structurally identical to freshly
- * constructed ones (which build their optionals by conditional spread).
+ * A field the live type gains cannot be silently omitted from a restore; the `-?` mapping makes the rebuild
+ * literal stop compiling until it names the field. Undefined-valued keys are stripped so restored statuses stay
+ * structurally identical to fresh ones, which build their optionals by conditional spread.
  */
 function restoreTotal<T extends object>(
 	total: {
@@ -333,15 +327,8 @@ const persistedEnvelopeSchema = z.looseObject({
 });
 
 /**
- * The parse at the persistence trust boundary. The blob is an ephemeral
- * display cache, so the restore is strict: only the current version-stamped
- * shape parses, and anything else - an earlier version's blob, a foreign
- * stamp, junk - restores as undefined and the caller starts from
- * not-configured until the first provider report. Within a current-shape
- * blob, junk still drops the smallest thing that contains it: a malformed
- * serverStatuses element drops, a junk optional field drops that field. One
- * staleness rule applies on restore: a "connecting" that survived a whole
- * session boundary starts in its needs-attention presentation.
+ * The blob is an ephemeral display cache, so the restore at this trust boundary is strict, and an earlier
+ * version's blob, a foreign stamp, or junk restores as undefined rather than as a best guess.
  */
 function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 	const parsed = persistedEnvelopeSchema.safeParse(value);
@@ -447,16 +434,9 @@ export function liveStatusItemSlots(): readonly StatusItemSlot[] {
 }
 
 /**
- * A thin wrapper over vscode.window.createStatusBarItem shared by the
- * extension's status bar items: alignment, priority, and click command are
- * fixed at construction, and render() maps the severity onto the theme's
- * status bar background colors.
- *
- * THE ONE CREATION POINT: this constructor is the only place in src/ that may
- * call vscode.window.createStatusBarItem (statusItemRegistry.test.ts scans the
- * tree and fails on a second call site). Creating into an occupied slot
- * disposes the previous holder first and reports the replacement through
- * `log`, so the UI self-heals while the lifecycle bug stays visible.
+ * THE ONE CREATION POINT for vscode.window.createStatusBarItem in src/; statusItemRegistry.test.ts scans the
+ * tree and fails on a second call site. Creating into an occupied slot disposes the previous holder and logs
+ * the replacement, so the UI self-heals while the lifecycle bug stays visible.
  */
 export class StatusItem implements StatusItemLike {
 	private readonly item: vscode.StatusBarItem;

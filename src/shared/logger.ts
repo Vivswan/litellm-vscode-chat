@@ -102,15 +102,11 @@ export function publicErrorText(error: unknown): LogSafeErrorText {
 }
 
 /**
- * The single stack sanitizer behind every public stack rendering: strip V8's
- * `${name}: ${message}` first line BY LENGTH, never by line shape - an http
- * body can contain lines shaped like stack frames, so a shape filter alone
- * would keep attacker-controlled lines - and reattach the real call frames
- * under the caller's replacement first line. A stack not starting with the
- * exact prefix fails closed to the replacement alone. Takes the stack as the
- * caller's already-narrowed value so a hostile getter cannot swap it between
- * the check and the strip; name/message reads can still throw, so each caller
- * wraps this in its own catch fallback.
+ * The error may be attacker-shaped (a response body in the message, hostile getters), so each hazard has a fixed handling.
+ *
+ *   frame-shaped lines inside an http body in the message -> the message line goes BY LENGTH, never by shape
+ *   a hostile stack getter                                -> the stack arrives pre-narrowed, so nothing swaps it between check and strip
+ *   a name or message getter that throws                  -> each caller wraps this in its own catch
  */
 function sanitizeStack(error: Error, stack: string, firstLine: string): string {
 	const prefix = `${error.name}: ${error.message}`;

@@ -58,15 +58,12 @@ interface ChipFlag {
 }
 
 /**
- * One directive mark word, on a chip or in a row's flag cell. The user-set
- * marks wear the accent's readable label tier - a permanent word at 11px on
- * the chip fill, where the raw hue measures 2.83:1. The wrong-record-type
- * "ignored" badge wears the warn text tier instead; the chip's dashed border
- * stays the tone's mark, so the word only names it. The sentence itself is the
- * carrier's job - the editable chip describes it through aria-describedby plus
- * the card's status line, the read-only chip through a HoverTip - because a
- * native title neither renders reliably in the webview host nor shows on
- * keyboard focus (see help.tsx).
+ * The user-set word wears the accent's readable label tier because at 11px on the chip fill the raw hue measures
+ * 2.83:1; the "ignored" badge wears the warn text tier. The sentence itself is the carrier's job, because a native
+ * title neither renders reliably in the webview host nor shows on keyboard focus (help.tsx).
+ *
+ *   editable chip  -> aria-describedby plus the card's status line
+ *   read-only chip -> a HoverTip
  */
 export function ChipFlagWord({ flag }: { flag: ChipFlag }) {
 	return flag.note === undefined ? (

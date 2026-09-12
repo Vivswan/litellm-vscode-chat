@@ -11,27 +11,17 @@ import { runQuickFixChat, sendFallbackPrompt } from "./openChat";
 import { buildFallbackPrompt } from "./query";
 
 /**
- * Quick-fix wiring. The code-action provider exists ONLY while the feature is
- * enabled (opt-in by construction: disabled means no provider, so no LiteLLM
- * entry ever appears in a lightbulb), toggled by a configuration watcher. The
- * command behind the actions is registered unconditionally, because keybindings
- * and executeCommand ignore the enable setting and a command that silently
- * does nothing is worse than one that says why.
+ * A command that silently does nothing is worse than one that says why, so only the provider is gated.
  *
- * `oneShot` is the activation-shared client, so OAuth tokens cache across
- * features and invalidate on 401 like the chat and usage paths.
+ *   code-action provider -> exists ONLY while enabled, so no LiteLLM entry appears in a lightbulb while it is off
+ *   command              -> registered unconditionally, because keybindings and executeCommand ignore the enable setting
  */
 
 /**
- * Where the provider offers actions. `file` alone, deliberately. Not
- * `pattern: "**"`, because a diagnostic can be attached to documents this
- * feature cannot usefully act on (a read-only git diff, an output pane, a
- * settings editor). And not `untitled` either: the chat view's attachment
- * handling gates each file on its existence before attaching it, so on an
- * unsaved buffer the code would be dropped and the model asked to fix
- * diagnostics it cannot see. An action that quietly sends no code is worse
- * than no action, so the lightbulb stays out of unsaved buffers until they are
- * saved.
+ * `file` alone, deliberately, because an action that quietly sends no code is worse than no action.
+ *
+ *   `pattern: "**"` -> a diagnostic can sit on documents this feature cannot act on, a git diff, an output pane
+ *   `untitled`      -> the chat view attaches only files that exist, so the model would be asked to fix code it cannot see
  */
 const QUICK_FIX_SELECTOR: vscode.DocumentSelector = [{ scheme: "file" }];
 

@@ -2,18 +2,10 @@ import { expect, test } from "bun:test";
 import { type Block, blocks, compileDashboard } from "./compileStyles";
 
 /**
- * The armed Remove cover's alignment resets: an absolutely positioned grid child inherits the resting cluster's
- * self-alignment into its sizing, banding the cover mid-row or leaving the row's first characters beside it.
- * happy-dom runs no cascade, so the compiled sheet is what this suite can pin; the rendered claim lives in
- * check-geometry's armed-cover pairs, whose floor twin reaches the sub-400 tier through the paneWidth knob and
- * asserts the cover fills the row on both axes.
- *
- * The pin is cascade-aware without emulating one: it sweeps EVERY rule outside the width tiers whose subject
- * compound can target the cluster (any combinator context, any specificity, feature queries included) and
- * asserts each property family - longhands and their shorthands together, `all` banned outright - is declared
- * exactly where expected. A higher-specificity `.server-item .server-actions.armed { place-self: ... }` or an
- * `inset:` respelling lands in a family and fails the equality; the width tiers, which rewrite the cover on
- * purpose, are the one deferred scope and are check-geometry's to measure.
+ * An absolutely positioned grid child inherits the resting cluster's self-alignment into its sizing, banding the
+ * armed Remove cover mid-row or leaving the row's first characters beside it. happy-dom runs no cascade, so this
+ * suite pins the compiled sheet outside the width tiers, which rewrite the cover on purpose and are
+ * check-geometry's armed-cover pairs to measure.
  */
 
 /**

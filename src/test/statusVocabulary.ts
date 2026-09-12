@@ -249,30 +249,14 @@ const UPDATE_UNAVAILABLE =
 	"A VS Code provider group already uses this name, and VS Code cannot update an existing group.";
 
 /**
- * The window states whose surfaces once disagreed, plus the anchors that bound
- * the classes and one row per remaining verdict and pill word (the coverage
- * helpers below fail closed on omissions). The never-checked row has an EMPTY
- * window on purpose: an entry no discovery pass has seen exists only as a
- * dashboard row, and the bar's configured-gate renders the empty window as the
- * neutral spinner; the misconfigured row rides beside it, since a
- * parser-refused entry never reaches the window either. Sync failures never
- * enter the window either; the two sync-failure rows pin the overlay
- * (applySyncFailures) that folds them into the bar's and notifier's input.
+ * The never-checked and misconfigured rows have an EMPTY window on purpose, since neither reaches a discovery
+ * pass, and the two sync-failure rows pin the applySyncFailures overlay. Two residuals stay, each needing plumbing
+ * or a vocabulary ruling of its own:
  *
- * Known residuals (left deliberately - each needs plumbing or a vocabulary
- * ruling of its own, not this table):
- * 1. The sync-failure residual is narrowed, not gone: a blocked entry - or
- *    one skipped by any of the skip classes - with no live status renders a
- *    red dashboard row
- *    while the bar shows the spinner, because the overlay synthesizes only
- *    for upsertFailed (the one class proving no group exists; synthesizing
- *    for the others raced the first discovery report red). Transient for
- *    blocked - the name-holding group reports - but persistent for an entry
- *    whose secrets were never readable, since no group was ever created.
- * 2. Several sync-failed claimants sharing one snapshot collapse to one
- *    window status while the dashboard renders one row each; with a shared
- *    snapshot serving zero beside a clean claimant, the window can read
- *    "error" where the rows read "degraded".
+ *   blocked or skipped entry, no live status   -> red dashboard row beside a spinning bar (the overlay synthesizes
+ *                                                 only for upsertFailed); persists while secret reads keep failing
+ *   sync-failed claimants sharing one snapshot -> one window status against one row each; zero served beside a clean
+ *                                                 claimant reads "error" in the window and "degraded" in the rows
  */
 export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 	{

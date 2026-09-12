@@ -203,32 +203,9 @@ export interface DiscoveredBaselineInput {
 }
 
 /**
- * The server-reported capability baseline of one registered entry: the walk's
- * server-level input, carried on PreAttachModelInfo.litellm.serverDeclared.
- * Two separate facts ride here. The VALUES are the conservative aggregation
- * results exactly as registration advertises them, present whenever ANY
- * contributor reported the field - so a lower-precedence catalog guess can
- * never displace a conservative server minimum, while a field no contributor
- * reported stays absent and lets the catalog fill it. `outputDeclared` is the
- * stricter every-contributor rule and controls only whether the output limit
- * bypasses the request-side cap.
- *
- * max_input_tokens is present whenever ANY numeric limit was reported, not
- * only max_input_tokens itself: the collapse fills a missing input limit from
- * the reported context and output limits, and that server-grounded number is
- * what registration advertises - re-deriving it from the collapsed context and
- * output can overstate it, because min(ctx_i - out_i) undercuts min(ctx) -
- * min(out). Boolean fields count as reported when any contributor carried the
- * explicit flag (or, for reasoning, the supported-params list); modality flags
- * count as reported when the server supplied a modality array at all, an
- * accepted conflation of "reported false" with "unreported". The
- * prompt-caching and response-schema flags hold only when every contributor
- * advertises them, so the baseline can never say more than the entry
- * advertised; the supported-params and reasoning_effort_levels lists are each
- * present only when every contributor carries one and hold their
- * intersection; costs appear only for pricing-eligible shapes, and only the
- * costs the server declared - discovery's serverCostsOf already mapped the
- * 0/0 no-pricing stamp to undefined at ingest.
+ * VALUES are registration's aggregates exactly as advertised, so a lower-precedence catalog guess never
+ * displaces a server minimum, while a field no contributor reported stays absent for the catalog to fill.
+ * max_input_tokens counts as reported whenever ANY limit was, since re-deriving it from the collapse can overstate it.
  */
 export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): ServerDeclaredCapabilities {
 	const { providers, modalities, toolCalling, reasoning } = input;

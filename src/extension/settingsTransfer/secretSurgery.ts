@@ -55,17 +55,9 @@ export interface StrippedEntry {
 	 */
 	readonly entry: Readonly<Record<string, unknown>>;
 	/**
-	 * The removed values by flat secret field, ready for SecretStorage writes.
-	 * Flat-vs-nested collisions resolve by the settings-redesign migration's
-	 * OWN rule, so a transfer can never change which credentials an entry
-	 * sends: a record-shaped `auth` object wins WHOLESALE - flat secret text
-	 * beside it is removed and DISCARDED, never moved into the blob, exactly
-	 * as the activation migration discards it - and only an entry without a
-	 * record auth maps its flat fields 1:1 onto the blob's ids (the pre-
-	 * redesign shape). Within the auth subtree, positions are walked in the
-	 * module-comment order and a later one overwrites an earlier one (two
-	 * nested positions collide onto one field only in an auth shape parseAuth
-	 * would reject).
+	 * Flat-vs-nested collisions resolve by the settings-redesign migration's OWN rule, so a transfer can never
+	 * change which credentials an entry sends. A record-shaped `auth` wins WHOLESALE and flat secret text beside
+	 * it is DISCARDED, never moved into the blob, exactly as the activation migration discards it.
 	 */
 	readonly secrets: StoredServerSecrets;
 	/**

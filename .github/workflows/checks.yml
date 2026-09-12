@@ -29,19 +29,8 @@ jobs:
     with:
       os: 'matrix'
 
-  # Promoted from its burn-in workflow after a long green streak on main:
-  # docker suite, stream fuzzer, and live host-fidelity against the
-  # dockerized LiteLLM proxy. Two shards, balanced from the per-label wall
-  # times of main run 30593932251 (docker 41s + transport 62s against
-  # serversync 15s + fuzz 5s + conversation 6s + host-fidelity 5s +
-  # monkey 69s; the usage/budget smoke adds well under a second to shard
-  # one, and the two split-off group suites - the provider-group chat path
-  # on shard one, the capture-mode group-label round trip on shard two -
-  # run sub-second each; their cost is one extra extension-host boot per
-  # shard); the drift guard in src/test/stackDrift.test.ts
-  # pins each list to the orchestrator's known labels and the union to the
-  # full set. No `if:` on the shards: a skipped matrix job would count
-  # green in the aggregate (see the header note).
+  # src/test/stackDrift.test.ts pins each shard's label list to the orchestrator's known labels and their union to the full set.
+  # No `if:` on the shards, because a skipped matrix job would count green in the aggregate (see the header note).
   docker-stack:
     strategy:
       fail-fast: false
@@ -243,18 +232,9 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
         run: bun run check-geometry
 
-  # The run's ONE live fetch of the OpenRouter capability catalog: the fetch
-  # script validates the live payload and the mapping (so payload drift is
-  # caught here instead of by users) and writes the slimmed
-  # dist/openrouter-models.json, which this job hands to format-check's
-  # packaged-file-list check as an artifact. format-check used to fetch the
-  # same URL again on its own runner, and the two fetches doubled the exposure
-  # to a CDN body stall for zero extra coverage (the second one validated the
-  # same payload). The endpoint is unauthenticated and the failure text
-  # distinguishes "OpenRouter did not deliver a usable catalog" (transient or
-  # settled, per the retry rule the script shares with the runtime) from
-  # "schema drift"; unconditional on purpose (a skipped job would count green
-  # in the gate, see the header note).
+  # The run's ONE live fetch of the OpenRouter catalog; format-check reads the slimmed file as an artifact, because its own second
+  # fetch doubled the exposure to a CDN body stall for zero extra coverage. Unconditional on purpose, because a skipped job would
+  # count green in the gate (see the header note).
   openrouter-catalog:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -271,18 +251,12 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # Push-to-main runs opt into the script's lenient mode: OpenRouter not
-      # delivering a usable catalog (connect failure, header or body timeout,
-      # non-2xx, a body that is not JSON - every UnreachableError, whether the
-      # shared retry rule called it transient or settled; the script's
-      # ::warning:: headline says which) is one ::warning:: annotation and
-      # exit 0 with nothing written, because a third-party failure must not
-      # block landing on main; schema drift stays fatal in every mode. Pull
-      # request runs and manual dispatch stay fatal, so the failure is still
-      # caught loudly where a human is watching and a
-      # re-run is cheap, and the release build's own fetch (vscode:prepublish)
-      # stays fatal too. The file, not the exit code, says whether the catalog
-      # was fetched.
+      # A third-party outage must not block landing on main, so push-to-main runs opt into the script's lenient mode.
+      # The file, not the exit code, says whether the catalog was fetched.
+      #
+      #   no usable catalog (any UnreachableError)                       -> one ::warning:: naming transient or settled, exit 0, nothing written
+      #   schema drift                                                   -> fatal in every mode
+      #   pull request runs, manual dispatch, vscode:prepublish's fetch  -> stay fatal, where a human is watching and a re-run is cheap
       - name: Fetch and validate the live OpenRouter catalog
         id: fetch
         env:

@@ -72,18 +72,9 @@ jobs:
           name: ${{ inputs.catalog-artifact }}
           path: dist
 
-      # Fail closed, with one declared gap: no fetch of our own ever, and a
-      # missing artifact passes only when the producer itself reports
-      # catalog=skipped (a push build's lenient mode when OpenRouter did not
-      # deliver a usable catalog - the producer's own warning says whether that
-      # was transient or settled; nothing here re-classifies it) - then the
-      # catalog assertions below skip, the bundle still runs (builds are
-      # network-free by design and the runtime tolerates a missing catalog),
-      # and the gap shows on a fresh run as one ::warning:: from each job, the
-      # producer's and this one (after a re-run whose earlier attempt did
-      # upload, this job finds that artifact - the same commit's validated
-      # catalog - and posts none). A missing artifact with any other producer
-      # outcome is an error.
+      # Fails closed with one declared gap; a missing artifact passes only when the producer reported catalog=skipped, nothing here
+      # re-classifies its warning, and a re-run whose earlier attempt did upload finds that same-commit artifact and posts none.
+      # Bundling still runs without the catalog, because builds are network-free by design and the runtime tolerates a missing one.
       - name: The catalog artifact must have arrived unless the producer reported catalog=skipped
         id: present
         env:

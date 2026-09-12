@@ -115,15 +115,9 @@ export interface InlineLanguageFilter {
 export const DEFAULT_INLINE_LANGUAGE_FILTER: InlineLanguageFilter = { mode: "block", languages: [] };
 
 /**
- * The dashboard's theme choices. "auto" leaves every semantic token mapped
- * onto the host's --vscode-* variables, so the dashboard follows whatever
- * theme the editor wears - high contrast and themes we have never seen
- * included. The other two pin our own palette instead.
- *
- * The vocabularies live here rather than beside their readers because the HTML
- * shell stamps them on the root element and this module is the only settings
- * module it can reach: the shell is pure string building so the render harness
- * can import it outside the extension host.
+ * "auto" keeps every semantic token on the host's --vscode-* variables, so unseen themes and high contrast follow the editor.
+ * The vocabulary lives here because src/extension/dashboard/html.ts stamps it on the root element and can reach only this
+ * settings module, being pure string building so the render harness can import it outside the extension host.
  */
 export const UI_THEMES = ["auto", "light", "dark"] as const;
 

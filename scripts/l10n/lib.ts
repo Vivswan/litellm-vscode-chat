@@ -358,18 +358,12 @@ function calleeCandidates(expression: ts.Expression, sourceFile: ts.SourceFile):
 }
 
 /**
- * Walk `roots` for every invocation shape - calls, tagged templates, `new` -
- * noting a direct l10n.t/vscode.l10n.t hit or a bare-identifier edge. Every
- * resolution site - callees, alias sources, direct arguments - reads through
- * calleeCandidates, so choosing shapes and .call/.apply/.bind forwarding
- * resolve to a fixed point wherever they nest; a local namespace import's
- * member resolves to the member's name, and a computed member call
- * (`helper[key]()`) edges its receiver, since the member cannot be read.
- * Bare-identifier variable initializers and assignment right-hand sides count
- * as edges too, so a FUNCTION-LOCAL alias becomes the enclosing declaration's
- * own edge, and a direct argument (identifier or local-namespace member) is
- * the calling declaration's edge as well - the walk cannot see whether the
- * callee invokes what it is handed.
+ * The walk follows NAMES bound by declaration, assignment, alias, or default, never values in flight; following those would be
+ * data-flow analysis, which the gate deliberately is not, and fixtures pin the boundary so it stays a decision.
+ *
+ *   direct argument                                                      -> the caller's edge; the walk cannot see whether the callee invokes it
+ *   thunk table's PROPERTY call, or member call reaching a class STATIC  -> invisible; census.ts registers the known thunk case by hand
+ *   invocation-time binding, spread, or identifier nested in an argument -> invisible
  */
 function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile): InvocationEvidence {
 	const evidence: InvocationEvidence = { direct: false, callees: new Set<string>() };
@@ -508,16 +502,9 @@ function classConstructionEvidence(cls: ts.ClassLikeDeclaration, sourceFile: ts.
 }
 
 /**
- * Whether a lazy node's name is a census obligation. Functions report
- * lowercase-only (the uppercase-component convention is the whole exemption);
- * classes report at any case, since a constructor freezes like a helper call.
- *
- * An alias is exempt only when BOTH its own spelling and what it NAMES say so:
- * aliasing a component mints no obligation, but re-spelling one lowercase
- * (`export { Banner as label }`) mints a helper-shaped name that freezes.
- * Target resolution follows alias chains and fails CLOSED - an unresolvable
- * target or a cycle reports - so the exemption applies only where the walk can
- * PROVE the target is a component.
+ * The uppercase-component convention is the whole exemption, and it applies only where the walk can PROVE the target is a
+ * component, so an unresolvable or cyclic alias target reports. Re-spelling a component lowercase (`export { Banner as label }`)
+ * mints a helper-shaped name that freezes, so an alias is exempt only when BOTH its own spelling and what it NAMES say so.
  */
 function reportsAsObligation(
 	node: HelperNode,
@@ -547,17 +534,8 @@ function reportsAsObligation(
 }
 
 /**
- * The census's reverse direction: every top-level name whose declaration
- * resolves l10n.t at call time, directly or transitively, and is missing from
- * LAZY_L10N_HELPERS - so the guard cannot be disarmed by never registering a
- * helper. Call-site names, bare-identifier calls only, closed over the whole
- * source set; reportsAsObligation decides which names REPORT.
- *
- * Candidates are every top-level shape that mints a call-site name for
- * deferred code (declarations, function-literal/IIFE/class-expression
- * bindings, renaming specifiers, identifier aliases); default exports are
- * banned instead, being the one shape no name-following walk can chase.
- * Deliberately over-inclusive, per the census's own rule.
+ * The census's reverse direction, so never registering a helper cannot disarm the guard; it is deliberately over-inclusive, per
+ * the census's own rule. l10n:check bans default exports instead, the one shape no name-following walk can chase.
  */
 export function uncensusedLazyHelpers(
 	sources: readonly SourceFile[],
@@ -878,29 +856,13 @@ function fileLazyNames(sourceFile: ts.SourceFile, census: readonly string[]): Se
 }
 
 /**
- * Line numbers (1-based) of module-scope localization calls: l10n.t,
- * vscode.l10n.t, or any name that resolves them, evaluated while the module
- * loads - before l10n.config has run, freezing the English text.
+ * A module-scope localization call runs before l10n.config and freezes the English text; this parses what evaluates at load time.
+ * Class STATICS do not defer, unlike function bodies, methods, accessors, and instance initializers; what stays invisible is pinned by fixtures:
  *
- * A real parse of what evaluates at load time, within the census's documented
- * name-following limits: literals, templates, type wrappers, control flow, and IIFEs are
- * searched, while function bodies, object methods and accessors, and instance
- * property initializers defer and pass. Class STATICS do not defer. Callable
- * names come from fileLazyNames plus the census; a callee resolves through
- * calleeCandidates - branch flattening and forwarding stripping interleaved
- * to a fixed point - then a local namespace import's member call matches by
- * member name, a computed member call (`helper[key]()`) matches by its
- * receiver, and the caller-side forwarders (Reflect.apply, Reflect.construct,
- * Function.prototype.call/apply) match by every direct argument - tracked
- * names, inline functions, and inline classes alike.
- *
- * The residual is what these matches cannot express: a destructured `t`
- * (vscodeL10nOffenses bans that shape outright), a custom wrapper invoking
- * its argument (module-scope references stay deliberately quiet), a
- * re-spelled forwarder (`globalThis.Reflect.apply`, a rebound `Reflect` -
- * text matching is the decision, see isCallerForwarder), and a member call
- * reaching a class STATIC that localizes - all pinned by fixtures as the
- * boundary, not discovered.
+ *   a destructured `t`                                                       -> vscodeL10nOffenses bans that shape outright
+ *   a custom wrapper invoking its argument                                   -> module-scope references stay deliberately quiet
+ *   a re-spelled forwarder (`globalThis.Reflect.apply`, a rebound `Reflect`) -> text matching is the decision (isCallerForwarder)
+ *   a member call reaching a class STATIC that localizes                     -> invisible
  */
 export function moduleScopeL10nOffenses(contents: string, fileName: string): number[] {
 	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;

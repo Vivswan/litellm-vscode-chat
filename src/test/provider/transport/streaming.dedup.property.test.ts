@@ -16,16 +16,10 @@ import {
 } from "../../fuzzStream";
 
 /**
- * In-process property fuzzing of StreamProcessor's tool-call accounting: the
- * cross-channel max(N, M) dedup, inline-replay suppression, and index normalization.
- * Chunks are narrowed through parseChunk first, so the input is exactly what the SSE
- * transport would deliver; framing is fuzzed in streaming.sse.property.test.ts. A shrunk
- * counterexample is a serializable FuzzEvent[]: pin it in fuzzCorpus.ts when it
- * reproduces through the docker direct target, otherwise as an example test.
- *
- * StreamProcessor uses its default host-probed thinking ctor and the pinned host exposes
- * LanguageModelThinkingPart, so reasoning-only streams emit thinking parts. If a host
- * bump removes that class, the reasoning-only empty-response error is the failure here.
+ * StreamProcessor uses its default host-probed thinking ctor and the pinned host exposes LanguageModelThinkingPart,
+ * so reasoning-only streams emit thinking parts and a host bump removing that class surfaces here as the
+ * reasoning-only empty-response error. A shrunk counterexample is a serializable FuzzEvent[], pinned in
+ * fuzzCorpus.ts when it reproduces through the docker direct target and as an example test otherwise.
  */
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;

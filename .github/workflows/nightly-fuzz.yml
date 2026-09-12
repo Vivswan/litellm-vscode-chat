@@ -235,7 +235,9 @@ jobs:
                 echo "Replay:"
                 echo
                 echo '```bash'
-                echo "FUZZ_SEED=${seed:-$SEED} FUZZ_ITERATIONS=$FUZZ_ITERATIONS CONVERSATION_ITERATIONS=$CONVERSATION_ITERATIONS MONKEY_ITERATIONS=$MONKEY_ITERATIONS bun run test:docker --only $LABELS"
+                echo "FUZZ_SEED=${seed:-$SEED} FUZZ_ITERATIONS=$FUZZ_ITERATIONS" \
+                  "CONVERSATION_ITERATIONS=$CONVERSATION_ITERATIONS MONKEY_ITERATIONS=$MONKEY_ITERATIONS" \
+                  "bun run test:docker --only $LABELS"
                 echo '```'
                 echo
                 echo "Every suite in this leg ran under the same explicit seed, so the"

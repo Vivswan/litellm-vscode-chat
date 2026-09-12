@@ -286,17 +286,6 @@ export function lintRecordMap(
 	return diagnostics;
 }
 
-/**
- * Resolve one record map for one model ID. The chain of matching records is
- * walked broadest to most specific; each record's resolved view is its own
- * fields over what it accepts from below, and what flows past a record is
- * exactly its resolved view - the pass-through rule that makes
- * `_inherit_from: false` a barrier. An `_inherit_from` list replaces the flow
- * with the named records' literal fields (nearest-first by specificity, own
- * fields still on top), reaching around any barrier; a named key must exist
- * in the map (diagnosed otherwise) and must itself match the model to
- * contribute (a non-matching name is silently inert for this model).
- */
 export function resolveRecordChain(
 	id: string,
 	records: ModelRecordMap,

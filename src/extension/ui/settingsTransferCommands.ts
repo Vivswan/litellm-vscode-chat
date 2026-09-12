@@ -953,22 +953,13 @@ function rawEntriesOf(raw: unknown, label: string): unknown[] {
 const UNDO_CLEAR_FAILURE_LOG = "Undo import: re-clearing a restored secret under an unrestored entry failed";
 
 /**
- * The rule both abandoned failure paths apply: a stored credential belongs
- * only under the entry it was recorded for, so while the live entry is some
- * OTHER configuration - an undo's still-imported entry, or an import rollback's
- * still-pre-import one - that credential would reach the wrong host, and it is
- * cleared. Withholding the sync request alone would not do: activation
- * force-syncs and any servers edit syncs too, so only removing the credential
- * closes the hazard rather than deferring it. Nothing unrecoverable is lost -
- * the pre-import value is in the snapshot slot and the imported one in the
- * user's file - and a failed write can leave a label half-restored, so success
- * is not tracked; the kept snapshot restores whatever this removes once a retry
- * lands the entries too. The compare is raw entry identity rather than the
- * connection fingerprint: only a byte-identical entry proves the credential is
- * under the entry it belongs to (a base URL compare alone would miss the other
- * routing fields, an OAuth token URL among them), and a needless clear is
- * recoverable while a served retired credential is not. The returned failure
- * count is what gates the caller's sync request.
+ * A stored credential belongs only under the entry it was recorded for, so while the live entry is some OTHER
+ * configuration (an undo's still-imported entry, a rollback's still-pre-import one) it is cleared. Withholding
+ * the sync alone would not do, since activation force-syncs and any servers edit syncs too.
+ *
+ *   pre-import value -> in the snapshot slot; the kept snapshot restores whatever this removes once a retry lands the entries too
+ *   imported value   -> in the user's import file
+ *   failed write     -> can leave a label half-restored, so success is not tracked and every label is re-checked on retry
  */
 async function clearMismatchedBlobs(
 	env: SettingsTransferEnv,
@@ -979,6 +970,8 @@ async function clearMismatchedBlobs(
 	let failures = 0;
 	const liveServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
 	for (const label of new Set(labels)) {
+		// Byte-identical entries, because a base URL compare alone would miss the other routing fields (an OAuth
+		// token URL among them), and a needless clear is recoverable while a served retired credential is not.
 		if (
 			JSON.stringify(rawEntriesOf(liveServersRaw, label)) === JSON.stringify(rawEntriesOf(referenceServersRaw, label))
 		) {

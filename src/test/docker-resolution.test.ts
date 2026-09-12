@@ -35,23 +35,8 @@ import { expectDefined } from "./pureHelpers";
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 /**
- * Docker resolution suite, two deliberately separate worlds under one label:
- *
- * 1. The OpenRouter catalog path. Every other docker host runs catalog-OFF
- *    for hermeticity, so the catalog-ON behavior is pinned HERE: the suite
- *    seeds the pinned fixture into the catalog store's cache file through
- *    litellm._test.seedOpenRouterCatalog, then pins implicit exact-ID and
- *    unambiguous-suffix backfill, ambiguity skipping the level, an explicit
- *    `_openrouter_model` directive beating the implicit match, and the
- *    min(4096, ...) wire clamp. The hermetic state is restored afterwards.
- *
- * 2. The models.parameters record directives on the wire, catalog-OFF:
- *    `_force` beating runtime options (including an uncapped forced
- *    max_tokens), `_inheritable` fields reaching a more specific record, an
- *    `_inherit_from: false` barrier, and an entry record beating the global
- *    record, all observed on the request LiteLLM forwarded.
- *
- * Run via `bun run test:docker` (label docker-resolution).
+ * The catalog backfill world runs catalog ON here alone, since every other docker host runs catalog OFF for
+ * hermeticity, and the record-directive world sharing this label stays OFF.
  */
 
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");

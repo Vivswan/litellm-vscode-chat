@@ -5,16 +5,12 @@ import type { QuickFixMode } from "./query";
 import { selectDiagnostics } from "./query";
 
 /**
- * The Fix and Explain lightbulb actions. Everything here is SYNCHRONOUS and
- * touches no network: provideCodeActions runs on every cursor move in a file
- * with diagnostics, so an await here would put the extension in the editor's
- * latency path, and a request here would send the user's code somewhere
- * without them ever clicking anything. The actions carry a command instead;
- * the model is reached only once one is invoked.
+ * provideCodeActions runs on every cursor move in a file with diagnostics, so everything here is SYNCHRONOUS and
+ * touches no network. Which diagnostics an action claims is selectDiagnostics' decision in query.ts, so the
+ * lightbulb, the chat query, and the fallback prompt all speak about the same set.
  *
- * Which diagnostics an action claims is the pure core's decision
- * (selectDiagnostics), so the lightbulb, the chat query, and the fallback
- * prompt all speak about the same set.
+ *   an await here   -> the extension sits in the editor's latency path
+ *   a request here  -> the user's code leaves without them clicking anything
  */
 
 /**

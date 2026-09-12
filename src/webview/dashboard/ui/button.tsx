@@ -3,35 +3,25 @@ import { Children, type ComponentProps, isValidElement, type ReactNode } from "r
 import { cn } from "./cn";
 
 /**
- * The dashboard's button. Two independent axes: `variant` is RANK, `size` is geometry
- * (tangled, an icon-only destructive action had to choose between reading as destructive
- * and fitting its row). Rank is weight and colour, not boxes; every rank wears its
- * scenario's hue - the accent for actions (readable tier for primary, quiet for
- * supporting), the error hue for destructive, which warns as a red wash as you reach
- * for it. Every rank also STRENGTHENS on hover, because each one's wash lifts the
- * surface toward its own label. Secondary
- * carries a dotted underline at rest - without a resting mark three quarters of the
- * page's buttons read as prose - the same idiom as
- * button.count-link; decided in React (`hasTextLabel`) because the rule is "has words to
- * underline" and CSS cannot see text. The negative inline margin: each size hands its
- * padding back to the layout so labels align with text and only the fill overhangs. It
- * rides a custom property, not a margin utility, because the bordered modes must take
- * the hand-back away without zeroing every other inline margin (margin-inline writes
- * both longhands; the record matcher's pencil ms-auto pays for that) - theme.css zeroes
- * the PROPERTY once. Consequences: gaps and padding measure ink-to-ink; a call site
- * overriding padding restates the property ([--btn-mx:-0.25rem] beside px-1); a site
- * pinned to a box takes plain mx-0. --control-outline is transparent everywhere and the
- * contrast border in HC. Disabled keeps no fill (it would be the loudest thing on the
- * row); aria-disabled paints identically, for controls that must refuse a click WITHOUT
- * leaving the tab order - `disabled` drops focus to the body and takes the announcement
- * with it.
+ * Rank is weight and colour, not boxes, and every rank STRENGTHENS on hover because each wash lifts the surface
+ * toward its own label. Secondary carries a dotted underline at rest, since without a resting mark most of the
+ * page's buttons read as prose; React decides it (`hasTextLabel`) because CSS cannot see text.
  */
 const buttonVariants = cva(
 	[
+		// Each size hands its horizontal padding back through --btn-mx, so labels align with text and gaps measure
+		// ink-to-ink. A property, not a margin utility, because the bordered modes must take the hand-back away without
+		// zeroing every other inline margin (margin-inline writes both longhands), so theme.css zeroes it once.
+		//
+		//   a call site overriding padding -> restates the property ([--btn-mx:-0.25rem] beside px-1)
+		//   a site pinned to a box         -> plain mx-0
 		"inline-flex cursor-pointer items-center justify-center mx-(--btn-mx) gap-1.5 rounded-sm border",
 		"border-control-outline transition-[color,background-color,border-color,outline-color,opacity]",
 		"duration-[120ms] ease-out focus-visible:outline-(length:--ring-w)",
 		"focus-visible:outline-offset-(--ring-offset) focus-visible:outline-ring focus-visible:outline-solid",
+		// Disabled keeps no fill (it would be the loudest thing on the row). aria-disabled paints identically,
+		// for controls that must refuse a click WITHOUT leaving the tab order, because `disabled` drops focus to
+		// the body and takes the announcement with it.
 		"disabled:cursor-default disabled:bg-transparent disabled:text-disabled-foreground",
 		"disabled:opacity-60 aria-disabled:cursor-default aria-disabled:bg-transparent",
 		"aria-disabled:text-disabled-foreground aria-disabled:opacity-60",

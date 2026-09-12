@@ -136,18 +136,10 @@ export interface ReplyPromptArgs {
 }
 
 /**
- * Build the follow-up request for a reply typed into a review thread: one
- * system turn carrying the instruction and the anchored code, then the thread
- * replayed as alternating turns (the model's comments as assistant, the user's
- * as user). A conversation rather than one flattened prompt, because that is
- * what the thread IS - and it keeps the model's own earlier wording available
- * to it verbatim.
- *
- * The follow-up deliberately does NOT ask for the LINE format: the answer goes
- * into an existing thread, so it is prose, and parsing it as placements would
- * be a category error. The snippet and each body are head-truncated and the
- * turns themselves are capped at the newest REVIEW_REPLY_TURN_LIMIT, so
- * neither a long comment nor a long thread can grow the request without bound.
+ * A conversation rather than one flattened prompt, because that is what the thread IS, and it keeps the
+ * model's retained earlier wording available to it. It deliberately does NOT ask for the LINE format the
+ * review prompts use, since the answer goes into an existing thread as prose and parsing it as placements
+ * would be a category error.
  */
 export function buildReplyMessages(args: ReplyPromptArgs): readonly OneShotChatMessage[] {
 	const snippet = truncateHeadWithMarker(args.snippet, REVIEW_SNIPPET_CHAR_LIMIT, truncationMarker("snippet"));

@@ -6,24 +6,9 @@ import type { ReviewCommentAuthor, ReviewThreadsByUri, StoredReviewComment, Stor
 import type { ReviewPlacement } from "./placements";
 
 /**
- * The feature's comment surface: one vscode.CommentController and the live
- * threads under it, plus the translation between those threads and the
- * persisted schema (persistence.ts owns the codec; this owns the live side).
- *
- * The controller exists ONLY while the feature is enabled - the wiring creates
- * it on enable and disposes it on disable, which removes every thread from the
- * editors - so this class holds no enablement state of its own.
- *
- * Every mutation the user or a review can make (threads created, a reply
- * appended, resolve, delete) ends by handing the whole snapshot to the
- * injected saver: save-on-mutation, never on a timer, never on dispose, and
- * never once disposed - that is what keeps disabling the feature, or a request
- * landing after it was disabled, from overwriting the stored threads with an
- * empty set.
- *
- * Comment bodies carry model and user text. They are rendered as plain strings
- * (VS Code renders them as untrusted markdown, so no command links execute)
- * and they never reach the logger.
+ * Nothing saves once disposed, so disabling the feature, or a request landing after it was disabled, cannot
+ * overwrite the stored threads with an empty set. Comment bodies carry model and user text, which VS Code
+ * renders as untrusted markdown so no command links execute, and they never reach the logger.
  */
 
 /** The thread contextValues the manifest's `commentThread ==` when-clauses match. */

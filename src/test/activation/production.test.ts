@@ -24,18 +24,8 @@ import { expectDefined } from "../pureHelpers";
 import { makeExtensionStorage } from "../testUtils";
 
 /**
- * Production-mode activation in its own vscode-test label: the compiled
- * activate() is called ONCE with a fake ExtensionContext whose extensionMode is
- * Production, while the real extension stays inactive. A second activate()
- * throws on duplicate command registration (the artifact-present suite at the
- * bottom re-activates only after disposing this activation wholesale), and
- * executing any contributed litellm.* command would activate the real extension
- * and collide the same way - so these tests only observe, never dispatch.
- *
- * Catalog inputs are controlled, never inherited: the fake context's
- * extensionUri and globalStorageUri are fresh tmpdirs, so whether
- * dist/openrouter-models.json exists is this file's choice per activation, and
- * the OpenRouter fetch is blocked so no live snapshot can swap in.
+ * Two production activations cannot overlap in one host, since a second activate() throws on duplicate command
+ * registration, so the re-activation suite at the bottom disposes this one's subscriptions first.
  */
 suite("production activation", () => {
 	const infoMessages: string[] = [];

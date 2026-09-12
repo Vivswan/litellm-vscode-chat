@@ -17,16 +17,8 @@ interface VscodeL10nRuleOptions {
 }
 
 /**
- * Line numbers (1-based) of localization forms outside the sanctioned set: the
- * canonical `import * as l10n from "@vscode/l10n"` with direct `l10n.t`/
- * `l10n.config` calls, ordinary non-l10n vscode member access,
- * `vscode.l10n.bundle` reads in the bundle-feeding files, and type-only forms.
- *
- * An allowlist that fails closed, not a catalog of known escapes: every other
- * appearance of a tracked binding flags, so a novel laundering form fails the
- * gate rather than shipping strings extraction cannot follow. Matching is
- * syntactic, so a local binding shadowing a tracked name flags too; rename it
- * or add a deliberate allowlist entry here.
+ * An allowlist that fails closed, not a catalog of escapes, so a novel laundering form fails the gate instead of shipping untranslated.
+ * Matching is syntactic, so a local binding shadowing a tracked name flags too; rename it or add a deliberate allowlist entry here.
  */
 export function vscodeL10nOffenses(contents: string, fileName: string, options: VscodeL10nRuleOptions): number[] {
 	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;

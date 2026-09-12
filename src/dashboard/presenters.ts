@@ -12,15 +12,8 @@ import type { HeaderScalar } from "../shared/util/headers";
 import type { DashboardServer, DeclaredServerNotice, SettingScope } from "./viewModels";
 
 /**
- * The overall configuration verdict, shared by the dashboard hero, the status
- * bar, the notifier, and the Diagnostics tab so their headline judgement
- * cannot drift. Only real failures count: unchecked entries stay neutral, and
- * so do failures the entry's expectedFailures declares
- * (expected-and-serving-nothing yields "needs-declare"). Misconfigured entries
- * are neutral too - except that a configuration of ONLY misconfigured entries
- * is an error, not "waiting". Serving-through-failure is degraded, never dead:
- * a window whose every server failed unexpectedly but still serves models
- * (stale-window or declared) reads "degraded", matching the row pills.
+ * Shared by the hero, the status bar, the notifier, and the Diagnostics tab, so their headline judgement cannot
+ * drift; serving through an unexpected failure reads "degraded", never dead, matching the row pills.
  */
 export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting" | "connected" | "needs-declare";
 

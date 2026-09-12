@@ -1,35 +1,7 @@
 #!/usr/bin/env bun
-// scripts/stack/fake-openai-server.ts
-//
-// OpenAI-compatible fake backend for the docker LiteLLM stack. The chat input
-// is the control surface: a "%" command on the last non-empty line of the last
-// user message selects the response (grammar in
-// src/test/fakeStack/commands.ts); anything else gets the fixed reply pointing
-// at %help. The model id routes nothing - one grammar serves every fake-
-// upstream.
-//
-// Routes:
-//   GET  /health                  liveness for the compose healthcheck
-//   GET  /v1/models               the consolidated fake- upstream ids
-//                                 (blocked deployments excluded)
-//   POST /v1/chat/completions     command dispatch, else the fixed reply
-//   POST /v1/completions          deterministic prompt-derived echo for the
-//                                 FIM (mode: completion) model; no command
-//                                 grammar, always non-streaming JSON
-//   POST /oauth/token             client-credentials grant for the fixed fake
-//                                 credentials (src/test/fakeStack/oauth.ts)
-//   *    /authed/...              bearer-guarded mirror: a live token strips
-//                                 the prefix and dispatches normally, else 401
-//   *    /nodiscovery/...         no-discovery mirror: the discovery GETs
-//                                 (/v1/models, /v1/model/info) answer 404,
-//                                 everything else dispatches normally
-//                                 (src/test/fakeStack/noDiscovery.ts)
-//   PUT  /_test/custom-scenario   registers {name, config} at runtime (<= 1 MiB)
-//   GET  /_test/last-request      last parsed chat completion body
-//   GET  /_test/last-completion-request  last parsed text completion body
-//   GET  /_test/oauth-stats       { issued, rejected, live }
-//   POST /_test/oauth-revoke      revoke all live tokens
-//   GET  /_test/nodiscovery-stats per-bearer counts of the blanked discovery GETs
+// The OpenAI-compatible fake backend for the docker LiteLLM stack; the model id routes nothing, so one grammar serves every fake upstream.
+// A "%" command on the last user message's last non-empty line selects the response (grammar in src/test/fakeStack/commands.ts);
+// the OAuth fixture is src/test/fakeStack/oauth.ts and the blanked discovery routes are src/test/fakeStack/noDiscovery.ts.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";

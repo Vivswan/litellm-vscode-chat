@@ -2,16 +2,9 @@
 export type ToolCallChannel = "delta" | "inline";
 
 /**
- * The per-request dedup ledger for tool calls that can surface twice: as a
- * structured delta and inline in the text, or replayed inline by a model that
- * re-sends its own output.
- *
- * Cross-channel dedup is count-based: a call arriving on one channel consumes
- * one pending count from the other and is suppressed; with none pending it
- * emits and increments its own. N delta plus M inline occurrences of one
- * name:args key therefore emit max(N, M), so identical parallel calls on one
- * channel all survive while cross-channel duplicates collapse in either
- * arrival order.
+ * A tool call can surface twice, as a structured delta and inline in the text, or replayed inline by a model
+ * re-sending its own output. Cross-channel dedup is count-based, so N delta plus M inline occurrences of one
+ * name:args key emit max(N, M), and identical parallel calls on one channel all survive.
  */
 export class ToolCallLedger {
 	/** Inline calls already decided (emitted or deduped) while provisional, so their completion is not re-emitted. */

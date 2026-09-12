@@ -137,7 +137,10 @@ export interface RecordedEnv {
 	failBlobDeletes?: Error;
 	/** When set, runs after each readServerSecrets call: the seam for injecting a concurrent edit between the plan read and the guarded unit. */
 	onSecretsRead?: ((label: string) => void) | undefined;
-	/** When set, runs after each successful writeServersSetting with the now-visible array: the seam for injecting a concurrent edit between the write and the cleanup. */
+	/**
+	 * Runs after each successful writeServersSetting with the now-visible array,
+	 * the seam for injecting a concurrent edit between the write and the cleanup.
+	 */
 	afterWrite?: (current: unknown[]) => void;
 	/** What resolveAdoptionCredentials returns; every call is recorded in adoptionLookups. */
 	adoptionCredentials?: AdoptableGroupCredentials;

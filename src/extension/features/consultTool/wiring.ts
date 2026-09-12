@@ -25,20 +25,9 @@ import {
 } from "./invocation";
 
 /**
- * Consult tool wiring: the language-model tool a chat agent calls to ask a
- * second, independently configured LiteLLM model. Opt-in by construction and
- * fail-closed on BOTH halves - the tool registers only while
- * consultTool.enabled is on AND consultTool.model names a pair, so an agent is
- * never offered a tool whose every call could only answer "nothing is
- * configured" - and a configuration watcher disposes and re-registers as those
- * two change. `oneShot` is the activation-shared client, so OAuth tokens cache
- * across consultations and across features and invalidate on 401 like the chat
- * and usage paths.
- *
- * This module is the feature's single logging boundary (the one-shot caller
- * convention): the transport throws classified errors without logging, the
- * invoke boundary logs once, and the error itself travels on to the chat view
- * that invoked the tool. Cancellation is never logged.
+ * The tool registers only while consultTool.enabled is on AND consultTool.model names a pair, so an agent is
+ * never offered a tool whose every call could only answer "nothing is configured". This module is the feature's
+ * single logging boundary.
  */
 
 type LogFn = (message: string, data?: unknown) => void;
@@ -224,15 +213,9 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 	}
 
 	/**
-	 * The reply shaped and cut to the budget the caller advertised, which is
-	 * what `tokenizationOptions.tokenBudget` governs. No options means no known
-	 * budget, so the reply travels whole rather than under a guessed bound.
-	 *
-	 * A counting failure must not fail the consultation: the answer is already
-	 * in hand, so an unbudgeted best effort beats losing it. Cancellation still
-	 * propagates (the token is bridged into the counter), and the degradation
-	 * logs a fixed classification - never the counter's own message, which is
-	 * the one error on this path that could quote the text it was counting.
+	 * A counting failure must not fail the consultation, since the answer is already in hand, and its log line
+	 * is a fixed classification because the counter's own message is the one error on this path that could
+	 * quote the text it was counting.
 	 */
 	private async fitReply(
 		reply: string,

@@ -1,30 +1,12 @@
 /**
- * The removed default* token settings move into the models.capabilities "*"
- * record: the two below-server settings ride `_fallback`, the input limit
- * stays an override, existing user keys win the merge, and source-key absence
- * is the idempotency signal. The record is marked `_inheritable`, because the
- * old defaults applied to every model regardless of other records, and without
- * the marking any model with a more specific record of its own would lose them
- * wholesale under the most-specific-wins rule.
+ * The removed default* token settings move into the models.capabilities "*" record, each at the level its
+ * removed reader had. The record is marked `_inheritable` because the old defaults applied to every model, and
+ * without the mark any model with a more specific record of its own would lose them under most-specific-wins.
  *
- * A record this migration authors from scratch carries `_inheritable: true`;
- * merging into a user's existing "*" record instead appends only the fields
- * the migration added to an `_inheritable` list (or leaves a user's own `true`
- * alone), so the user's existing fields never silently start flowing into
- * more-specific records.
- *
- * The override-placed fill (max_input_tokens beat the server-reported value)
- * must never land demoted, so the merge protects it from the target's own
- * `_fallback`: a `_fallback: true` is expanded to the explicit list of the
- * record's PRE-EXISTING valid fields before the fill lands unmarked, and an
- * inert listed name is dropped rather than left to activate. The cost of the
- * expansion - fields the user adds later are no longer auto-marked - is paid
- * only when a max_input_tokens fill actually lands.
- *
- * Two accepted level shifts: a migrated max_output_tokens counts user-declared
- * (the request path's min(4096, limit) clamp no longer applies), and
- * max_input_tokens as a plain override now also beats an `_openrouter_model`
- * directive.
+ *   context_length, max_output_tokens       -> ride `_fallback`; max_output_tokens now reads as user-declared and escapes the min(4096, limit) clamp
+ *   max_input_tokens                        -> plain override, it beat the server's value; now also beats an `_openrouter_model` directive
+ *   existing "*" record                     -> only added fields join its `_inheritable` list (a user's `true` stays); no old field is newly marked
+ *   `_fallback: true` as an override lands  -> expands to the pre-existing valid fields so the fill lands unmarked; later fields lose auto-marking
  */
 
 import { isRecord } from "../../../shared/util/json";

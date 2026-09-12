@@ -90,7 +90,8 @@ jobs:
           # comment below) and as an annotation, but stay green - the fleet
           # legitimately runs without the token.
           echo "no_retrigger=true" >> "$GITHUB_OUTPUT"
-          echo "::warning::floor bump pushed without REPO_PLATFORM_TOKEN - checks will not re-run on the new head; close/reopen the PR or register the token as a Dependabot secret"
+          echo "::warning::floor bump pushed without REPO_PLATFORM_TOKEN - checks will not re-run on the new head;" \
+            "close/reopen the PR or register the token as a Dependabot secret"
       # One comment per PR, edited in place on every fix push; a posting
       # failure fails the step.
       - name: Say the fix push cannot re-trigger CI

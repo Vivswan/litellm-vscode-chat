@@ -1,43 +1,16 @@
 /**
- * Command dispatch for the fake OpenAI backend: the chat input is the control
- * surface. The last non-empty line of the last user message, when it starts
- * with "%" and names a known verb, selects the response; nothing else does.
- * Bare closing-tag lines are transparent to that rule (see ENVELOPE_CLOSER).
- * Everything here is deterministic - no clocks, no Math.random.
+ * The chat input is the fake OpenAI backend's control surface, and "%" is the sigil because every obvious one is
+ * intercepted before the text reaches the model (verified in VS Code Copilot Chat and Claude Code, other chat
+ * surfaces by docs only). Everything here is deterministic (no clocks, no Math.random) and node builtins only,
+ * since the fake-openai container runs it from a read-only repo mount without node_modules.
  *
- * Why "%": both obvious sigils are intercepted before the text can reach
- * the model. VS Code Copilot Chat's input claims "/"-prefixed text for its
- * own slash commands (and "@" for participants, "#" for references), so a
- * typed /help rendered as a chip, never reached the model, and the host got
- * plain fallback text back (user-verified against the live UI). Agent CLIs
- * like Claude Code claim a leading "!" to execute shell commands, so "!"
- * fails the same way in a different client. "%" is unclaimed by the tested
- * surfaces (verified against VS Code Copilot Chat and Claude Code; other
- * chat surfaces checked by docs only). A "%" at line start can still occur
- * in rare pasted contexts (templating markers, PostScript DSC lines); that
- * is acceptable - only the LAST non-empty line dispatches, and an unknown
- * verb falls through to the fallback, same as before. One hardening exists
- * for exactly that class: %-comment languages (MATLAB, LaTeX, Erlang, csh
- * transcripts) write "% word" and "% word: args" at line start, so the verb
- * tolerates trailing whitespace only (trimEnd, never trim) - "% error: 429"
- * used to return a real HTTP 429 that looked like a genuine proxy failure;
- * now the whole comment class falls through to the fallback, which itself
- * points at %help.
- *
- * The module is dependency-free (node builtins only): the fake-openai
- * container runs it from a read-only repo mount without node_modules.
- *
- * Emission follows the realism-first principle: proper chunk envelopes,
- * word-boundary delta chunking for prose, and a usage trailer gated on
- * stream_options.include_usage. Observed against LiteLLM v1.93: id,
- * system_fingerprint, and service_tier transit VERBATIM and only created is
- * rewritten - assertions still belong on extracted content, never raw bytes.
- *
- * Human-facing diagnostic reports (%help and the introspection verbs) are
- * markdown, since chat hosts render replies as markdown; see the "Markdown
- * report formatting" section. Contract texts stay byte-exact and unformatted:
- * %echo, %play, usage strings, FALLBACK_TEXT, the bad-arguments diagnostic,
- * and the hash-bearing media sentences.
+ *   "/", "@", "#"     -> Copilot Chat claims them (slash commands, participants, references); a typed /help
+ *                        rendered as a chip and the host got plain fallback text back
+ *   "!"               -> agent CLIs like Claude Code run it as a shell command
+ *   "%" at line start -> rare in pasted text (templating markers, PostScript DSC) and accepted, since only the
+ *                        line lastNonEmptyLine picks dispatches and an unknown verb falls through to the fallback
+ *   "% word: args"    -> %-comment languages (MATLAB, LaTeX, Erlang, csh) write this, so the verb tolerates
+ *                        trailing whitespace only (trimEnd, never trim); "% error: 429" once returned a real 429
  */
 
 import { createHash } from "node:crypto";
@@ -169,9 +142,9 @@ function sha256Hex(data: string | Uint8Array): string {
 }
 
 /**
- * Deterministic per-request envelope: the id hashes the CANONICAL FULL request
- * body, so requests differing in any field carry different ids. Cached per
- * request, not per chunk: large attachment bodies would hash quadratically.
+ * Cached per request rather than per chunk, because large attachment bodies would hash quadratically. Against
+ * LiteLLM v1.93, id, system_fingerprint, and service_tier transit VERBATIM and only created is rewritten, so
+ * assertions still belong on extracted content, never raw bytes.
  */
 const envelopeCache = new WeakMap<object, Record<string, unknown>>();
 
@@ -276,10 +249,10 @@ function numberedChunks(context: CommandContext, count: number): unknown[] {
 
 // ── Markdown report formatting ───────────────────────────────────────────────
 //
-// Diagnostic reports emit one "- " bullet per fact and blank lines between
-// logical sections, with every VARIABLE value inside a backtick code span, so
-// content-derived text cannot style the report. Single-sentence replies stay
-// bare - their bytes are pinned by the suites.
+// Diagnostic reports (%help, the introspection verbs) are markdown because chat hosts render replies as markdown,
+// and every VARIABLE value sits in a code span so content-derived text cannot style the report. Contract texts
+// (%echo, %play, usage strings, FALLBACK_TEXT, the bad-arguments diagnostic, the hash-bearing media sentences) stay
+// byte-exact and unformatted because the suites pin their bytes.
 
 /**
  * A code span around one variable value. Newlines collapse to spaces first (a

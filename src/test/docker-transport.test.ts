@@ -18,16 +18,8 @@ import { catalogOff, ensureActivated, extractText, waitForHostModels } from "./h
 import { expectDefined } from "./pureHelpers";
 
 /**
- * Transport-failure suite for the docker LiteLLM stack: streams that die instead
- * of finishing. The fake backend's transport verbs (%abort, %nodone, %stall) and
- * raw custom scenarios produce the failures; the tests pin how the extension
- * surfaces them through the real VS Code LM API.
- *
- * Every scenario runs against two targets: through the LiteLLM proxy (the
- * playback model) and directly against the fake backend. Directed tests only, no
- * seeds. Assertions hold classifications and user-facing message text, never raw
- * response bytes. Raw-framing scenarios run direct only: the proxy re-serializes
- * streams, so malformed bytes cannot survive the hop.
+ * Raw-framing scenarios run direct only, because the proxy re-serializes streams and malformed bytes cannot
+ * survive the hop. Assertions hold classifications and user-facing text, never raw response bytes.
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";

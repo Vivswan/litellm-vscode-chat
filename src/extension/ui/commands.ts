@@ -357,20 +357,9 @@ export function registerSyncModelsCommand(
 }
 
 /**
- * Build the diagnostics snapshot and open a prefilled GitHub issue, behind the
- * setup gate: when the connection status is setup-shaped (not configured, or
- * failed with a setup hint), the user first gets a non-modal offer of the
- * faster fix, and only Report Anyway opens the issue (snapshot built up front,
- * so the report shows what the gate judged).
- *
- * The pass-through path remembers each opened report's diagnostic fingerprint
- * and, when the next attempt fingerprints the same within the recency window,
- * interposes a modal repeat-report hint. A changed fingerprint proceeds
- * without it. The setup gate keeps precedence over the repeat hint.
- *
- * Neither dialog is awaited: the dashboard's executeCommand intent awaits this
- * command inside its serialized message chain, so an unanswered dialog would
- * freeze every subsequent dashboard message.
+ * The snapshot is built before the setup gate so a gated report still shows what the gate judged. Neither
+ * dialog is awaited, because the dashboard's executeCommand intent awaits this command inside its serialized
+ * message chain, and an unanswered dialog would freeze later messages on that chain.
  */
 export async function runReportIssue(
 	getConnectionStatus: () => ConnectionStatus,
@@ -484,15 +473,11 @@ export function registerReportIssueCommand(
 const GROUPS_FILE_NAME = "chatLanguageModels.json";
 
 /**
- * Open the host's provider-groups JSON in an editor tab: the one place a
- * leftover provider group can be deleted (VS Code offers no removal API).
- * Best-effort by necessity: VS Code exposes no API for this file, and a
- * profile configured to inherit its language models keeps the governing file
- * in another profile's directory. The failure toast covers both ways the open
- * can fail: the file does not exist yet, or this window cannot reach the
- * desktop profile that holds it. The log line stays classification-only: the
- * resolved path embeds the local user name and the log buffer feeds public
- * issue reports.
+ * Extensions have no removal API, so the host's provider-groups JSON is the fallback route for deleting a
+ * leftover group beside Manage Language Models; VS Code has no API for this file either, and a profile that
+ * inherits its language models keeps it in another profile's directory, so the open is best-effort. The log
+ * line stays classification-only because the resolved path embeds the local user name and the log buffer feeds
+ * public issue reports.
  */
 export function registerOpenGroupsFileCommand(context: vscode.ExtensionContext, logger: Logger): void {
 	context.subscriptions.push(

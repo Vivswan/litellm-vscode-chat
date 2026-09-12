@@ -398,39 +398,25 @@ suite("extension/features/consultTool wiring", () => {
 	});
 
 	/**
-	 * The real host round trip: a REAL vscode.lm.registerTool over the
-	 * contributed manifest entry, driven through vscode.lm.invokeTool. Only a
-	 * live host can prove the manifest entry is well-formed enough to register
-	 * under, that the when-clause does not block an invocation, and - the
-	 * finding this suite exists for - that the contributed inputSchema does NOT
-	 * bind the host: an input missing the required question arrives at invoke
-	 * as-is, so the tool's own parse is the only thing standing between an
-	 * agent's malformed call and a prompt reading "Question: undefined".
-	 *
-	 * The activated extension's own wiring must NOT also register the name:
-	 * only `consultTool.enabled` is written for real (the when-clause's input),
-	 * and the real `consultTool.model` stays null, which keeps the production
-	 * registration fail-closed while this suite owns the name. The settings the
-	 * pipeline reads ride the withConfig stub as everywhere else.
+	 * The contributed inputSchema does NOT bind the host (the finding this suite exists for), so an input missing
+	 * the required question arrives at invoke as-is and the tool's own parse is all that stands between an agent's
+	 * malformed call and a prompt reading "Question: undefined". Only `consultTool.enabled` is written for real and
+	 * the real `consultTool.model` stays null, so the production wiring registers nothing and this suite owns the name.
 	 */
 	suite("live host registration", () => {
 		const config = () => vscode.workspace.getConfiguration("litellm-vscode-chat");
 		let disposeWiring: () => void = () => {};
 
 		suiteSetup(async () => {
-			// Wait for the configuration event ITSELF, not a macrotask that hopes
-			// to outlast it. It must reach the production wiring's listener BEFORE
-			// any withConfig stub is installed: inside the stub that listener would
-			// read this suite's model ref and register the same name, and whose
-			// tool then answered invokeTool would be a coin toss. Late delivery is
-			// the mirror hazard - this suite's own listener would then fire outside
-			// a stub, read the real null model, and dispose its registration. With
-			// the real model setting still null the production wiring registers
-			// nothing, so the name is free; if that ever stops holding, the
-			// registerTool below throws on the duplicate name rather than quietly
-			// shadowing. (vscode.lm.tools is NOT the oracle for this: it lists the
-			// CONTRIBUTION, which exists whether or not anything is registered
-			// under it, and is itself gated by the very context key under test.)
+			// Wait for the configuration event ITSELF, not a macrotask that hopes to outlast it and not vscode.lm.tools,
+			// which lists the CONTRIBUTION whether or not anything is registered under it. With the real model setting
+			// null the production wiring registers nothing, so the name is free, and if that stops holding the
+			// registerTool below throws on the duplicate name rather than quietly shadowing.
+			//
+			//   event lands inside a withConfig stub -> the production listener reads this suite's model ref and
+			//                                           registers the same name; which tool answers is a coin toss
+			//   event lands late                     -> this suite's listener fires outside a stub, reads the real
+			//                                           null model, and disposes its registration
 			const settled = new Promise<void>((resolve) => {
 				const listener = vscode.workspace.onDidChangeConfiguration((event) => {
 					if (event.affectsConfiguration(`${CONFIG_SECTION}.consultTool.enabled`)) {

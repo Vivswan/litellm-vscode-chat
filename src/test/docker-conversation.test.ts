@@ -16,16 +16,13 @@ import {
 import { expectDefined } from "./pureHelpers";
 
 /**
- * Multi-turn conversation property suite for the docker LiteLLM stack: randomized-length conversations
- * against gpt-5.2-mini (single deployment, deliberately: responses cannot vary by routing) through the real
- * proxy. Turns mix %echo, %text, %think, %play of a runtime-registered custom scenario, and the two-turn
- * %tool flow with a synthesized tool result fed back. Assertions target extracted content only - text, tool
- * calls, tool-call/result pairing across turns - never raw bytes (LiteLLM stamps its own created on every
- * chunk). %deployment is excluded: its oracle is relational and a directed docker test covers it.
+ * Conversations run against gpt-5.2-mini, a single deployment so responses cannot vary by routing, and assert on
+ * extracted content only because LiteLLM stamps its own created on every chunk.
  *
- * The iteration budget is its own knob (CONVERSATION_ITERATIONS, default 10) so nightly's
- * FUZZ_ITERATIONS=500 cannot multiply multi-round-trip conversations into the job budget. Reproduce any run
- * with FUZZ_SEED=<seed> (the seed knob is shared with the stream fuzzer); the seed is always logged.
+ *   %deployment excluded                 -> its oracle is relational, and a directed docker test covers it
+ *   CONVERSATION_ITERATIONS (default 10) -> own knob, so nightly's FUZZ_ITERATIONS=500 cannot multiply
+ *                                           multi-round-trip conversations into the job budget
+ *   FUZZ_SEED=<seed>                     -> reproduces a run (shared with the stream fuzzer, always logged)
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";

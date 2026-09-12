@@ -9,31 +9,13 @@ import type {
 } from "./wire";
 
 /**
- * Prompt-cache breakpoint pass. Runs after message and tool conversion, owns
- * every `cache_control` marker on the request, and never mutates its input.
+ * Anthropic allows four breakpoints and caches the prefix up to each, so the anchors (tools, system, first user, rolling last)
+ * are the prefixes that stay byte-identical across an agent session's turns. Placement per role is what LiteLLM's Anthropic
+ * adapter reads:
  *
- * Anthropic caches the request prefix up to each breakpoint and allows at
- * most four per request. The pass spends that budget on the four prefixes
- * that stay byte-identical across the turns of an agent session:
- *
- * - the last tool definition (the whole tools block),
- * - the system message,
- * - the first user message (stable session anchor), and
- * - the last text-bearing message (rolling anchor).
- *
- * The budget is enforced structurally rather than counted: the three message
- * anchors collapse into a Set of indices, each anchored message receives
- * exactly one marker, and the tools array receives at most one. Applying the
- * pass to its own output is a no-op.
- *
- * Marker placement follows what LiteLLM's Anthropic adapter reads, and the
- * form differs by role. Tool-role messages take a message-level marker: the
- * adapter wraps them in a tool_result block and only `message.cache_control`
- * lands on that top-level block, the only cacheable position. Every other role
- * takes a block-level marker on its last non-empty text block, so string
- * content converts to the array-of-blocks form. Uncached messages keep string
- * content. The tools anchor is a tool-level marker on the last tool
- * definition, which both the Anthropic and Bedrock adapters read.
+ *   tool-role message -> message-level; the adapter wraps it in a tool_result block whose top level is the only cacheable spot
+ *   any other message -> block-level on its last non-empty text block
+ *   last tool def     -> tool-level, which the Anthropic and Bedrock adapters both read
  */
 
 const CACHE_CONTROL: EphemeralCacheControl = Object.freeze({ type: "ephemeral" });

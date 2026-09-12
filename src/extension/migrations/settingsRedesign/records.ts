@@ -9,15 +9,13 @@ import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 import { DECLARE_DIRECTIVE, isForceableKey } from "./legacyIds";
 
 /**
- * Old prefix key -> explicit matcher. The old catch-all aliases ("" and the
- * bare "*") collapse to "*"; a key containing a literal "*" of its own becomes
- * an escaped anchored-prefix REGEX (star-appending would mint an invalid
- * mid-star matcher, and riding verbatim would ACTIVATE glob semantics over a
- * superset of the old match set); every other key gains a trailing glob. Each
- * form keeps matching exactly the IDs the old literal prefix matched, with one
- * accepted caveat for the regex form: it ranks at the regex tier (below
- * globs), so overlapping keys can order differently than the old
- * longest-prefix rule.
+ * Each form matches exactly the IDs the old literal prefix matched, so a prefix containing "*" (beyond the bare
+ * "*" alias) becomes an escaped anchored regex; both obvious spellings would break or widen it.
+ *
+ *   append a star -> a second star, which parseMatcherKey rejects as misplaced
+ *   ride verbatim -> depending on the star's place, glob or regex semantics over a different match set, or a misplaced-star rejection
+ *
+ * The regex form ranks below globs, so overlapping keys can order differently than under the old longest-prefix rule; accepted.
  */
 function explicitMatcherKey(prefix: string): string {
 	if (prefix === "" || prefix === "*") {
@@ -213,16 +211,12 @@ export interface GlobalRecordTransform {
 }
 
 /**
- * Transform one global record. Unscoped keys become explicit matchers in
- * place; a URL-scoped key ("<baseUrl>/<model prefix>") moves into EVERY
- * declared entry whose normalized base URL prefixes it, because under the old
- * runtime every server at that URL read the key. A scoped key no declared
- * entry matches is left VERBATIM: it matches no real model ID under the new
- * grammar (IDs never contain "://"), so it is inert exactly like the old
- * readers treated another server's keys, and collectLegacyHints reports it to
- * the dashboard. Global `_declare` directives declared only through a scoped
- * key's exact remainder; unscoped ones were diagnosed and inert, so both
- * strip - the scoped ones into the owning entries' declared lists.
+ * Under the old runtime every server at a URL read its scoped keys, so a URL-scoped key moves into EVERY
+ * declared entry at that base URL. What does not move is left exactly as the old readers treated it.
+ *
+ *   scoped key no declared entry matches -> kept verbatim; IDs never contain "://", so it is inert, and collectLegacyHints reports it
+ *   unscoped `_declare`                  -> stripped; the old parser diagnosed it as inert
+ *   scoped `_declare`                    -> stripped into the owning entries' declared lists; it declared only the key's exact remainder
  */
 export function transformGlobalRecord(
 	raw: unknown,

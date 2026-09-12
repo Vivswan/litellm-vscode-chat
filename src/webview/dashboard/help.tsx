@@ -46,7 +46,8 @@ export function NoBreakTail({ children }: { children: ReactNode }) {
 export function HoverTip({ tip, children }: { tip: string; children: ReactNode }) {
 	const bubble = useTip("above");
 	return (
-		// biome-ignore lint/a11y/noNoninteractiveTabindex: the wrapped content is non-interactive and the tip text renders nowhere else, so the tab stop is the keyboard's only route to it
+		// The tip text renders nowhere else, so this tab stop is the keyboard's only route to it.
+		// biome-ignore lint/a11y/noNoninteractiveTabindex: the keyboard's only route to the tip
 		<span className="tip-wrap" tabIndex={0} aria-describedby={bubble.id} {...bubble.triggerProps}>
 			{children}
 			<TipBubble tip={bubble}>{tip}</TipBubble>

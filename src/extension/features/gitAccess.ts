@@ -62,18 +62,9 @@ export async function pickRepository(
 }
 
 /**
- * The label a file travels to the model under: its workspace-relative path
- * (host default, so a multi-root window keeps the folder prefix and two
- * same-named files stay distinct), or - for a file in no workspace folder,
- * where asRelativePath hands back the absolute filesystem path before the
- * folder-prefix option is even consulted - the bare file name. Home
- * directories and user names are not part of a code review, and the docs
- * promise a relative path. The ONE sanctioned asRelativePath call under
- * features/ (a bun-tree guard pins that): every model-facing file label goes
- * through here, because a raw asRelativePath ships the absolute path for any
- * file outside the workspace. (The sibling repositoryRelativePath, in
- * gitPaths.ts, is the path git itself is asked about - never a model-facing
- * label.)
+ * The ONE sanctioned asRelativePath call under features/, pinned by documentLabelGuard.test.ts, because the raw
+ * call hands back the absolute filesystem path, home directory included, for a file outside every workspace
+ * folder. gitPaths.ts's repositoryRelativePath is the path git is asked about, never a model-facing label.
  */
 export function documentLabel(uri: vscode.Uri): string {
 	const relative = vscode.workspace.asRelativePath(uri);

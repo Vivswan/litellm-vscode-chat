@@ -17,18 +17,11 @@ export function englishChatErrorMessage(headline: string, detail: string): strin
 }
 
 /**
- * The English rendering a boundary error must carry, at least one of:
+ * The English channel a boundary error must carry; the union makes omitting both a compile error.
  *
- * - `englishMessage`: the full English mirror of a localized display message,
- *   response-derived detail included. The output channel renders it instead of
- *   the message, and public surfaces fall back to it without a classification.
- * - `logClassification`: the terse rendering PUBLIC surfaces (the issue-report
- *   buffer and the latest-error prefill; see shared/logger.ts) record instead
- *   of the message. Required of any site whose message embeds response-derived
- *   text, and distinct enough per site to tell failure modes apart without it.
- *
- * The union makes omitting both a compile error: a boundary error cannot be
- * constructed without an English channel.
+ *   englishMessage    -> the full mirror of the localized message; the output channel renders it in the message's place
+ *   logClassification -> the terse text PUBLIC surfaces (shared/logger.ts) record; required where the message embeds
+ *                        response-derived text, and distinct per site so failure modes stay apart without it
  */
 export type EnglishRendering =
 	| { readonly englishMessage: string; readonly logClassification?: string }

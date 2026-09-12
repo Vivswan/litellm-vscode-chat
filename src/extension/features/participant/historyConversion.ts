@@ -106,24 +106,9 @@ export function normalizeForWire(messages: readonly ChatMessage[]): ChatMessage[
 }
 
 /**
- * Convert prior turns to messages, in order - a faithful turns-to-messages
- * conversion; wire shape (user-first, alternating roles) is normalizeForWire's
- * job at the send boundary.
- *
- * A prior turn's ATTACHMENTS are deliberately not re-read. vscode's
- * ChatRequestTurn carries its own `references`, so re-resolving them here is
- * possible, but a thread that discusses one file would then ship that file
- * once per turn - the request grows with the conversation, and the newest copy
- * is the only one that reflects edits since. The host re-attaches the live
- * editor context on every turn instead, so a follow-up about the file in front
- * of you still arrives with it; what is lost is a file attached once, edited
- * away from, and referred back to, which the user can re-attach.
- *
- * Markdown fragments of one response concatenate back into the text the user
- * saw; turns that convert to whitespace alone (a tool-only response, an empty
- * prompt) are dropped rather than sent as empty messages; and once the total
- * content passes HISTORY_CHAR_LIMIT the oldest whole messages fall off,
- * possibly all of them.
+ * A prior turn's ATTACHMENTS are deliberately not re-read from its `references`, or a thread about one file
+ * would ship that file once per turn. The host re-attaches the live editor context every turn, so what is lost
+ * is only a file attached once, edited away from, and referred back to, which the user can re-attach.
  */
 export function historyMessages(turns: readonly HistoryTurn[]): ChatMessage[] {
 	const messages: ChatMessage[] = [];

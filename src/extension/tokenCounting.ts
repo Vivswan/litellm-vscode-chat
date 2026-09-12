@@ -43,17 +43,8 @@ export interface TokenCountingController {
 }
 
 /**
- * Owns the async side of token estimation: which mode the shared counter runs
- * in, and when an encoding's rank data loads. Counting itself stays synchronous
- * - a mode that wants a tokenizer counts by its heuristic until the load lands,
- * and a failed load logs once and leaves that heuristic standing, so nothing
- * here can throw into the request path.
- *
- * Load policy per mode: "heuristic" never loads; the explicit encodings load
- * eagerly on apply; "auto" loads o200k_base eagerly under a non-English UI and
- * otherwise waits for the counter's non-Latin detection. Each applied mode gets
- * at most one load attempt, and a load resolving after the mode changed
- * installs nothing.
+ * Counting itself stays synchronous, so nothing here can throw into the request path. A mode that wants a
+ * tokenizer counts by its heuristic until the load lands, and a failed load logs once and leaves it standing.
  */
 export function createTokenCountingController(deps: TokenCountingDeps): TokenCountingController {
 	const loadEncoding = deps.loadEncoding ?? importEncoding;

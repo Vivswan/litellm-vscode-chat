@@ -493,7 +493,8 @@ export function ModelParametersEditor({
 	// Keyed on the request's seq so repeating the same jump re-opens.
 	const externalSeq = external?.seq;
 	const jsonOpen = json !== undefined;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on the request seq alone so repeating the jump re-opens; the draft, groups, and editor are read at fire time
+	// The draft, groups, and editor are read at fire time, not watched.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the request seq alone (see above)
 	useEffect(() => {
 		if (external === undefined || externalSeq === undefined || jsonOpen) {
 			return;
@@ -789,7 +790,8 @@ export function ModelCapabilitiesEditor({
 	// Keyed on the request's seq so repeating the same jump re-opens.
 	const externalSeq = external?.seq;
 	const jsonOpen = json !== undefined;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on the request seq alone so repeating the jump re-opens; the draft, groups, and editor are read at fire time
+	// The draft, groups, and editor are read at fire time, not watched.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the request seq alone (see above)
 	useEffect(() => {
 		if (external === undefined || externalSeq === undefined || jsonOpen) {
 			return;

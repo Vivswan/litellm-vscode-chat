@@ -117,16 +117,10 @@ export interface LiteLLMChatModelProviderOptions {
 		| ((label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined)
 		| undefined;
 	/**
-	 * Serve- and request-time resolver for a declared entry's CURRENT
-	 * credentials, matched by label and normalized base URL like
-	 * getEntryHeaders. The host's provider-group configuration bakes the
-	 * credentials in at group creation and can never be updated (the group
-	 * command surface is add-only), so a labeled group's baked credentials are
-	 * overlaid with the matching entry's live ones before anything derives
-	 * identity from them; `undefined` (no matching entry, refused secret
-	 * ownership, a failed secrets read) keeps the baked credentials in force -
-	 * they remain the fallback for external groups and leftover groups whose
-	 * entry moved hosts. Never rejects by contract; the facade still guards.
+	 * The host bakes credentials into a group at creation and its group commands are add-only, so the entry's
+	 * CURRENT credentials (matched like getEntryHeaders) overlay the baked ones before anything derives identity.
+	 * `undefined` (no matching entry, refused secret ownership, a failed secrets read) keeps the baked ones
+	 * in force, the fallback for external groups and leftovers whose entry moved hosts.
 	 */
 	resolveEntryCredentials?: ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>) | undefined;
 	/**
@@ -138,15 +132,12 @@ export interface LiteLLMChatModelProviderOptions {
 	 */
 	getCatalogLookup?: (() => CapabilityCatalogLookup) | undefined;
 	/**
-	 * Whether a provider group is hidden by the user's configuration: explicitly
-	 * removed (judged by the group's status label and normalized base URL, the
-	 * tombstone identity), or superseded because the entry whose label its
-	 * configuration carries now declares another URL (judged by `entryLabel`,
-	 * absent for unlabeled groups, whose URL-host display label must never read
-	 * as an entry's). A suppressed group answers with an empty model list and
-	 * skips the network entirely; its group-side status still reports, so the
-	 * status window and the dashboard stay coherent. Default: nothing is
-	 * suppressed.
+	 * A suppressed group answers empty and skips the network, while its group-side status still reports, so
+	 * the status window and the dashboard stay coherent.
+	 *
+	 *   removed    -> judged by the group's status label and normalized base URL, the tombstone identity
+	 *   superseded -> the entry carrying `entryLabel` now declares another URL; unlabeled groups pass no
+	 *                 `entryLabel`, so a URL-host display label never reads as an entry's
 	 */
 	isGroupSuppressed?: ((label: string, baseUrl: string, entryLabel: string | undefined) => boolean) | undefined;
 	/** Cache seam for tests (fake TTL clock); the provider owns a real one by default. */
@@ -313,17 +304,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
-	 * Evict per-server state for servers no longer being served: SDK clients
-	 * and cached discovery results move in lockstep, because both embed the
-	 * server's credentials (a rotated key mints a new group client ID). The
-	 * discovery cache keys compose the group ID with the effective API root
-	 * (GroupDiscovery.cacheKeyFor), so its keep-set is built through the same
-	 * composition: a kept group keeps exactly its current-root entry, and an
-	 * entry a root rotation left unreachable ages out here. A kept ID the
-	 * status window cannot resolve (never observed today: every windowed ID
-	 * carries its group server) contributes no key, which fails safe - the
-	 * worst case is one extra discovery round trip, never a wrongly kept
-	 * credential-bearing entry.
+	 * Clients and cached discovery results prune in lockstep, since both key on the group client ID and its
+	 * credential fingerprint. The keep-set composes through GroupDiscovery.cacheKeyFor like the keys themselves.
+	 *
+	 *   root rotated                  -> the old root's entry is unreachable and ages out here
+	 *   kept ID the window cannot map -> contributes no key; fails safe as one extra discovery round trip
 	 */
 	private pruneServerCaches(keep: readonly string[]): void {
 		this._client.pruneClients(keep);

@@ -392,10 +392,11 @@ test("the settings rows' shared tracks leave the description a working column at
 	// Anchored to the wide-tier block: the tracks, the label cap, and the gap all live inside the ONE
 	// `@container pane (width >= N px)` block that owns the settings grid, so the threshold cannot be spelled
 	// twice and drift - membership in the block is checked by brace depth below.
-	const wide =
-		/@container pane \(width >= (\d+)px\) \{\s*\.settings-groups \{\s*display: grid;\s*grid-template-columns: var\(--setting-label-gutter\) minmax\(0, (\d+(?:\.\d+)?)rem\) minmax\(0, 1fr\) (\d+(?:\.\d+)?)rem;\s*column-gap: (\d+)px;/.exec(
-			css
-		);
+	const wide = new RegExp(
+		String.raw`@container pane \(width >= (\d+)px\) \{\s*\.settings-groups \{\s*display: grid;\s*` +
+			String.raw`grid-template-columns: var\(--setting-label-gutter\) minmax\(0, (\d+(?:\.\d+)?)rem\) ` +
+			String.raw`minmax\(0, 1fr\) (\d+(?:\.\d+)?)rem;\s*column-gap: (\d+)px;`
+	).exec(css);
 	if (wide?.[1] === undefined || wide[2] === undefined || wide[3] === undefined || wide[4] === undefined) {
 		throw new Error("could not read the shared settings tracks from dashboard.css's .settings-groups block");
 	}

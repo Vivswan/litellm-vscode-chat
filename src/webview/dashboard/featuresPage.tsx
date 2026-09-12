@@ -185,22 +185,12 @@ function modelRefIdentity(ref: FeatureModelRef): string {
 const CUSTOM_OPTION = "custom";
 
 /**
- * One feature's model-picker row, rendered for every model-picking feature. The select
- * offers "Not set" plus every declared entry's served (server, model) pair; a configured
- * ref no offered pair currently backs stays IN the option list (selected, same rendered
- * text), so the dangling state changes no geometry - its only visible delta is the
- * warning in the covered description slot, which holds the cell's height by the covering
- * contract (check-geometry pins both). A standing write failure for this row outranks the
- * dangling warning: both render in the same covered slot, and the warning never clears
- * on its own, so it must not mask "the last change did not apply".
+ * A configured ref no offered pair backs stays IN the option list, selected with the same rendered text, so the
+ * dangling state changes no geometry (check-geometry pins it, feature-model-dangling). A standing write failure
+ * outranks the dangling warning in the covered slot, because the warning never clears on its own.
  *
- * "Custom model ID..." swaps the select for a same-height entry cluster (a declared
- * entry's label plus a free-typed model ID): the escape hatch for models the picker
- * cannot list - completion-mode (FIM) models never register as chat models, and a
- * server may serve IDs discovery cannot see. A feature whose probe activation registered
- * (state.featureProbes) also carries the test button: one probe running the feature's
- * exact pipeline, its outcome rendered as a short tone-styled status beside it (counts
- * and classified messages only, never response text).
+ *   "Custom model ID..." -> the escape hatch for models the picker cannot list (FIM models never register as chat models)
+ *   test button outcome  -> counts and classified messages; the model's completion text never renders
  */
 function FeatureModelRow({
 	feature,

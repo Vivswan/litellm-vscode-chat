@@ -14,16 +14,9 @@ import { updateServerSecret } from "./servers/serverSync";
 import { createSettingsAccess } from "./settingsAccess";
 
 /**
- * One-shot development seeding for `bun run dev`: the launcher writes the seed
- * file (shared/devSeed.ts owns the filename and shape) into the extension
- * development folder, and a development-mode activation consumes it exactly
- * once. The seed lands the same way a user-configured server does:
- * `litellm-vscode-chat.servers` entries in the user scope with each API key
- * inline in its entry, which the sync engine's forced pass turns into provider
- * groups. Inline is deliberate - it is the case the dashboard edit form's
- * prefill exercises. The seed's global demo records land in the
- * models.parameters / models.capabilities settings, owning exactly the matcher
- * keys the seed names. Production activations never look for the file.
+ * The `bun run dev` launcher writes the seed file (shared/devSeed.ts owns its name and shape) into the
+ * extension folder, and extension.ts reads it only outside Production mode. Seed API keys land inline in
+ * their entries on purpose, since that is the case the dashboard edit form's prefill exercises.
  */
 
 const DEFAULT_SEED_LABEL = "Fake LiteLLM";

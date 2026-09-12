@@ -73,18 +73,6 @@ export interface LiteLLMArchitecture {
 	output_modalities?: string[];
 }
 
-/**
- * How a discovered model registers, decided by discovery and switched on by
- * registration:
- * - "deployment": a /v1/model/info entry (or several merged deployments of one
- *   model_name) with a single authoritative provider; registers once, with
- *   pricing.
- * - "bare": a /v1/models entry without provider data; registers once on
- *   defaults.
- * - "group": a providers-array entry; registers cheapest/fastest aggregates
- *   and per-provider entries (or one untooled base entry), so its providers
- *   list is non-empty by construction.
- */
 export type ModelShape =
 	| { readonly kind: "deployment"; readonly provider: LiteLLMProvider }
 	| { readonly kind: "bare" }

@@ -4,17 +4,9 @@ import type { Branch, Change, Commit, Repository } from "../gitApi";
 import { PATCHES_CHAR_LIMIT, type TitleAndDescriptionContext } from "./prompt";
 
 /**
- * Where a PR generation context comes from when the request is ours rather
- * than the GitHub Pull Requests extension's: the local repository, walked
- * through the vscode.git API. Pure over the injected Repository (the git types
- * are erased), so the whole walk tests without a git checkout, and it produces
- * exactly the context shape the upstream provider is handed - one prompt
- * assembly serves both entry points.
- *
- * It also owns the ordering normalization for the OTHER entry point: the
- * upstream context's `commitMessages` arrive oldest-first or newest-first
- * depending on which way that extension collected them, and the prompt reads
- * the list's tail as the recent end.
+ * The generation context when the request is ours rather than the GitHub Pull Requests extension's. Pure over
+ * the injected Repository so the whole walk tests without a git checkout, and shaped exactly like the context
+ * that extension hands its provider, so one prompt assembly serves both entry points.
  */
 
 /** How many changed files may contribute a patch block; a huge branch costs one git call per file. */
@@ -30,23 +22,12 @@ const PATCH_TRUNCATION_MARKER = "\n[patch truncated]";
 export type CommitListOrder = "oldestFirst" | "newestFirst";
 
 /**
- * Which order the GitHub Pull Requests extension built a context's
- * `commitMessages` in. It has two collection paths and they disagree: with the
- * compare branch pushed and its remote head matching, it reads the commits
- * from the GitHub compare API (oldest first); otherwise it reads `git log`
- * (newest first).
+ * The GitHub Pull Requests extension's own fork test compares the remote head with the local commit, which only
+ * a network call can answer, so the stand-in is the tracking state git already knows. A caller that cannot
+ * resolve the branch must NOT ask, since an unknown branch is not a branch without an upstream.
  *
- * Its own test for that fork is the branch's upstream ref PLUS the remote head
- * equalling the local commit, which only a network call can answer. The local
- * stand-in is the tracking state git already knows: an upstream ref with no
- * divergence as of the last fetch. When git reported no ahead/behind counts,
- * the verdict falls back to the upstream ref alone. A stale answer costs
- * ordering, never correctness - it decides which end of an over-long list the
- * prompt keeps, and the messages themselves are the same either way.
- *
- * Callers that cannot resolve the branch at all must NOT ask: an unknown
- * branch is not a branch without an upstream, and the honest answer there is
- * to leave the list as it arrived.
+ *   compare branch pushed, remote head matching -> GitHub compare API, oldest first
+ *   anything else                               -> `git log`, newest first
  */
 export function ghprCommitOrder(branch: Branch): CommitListOrder {
 	if (branch.upstream === undefined) {
@@ -172,17 +153,11 @@ async function branchPatches(
 }
 
 /**
- * Assemble the generation context for the checked-out branch: the commits it
- * carries over its base and the patch of every file it changes, compared from
- * the merge base so commits landing on the base meanwhile do not read as this
- * branch's work. The comparison includes the working tree, matching what the
- * upstream extension shows in its own create view - uncommitted changes to
- * TRACKED files are part of what the description will cover (untracked files
- * are not: git does not diff them).
+ * Neither a PR template nor issue context rides along, because both are the GitHub extension's own enrichment
+ * and inventing them locally would put text in the prompt the user never wrote.
  *
- * Neither a PR template nor issue context rides along here: both are the
- * GitHub extension's own enrichment, and inventing them locally would put text
- * in the prompt the user never wrote.
+ *   compared from the merge base -> commits landing on the base meanwhile do not read as this branch's work
+ *   working tree included        -> matches the upstream create view, so edits to TRACKED files count and untracked files do not
  */
 export async function collectBranchContext(repo: Repository, token?: CancellationToken): Promise<BranchContextOutcome> {
 	const head = repo.state.HEAD;

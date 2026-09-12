@@ -640,15 +640,9 @@ export class StreamProcessor {
 	}
 
 	/**
-	 * The finalized reading of an accumulated arguments string: an empty (or
-	 * whitespace-only) accumulation is a no-argument call and reads as the
-	 * empty object - the same rule the inline parser applies to a call with no
-	 * argument-begin token and outbound history conversion applies to a missing
-	 * input. Callers gate WHEN finality holds: a complete inline call's end
-	 * token proves it, the EOF flush proves it for delta buffers (unless
-	 * finish_reason "length" says the limit cut the call off - see
-	 * EmptyArgsMode), and mid-stream sites must never use this, since empty
-	 * arguments may still be accumulating there.
+	 * An empty accumulation reads as the empty object, the same rule textToolCallParser.ts applies to a call
+	 * with no argument-begin token and shared/conversion/messages.ts applies to a missing input. Callers gate
+	 * WHEN finality holds; mid-stream sites must never use this, since empty arguments may still be accumulating.
 	 */
 	private static flushArgsText(args: string): string {
 		return args.trim() === "" ? "{}" : args;

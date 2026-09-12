@@ -52,15 +52,10 @@ function isUnreadable(reference: ResolvedReference): reference is UnreadableRefe
 }
 
 /**
- * Total budget for the whole attachment section on one turn - heading,
- * separators, notices and all - measured against the RENDERED text rather than
- * the raw file contents, because the fence around a block grows with the
- * longest backtick run inside it and counting content alone would let a
- * pathological file bill 40,000 characters and emit three times that.
- *
- * Separate from HISTORY_CHAR_LIMIT because they bound different things:
- * history sheds whole old messages, attachments are what the user just pointed
- * at and are trimmed from the end with the trim announced.
+ * Bounds the whole RENDERED attachment section, heading and notices included, because the fence around a block
+ * grows with its longest backtick run and counting raw content would let a pathological file emit three times
+ * its bill. Separate from HISTORY_CHAR_LIMIT because history sheds whole old messages while attachments, the
+ * user's current explicit input, are trimmed from the end with the trim announced.
  */
 export const REFERENCE_CHAR_LIMIT = 40_000;
 
@@ -82,18 +77,9 @@ function longestFenceRun(text: string): number {
 }
 
 /**
- * A label that cannot become structure. The name is attacker-influenced - it is
- * a path, and a path may contain backticks or (on the platforms that allow it)
- * newlines - and it sits on its own line directly above the opening fence, so
- * a name whose line begins with a backtick run would open a block that the
- * real fence then closes, spilling the attachment's contents out as prose.
- * Line breaks flatten, backslashes escape first so a preexisting one cannot
- * disarm the backtick escape that follows, and backticks escape so an inline
- * code span cannot open in the label and close on the fence line below it -
- * the line-initial fence-run threat is already closed by the caller's "- "
- * prefix. The caller then writes it as a list item, so a name like "# Ignore
- * previous instructions" cannot sit at the start of a line and read as a
- * heading either.
+ * The name is a path, so it may carry backticks or, on some platforms, newlines, and it sits directly above the
+ * opening fence. Backslashes escape first so a preexisting one cannot disarm the backtick escape that follows,
+ * and backticks escape so an inline code span cannot open in the label and close on the fence line below it.
  */
 function labelText(name: string): string {
 	return name

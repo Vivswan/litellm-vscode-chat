@@ -8,15 +8,9 @@ import {
 } from "../../shared/config/settingSpec";
 
 /**
- * The features' one refusal vocabulary, at the features/ root because features
- * may not import each other: the two setting-ID derivations and the two gate
- * sentences every feature's enable and model checks speak. The feature name
- * comes from the shared display-name registry and each setting ID from the
- * same key registry the getters read, so a rename fails this compile instead
- * of leaving advice pointing at a dead setting - and no feature can drift into
- * a private variant of the sentence (the old consult-tool copy had already
- * lost the dashboard mention). Richer refusals (quickFix's dual-reason advice)
- * stay callers of the ID derivations while owning their own sentences.
+ * The features' one refusal vocabulary, at the features/ root because features may not import each other. The
+ * setting IDs derive from the key registries settings.ts reads and the feature name from dashboard/featureNames.ts,
+ * so a rename fails this compile instead of leaving advice pointing at a dead setting.
  */
 
 /** The full enable-setting ID a disabled-feature hint names and its open-settings action targets. */

@@ -123,15 +123,8 @@ const LEVEL_RANK: Readonly<Record<CapabilityLevel, number>> = Object.fromEntries
 ) as Record<CapabilityLevel, number>;
 
 /**
- * Whether a model gets the reasoning-effort control, from the effective
- * fields. Two fields carry a signal - the supports_reasoning flag and
- * reasoning_effort's membership in supported_openai_params - and the one that
- * resolved at the higher-precedence level decides; a tie goes to the flag, so
- * a user's explicit supports_reasoning beats their own params list in one
- * record. The flag's floor level counts as no-signal, not a demotion: it is
- * the walk's backstop `false`, so a user-set params list at any level outranks
- * it. A winning params list WITHOUT reasoning_effort demotes, which is how a
- * user turns the control off.
+ * A winning params list WITHOUT reasoning_effort demotes, which is how a user turns the control off.
+ * The flag's floor level is the walk's backstop `false`, not an explicit demotion, so it counts as no signal.
  */
 export function reasoningGate(fields: EffectiveCapabilityFields): boolean {
 	const flag = fields.supports_reasoning;
@@ -259,16 +252,9 @@ function advertisesEffective(
 }
 
 /**
- * Apply the capability overrides to one refresh's registered models. Models
- * nothing matches are returned by object identity (and an untouched pass
- * returns the input array itself), so the common no-configuration case costs
- * no copies. A matched model is rebuilt coherently from the effective fields:
- * token limits, the toolCalling/imageInput capabilities, the audio and
- * prompt-caching gates, the reasoning configurationSchema, the pricing block,
- * and the outputLimitSource provenance ("user" for any override level).
- * Pricing is never catalog-sourced: every price a served model carries is
- * re-derived here from the effective cost fields, so nothing but the server's
- * report and the user's records can put a number on a model.
+ * The verified fast path (no rebuild-triggering field, no directive, and advertisesEffective holds) keeps the
+ * model and the input array by identity, so the common no-configuration case costs no copies.
+ * Pricing is re-derived from the effective cost fields, which the walk never fills from the catalog.
  */
 export function applyCapabilityOverrides(
 	infos: readonly PreAttachModelInfo[],
@@ -335,15 +321,9 @@ export function applyCapabilityOverrides(
 }
 
 /**
- * Build the declared models the current configuration creates on one server.
- * A declared ID that discovery listed is inert - judged against the DISCOVERED
- * raw-ID set, not the registered one, because registration may emit only
- * synthetic variants (`foo:cheapest`) for a discovered `foo`. A declared ID
- * whose exposed form collides with an ID registration is about to emit is
- * suppressed with a logged warning: never two models with one exposed ID.
- * Declared models are always rebuilt from the configuration at hand and never
- * persisted, so removing a declared ID takes effect on the next serve even
- * mid-outage.
+ * Declared models are rebuilt every serve and never persisted, so removing a declared ID takes effect on
+ * the next serve, even mid-outage. Inertness is judged against the DISCOVERED raw IDs, not the registered
+ * ones, since registration.ts may emit only synthetic variants (`foo:cheapest`) of a discovered `foo`.
  */
 export function synthesizeDeclaredModels(
 	discoveredRawIds: ReadonlySet<string>,

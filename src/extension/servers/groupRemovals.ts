@@ -137,24 +137,14 @@ function parseVersionedRecords(raw: unknown): VersionedRecords {
 }
 
 /**
- * One Memento region under the versioned-blob protocol: the in-memory list is
- * authoritative for this window, every persist bumps the version, and stored
- * snapshots are adopted only when strictly newer. That closes the observed
- * globalState hazard (#220: an
- * awaited update reverted moments later by a stale value - the nightly monkey
- * fuzzer caught removed groups' models never leaving the host list that way),
- * because the revert carries an older-or-equal version and is ignored, while
- * another window's genuine mutation - its dashboard Unhide included - synced
- * before mutating, so its blob is strictly newer and is adopted. Simultaneous
- * mutations from two windows remain last-write-wins.
+ * Closes the #220 globalState hazard, an awaited update reverting moments later to a stale value.
  *
- * Persistence is best-effort: a failure is reported, never thrown (a thrown
- * persist would make callers report the opposite of the effective state), and
- * the version does not advance. While memory holds records a persist failed
- * to write, adoption is suspended (a foreign snapshot would silently drop
- * them); the next successful persist writes the whole view above every stored
- * version and resumes the shared protocol. A failed persist with no later
- * mutation costs the NEXT session the records, never this one.
+ *   stale revert of our own write     -> older-or-equal version, ignored
+ *   another window's genuine mutation -> it synced before mutating, so strictly newer and adopted
+ *   two windows mutating at once      -> last-write-wins
+ *
+ * A persist failure is reported, never thrown, since a throwing persist would make callers report the
+ * opposite of the effective state; with no later successful persist the loss lands on the NEXT session, never this one.
  */
 class VersionedRegion<T> {
 	private records: readonly T[];

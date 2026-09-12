@@ -112,18 +112,9 @@ export function resolveAdoptableCredentials(
 }
 
 /**
- * Apply one adoptServer intent: write the external group's configuration as a
- * new declared entry, each resolved secret stored where the user chose. The
- * webview names only the group (by the opaque handle its row carried) and the
- * storage locations; the values come from the provider's in-memory lookup
- * here, and only for a group that is still external. A missing lookup still
- * writes the plain entry and reports the caveat, because the user asked for
- * the entry either way.
- *
- * Failure ordering mirrors applySaveServerSetting's guarded unit: secure
- * writes and stale-blob clears first, then the settings write; if any step
- * fails, secure values changed under this label are restored. The stale
- * clears are safe before the write because no entry exists under the label yet.
+ * A missing credential lookup still writes the plain entry and reports the caveat, because the user asked for the
+ * entry either way. The failure ordering mirrors applySaveServerSetting's guarded unit, and the stale-blob clears
+ * are safe before the settings write because no entry exists under the label yet.
  */
 export async function applyAdoptServer(
 	intent: RequestPayload<"adoptServer">,

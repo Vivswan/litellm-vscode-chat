@@ -92,29 +92,14 @@ function configurationSchemaFor(
 }
 
 /**
- * Pricing metadata for the model picker, converted to VS Code's
- * per-million-token unit. Only entries whose route pins the serving
- * deployment's cost carry pricing: sole model_info entries and per-provider
- * entries. The cheapest/fastest aggregates and the untooled base entry stay
- * without it (and so without the derived priceCategory badge) because there
- * the proxy's routing decides what a request actually costs. Providers-array
- * entries are lenient pass-throughs, so every value is re-narrowed and a field
- * without a usable number is omitted outright.
+ * Registration prices only entries whose route pins the serving deployment's COST; for the cheapest/fastest
+ * aggregates and the untooled base entry the proxy's routing decides what a request costs, so only a user
+ * cost record can put a number on them.
  *
- * Long-context tier costs become the host's longContext* fields under two
- * extra rules: they ride only next to their base field, since a tier price
- * without a base price would sit beside an empty Default cell, and they are
- * omitted when they equal the converted base cost, since the host declares
- * them present only when long-context pricing differs. The `pricing` display
- * label rides beside the numeric fields when both base costs are known: the
- * picker hover's numeric cost table is entitlement-gated, so for a typical
- * LiteLLM user the label is the only cost line that hover can show.
- *
- * A raw 0/0 input/output pair prices as genuinely free here: LiteLLM's 0/0
- * no-pricing stamp never reaches this converter, because discovery's
- * serverCostsOf maps it to undefined at ingest, so the only raw zero pair a
- * caller can still hand over is user-written configuration (a
- * capabilityOverrides rebuild over effective cost fields).
+ *   long-context tier -> rides only beside its base field (alone it would face an empty Default cell) and
+ *                        is omitted when equal to it, since the host shows tiers only when they differ
+ *   `pricing` label   -> the hover's numeric cost table is entitlement-gated, so for a typical LiteLLM user
+ *                        this label is the only cost line the hover can show
  */
 export function pricingFromCosts(costs: PerTokenCosts, currencySymbol: string): ModelPricing {
 	// The raw zero pair, before the per-million rounding: pairs that merely

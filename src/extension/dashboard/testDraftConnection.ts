@@ -87,19 +87,11 @@ function draftDeclaredModelIds(payload: readonly string[]): readonly string[] {
 const PARSE_BACK_LABEL = "draft";
 
 /**
- * Apply one testServerDraft intent. The probe's credentials derive from the
- * production pipeline itself: the draft's directives resolve through the save
- * path's own secret plans, the same shared assembler builds the auth object a
- * save would write, serverSync's parser reads it back, and buildGroupArgs
- * resolves the secure-side values - so the probed configuration equals the
- * saved entry's group configuration by construction. Pairing failures (a
- * partial OAuth or virtual-key configuration would probe unauthenticated and
- * report a lie) surface as the same field-routed messages a save raises. A
- * terminal discovery failure in a declared expectedFailures category resolves
- * to the expected-failure outcome instead of throwing; every other transport
- * failure is re-thrown as a validation-kind error carrying the transport's
- * user-facing message, so the panel boundary logs a classification only,
- * never response text.
+ * The probe's credentials derive from the production pipeline, so the probed configuration equals the saved
+ * entry's group configuration by construction. A pairing failure surfaces as the field-routed message a save raises,
+ * because a partial OAuth unit would otherwise probe unauthenticated and lie.
+ *
+ *   the save path's secret plans -> the shared auth assembler -> serverSync's parser -> buildGroupArgs
  */
 export async function applyTestServerDraft(
 	intent: RequestPayload<"testServerDraft">,
@@ -237,15 +229,9 @@ export async function applyTestServerDraft(
 const DRAFT_PROBE_SERVER_ID = "dashboard-draft-probe";
 
 /**
- * The real probe implementation panel.ts wires into the intent environment:
- * one discovery pass through a throwaway ChatClient, so the OAuth exchange,
- * the entry's custom headers, timeout, and retry behavior are all production
- * discovery's, while the instance's caches are discarded with the call.
- *
- * Deliberately NO logger: discovery's own debug lines carry endpoint URLs and
- * truncated response snippets, which would land in the issue-report buffer
- * that opens public GitHub issues. The panel boundary logs the outcome
- * classification once instead.
+ * A throwaway ChatClient, so the OAuth exchange, custom headers, timeout, and retries are production discovery's
+ * while the caches die with the call. Deliberately NO logger, because discovery's debug lines carry endpoint URLs
+ * and response snippets, which feed the public issue-report buffer.
  */
 export function createDraftConnectionProbe(
 	userAgent: string

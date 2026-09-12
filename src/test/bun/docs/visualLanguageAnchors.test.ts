@@ -4,26 +4,8 @@ import path from "node:path";
 import ts from "typescript";
 
 /**
- * The visual-language charter cites its evidence as durable anchors; every
- * anchor must resolve against today's source, so a renamed selector or a
- * deleted component fails HERE, with the charter line to fix. Line-number
- * citations are banned outright: they rot within days of landing.
- *
- * The grammar, documented at the top of the charter and implemented here:
- *
- * - A citation is one backtick span whose first token names a file by
- *   extension (a span may wrap across a line break; its whitespace collapses):
- *   `FILE` alone references the file (it must exist); `FILE ANCHOR` also
- *   names an anchor in it.
- * - FILE resolves under `src/webview/dashboard/` (`dashboard.css` and
- *   `theme.css` under its `styles/`); a path starting with `src/` resolves
- *   from the repository root.
- * - In a stylesheet, the anchor is a selector or at-rule prelude fragment and
- *   must appear inside some rule prelude, or a `--custom-property`, which
- *   must be declared.
- * - In a TS/TSX file, the anchor is an identifier or class-name token and
- *   must appear in the file's code or string literals - a stale comment does
- *   not count.
+ * Line-number citations are banned outright because they rot within days of landing. The citation grammar this
+ * file implements is documented at the top of docs/dashboard-visual-language.md.
  */
 const repoRoot = path.resolve(import.meta.dir, "../../../..");
 const charterPath = path.join(repoRoot, "docs/dashboard-visual-language.md");
