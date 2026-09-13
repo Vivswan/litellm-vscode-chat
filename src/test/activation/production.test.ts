@@ -351,7 +351,7 @@ suite("production activation", () => {
 		});
 		try {
 			await config.update("ui.maskSecretInputs", false, vscode.ConfigurationTarget.Global);
-			// Longer than the 400ms debounce: a mis-scoped branch would have
+			// Longer than the 400ms debounce: a wrongly scoped branch would have
 			// fired by now.
 			await new Promise((resolve) => setTimeout(resolve, 1200));
 			assert.strictEqual(fired, 0, "the listener notifies only for the model-affecting settings");

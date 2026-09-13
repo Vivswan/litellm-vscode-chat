@@ -677,7 +677,7 @@ body {
 	--err-wash: color-mix(in srgb, var(--err) var(--state-mix), transparent);
 	/* Destructive AT REST. A row can carry a Remove beside an Edit and, on the
 		 broken row, beside a Fix - so the destructive one has to be tellable
-		 apart before the pointer arrives, or a mis-aim costs a server entry. Full
+		 apart before the pointer arrives, or a misaim costs a server entry. Full
 		 --err would put a column of alarm down a calm table, and the muted lean
 		 that once kept it calm cannot be made compliant: it paid 4.19:1 on the
 		 open row's wash, where even the plain hue reads 4.14:1, so no share along
