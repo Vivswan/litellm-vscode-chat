@@ -1,7 +1,7 @@
 /**
  * The two correlation hooks' semantics - latest-wins orphaning, reset, instance independence, the ack/fail outcome
  * lifecycle - which no component suite can see: a settled request renders the same pixels whether or not a stale
- * answer was mis-attached. Every assertion reads state between act() boundaries, so batching hides no intermediate.
+ * answer was misattached. Every assertion reads state between act() boundaries, so batching hides no intermediate.
  */
 
 import { afterEach, beforeEach, expect, test } from "bun:test";

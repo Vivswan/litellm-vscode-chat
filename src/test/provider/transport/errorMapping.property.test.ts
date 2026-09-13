@@ -48,7 +48,7 @@ function auth401(body: unknown): AuthenticationError {
 /**
  * How a surface joins headline and detail, DERIVED from twoPartTexts itself
  * rather than listed here: the copy table owns that choice per surface, and a
- * list in this file would silently mis-assert the day a surface is added. The
+ * list in this file would silently assert the wrong thing the day a surface is added. The
  * exact per-surface texts are pinned by equality in errorMapping.test.ts,
  * whose pin table is fail-closed over the same surface union.
  */
