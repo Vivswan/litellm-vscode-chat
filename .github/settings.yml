@@ -27,145 +27,149 @@ repository:
   allow_auto_merge: true
   enable_vulnerability_alerts: true
 labels:
-  - name: dependencies
-    color: 0366d6
-    description: Dependency updates
-  - name: github_actions
-    color: "000000"
-    description: Pull requests that update GitHub Actions code
-  - name: bug
-    color: d73a4a
-    description: Something isn't working
-  - name: enhancement
-    color: a2eeef
-    description: New feature or request
-  - name: fix-lint
-    color: fbca04
-    description: Lint / formatting fixes
-  - name: merge-when-green
-    color: 0e8a16
-    description: "Owner approved: merge once every gate is green"
-  - name: security-nightly
-    color: 1d76db
-    description: Automated nightly security scan findings
-  - name: javascript
-    color: "168700"
-    description: Pull requests that update javascript code
-  - name: "autorelease: pending"
-    color: ededed
-    description: release-please release PR awaiting merge/tag
-  - name: "autorelease: tagged"
-    color: ededed
-    description: release-please release PR has been tagged
-  - name: release-blocker
-    color: B60205
-    description: Blocks releases while open - release-health fails release PRs and the release pipeline
-  - name: release-override
-    color: FBCA04
-    description: "On a release PR: bypass release-health gates for this release"
-  - name: awaiting-reply
-    color: 0E8A16
-    description: Answered; auto-closes after three quiet days
-  - name: auto-closed
-    color: ededed
-    description: Closed by the close-answered-issues workflow after no reply
-  - name: fuzz-nightly
-    color: B60205
-    description: Automated nightly fuzz failure
-  - name: nightly-failure
-    color: D93F0B
-    description: Automated nightly CI failure
+  entries:
+    - name: dependencies
+      color: 0366d6
+      description: Dependency updates
+    - name: github_actions
+      color: "000000"
+      description: Pull requests that update GitHub Actions code
+    - name: bug
+      color: d73a4a
+      description: Something isn't working
+    - name: enhancement
+      color: a2eeef
+      description: New feature or request
+    - name: fix-lint
+      color: fbca04
+      description: Lint / formatting fixes
+    - name: merge-when-green
+      color: 0e8a16
+      description: "Owner approved: merge once every gate is green"
+    - name: security-nightly
+      color: 1d76db
+      description: Automated nightly security scan findings
+    - name: javascript
+      color: "168700"
+      description: Pull requests that update javascript code
+    - name: "autorelease: pending"
+      color: ededed
+      description: release-please release PR awaiting merge/tag
+    - name: "autorelease: tagged"
+      color: ededed
+      description: release-please release PR has been tagged
+    - name: release-blocker
+      color: B60205
+      description: Blocks releases while open - release-health fails release PRs and the release pipeline
+    - name: release-override
+      color: FBCA04
+      description: "On a release PR: bypass release-health gates for this release"
+    - name: awaiting-reply
+      color: 0E8A16
+      description: Answered; auto-closes after three quiet days
+    - name: auto-closed
+      color: ededed
+      description: Closed by the close-answered-issues workflow after no reply
+    - name: fuzz-nightly
+      color: B60205
+      description: Automated nightly fuzz failure
+    - name: nightly-failure
+      color: D93F0B
+      description: Automated nightly CI failure
+  _undeclared: delete
 rulesets:
-  - name: pr-title
-    target: branch
-    enforcement: active
-    conditions:
-      ref_name:
-        include:
-          - ~DEFAULT_BRANCH
-        exclude: []
-    bypass_actors:
-      - actor_id: 5
-        actor_type: RepositoryRole
-        bypass_mode: always
-    rules:
-      - type: required_status_checks
-        parameters:
-          strict_required_status_checks_policy: false
-          do_not_enforce_on_create: true
-          required_status_checks:
-            - context: pr-title
-              integration_id: 15368
-  - name: main
-    target: branch
-    enforcement: active
-    conditions:
-      ref_name:
-        include:
-          - ~DEFAULT_BRANCH
-        exclude: []
-    bypass_actors:
-      - actor_id: 5
-        actor_type: RepositoryRole
-        bypass_mode: always
-    rules:
-      - type: code_quality
-        parameters:
-          severity: warnings
-      - type: copilot_code_review
-        parameters:
-          review_on_push: true
-          review_draft_pull_requests: true
-      - type: code_scanning
-        parameters:
-          code_scanning_tools:
-            - tool: CodeQL
-              security_alerts_threshold: high_or_higher
-              alerts_threshold: errors
-      - type: deletion
-      - type: non_fast_forward
-      - type: required_linear_history
-      - type: required_status_checks
-        parameters:
-          strict_required_status_checks_policy: false
-          do_not_enforce_on_create: true
-          required_status_checks:
-            - context: all-green
-              integration_id: 15368
-      - type: pull_request
-        parameters:
-          required_approving_review_count: 0
-          dismiss_stale_reviews_on_push: false
-          require_code_owner_review: true
-          require_last_push_approval: false
-          required_review_thread_resolution: true
-          allowed_merge_methods:
-            - squash
-  - name: release-tags
-    target: tag
-    enforcement: active
-    conditions:
-      ref_name:
-        include:
-          - v*
-        exclude: []
-    rules:
-      - type: deletion
-      - type: non_fast_forward
-      - type: update
-    bypass_actors:
-      - actor_id: 5
-        actor_type: RepositoryRole
-        bypass_mode: always
-  - name: non-bypassable
-    target: branch
-    enforcement: active
-    conditions:
-      ref_name:
-        include:
-          - ~DEFAULT_BRANCH
-        exclude: []
-    rules:
-      - type: deletion
-      - type: required_linear_history
-    bypass_actors: []
+  entries:
+    - name: pr-title
+      target: branch
+      enforcement: active
+      conditions:
+        ref_name:
+          include:
+            - ~DEFAULT_BRANCH
+          exclude: []
+      rules:
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            do_not_enforce_on_create: true
+            required_status_checks:
+              - context: pr-title
+                integration_id: 15368
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+    - name: main
+      rules:
+        - type: code_quality
+          parameters:
+            severity: warnings
+        - type: copilot_code_review
+          parameters:
+            review_on_push: true
+            review_draft_pull_requests: true
+        - type: code_scanning
+          parameters:
+            code_scanning_tools:
+              - tool: CodeQL
+                security_alerts_threshold: high_or_higher
+                alerts_threshold: errors
+        - type: deletion
+        - type: non_fast_forward
+        - type: required_linear_history
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            do_not_enforce_on_create: true
+            required_status_checks:
+              - context: all-green
+                integration_id: 15368
+        - type: pull_request
+          parameters:
+            required_approving_review_count: 0
+            dismiss_stale_reviews_on_push: false
+            require_code_owner_review: true
+            require_last_push_approval: false
+            required_review_thread_resolution: true
+            allowed_merge_methods:
+              - squash
+      target: branch
+      enforcement: active
+      conditions:
+        ref_name:
+          include:
+            - ~DEFAULT_BRANCH
+          exclude: []
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+    - name: release-tags
+      target: tag
+      enforcement: active
+      conditions:
+        ref_name:
+          include:
+            - v*
+          exclude: []
+      rules:
+        - type: deletion
+        - type: non_fast_forward
+        - type: update
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+    - name: non-bypassable
+      target: branch
+      enforcement: active
+      conditions:
+        ref_name:
+          include:
+            - ~DEFAULT_BRANCH
+          exclude: []
+      rules:
+        - type: deletion
+        - type: required_linear_history
+      bypass_actors: []
+  _undeclared: keep
