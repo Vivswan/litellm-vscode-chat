@@ -188,7 +188,6 @@ jobs:
       contains(needs.ci.outputs.modules, '"site"')
     concurrency:
       group: pages
-      cancel-in-progress: false
     permissions:
       contents: read
       pages: write
