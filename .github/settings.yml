@@ -75,6 +75,10 @@ labels:
     - name: release-override
       color: FBCA04
       description: "On a release PR: bypass release-health gates for this release"
+    - name: repo-platform:sync
+      color: "5319e7"
+      description: Sync this pull request's branch from repo-platform (the workflow
+        removes the label)
     - name: security-nightly
       color: 1d76db
       description: Automated nightly security scan findings

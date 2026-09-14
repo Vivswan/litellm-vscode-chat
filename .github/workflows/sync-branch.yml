@@ -1,0 +1,82 @@
+# This file is managed by Vivswan/repo-platform.
+# Local edits are replaced on the next sync.
+#
+# A human's `repo-platform:sync` label on a pull request syncs its branch here, inside the repository, with the
+# repository token alone (docs/sync.md, "Syncing a branch by label"). The label is a trigger, not a state: the
+# delivery step takes it off first, so adding it again is always a new run.
+#
+# GitHub holds the pull_request run a repository-token push creates for approval, so the pushed head's checks
+# stay unreported until a human approves the run from the merge box or pushes a commit; the comment says so.
+
+name: Sync Branch
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions: {}
+
+jobs:
+  # Any other label skips at zero billed minutes. A fork's branch is never written: its PR carries a read-only token,
+  # so the push would fail after the whole job had run.
+  sync:
+    if: github.event.label.name == 'repo-platform:sync' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # One run per pull request at a time: a second label while one runs waits its turn. On the job, not the workflow,
+    # so a run another label skips never takes the pending slot from a queued sync.
+    concurrency:
+      group: sync-branch-${{ github.event.pull_request.number }}
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # The branch, not the event's sha: the push lands on the branch, with a lease on the commit checked out here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          path: target
+
+      - name: Check out the platform at stable
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Vivswan/repo-platform
+          ref: stable
+          path: build
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: build/files/bun/.bun-version
+
+      - name: Install the platform's script dependencies
+        working-directory: build
+        run: bun install --frozen-lockfile --silent
+
+      # From here the steps are the operator's row (sync-repos.yml): a failed rung skips the writer, and the delivery
+      # step reports either failure in the pull request comment.
+      - name: Run the migrations over the branch
+        id: migrate
+        continue-on-error: true
+        run: bun build/.github/scripts/sync/migrate.ts build/migrations target > "$RUNNER_TEMP/sync.log" 2>&1
+
+      - name: Write the build into the branch
+        id: write
+        if: steps.migrate.outcome == 'success'
+        continue-on-error: true
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+        run: >-
+          bun build/.github/scripts/sync/writer/sync.ts --files build/files.yml --tree build/files --target target
+          --build "$(git -C build rev-parse HEAD)" --repository "$GITHUB_REPOSITORY" --private "$PRIVATE"
+          --summary "$RUNNER_TEMP/summary.json" > "$RUNNER_TEMP/sync.log" 2>&1
+
+      - name: Deliver onto the branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MIGRATE_OUTCOME: ${{ steps.migrate.outcome }}
+          WRITER_OUTCOME: ${{ steps.write.outcome }}
+        run: bun build/.github/scripts/sync/deliver_branch.ts
