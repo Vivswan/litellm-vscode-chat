@@ -6,10 +6,11 @@ import { REPO_ROOT } from "../util/repoRoot";
 
 /**
  * The template-managed `.bun-version` is the one bun pin; every mirror of it -
- * the workflows' setup-bun steps, package.json's packageManager, the @types/bun
- * stubs, compose's oven/bun image, the devcontainer's bun feature, and the bun
- * running this suite - must agree, or local, CI, and the fake stack transpile
- * the same source differently.
+ * the repo-owned workflows' setup-bun steps, package.json's packageManager, the
+ * @types/bun stubs, compose's oven/bun image, the devcontainer's bun feature, and
+ * the bun running this suite - must agree, or local, CI, and the fake stack
+ * transpile the same source differently. A workflow the platform manages runs the
+ * platform's own scripts on the platform's pin, so it is not a mirror.
  */
 
 const RELEASE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -29,9 +30,15 @@ function majorMinor(version: string): string {
 	return `${match[1]}.${match[2]}`;
 }
 
-/** Every setup-bun step of a workflow, with the file and job that own it. */
+const MANAGED_HEADER = "# This file is managed by Vivswan/repo-platform.";
+
+/** Every setup-bun step of a repo-owned workflow, with the file and job that own it. */
 function setupBunSteps(file: string): { at: string; step: WorkflowStep }[] {
-	const workflow = Bun.YAML.parse(read(`.github/workflows/${file}`)) as {
+	const source = read(`.github/workflows/${file}`);
+	if (source.startsWith(MANAGED_HEADER)) {
+		return [];
+	}
+	const workflow = Bun.YAML.parse(source) as {
 		jobs?: Record<string, { steps?: WorkflowStep[] }>;
 	};
 	const found: { at: string; step: WorkflowStep }[] = [];
@@ -52,7 +59,7 @@ describe("toolchain pins", () => {
 		assert.match(pinned, RELEASE, `.bun-version must pin an exact bun release, got "${pinned}"`);
 	});
 
-	test("the running bun, packageManager, @types/bun, compose, the devcontainer, and every setup-bun step name the .bun-version release", () => {
+	test("the running bun, packageManager, @types/bun, compose, the devcontainer, and every repo-owned setup-bun step name the .bun-version release", () => {
 		const pkg = JSON.parse(read("package.json")) as {
 			packageManager?: string;
 			devDependencies: Record<string, string>;
