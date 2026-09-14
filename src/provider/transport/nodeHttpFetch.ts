@@ -1,5 +1,7 @@
 import * as http from "node:http";
 import * as https from "node:https";
+import type { Duplex, Readable } from "node:stream";
+import * as zlib from "node:zlib";
 
 /**
  * The transport for every request whose budget may outlive undici's fixed 300 s idle clocks (headersTimeout,
@@ -27,6 +29,16 @@ const NULL_BODY_STATUSES = new Set([204, 205, 304]);
 const CREDENTIAL_HEADERS = ["authorization", "proxy-authorization", "cookie", "x-api-key"];
 /** Dropped when a redirect turns the request into a bodiless GET, as the fetch spec lists them. */
 const BODY_HEADERS = ["content-type", "content-length", "content-encoding", "content-language", "content-location"];
+/**
+ * The content codings fetch decodes transparently; anything else passes through as fetch also does. A Map, so a
+ * header naming an inherited Object property ("constructor") is an unknown coding, not a function.
+ */
+const DECODERS = new Map<string, () => Duplex>([
+	["gzip", () => zlib.createGunzip()],
+	["x-gzip", () => zlib.createGunzip()],
+	["deflate", () => zlib.createInflate()],
+	["br", () => zlib.createBrotliDecompress()],
+]);
 
 function fetchFailed(cause: unknown): TypeError {
 	return new TypeError("fetch failed", { cause });
@@ -74,40 +86,80 @@ interface Exchange {
 	readonly fail: (err: unknown) => void;
 }
 
-/** Backpressure rides pause/resume: a slow consumer stops the socket read instead of buffering the whole reply. */
+/**
+ * The decoder chain for the response's content codings, applied in reverse order of the header, or the response
+ * itself when there is nothing to decode. An unknown coding leaves the whole body untouched, as fetch does.
+ */
+function decodedSource(res: http.IncomingMessage): { source: Readable; stages: Duplex[] } {
+	const codings = (res.headers["content-encoding"] ?? "")
+		.split(",")
+		.map((c) => c.trim().toLowerCase())
+		.filter((c) => c !== "" && c !== "identity");
+	const factories = codings.map((c) => DECODERS.get(c));
+	if (factories.length === 0 || factories.some((f) => f === undefined)) {
+		return { source: res, stages: [] };
+	}
+	const stages: Duplex[] = [];
+	let source: Readable = res;
+	for (const create of (factories as (() => Duplex)[]).reverse()) {
+		const decoder = create();
+		source.pipe(decoder);
+		stages.push(decoder);
+		source = decoder;
+	}
+	return { source, stages };
+}
+
+/**
+ * Backpressure rides pause/resume on the last stage (pipe() manages the earlier ones): a slow consumer stops the
+ * socket read instead of buffering the whole reply. Every ending tears down the response and every decoder
+ * stage, so nothing outlives the stream: a stage can end before the response or an earlier stage does (a gzip
+ * member followed by trailing bytes), and a body that already arrived but is still decoding must not outlive
+ * the caller's abort. Response headers stay as received, content-encoding included, as fetch leaves them.
+ */
 function ownResponse(res: http.IncomingMessage, signal: AbortSignal | undefined): Omit<Exchange, "res"> {
-	const onAbort = (): void => {
-		res.destroy(signal?.reason);
-	};
+	const { source, stages } = decodedSource(res);
+	let controller!: ReadableStreamDefaultController<Uint8Array>;
 	let settled = false;
-	let fail: (err: unknown) => void = () => undefined;
+	const teardown = (): void => {
+		res.destroy();
+		for (const stage of stages) {
+			stage.destroy();
+		}
+	};
+	const settle = (err?: unknown): void => {
+		if (settled) {
+			return;
+		}
+		settled = true;
+		signal?.removeEventListener("abort", onAbort);
+		if (err === undefined) {
+			controller.close();
+		} else {
+			controller.error(signal?.aborted ? signal.reason : terminated(err));
+		}
+		teardown();
+	};
+	const onAbort = (): void => settle(signal?.reason);
 	const body = new ReadableStream<Uint8Array>({
-		start(controller) {
-			const settle = (err?: unknown): void => {
-				if (settled) {
-					return;
-				}
-				settled = true;
-				signal?.removeEventListener("abort", onAbort);
-				if (err === undefined) {
-					controller.close();
-				} else {
-					controller.error(signal?.aborted ? signal.reason : terminated(err));
-				}
-			};
-			fail = settle;
+		start(c) {
+			controller = c;
 			// Node flushes what the socket already buffered after res.destroy(), so a cancelled stream still sees data.
-			res.on("data", (chunk: Buffer) => {
+			source.on("data", (chunk: Buffer) => {
 				if (settled) {
 					return;
 				}
 				controller.enqueue(chunk);
 				if ((controller.desiredSize ?? 0) <= 0) {
-					res.pause();
+					source.pause();
 				}
 			});
-			res.on("end", () => settle());
+			source.on("end", () => settle());
+			// pipe() forwards data, never errors: the socket's and every decoder's failure must reach the stream itself.
 			res.on("error", settle);
+			for (const stage of stages) {
+				stage.on("error", settle);
+			}
 			if (signal?.aborted) {
 				onAbort();
 			} else {
@@ -115,15 +167,15 @@ function ownResponse(res: http.IncomingMessage, signal: AbortSignal | undefined)
 			}
 		},
 		pull() {
-			res.resume();
+			source.resume();
 		},
 		cancel() {
 			settled = true;
 			signal?.removeEventListener("abort", onAbort);
-			res.destroy();
+			teardown();
 		},
 	});
-	return { body, fail };
+	return { body, fail: settle };
 }
 
 /** Drops a response the caller never sees; cancelling a body that already errored rejects with that error. */

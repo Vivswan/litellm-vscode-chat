@@ -2,6 +2,8 @@ import * as assert from "node:assert";
 import { getEventListeners } from "node:events";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
+// Default import on purpose: the spy below swaps a factory on the module object the adapter reads at call time.
+import zlib from "node:zlib";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 
 interface Echo {
@@ -40,6 +42,66 @@ function routes(peer: () => string): http.RequestListener {
 					};
 					res.writeHead(200, { "content-type": "application/json", "x-echo": "yes" });
 					res.end(JSON.stringify(echo));
+					return;
+				}
+				case "/encoded/gzip":
+				case "/encoded/deflate":
+				case "/encoded/br": {
+					const coding = path.slice("/encoded/".length);
+					const encode = { gzip: zlib.gzipSync, deflate: zlib.deflateSync, br: zlib.brotliCompressSync }[coding];
+					const payload = (encode as (b: Buffer) => Buffer)(Buffer.from(JSON.stringify({ coding })));
+					res.writeHead(200, {
+						"content-type": "application/json",
+						"content-encoding": coding,
+						"content-length": String(payload.byteLength),
+					});
+					res.end(payload);
+					return;
+				}
+				case "/encoded/unknown/x-custom":
+				case "/encoded/unknown/constructor":
+				case "/encoded/unknown/__proto__":
+					res.writeHead(200, {
+						"content-type": "text/plain",
+						"content-encoding": path.slice("/encoded/unknown/".length),
+					});
+					res.end("raw as sent");
+					return;
+				case "/encoded/gzip-bad":
+					// gzip headers over bytes that are not gzip, and the response never ends: the decoder fails first.
+					res.writeHead(200, { "content-type": "text/plain", "content-encoding": "gzip" });
+					res.write("this is not gzip");
+					return;
+				case "/encoded/gzip-trailing":
+					// A complete gzip member, then bytes the decoder never consumes, and the response never ends.
+					res.writeHead(200, { "content-type": "text/plain", "content-encoding": "gzip" });
+					res.write(zlib.gzipSync("hello"));
+					res.write(Buffer.from([0]));
+					return;
+				case "/encoded/gzip-gzip-padded": {
+					// Two stages, complete response: the inner member ends early, the outer stage still has padding to feed.
+					const inner = Buffer.concat([zlib.gzipSync("hello"), Buffer.alloc(128 * 1024)]);
+					res.writeHead(200, { "content-type": "text/plain", "content-encoding": "gzip, gzip" });
+					res.end(zlib.gzipSync(inner));
+					return;
+				}
+				case "/encoded/gzip-big":
+					// The whole compressed body lands at once; decoding it takes many reads after the response has ended.
+					res.writeHead(200, { "content-type": "text/plain", "content-encoding": "gzip" });
+					res.end(zlib.gzipSync(Buffer.alloc(4 * 1024 * 1024, 120)));
+					return;
+				case "/encoded/gzip-stream": {
+					// Two SSE frames, each flushed through the same gzip stream, with silence in between: the decoder
+					// must hand the first frame over before the second exists.
+					res.writeHead(200, { "content-type": "text/event-stream", "content-encoding": "gzip" });
+					const gzip = zlib.createGzip({ flush: zlib.constants.Z_SYNC_FLUSH });
+					gzip.pipe(res);
+					gzip.write("data: one\n\n");
+					gzip.flush();
+					setTimeout(() => {
+						gzip.write("data: two\n\n");
+						gzip.end();
+					}, 300);
 					return;
 				}
 				case "/stream":
@@ -227,6 +289,81 @@ suite("provider/transport/nodeHttpFetch", () => {
 		this.timeout(5000);
 		const response = await nodeHttpFetch(`${main.url}/stream`);
 		assert.deepStrictEqual(await readAll(response.body as ReadableStream<Uint8Array>), ["one", "two"]);
+	});
+
+	for (const coding of ["gzip", "deflate", "br"]) {
+		test(`a ${coding}-encoded body is decoded and its headers left as received, as fetch does`, async () => {
+			const response = await nodeHttpFetch(`${main.url}/encoded/${coding}`);
+			assert.deepStrictEqual(await response.json(), { coding });
+			assert.strictEqual(response.headers.get("content-encoding"), coding);
+			assert.match(response.headers.get("content-length") ?? "", /^\d+$/);
+		});
+	}
+
+	for (const coding of ["x-custom", "constructor", "__proto__"]) {
+		test(`an unknown content coding (${coding}) passes through untouched with its headers`, async () => {
+			const response = await nodeHttpFetch(`${main.url}/encoded/unknown/${coding}`);
+			assert.strictEqual(await response.text(), "raw as sent");
+			assert.strictEqual(response.headers.get("content-encoding"), coding);
+		});
+	}
+
+	test("a decoder failure errors the stream and releases the response it was decoding", async () => {
+		const response = await nodeHttpFetch(`${main.url}/encoded/gzip-bad`);
+		await assert.rejects(response.text(), (err: unknown) => {
+			assert.ok(err instanceof TypeError && err.message === "terminated", String(err));
+			assert.match((err.cause as Error).message, /incorrect header check|unknown compression method/);
+			return true;
+		});
+		await allSocketsReleased(main);
+	});
+
+	test("a decoder that ends before the response does closes the stream and releases the response", async () => {
+		const response = await nodeHttpFetch(`${main.url}/encoded/gzip-trailing`);
+		assert.strictEqual(await response.text(), "hello");
+		await allSocketsReleased(main);
+	});
+
+	test("every decoder stage is destroyed when an inner stage ends early on a complete response", async () => {
+		// zlib's exports are read-only but configurable, so the spy goes in through defineProperty.
+		const created: zlib.Gunzip[] = [];
+		const original = Object.getOwnPropertyDescriptor(zlib, "createGunzip") as PropertyDescriptor;
+		const spy: typeof zlib.createGunzip = (...args) => {
+			const decoder = (original.value as typeof zlib.createGunzip)(...args);
+			created.push(decoder);
+			return decoder;
+		};
+		Object.defineProperty(zlib, "createGunzip", { ...original, value: spy });
+		try {
+			const response = await nodeHttpFetch(`${main.url}/encoded/gzip-gzip-padded`);
+			assert.strictEqual(await response.text(), "hello");
+		} finally {
+			Object.defineProperty(zlib, "createGunzip", original);
+		}
+		assert.strictEqual(created.length, 2, "one decoder per listed coding");
+		await until(() => created.every((d) => d.destroyed), "both stages to be destroyed");
+	});
+
+	test("an abort after the response ended but before decoding finished still errors the stream", async () => {
+		const controller = new AbortController();
+		const response = await nodeHttpFetch(`${main.url}/encoded/gzip-big`, { signal: controller.signal });
+		const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+		await reader.read();
+		await allSocketsReleased(main);
+		const reason = new Error("stop decoding");
+		controller.abort(reason);
+		await assert.rejects(reader.read(), (err: unknown) => err === reason);
+	});
+
+	test("a gzip-encoded stream is decoded frame by frame, not at the end", async () => {
+		const response = await nodeHttpFetch(`${main.url}/encoded/gzip-stream`);
+		const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+		const startedAt = Date.now();
+		const decoder = new TextDecoder();
+		assert.strictEqual(decoder.decode((await reader.read()).value), "data: one\n\n");
+		assert.ok(Date.now() - startedAt < 250, "the first frame arrives before the second is even written");
+		assert.strictEqual(decoder.decode((await reader.read()).value), "data: two\n\n");
+		assert.deepStrictEqual(await reader.read(), { done: true, value: undefined });
 	});
 
 	test("a 204 carries a null body and its headers", async () => {
