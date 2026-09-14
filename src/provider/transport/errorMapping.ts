@@ -1528,7 +1528,21 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	}
 
 	if (err instanceof APIConnectionTimeoutError) {
-		return timeoutRequestError(ctx, err);
+		// The SDK also files any failure whose text matches /timed? ?out/ here (a TCP ETIMEDOUT, undici's connect
+		// or headers clocks), none of which is this call's budget. Only an abort proves the budget fired: the
+		// SDK's own timer (armed with the same ms) aborts without a reason, so its cause is an AbortError.
+		const chain = causeChain(err.cause);
+		const abortDriven =
+			chain.length === 0 || chain.some((link) => link.name === "AbortError" || link.name === "TimeoutError");
+		if (abortDriven) {
+			return timeoutRequestError(ctx, err);
+		}
+		return socketFailureRequestError(
+			err.cause,
+			err,
+			{ endpoint: ctx.surface, surface: ctx.surface, url: ctx.baseUrl },
+			() => timeoutRequestError(ctx, err)
+		);
 	}
 
 	if (err instanceof APIUserAbortError) {

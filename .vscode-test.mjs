@@ -1,4 +1,4 @@
-import { readdirSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { defineConfig } from "@vscode/test-cli";
@@ -86,11 +86,15 @@ if (userDataOverride === undefined) {
 	process.on("exit", () => remove(runRoot));
 }
 
-// Per-label isolation inside this run's parent.
-const launchArgsFor = (label) => [
-	"--user-data-dir",
-	userDataOverride ? path.join(userDataOverride, label) : path.join(runRoot, label),
-];
+// Per-label isolation inside this run's parent. The host's default `http.proxySupport: "override"` replaces
+// any agent an http.request carries with its proxy agent, and msw's ClientRequest interceptor IS such an
+// agent, so under the default every mocked request would leave for the real network; "off" leaves it alone.
+const launchArgsFor = (label) => {
+	const userDataDir = userDataOverride ? path.join(userDataOverride, label) : path.join(runRoot, label);
+	mkdirSync(path.join(userDataDir, "User"), { recursive: true });
+	writeFileSync(path.join(userDataDir, "User", "settings.json"), JSON.stringify({ "http.proxySupport": "off" }));
+	return ["--user-data-dir", userDataDir];
+};
 
 const passthroughEnv = (...names) => Object.fromEntries(names.map((name) => [name, process.env[name] || ""]));
 

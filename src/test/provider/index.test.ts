@@ -14,7 +14,7 @@ import { MirroredError } from "../../shared/mirroredError";
 import type { AggregatedStatus } from "../../shared/servers";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeModelInfo, withFetch } from "../pureHelpers";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeModelInfo } from "../pureHelpers";
 import { makeProvider, testGroupServer, userMessage, withConfig } from "../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
@@ -146,64 +146,58 @@ suite("provider", () => {
 			info: (line: string) => lines.push(line),
 			error: (line: string) => lines.push(`ERROR: ${line}`),
 		} as unknown as vscode.LogOutputChannel;
-		const provider = makeProvider(TEST_BASE_URL, "test-key", channel);
-
-		const cts = new vscode.CancellationTokenSource();
-		await withFetch(
-			(_url, init) =>
+		const provider = makeProvider(TEST_BASE_URL, "test-key", channel, {
+			fetch: (_url, init) =>
 				new Promise((_resolve, reject) => {
 					init?.signal?.addEventListener("abort", () => {
 						reject(new DOMException("The operation was aborted.", "AbortError"));
 					});
 				}),
-			async () => {
-				const pending = provider.provideLanguageModelChatResponse(
-					attachGroupServer(
-						makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
-						testGroupServer()
-					),
-					[userMessage("hi")],
-					{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
-					{ report: () => {} },
-					cts.token
-				);
-				setTimeout(() => cts.cancel(), 20);
-				await assert.rejects(pending, (err: unknown) => err instanceof vscode.CancellationError);
-				assert.ok(
-					!lines.some((l) => l.includes("ERROR:")),
-					`Cancellation must not produce an error log. Lines: ${lines.join(" | ")}`
-				);
-			}
+		});
+
+		const cts = new vscode.CancellationTokenSource();
+		const pending = provider.provideLanguageModelChatResponse(
+			attachGroupServer(
+				makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
+				testGroupServer()
+			),
+			[userMessage("hi")],
+			{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+			{ report: () => {} },
+			cts.token
+		);
+		setTimeout(() => cts.cancel(), 20);
+		await assert.rejects(pending, (err: unknown) => err instanceof vscode.CancellationError);
+		assert.ok(
+			!lines.some((l) => l.includes("ERROR:")),
+			`Cancellation must not produce an error log. Lines: ${lines.join(" | ")}`
 		);
 	});
 
 	test("provideLanguageModelChatResponse rejects a model without an attached server before any network call", async () => {
-		const provider = makeProvider();
-
 		let fetchCalled = false;
-		await withFetch(
-			async () => {
+		const provider = makeProvider(undefined, undefined, undefined, {
+			fetch: async () => {
 				fetchCalled = true;
 				throw new Error("fetch must not be called");
 			},
-			async () => {
-				await assert.rejects(
-					provider.provideLanguageModelChatResponse(
-						makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
-						[],
-						{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
-						{ report: () => {} },
-						new vscode.CancellationTokenSource().token
-					),
-					/not registered with any configured server/
-				);
-				assert.strictEqual(fetchCalled, false, "No request may be sent when the model has no attached server");
-			}
+		});
+
+		await assert.rejects(
+			provider.provideLanguageModelChatResponse(
+				makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
+				[],
+				{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				new vscode.CancellationTokenSource().token
+			),
+			/not registered with any configured server/
 		);
+		assert.strictEqual(fetchCalled, false, "No request may be sent when the model has no attached server");
 	});
 
-	// This nested suite mocks the network with msw; it stays after the withFetch
-	// tests above so the interceptor never overlaps their fetch swaps.
+	// This nested suite mocks the network with msw; the tests above inject their
+	// transport instead, so the interceptor never overlaps them.
 	suite("all servers failing", () => {
 		useMsw();
 
@@ -308,8 +302,8 @@ suite("provider", () => {
 		});
 	});
 
-	// This nested suite mocks the network with msw; it stays after the withFetch
-	// tests above so the interceptor never overlaps their fetch swaps.
+	// This nested suite mocks the network with msw; the tests above inject their
+	// transport instead, so the interceptor never overlaps them.
 	suite("registered model shape", () => {
 		useMsw();
 

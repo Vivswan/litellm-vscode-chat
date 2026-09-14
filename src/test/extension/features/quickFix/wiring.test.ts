@@ -6,12 +6,16 @@
  * The zero-network property is the load-bearing one: provideCodeActions runs on
  * every cursor move in a file with diagnostics, so a request there would send
  * the user's code somewhere without them clicking anything. It is pinned twice
- * over - by msw's onUnhandledRequest: "error" and by a fetch spy, because a
+ * over - by msw's onUnhandledRequest: "error" and by a request spy, because a
  * request to an ALREADY-MOCKED endpoint would satisfy msw and still be a
  * request.
  */
 import * as assert from "node:assert";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+// Default imports on purpose: they resolve to the module objects themselves, which the spy below mutates;
+// a namespace import is a getter-only view of them.
+import nodeHttp from "node:http";
+import nodeHttps from "node:https";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { HttpResponse, http } from "msw";
@@ -94,22 +98,31 @@ function argsOf(action: vscode.CodeAction): QuickFixChatArgs {
 }
 
 /**
- * Run `fn` with global fetch counted, so an "instant" path can be proven to
- * have made no call at all. Synchronous on purpose: the property is that the
- * provider does its whole job inside this window, which a promise-returning
- * spy could not distinguish from one that fetches after the window closes.
+ * Run `fn` with every outgoing request counted at the transport's floor
+ * (http.request and https.request, the functions the one-shot client and the
+ * SDK client both end on), so an "instant" path can be proven to have made no
+ * call at all. Synchronous on purpose: the property is that the provider does
+ * its whole job inside this window, which a promise-returning spy could not
+ * distinguish from one that fetches after the window closes.
  */
-function withFetchSpy<T>(fn: () => T): { result: T; calls: number } {
-	const original = globalThis.fetch;
+function withRequestSpy<T>(fn: () => T): { result: T; calls: number } {
+	type RequestModule = { request: (...args: unknown[]) => nodeHttp.ClientRequest };
+	// The module objects are mutable at runtime; the types alone call `request` read-only.
+	const modules = [nodeHttp, nodeHttps] as unknown as RequestModule[];
+	const saved = modules.map((m) => [m, m.request] as const);
 	let calls = 0;
-	globalThis.fetch = ((...args: Parameters<typeof fetch>) => {
-		calls += 1;
-		return original(...args);
-	}) as typeof fetch;
+	for (const [m, original] of saved) {
+		m.request = (...args) => {
+			calls += 1;
+			return original(...args);
+		};
+	}
 	try {
 		return { result: fn(), calls };
 	} finally {
-		globalThis.fetch = original;
+		for (const [m, original] of saved) {
+			m.request = original;
+		}
 	}
 }
 
@@ -144,7 +157,7 @@ suite("extension/features/quickFix wiring", () => {
 	test("actions appear instantly, synchronously, and without a single request", async () => {
 		const document = await sampleDocument();
 		const provider = createQuickFixActionsProvider();
-		const { result, calls } = withFetchSpy(() =>
+		const { result, calls } = withRequestSpy(() =>
 			provider.provideCodeActions(
 				document,
 				new vscode.Range(2, 0, 2, 0),

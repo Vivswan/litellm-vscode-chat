@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import type OpenAI from "openai";
 import { createServerClient, ServerClientCache, type ServerClientConfig } from "../../../provider/transport/clients";
+import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import { MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { toHeaderMap } from "../../pureHelpers";
 
@@ -18,8 +19,9 @@ function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig
 
 /**
  * Issue a GET through the client against an msw handler and capture the
- * outgoing request. The client reads globalThis.fetch per call, so msw's
- * interception applies even to clients constructed before the server started.
+ * outgoing request. The transport reads http.request off the module at call
+ * time, so msw's ClientRequest patch applies even to clients constructed
+ * before the server started.
  */
 async function captureGet(
 	client: OpenAI,
@@ -43,7 +45,7 @@ suite("provider/transport/clients", () => {
 
 	suite("createServerClient", () => {
 		test("keyed client sends both auth headers, the User-Agent, and custom headers", async () => {
-			const client = createServerClient(config({ customHeaders: { "X-Custom": "custom-value" } }));
+			const client = createServerClient(config({ customHeaders: { "X-Custom": "custom-value" } }), nodeHttpFetch);
 			const { headers } = await captureGet(client);
 			assert.strictEqual(headers.authorization, "Bearer sk-k");
 			assert.strictEqual(headers["x-api-key"], "sk-k");
@@ -52,14 +54,17 @@ suite("provider/transport/clients", () => {
 		});
 
 		test("keyless client sends no auth headers at all", async () => {
-			const client = createServerClient(config({ apiKey: "" }));
+			const client = createServerClient(config({ apiKey: "" }), nodeHttpFetch);
 			const { headers } = await captureGet(client);
 			assert.ok(!("authorization" in headers), `Unexpected Authorization header: ${headers.authorization}`);
 			assert.ok(!("x-api-key" in headers), `Unexpected X-API-Key header: ${headers["x-api-key"]}`);
 		});
 
 		test("keyless client sends a user-configured Authorization header", async () => {
-			const client = createServerClient(config({ apiKey: "", customHeaders: { Authorization: "Basic dXNlcg==" } }));
+			const client = createServerClient(
+				config({ apiKey: "", customHeaders: { Authorization: "Basic dXNlcg==" } }),
+				nodeHttpFetch
+			);
 			const { headers } = await captureGet(client);
 			assert.strictEqual(headers.authorization, "Basic dXNlcg==");
 			assert.ok(!("x-api-key" in headers), `Unexpected X-API-Key header: ${headers["x-api-key"]}`);
@@ -67,7 +72,8 @@ suite("provider/transport/clients", () => {
 
 		test("the API key wins over conflicting custom auth headers", async () => {
 			const client = createServerClient(
-				config({ customHeaders: { Authorization: "Basic other", "x-api-key": "other-key" } })
+				config({ customHeaders: { Authorization: "Basic other", "x-api-key": "other-key" } }),
+				nodeHttpFetch
 			);
 			const { headers } = await captureGet(client);
 			assert.strictEqual(headers.authorization, "Bearer sk-k");
@@ -75,31 +81,31 @@ suite("provider/transport/clients", () => {
 		});
 
 		test("requests go to the server's /v1 prefix", async () => {
-			const client = createServerClient(config());
+			const client = createServerClient(config(), nodeHttpFetch);
 			const { url } = await captureGet(client);
 			assert.strictEqual(url, `${TEST_BASE_URL}/v1/models`);
 		});
 
 		test("a version segment already in the base URL is kept, not doubled", async () => {
-			const client = createServerClient(config({ baseUrl: `${TEST_BASE_URL}/v1` }));
+			const client = createServerClient(config({ baseUrl: `${TEST_BASE_URL}/v1` }), nodeHttpFetch);
 			const { url } = await captureGet(client);
 			assert.strictEqual(url, `${TEST_BASE_URL}/v1/models`);
 		});
 
 		test("a /v2 base URL is honored as the API root", async () => {
-			const client = createServerClient(config({ baseUrl: `${TEST_BASE_URL}/v2` }));
+			const client = createServerClient(config({ baseUrl: `${TEST_BASE_URL}/v2` }), nodeHttpFetch);
 			const { url } = await captureGet(client, `${TEST_BASE_URL}/v2/models`);
 			assert.strictEqual(url, `${TEST_BASE_URL}/v2/models`);
 		});
 
 		test('apiVersion "" makes the base URL the API root as-is', async () => {
-			const client = createServerClient(config({ apiVersion: "" }));
+			const client = createServerClient(config({ apiVersion: "" }), nodeHttpFetch);
 			const { url } = await captureGet(client, `${TEST_BASE_URL}/models`);
 			assert.strictEqual(url, `${TEST_BASE_URL}/models`);
 		});
 
 		test("an explicit apiVersion beats a version segment in the URL", async () => {
-			const client = createServerClient(config({ baseUrl: `${TEST_BASE_URL}/v1`, apiVersion: "v3" }));
+			const client = createServerClient(config({ baseUrl: `${TEST_BASE_URL}/v1`, apiVersion: "v3" }), nodeHttpFetch);
 			const { url } = await captureGet(client, `${TEST_BASE_URL}/v1/v3/models`);
 			assert.strictEqual(url, `${TEST_BASE_URL}/v1/v3/models`);
 		});
@@ -107,25 +113,25 @@ suite("provider/transport/clients", () => {
 
 	suite("ServerClientCache", () => {
 		test("the same config returns the same client instance", () => {
-			const cache = new ServerClientCache();
+			const cache = new ServerClientCache(nodeHttpFetch);
 			const first = cache.get(config());
 			assert.strictEqual(cache.get(config()), first);
 		});
 
 		test("a changed API key produces a new client", () => {
-			const cache = new ServerClientCache();
+			const cache = new ServerClientCache(nodeHttpFetch);
 			const first = cache.get(config());
 			assert.notStrictEqual(cache.get(config({ apiKey: "sk-rotated" })), first);
 		});
 
 		test("changed custom headers produce a new client", () => {
-			const cache = new ServerClientCache();
+			const cache = new ServerClientCache(nodeHttpFetch);
 			const first = cache.get(config());
 			assert.notStrictEqual(cache.get(config({ customHeaders: { "X-Custom": "added" } })), first);
 		});
 
 		test('a changed apiVersion produces a new client, and "" is distinct from unset', () => {
-			const cache = new ServerClientCache();
+			const cache = new ServerClientCache(nodeHttpFetch);
 			const first = cache.get(config());
 			const empty = cache.get(config({ apiVersion: "" }));
 			assert.notStrictEqual(empty, first);
@@ -133,7 +139,7 @@ suite("provider/transport/clients", () => {
 		});
 
 		test("different server IDs get independent cache entries", () => {
-			const cache = new ServerClientCache();
+			const cache = new ServerClientCache(nodeHttpFetch);
 			const first = cache.get(config({ serverId: "srv1" }));
 			const second = cache.get(config({ serverId: "srv2", baseUrl: "http://other" }));
 			assert.notStrictEqual(first, second);
@@ -142,7 +148,7 @@ suite("provider/transport/clients", () => {
 		});
 
 		test("prune drops entries for removed servers only", () => {
-			const cache = new ServerClientCache();
+			const cache = new ServerClientCache(nodeHttpFetch);
 			const kept = cache.get(config({ serverId: "srv1" }));
 			const removed = cache.get(config({ serverId: "srv2", baseUrl: "http://other" }));
 			cache.prune(["srv1"]);
@@ -158,7 +164,7 @@ suite("provider/transport/clients", () => {
 			const original = process.env.OPENAI_LOG;
 			process.env.OPENAI_LOG = "debug";
 			try {
-				const client = createServerClient(config());
+				const client = createServerClient(config(), nodeHttpFetch);
 				assert.strictEqual((client as unknown as { logLevel?: string }).logLevel, "off");
 			} finally {
 				if (original === undefined) {

@@ -15,6 +15,8 @@ import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem, ModelShape } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
 import { RequestError } from "../../../provider/transport/errorMapping";
+import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
+import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import { CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
 import { publicErrorText } from "../../../shared/logger";
 import {
@@ -26,16 +28,19 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
-import { expectDefined, withFetch } from "../../pureHelpers";
+import { expectDefined } from "../../pureHelpers";
 
-function request(log: (message: string, data?: unknown) => void = () => {}) {
-	const client = createServerClient({
-		serverId: "srv1",
-		baseUrl: TEST_BASE_URL,
-		apiKey: "test-key",
-		userAgent: "test-agent",
-		customHeaders: {},
-	});
+function request(log: (message: string, data?: unknown) => void = () => {}, fetchImpl: TransportFetch = nodeHttpFetch) {
+	const client = createServerClient(
+		{
+			serverId: "srv1",
+			baseUrl: TEST_BASE_URL,
+			apiKey: "test-key",
+			userAgent: "test-agent",
+			customHeaders: {},
+		},
+		fetchImpl
+	);
 	return {
 		client,
 		baseUrl: TEST_BASE_URL,
@@ -927,17 +932,16 @@ suite("provider/catalog/discovery", () => {
 			});
 		});
 
-		// msw cannot fabricate undici's ECONNREFUSED cause chain, so this stays on withFetch.
+		// msw cannot fabricate the transport's ECONNREFUSED cause chain, so this test injects the transport.
 		test("connection refusal is classified as a connection error", async () => {
-			await withFetch(
-				async () => {
-					throw Object.assign(new TypeError("fetch failed"), {
-						cause: new Error("connect ECONNREFUSED 127.0.0.1:4000"),
-					});
-				},
-				async () => {
-					await assert.rejects(fetchModels(request()), /Connection Error: Unable to connect to http:\/\/litellm\.test/);
-				}
+			const refused: TransportFetch = async () => {
+				throw Object.assign(new TypeError("fetch failed"), {
+					cause: new Error("connect ECONNREFUSED 127.0.0.1:4000"),
+				});
+			};
+			await assert.rejects(
+				fetchModels(request(undefined, refused)),
+				/Connection Error: Unable to connect to http:\/\/litellm\.test/
 			);
 		});
 

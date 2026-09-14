@@ -12,6 +12,7 @@ import {
 	type MapErrorContext,
 	mapSdkError,
 	RequestError,
+	type RequestErrorKind,
 	socketFailureRequestError,
 	statusErrorTexts,
 	streamErrorFrame,
@@ -826,6 +827,46 @@ suite("provider/transport/errorMapping", () => {
 
 			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "timeout");
 			assert.match(discovery.message, /discovery\.timeout/);
+		});
+
+		// The SDK files any failure whose text matches /timed? ?out/ as a connection timeout, so only an abort in
+		// the cause chain proves the budget fired; a socket clock's failure must not tell the user to raise it.
+		test("APIConnectionTimeoutError renders the budget copy only when an abort proves the budget fired", () => {
+			const cases: { name: string; cause: unknown; kind: RequestErrorKind; message: RegExp }[] = [
+				{
+					name: "the SDK's own timer (aborts with no reason)",
+					cause: new DOMException("This operation was aborted", "AbortError"),
+					kind: "timeout",
+					message: /timed out after 5000ms.*chat\.timeout/,
+				},
+				{
+					name: "a TCP connect timeout the SDK regex-matched",
+					cause: Object.assign(new TypeError("fetch failed"), {
+						cause: Object.assign(new Error("connect ETIMEDOUT 10.0.0.1:4000"), { code: "ETIMEDOUT" }),
+					}),
+					kind: "network",
+					message: /^Could not reach/,
+				},
+				{
+					name: "undici's fixed headers clock",
+					cause: Object.assign(new TypeError("fetch failed"), {
+						cause: Object.assign(new Error("Headers Timeout Error"), {
+							name: "HeadersTimeoutError",
+							code: "UND_ERR_HEADERS_TIMEOUT",
+						}),
+					}),
+					kind: "network",
+					message: /^Could not reach/,
+				},
+			];
+			for (const { name, cause, kind, message } of cases) {
+				const err = Object.assign(new APIConnectionTimeoutError(), { cause });
+				const mapped = expectRequestError(mapSdkError(err, chatCtx), kind);
+				assert.match(mapped.message, message, name);
+				if (kind !== "timeout") {
+					assert.doesNotMatch(mapped.message, /chat\.timeout/, `${name}: raising the budget cannot help`);
+				}
+			}
 		});
 
 		test("timeoutMessage pins the exact user-facing strings", () => {
