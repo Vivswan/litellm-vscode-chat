@@ -6,11 +6,15 @@ import type { AddressInfo } from "node:net";
 import zlib from "node:zlib";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 
-const ENCODERS = new Map<string, (body: Buffer) => Buffer>([
-	["gzip", (body) => zlib.gzipSync(body)],
-	["deflate", (body) => zlib.deflateSync(body)],
-	["br", (body) => zlib.brotliCompressSync(body)],
-]);
+function encodedJson(res: http.ServerResponse, coding: string, encode: (body: Buffer) => Buffer): void {
+	const payload = encode(Buffer.from(JSON.stringify({ coding })));
+	res.writeHead(200, {
+		"content-type": "application/json",
+		"content-encoding": coding,
+		"content-length": String(payload.byteLength),
+	});
+	res.end(payload);
+}
 
 interface Echo {
 	method: string;
@@ -51,24 +55,14 @@ function routes(peer: () => string): http.RequestListener {
 					return;
 				}
 				case "/encoded/gzip":
-				case "/encoded/deflate":
-				case "/encoded/br": {
-					const coding = path.slice("/encoded/".length);
-					const encode = ENCODERS.get(coding);
-					if (encode === undefined) {
-						res.writeHead(404);
-						res.end();
-						return;
-					}
-					const payload = encode(Buffer.from(JSON.stringify({ coding })));
-					res.writeHead(200, {
-						"content-type": "application/json",
-						"content-encoding": coding,
-						"content-length": String(payload.byteLength),
-					});
-					res.end(payload);
+					encodedJson(res, "gzip", (body) => zlib.gzipSync(body));
 					return;
-				}
+				case "/encoded/deflate":
+					encodedJson(res, "deflate", (body) => zlib.deflateSync(body));
+					return;
+				case "/encoded/br":
+					encodedJson(res, "br", (body) => zlib.brotliCompressSync(body));
+					return;
 				case "/encoded/unknown/x-custom":
 				case "/encoded/unknown/constructor":
 				case "/encoded/unknown/__proto__":

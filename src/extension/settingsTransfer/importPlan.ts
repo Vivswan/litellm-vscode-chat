@@ -229,7 +229,7 @@ export function planSettingsImport(
 			// Normalize to the current settings shape FIRST - the same restructure
 			// the activation migration applies, index-stable. A pre-redesign flat
 			// export otherwise lands entries the parser reads as credential-less
-			// until the next activation (its group syncs mis-credentialed), and
+			// until the next activation (its group syncs with the wrong credential), and
 			// the flat-vs-nested collision rule stays the migration's one rule.
 			const restructured = restructureServers(value).value;
 			const incoming: readonly unknown[] = Array.isArray(restructured) ? restructured : value;
