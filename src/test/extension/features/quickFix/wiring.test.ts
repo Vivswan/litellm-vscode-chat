@@ -98,10 +98,10 @@ function argsOf(action: vscode.CodeAction): QuickFixChatArgs {
 }
 
 /**
- * Run `fn` with every outgoing request counted at the transport's floor
- * (http.request and https.request, the functions the one-shot client and the
- * SDK client both end on), so an "instant" path can be proven to have made no
- * call at all. Synchronous on purpose: the property is that the provider does
+ * Run `fn` with every outgoing request counted at both floors the extension
+ * sends through (http.request and https.request under the transport, and
+ * globalThis.fetch), so an "instant" path can be proven to have made no call at
+ * all. Synchronous on purpose: the property is that the provider does
  * its whole job inside this window, which a promise-returning spy could not
  * distinguish from one that fetches after the window closes.
  */
@@ -110,6 +110,7 @@ function withRequestSpy<T>(fn: () => T): { result: T; calls: number } {
 	// The module objects are mutable at runtime; the types alone call `request` read-only.
 	const modules = [nodeHttp, nodeHttps] as unknown as RequestModule[];
 	const saved = modules.map((m) => [m, m.request] as const);
+	const originalFetch = globalThis.fetch;
 	let calls = 0;
 	for (const [m, original] of saved) {
 		m.request = (...args) => {
@@ -117,12 +118,19 @@ function withRequestSpy<T>(fn: () => T): { result: T; calls: number } {
 			return original(...args);
 		};
 	}
+	// The 30 s surfaces still go through fetch, and msw already answers the chat URL here, so a fetch from this
+	// path would pass msw's unhandled-request guard; it must count too.
+	globalThis.fetch = ((...args: Parameters<typeof fetch>) => {
+		calls += 1;
+		return originalFetch(...args);
+	}) as typeof fetch;
 	try {
 		return { result: fn(), calls };
 	} finally {
 		for (const [m, original] of saved) {
 			m.request = original;
 		}
+		globalThis.fetch = originalFetch;
 	}
 }
 
