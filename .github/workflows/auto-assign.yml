@@ -22,7 +22,10 @@ on:
 permissions: {}
 
 jobs:
+  # The nightly sweep runs in public repositories only: a private repository pays for every job that runs, and a
+  # skipped job bills nothing. The open events and a dispatch still assign there.
   auto-assign:
+    if: github.event_name != 'schedule' || !github.event.repository.private
     permissions:
       issues: write
       pull-requests: write
