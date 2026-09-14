@@ -54,8 +54,10 @@ jobs:
   # tracking issue: `issues: write` exceeds the `ci` ceiling, and GitHub
   # checks a called job's grant before its condition. Not a gate: it is
   # not in all-green's needs and stays green whatever it finds.
+  # Public repositories only: a private repository pays for every job that
+  # runs, and a skipped job bills nothing.
   nightly:
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' && !github.event.repository.private
     uses: Vivswan/repo-platform/.github/workflows/fleet-nightly.yml@stable
     permissions:
       contents: read
