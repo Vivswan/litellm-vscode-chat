@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { apiRootOf } from "../../shared/util/baseUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
+import type { TransportFetch } from "./nodeHttpFetch";
 
 export interface ServerClientConfig {
 	serverId: string;
@@ -101,7 +102,7 @@ export function buildDefaultHeaders(
 	return headers;
 }
 
-export function createServerClient(config: ServerClientConfig): OpenAI {
+export function createServerClient(config: ServerClientConfig, fetchImpl: TransportFetch): OpenAI {
 	return new OpenAI({
 		baseURL: apiRootOf(config.baseUrl, config.apiVersion),
 		apiKey: config.apiKey || KEYLESS_PLACEHOLDER,
@@ -113,9 +114,9 @@ export function createServerClient(config: ServerClientConfig): OpenAI {
 		// logs request bodies and custom headers, which may carry secrets the
 		// SDK's redaction does not know about.
 		logLevel: "off",
-		// The SDK captures fetch at construction; reading globalThis.fetch per
-		// call keeps test-time fetch replacement working.
-		fetch: (url, init) => globalThis.fetch(url, init),
+		// One client serves chat and discovery, so both ride the idle-clock-free transport (see nodeHttpFetch);
+		// discovery's short GETs lose nothing by it. The SDK always passes a string URL; Request is type cover.
+		fetch: (url, init) => fetchImpl(url instanceof Request ? url.url : url, init),
 	});
 }
 
@@ -127,13 +128,15 @@ export function createServerClient(config: ServerClientConfig): OpenAI {
 export class ServerClientCache {
 	private readonly entries = new Map<string, { fingerprint: string; client: OpenAI }>();
 
+	constructor(private readonly fetchImpl: TransportFetch) {}
+
 	get(config: ServerClientConfig): OpenAI {
 		const fingerprint = fingerprintOf(config);
 		const entry = this.entries.get(config.serverId);
 		if (entry && entry.fingerprint === fingerprint) {
 			return entry.client;
 		}
-		const client = createServerClient(config);
+		const client = createServerClient(config, this.fetchImpl);
 		this.entries.set(config.serverId, { fingerprint, client });
 		return client;
 	}

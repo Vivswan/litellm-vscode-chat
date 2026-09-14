@@ -10,7 +10,7 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, withFetch } from "../pureHelpers";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined } from "../pureHelpers";
 import { makeProvider, withConfig } from "../testUtils";
 
 /** The host passes the group configuration structurally; stable typings only declare `silent`. */
@@ -79,22 +79,19 @@ suite("provider server snapshots", () => {
 		assert.deepStrictEqual(status.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
 	});
 
-	// msw cannot fabricate undici's ECONNREFUSED cause chain, so this stays on
-	// withFetch; the swap also keeps the request away from msw's
+	// msw cannot fabricate the transport's ECONNREFUSED cause chain, so this
+	// test injects the transport, which also keeps the request away from msw's
 	// unhandled-request guard.
 	test("a refused connection stamps the proxy-not-running classification on the error status", async () => {
-		const provider = makeProvider(TEST_BASE_URL);
-
-		await withFetch(
-			async () => {
+		const provider = makeProvider(TEST_BASE_URL, undefined, undefined, {
+			fetch: async () => {
 				throw Object.assign(new TypeError("fetch failed"), {
 					cause: new Error("connect ECONNREFUSED 127.0.0.1:4000"),
 				});
 			},
-			async () => {
-				await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
-			}
-		);
+		});
+
+		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 
 		const status = expectDefined(provider.getServerSnapshots()[0]).status;
 		assert.ok(status.state === "error", "expected an error status");

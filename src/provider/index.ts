@@ -35,6 +35,7 @@ import type { ServerModelsSnapshot } from "./catalog/statusWindow";
 import { StatusWindow } from "./catalog/statusWindow";
 import { ChatClient } from "./transport/chatClient";
 import { toLanguageModelError } from "./transport/errorMapping";
+import type { TransportFetch } from "./transport/nodeHttpFetch";
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -123,6 +124,8 @@ export interface LiteLLMChatModelProviderOptions {
 	 * in force, the fallback for external groups and leftovers whose entry moved hosts.
 	 */
 	resolveEntryCredentials?: ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>) | undefined;
+	/** The HTTP transport under the chat client; tests inject a fake here. Defaults to nodeHttpFetch. */
+	fetch?: TransportFetch | undefined;
 	/**
 	 * The OpenRouter capability catalog as in-memory lookup data (the catalog
 	 * store owns files, network, and the opt-out; this layer only resolves).
@@ -206,6 +209,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			getEntryApiVersion: options.getEntryApiVersion,
 			resolveEntryCredentials: options.resolveEntryCredentials,
 			resolution: this._resolution,
+			fetch: options.fetch,
 		});
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
 		this._statusWindow = new StatusWindow(

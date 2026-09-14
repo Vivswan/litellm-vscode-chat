@@ -10,6 +10,7 @@ import {
 } from "../../../provider/catalog/discovery";
 import type { LiteLLMProvider, RawModelItem } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
+import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import { normalizeCostPerToken } from "../../../shared/util/numbers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
@@ -246,13 +247,16 @@ suite("provider/discovery fetchModels payload properties", () => {
 	);
 
 	function makeRequest() {
-		const client = createServerClient({
-			serverId: "srv1",
-			baseUrl: TEST_BASE_URL,
-			apiKey: "test-key",
-			userAgent: "test-agent",
-			customHeaders: {},
-		});
+		const client = createServerClient(
+			{
+				serverId: "srv1",
+				baseUrl: TEST_BASE_URL,
+				apiKey: "test-key",
+				userAgent: "test-agent",
+				customHeaders: {},
+			},
+			nodeHttpFetch
+		);
 		return { client, baseUrl: TEST_BASE_URL, apiVersion: undefined, discoveryTimeout: 5000, log: noLog };
 	}
 

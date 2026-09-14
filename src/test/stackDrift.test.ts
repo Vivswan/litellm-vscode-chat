@@ -507,6 +507,10 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		],
 		["src/test/fakeStack/collapseChunks.property.test.ts", "pure today; not yet ported to the bun tree"],
 		["src/test/provider/catalog/modelConfiguration.test.ts", "pure today; not yet ported to the bun tree"],
+		[
+			"src/test/provider/transport/nodeHttpFetch.test.ts",
+			"pure by design; must run on the real Node http stack under Electron, not bun's",
+		],
 		["src/test/provider/transport/request.property.test.ts", "pure today; not yet ported to the bun tree"],
 		["src/test/shared/conversion/promptCache.test.ts", "pure today; not yet ported to the bun tree"],
 		["src/test/shared/logger.test.ts", "pure today; not yet ported to the bun tree"],

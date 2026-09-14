@@ -35,6 +35,8 @@ import type { AuthOverlayScope } from "./authOverlay";
 import { applyAuthOverlay } from "./authOverlay";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
 import { bodylessResponseError, mapSdkError, timeoutRequestError } from "./errorMapping";
+import type { TransportFetch } from "./nodeHttpFetch";
+import { nodeHttpFetch } from "./nodeHttpFetch";
 import { buildRequestBody, resolveMaxTokens } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
@@ -121,6 +123,8 @@ export interface ChatClientOptions {
 	 * the attached credentials stay in force.
 	 */
 	resolveEntryCredentials?: ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>) | undefined;
+	/** The HTTP transport under the SDK client; tests inject a fake here. Defaults to nodeHttpFetch. */
+	fetch?: TransportFetch | undefined;
 }
 
 /**
@@ -139,7 +143,7 @@ export class ChatClient {
 	private readonly resolveEntryCredentials?:
 		| ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>)
 		| undefined;
-	private readonly clients = new ServerClientCache();
+	private readonly clients: ServerClientCache;
 	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly resolution: ModelResolutionTable;
 	private _toolCallIdCounter = 0;
@@ -159,6 +163,7 @@ export class ChatClient {
 		this.getEntryApiVersion = options.getEntryApiVersion ?? (() => undefined);
 		this.resolveEntryCredentials = options.resolveEntryCredentials;
 		this.resolution = options.resolution ?? new ModelResolutionTable();
+		this.clients = new ServerClientCache(options.fetch ?? nodeHttpFetch);
 	}
 
 	/**
@@ -441,7 +446,7 @@ export class ChatClient {
 		// 600 s time-to-headers default from cutting in before ours; the
 		// AbortSignal.timeout is what bounds the whole call, including a stream
 		// that stalls after headers (the SDK disarms its timer once headers
-		// arrive).
+		// arrive, and the transport has no idle clock of its own).
 		const cancelController = new AbortController();
 		const cancelListener = token.onCancellationRequested(() => cancelController.abort());
 		const timeoutSignal = AbortSignal.timeout(requestTimeout);
@@ -467,8 +472,6 @@ export class ChatClient {
 				.asResponse();
 
 			if (!response.body) {
-				// One constructor with the one-shot stream's bodyless-200 error, so
-				// the copy cannot drift between the two streaming paths.
 				throw bodylessResponseError("chat", response.status, connection.baseUrl);
 			}
 
@@ -478,7 +481,21 @@ export class ChatClient {
 			const audio = requestBody.audio;
 			const requestAudioFormat = isRecord(audio) && typeof audio.format === "string" ? audio.format : undefined;
 			const streamProcessor = new StreamProcessor(this.toolCallIds, this.log, undefined, undefined, requestAudioFormat);
-			await streamProcessor.processStreamingResponse(response.body, progress, token);
+			// Every 200 arrives with a body stream, so a server that sent nothing shows only as a stream that ends
+			// without a byte; that is the same "nothing came back" as a null body and gets the same error.
+			let bodyBytes = 0;
+			const counted = response.body.pipeThrough(
+				new TransformStream<Uint8Array, Uint8Array>({
+					transform(chunk, controller) {
+						bodyBytes += chunk.byteLength;
+						controller.enqueue(chunk);
+					},
+				})
+			);
+			await streamProcessor.processStreamingResponse(counted, progress, token);
+			if (bodyBytes === 0) {
+				throw bodylessResponseError("chat", response.status, connection.baseUrl);
+			}
 		} catch (err) {
 			if (token.isCancellationRequested) {
 				throw new vscode.CancellationError();

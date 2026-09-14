@@ -2,9 +2,10 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { ChatClient } from "../../../provider/transport/chatClient";
+import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
 import { convertMessages } from "../../../shared/conversion/messages";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { makeLogger, toHeaderMap, withFetch } from "../../pureHelpers";
+import { makeLogger, toHeaderMap } from "../../pureHelpers";
 import { withConfig } from "../../testUtils";
 
 function controllableStream(): { stream: ReadableStream<Uint8Array>; push(text: string): void; close(): void } {
@@ -20,6 +21,10 @@ function controllableStream(): { stream: ReadableStream<Uint8Array>; push(text: 
 		push: (text: string) => controller.enqueue(encoder.encode(text)),
 		close: () => controller.close(),
 	};
+}
+
+function sseResponse(stream: ReadableStream<Uint8Array>): Response {
+	return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 }
 
 /** A tool-call delta without an id, forcing the client to generate one. */
@@ -75,46 +80,44 @@ const options = {
 } as unknown as vscode.ProvideLanguageModelChatResponseOptions;
 
 suite("provider/transport/chatClient", () => {
-	// These tests stay on withFetch: they observe interleaved stream delivery
+	// These tests inject the transport: they observe interleaved stream delivery
 	// across concurrent requests, AbortSignal wiring, and injected transport
 	// errors, none of which msw handlers can express.
 	test("concurrent send() calls generate disjoint tool-call IDs", async () => {
 		const first = controllableStream();
 		const second = controllableStream();
 		const bodies = [first, second];
-		await withFetch(
-			async () => {
+		const client = new ChatClient({
+			userAgent: "test-agent",
+			fetch: async () => {
 				const body = bodies.shift();
 				assert.ok(body, "Only two requests are expected");
-				return new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+				return sseResponse(body.stream);
 			},
-			async () => {
-				const client = new ChatClient({ userAgent: "test-agent" });
+		});
 
-				const a = collector();
-				const b = collector();
-				const token = new vscode.CancellationTokenSource().token;
-				const sendA = client.send({ model, messages, options, progress: a.progress, token });
-				const sendB = client.send({ model, messages, options, progress: b.progress, token });
+		const a = collector();
+		const b = collector();
+		const token = new vscode.CancellationTokenSource().token;
+		const sendA = client.send({ model, messages, options, progress: a.progress, token });
+		const sendB = client.send({ model, messages, options, progress: b.progress, token });
 
-				// Both requests are now in flight; complete their streams interleaved.
-				first.push(idlessToolCallChunk("tool_one"));
-				second.push(idlessToolCallChunk("tool_two"));
-				first.push("data: [DONE]\n\n");
-				second.push("data: [DONE]\n\n");
-				first.close();
-				second.close();
-				await Promise.all([sendA, sendB]);
+		// Both requests are now in flight; complete their streams interleaved.
+		first.push(idlessToolCallChunk("tool_one"));
+		second.push(idlessToolCallChunk("tool_two"));
+		first.push("data: [DONE]\n\n");
+		second.push("data: [DONE]\n\n");
+		first.close();
+		second.close();
+		await Promise.all([sendA, sendB]);
 
-				assert.equal(a.callIds.length, 1, "First request should emit one generated tool call");
-				assert.equal(b.callIds.length, 1, "Second request should emit one generated tool call");
-				const all = new Set([...a.callIds, ...b.callIds]);
-				assert.equal(all.size, 2, `Generated IDs must be disjoint across overlapping requests, got ${[...all]}`);
-				for (const id of all) {
-					assert.match(id, /^call_\d+$/);
-				}
-			}
-		);
+		assert.equal(a.callIds.length, 1, "First request should emit one generated tool call");
+		assert.equal(b.callIds.length, 1, "Second request should emit one generated tool call");
+		const all = new Set([...a.callIds, ...b.callIds]);
+		assert.equal(all.size, 2, `Generated IDs must be disjoint across overlapping requests, got ${[...all]}`);
+		for (const id of all) {
+			assert.match(id, /^call_\d+$/);
+		}
 	});
 
 	test("the request's model field is the stamped rawModelId, never the exposed ID", async () => {
@@ -123,73 +126,66 @@ suite("provider/transport/chatClient", () => {
 		// must come from litellm.rawModelId, not from the exposed model.id.
 		const body = controllableStream();
 		let wireBody: unknown;
-		await withFetch(
-			async (_url, init) => {
+		const client = new ChatClient({
+			userAgent: "test-agent",
+			fetch: async (_url, init) => {
 				wireBody = JSON.parse(String(init?.body));
-				return new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+				return sseResponse(body.stream);
 			},
-			async () => {
-				const client = new ChatClient({ userAgent: "test-agent" });
-				const diverged = {
-					...model,
-					id: "picker-alias/gpt-4:cheapest",
-					litellm: { ...model.litellm, rawModelId: "gpt-4:cheapest" },
-				} satisfies LiteLLMModelInfo;
-				const send = client.send({
-					model: diverged,
-					messages,
-					options,
-					progress: { report: () => {} },
-					token: new vscode.CancellationTokenSource().token,
-				});
-				body.push("data: [DONE]\n\n");
-				body.close();
-				await send;
-				assert.ok(typeof wireBody === "object" && wireBody !== null, "the request carried a JSON body");
-				assert.strictEqual(
-					(wireBody as { model?: unknown }).model,
-					"gpt-4:cheapest",
-					"the route reads the mint-stamped raw ID"
-				);
-			}
+		});
+		const diverged = {
+			...model,
+			id: "picker-alias/gpt-4:cheapest",
+			litellm: { ...model.litellm, rawModelId: "gpt-4:cheapest" },
+		} satisfies LiteLLMModelInfo;
+		const send = client.send({
+			model: diverged,
+			messages,
+			options,
+			progress: { report: () => {} },
+			token: new vscode.CancellationTokenSource().token,
+		});
+		body.push("data: [DONE]\n\n");
+		body.close();
+		await send;
+		assert.ok(typeof wireBody === "object" && wireBody !== null, "the request carried a JSON body");
+		assert.strictEqual(
+			(wireBody as { model?: unknown }).model,
+			"gpt-4:cheapest",
+			"the route reads the mint-stamped raw ID"
 		);
 	});
 
 	test("the request's audio.format reaches the emitted audio DataPart as its mime", async () => {
 		const body = controllableStream();
-		await withFetch(
-			async () => new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
-			async () => {
-				const client = new ChatClient({ userAgent: "test-agent" });
+		const client = new ChatClient({ userAgent: "test-agent", fetch: async () => sseResponse(body.stream) });
 
-				const parts: vscode.LanguageModelResponsePart[] = [];
-				const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
-				const audioOptions = {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-					modelOptions: { audio: { voice: "alloy", format: "mp3" } },
-				} as unknown as vscode.ProvideLanguageModelChatResponseOptions;
-				const send = client.send({
-					model,
-					messages,
-					options: audioOptions,
-					progress,
-					token: new vscode.CancellationTokenSource().token,
-				});
+		const parts: vscode.LanguageModelResponsePart[] = [];
+		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
+		const audioOptions = {
+			toolMode: vscode.LanguageModelChatToolMode.Auto,
+			modelOptions: { audio: { voice: "alloy", format: "mp3" } },
+		} as unknown as vscode.ProvideLanguageModelChatResponseOptions;
+		const send = client.send({
+			model,
+			messages,
+			options: audioOptions,
+			progress,
+			token: new vscode.CancellationTokenSource().token,
+		});
 
-				body.push(`data: ${JSON.stringify({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] })}\n\n`);
-				body.push("data: [DONE]\n\n");
-				body.close();
-				await send;
+		body.push(`data: ${JSON.stringify({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] })}\n\n`);
+		body.push("data: [DONE]\n\n");
+		body.close();
+		await send;
 
-				const dataParts = parts.filter((p) => p instanceof vscode.LanguageModelDataPart);
-				assert.equal(dataParts.length, 1, "the audio clip must surface as one DataPart");
-				const part = dataParts[0] as vscode.LanguageModelDataPart;
-				assert.equal(part.mimeType, "audio/mpeg", "the pass-through audio.format parameter names the encoding");
-			}
-		);
+		const dataParts = parts.filter((p) => p instanceof vscode.LanguageModelDataPart);
+		assert.equal(dataParts.length, 1, "the audio clip must surface as one DataPart");
+		const part = dataParts[0] as vscode.LanguageModelDataPart;
+		assert.equal(part.mimeType, "audio/mpeg", "the pass-through audio.format parameter names the encoding");
 	});
 
-	test("a validation-rejected request emits zero conversion-side logs and never reaches fetch", async () => {
+	test("a validation-rejected request emits zero conversion-side logs and never reaches the transport", async () => {
 		// A history that both fails validation (unpaired tool call) and would log
 		// during conversion (a DataPart with no wire mapping).
 		const rejectedMessages: vscode.LanguageModelChatRequestMessage[] = [
@@ -219,117 +215,109 @@ suite("provider/transport/chatClient", () => {
 		);
 
 		let fetchCalled = false;
-		await withFetch(
-			async () => {
+		const { logger, lines } = makeLogger();
+		const client = new ChatClient({
+			userAgent: "test-agent",
+			logger,
+			fetch: async () => {
 				fetchCalled = true;
-				throw new Error("a validation-rejected request must never reach fetch");
+				throw new Error("a validation-rejected request must never reach the transport");
 			},
-			async () => {
-				const { logger, lines } = makeLogger();
-				const client = new ChatClient({ userAgent: "test-agent", logger });
+		});
 
-				const token = new vscode.CancellationTokenSource().token;
-				await assert.rejects(
-					client.send({ model, messages: rejectedMessages, options, progress: collector().progress, token }),
-					/missing a tool result/
-				);
-
-				assert.strictEqual(fetchCalled, false, "the rejected request must never leave the machine");
-				const leaked = lines.filter((message) => conversionLogPattern.test(message));
-				assert.deepStrictEqual(leaked, [], "a validation-rejected request must emit zero conversion-side logs");
-			}
+		const token = new vscode.CancellationTokenSource().token;
+		await assert.rejects(
+			client.send({ model, messages: rejectedMessages, options, progress: collector().progress, token }),
+			/missing a tool result/
 		);
+
+		assert.strictEqual(fetchCalled, false, "the rejected request must never leave the machine");
+		const leaked = lines.filter((message) => conversionLogPattern.test(message));
+		assert.deepStrictEqual(leaked, [], "a validation-rejected request must emit zero conversion-side logs");
 	});
 
-	test("user cancellation aborts the in-flight fetch and throws CancellationError", async () => {
+	test("user cancellation aborts the in-flight request and throws CancellationError", async () => {
 		let observedSignal: AbortSignal | undefined;
-		await withFetch(
-			async (_url, init) => {
+		const client = new ChatClient({
+			userAgent: "test-agent",
+			fetch: async (_url, init) => {
 				observedSignal = init?.signal ?? undefined;
 				const signal = init?.signal;
-				// Behave like a real fetch: the body stream errors when the request signal aborts.
+				// Behave like the real transport: the body stream errors when the request signal aborts.
 				const stream = new ReadableStream<Uint8Array>({
 					start(controller) {
 						signal?.addEventListener("abort", () => controller.error(signal.reason ?? new Error("aborted")));
 					},
 				});
-				return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+				return sseResponse(stream);
 			},
-			async () => {
-				const client = new ChatClient({ userAgent: "test-agent" });
+		});
 
-				const cts = new vscode.CancellationTokenSource();
-				const sendPromise = client.send({
-					model,
-					messages,
-					options,
-					progress: collector().progress,
-					token: cts.token,
-				});
-				setTimeout(() => cts.cancel(), 20);
+		const cts = new vscode.CancellationTokenSource();
+		const sendPromise = client.send({
+			model,
+			messages,
+			options,
+			progress: collector().progress,
+			token: cts.token,
+		});
+		setTimeout(() => cts.cancel(), 20);
 
-				await assert.rejects(sendPromise, (err: unknown) => {
-					assert.ok(err instanceof vscode.CancellationError, `Expected CancellationError, got ${String(err)}`);
-					return true;
-				});
-				assert.ok(observedSignal, "fetch should receive an AbortSignal");
-				assert.strictEqual(observedSignal.aborted, true, "Cancellation must abort the fetch signal");
-			}
-		);
+		await assert.rejects(sendPromise, (err: unknown) => {
+			assert.ok(err instanceof vscode.CancellationError, `Expected CancellationError, got ${String(err)}`);
+			return true;
+		});
+		assert.ok(observedSignal, "the transport should receive an AbortSignal");
+		assert.strictEqual(observedSignal.aborted, true, "Cancellation must abort the request signal");
 	});
 
 	test("request timeout surfaces an actionable error naming the chat.timeout setting", async () => {
-		await withFetch(
-			async () => {
+		const client = new ChatClient({
+			userAgent: "test-agent",
+			fetch: async () => {
 				throw new DOMException("The operation timed out.", "TimeoutError");
 			},
-			async () => {
-				const client = new ChatClient({ userAgent: "test-agent" });
+		});
 
-				const token = new vscode.CancellationTokenSource().token;
-				await assert.rejects(
-					client.send({ model, messages, options, progress: collector().progress, token }),
-					/chat\.timeout/
-				);
-			}
+		const token = new vscode.CancellationTokenSource().token;
+		await assert.rejects(
+			client.send({ model, messages, options, progress: collector().progress, token }),
+			/chat\.timeout/
 		);
 	});
 
 	test("a stream that stalls mid-body aborts at the configured chat.timeout", async function () {
 		// The configured timeouts are hard whole-call bounds. The SDK's own timeout
-		// disarms once headers arrive, so only send()'s AbortSignal.timeout wiring
-		// can abort a body that stops flowing.
+		// disarms once headers arrive and the transport has no idle clock, so only
+		// send()'s AbortSignal.timeout wiring can abort a body that stops flowing.
 		this.timeout(10000);
-		await withFetch(
-			async (_url, init) => {
-				const signal = init?.signal;
-				const encoder = new TextEncoder();
-				const stream = new ReadableStream<Uint8Array>({
-					start(controller) {
-						// One delta arrives, then the body stalls forever. Like a real
-						// fetch, the body stream errors when the request signal aborts.
-						controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
-						signal?.addEventListener("abort", () => controller.error(signal.reason ?? new Error("aborted")));
-					},
-				});
-				return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
-			},
-			() =>
-				withConfig({ "chat.timeout": 1000 }, async () => {
-					const client = new ChatClient({ userAgent: "test-agent" });
+		const stalling: TransportFetch = async (_url, init) => {
+			const signal = init?.signal;
+			const encoder = new TextEncoder();
+			const stream = new ReadableStream<Uint8Array>({
+				start(controller) {
+					// One delta arrives, then the body stalls forever. Like the real
+					// transport, the body stream errors when the request signal aborts.
+					controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
+					signal?.addEventListener("abort", () => controller.error(signal.reason ?? new Error("aborted")));
+				},
+			});
+			return sseResponse(stream);
+		};
+		await withConfig({ "chat.timeout": 1000 }, async () => {
+			const client = new ChatClient({ userAgent: "test-agent", fetch: stalling });
 
-					const token = new vscode.CancellationTokenSource().token;
-					const startedAt = Date.now();
-					await assert.rejects(
-						client.send({ model, messages, options, progress: collector().progress, token }),
-						/chat\.timeout/
-					);
-					assert.ok(
-						Date.now() - startedAt >= 900,
-						"the abort must come from the whole-call timeout, not an early transport failure"
-					);
-				})
-		);
+			const token = new vscode.CancellationTokenSource().token;
+			const startedAt = Date.now();
+			await assert.rejects(
+				client.send({ model, messages, options, progress: collector().progress, token }),
+				/chat\.timeout/
+			);
+			assert.ok(
+				Date.now() - startedAt >= 900,
+				"the abort must come from the whole-call timeout, not an early transport failure"
+			);
+		});
 	});
 
 	test("a send overlays the attached credentials with the entry's current ones", async () => {
@@ -339,26 +327,22 @@ suite("provider/transport/chatClient", () => {
 		const resolved: [string, string][] = [];
 		const stream = controllableStream();
 		let authHeader: string | undefined;
-		await withFetch(
-			async (_url, init) => {
-				authHeader = toHeaderMap(init?.headers).authorization;
-				return new Response(stream.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+		const client = new ChatClient({
+			userAgent: "test-agent",
+			resolveEntryCredentials: async (label, baseUrl) => {
+				resolved.push([label, baseUrl]);
+				return { apiKey: "k-rotated" };
 			},
-			async () => {
-				const client = new ChatClient({
-					userAgent: "test-agent",
-					resolveEntryCredentials: async (label, baseUrl) => {
-						resolved.push([label, baseUrl]);
-						return { apiKey: "k-rotated" };
-					},
-				});
-				const token = new vscode.CancellationTokenSource().token;
-				const send = client.send({ model, messages, options, progress: collector().progress, token });
-				stream.push("data: [DONE]\n\n");
-				stream.close();
-				await send;
-			}
-		);
+			fetch: async (_url, init) => {
+				authHeader = toHeaderMap(init?.headers).authorization;
+				return sseResponse(stream.stream);
+			},
+		});
+		const token = new vscode.CancellationTokenSource().token;
+		const send = client.send({ model, messages, options, progress: collector().progress, token });
+		stream.push("data: [DONE]\n\n");
+		stream.close();
+		await send;
 		assert.strictEqual(authHeader, "Bearer k-rotated", "the request authenticates with the overlaid key");
 		assert.deepStrictEqual(resolved, [["Default", normalizeBaseUrl("http://litellm.test")]]);
 	});
@@ -372,20 +356,19 @@ suite("provider/transport/chatClient", () => {
 		]) {
 			const stream = controllableStream();
 			let authHeader: string | undefined;
-			await withFetch(
-				async (_url, init) => {
+			const client = new ChatClient({
+				userAgent: "test-agent",
+				resolveEntryCredentials,
+				fetch: async (_url, init) => {
 					authHeader = toHeaderMap(init?.headers).authorization;
-					return new Response(stream.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+					return sseResponse(stream.stream);
 				},
-				async () => {
-					const client = new ChatClient({ userAgent: "test-agent", resolveEntryCredentials });
-					const token = new vscode.CancellationTokenSource().token;
-					const send = client.send({ model, messages, options, progress: collector().progress, token });
-					stream.push("data: [DONE]\n\n");
-					stream.close();
-					await send;
-				}
-			);
+			});
+			const token = new vscode.CancellationTokenSource().token;
+			const send = client.send({ model, messages, options, progress: collector().progress, token });
+			stream.push("data: [DONE]\n\n");
+			stream.close();
+			await send;
 			assert.strictEqual(authHeader, "Bearer k", "the attached key remains a valid request input");
 		}
 	});

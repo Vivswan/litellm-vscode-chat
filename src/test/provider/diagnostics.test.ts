@@ -3,7 +3,7 @@ import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import type { AggregatedStatus } from "../../shared/servers";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { expectDefined, withFetch } from "../pureHelpers";
+import { expectDefined } from "../pureHelpers";
 import { makeProvider } from "../testUtils";
 
 suite("provider/diagnostics", () => {
@@ -72,19 +72,18 @@ suite("provider/diagnostics", () => {
 		assert.ok(expectDefined(callbackStatus).serverStatuses.some((s) => s.error?.includes("Could not reach")));
 	});
 
-	// Stays on withFetch: msw cannot produce a rejection with an empty message.
+	// Injects the transport: msw cannot produce a rejection with an empty message.
 	test("a failure with an empty message still reports a non-empty status message", async () => {
-		const provider = makeProvider(TEST_BASE_URL);
+		const provider = makeProvider(TEST_BASE_URL, undefined, undefined, {
+			fetch: async () => {
+				throw new Error("");
+			},
+		});
 		let callbackStatus: AggregatedStatus | undefined;
 		provider.setStatusCallback((status: AggregatedStatus) => {
 			callbackStatus = status;
 		});
-		await withFetch(
-			async () => {
-				throw new Error("");
-			},
-			() => provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token)
-		);
+		await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 
 		assert.ok(callbackStatus);
 		const failure = expectDefined(callbackStatus).serverStatuses.find((s) => s.state === "error");
@@ -135,7 +134,7 @@ suite("provider/diagnostics", () => {
 		assert.ok(logs.some((log) => log.includes("Serving no models for the group-agnostic refresh")));
 	});
 
-	// Stays on withFetch: the assertion needs a known injected error message
+	// Injects the transport: the assertion needs a known injected error message
 	// ("Test error") to show up in the log lines, which msw cannot produce.
 	test("output channel receives error logs at the error level", async () => {
 		const errors: string[] = [];
@@ -144,13 +143,12 @@ suite("provider/diagnostics", () => {
 			error: (message: string) => errors.push(message),
 		} as unknown as vscode.LogOutputChannel;
 
-		const provider = makeProvider(TEST_BASE_URL, "test-key", mockOutputChannel);
-		await withFetch(
-			async () => {
+		const provider = makeProvider(TEST_BASE_URL, "test-key", mockOutputChannel, {
+			fetch: async () => {
 				throw new Error("Test error");
 			},
-			() => provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token)
-		);
+		});
+		await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 
 		assert.ok(errors.length > 0);
 		assert.ok(errors.some((line) => line.includes("Test error")));

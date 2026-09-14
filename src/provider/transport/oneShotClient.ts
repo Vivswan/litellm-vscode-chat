@@ -9,6 +9,8 @@ import { chatCompletionsUrl, completionsUrl } from "./clients";
 import type { MapErrorContext, TransportErrorSurface } from "./errorMapping";
 import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
 import { parseCompletionText } from "./fim";
+import type { TransportFetch } from "./nodeHttpFetch";
+import { nodeHttpFetch } from "./nodeHttpFetch";
 
 /**
  * No retries, since completions never retry. Transport-module error ownership applies, so every call throws
@@ -69,6 +71,8 @@ export interface OneShotConnection {
 
 export interface OneShotClientOptions {
 	readonly userAgent: string;
+	/** The HTTP transport; tests inject a fake here. Defaults to nodeHttpFetch. */
+	readonly fetch?: TransportFetch | undefined;
 }
 
 export interface OneShotCallOptions {
@@ -151,8 +155,11 @@ function oneShotContentOf(payload: string): string {
  */
 export class OneShotClient {
 	private readonly oauthTokens = new OAuthTokenSource();
+	private readonly fetch: TransportFetch;
 
-	constructor(private readonly options: OneShotClientOptions) {}
+	constructor(private readonly options: OneShotClientOptions) {
+		this.fetch = options.fetch ?? nodeHttpFetch;
+	}
 
 	/**
 	 * POST one JSON body and return the raw Response, its body unread. Every
@@ -334,13 +341,13 @@ export class OneShotClient {
 			});
 			let response: Response;
 			try {
-				response = await globalThis.fetch(url, { method: "POST", headers, body, signal: requestSignal });
+				response = await this.fetch(url, { method: "POST", headers, body, signal: requestSignal });
 			} catch (fetchError) {
 				if (requestSignal.aborted) {
 					// Attributed by the outer catch: cancellation first, then timeout.
 					throw fetchError;
 				}
-				// A plain fetch rejects with a bare TypeError on socket failures; the
+				// The transport rejects with a bare TypeError on socket failures; the
 				// SDK wrapper is what routes it into mapSdkError's socket classifier,
 				// so an ECONNREFUSED here reads exactly like one on the chat stream.
 				throw new APIConnectionError({ cause: fetchError instanceof Error ? fetchError : undefined });
