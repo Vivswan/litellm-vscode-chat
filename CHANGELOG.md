@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.4](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.3...v0.6.4) (2026-09-14)
+
+
+### Bug Fixes
+
+* close the open code-scanning alerts ([#330](https://github.com/Vivswan/litellm-vscode-chat/issues/330)) ([c9755f4](https://github.com/Vivswan/litellm-vscode-chat/commit/c9755f43afc04c8c0dc91812570b3a80ecc980f3))
+* **transport:** chat.timeout is the only clock on streaming requests ([#343](https://github.com/Vivswan/litellm-vscode-chat/issues/343), thanks [@manitra](https://github.com/manitra)) ([#344](https://github.com/Vivswan/litellm-vscode-chat/issues/344)) ([1b91531](https://github.com/Vivswan/litellm-vscode-chat/commit/1b91531098a2136462046c2bda9429c55d3d54e7))
+
 ## [0.6.3](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.2...v0.6.3) (2026-09-11)
 
 
