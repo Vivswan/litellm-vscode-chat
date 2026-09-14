@@ -6,6 +6,12 @@ import type { AddressInfo } from "node:net";
 import zlib from "node:zlib";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 
+const ENCODERS = new Map<string, (body: Buffer) => Buffer>([
+	["gzip", (body) => zlib.gzipSync(body)],
+	["deflate", (body) => zlib.deflateSync(body)],
+	["br", (body) => zlib.brotliCompressSync(body)],
+]);
+
 interface Echo {
 	method: string;
 	body: string;
@@ -48,8 +54,13 @@ function routes(peer: () => string): http.RequestListener {
 				case "/encoded/deflate":
 				case "/encoded/br": {
 					const coding = path.slice("/encoded/".length);
-					const encode = { gzip: zlib.gzipSync, deflate: zlib.deflateSync, br: zlib.brotliCompressSync }[coding];
-					const payload = (encode as (b: Buffer) => Buffer)(Buffer.from(JSON.stringify({ coding })));
+					const encode = ENCODERS.get(coding);
+					if (encode === undefined) {
+						res.writeHead(404);
+						res.end();
+						return;
+					}
+					const payload = encode(Buffer.from(JSON.stringify({ coding })));
 					res.writeHead(200, {
 						"content-type": "application/json",
 						"content-encoding": coding,
