@@ -27,6 +27,7 @@ repository:
   allow_auto_merge: true
   enable_vulnerability_alerts: true
 labels:
+  _undeclared: delete
   entries:
     - name: dependencies
       color: 0366d6
@@ -60,7 +61,8 @@ labels:
       description: release-please release PR has been tagged
     - name: release-blocker
       color: B60205
-      description: Blocks releases while open - release-health fails release PRs and the release pipeline
+      description: Blocks releases while open - release-health fails release PRs and
+        the release pipeline
     - name: release-override
       color: FBCA04
       description: "On a release PR: bypass release-health gates for this release"
@@ -76,8 +78,8 @@ labels:
     - name: nightly-failure
       color: D93F0B
       description: Automated nightly CI failure
-  _undeclared: delete
 rulesets:
+  _undeclared: keep
   entries:
     - name: pr-title
       target: branch
@@ -172,4 +174,3 @@ rulesets:
         - type: deletion
         - type: required_linear_history
       bypass_actors: []
-  _undeclared: keep

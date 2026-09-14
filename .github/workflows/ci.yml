@@ -197,4 +197,3 @@ jobs:
     uses: Vivswan/repo-platform/.github/workflows/reusable-site.yml@stable
     with:
       sha: ${{ github.sha }}
-      custom_domain: ${{ vars.CUSTOM_DOMAIN }}

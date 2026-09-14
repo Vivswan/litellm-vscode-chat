@@ -1,5 +1,6 @@
 # This file is managed by Vivswan/repo-platform.
 # Local edits are replaced on the next sync.
+# The workflow_dispatch input `issue` is a consumer contract: repository-owned workflows run `gh workflow run auto-assign.yml -f issue=<n>`, so its name stays.
 name: Auto Assign
 
 on:
@@ -23,7 +24,6 @@ permissions: {}
 jobs:
   auto-assign:
     permissions:
-      contents: read
       issues: write
       pull-requests: write
     uses: Vivswan/repo-platform/.github/workflows/reusable-auto-assign.yml@stable
