@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.5](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.4...v0.6.5) (2026-09-15)
+
+
+### Features
+
+* add opt-in agent tools that read and edit the extension's configuration ([#359](https://github.com/Vivswan/litellm-vscode-chat/issues/359)) ([75cb753](https://github.com/Vivswan/litellm-vscode-chat/commit/75cb75306b57565f62f030ffac2ef399b18f3e4f))
+
+
+### Bug Fixes
+
+* bun pins follow the managed .bun-version (1.4.0) ([#352](https://github.com/Vivswan/litellm-vscode-chat/issues/352)) ([ac5963b](https://github.com/Vivswan/litellm-vscode-chat/commit/ac5963b9935fbecba1a3536af89d1acc0e515343))
+
 ## [0.6.4](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.3...v0.6.4) (2026-09-14)
 
 
