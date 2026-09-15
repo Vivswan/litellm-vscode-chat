@@ -285,8 +285,8 @@
 					"type": "object",
 					"properties": {
 						"includeLogs": {
-							"type": "boolean",
-							"description": "Include the recent log lines (redacted). Default false."
+							"description": "Include the recent log lines (redacted). Default false.",
+							"type": "boolean"
 						}
 					},
 					"additionalProperties": false
@@ -305,6 +305,8 @@
 					"type": "object",
 					"properties": {
 						"sections": {
+							"description": "Which sections to return. Default: all.",
+							"minItems": 1,
 							"type": "array",
 							"items": {
 								"type": "string",
@@ -316,9 +318,7 @@
 									"catalog",
 									"usage"
 								]
-							},
-							"description": "Which sections to return. Default: all.",
-							"minItems": 1
+							}
 						}
 					},
 					"additionalProperties": false
@@ -338,15 +338,20 @@
 					"properties": {
 						"server": {
 							"type": "string",
+							"minLength": 1,
+							"maxLength": 1024,
 							"description": "The servers entry label, from litellm_configuration."
 						},
 						"model": {
 							"type": "string",
+							"minLength": 1,
+							"maxLength": 512,
 							"description": "The raw model ID as the server names it, from litellm_configuration."
 						},
 						"scopeKey": {
+							"description": "The model row's scopeKey from litellm_configuration, needed only when two rows share the server label and model ID (a declared entry and its external leftover).",
 							"type": "string",
-							"description": "The model row's scopeKey from litellm_configuration, needed only when two rows share the server label and model ID (a declared entry and its external leftover)."
+							"minLength": 1
 						}
 					},
 					"required": [
@@ -370,6 +375,8 @@
 					"properties": {
 						"query": {
 							"type": "string",
+							"minLength": 1,
+							"maxLength": 200,
 							"description": "Part of a model name or ID."
 						}
 					},
@@ -393,9 +400,12 @@
 					"properties": {
 						"setting": {
 							"type": "string",
+							"minLength": 1,
+							"maxLength": 2048,
 							"description": "The setting name without the litellm-vscode-chat. prefix."
 						},
 						"value": {
+							"description": "The new value, in the setting's own shape; null removes the configured value.",
 							"type": [
 								"string",
 								"number",
@@ -403,8 +413,7 @@
 								"object",
 								"array",
 								"null"
-							],
-							"description": "The new value, in the setting's own shape; null removes the configured value."
+							]
 						}
 					},
 					"required": [
@@ -431,31 +440,50 @@
 							"enum": [
 								"capabilities",
 								"parameters"
-							]
+							],
+							"description": "Which record to edit: models.capabilities or models.parameters."
 						},
 						"key": {
 							"type": "string",
+							"minLength": 1,
+							"maxLength": 512,
 							"description": "A raw model ID or a prefix pattern such as gpt-5*."
 						},
 						"set": {
+							"description": "Fields to set on the record.",
 							"type": "object",
-							"additionalProperties": true,
-							"description": "Fields to set on the record."
-						},
-						"unset": {
-							"type": "array",
-							"items": {
+							"propertyNames": {
 								"type": "string"
 							},
-							"description": "Field names to remove from the record."
+							"additionalProperties": {
+								"type": [
+									"string",
+									"number",
+									"boolean",
+									"object",
+									"array",
+									"null"
+								]
+							}
+						},
+						"unset": {
+							"description": "Field names to remove from the record.",
+							"type": "array",
+							"items": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 256
+							}
 						},
 						"removeKey": {
-							"type": "boolean",
-							"description": "Remove the whole key."
+							"description": "Remove the whole key.",
+							"type": "boolean"
 						},
 						"server": {
+							"description": "A servers entry label, to edit that entry's own record instead of the global setting.",
 							"type": "string",
-							"description": "A servers entry label, to edit that entry's own record instead of the global setting."
+							"minLength": 1,
+							"maxLength": 1024
 						}
 					},
 					"required": [
@@ -475,14 +503,14 @@
 				"icon": "$(server)",
 				"when": "config.litellm-vscode-chat.agentTools.enabled && config.litellm-vscode-chat.agentTools.saveServer.enabled",
 				"inputSchema": {
-					"type": "object",
 					"anyOf": [
 						{
 							"type": "object",
-							"description": "Adopt an external provider group (one not in the servers setting) into the setting under label. Nothing else can be changed in the same call; edit the entry afterwards.",
 							"properties": {
 								"label": {
 									"type": "string",
+									"minLength": 1,
+									"maxLength": 1024,
 									"description": "The entry's label (its identity; the model picker groups models under it)."
 								},
 								"adoptFrom": {
@@ -490,10 +518,13 @@
 									"properties": {
 										"label": {
 											"type": "string",
+											"minLength": 1,
+											"maxLength": 1024,
 											"description": "The external group's label, from litellm_configuration."
 										},
 										"baseUrl": {
 											"type": "string",
+											"minLength": 1,
 											"description": "The external group's base URL, from litellm_configuration."
 										}
 									},
@@ -501,13 +532,15 @@
 										"label",
 										"baseUrl"
 									],
-									"additionalProperties": false
+									"additionalProperties": false,
+									"description": "The external provider group to copy, from litellm_configuration."
 								},
 								"secretLocations": {
-									"type": "object",
 									"description": "Where each copied secret is stored; default secure.",
+									"type": "object",
 									"properties": {
 										"apiKey": {
+											"description": "Where the copied apiKey is stored.",
 											"type": "string",
 											"enum": [
 												"settings",
@@ -515,6 +548,7 @@
 											]
 										},
 										"oauthClientSecret": {
+											"description": "Where the copied oauthClientSecret is stored.",
 											"type": "string",
 											"enum": [
 												"settings",
@@ -522,6 +556,7 @@
 											]
 										},
 										"virtualKeyValue": {
+											"description": "Where the copied virtualKeyValue is stored.",
 											"type": "string",
 											"enum": [
 												"settings",
@@ -536,137 +571,149 @@
 								"label",
 								"adoptFrom"
 							],
-							"additionalProperties": false
+							"additionalProperties": false,
+							"description": "Adopt an external provider group (one not in the servers setting) into the setting under label. Nothing else can be changed in the same call; edit the entry afterwards."
 						},
 						{
 							"type": "object",
-							"description": "Add or edit a servers entry. On an edit, omitted fields keep their stored values.",
 							"properties": {
 								"label": {
 									"type": "string",
+									"minLength": 1,
+									"maxLength": 1024,
 									"description": "The entry's label (its identity; the model picker groups models under it)."
 								},
 								"baseUrl": {
+									"description": "The server's root URL, e.g. http://localhost:4000. Required for a new entry.",
 									"type": "string",
-									"description": "The server's root URL, e.g. http://localhost:4000. Required for a new entry."
+									"minLength": 1
 								},
 								"apiVersion": {
+									"description": "A string sets it, null clears it, absent keeps the stored value.",
 									"type": [
 										"string",
 										"null"
-									],
-									"description": "A string sets it, null clears it, absent keeps the stored value."
+									]
 								},
 								"oauthTokenUrl": {
+									"description": "A string sets it, null clears it, absent keeps the stored value.",
 									"type": [
 										"string",
 										"null"
-									],
-									"description": "A string sets it, null clears it, absent keeps the stored value."
+									]
 								},
 								"oauthClientId": {
+									"description": "A string sets it, null clears it, absent keeps the stored value.",
 									"type": [
 										"string",
 										"null"
-									],
-									"description": "A string sets it, null clears it, absent keeps the stored value."
+									]
 								},
 								"oauthScopes": {
+									"description": "A string sets it, null clears it, absent keeps the stored value.",
 									"type": [
 										"string",
 										"null"
-									],
-									"description": "A string sets it, null clears it, absent keeps the stored value."
+									]
 								},
 								"virtualKeyHeader": {
+									"description": "A string sets it, null clears it, absent keeps the stored value.",
 									"type": [
 										"string",
 										"null"
-									],
-									"description": "A string sets it, null clears it, absent keeps the stored value."
+									]
 								},
 								"headers": {
-									"type": "object",
-									"additionalProperties": {
-										"type": [
-											"string",
-											"number",
-											"boolean"
-										]
-									},
-									"description": "Custom HTTP headers (plain text, not secrets)."
+									"description": "Custom HTTP headers as an object of header name to value (plain text, not secrets).",
+									"type": [
+										"string",
+										"number",
+										"boolean",
+										"object",
+										"array",
+										"null"
+									]
 								},
 								"declaredModels": {
-									"type": "array",
-									"items": {
-										"type": "string"
-									},
-									"description": "Model IDs to serve even when the server cannot list them (discovery.declared)."
+									"description": "An array of model IDs to serve even when the server cannot list them (discovery.declared).",
+									"type": [
+										"string",
+										"number",
+										"boolean",
+										"object",
+										"array",
+										"null"
+									]
 								},
 								"expectedFailures": {
-									"type": "array",
-									"items": {
-										"type": "string",
-										"enum": [
-											"modelListing",
-											"modelInfo"
-										]
-									},
-									"description": "Discovery endpoints this server is expected to fail."
+									"description": "An array of the discovery endpoints this server is expected to fail: modelListing, modelInfo.",
+									"type": [
+										"string",
+										"number",
+										"boolean",
+										"object",
+										"array",
+										"null"
+									]
 								},
 								"modelCapabilities": {
-									"type": "object",
-									"additionalProperties": {
-										"type": "object",
-										"additionalProperties": true
-									},
-									"description": "The entry's own models.capabilities record, whole."
+									"description": "The entry's own models.capabilities record, whole.",
+									"type": [
+										"string",
+										"number",
+										"boolean",
+										"object",
+										"array",
+										"null"
+									]
 								},
 								"modelParameters": {
-									"type": "object",
-									"additionalProperties": {
-										"type": "object",
-										"additionalProperties": true
-									},
-									"description": "The entry's own models.parameters record, whole."
+									"description": "The entry's own models.parameters record, whole.",
+									"type": [
+										"string",
+										"number",
+										"boolean",
+										"object",
+										"array",
+										"null"
+									]
 								},
 								"budget": {
+									"description": "Manual usage budget in USD, a number; null clears it.",
 									"type": [
+										"string",
 										"number",
+										"boolean",
+										"object",
+										"array",
 										"null"
-									],
-									"description": "Manual usage budget in USD; null clears it."
+									]
 								},
 								"mcp": {
-									"anyOf": [
-										{
-											"const": true
-										},
-										{
-											"type": "object",
-											"properties": {
-												"url": {
-													"type": "string"
-												}
-											},
-											"additionalProperties": false
-										},
-										{
-											"type": "null"
-										}
-									],
-									"description": "MCP opt-in: true, { url }, or null to clear."
+									"description": "MCP opt-in: true, { url }, or null to clear.",
+									"type": [
+										"string",
+										"number",
+										"boolean",
+										"object",
+										"array",
+										"null"
+									]
 								},
 								"secrets": {
+									"description": "One directive per secret; a secret without a directive is kept.",
 									"type": "object",
 									"properties": {
 										"apiKey": {
+											"description": "What happens to the stored apiKey: keep, clear, or set.",
 											"anyOf": [
 												{
 													"type": "object",
 													"properties": {
 														"action": {
-															"const": "keep"
+															"type": "string",
+															"const": "keep",
+															"description": "Keep the stored secret."
 														}
 													},
 													"required": [
@@ -678,7 +725,9 @@
 													"type": "object",
 													"properties": {
 														"action": {
-															"const": "clear"
+															"type": "string",
+															"const": "clear",
+															"description": "Remove the stored secret."
 														}
 													},
 													"required": [
@@ -690,7 +739,9 @@
 													"type": "object",
 													"properties": {
 														"action": {
-															"const": "set"
+															"type": "string",
+															"const": "set",
+															"description": "Store a secret."
 														},
 														"location": {
 															"type": "string",
@@ -701,8 +752,9 @@
 															"description": "Where a set secret is stored."
 														},
 														"value": {
+															"description": "Omit it: the user is asked to type the secret in a masked box. Allowed only when the user's agentTools.secretValues setting is on.",
 															"type": "string",
-															"description": "Omit it: the user is asked to type the secret in a masked box. Allowed only when the user's agentTools.secretValues setting is on."
+															"minLength": 1
 														}
 													},
 													"required": [
@@ -714,12 +766,15 @@
 											]
 										},
 										"oauthClientSecret": {
+											"description": "What happens to the stored oauthClientSecret: keep, clear, or set.",
 											"anyOf": [
 												{
 													"type": "object",
 													"properties": {
 														"action": {
-															"const": "keep"
+															"type": "string",
+															"const": "keep",
+															"description": "Keep the stored secret."
 														}
 													},
 													"required": [
@@ -731,7 +786,9 @@
 													"type": "object",
 													"properties": {
 														"action": {
-															"const": "clear"
+															"type": "string",
+															"const": "clear",
+															"description": "Remove the stored secret."
 														}
 													},
 													"required": [
@@ -743,7 +800,9 @@
 													"type": "object",
 													"properties": {
 														"action": {
-															"const": "set"
+															"type": "string",
+															"const": "set",
+															"description": "Store a secret."
 														},
 														"location": {
 															"type": "string",
@@ -754,8 +813,9 @@
 															"description": "Where a set secret is stored."
 														},
 														"value": {
+															"description": "Omit it: the user is asked to type the secret in a masked box. Allowed only when the user's agentTools.secretValues setting is on.",
 															"type": "string",
-															"description": "Omit it: the user is asked to type the secret in a masked box. Allowed only when the user's agentTools.secretValues setting is on."
+															"minLength": 1
 														}
 													},
 													"required": [
@@ -767,12 +827,15 @@
 											]
 										},
 										"virtualKeyValue": {
+											"description": "What happens to the stored virtualKeyValue: keep, clear, or set.",
 											"anyOf": [
 												{
 													"type": "object",
 													"properties": {
 														"action": {
-															"const": "keep"
+															"type": "string",
+															"const": "keep",
+															"description": "Keep the stored secret."
 														}
 													},
 													"required": [
@@ -784,7 +847,9 @@
 													"type": "object",
 													"properties": {
 														"action": {
-															"const": "clear"
+															"type": "string",
+															"const": "clear",
+															"description": "Remove the stored secret."
 														}
 													},
 													"required": [
@@ -796,7 +861,9 @@
 													"type": "object",
 													"properties": {
 														"action": {
-															"const": "set"
+															"type": "string",
+															"const": "set",
+															"description": "Store a secret."
 														},
 														"location": {
 															"type": "string",
@@ -807,8 +874,9 @@
 															"description": "Where a set secret is stored."
 														},
 														"value": {
+															"description": "Omit it: the user is asked to type the secret in a masked box. Allowed only when the user's agentTools.secretValues setting is on.",
 															"type": "string",
-															"description": "Omit it: the user is asked to type the secret in a masked box. Allowed only when the user's agentTools.secretValues setting is on."
+															"minLength": 1
 														}
 													},
 													"required": [
@@ -823,16 +891,20 @@
 									"additionalProperties": false
 								},
 								"renameFrom": {
+									"description": "The current label of the entry to rename to label.",
 									"type": "string",
-									"description": "The current label of the entry to rename to label."
+									"minLength": 1,
+									"maxLength": 1024
 								}
 							},
 							"required": [
 								"label"
 							],
-							"additionalProperties": false
+							"additionalProperties": false,
+							"description": "Add or edit a servers entry. On an edit, omitted fields keep their stored values."
 						}
-					]
+					],
+					"type": "object"
 				}
 			},
 			{
@@ -845,16 +917,19 @@
 				"icon": "$(trash)",
 				"when": "config.litellm-vscode-chat.agentTools.enabled && config.litellm-vscode-chat.agentTools.removeServer.enabled",
 				"inputSchema": {
-					"type": "object",
 					"anyOf": [
 						{
 							"type": "object",
 							"properties": {
 								"action": {
-									"const": "remove"
+									"type": "string",
+									"const": "remove",
+									"description": "Remove a servers entry."
 								},
 								"label": {
 									"type": "string",
+									"minLength": 1,
+									"maxLength": 1024,
 									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
 								}
 							},
@@ -868,14 +943,19 @@
 							"type": "object",
 							"properties": {
 								"action": {
-									"const": "hide"
+									"type": "string",
+									"const": "hide",
+									"description": "Hide an external provider group that is not in the setting."
 								},
 								"label": {
 									"type": "string",
+									"minLength": 1,
+									"maxLength": 1024,
 									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
 								},
 								"baseUrl": {
 									"type": "string",
+									"minLength": 1,
 									"description": "The group's base URL as litellm_configuration shows it; with the label it identifies the group."
 								}
 							},
@@ -890,14 +970,19 @@
 							"type": "object",
 							"properties": {
 								"action": {
-									"const": "unhide"
+									"type": "string",
+									"const": "unhide",
+									"description": "Restore a hidden group."
 								},
 								"label": {
 									"type": "string",
+									"minLength": 1,
+									"maxLength": 1024,
 									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
 								},
 								"baseUrl": {
 									"type": "string",
+									"minLength": 1,
 									"description": "The group's base URL as litellm_configuration shows it; with the label it identifies the group."
 								}
 							},
@@ -908,7 +993,8 @@
 							],
 							"additionalProperties": false
 						}
-					]
+					],
+					"type": "object"
 				}
 			},
 			{
@@ -921,16 +1007,19 @@
 				"icon": "$(play)",
 				"when": "config.litellm-vscode-chat.agentTools.enabled && config.litellm-vscode-chat.agentTools.runAction.enabled",
 				"inputSchema": {
-					"type": "object",
 					"anyOf": [
 						{
 							"type": "object",
 							"properties": {
 								"action": {
-									"const": "testConnection"
+									"type": "string",
+									"const": "testConnection",
+									"description": "Probe a stored servers entry with its stored credentials."
 								},
 								"label": {
 									"type": "string",
+									"minLength": 1,
+									"maxLength": 1024,
 									"description": "The stored servers entry to probe with its stored credentials."
 								}
 							},
@@ -944,7 +1033,9 @@
 							"type": "object",
 							"properties": {
 								"action": {
-									"const": "testFeatureModel"
+									"type": "string",
+									"const": "testFeatureModel",
+									"description": "Send a feature's picked model a fixed probe prompt."
 								},
 								"feature": {
 									"type": "string",
@@ -969,7 +1060,9 @@
 							"type": "object",
 							"properties": {
 								"action": {
-									"const": "syncModels"
+									"type": "string",
+									"const": "syncModels",
+									"description": "Re-discover every server's models."
 								}
 							},
 							"required": [
@@ -981,7 +1074,9 @@
 							"type": "object",
 							"properties": {
 								"action": {
-									"const": "refreshCatalog"
+									"type": "string",
+									"const": "refreshCatalog",
+									"description": "Refresh the OpenRouter catalog."
 								}
 							},
 							"required": [
@@ -993,7 +1088,9 @@
 							"type": "object",
 							"properties": {
 								"action": {
-									"const": "refreshUsage"
+									"type": "string",
+									"const": "refreshUsage",
+									"description": "Re-poll spend and budgets."
 								}
 							},
 							"required": [
@@ -1001,7 +1098,8 @@
 							],
 							"additionalProperties": false
 						}
-					]
+					],
+					"type": "object"
 				}
 			}
 		],
@@ -1996,6 +2094,8 @@
 		"l10n:check": "bun scripts/l10n/check.ts",
 		"docs:settings": "bun scripts/docs/generate-settings-reference.ts",
 		"docs:settings:check": "bun scripts/docs/generate-settings-reference.ts --check",
+		"tools:schemas": "bun scripts/dev/generate-tool-schemas.ts",
+		"tools:schemas:check": "bun scripts/dev/generate-tool-schemas.ts --check",
 		"lint:actions": "bun scripts/ci/lint-actions.ts",
 		"lint:knip": "knip",
 		"lint:types": "eslint src scripts",
