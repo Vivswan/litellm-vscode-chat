@@ -8,6 +8,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
+import type { AgentWriteToolId } from "./settingSpec";
 
 /** The vendor this extension registers with the language-model host; provider groups carry it. */
 export const VENDOR_ID = "litellm";
@@ -30,6 +31,52 @@ export const TOOL_NAME = "litellm_consult";
  * every call could only fail. A setting-only when-clause could not express that.
  */
 export const CONSULT_TOOL_READY_CONTEXT_KEY = "litellm.consultToolReady";
+/** The agent tools, in manifest order: the four reads first, then the five writes. */
+export const AGENT_TOOL_IDS = [
+	"diagnostics",
+	"configuration",
+	"inspectModel",
+	"searchCatalog",
+	"setSetting",
+	"editModelRecords",
+	"saveServer",
+	"removeServer",
+	"runAction",
+] as const;
+
+export type AgentToolId = (typeof AGENT_TOOL_IDS)[number];
+
+/** One agent tool's contribution identity plus the write toggle that gates it (none for a read). */
+export interface AgentToolContribution {
+	/** The languageModelTools contribution's name: snake_case, namespaced like TOOL_NAME. */
+	readonly name: string;
+	/** The `#handle` a user types to reference the tool in a prompt. */
+	readonly referenceName: string;
+	readonly toggle: AgentWriteToolId | undefined;
+}
+
+/**
+ * The agent tools' contribution identities. Each read registers under the
+ * feature switch alone; each write also under its own toggle, so the manifest
+ * `when` clauses and the registration read the same two switches
+ * (commandIds.test.ts pins the mirror).
+ */
+export const AGENT_TOOLS = {
+	diagnostics: { name: "litellm_diagnostics", referenceName: "litellmDiagnostics", toggle: undefined },
+	configuration: { name: "litellm_configuration", referenceName: "litellmConfiguration", toggle: undefined },
+	inspectModel: { name: "litellm_inspect_model", referenceName: "litellmInspectModel", toggle: undefined },
+	searchCatalog: { name: "litellm_search_catalog", referenceName: "litellmSearchCatalog", toggle: undefined },
+	setSetting: { name: "litellm_set_setting", referenceName: "litellmSetSetting", toggle: "setSetting" },
+	editModelRecords: {
+		name: "litellm_edit_model_records",
+		referenceName: "litellmEditModelRecords",
+		toggle: "editModelRecords",
+	},
+	saveServer: { name: "litellm_save_server", referenceName: "litellmSaveServer", toggle: "saveServer" },
+	removeServer: { name: "litellm_remove_server", referenceName: "litellmRemoveServer", toggle: "removeServer" },
+	runAction: { name: "litellm_run_action", referenceName: "litellmRunAction", toggle: "runAction" },
+} as const satisfies Record<AgentToolId, AgentToolContribution>;
+
 /** The mcpServerDefinitionProviders contribution's id. */
 export const MCP_PROVIDER_ID = "litellm.mcpServers";
 

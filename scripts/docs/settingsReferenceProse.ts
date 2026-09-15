@@ -260,4 +260,64 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		zhCn: "@litellm 聊天参与者, 使用聊天请求自身的模型作答 (没有模型设置)。默认开启",
 		zhTw: "@litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟",
 	},
+	"agentTools.enabled": {
+		en:
+			"Registers the read tools Copilot's agent can call: diagnostics, servers, models, effective capabilities and " +
+			"parameters, recent logs with secrets redacted. Off by default; each tool that changes something has its own " +
+			"switch below. Recipe: [Let an agent manage your LiteLLM " +
+			"setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
+		zhCn: "注册 Copilot 的代理可以调用的读取工具: 诊断、服务器、模型、有效的能力和参数、已脱敏密钥的近期日志。默认关闭; 每个会做出更改的工具在下方都有自己的开关。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "註冊 Copilot 的代理可以呼叫的讀取工具: 診斷、伺服器、模型、有效的能力和參數、已遮蔽密鑰的近期日誌。預設關閉; 每個會做出變更的工具在下方都有自己的開關。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+	},
+	"agentTools.setSetting.enabled": {
+		en:
+			"Lets the agent change scalar settings (timeouts, toggles, feature models) through the dashboard's validation; " +
+			"never `servers`, the model record settings, or the agent tools' own switches. Needs `agentTools.enabled`. " +
+			"Recipe: [Let an agent manage your LiteLLM setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
+		zhCn: "允许代理经仪表板的验证更改标量设置 (超时、开关、功能模型); 绝不包括 `servers`、模型记录设置或代理工具自身的开关。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "允許代理經儀表板的驗證變更標量設定 (逾時、開關、功能模型); 絕不包括 `servers`、模型記錄設定或代理工具自身的開關。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+	},
+	"agentTools.editModelRecords.enabled": {
+		en:
+			"Lets the agent edit `models.capabilities` and `models.parameters`, one matcher key at a time, globally or on a " +
+			"servers entry. Needs `agentTools.enabled`. Recipe: [Let an agent manage your LiteLLM " +
+			"setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
+		zhCn: "允许代理编辑 `models.capabilities` 和 `models.parameters`, 一次一个匹配器键, 可在全局或某个 servers 条目上。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "允許代理編輯 `models.capabilities` 和 `models.parameters`, 一次一個比對器鍵, 可在全域或某個 servers 項目上。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+	},
+	"agentTools.saveServer.enabled": {
+		en:
+			"Lets the agent add, edit, rename, or adopt a `servers` entry. You type secret values into an input box, masked by " +
+			"default (`ui.maskSecretInputs` governs it) and never entering the chat, unless `agentTools.secretValues.enabled` " +
+			"lets the agent pass them; a kept secret never follows a changed host. Needs " +
+			"`agentTools.enabled`. Recipe: [Let an agent manage your LiteLLM " +
+			"setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
+		zhCn: "允许代理添加、编辑、重命名或采纳 `servers` 条目。密钥值由你在输入框中输入, 该输入框默认掩码显示 (由 `ui.maskSecretInputs` 控制) 且值绝不进入聊天, 除非 `agentTools.secretValues.enabled` 允许代理传递; 保留的密钥绝不会跟随改变了的主机。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "允許代理新增、編輯、重新命名或採納 `servers` 項目。密鑰值由您在輸入框中輸入, 該輸入框預設遮罩顯示 (由 `ui.maskSecretInputs` 控制) 且值絕不進入聊天, 除非 `agentTools.secretValues.enabled` 允許代理傳遞; 保留的密鑰絕不會跟隨變更了的主機。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+	},
+	"agentTools.removeServer.enabled": {
+		en:
+			"Lets the agent remove a `servers` entry or hide an external provider group. Needs `agentTools.enabled`. Recipe: " +
+			"[Let an agent manage your LiteLLM setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
+		zhCn: "允许代理移除 `servers` 条目或隐藏外部提供者组。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "允許代理移除 `servers` 項目或隱藏外部提供者群組。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+	},
+	"agentTools.runAction.enabled": {
+		en:
+			"Lets the agent test a stored server's connection, re-sync models, refresh the OpenRouter catalog or the usage " +
+			"numbers, and send a fixed probe prompt to a feature's picked model (a billable model request). Needs `agentTools.enabled`. Recipe: [Let an agent manage your LiteLLM " +
+			"setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
+		zhCn: "允许代理测试已存储服务器的连接、重新同步模型、刷新 OpenRouter 目录或用量数据, 以及向功能选定的模型发送一条固定的探测提示 (一次计费的模型请求)。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "允許代理測試已儲存伺服器的連線、重新同步模型、重新整理 OpenRouter 目錄或用量數據, 以及向功能選定的模型送出一則固定的探測提示 (一次計費的模型要求)。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+	},
+	"agentTools.secretValues.enabled": {
+		en:
+			"Lets agent tool input carry secret values (API keys, client secrets). Off, the agent only chooses where a secret " +
+			"is stored and VS Code asks you to type it into an input box, masked by default (`ui.maskSecretInputs` governs it); " +
+			"the value never enters the chat. Turn on only where the chat transcript is already a secure place, " +
+			"such as a zero-retention deployment. Recipe: [Let an agent manage your LiteLLM " +
+			"setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
+		zhCn: "允许代理工具的输入携带密钥值 (API 密钥、客户端密钥)。关闭时, 代理只选择密钥的存储位置, 由 VS Code 请你在输入框中输入, 该输入框默认掩码显示 (由 `ui.maskSecretInputs` 控制); 值绝不进入聊天。仅在聊天记录本身已是安全场所时开启, 例如零留存部署。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "允許代理工具的輸入攜帶密鑰值 (API 金鑰、用戶端密鑰)。關閉時, 代理只選擇密鑰的儲存位置, 由 VS Code 請您在輸入框中輸入, 該輸入框預設遮罩顯示 (由 `ui.maskSecretInputs` 控制); 值絕不進入聊天。僅在聊天記錄本身已是安全場所時開啟, 例如零留存部署。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+	},
 };

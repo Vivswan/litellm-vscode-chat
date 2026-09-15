@@ -82,6 +82,13 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.reviewComments.enabled` | `false` | 选择启用对改动的 AI 评审评论。默认关闭; 启用前不存在任何评审会话, 也不会发出任何评审请求, 仪表板中显式的「测试模型」按钮除外 ([配方](getting-started.md#让模型评审你的代码)) |
 | `litellm-vscode-chat.reviewComments.model` | `null` | 撰写评审评论的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则 |
 | `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天参与者, 使用聊天请求自身的模型作答 (没有模型设置)。默认开启 |
+| `litellm-vscode-chat.agentTools.enabled` | `false` | 注册 Copilot 的代理可以调用的读取工具: 诊断、服务器、模型、有效的能力和参数、已脱敏密钥的近期日志。默认关闭; 每个会做出更改的工具在下方都有自己的开关。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置) |
+| `litellm-vscode-chat.agentTools.setSetting.enabled` | `false` | 允许代理经仪表板的验证更改标量设置 (超时、开关、功能模型); 绝不包括 `servers`、模型记录设置或代理工具自身的开关。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置) |
+| `litellm-vscode-chat.agentTools.editModelRecords.enabled` | `false` | 允许代理编辑 `models.capabilities` 和 `models.parameters`, 一次一个匹配器键, 可在全局或某个 servers 条目上。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置) |
+| `litellm-vscode-chat.agentTools.saveServer.enabled` | `false` | 允许代理添加、编辑、重命名或采纳 `servers` 条目。密钥值由你在输入框中输入, 该输入框默认掩码显示 (由 `ui.maskSecretInputs` 控制) 且值绝不进入聊天, 除非 `agentTools.secretValues.enabled` 允许代理传递; 保留的密钥绝不会跟随改变了的主机。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置) |
+| `litellm-vscode-chat.agentTools.removeServer.enabled` | `false` | 允许代理移除 `servers` 条目或隐藏外部提供者组。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置) |
+| `litellm-vscode-chat.agentTools.runAction.enabled` | `false` | 允许代理测试已存储服务器的连接、重新同步模型、刷新 OpenRouter 目录或用量数据, 以及向功能选定的模型发送一条固定的探测提示 (一次计费的模型请求)。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置) |
+| `litellm-vscode-chat.agentTools.secretValues.enabled` | `false` | 允许代理工具的输入携带密钥值 (API 密钥、客户端密钥)。关闭时, 代理只选择密钥的存储位置, 由 VS Code 请你在输入框中输入, 该输入框默认掩码显示 (由 `ui.maskSecretInputs` 控制); 值绝不进入聊天。仅在聊天记录本身已是安全场所时开启, 例如零留存部署。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置) |
 <!-- settings-reference:end -->
 
 有意不提供全局标头设置: 自定义 HTTP 标头描述的是如何与某一个服务器交谈, 所以它们存放在服务器条目上 ([`headers`](servers.md#自定义标头)) - 机器作用域, 在 Settings Sync 够不到的地方, 与普通会同步的设置不同。

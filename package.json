@@ -271,6 +271,738 @@
 						"question"
 					]
 				}
+			},
+			{
+				"name": "litellm_diagnostics",
+				"toolReferenceName": "litellmDiagnostics",
+				"displayName": "%litellm.tool.diagnostics.displayName%",
+				"userDescription": "%litellm.tool.diagnostics.userDescription%",
+				"modelDescription": "Read the LiteLLM extension's health: connection state, each configured LiteLLM server (label, base URL, state, error classification, served model count, whether a key is configured), configuration problems, the latest error, and optionally the recent log lines with secrets redacted. Call it first when a user reports LiteLLM models missing, failing, or answering empty. Read-only.",
+				"canBeReferencedInPrompt": true,
+				"icon": "$(pulse)",
+				"when": "config.litellm-vscode-chat.agentTools.enabled",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"includeLogs": {
+							"type": "boolean",
+							"description": "Include the recent log lines (redacted). Default false."
+						}
+					},
+					"additionalProperties": false
+				}
+			},
+			{
+				"name": "litellm_configuration",
+				"toolReferenceName": "litellmConfiguration",
+				"displayName": "%litellm.tool.configuration.displayName%",
+				"userDescription": "%litellm.tool.configuration.userDescription%",
+				"modelDescription": "Read the LiteLLM extension's configuration as its dashboard shows it: servers (their settings and where each secret is stored, never the values), every setting with the scope it is configured in, the models each server serves (raw model ID, server label, token limits), hidden provider groups, the OpenRouter catalog status, and usage. Pass sections to read a slice; the whole picture can be large. Read-only.",
+				"canBeReferencedInPrompt": true,
+				"icon": "$(settings-gear)",
+				"when": "config.litellm-vscode-chat.agentTools.enabled",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"sections": {
+							"type": "array",
+							"items": {
+								"type": "string",
+								"enum": [
+									"servers",
+									"settings",
+									"models",
+									"hiddenGroups",
+									"catalog",
+									"usage"
+								]
+							},
+							"description": "Which sections to return. Default: all.",
+							"minItems": 1
+						}
+					},
+					"additionalProperties": false
+				}
+			},
+			{
+				"name": "litellm_inspect_model",
+				"toolReferenceName": "litellmInspectModel",
+				"displayName": "%litellm.tool.inspectModel.displayName%",
+				"userDescription": "%litellm.tool.inspectModel.userDescription%",
+				"modelDescription": "Explain one model's effective capabilities (context window, token limits, tools, vision, reasoning) and request parameters, with the source of each value: the server's report, the OpenRouter catalog, a models.capabilities or models.parameters record, or the built-in floor. Use it before changing a model record. Read-only.",
+				"canBeReferencedInPrompt": true,
+				"icon": "$(search)",
+				"when": "config.litellm-vscode-chat.agentTools.enabled",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"server": {
+							"type": "string",
+							"description": "The servers entry label, from litellm_configuration."
+						},
+						"model": {
+							"type": "string",
+							"description": "The raw model ID as the server names it, from litellm_configuration."
+						},
+						"scopeKey": {
+							"type": "string",
+							"description": "The model row's scopeKey from litellm_configuration, needed only when two rows share the server label and model ID (a declared entry and its external leftover)."
+						}
+					},
+					"required": [
+						"server",
+						"model"
+					],
+					"additionalProperties": false
+				}
+			},
+			{
+				"name": "litellm_search_catalog",
+				"toolReferenceName": "litellmSearchCatalog",
+				"displayName": "%litellm.tool.searchCatalog.displayName%",
+				"userDescription": "%litellm.tool.searchCatalog.userDescription%",
+				"modelDescription": "Search the bundled OpenRouter model catalog by name or ID, to find a model's published context window or its catalog ID for a _openrouter_model directive. Read-only.",
+				"canBeReferencedInPrompt": true,
+				"icon": "$(book)",
+				"when": "config.litellm-vscode-chat.agentTools.enabled",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"query": {
+							"type": "string",
+							"description": "Part of a model name or ID."
+						}
+					},
+					"required": [
+						"query"
+					],
+					"additionalProperties": false
+				}
+			},
+			{
+				"name": "litellm_set_setting",
+				"toolReferenceName": "litellmSetSetting",
+				"displayName": "%litellm.tool.setSetting.displayName%",
+				"userDescription": "%litellm.tool.setSetting.userDescription%",
+				"modelDescription": "Change one litellm-vscode-chat setting by its name without the litellm-vscode-chat. prefix (for example chat.timeout or consultTool.model); value null removes the configured value from the highest scope that sets it (the workspace value if one exists, else the user value), which is how the dashboard's Reset works. The extension validates the value exactly as the dashboard does and answers with a refusal you can correct. Not for servers (use litellm_save_server) or models.capabilities and models.parameters (use litellm_edit_model_records). The user confirms the change first.",
+				"canBeReferencedInPrompt": true,
+				"icon": "$(edit)",
+				"when": "config.litellm-vscode-chat.agentTools.enabled && config.litellm-vscode-chat.agentTools.setSetting.enabled",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"setting": {
+							"type": "string",
+							"description": "The setting name without the litellm-vscode-chat. prefix."
+						},
+						"value": {
+							"type": [
+								"string",
+								"number",
+								"boolean",
+								"object",
+								"array",
+								"null"
+							],
+							"description": "The new value, in the setting's own shape; null removes the configured value."
+						}
+					},
+					"required": [
+						"setting",
+						"value"
+					],
+					"additionalProperties": false
+				}
+			},
+			{
+				"name": "litellm_edit_model_records",
+				"toolReferenceName": "litellmEditModelRecords",
+				"displayName": "%litellm.tool.editModelRecords.displayName%",
+				"userDescription": "%litellm.tool.editModelRecords.userDescription%",
+				"modelDescription": "Edit one matcher key of models.capabilities (context_length, max_input_tokens, max_output_tokens, supports_vision, supports_function_calling, supports_reasoning, and any other model_info field) or models.parameters (temperature, max_tokens, reasoning_effort, and other request parameters): set fields, unset fields, or remove the key. The key is a raw model ID or a prefix pattern like gpt-5*. Without server, the record in the settings scope the dashboard edits changes; with server, that servers entry's own record changes. Read litellm_inspect_model first so you change the right source. The user confirms the change first.",
+				"canBeReferencedInPrompt": true,
+				"icon": "$(symbol-property)",
+				"when": "config.litellm-vscode-chat.agentTools.enabled && config.litellm-vscode-chat.agentTools.editModelRecords.enabled",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"kind": {
+							"type": "string",
+							"enum": [
+								"capabilities",
+								"parameters"
+							]
+						},
+						"key": {
+							"type": "string",
+							"description": "A raw model ID or a prefix pattern such as gpt-5*."
+						},
+						"set": {
+							"type": "object",
+							"additionalProperties": true,
+							"description": "Fields to set on the record."
+						},
+						"unset": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							},
+							"description": "Field names to remove from the record."
+						},
+						"removeKey": {
+							"type": "boolean",
+							"description": "Remove the whole key."
+						},
+						"server": {
+							"type": "string",
+							"description": "A servers entry label, to edit that entry's own record instead of the global setting."
+						}
+					},
+					"required": [
+						"kind",
+						"key"
+					],
+					"additionalProperties": false
+				}
+			},
+			{
+				"name": "litellm_save_server",
+				"toolReferenceName": "litellmSaveServer",
+				"displayName": "%litellm.tool.saveServer.displayName%",
+				"userDescription": "%litellm.tool.saveServer.userDescription%",
+				"modelDescription": "Add, edit, rename, or adopt a LiteLLM servers entry. On an edit, fields you omit keep their stored values. Secrets: say where a key goes with secrets.apiKey = { action: set, location: secure } and omit value; the user is asked to type it in a masked box. Include value only if the user's agentTools.secretValues setting allows it. A stored secret never follows a changed host: when you change baseUrl, set the key again or clear it. renameFrom renames an existing entry; adoptFrom (an external provider group's label and base URL from litellm_configuration) copies that group into the setting and accepts no other edit in the same call. The user confirms the change first.",
+				"canBeReferencedInPrompt": true,
+				"icon": "$(server)",
+				"when": "config.litellm-vscode-chat.agentTools.enabled && config.litellm-vscode-chat.agentTools.saveServer.enabled",
+				"inputSchema": {
+					"type": "object",
+					"anyOf": [
+						{
+							"type": "object",
+							"description": "Adopt an external provider group (one not in the servers setting) into the setting under label. Nothing else can be changed in the same call; edit the entry afterwards.",
+							"properties": {
+								"label": {
+									"type": "string",
+									"description": "The entry's label (its identity; the model picker groups models under it)."
+								},
+								"adoptFrom": {
+									"type": "object",
+									"properties": {
+										"label": {
+											"type": "string",
+											"description": "The external group's label, from litellm_configuration."
+										},
+										"baseUrl": {
+											"type": "string",
+											"description": "The external group's base URL, from litellm_configuration."
+										}
+									},
+									"required": [
+										"label",
+										"baseUrl"
+									],
+									"additionalProperties": false
+								},
+								"secretLocations": {
+									"type": "object",
+									"description": "Where each copied secret is stored; default secure.",
+									"properties": {
+										"apiKey": {
+											"type": "string",
+											"enum": [
+												"settings",
+												"secure"
+											]
+										},
+										"oauthClientSecret": {
+											"type": "string",
+											"enum": [
+												"settings",
+												"secure"
+											]
+										},
+										"virtualKeyValue": {
+											"type": "string",
+											"enum": [
+												"settings",
+												"secure"
+											]
+										}
+									},
+									"additionalProperties": false
+								}
+							},
+							"required": [
+								"label",
+								"adoptFrom"
+							],
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"description": "Add or edit a servers entry. On an edit, omitted fields keep their stored values.",
+							"properties": {
+								"label": {
+									"type": "string",
+									"description": "The entry's label (its identity; the model picker groups models under it)."
+								},
+								"baseUrl": {
+									"type": "string",
+									"description": "The server's root URL, e.g. http://localhost:4000. Required for a new entry."
+								},
+								"apiVersion": {
+									"type": [
+										"string",
+										"null"
+									],
+									"description": "A string sets it, null clears it, absent keeps the stored value."
+								},
+								"oauthTokenUrl": {
+									"type": [
+										"string",
+										"null"
+									],
+									"description": "A string sets it, null clears it, absent keeps the stored value."
+								},
+								"oauthClientId": {
+									"type": [
+										"string",
+										"null"
+									],
+									"description": "A string sets it, null clears it, absent keeps the stored value."
+								},
+								"oauthScopes": {
+									"type": [
+										"string",
+										"null"
+									],
+									"description": "A string sets it, null clears it, absent keeps the stored value."
+								},
+								"virtualKeyHeader": {
+									"type": [
+										"string",
+										"null"
+									],
+									"description": "A string sets it, null clears it, absent keeps the stored value."
+								},
+								"headers": {
+									"type": "object",
+									"additionalProperties": {
+										"type": [
+											"string",
+											"number",
+											"boolean"
+										]
+									},
+									"description": "Custom HTTP headers (plain text, not secrets)."
+								},
+								"declaredModels": {
+									"type": "array",
+									"items": {
+										"type": "string"
+									},
+									"description": "Model IDs to serve even when the server cannot list them (discovery.declared)."
+								},
+								"expectedFailures": {
+									"type": "array",
+									"items": {
+										"type": "string",
+										"enum": [
+											"modelListing",
+											"modelInfo"
+										]
+									},
+									"description": "Discovery endpoints this server is expected to fail."
+								},
+								"modelCapabilities": {
+									"type": "object",
+									"additionalProperties": {
+										"type": "object",
+										"additionalProperties": true
+									},
+									"description": "The entry's own models.capabilities record, whole."
+								},
+								"modelParameters": {
+									"type": "object",
+									"additionalProperties": {
+										"type": "object",
+										"additionalProperties": true
+									},
+									"description": "The entry's own models.parameters record, whole."
+								},
+								"budget": {
+									"type": [
+										"number",
+										"null"
+									],
+									"description": "Manual usage budget in USD; null clears it."
+								},
+								"mcp": {
+									"anyOf": [
+										{
+											"const": true
+										},
+										{
+											"type": "object",
+											"properties": {
+												"url": {
+													"type": "string"
+												}
+											},
+											"additionalProperties": false
+										},
+										{
+											"type": "null"
+										}
+									],
+									"description": "MCP opt-in: true, { url }, or null to clear."
+								},
+								"secrets": {
+									"type": "object",
+									"properties": {
+										"apiKey": {
+											"anyOf": [
+												{
+													"type": "object",
+													"properties": {
+														"action": {
+															"const": "keep"
+														}
+													},
+													"required": [
+														"action"
+													],
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"properties": {
+														"action": {
+															"const": "clear"
+														}
+													},
+													"required": [
+														"action"
+													],
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"properties": {
+														"action": {
+															"const": "set"
+														},
+														"location": {
+															"type": "string",
+															"enum": [
+																"settings",
+																"secure"
+															],
+															"description": "Where a set secret is stored."
+														},
+														"value": {
+															"type": "string",
+															"description": "Omit it: the user is asked to type the secret in a masked box. Allowed only when the user's agentTools.secretValues setting is on."
+														}
+													},
+													"required": [
+														"action",
+														"location"
+													],
+													"additionalProperties": false
+												}
+											]
+										},
+										"oauthClientSecret": {
+											"anyOf": [
+												{
+													"type": "object",
+													"properties": {
+														"action": {
+															"const": "keep"
+														}
+													},
+													"required": [
+														"action"
+													],
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"properties": {
+														"action": {
+															"const": "clear"
+														}
+													},
+													"required": [
+														"action"
+													],
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"properties": {
+														"action": {
+															"const": "set"
+														},
+														"location": {
+															"type": "string",
+															"enum": [
+																"settings",
+																"secure"
+															],
+															"description": "Where a set secret is stored."
+														},
+														"value": {
+															"type": "string",
+															"description": "Omit it: the user is asked to type the secret in a masked box. Allowed only when the user's agentTools.secretValues setting is on."
+														}
+													},
+													"required": [
+														"action",
+														"location"
+													],
+													"additionalProperties": false
+												}
+											]
+										},
+										"virtualKeyValue": {
+											"anyOf": [
+												{
+													"type": "object",
+													"properties": {
+														"action": {
+															"const": "keep"
+														}
+													},
+													"required": [
+														"action"
+													],
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"properties": {
+														"action": {
+															"const": "clear"
+														}
+													},
+													"required": [
+														"action"
+													],
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"properties": {
+														"action": {
+															"const": "set"
+														},
+														"location": {
+															"type": "string",
+															"enum": [
+																"settings",
+																"secure"
+															],
+															"description": "Where a set secret is stored."
+														},
+														"value": {
+															"type": "string",
+															"description": "Omit it: the user is asked to type the secret in a masked box. Allowed only when the user's agentTools.secretValues setting is on."
+														}
+													},
+													"required": [
+														"action",
+														"location"
+													],
+													"additionalProperties": false
+												}
+											]
+										}
+									},
+									"additionalProperties": false
+								},
+								"renameFrom": {
+									"type": "string",
+									"description": "The current label of the entry to rename to label."
+								}
+							},
+							"required": [
+								"label"
+							],
+							"additionalProperties": false
+						}
+					]
+				}
+			},
+			{
+				"name": "litellm_remove_server",
+				"toolReferenceName": "litellmRemoveServer",
+				"displayName": "%litellm.tool.removeServer.displayName%",
+				"userDescription": "%litellm.tool.removeServer.userDescription%",
+				"modelDescription": "Remove a LiteLLM servers entry by label (action remove); or hide an external provider group that is not in the setting (action hide, with its label and base URL); or restore a hidden group (action unhide, with its label and base URL; only groups the configuration tool lists with reason removed can be restored). The user confirms first.",
+				"canBeReferencedInPrompt": true,
+				"icon": "$(trash)",
+				"when": "config.litellm-vscode-chat.agentTools.enabled && config.litellm-vscode-chat.agentTools.removeServer.enabled",
+				"inputSchema": {
+					"type": "object",
+					"anyOf": [
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "remove"
+								},
+								"label": {
+									"type": "string",
+									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
+								}
+							},
+							"required": [
+								"action",
+								"label"
+							],
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "hide"
+								},
+								"label": {
+									"type": "string",
+									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
+								},
+								"baseUrl": {
+									"type": "string",
+									"description": "The group's base URL as litellm_configuration shows it; with the label it identifies the group."
+								}
+							},
+							"required": [
+								"action",
+								"label",
+								"baseUrl"
+							],
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "unhide"
+								},
+								"label": {
+									"type": "string",
+									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
+								},
+								"baseUrl": {
+									"type": "string",
+									"description": "The group's base URL as litellm_configuration shows it; with the label it identifies the group."
+								}
+							},
+							"required": [
+								"action",
+								"label",
+								"baseUrl"
+							],
+							"additionalProperties": false
+						}
+					]
+				}
+			},
+			{
+				"name": "litellm_run_action",
+				"toolReferenceName": "litellmRunAction",
+				"displayName": "%litellm.tool.runAction.displayName%",
+				"userDescription": "%litellm.tool.runAction.userDescription%",
+				"modelDescription": "Run one LiteLLM maintenance action: testConnection probes a STORED servers entry (label) with its stored credentials; testFeatureModel sends a feature's picked model (feature) a fixed probe; syncModels re-discovers every server's models; refreshCatalog refreshes the OpenRouter catalog; refreshUsage re-polls spend and budgets. The user confirms first.",
+				"canBeReferencedInPrompt": true,
+				"icon": "$(play)",
+				"when": "config.litellm-vscode-chat.agentTools.enabled && config.litellm-vscode-chat.agentTools.runAction.enabled",
+				"inputSchema": {
+					"type": "object",
+					"anyOf": [
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "testConnection"
+								},
+								"label": {
+									"type": "string",
+									"description": "The stored servers entry to probe with its stored credentials."
+								}
+							},
+							"required": [
+								"action",
+								"label"
+							],
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "testFeatureModel"
+								},
+								"feature": {
+									"type": "string",
+									"enum": [
+										"inlineCompletions",
+										"commitGeneration",
+										"prGeneration",
+										"consultTool",
+										"quickFix",
+										"reviewComments"
+									],
+									"description": "The feature whose picked model receives a fixed probe prompt (a billable model request)."
+								}
+							},
+							"required": [
+								"action",
+								"feature"
+							],
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "syncModels"
+								}
+							},
+							"required": [
+								"action"
+							],
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "refreshCatalog"
+								}
+							},
+							"required": [
+								"action"
+							],
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "refreshUsage"
+								}
+							},
+							"required": [
+								"action"
+							],
+							"additionalProperties": false
+						}
+					]
+				}
 			}
 		],
 		"mcpServerDefinitionProviders": [
@@ -1197,6 +1929,53 @@
 						"scope": "machine-overridable",
 						"default": true,
 						"markdownDescription": "%litellm.config.chatParticipant.enabled.description%"
+					}
+				}
+			},
+			{
+				"title": "%litellm.config.section.agentTools%",
+				"properties": {
+					"litellm-vscode-chat.agentTools.enabled": {
+						"type": "boolean",
+						"scope": "machine",
+						"default": false,
+						"markdownDescription": "%litellm.config.agentTools.enabled.description%"
+					},
+					"litellm-vscode-chat.agentTools.setSetting.enabled": {
+						"type": "boolean",
+						"scope": "machine",
+						"default": false,
+						"markdownDescription": "%litellm.config.agentTools.setSetting.enabled.description%"
+					},
+					"litellm-vscode-chat.agentTools.editModelRecords.enabled": {
+						"type": "boolean",
+						"scope": "machine",
+						"default": false,
+						"markdownDescription": "%litellm.config.agentTools.editModelRecords.enabled.description%"
+					},
+					"litellm-vscode-chat.agentTools.saveServer.enabled": {
+						"type": "boolean",
+						"scope": "machine",
+						"default": false,
+						"markdownDescription": "%litellm.config.agentTools.saveServer.enabled.description%"
+					},
+					"litellm-vscode-chat.agentTools.removeServer.enabled": {
+						"type": "boolean",
+						"scope": "machine",
+						"default": false,
+						"markdownDescription": "%litellm.config.agentTools.removeServer.enabled.description%"
+					},
+					"litellm-vscode-chat.agentTools.runAction.enabled": {
+						"type": "boolean",
+						"scope": "machine",
+						"default": false,
+						"markdownDescription": "%litellm.config.agentTools.runAction.enabled.description%"
+					},
+					"litellm-vscode-chat.agentTools.secretValues.enabled": {
+						"type": "boolean",
+						"scope": "machine",
+						"default": false,
+						"markdownDescription": "%litellm.config.agentTools.secretValues.enabled.description%"
 					}
 				}
 			}

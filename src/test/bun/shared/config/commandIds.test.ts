@@ -2,7 +2,11 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { z } from "zod";
+import { AGENT_TOOL_INPUT_SCHEMAS } from "../../../../extension/features/agentTools/inputSchema";
 import {
+	AGENT_TOOL_IDS,
+	AGENT_TOOLS,
 	CMD,
 	COMMENT_CONTROLLER_ID,
 	CONSULT_TOOL_READY_CONTEXT_KEY,
@@ -21,7 +25,7 @@ import {
 	VENDOR_ID,
 } from "../../../../shared/config/commandIds";
 import type { BooleanSettingId } from "../../../../shared/config/settingSpec";
-import { CONFIG_SECTION } from "../../../../shared/config/settingSpec";
+import { AGENT_TOOL_TOGGLE_KEYS, CONFIG_SECTION } from "../../../../shared/config/settingSpec";
 import { resolveNls } from "../../../util/nls";
 import { REPO_ROOT } from "../../../util/repoRoot";
 
@@ -51,6 +55,7 @@ interface PackageJson {
 			readonly inputSchema?: {
 				readonly properties?: Readonly<Record<string, unknown>>;
 				readonly required?: readonly string[];
+				readonly anyOf?: readonly { readonly properties?: Readonly<Record<string, unknown>> }[];
 			};
 		}[];
 		readonly mcpServerDefinitionProviders?: readonly { readonly id?: string }[];
@@ -225,28 +230,66 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 		// must use exactly the shared identity - a contribution under another id
 		// (or a second entry) fails here rather than shipping a drifting mirror.
 		const contributes = readPackageJson().contributes;
-		const pins: readonly { section: string; ids: readonly (string | undefined)[]; constant: string }[] = [
+		const pins: readonly { section: string; ids: readonly (string | undefined)[]; constants: readonly string[] }[] = [
 			{
 				section: "chatParticipants",
 				ids: (contributes.chatParticipants ?? []).map((entry) => entry.id),
-				constant: PARTICIPANT_ID,
+				constants: [PARTICIPANT_ID],
 			},
 			{
+				// The consult tool plus the agent tools table, each name once, in
+				// table order after the consult tool.
 				section: "languageModelTools",
 				ids: (contributes.languageModelTools ?? []).map((entry) => entry.name),
-				constant: TOOL_NAME,
+				constants: [TOOL_NAME, ...AGENT_TOOL_IDS.map((id) => AGENT_TOOLS[id].name)],
 			},
 			{
 				section: "mcpServerDefinitionProviders",
 				ids: (contributes.mcpServerDefinitionProviders ?? []).map((entry) => entry.id),
-				constant: MCP_PROVIDER_ID,
+				constants: [MCP_PROVIDER_ID],
 			},
 		];
 		for (const pin of pins) {
-			assert.ok(pin.ids.length <= 1, `${pin.section} contributes more than one entry`);
-			for (const id of pin.ids) {
-				assert.strictEqual(id, pin.constant, `${pin.section} must contribute exactly the shared constant`);
+			assert.ok(
+				pin.ids.length <= pin.constants.length,
+				`${pin.section} contributes more entries than the code declares`
+			);
+			for (const [index, id] of pin.ids.entries()) {
+				assert.strictEqual(id, pin.constants[index], `${pin.section} must contribute exactly the shared constants`);
 			}
+		}
+	});
+
+	test("every agent tool contribution gates on the two switches its registration reads and documents the core's input keys", () => {
+		// The when-clause must say what REGISTRATION says: the feature switch for
+		// a read, the feature switch AND the tool's own toggle for a write. Both
+		// are plain booleans, so config clauses can express it (unlike the
+		// consult tool's readiness). The inputSchema's property keys mirror the
+		// zod envelope the wiring parses, so the model is told exactly the
+		// arguments the parse accepts.
+		const tools = new Map((readPackageJson().contributes.languageModelTools ?? []).map((tool) => [tool.name, tool]));
+		const featureSwitch = `config.${CONFIG_SECTION}.agentTools.enabled`;
+		for (const id of AGENT_TOOL_IDS) {
+			const contribution = AGENT_TOOLS[id];
+			const tool = tools.get(contribution.name);
+			assert.ok(tool !== undefined, `${contribution.name} is contributed`);
+			const expectedWhen =
+				contribution.toggle === undefined
+					? featureSwitch
+					: `${featureSwitch} && config.${CONFIG_SECTION}.${AGENT_TOOL_TOGGLE_KEYS[contribution.toggle]}`;
+			assert.strictEqual(tool.when, expectedWhen, `${contribution.name} when-clause`);
+			assert.strictEqual(tool.toolReferenceName, contribution.referenceName, `${contribution.name} reference name`);
+			assert.strictEqual(tool.canBeReferencedInPrompt, true, `${contribution.name} is #-referenceable`);
+			// A union envelope (save_server's adopt-or-edit) contributes one anyOf
+			// branch per variant; the key sets are compared branch by branch.
+			const envelope = AGENT_TOOL_INPUT_SCHEMAS[id];
+			const variants: readonly z.ZodObject[] = envelope instanceof z.ZodUnion ? envelope.options : [envelope];
+			const branches = tool.inputSchema?.anyOf ?? [tool.inputSchema];
+			assert.deepStrictEqual(
+				branches.map((branch) => Object.keys(branch?.properties ?? {}).sort()),
+				variants.map((variant) => Object.keys(variant.shape).sort()),
+				`${contribution.name} inputSchema properties mirror the parsed envelope, variant by variant`
+			);
 		}
 	});
 

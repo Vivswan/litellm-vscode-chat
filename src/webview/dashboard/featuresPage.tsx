@@ -22,8 +22,15 @@ import type {
 	SettingRowId,
 	SettingScope,
 } from "../../dashboard/viewModels";
-import type { FeatureId, FeatureModelId, FeatureModelRef } from "../../shared/config/settingSpec";
+import type {
+	BooleanSettingId,
+	FeatureId,
+	FeatureModelId,
+	FeatureModelRef,
+	NumberSettingId,
+} from "../../shared/config/settingSpec";
 import {
+	AGENT_TOOLS_SETTING_KEYS,
 	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_IDS,
 	FEATURE_MODEL_SETTING_KEYS,
@@ -602,11 +609,14 @@ function LanguageFilterListRow({
 /**
  * One feature's section as data. `coming` renders the standing heading note
  * (the settings are registered ahead of the feature and inert until it ships);
- * `tail` is the feature's own extra rows beyond enable and model.
+ * `booleans` are the feature's own switches after the enable row, and `tail`
+ * its extra rows beyond enable, switches, and model.
  */
 interface FeatureDescriptor {
 	/** Whether the feature has shipped; false renders the "not active yet" heading note. */
 	readonly shipped: boolean;
+	/** Boolean rows after the enable row, rendered and filtered exactly like it (the agent tools' per-tool switches). */
+	readonly booleans?: readonly BooleanSettingId[];
 	/**
 	 * The feature's rows beyond enable and model, with their filter haystack:
 	 * `visible` judges the tail against the shared matcher, `rows` renders it.
@@ -671,6 +681,10 @@ export const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } 
 	quickFix: { shipped: true },
 	reviewComments: { shipped: true },
 	chatParticipant: { shipped: true },
+	agentTools: {
+		shipped: true,
+		booleans: AGENT_TOOLS_SETTING_KEYS.filter((id) => id !== FEATURE_ENABLE_SETTING_KEYS.agentTools),
+	},
 };
 
 export function FeaturesSection({
@@ -703,11 +717,15 @@ export function FeaturesSection({
 
 	// Per-feature visibility, one verdict per row kind, derived from the same
 	// matcher every row's haystack goes through.
-	const enableVisible = (feature: FeatureId): boolean => {
-		const id = FEATURE_ENABLE_SETTING_KEYS[feature];
+	const scalarVisible = (id: NumberSettingId | BooleanSettingId): boolean => {
 		const { label, description } = scalarText(id);
 		return matches(label, description, id, settingRowHelp(id) ?? "");
 	};
+	const featureBooleans = (feature: FeatureId): readonly BooleanSettingId[] => [
+		FEATURE_ENABLE_SETTING_KEYS[feature],
+		...(FEATURE_REGISTRY[feature].booleans ?? []),
+	];
+	const booleansVisible = (feature: FeatureId): boolean => featureBooleans(feature).some(scalarVisible);
 	const modelVisible = (feature: FeatureModelId): boolean =>
 		matches(
 			featureModelTitle(feature),
@@ -720,7 +738,7 @@ export function FeaturesSection({
 		return tail !== undefined && (needle.length === 0 || tail.visible(matches, tailContext));
 	};
 	const sectionAnyVisible = (feature: FeatureId): boolean =>
-		enableVisible(feature) || (isFeatureModelId(feature) && modelVisible(feature)) || tailVisible(feature);
+		booleansVisible(feature) || (isFeatureModelId(feature) && modelVisible(feature)) || tailVisible(feature);
 	const nothingMatches = !FEATURE_IDS.some(sectionAnyVisible);
 	// The badges' one explanation, hoisted off the headings: derived, so it
 	// stands exactly while a visible section wears the badge and disappears of
@@ -731,8 +749,9 @@ export function FeaturesSection({
 	// fail-open by construction - an id this page cannot name renders visible.
 	const rowVisible = (row: SettingRowId): boolean => {
 		for (const feature of FEATURE_IDS) {
-			if (row === FEATURE_ENABLE_SETTING_KEYS[feature]) {
-				return enableVisible(feature);
+			const own = featureBooleans(feature).find((id) => id === row);
+			if (own !== undefined) {
+				return scalarVisible(own);
 			}
 			if (isFeatureModelId(feature) && row === FEATURE_MODEL_SETTING_KEYS[feature]) {
 				return modelVisible(feature);
@@ -754,7 +773,7 @@ export function FeaturesSection({
 	// The meta line counts this page's own rows: the feature enables, models,
 	// and tails, never the Settings page's scalars.
 	const scopes: readonly (SettingScope | null)[] = [
-		...FEATURE_IDS.map((feature) => settings.configuredScopes.booleans[FEATURE_ENABLE_SETTING_KEYS[feature]]),
+		...FEATURE_IDS.flatMap((feature) => featureBooleans(feature).map((id) => settings.configuredScopes.booleans[id])),
 		...Object.values(settings.featureModelScopes),
 		settings.commitPromptScope,
 		settings.languageFilter.languages.scope,
@@ -801,7 +820,6 @@ export function FeaturesSection({
 				<div className={SETTING_GRID_TRACKS}>
 					{FEATURE_IDS.map((feature) => {
 						const descriptor = FEATURE_REGISTRY[feature];
-						const enableId = FEATURE_ENABLE_SETTING_KEYS[feature];
 						const model = isFeatureModelId(feature) ? feature : undefined;
 						return (
 							<SettingGroup
@@ -809,9 +827,9 @@ export function FeaturesSection({
 								title={() => featureDisplayName(feature, "title")}
 								note={descriptor.shipped ? undefined : comingSoonMarker}
 								numbers={[]}
-								booleans={[enableId]}
+								booleans={featureBooleans(feature)}
 								settings={settings}
-								isVisible={() => enableVisible(feature)}
+								isVisible={scalarVisible}
 								tailVisible={(model !== undefined && modelVisible(model)) || tailVisible(feature)}
 								tail={
 									<>

@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_MAX_TOKENS_CAP } from "../../../provider/transport/request";
 import {
+	AGENT_TOOLS_SETTING_KEYS,
 	ALL_SETTING_KEYS,
 	BOOLEAN_SETTING_SPECS,
 	type BooleanSettingId,
@@ -113,7 +114,7 @@ function schemaTypes(schema: SettingSchema): readonly string[] {
 }
 
 suite("shared/config/settingSpec: package.json drift guard", () => {
-	test("the configuration contributes exactly the thirteen titled sections, in order", () => {
+	test("the configuration contributes exactly the fourteen titled sections, in order", () => {
 		const titles = readPackageJson().contributes.configuration.map((section) => resolveNls(section.title));
 		assert.deepStrictEqual(titles, [
 			"Servers",
@@ -129,6 +130,7 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 			"Quick fixes",
 			"Review comments",
 			"Chat participant",
+			"Agent tools",
 		]);
 	});
 
@@ -298,25 +300,27 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 	});
 
 	test("every setting carries exactly its ruled scope tier", () => {
-		// Load-bearing: every feature's enable boolean and
-		// model ref decide whether requests happen and which server and model they
-		// reach, and the catalog toggle causes OpenRouter fetches, so they are
-		// machine-overridable - per-machine, skipped by Settings Sync, overridden
-		// by a workspace only through its own explicit entry. Everything else but
-		// the machine-scoped servers setting stays ordinary window scope. Total
-		// over ALL_SETTING_KEYS, and both feature key maps are total over
-		// FeatureId, so the next feature or setting cannot ship an unruled scope.
+		// Load-bearing: enable booleans and model refs decide whether requests
+		// happen and where they go, and the catalog toggle causes OpenRouter
+		// fetches, so they are machine-overridable (per-machine, skipped by Settings
+		// Sync, overridden by a workspace only through its own explicit entry). The
+		// servers setting and the agentTools family are machine scope, user settings
+		// only: an agent's write access to servers and keys is granted by the user
+		// alone, never by a checked-in workspace file. Everything else stays window
+		// scope. Total over ALL_SETTING_KEYS, and both feature key maps are total
+		// over FeatureId, so the next feature or setting cannot ship an unruled scope.
 		const catalogKey: BooleanSettingId = "models.openRouterCatalog";
-		const machineOverridable = new Set<string>([
-			...Object.values(FEATURE_ENABLE_SETTING_KEYS),
-			...FEATURE_MODEL_SETTING_KEY_LIST,
-			catalogKey,
-		]);
+		const machineOnly = new Set<string>([SERVERS_SETTING_KEY, ...AGENT_TOOLS_SETTING_KEYS]);
+		const machineOverridable = new Set<string>(
+			[...Object.values(FEATURE_ENABLE_SETTING_KEYS), ...FEATURE_MODEL_SETTING_KEY_LIST, catalogKey].filter(
+				(key) => !machineOnly.has(key)
+			)
+		);
 		const properties = allProperties();
 		for (const key of ALL_SETTING_KEYS) {
 			const expected = machineOverridable.has(key)
 				? "machine-overridable"
-				: key === SERVERS_SETTING_KEY
+				: machineOnly.has(key)
 					? "machine"
 					: undefined;
 			assert.strictEqual(settingSchema(properties, key).scope, expected, `${key} scope`);

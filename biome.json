@@ -145,7 +145,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, gitPaths.ts, commandFailure.ts, modelSettingError.ts, featureChatSend.ts, probeToken.ts, quickFixChatCommands.ts)."
 									}
 								]
@@ -165,7 +165,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, gitPaths.ts, commandFailure.ts, modelSettingError.ts, featureChatSend.ts, probeToken.ts, quickFixChatCommands.ts)."
 									}
 								]
@@ -185,7 +185,27 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, gitPaths.ts, commandFailure.ts, modelSettingError.ts, featureChatSend.ts, probeToken.ts, quickFixChatCommands.ts)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/agentTools/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, gitPaths.ts, commandFailure.ts, modelSettingError.ts, featureChatSend.ts, probeToken.ts, quickFixChatCommands.ts)."
 									}
 								]
@@ -205,7 +225,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, gitPaths.ts, commandFailure.ts, modelSettingError.ts, featureChatSend.ts, probeToken.ts, quickFixChatCommands.ts)."
 									}
 								]
@@ -225,7 +245,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, gitPaths.ts, commandFailure.ts, modelSettingError.ts, featureChatSend.ts, probeToken.ts, quickFixChatCommands.ts)."
 									}
 								]
@@ -245,7 +265,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/quickFix/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, gitPaths.ts, commandFailure.ts, modelSettingError.ts, featureChatSend.ts, probeToken.ts, quickFixChatCommands.ts)."
 									}
 								]
@@ -265,7 +285,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, gitPaths.ts, commandFailure.ts, modelSettingError.ts, featureChatSend.ts, probeToken.ts, quickFixChatCommands.ts)."
 									}
 								]
@@ -285,7 +305,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root (gitApi.d.ts, gitAccess.ts, gitPaths.ts, commandFailure.ts, modelSettingError.ts, featureChatSend.ts, probeToken.ts, quickFixChatCommands.ts)."
 									}
 								]

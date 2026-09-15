@@ -22,11 +22,12 @@ import {
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { CONSULT_TOOL_READY_CONTEXT_KEY, TOOL_NAME } from "../../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../../shared/config/settingSpec";
-import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
 import { withDisposalCount } from "../disposalCount";
+import type { WiringSpies } from "../wiringSpies";
+import { fakeContext, quietLogger, withWiringSpies } from "../wiringSpies";
 
 const MODEL_REF = { server: "alpha", model: "gpt-test" };
 const SERVER_ENTRY = { label: "alpha", baseUrl: TEST_BASE_URL, auth: { apiKey: "sk-test" } };
@@ -38,81 +39,9 @@ const ENABLED_CONFIG = {
 	servers: [SERVER_ENTRY],
 };
 
-interface RecordedRegistration {
-	readonly name: string;
-	readonly tool: vscode.LanguageModelTool<unknown>;
-	disposed: boolean;
-}
-
-interface WiringSpies {
-	readonly registrations: RecordedRegistration[];
-	/** Every value the wiring published for the readiness context key, in order. */
-	readonly readyStates: boolean[];
-	fireConfigChange(): void;
-}
-
-/**
- * Run `fn` with the wiring's host surfaces recorded instead of real: the tool
- * registration (a real one would collide with the activated extension's own
- * under the same name), the readiness context key (a real setContext would
- * leak into the live-host suite below, whose contribution gates on it), and
- * the configuration watcher, captured so tests fire it deterministically.
- */
-async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): Promise<Awaited<T>> {
-	const registrations: RecordedRegistration[] = [];
-	const readyStates: boolean[] = [];
-	const configListeners: ((event: vscode.ConfigurationChangeEvent) => void)[] = [];
-	const originalRegisterTool = vscode.lm.registerTool;
-	const originalExecuteCommand = vscode.commands.executeCommand;
-	const originalOnDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration;
-
-	(vscode.lm as Record<string, unknown>).registerTool = (name: string, tool: vscode.LanguageModelTool<unknown>) => {
-		const record: RecordedRegistration = { name, tool, disposed: false };
-		registrations.push(record);
-		return new vscode.Disposable(() => {
-			record.disposed = true;
-		});
-	};
-	(vscode.commands as Record<string, unknown>).executeCommand = (command: string, ...args: unknown[]) => {
-		if (command === "setContext" && args[0] === CONSULT_TOOL_READY_CONTEXT_KEY) {
-			readyStates.push(args[1] === true);
-			return Promise.resolve(undefined);
-		}
-		return (originalExecuteCommand as (command: string, ...args: unknown[]) => Thenable<unknown>)(command, ...args);
-	};
-	(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = (
-		listener: (event: vscode.ConfigurationChangeEvent) => void
-	) => {
-		configListeners.push(listener);
-		return new vscode.Disposable(() => {});
-	};
-
-	try {
-		return await fn({
-			registrations,
-			readyStates,
-			fireConfigChange: () => {
-				for (const listener of [...configListeners]) {
-					listener({ affectsConfiguration: () => true });
-				}
-			},
-		});
-	} finally {
-		(vscode.lm as Record<string, unknown>).registerTool = originalRegisterTool;
-		(vscode.commands as Record<string, unknown>).executeCommand = originalExecuteCommand;
-		(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = originalOnDidChangeConfiguration;
-	}
-}
-
-function fakeContext(): vscode.ExtensionContext {
-	return {
-		subscriptions: [] as vscode.Disposable[],
-		secrets: { get: async () => undefined, store: async () => {}, delete: async () => {} },
-	} as unknown as vscode.ExtensionContext;
-}
-
-function quietLogger(): Logger {
-	return new Logger({ info() {}, error() {} });
+/** The values the wiring published for the readiness key, in order. */
+function readyStates(spies: WiringSpies): unknown[] {
+	return spies.contextStates.get(CONSULT_TOOL_READY_CONTEXT_KEY) ?? [];
 }
 
 /** The single-choice non-streaming reply shape the one-shot chat path parses. */
@@ -194,7 +123,7 @@ suite("extension/features/consultTool wiring", () => {
 			// The contribution's when-clause reads this key, so the tool picker
 			// tracks REGISTRATION rather than the enable boolean alone - the
 			// half-configured state (enabled, no model) must read false.
-			assert.deepStrictEqual(spies.readyStates, [true, false, true, false]);
+			assert.deepStrictEqual(readyStates(spies), [true, false, true, false]);
 		});
 	});
 
@@ -203,7 +132,7 @@ suite("extension/features/consultTool wiring", () => {
 			await withConfig({ "consultTool.enabled": true, "consultTool.model": null, servers: [SERVER_ENTRY] }, () => {
 				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
 			});
-			assert.deepStrictEqual(spies.readyStates, [false]);
+			assert.deepStrictEqual(readyStates(spies), [false]);
 		});
 	});
 
@@ -213,12 +142,12 @@ suite("extension/features/consultTool wiring", () => {
 			await withConfig(ENABLED_CONFIG, () => {
 				wireConsultTool(context, quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
 			});
-			assert.deepStrictEqual(spies.readyStates, [true]);
+			assert.deepStrictEqual(readyStates(spies), [true]);
 			for (const subscription of context.subscriptions) {
 				subscription.dispose();
 			}
 			assert.strictEqual(spies.registrations[0]?.disposed, true, "disposal releases the registration");
-			assert.deepStrictEqual(spies.readyStates, [true, false], "and clears the key the contribution gates on");
+			assert.deepStrictEqual(readyStates(spies), [true, false], "and clears the key the contribution gates on");
 		});
 	});
 

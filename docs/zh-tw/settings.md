@@ -82,6 +82,13 @@
 | `litellm-vscode-chat.reviewComments.enabled` | `false` | 選擇啟用對變更的 AI 審查評論。預設關閉; 啟用前不存在任何審查討論串, 也不會送出任何審查請求, 儀表板中明確的「測試模型」按鈕除外 ([配方](getting-started.md#讓模型審查您的程式碼)) |
 | `litellm-vscode-chat.reviewComments.model` | `null` | 撰寫審查評論的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
 | `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟 |
+| `litellm-vscode-chat.agentTools.enabled` | `false` | 註冊 Copilot 的代理可以呼叫的讀取工具: 診斷、伺服器、模型、有效的能力和參數、已遮蔽密鑰的近期日誌。預設關閉; 每個會做出變更的工具在下方都有自己的開關。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
+| `litellm-vscode-chat.agentTools.setSetting.enabled` | `false` | 允許代理經儀表板的驗證變更標量設定 (逾時、開關、功能模型); 絕不包括 `servers`、模型記錄設定或代理工具自身的開關。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
+| `litellm-vscode-chat.agentTools.editModelRecords.enabled` | `false` | 允許代理編輯 `models.capabilities` 和 `models.parameters`, 一次一個比對器鍵, 可在全域或某個 servers 項目上。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
+| `litellm-vscode-chat.agentTools.saveServer.enabled` | `false` | 允許代理新增、編輯、重新命名或採納 `servers` 項目。密鑰值由您在輸入框中輸入, 該輸入框預設遮罩顯示 (由 `ui.maskSecretInputs` 控制) 且值絕不進入聊天, 除非 `agentTools.secretValues.enabled` 允許代理傳遞; 保留的密鑰絕不會跟隨變更了的主機。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
+| `litellm-vscode-chat.agentTools.removeServer.enabled` | `false` | 允許代理移除 `servers` 項目或隱藏外部提供者群組。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
+| `litellm-vscode-chat.agentTools.runAction.enabled` | `false` | 允許代理測試已儲存伺服器的連線、重新同步模型、重新整理 OpenRouter 目錄或用量數據, 以及向功能選定的模型送出一則固定的探測提示 (一次計費的模型要求)。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
+| `litellm-vscode-chat.agentTools.secretValues.enabled` | `false` | 允許代理工具的輸入攜帶密鑰值 (API 金鑰、用戶端密鑰)。關閉時, 代理只選擇密鑰的儲存位置, 由 VS Code 請您在輸入框中輸入, 該輸入框預設遮罩顯示 (由 `ui.maskSecretInputs` 控制); 值絕不進入聊天。僅在聊天記錄本身已是安全場所時開啟, 例如零留存部署。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
 <!-- settings-reference:end -->
 
 刻意不提供全域標頭設定: 自訂 HTTP 標頭描述的是如何與某一個伺服器交談, 所以它們存放在伺服器項目上 ([`headers`](servers.md#自訂標頭)) - 機器範圍, 在設定同步搆不到的地方, 與一般會同步的設定不同。

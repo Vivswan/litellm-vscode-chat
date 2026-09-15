@@ -76,6 +76,13 @@ function featureNameEntry(feature: FeatureId): FeatureNameEntry {
 				englishSentence: "chat participant",
 				logSurface: "ChatParticipant",
 			};
+		case "agentTools":
+			return {
+				title: l10n.t("Agent tools"),
+				sentence: l10n.t("agent tools"),
+				englishSentence: "agent tools",
+				logSurface: "AgentTools",
+			};
 	}
 }
 
