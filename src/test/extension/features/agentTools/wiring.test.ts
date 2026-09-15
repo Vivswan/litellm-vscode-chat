@@ -615,15 +615,17 @@ suite("extension/features/agentTools wiring", () => {
 	suite("live host registration", () => {
 		const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
 
-		suiteSetup(async () => {
-			// Wait for the configuration event itself: the production listener
-			// registers inside it, and this listener was attached later, so it
-			// runs after. A bounded fallback keeps a coalesced event from hanging
-			// the suite; a registration that still did not happen fails the
-			// invoke below with the host's own tool-not-found.
+		/**
+		 * Write `key` to the user scope and wait for the configuration event
+		 * itself: the production listener registers inside it, and a listener
+		 * attached later runs after. A bounded fallback keeps a coalesced event
+		 * from hanging the suite; a registration that still did not happen fails
+		 * the invoke with the host's own tool-not-found.
+		 */
+		const writeGlobal = async (key: string, value: unknown): Promise<void> => {
 			const settled = new Promise<void>((resolve) => {
 				const listener = vscode.workspace.onDidChangeConfiguration((event) => {
-					if (event.affectsConfiguration(`${CONFIG_SECTION}.agentTools.enabled`)) {
+					if (event.affectsConfiguration(`${CONFIG_SECTION}.${key}`)) {
 						listener.dispose();
 						resolve();
 					}
@@ -633,8 +635,12 @@ suite("extension/features/agentTools wiring", () => {
 					resolve();
 				}, 2000);
 			});
-			await config().update("agentTools.enabled", true, vscode.ConfigurationTarget.Global);
+			await config().update(key, value, vscode.ConfigurationTarget.Global);
 			await settled;
+		};
+
+		suiteSetup(async () => {
+			await writeGlobal("agentTools.enabled", true);
 		});
 
 		suiteTeardown(async () => {
@@ -693,6 +699,49 @@ suite("extension/features/agentTools wiring", () => {
 						return true;
 					}
 				);
+			}
+		});
+
+		test("a write round-trips through the real controller into the user scope and back out", async () => {
+			// The fake-controller tests cannot see a break in the real submit path
+			// (the frame, the serialized channel, the settings access's scope
+			// pick) because the webview never exercises it for an external
+			// caller; only a real write does.
+			const key = "live-agent-test-model";
+			const setting = "models.capabilities";
+			const globalValue = () =>
+				config().inspect<Record<string, unknown>>(setting)?.globalValue as Record<string, unknown> | undefined;
+			const original = globalValue();
+			const { [key]: _stale, ...others } = original ?? {};
+			const edit = (input: object) =>
+				Promise.resolve(
+					vscode.lm.invokeTool(
+						name("editModelRecords"),
+						{ toolInvocationToken: undefined, input },
+						new vscode.CancellationTokenSource().token
+					)
+				);
+			try {
+				await writeGlobal(AGENT_TOOL_TOGGLE_KEYS.editModelRecords, true);
+				if (original !== undefined && Object.hasOwn(original, key)) {
+					await config().update(setting, others, vscode.ConfigurationTarget.Global);
+				}
+
+				const added = await edit({ kind: "capabilities", key, set: { context_length: 123456 } });
+				assert.deepStrictEqual(resultJson(added), { method: "setModelCapabilities", ok: true });
+				assert.deepStrictEqual(
+					globalValue(),
+					{ ...others, [key]: { context_length: 123456 } },
+					"the record landed in the user scope beside every pre-existing key"
+				);
+
+				const removed = await edit({ kind: "capabilities", key, removeKey: true });
+				assert.deepStrictEqual(resultJson(removed), { method: "setModelCapabilities", ok: true });
+				assert.deepStrictEqual(globalValue(), others, "the key is gone and the rest is untouched");
+			} finally {
+				// The feature switch is the suite's; suiteTeardown restores it.
+				await config().update(setting, original, vscode.ConfigurationTarget.Global);
+				await config().update(AGENT_TOOL_TOGGLE_KEYS.editModelRecords, undefined, vscode.ConfigurationTarget.Global);
 			}
 		});
 	});
