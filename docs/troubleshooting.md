@@ -40,6 +40,7 @@ So: **red on the left** means requests cannot get through - work through [Common
 | The "LiteLLM" output channel | The full log: configuration changes, model fetch attempts and results, and errors with full details. Open the Output panel (`Ctrl+Shift+U` / `Cmd+Shift+U`) and select "LiteLLM" from the dropdown |
 | The dashboard's inspectors | Per model, which source set every parameter and capability field - the tool for "why is this value what it is" questions ([Models: inspectors](models.md#inspectors)) |
 | "LiteLLM: Help & Feedback" | Shortcuts for reporting bugs, requesting features, or opening the documentation |
+| Copilot's agent, through the agent tools | With `agentTools.enabled` on, ask agent mode to diagnose: it reads the same status, logs, and per-model sources through its tools, and with a write switch on it applies the fix after you confirm ([Getting started: Let an agent manage your LiteLLM setup](getting-started.md#let-an-agent-manage-your-litellm-setup)) |
 
 ## Common issues
 
