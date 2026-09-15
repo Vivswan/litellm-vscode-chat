@@ -2133,7 +2133,7 @@
 		"@biomejs/biome": "^2.5.12",
 		"@happy-dom/global-registrator": "^20.12.2",
 		"@tailwindcss/cli": "^4.3.3",
-		"@types/bun": "1.4.0",
+		"@types/bun": "1.4.2",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^26.4.1",
 		"@types/react": "^19.2.18",
@@ -2159,5 +2159,5 @@
 	"lint-staged": {
 		"*.{js,mjs,cjs,ts,mts,cts,jsx,tsx,css}": "biome check --write --no-errors-on-unmatched --max-diagnostics=none"
 	},
-	"packageManager": "bun@1.4.0"
+	"packageManager": "bun@1.4.2"
 }
