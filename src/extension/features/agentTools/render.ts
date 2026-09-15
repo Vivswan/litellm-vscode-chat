@@ -216,8 +216,15 @@ export function refusalText(reason: RefusalReason, detail: Readonly<Record<strin
 // Confirmation cards: what the user sees before a write runs
 // ---------------------------------------------------------------------------
 
+/** The fence outruns every backtick run in the content, so an agent-written key cannot close the card early. */
 function fenced(lines: readonly string[]): string {
-	return `\`\`\`\n${lines.join("\n")}\n\`\`\``;
+	const body = lines.join("\n");
+	let longestRun = 0;
+	for (const run of body.matchAll(/`+/g)) {
+		longestRun = Math.max(longestRun, run[0].length);
+	}
+	const fence = "`".repeat(Math.max(3, longestRun + 1));
+	return `${fence}\n${body}\n${fence}`;
 }
 
 /** Card values render through the same URL rebuild as results. */

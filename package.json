@@ -288,7 +288,8 @@
 							"type": "boolean",
 							"description": "Include the recent log lines (redacted). Default false."
 						}
-					}
+					},
+					"additionalProperties": false
 				}
 			},
 			{
@@ -318,7 +319,8 @@
 							},
 							"description": "Which sections to return. Default: all."
 						}
-					}
+					},
+					"additionalProperties": false
 				}
 			},
 			{
@@ -345,7 +347,8 @@
 					"required": [
 						"server",
 						"model"
-					]
+					],
+					"additionalProperties": false
 				}
 			},
 			{
@@ -367,7 +370,8 @@
 					},
 					"required": [
 						"query"
-					]
+					],
+					"additionalProperties": false
 				}
 			},
 			{
@@ -401,7 +405,8 @@
 					"required": [
 						"setting",
 						"value"
-					]
+					],
+					"additionalProperties": false
 				}
 			},
 			{
@@ -451,7 +456,8 @@
 					"required": [
 						"kind",
 						"key"
-					]
+					],
+					"additionalProperties": false
 				}
 			},
 			{
@@ -855,7 +861,8 @@
 					},
 					"required": [
 						"label"
-					]
+					],
+					"additionalProperties": false
 				}
 			},
 			{

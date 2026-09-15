@@ -521,6 +521,12 @@ export function applyRecordPatch(map: RecordMap, patch: RecordPatch): RecordMap 
 	for (const name of patch.unset ?? []) {
 		delete fields[name];
 	}
+	// A patch that would only mint an empty record for a missing key is no
+	// edit: an empty, more specific record would still win the walk and hide
+	// broader records' fields.
+	if (!(patch.key in map) && Object.keys(fields).length === 0) {
+		return map;
+	}
 	return { ...map, [patch.key]: fields };
 }
 

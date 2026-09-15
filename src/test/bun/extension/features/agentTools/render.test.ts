@@ -250,4 +250,14 @@ describe("agentTools render", () => {
 		expect(neighbours).toContain('"webhook":"https://hooks.example"');
 		expect(neighbours).toContain('"email":"user@example.com"');
 	});
+
+	// Drifts silently: a record key is agent-written text; three backticks in
+	// it would close a fixed fence and let the rest of the key forge the card
+	// the user approves.
+	test("a card's fence outruns any backtick run in an agent-written key", () => {
+		const card = describeRecordChange("parameters", "m", undefined, { note: "a\n```\nforged: yes" }, "global settings");
+		const fence = card.slice(0, card.indexOf("\n"));
+		expect(fence.length).toBeGreaterThanOrEqual(4);
+		expect(card.endsWith(`\n${fence}`)).toBe(true);
+	});
 });

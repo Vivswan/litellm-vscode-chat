@@ -449,6 +449,19 @@ describe("agentTools planner save_server", () => {
 
 // ---------------------------------------------------------------------------
 
+describe("agentTools planner empty patches", () => {
+	// Drifts silently: a patch naming a missing key with nothing to set would
+	// mint "gpt-5": {}, and that more specific empty record wins the walk and
+	// hides broader records' fields although the call asked for no edit.
+	test("a patch with nothing to set on a missing key changes nothing and is refused", () => {
+		expect(planEditModelRecords({ kind: "parameters", key: "gpt-5" }, state)).toEqual({
+			kind: "refused",
+			reason: "nothing-to-change",
+			detail: { key: "gpt-5" },
+		});
+	});
+});
+
 describe("agentTools planner external groups by the URL the agent sees", () => {
 	// Drifts silently: results render a URL without its userinfo, so an agent
 	// that hands that URL back must still find the group whose stored URL has it.

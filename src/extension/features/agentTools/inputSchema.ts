@@ -10,13 +10,13 @@
  */
 
 import { z } from "zod";
+import { WIRE_LIMITS } from "../../../dashboard/endpoints";
 import type { AgentToolId } from "../../../shared/config/commandIds";
 import { FEATURE_MODEL_IDS } from "../../../shared/config/settingSpec";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { recordFromKeys } from "../../../shared/util/json";
 
-/** Bounds on agent-typed strings, so a runaway argument cannot bloat a request or a card. */
-const LABEL_MAX = 200;
+/** The catalog search's own bound; every other string takes the dashboard's wire limit for its kind. */
 const QUERY_MAX = 200;
 
 /**
@@ -24,7 +24,7 @@ const QUERY_MAX = 200;
  * " Prod " would miss the stored Prod in the planner (new-entry defaults, no
  * replace identity) and then overwrite Prod on save, deleting its fields.
  */
-const label = z.string().trim().min(1).max(LABEL_MAX);
+const label = z.string().trim().min(1).max(WIRE_LIMITS.label);
 
 /** The sections of the configuration read, so an agent can ask for the slice it needs instead of everything. */
 const CONFIGURATION_SECTIONS = ["servers", "settings", "models", "hiddenGroups", "catalog", "usage"] as const;
@@ -56,14 +56,14 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 	configuration: z.strictObject({ sections: z.array(z.enum(CONFIGURATION_SECTIONS)).min(1).optional() }),
 	// Model IDs are raw server strings, never trimmed: the server, discovery,
 	// and the dashboard keep them byte for byte.
-	inspectModel: z.strictObject({ server: label, model: z.string().min(1).max(LABEL_MAX) }),
+	inspectModel: z.strictObject({ server: label, model: z.string().min(1).max(WIRE_LIMITS.modelId) }),
 	searchCatalog: z.strictObject({ query: z.string().min(1).max(QUERY_MAX) }),
-	setSetting: z.strictObject({ setting: z.string().min(1).max(LABEL_MAX), value: z.unknown() }),
+	setSetting: z.strictObject({ setting: z.string().min(1).max(WIRE_LIMITS.textField), value: z.unknown() }),
 	editModelRecords: z.strictObject({
 		kind: z.enum(["capabilities", "parameters"]),
-		key: z.string().min(1).max(LABEL_MAX),
+		key: z.string().min(1).max(WIRE_LIMITS.recordKey),
 		set: z.record(z.string(), z.unknown()).optional(),
-		unset: z.array(z.string().min(1)).optional(),
+		unset: z.array(z.string().min(1).max(WIRE_LIMITS.recordFieldName)).optional(),
 		removeKey: z.boolean().optional(),
 		server: label.optional(),
 	}),
