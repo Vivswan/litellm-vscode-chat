@@ -70,6 +70,9 @@ export function agentToolsState(): DashboardState {
 		models: [
 			makeModel({ serverLabel: "Prod", rawId: "gpt-test", id: "gpt-test", scopeKey: "scope-prod" }),
 			makeModel({ serverLabel: "Copilot", rawId: "claude", id: "claude", scopeKey: "scope-copilot" }),
+			// A declared entry and its external leftover serving the same ID under one label.
+			makeModel({ serverLabel: "Twin", rawId: "m-dup", id: "m-dup", scopeKey: "scope-twin-a" }),
+			makeModel({ serverLabel: "Twin", rawId: "m-dup", id: "m-dup", scopeKey: "scope-twin-b" }),
 		],
 		settings: makeSettings({
 			modelCapabilities: {

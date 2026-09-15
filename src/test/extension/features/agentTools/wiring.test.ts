@@ -23,7 +23,11 @@ import {
 	CONFIG_SECTION,
 } from "../../../../shared/config/settingSpec";
 import { MirroredError } from "../../../../shared/mirroredError";
-import { agentToolsState, COPILOT_BASE_URL } from "../../../bun/extension/features/agentTools/fixture";
+import {
+	agentToolsState,
+	COPILOT_BASE_URL,
+	CRED_DISPLAY_URL,
+} from "../../../bun/extension/features/agentTools/fixture";
 import { assertOmits, makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
 import type { WiringSpies } from "../wiringSpies";
@@ -601,6 +605,16 @@ suite("extension/features/agentTools wiring", () => {
 				assert.match(card, /apiKey: copied to settings storage/);
 				// The fields the agent did not place take the secure default.
 				assert.match(card, /oauthClientSecret: copied to secure storage/);
+				// A stored URL with credentials: the agent only saw the credential-free
+				// form, so the card resolves the stored group and says what it carries.
+				const credentialed = cardText(
+					prepareLive(spies, "saveServer", {
+						label: "Imported2",
+						adoptFrom: { label: "Cred", baseUrl: CRED_DISPLAY_URL },
+					})
+				);
+				assert.match(credentialed, /the stored URL carries credentials the card does not show/);
+				assert.doesNotMatch(credentialed, /old-pass/);
 				// A source the planner cannot find gets no card: the refusal reaches
 				// the agent without asking the user to approve nothing.
 				const missing = prepareLive(spies, "saveServer", {

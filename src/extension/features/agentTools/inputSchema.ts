@@ -56,7 +56,13 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 	configuration: z.strictObject({ sections: z.array(z.enum(CONFIGURATION_SECTIONS)).min(1).optional() }),
 	// Model IDs are raw server strings, never trimmed: the server, discovery,
 	// and the dashboard keep them byte for byte.
-	inspectModel: z.strictObject({ server: label, model: z.string().min(1).max(WIRE_LIMITS.modelId) }),
+	// scopeKey (from the configuration tool's models) disambiguates when a
+	// declared entry and an external group share a label and serve the same ID.
+	inspectModel: z.strictObject({
+		server: label,
+		model: z.string().min(1).max(WIRE_LIMITS.modelId),
+		scopeKey: z.string().min(1).optional(),
+	}),
 	searchCatalog: z.strictObject({ query: z.string().min(1).max(QUERY_MAX) }),
 	setSetting: z.strictObject({ setting: z.string().min(1).max(WIRE_LIMITS.textField), value: z.unknown() }),
 	editModelRecords: z.strictObject({

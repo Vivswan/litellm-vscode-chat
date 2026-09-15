@@ -30,6 +30,7 @@ import type { AgentRequest, SecretPrompt, ToolPlan } from "./planner";
 import {
 	applyRecordPatch,
 	declaredRow,
+	externalRow,
 	planEditModelRecords,
 	planInspectModel,
 	planRemoveServer,
@@ -235,13 +236,16 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					return undefined;
 				}
 				if ("adoptFrom" in input) {
+					// The card describes the STORED group (the plan accepted, so it
+					// resolves): the agent only ever saw its URL without credentials.
+					const source = externalRow(state, input.adoptFrom.label, input.adoptFrom.baseUrl) ?? input.adoptFrom;
 					return {
 						title: l10n.t(
 							"Adopt the provider group {0} as the LiteLLM server {1}?",
 							input.adoptFrom.label,
 							input.label
 						),
-						message: describeAdoption(input.adoptFrom, input.label, input.secretLocations ?? {}),
+						message: describeAdoption(source, input.label, input.secretLocations ?? {}),
 					};
 				}
 				const plan = planSaveServer(input, state, agentToolsAcceptSecretValues());

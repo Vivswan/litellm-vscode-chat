@@ -77,6 +77,7 @@ export type RefusalReason =
 	| "base-url-required"
 	| "feature-model-not-set"
 	| "model-not-found"
+	| "model-ambiguous"
 	| "nothing-to-change"
 	| "language-filter-one-half";
 
@@ -241,7 +242,7 @@ function sameHost(a: string, b: string): boolean {
 }
 
 /** The external group at exactly this label and base URL; two groups can share a URL, so the label is part of the identity. */
-function externalRow(state: DashboardState, label: string, baseUrl: string): ExternalRow | undefined {
+export function externalRow(state: DashboardState, label: string, baseUrl: string): ExternalRow | undefined {
 	return state.servers.find(
 		(server): server is ExternalRow =>
 			server.origin === "external" && server.label === label && sameHost(server.baseUrl, baseUrl)
@@ -604,9 +605,25 @@ export function planRunAction(input: AgentToolInput<"runAction">, state: Dashboa
 
 /** The two inspector reads for one model, addressed by its server label and raw ID as the agent knows them. */
 export function planInspectModel(input: AgentToolInput<"inspectModel">, state: DashboardState): ToolPlan {
-	const model = state.models.find((m) => m.serverLabel === input.server && m.rawId === input.model);
+	const matches = state.models.filter(
+		(m) =>
+			m.serverLabel === input.server &&
+			m.rawId === input.model &&
+			(input.scopeKey === undefined || m.scopeKey === input.scopeKey)
+	);
+	const model = matches[0];
 	if (model === undefined) {
 		return refused("model-not-found", { server: input.server, model: input.model });
+	}
+	// A declared entry and its external leftover share a label and serve the
+	// same IDs; picking the first row would inspect whichever the state listed
+	// first, so the agent must say which with the scopeKey it read.
+	if (matches.length > 1) {
+		return refused("model-ambiguous", {
+			server: input.server,
+			model: input.model,
+			scopeKeys: matches.map((m) => m.scopeKey).join(", "),
+		});
 	}
 	const payload = { scopeKey: model.scopeKey, rawId: model.rawId };
 	return requests({ method: "readModelCapabilities", payload }, { method: "readModelParameters", payload });

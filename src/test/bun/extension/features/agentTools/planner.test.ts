@@ -557,6 +557,19 @@ describe("agentTools planner remove_server, run_action, inspect_model", () => {
 			{ method: "readModelParameters", payload: { scopeKey: "scope-copilot", rawId: "claude" } },
 		]);
 	});
+
+	// Drifts silently: after an adoption the declared entry and its external
+	// leftover share a label and serve the same IDs; a first-row pick would
+	// inspect whichever the state listed first, with no sign it was the wrong one.
+	test("inspect_model refuses an ambiguous label and model pair until the scopeKey says which row", () => {
+		expect(refusalOf(planInspectModel({ server: "Twin", model: "m-dup" }, state))).toMatchObject({
+			reason: "model-ambiguous",
+			detail: { server: "Twin", model: "m-dup", scopeKeys: "scope-twin-a, scope-twin-b" },
+		});
+		expect(
+			requestsOf(planInspectModel({ server: "Twin", model: "m-dup", scopeKey: "scope-twin-b" }, state)).requests[0]
+		).toEqual({ method: "readModelCapabilities", payload: { scopeKey: "scope-twin-b", rawId: "m-dup" } });
+	});
 });
 
 // ---------------------------------------------------------------------------

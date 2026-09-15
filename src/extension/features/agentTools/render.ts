@@ -205,6 +205,8 @@ export function refusalText(reason: RefusalReason, detail: Readonly<Record<strin
 			return `No model is picked for ${detail.feature}; set "${detail.feature}.model" first.`;
 		case "model-not-found":
 			return `Server "${detail.server}" serves no model "${detail.model}". Read the configuration tool's "models" section.`;
+		case "model-ambiguous":
+			return `More than one row serves "${detail.model}" under the label "${detail.server}" (scopeKeys ${detail.scopeKeys}). Pass the scopeKey of the row you mean, from the configuration tool's "models" section.`;
 		case "nothing-to-change":
 			return `The record for "${detail.key}" already reads this way; nothing to change.`;
 		case "language-filter-one-half":
@@ -232,12 +234,24 @@ function json(value: unknown): string {
 	return JSON.stringify(scrubUrls(value)) ?? "undefined";
 }
 
+const HIDDEN_TEXT_NOTE = " (carries text the card does not show, such as URL credentials)";
+
+/**
+ * A card value with its note when the rendering hides part of it: a URL's
+ * credentials are written as given but never displayed, so the user is told
+ * the value holds more than the card shows.
+ */
+function shown(value: unknown): string {
+	const rendered = json(value);
+	return rendered === (JSON.stringify(value) ?? "undefined") ? rendered : `${rendered}${HIDDEN_TEXT_NOTE}`;
+}
+
 /** A setting change: the full key, the scope the write lands in, and both values. */
 export function describeSettingChange(setting: string, before: unknown, after: unknown, scope: string | null): string {
 	return fenced([
 		`litellm-vscode-chat.${setting}${scope !== null ? `  (configured in: ${scope})` : ""}`,
-		`before: ${json(before)}`,
-		`after:  ${after === null ? "(removed from its configured scope)" : json(after)}`,
+		`before: ${shown(before)}`,
+		`after:  ${after === null ? "(removed from its configured scope)" : shown(after)}`,
 	]);
 }
 
@@ -251,8 +265,8 @@ export function describeRecordChange(
 ): string {
 	return fenced([
 		`models.${kind}["${key}"]  (${target})`,
-		`before: ${before === undefined ? "(absent)" : json(before)}`,
-		`after:  ${after === undefined ? "(removed)" : json(after)}`,
+		`before: ${before === undefined ? "(absent)" : shown(before)}`,
+		`after:  ${after === undefined ? "(removed)" : shown(after)}`,
 	]);
 }
 
@@ -272,15 +286,16 @@ export function describeServerChange(
 	for (const key of [...keys].sort()) {
 		const previous = before?.[key];
 		const next = after[key];
-		// Compared raw, rendered scrubbed: dropping a URL's credentials is a
-		// change the card must show even though both sides display alike, so
-		// a change the scrub hides is named as such.
+		// Compared raw, rendered through shown(): dropping or replacing a URL's
+		// credentials is a change the card must list, and the side that carries
+		// them says so.
 		if (JSON.stringify(previous) !== JSON.stringify(next)) {
-			const shownPrevious = previous === undefined ? "(absent)" : json(previous);
-			const shownNext = next === undefined ? "(absent)" : json(next);
-			const hidden =
-				shownPrevious === shownNext ? " (differs only in text the card does not show, such as URL credentials)" : "";
-			lines.push(`${key}: ${shownPrevious} -> ${shownNext}${hidden}`);
+			const shownPrevious = previous === undefined ? "(absent)" : shown(previous);
+			const shownNext = next === undefined ? "(absent)" : shown(next);
+			// Both sides can render alike when only the hidden text changed (one
+			// password replaced by another), so that case is named too.
+			const hiddenChanged = shownPrevious === shownNext ? " (the hidden text changed)" : "";
+			lines.push(`${key}: ${shownPrevious} -> ${shownNext}${hiddenChanged}`);
 		}
 	}
 	for (const line of secrets) {
@@ -301,7 +316,10 @@ export function describeAdoption(
 	label: string,
 	locations: Readonly<Partial<Record<string, "settings" | "secure">>>
 ): string {
-	const lines = [`adopt provider group "${source.label}" at ${displayUrl(source.baseUrl)} as servers entry "${label}"`];
+	const shownUrl = displayUrl(source.baseUrl);
+	const lines = [
+		`adopt provider group "${source.label}" at ${shownUrl} as servers entry "${label}"${shownUrl === source.baseUrl ? "" : " (the stored URL carries credentials the card does not show; they are copied as-is)"}`,
+	];
 	for (const field of ["apiKey", "oauthClientSecret", "virtualKeyValue"]) {
 		lines.push(`${field}: copied to ${locations[field] ?? "secure"} storage if the group holds one`);
 	}

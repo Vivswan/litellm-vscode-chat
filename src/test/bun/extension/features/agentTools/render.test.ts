@@ -7,8 +7,10 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentRequest } from "../../../../../extension/features/agentTools/planner";
 import {
+	describeAdoption,
 	describeRecordChange,
 	describeServerChange,
+	describeSettingChange,
 	renderJson,
 	shapeConfiguration,
 	shapeDiagnostics,
@@ -235,9 +237,42 @@ describe("agentTools render", () => {
 			[]
 		);
 		expect(dropCredentials).toContain("baseUrl:");
-		expect(dropCredentials).toContain("(differs only in text the card does not show, such as URL credentials)");
+		expect(dropCredentials).toMatch(
+			/baseUrl: "http:\/\/localhost:4000" \(carries text the card does not show[^\n]*-> "http:\/\/localhost:4000"/
+		);
+		// A value that stores credentials the card cannot show is annotated on
+		// every card kind, so accepting it is an informed choice.
+		const recordCard = describeRecordChange(
+			"parameters",
+			"m",
+			undefined,
+			{ webhook: withCredentials },
+			"global settings"
+		);
+		expect(recordCard).toContain("(carries text the card does not show, such as URL credentials)");
+		expect(recordCard).not.toContain(secret);
+		const settingCard = describeSettingChange("usage.currencySymbol", "$", withCredentials, null);
+		expect(settingCard).toContain("(carries text the card does not show, such as URL credentials)");
+		const adoption = describeAdoption({ label: "Cred", baseUrl: withCredentials }, "Imported", {});
+		expect(adoption).toContain("the stored URL carries credentials the card does not show");
+		expect(adoption).not.toContain(secret);
+		expect(describeAdoption({ label: "Plain", baseUrl: "http://plain.test" }, "Imported", {})).not.toContain(
+			"carries credentials"
+		);
 		expect(dropCredentials).not.toContain("(no field changes)");
 		expect(dropCredentials).not.toContain(secret);
+		// One password replaced by another renders alike on both sides; the card
+		// still says the hidden text changed.
+		const rotated = describeServerChange(
+			"Cred",
+			{ baseUrl: withCredentials },
+			{ baseUrl: "http://alice:new-pass-99@localhost:4000" },
+			[],
+			[]
+		);
+		expect(rotated).toContain("(the hidden text changed)");
+		expect(rotated).not.toContain("new-pass-99");
+		expect(rotated).not.toContain(secret);
 		// The rebuild is per string: a text-level pass over the serialized card
 		// ran from one field's "//" to the next field's "@" and ate the JSON
 		// between, showing the wrong webhook and hiding the email.

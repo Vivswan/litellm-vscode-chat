@@ -343,6 +343,10 @@
 						"model": {
 							"type": "string",
 							"description": "The raw model ID as the server names it, from litellm_configuration."
+						},
+						"scopeKey": {
+							"type": "string",
+							"description": "The model row's scopeKey from litellm_configuration, needed only when two rows share the server label and model ID (a declared entry and its external leftover)."
 						}
 					},
 					"required": [
