@@ -38,87 +38,210 @@ export type ConfigurationSection = (typeof CONFIGURATION_SECTIONS)[number];
  * exists for the prompt, and the planner turns it into the dashboard's shape
  * before anything is submitted.
  */
-const secretLocation = z.union([z.literal("settings"), z.literal("secure")]);
+const secretLocation = z.enum(["settings", "secure"]);
 
 const agentSecretDirectiveSchema = z.discriminatedUnion("action", [
-	z.strictObject({ action: z.literal("keep") }),
-	z.strictObject({ action: z.literal("clear") }),
-	z.strictObject({ action: z.literal("set"), location: secretLocation, value: z.string().min(1).optional() }),
+	z.strictObject({ action: z.literal("keep").describe("Keep the stored secret.") }),
+	z.strictObject({ action: z.literal("clear").describe("Remove the stored secret.") }),
+	z.strictObject({
+		action: z.literal("set").describe("Store a secret."),
+		location: secretLocation.describe("Where a set secret is stored."),
+		value: z
+			.string()
+			.min(1)
+			.optional()
+			.describe(
+				"Omit it: the user is asked to type the secret in a masked box. Allowed only when the user's agentTools.secretValues setting is on."
+			),
+	}),
 ]);
 
 export type AgentSecretDirective = z.infer<typeof agentSecretDirectiveSchema>;
 
 /** A string field an agent may set, or clear with null; absent leaves the stored value alone. */
-const clearable = z.string().nullable().optional();
+const clearable = z
+	.string()
+	.nullable()
+	.optional()
+	.describe("A string sets it, null clears it, absent keeps the stored value.");
 
+const removableLabel = label.describe(
+	"The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
+);
+const groupBaseUrl = z
+	.string()
+	.min(1)
+	.describe("The group's base URL as litellm_configuration shows it; with the label it identifies the group.");
+
+const serverLabel = label.describe("The entry's label (its identity; the model picker groups models under it).");
+
+/**
+ * The tools' input envelopes. The `.describe` texts are model-facing English:
+ * `bun run tools:schemas` writes them, with the shapes, into package.json's
+ * languageModelTools contributions, so this table is the one source of what
+ * the model is told and what the parse accepts.
+ */
 export const AGENT_TOOL_INPUT_SCHEMAS = {
-	diagnostics: z.strictObject({ includeLogs: z.boolean().optional() }),
-	configuration: z.strictObject({ sections: z.array(z.enum(CONFIGURATION_SECTIONS)).min(1).optional() }),
+	diagnostics: z.strictObject({
+		includeLogs: z.boolean().optional().describe("Include the recent log lines (redacted). Default false."),
+	}),
+	configuration: z.strictObject({
+		sections: z
+			.array(z.enum(CONFIGURATION_SECTIONS))
+			.min(1)
+			.optional()
+			.describe("Which sections to return. Default: all."),
+	}),
 	// Model IDs are raw server strings, never trimmed: the server, discovery,
 	// and the dashboard keep them byte for byte.
 	// scopeKey (from the configuration tool's models) disambiguates when a
 	// declared entry and an external group share a label and serve the same ID.
 	inspectModel: z.strictObject({
-		server: label,
-		model: z.string().min(1).max(WIRE_LIMITS.modelId),
-		scopeKey: z.string().min(1).optional(),
+		server: label.describe("The servers entry label, from litellm_configuration."),
+		model: z
+			.string()
+			.min(1)
+			.max(WIRE_LIMITS.modelId)
+			.describe("The raw model ID as the server names it, from litellm_configuration."),
+		scopeKey: z
+			.string()
+			.min(1)
+			.optional()
+			.describe(
+				"The model row's scopeKey from litellm_configuration, needed only when two rows share the server label and model ID (a declared entry and its external leftover)."
+			),
 	}),
-	searchCatalog: z.strictObject({ query: z.string().min(1).max(QUERY_MAX) }),
-	setSetting: z.strictObject({ setting: z.string().min(1).max(WIRE_LIMITS.textField), value: z.unknown() }),
+	searchCatalog: z.strictObject({
+		query: z.string().min(1).max(QUERY_MAX).describe("Part of a model name or ID."),
+	}),
+	setSetting: z.strictObject({
+		setting: z
+			.string()
+			.min(1)
+			.max(WIRE_LIMITS.textField)
+			.describe("The setting name without the litellm-vscode-chat. prefix."),
+		value: z.unknown().describe("The new value, in the setting's own shape; null removes the configured value."),
+	}),
 	editModelRecords: z.strictObject({
-		kind: z.enum(["capabilities", "parameters"]),
-		key: z.string().min(1).max(WIRE_LIMITS.recordKey),
-		set: z.record(z.string(), z.unknown()).optional(),
-		unset: z.array(z.string().min(1).max(WIRE_LIMITS.recordFieldName)).optional(),
-		removeKey: z.boolean().optional(),
-		server: label.optional(),
+		kind: z
+			.enum(["capabilities", "parameters"])
+			.describe("Which record to edit: models.capabilities or models.parameters."),
+		key: z.string().min(1).max(WIRE_LIMITS.recordKey).describe("A raw model ID or a prefix pattern such as gpt-5*."),
+		set: z.record(z.string(), z.unknown()).optional().describe("Fields to set on the record."),
+		unset: z
+			.array(z.string().min(1).max(WIRE_LIMITS.recordFieldName))
+			.optional()
+			.describe("Field names to remove from the record."),
+		removeKey: z.boolean().optional().describe("Remove the whole key."),
+		server: label
+			.optional()
+			.describe("A servers entry label, to edit that entry's own record instead of the global setting."),
 	}),
 	saveServer: z.union([
 		// Adoption is its own grammar: the source group's identity, the new
 		// label, and where each copied secret goes. No edit field and no secret
 		// value can ride it, so the adopt intent copies exactly what the group
 		// holds.
-		z.strictObject({
-			label,
-			adoptFrom: z.strictObject({ label, baseUrl: z.string().min(1) }),
-			secretLocations: z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => secretLocation.optional())).optional(),
-		}),
+		z
+			.strictObject({
+				label: serverLabel,
+				adoptFrom: z
+					.strictObject({
+						label: label.describe("The external group's label, from litellm_configuration."),
+						baseUrl: z.string().min(1).describe("The external group's base URL, from litellm_configuration."),
+					})
+					.describe("The external provider group to copy, from litellm_configuration."),
+				secretLocations: z
+					.strictObject(
+						recordFromKeys(SECRET_FIELD_IDS, (field) =>
+							secretLocation.optional().describe(`Where the copied ${field} is stored.`)
+						)
+					)
+					.optional()
+					.describe("Where each copied secret is stored; default secure."),
+			})
+			.describe(
+				"Adopt an external provider group (one not in the servers setting) into the setting under label. Nothing else can be changed in the same call; edit the entry afterwards."
+			),
 		// The edit grammar: which stored field each argument replaces. The
 		// values the save rebuilds travel as-is; the dashboard schema judges them.
-		z.strictObject({
-			label,
-			baseUrl: z.string().min(1).optional(),
-			apiVersion: clearable,
-			oauthTokenUrl: clearable,
-			oauthClientId: clearable,
-			oauthScopes: clearable,
-			virtualKeyHeader: clearable,
-			headers: z.unknown().optional(),
-			declaredModels: z.unknown().optional(),
-			expectedFailures: z.unknown().optional(),
-			modelCapabilities: z.unknown().optional(),
-			modelParameters: z.unknown().optional(),
-			budget: z.unknown().optional(),
-			mcp: z.unknown().optional(),
-			secrets: z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => agentSecretDirectiveSchema.optional())).optional(),
-			renameFrom: label.optional(),
-		}),
+		z
+			.strictObject({
+				label: serverLabel,
+				baseUrl: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("The server's root URL, e.g. http://localhost:4000. Required for a new entry."),
+				apiVersion: clearable,
+				oauthTokenUrl: clearable,
+				oauthClientId: clearable,
+				oauthScopes: clearable,
+				virtualKeyHeader: clearable,
+				headers: z
+					.unknown()
+					.optional()
+					.describe("Custom HTTP headers as an object of header name to value (plain text, not secrets)."),
+				declaredModels: z
+					.unknown()
+					.optional()
+					.describe("An array of model IDs to serve even when the server cannot list them (discovery.declared)."),
+				expectedFailures: z
+					.unknown()
+					.optional()
+					.describe("An array of the discovery endpoints this server is expected to fail: modelListing, modelInfo."),
+				modelCapabilities: z.unknown().optional().describe("The entry's own models.capabilities record, whole."),
+				modelParameters: z.unknown().optional().describe("The entry's own models.parameters record, whole."),
+				budget: z.unknown().optional().describe("Manual usage budget in USD, a number; null clears it."),
+				mcp: z.unknown().optional().describe("MCP opt-in: true, { url }, or null to clear."),
+				secrets: z
+					.strictObject(
+						recordFromKeys(SECRET_FIELD_IDS, (field) =>
+							agentSecretDirectiveSchema
+								.optional()
+								.describe(`What happens to the stored ${field}: keep, clear, or set.`)
+						)
+					)
+					.optional()
+					.describe("One directive per secret; a secret without a directive is kept."),
+				renameFrom: label.optional().describe("The current label of the entry to rename to label."),
+			})
+			.describe("Add or edit a servers entry. On an edit, omitted fields keep their stored values."),
 	]),
 	// Hide and unhide name the base URL: two groups can share a label, and the
 	// dashboard treats label plus base URL as the identity.
 	removeServer: z.discriminatedUnion("action", [
-		z.strictObject({ action: z.literal("remove"), label }),
-		z.strictObject({ action: z.literal("hide"), label, baseUrl: z.string().min(1) }),
-		z.strictObject({ action: z.literal("unhide"), label, baseUrl: z.string().min(1) }),
+		z.strictObject({
+			action: z.literal("remove").describe("Remove a servers entry."),
+			label: removableLabel,
+		}),
+		z.strictObject({
+			action: z.literal("hide").describe("Hide an external provider group that is not in the setting."),
+			label: removableLabel,
+			baseUrl: groupBaseUrl,
+		}),
+		z.strictObject({
+			action: z.literal("unhide").describe("Restore a hidden group."),
+			label: removableLabel,
+			baseUrl: groupBaseUrl,
+		}),
 	]),
 	// Each action names exactly the argument it needs, so a probe without its
 	// target is a parse refusal, not a planner sentinel.
 	runAction: z.discriminatedUnion("action", [
-		z.strictObject({ action: z.literal("testConnection"), label }),
-		z.strictObject({ action: z.literal("testFeatureModel"), feature: z.enum(FEATURE_MODEL_IDS) }),
-		z.strictObject({ action: z.literal("syncModels") }),
-		z.strictObject({ action: z.literal("refreshCatalog") }),
-		z.strictObject({ action: z.literal("refreshUsage") }),
+		z.strictObject({
+			action: z.literal("testConnection").describe("Probe a stored servers entry with its stored credentials."),
+			label: label.describe("The stored servers entry to probe with its stored credentials."),
+		}),
+		z.strictObject({
+			action: z.literal("testFeatureModel").describe("Send a feature's picked model a fixed probe prompt."),
+			feature: z
+				.enum(FEATURE_MODEL_IDS)
+				.describe("The feature whose picked model receives a fixed probe prompt (a billable model request)."),
+		}),
+		z.strictObject({ action: z.literal("syncModels").describe("Re-discover every server's models.") }),
+		z.strictObject({ action: z.literal("refreshCatalog").describe("Refresh the OpenRouter catalog.") }),
+		z.strictObject({ action: z.literal("refreshUsage").describe("Re-poll spend and budgets.") }),
 	]),
 } satisfies Record<AgentToolId, z.ZodType>;
 

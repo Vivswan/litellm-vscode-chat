@@ -2,8 +2,7 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { z } from "zod";
-import { AGENT_TOOL_INPUT_SCHEMAS } from "../../../../extension/features/agentTools/inputSchema";
+import { manifestInputSchema } from "../../../../../scripts/dev/toolSchemas";
 import {
 	AGENT_TOOL_IDS,
 	AGENT_TOOLS,
@@ -55,7 +54,6 @@ interface PackageJson {
 			readonly inputSchema?: {
 				readonly properties?: Readonly<Record<string, unknown>>;
 				readonly required?: readonly string[];
-				readonly anyOf?: readonly { readonly properties?: Readonly<Record<string, unknown>> }[];
 			};
 		}[];
 		readonly mcpServerDefinitionProviders?: readonly { readonly id?: string }[];
@@ -260,13 +258,14 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 		}
 	});
 
-	test("every agent tool contribution gates on the two switches its registration reads and documents the core's input keys", () => {
+	test("every agent tool contribution gates on the two switches its registration reads and carries its generated inputSchema", () => {
 		// The when-clause must say what REGISTRATION says: the feature switch for
 		// a read, the feature switch AND the tool's own toggle for a write. Both
 		// are plain booleans, so config clauses can express it (unlike the
-		// consult tool's readiness). The inputSchema's property keys mirror the
-		// zod envelope the wiring parses, so the model is told exactly the
-		// arguments the parse accepts.
+		// consult tool's readiness). The inputSchema is generated from the zod
+		// envelope the wiring parses (bun run tools:schemas), so the model is
+		// told exactly the arguments, shapes, and descriptions the parse accepts;
+		// a hand edit to either side fails here.
 		const tools = new Map((readPackageJson().contributes.languageModelTools ?? []).map((tool) => [tool.name, tool]));
 		const featureSwitch = `config.${CONFIG_SECTION}.agentTools.enabled`;
 		for (const id of AGENT_TOOL_IDS) {
@@ -280,15 +279,10 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 			assert.strictEqual(tool.when, expectedWhen, `${contribution.name} when-clause`);
 			assert.strictEqual(tool.toolReferenceName, contribution.referenceName, `${contribution.name} reference name`);
 			assert.strictEqual(tool.canBeReferencedInPrompt, true, `${contribution.name} is #-referenceable`);
-			// A union envelope (save_server's adopt-or-edit) contributes one anyOf
-			// branch per variant; the key sets are compared branch by branch.
-			const envelope = AGENT_TOOL_INPUT_SCHEMAS[id];
-			const variants: readonly z.ZodObject[] = envelope instanceof z.ZodUnion ? envelope.options : [envelope];
-			const branches = tool.inputSchema?.anyOf ?? [tool.inputSchema];
 			assert.deepStrictEqual(
-				branches.map((branch) => Object.keys(branch?.properties ?? {}).sort()),
-				variants.map((variant) => Object.keys(variant.shape).sort()),
-				`${contribution.name} inputSchema properties mirror the parsed envelope, variant by variant`
+				tool.inputSchema,
+				manifestInputSchema(id),
+				`${contribution.name} inputSchema is stale; run: bun run tools:schemas`
 			);
 		}
 	});
