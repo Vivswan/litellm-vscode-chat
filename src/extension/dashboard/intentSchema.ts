@@ -313,11 +313,26 @@ const envelopeSchema = z.strictObject({
 	payload: z.unknown(),
 });
 
+/** One parse issue without the schema library's shape, so callers outside this module never depend on it. */
+export interface DashboardParseIssue {
+	readonly path: string;
+	readonly code: string;
+	readonly message: string;
+}
+
+function flattenIssues(issues: readonly z.core.$ZodIssue[]): DashboardParseIssue[] {
+	return issues.map((issue) => ({
+		path: issue.path.map(String).join("."),
+		code: issue.code,
+		message: issue.message,
+	}));
+}
+
 export type ParsedDashboardRequest =
 	| { readonly success: true; readonly request: RpcRequestType }
 	| {
 			readonly success: false;
-			readonly issues: readonly unknown[];
+			readonly issues: readonly DashboardParseIssue[];
 			/**
 			 * Present when the envelope frame itself parsed (kind, bounded id, a
 			 * table method) and only the payload failed its method schema: enough
@@ -336,13 +351,13 @@ export type ParsedDashboardRequest =
 export function parseDashboardRequest(raw: unknown): ParsedDashboardRequest {
 	const envelope = envelopeSchema.safeParse(raw);
 	if (!envelope.success) {
-		return { success: false, issues: envelope.error.issues };
+		return { success: false, issues: flattenIssues(envelope.error.issues) };
 	}
 	const parsed = requestSchemas[envelope.data.method].safeParse(raw);
 	if (!parsed.success) {
 		return {
 			success: false,
-			issues: parsed.error.issues,
+			issues: flattenIssues(parsed.error.issues),
 			frame: { id: envelope.data.id, method: envelope.data.method },
 		};
 	}

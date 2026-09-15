@@ -358,6 +358,8 @@ export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)
 	"quickFix.enabled",
 	"reviewComments.enabled",
 	"chatParticipant.enabled",
+	"agentTools.enabled",
+	"agentTools.secretValues.enabled",
 ];
 
 /** Per-setting help for the ids in SETTING_ROW_HELP_IDS; undefined for rows whose description is enough. */
@@ -441,6 +443,14 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 			// Its own row has no model picker, so the tip carries the one fact that
 			// explains both the cost and the privacy story: it is a chat turn.
 			return l10n.t("Type @litellm in chat; it answers with the model the picker has selected, and bills like chat.");
+		case "agentTools.enabled":
+			return l10n.t(
+				"The agent decides when to call a tool. Read output (labels, base URLs, model IDs, redacted logs) goes to the model the agent runs on; a server edit triggers the usual discovery and usage requests to that host."
+			);
+		case "agentTools.secretValues.enabled":
+			return l10n.t(
+				"With this off, a key the agent asks to set is typed by you into a masked box and never enters the chat. With it on, the key travels through the agent's context and transcript."
+			);
 		default:
 			return undefined;
 	}

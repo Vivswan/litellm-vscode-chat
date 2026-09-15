@@ -4,6 +4,7 @@ import type { HeaderScalar } from "../util/headers";
 import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../util/headers";
 import { isRecord, isUnsafeRecordKey } from "../util/json";
 import type {
+	AgentWriteToolId,
 	BooleanSettingId,
 	FeatureId,
 	FeatureModelId,
@@ -15,6 +16,8 @@ import type {
 } from "./settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
+	AGENT_TOOL_TOGGLE_KEYS,
+	AGENT_TOOLS_SECRET_VALUES_KEY,
 	BOOLEAN_SETTING_SPECS,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
@@ -448,6 +451,16 @@ export function isOpenRouterCatalogEnabled(): boolean {
  */
 export function isFeatureEnabled(feature: FeatureId): boolean {
 	return getBooleanSetting(FEATURE_ENABLE_SETTING_KEYS[feature]);
+}
+
+/** One agent write tool's own toggle; the feature switch (isFeatureEnabled("agentTools")) gates it too. */
+export function isAgentWriteToolEnabled(tool: AgentWriteToolId): boolean {
+	return getBooleanSetting(AGENT_TOOL_TOGGLE_KEYS[tool]);
+}
+
+/** Whether agent tool input may carry a secret's value (agentTools.secretValues.enabled). */
+export function agentToolsAcceptSecretValues(): boolean {
+	return getBooleanSetting(AGENT_TOOLS_SECRET_VALUES_KEY);
 }
 
 /**

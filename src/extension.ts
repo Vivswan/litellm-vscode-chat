@@ -5,7 +5,7 @@ import { registerOpenRouterCatalogTestSeam } from "./extension/openRouterCatalog
 import { registerTestCommands, SessionLogTee } from "./extension/ui/commands";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
 import { wireDashboard, wireGroupRemovalReactions, wireUsageSurfaces } from "./extension/wiring/dashboard";
-import { wireFeatures } from "./extension/wiring/features";
+import { wireDashboardClientFeatures, wireFeatures } from "./extension/wiring/features";
 import { wireCatalogRefresh, wireProvider, wireTokenCounting } from "./extension/wiring/provider";
 import { wireServers } from "./extension/wiring/servers";
 import { wireStorage } from "./extension/wiring/storage";
@@ -112,6 +112,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		usagePoller: servers.usagePoller,
 		ua,
 		featureProbes: features.featureProbes,
+	});
+	// The agent tools are a client of the dashboard controller, so they wire
+	// after it; every write they make joins the controller's serialized chain.
+	wireDashboardClientFeatures(context, logger, {
+		dashboard,
+		getConnectionStatus: () => statusBar.connectionStatus,
+		issueReporter,
+		extVersion,
+		vscodeVersion,
 	});
 	wireUsageSurfaces(context, logger, { usagePoller: servers.usagePoller, dashboard });
 	wireCatalogRefresh(context, logger, { catalogStore, notifyModelsChanged, dashboard });

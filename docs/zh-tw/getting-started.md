@@ -232,6 +232,74 @@ Copilot 的代理模式透過工具運作, 而這個工具交給代理一個第�
 
 隱私上, 這與聊天是同一個信任邊界 - 您自己的伺服器, 沒有第三方 - 但與內嵌補全一樣, 少了您逐次要求的動作, 而且由代理而不是您決定傳送什麼, 這也正是它預設關閉並要求明確指定模型的原因。代理寫的問題和上下文會發往您為該工具指定的 LiteLLM 伺服器, 這些要求同樣計入現有的[用量與支出追蹤和預算警示](usage.md)。儀表板的「測試模型」按鈕是唯一的例外: 它在您點擊時傳送一個固定的小問題, 絕不傳送您的任何內容。
 
+### 讓代理管理您的 LiteLLM 設定
+
+Copilot 的代理模式也可以讀取並變更這個延伸模組自身的設定, 透過一組預設關閉的工具。一個開關打開讀取工具; 每個會變更內容的工具都有自己的開關, 在那個開關也打開之前不會註冊:
+
+```jsonc
+"litellm-vscode-chat.agentTools.enabled": true,                  // 讀取工具
+"litellm-vscode-chat.agentTools.setSetting.enabled": true,       // litellm_set_setting
+"litellm-vscode-chat.agentTools.editModelRecords.enabled": true, // litellm_edit_model_records
+"litellm-vscode-chat.agentTools.saveServer.enabled": true,       // litellm_save_server
+"litellm-vscode-chat.agentTools.removeServer.enabled": true,     // litellm_remove_server
+"litellm-vscode-chat.agentTools.runAction.enabled": true,        // litellm_run_action
+"litellm-vscode-chat.agentTools.secretValues.enabled": true      // 工具輸入可以攜帶祕密值
+```
+
+這七個都是使用者設定: 工作區無法打開它們, 設定工具也拒絕變更它們, 所以代理無法自己打開自己。只啟用您需要的寫入工具; 單靠讀取工具就能回答大多數問題。
+
+**讀取工具**從延伸模組已經知道的內容作答, 不會觸碰您的任何伺服器。每個也可以在提示中透過它的 `#` 句柄單獨呼叫:
+
+- `litellm_diagnostics` (`#litellmDiagnostics`): 連線狀態、每個伺服器一列 (label、base URL、狀態、錯誤分類、提供的模型數)、設定問題、最新的錯誤, 以及按需提供的最近日誌行。日誌和錯誤文字經過與問題回報相同的遮蔽處理。
+- `litellm_configuration` (`#litellmConfiguration`): 儀表板顯示的一切 - 伺服器及其設定和每個祕密儲存在哪裡 (絕不是值)、各設定及其所設定的範圍、模型、隱藏的群組、目錄狀態和用量。選用的區段清單能讓答案保持精簡。
+- `litellm_inspect_model` (`#litellmInspectModel`): 一個模型的有效能力和參數, 每個值都標註來源 - 伺服器回報、目錄、您的記錄, 或底線值。
+- `litellm_search_catalog` (`#litellmSearchCatalog`): 搜尋內建的 OpenRouter 目錄。
+
+**寫入工具**變更您的設定, 每個各有一個開關:
+
+- `litellm_set_setting` (`#litellmSetSetting`): 按名稱變更任意普通設定; `null` 從設定了該值的範圍中移除已設定的值 - 先工作區, 否則使用者 - 與儀表板的「重設」相同, 因此下一個範圍的值或預設值會顯示出來。絕不包括 `servers`、兩個模型記錄設定, 以及代理工具自己的開關。
+- `litellm_edit_model_records` (`#litellmEditModelRecords`): `models.capabilities` 或 `models.parameters` 的一個比對鍵 - 設定欄位、取消欄位, 或刪除該鍵 - 全域 (儀表板編輯的那個範圍) 或在某一個 `servers` 項目上。
+- `litellm_save_server` (`#litellmSaveServer`): 新增、編輯、重新命名或接管一個 `servers` 項目; 省略的欄位保留已儲存的值。
+- `litellm_remove_server` (`#litellmRemoveServer`): 移除一個 `servers` 項目, 或隱藏、取消隱藏一個外部提供者群組。
+- `litellm_run_action` (`#litellmRunAction`): 測試已儲存伺服器的連線、向某個功能所選的模型傳送一個固定的探測提示 (一次模型要求, 與其他要求一樣計費)、同步模型、重新整理 OpenRouter 目錄, 或重新整理用量。
+
+每次寫入都經過儀表板自身表單所用的同一套驗證。表單會拒絕的變更, 工具也會拒絕, 並說明原因; 不會解析兩遍。變更會立即顯示在開啟的儀表板中。
+
+**每次寫入都先詢問。**寫入執行前, VS Code 會顯示一張確認卡片。卡片顯示的內容取決於寫入的類型:
+
+- 設定或記錄的變更: 之前和之後的值。
+- 伺服器儲存: 變更的欄位名, 對祕密只顯示它去往何處 - 「apiKey: set (secure)」、「cleared」或「you will be asked to type it」- 絕不顯示值。
+- 移除或動作: 只顯示其目標。
+
+在卡片上選擇「一律允許」是 VS Code 的標準行為, 之後該工具將跳過卡片。
+
+**祕密不進入聊天**, 除非您另有決定。代理可以說明金鑰放在哪裡 - 設定或安全儲存 - 然後 VS Code 讓您在遮罩輸入框中輸入值, 所以它絕不會進入代理的上下文或對話記錄。打開 `agentTools.secretValues.enabled` 後, 工具輸入可以直接攜帶值本身; 只在對話記錄本身已經是安全場所時才打開它。
+
+保留的祕密絕不跟隨變更的主機。把項目移到另一個 base URL 同時保留其金鑰會被拒絕, 金鑰必須重新設定。
+
+**由代理決定何時呼叫工具**, 與上面的諮詢工具一樣, 所以要權衡離開機器的內容。讀取工具的輸出 - 伺服器 label、base URL、模型 ID、遮蔽後的日誌 - 會傳給代理所執行的模型: 雲端模型, 或者選擇器指向的您自己的某個 LiteLLM 模型。
+
+儲存庫中的檔案可能試圖操縱這個代理, 這也是為什麼在您不希望代理變更設定的機器上, 寫入開關應保持關閉。
+
+會到達您的 LiteLLM 伺服器的內容:
+
+- 觸及 `servers` 項目的寫入 - 儲存、移除、接管, 或針對某項目的記錄編輯 - 會向該主機發出與在儀表板中儲存時相同的探索和用量要求。
+- `litellm_run_action` 的連線測試會探測已儲存的伺服器, 它的功能模型測試會向該功能所選的模型傳送一個固定提示, 這是一次計費的模型要求。同步和重新整理只到達您設定中的主機和目錄 URL。
+
+**一個例子**, 也是催生這些工具的情境 (#349)。閘道封鎖了它的 model-info 端點, 模型的上下文大小因此落到底線值, 您輸入:
+
+> glm-5.3 的上下文視窗不對, 應該是 200k。修一下。
+
+代理為 `glm-5.3` 呼叫 `litellm_inspect_model`, 看到 `context_length` 被標註為底線值, 於是呼叫 `litellm_edit_model_records` 在 `models.capabilities["glm-5.3"]` 上設定 `context_length`。在寫入任何內容之前, 出現這張卡片:
+
+```text
+models.capabilities["glm-5.3"]  (global settings)
+before: (absent)
+after:  {"context_length":200000}
+```
+
+接受它, 選擇器立刻顯示新的上下文大小; [檢查器](models.md#檢查器)現在指出來源是您的記錄。這與[第一個配方](#修正伺服器回報錯誤的能力)是同一個修復, 只是由代理而不是您來輸入。
+
 ### 讓模型審查您的程式碼
 
 模型讀您的程式碼, 並在相關的行上留下評論, 用的正是提取請求審查那套討論串介面。兩個設定把它打開 - 選擇啟用, 以及一個明確的模型選擇, 與上面幾個配方相同的 `{ "server", "model" }` 形狀:

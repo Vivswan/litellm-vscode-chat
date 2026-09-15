@@ -459,6 +459,7 @@ test("every FeatureId renders its section in registry order, enable rows include
 		"Quick fixes",
 		"Review comments",
 		"Chat participant (@litellm)",
+		"Agent tools",
 	]);
 	expect(root.querySelector("#setting-inlineCompletions\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-commitGeneration\\.enabled")).not.toBeNull();
@@ -467,6 +468,10 @@ test("every FeatureId renders its section in registry order, enable rows include
 	expect(root.querySelector("#setting-chatParticipant\\.enabled")).not.toBeNull();
 	// The participant has an enable row and deliberately no model row.
 	expect(root.querySelector("#setting-chatParticipant\\.model")).toBeNull();
+	// The agent tools carry their per-tool switches as plain boolean rows, no model row.
+	expect(root.querySelector("#setting-agentTools\\.enabled")).not.toBeNull();
+	expect(root.querySelector("#setting-agentTools\\.secretValues\\.enabled")).not.toBeNull();
+	expect(root.querySelector("#setting-agentTools\\.model")).toBeNull();
 	// Which sections wear the badge, BY NAME rather than by count: a shipped
 	// feature that kept it, or a section that lost it before its wiring landed,
 	// both name themselves here instead of moving a number. Every feature has

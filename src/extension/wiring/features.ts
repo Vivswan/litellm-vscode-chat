@@ -2,6 +2,9 @@ import type * as vscode from "vscode";
 import { OneShotClient } from "../../provider/transport/oneShotClient";
 import type { Logger } from "../../shared/logger";
 import type { FeatureProbes } from "../dashboard/intents";
+import type { DashboardController } from "../dashboard/panel";
+import type { AgentToolsDeps } from "../features/agentTools/wiring";
+import { wireAgentTools } from "../features/agentTools/wiring";
 import { createCommitProbe, wireCommitGeneration } from "../features/commitGen/wiring";
 import { createConsultProbe, wireConsultTool } from "../features/consultTool/wiring";
 import { createFimProbe, wireInlineCompletions } from "../features/inline/wiring";
@@ -12,12 +15,16 @@ import { createPrProbe, wirePrGeneration } from "../features/prGen/wiring";
 import { createQuickFixProbe, wireQuickFix } from "../features/quickFix/wiring";
 import { registerQuickFixSlashCommands } from "../features/quickFixChatCommands";
 import { createReviewProbe, wireReviewComments } from "../features/reviewComments/wiring";
+import { createSettingsAccess } from "../settingsAccess";
 
 /**
  * The features' composition point: constructs the ONE shared OneShotClient
  * (OAuth tokens cache across features and invalidate on 401 like the chat and
  * usage paths) and calls each feature's own wiring seam. A new feature adds
  * its features/<feature>/wiring.ts call here and nothing else at this level.
+ * The agent tools are the one feature wired AFTER the dashboard
+ * (wireDashboardClientFeatures): they are a client of its controller, and the
+ * controller needs the probes this function returns.
  */
 export function wireFeatures(
 	context: vscode.ExtensionContext,
@@ -66,4 +73,17 @@ export function wireFeatures(
 		},
 		chatParticipant,
 	};
+}
+
+/**
+ * The features that ride the dashboard controller, wired once it exists. The
+ * agent tools submit their writes to the controller exactly as the webview
+ * does, so they join its serialized chain and its state pushes.
+ */
+export function wireDashboardClientFeatures(
+	context: vscode.ExtensionContext,
+	logger: Logger,
+	deps: Omit<AgentToolsDeps, "settings" | "dashboard"> & { readonly dashboard: DashboardController }
+): void {
+	wireAgentTools(context, logger, { ...deps, settings: createSettingsAccess() });
 }

@@ -1482,6 +1482,97 @@ suite("extension/dashboard/panel", () => {
 		});
 	});
 
+	suite("submit (the programmatic client entry)", () => {
+		test("answers by return value in every outcome shape, and posts none of the answers to the page", async () => {
+			// The agent tools read the correlated answer from the submission; the
+			// open page must not receive notices for ids it never minted. What
+			// would drift silently: a reply shape the webview path changes without
+			// the return value following, or an answer leaking onto the panel.
+			const harness = makeHarness();
+			harness.controller.open();
+			const fake = harness.panels[0];
+			assert.ok(fake);
+			const postedBefore = fake.posted.length;
+
+			const cases: {
+				readonly name: string;
+				readonly raw: unknown;
+				readonly outcome: string;
+				readonly replyKind: string | undefined;
+				readonly issuePaths?: readonly string[];
+			}[] = [
+				{
+					name: "read",
+					raw: request("searchCatalog", { query: "gpt" }),
+					outcome: "ok",
+					replyKind: "response",
+				},
+				{
+					name: "fire-and-forget success",
+					raw: request("setBooleanSetting", { setting: "ui.maskSecretInputs", value: false }),
+					outcome: "ok",
+					replyKind: undefined,
+				},
+				{
+					name: "acked success",
+					raw: request("saveServerSetting", {
+						server: serverPayload({ label: "Agent", baseUrl: "http://agent.test" }),
+						secrets: {
+							apiKey: { action: "keep" },
+							oauthClientSecret: { action: "keep" },
+							virtualKeyValue: { action: "keep" },
+						},
+					}),
+					outcome: "ok",
+					replyKind: "ack",
+				},
+				{
+					name: "refused value",
+					raw: request("setNumberSetting", { setting: "chat.timeout", value: -1 }),
+					outcome: "validation-error",
+					replyKind: "fail",
+				},
+				{
+					name: "malformed payload under a valid frame",
+					raw: request("setNumberSetting", { setting: "chat.timeout", value: "soon" }),
+					outcome: "validation-error",
+					replyKind: "fail",
+					issuePaths: ["payload.value"],
+				},
+				{
+					name: "no frame at all",
+					raw: { junk: 1 },
+					outcome: "ignored-malformed",
+					replyKind: undefined,
+					issuePaths: ["kind", "id", "method"],
+				},
+			];
+			for (const c of cases) {
+				const submission = await harness.controller.submit(c.raw);
+				const reply = "reply" in submission ? submission.reply : undefined;
+				const issues = "issues" in submission ? submission.issues : undefined;
+				assert.strictEqual(submission.outcome, c.outcome, `${c.name}: outcome`);
+				assert.strictEqual(reply?.kind, c.replyKind, `${c.name}: reply kind`);
+				if (c.issuePaths !== undefined) {
+					const paths = (issues ?? []).map((issue) => issue.path);
+					for (const path of c.issuePaths) {
+						assert.ok(paths.includes(path), `${c.name}: issues name ${path}, got ${paths.join(", ")}`);
+					}
+				} else {
+					assert.strictEqual(issues, undefined, `${c.name}: a parsed request carries no issues`);
+				}
+			}
+			assert.deepStrictEqual(harness.updates.at(0), ["ui.maskSecretInputs", false], "the landed write");
+			assert.strictEqual(harness.serversSetting.length, 1, "the acked save landed");
+			const postedKinds = (fake.posted.slice(postedBefore) as { kind: string }[]).map((m) => m.kind);
+			assert.deepStrictEqual(
+				postedKinds,
+				["push", "push"],
+				"an open page sees the two landed writes' state pushes and no correlated answer"
+			);
+		});
+	});
+
 	suite("readModelParameters through the panel", () => {
 		test("the env's entry resolution reaches the projection, and a stale scope answers honestly empty", async () => {
 			const harness = makeHarness();

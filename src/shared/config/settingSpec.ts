@@ -50,11 +50,11 @@ export type FeatureModelId = (typeof FEATURE_MODEL_IDS)[number];
 
 /**
  * Every feature with an enable setting: the model-picking features plus the
- * chat participant, which uses the chat request's own model and so has no
- * model key. The one FeatureId vocabulary the per-layer tables (settings keys,
+ * two that run on the chat request's own model and so have no model key - the
+ * chat participant and the agent tools. The one FeatureId vocabulary the per-layer tables (settings keys,
  * dashboard descriptors, diagnostics flags, contribution pins) key on.
  */
-export const FEATURE_IDS = [...FEATURE_MODEL_IDS, "chatParticipant"] as const;
+export const FEATURE_IDS = [...FEATURE_MODEL_IDS, "chatParticipant", "agentTools"] as const;
 
 export type FeatureId = (typeof FEATURE_IDS)[number];
 
@@ -230,6 +230,15 @@ export const BOOLEAN_SETTING_SPECS = {
 	// The participant is on by default: it costs nothing until invoked and uses
 	// the chat request's own model, so it has no model key.
 	"chatParticipant.enabled": { default: true },
+	// The agent tools are opt-in twice over: the feature switch registers the
+	// read tools, and each write tool registers only under its own switch.
+	"agentTools.enabled": { default: false },
+	"agentTools.setSetting.enabled": { default: false },
+	"agentTools.editModelRecords.enabled": { default: false },
+	"agentTools.saveServer.enabled": { default: false },
+	"agentTools.removeServer.enabled": { default: false },
+	"agentTools.runAction.enabled": { default: false },
+	"agentTools.secretValues.enabled": { default: false },
 } as const satisfies Record<string, BooleanSettingValueSpec>;
 
 export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;
@@ -248,7 +257,42 @@ export const FEATURE_ENABLE_SETTING_KEYS = {
 	quickFix: "quickFix.enabled",
 	reviewComments: "reviewComments.enabled",
 	chatParticipant: "chatParticipant.enabled",
+	agentTools: "agentTools.enabled",
 } as const satisfies Record<FeatureId, BooleanSettingId>;
+
+/** The agent-tools feature's write tools; each registers only under its own toggle below. */
+const AGENT_WRITE_TOOL_IDS = ["setSetting", "editModelRecords", "saveServer", "removeServer", "runAction"] as const;
+
+export type AgentWriteToolId = (typeof AGENT_WRITE_TOOL_IDS)[number];
+
+/** Each write tool's toggle key; the one map the settings getter, the registration, and the manifest pin address it through. */
+export const AGENT_TOOL_TOGGLE_KEYS = {
+	setSetting: "agentTools.setSetting.enabled",
+	editModelRecords: "agentTools.editModelRecords.enabled",
+	saveServer: "agentTools.saveServer.enabled",
+	removeServer: "agentTools.removeServer.enabled",
+	runAction: "agentTools.runAction.enabled",
+} as const satisfies Record<AgentWriteToolId, BooleanSettingId>;
+
+/** Whether agent tool input may carry a secret's value; off, the user types it into a masked input box instead. */
+export const AGENT_TOOLS_SECRET_VALUES_KEY = "agentTools.secretValues.enabled" satisfies BooleanSettingId;
+
+/** Any key of the agentTools family; the set_setting tool refuses these at the type level, so an agent cannot flip its own switches. */
+export type AgentToolsSettingId =
+	| "agentTools.enabled"
+	| (typeof AGENT_TOOL_TOGGLE_KEYS)[AgentWriteToolId]
+	| typeof AGENT_TOOLS_SECRET_VALUES_KEY;
+
+/**
+ * The whole agentTools family, in manifest order. User settings only (machine
+ * scope, like `servers`): a workspace file must not be able to grant an agent
+ * write access to the user's servers and keys. settingSpec.test.ts pins the tier.
+ */
+export const AGENT_TOOLS_SETTING_KEYS: readonly AgentToolsSettingId[] = [
+	"agentTools.enabled",
+	...AGENT_WRITE_TOOL_IDS.map((tool) => AGENT_TOOL_TOGGLE_KEYS[tool]),
+	AGENT_TOOLS_SECRET_VALUES_KEY,
+];
 
 /**
  * Whether one number is a usable usage.alertThresholds value: finite, in

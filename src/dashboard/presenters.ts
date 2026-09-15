@@ -666,6 +666,53 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 				label: l10n.t("Enable the @litellm participant"),
 				description: l10n.t("Answers @litellm chat turns with the request's own model; costs nothing until invoked."),
 			};
+		case "agentTools.enabled":
+			return {
+				label: l10n.t("Enable agent tools"),
+				description: l10n.t(
+					"Gives Copilot's agent tools that read this extension's diagnostics and configuration. Each tool that changes something has its own switch below."
+				),
+			};
+		case "agentTools.setSetting.enabled":
+			return {
+				label: l10n.t("Let the agent change plain settings"),
+				description: l10n.t(
+					"Timeouts, toggles, feature models, and other scalar settings, through the dashboard's validation. Never servers, model records, or these switches."
+				),
+			};
+		case "agentTools.editModelRecords.enabled":
+			return {
+				label: l10n.t("Let the agent edit model records"),
+				description: l10n.t(
+					"models.capabilities and models.parameters, one matcher key at a time, globally or on a servers entry."
+				),
+			};
+		case "agentTools.saveServer.enabled":
+			return {
+				label: l10n.t("Let the agent add and edit servers"),
+				description: l10n.t(
+					"Add, edit, rename, or adopt a servers entry. You type secret values unless the switch below allows the agent to pass them."
+				),
+			};
+		case "agentTools.removeServer.enabled":
+			return {
+				label: l10n.t("Let the agent remove servers"),
+				description: l10n.t("Remove a servers entry or hide an external provider group."),
+			};
+		case "agentTools.runAction.enabled":
+			return {
+				label: l10n.t("Let the agent run actions"),
+				description: l10n.t(
+					"Test a stored server's connection, re-sync models, refresh the catalog or usage numbers, or send a fixed probe prompt to a feature's picked model (a billable model request)."
+				),
+			};
+		case "agentTools.secretValues.enabled":
+			return {
+				label: l10n.t("Let the agent pass secret values"),
+				description: l10n.t(
+					"Off, the agent chooses only where a key is stored and VS Code asks you to type it. On, tool input may carry the key itself."
+				),
+			};
 	}
 }
 

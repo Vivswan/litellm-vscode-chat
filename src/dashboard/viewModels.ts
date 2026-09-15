@@ -939,6 +939,13 @@ const SETTING_ROW_PAGES: { readonly [K in SettingRowId]: SettingRowPageId } = {
 	"reviewComments.enabled": "features",
 	"reviewComments.model": "features",
 	"chatParticipant.enabled": "features",
+	"agentTools.enabled": "features",
+	"agentTools.setSetting.enabled": "features",
+	"agentTools.editModelRecords.enabled": "features",
+	"agentTools.saveServer.enabled": "features",
+	"agentTools.removeServer.enabled": "features",
+	"agentTools.runAction.enabled": "features",
+	"agentTools.secretValues.enabled": "features",
 };
 
 /**

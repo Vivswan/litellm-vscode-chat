@@ -33,6 +33,7 @@ suite("IssueReporter", () => {
 				quickFix: { enabled: false, modelConfigured: false },
 				reviewComments: { enabled: false, modelConfigured: false },
 				chatParticipant: { enabled: true },
+				agentTools: { enabled: false },
 			},
 			mcpEntryCount: 0,
 			recentLogs: [],
@@ -132,6 +133,7 @@ suite("IssueReporter", () => {
 					quickFix: { enabled: false, modelConfigured: false },
 					reviewComments: { enabled: false, modelConfigured: false },
 					chatParticipant: { enabled: true },
+					agentTools: { enabled: false },
 				},
 			})
 		);
@@ -690,11 +692,11 @@ suite("IssueReporter", () => {
 			// fingerprint must be reviewed here for content hygiene. After
 			// baseUrlConfigured comes the MCP-enabled entry count, then the pairs
 			// enabled|modelConfigured per FEATURE_IDS entry: six model features
-			// all off, then the participant's true and its "-" no-model-key
-			// marker, then the classification tail.
+			// all off, then the participant's true and the agent tools' false, each
+			// with the "-" no-model-key marker, then the classification tail.
 			assert.strictEqual(
 				reportFingerprint(snapshot),
-				"v3|0.2.3|connected|5|true|true|0|false|false|false|false|false|false|false|false|false|false|false|false|true|-|http|502|-"
+				"v3|0.2.3|connected|5|true|true|0|false|false|false|false|false|false|false|false|false|false|false|false|true|-|false|-|http|502|-"
 			);
 		});
 

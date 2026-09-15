@@ -20,6 +20,7 @@
 - 廣泛的模型選項傳遞 (`response_format`、`reasoning_effort`、`seed` 等)
 - 各模型能力覆寫與宣告的模型: 修正閘道回報的內容, 或註冊它根本列不出的模型, 缺口由 OpenRouter 目錄自動填補 ([詳細資料](docs/zh-tw/models.md#能力))
 - 內嵌補全: 選擇加入的幽靈文字, 由您自己 Proxy 上的補全 (FIM) 模型寫出, 範圍限定在您選擇的語言 ([詳細資料](docs/zh-tw/getting-started.md#用-litellm-模型取得內嵌補全))
+- 代理工具: 選擇加入的工具, Copilot 的代理可以呼叫它們讀取這個延伸模組的診斷和設定, 並在您接受確認卡片後逐個開關地變更設定 ([詳細資料](docs/zh-tw/getting-started.md#讓代理管理您的-litellm-設定))
 - 管理伺服器、模型與設定的儀表板面板, 背後是純 VS Code 設定
 - 設定匯出與匯入: 把伺服器、模型記錄以及 (明確選擇時) 儲存的祕密搬到另一台機器, 並支援一條命令復原 ([詳情](docs/zh-tw/settings.md#匯出與匯入))
 - 可自架或使用雲端部署

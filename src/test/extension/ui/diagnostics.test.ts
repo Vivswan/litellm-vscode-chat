@@ -72,6 +72,7 @@ suite("extension/ui/diagnostics", () => {
 					quickFix: { enabled: false, modelConfigured: false },
 					reviewComments: { enabled: false, modelConfigured: false },
 					chatParticipant: { enabled: false },
+					agentTools: { enabled: false },
 				},
 				// The opted-in entry counts; the plain one does not.
 				mcpEntryCount: 1,

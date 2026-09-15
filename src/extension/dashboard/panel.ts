@@ -29,6 +29,7 @@ import type {
 	CatalogModelSummary,
 	CatalogStatusView,
 	DashboardSectionId,
+	DashboardState,
 	DashboardUsage,
 } from "../../dashboard/viewModels";
 import type { LiteLLMChatModelProvider } from "../../provider";
@@ -75,6 +76,7 @@ import { createSettingsAccess } from "../settingsAccess";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
 import { buildDashboardHtml } from "./html";
+import type { DashboardParseIssue } from "./intentSchema";
 import { parseDashboardRequest } from "./intentSchema";
 import type { FeatureProbes, IntentAckNotice, IntentEnvironment } from "./intents";
 import {
@@ -178,6 +180,25 @@ export interface DashboardControllerEnv extends IntentEnvironment {
  * and "ok" is an intent that ran to completion.
  */
 export type DashboardMessageOutcome = "ok" | "validation-error" | "ignored-malformed";
+
+/** A request's correlated answer as the webview receives it: a read's response, an acked intent's ack, or a failure notice. */
+type DashboardReply = Extract<ExtensionToWebviewMessage, { kind: "response" | "ack" | "fail" }>;
+
+/** What one submitted message produced; the programmatic client (the agent tools) reads it, the webview reads only the posted messages. */
+export type DashboardSubmission =
+	| { readonly outcome: "ok"; readonly reply?: Extract<DashboardReply, { kind: "response" | "ack" }> }
+	| {
+			readonly outcome: "validation-error";
+			readonly reply: Extract<DashboardReply, { kind: "fail" }>;
+			readonly issues?: readonly DashboardParseIssue[];
+	  }
+	| { readonly outcome: "ignored-malformed"; readonly issues: readonly DashboardParseIssue[] };
+
+/**
+ * Who submitted a message. An external submission's correlation id is unknown
+ * to the page, so its answer returns by value and is never posted.
+ */
+type MessageSource = "webview" | "external";
 
 /** One observed group identity as a set key, normalized like the tombstone store's identities. */
 function observedIdentityKey(label: string, baseUrl: string): string {
@@ -287,7 +308,7 @@ export class DashboardController implements vscode.Disposable {
 		this._panel = panel;
 		this._panelSubscriptions.push(
 			panel.webview.onDidReceiveMessage((message) => {
-				void this.enqueueMessage(message);
+				void this.enqueueMessage(message, "webview");
 			}),
 			panel.onDidChangeViewState(() => {
 				// Context is not retained while hidden, so a re-shown webview needs
@@ -320,8 +341,19 @@ export class DashboardController implements vscode.Disposable {
 	 * drift from the real handling. Registered behind the non-production
 	 * litellm._test.dashboardMessage command.
 	 */
-	injectMessageForTest(raw: unknown): Promise<DashboardMessageOutcome> {
-		return this.enqueueMessage(raw);
+	async injectMessageForTest(raw: unknown): Promise<DashboardMessageOutcome> {
+		return (await this.enqueueMessage(raw, "webview")).outcome;
+	}
+
+	/**
+	 * The programmatic client entry (the agent tools): one raw request through
+	 * the exact path a webview post takes, answered by return value instead of
+	 * a post. Mutating requests join the same serialized chain as the page's,
+	 * so a tool and an open dashboard cannot lose each other's servers-array
+	 * update, and a landed intent still pushes state to an open panel.
+	 */
+	submit(raw: unknown): Promise<DashboardSubmission> {
+		return this.enqueueMessage(raw, "external");
 	}
 
 	/**
@@ -329,44 +361,54 @@ export class DashboardController implements vscode.Disposable {
 	 * died and a late ready must not vouch for the next page. "concurrent" methods skip the chain because the
 	 * draft-connection probe can block a whole discovery timeout, which would stall every later Save behind it.
 	 */
-	private enqueueMessage(raw: unknown): Promise<DashboardMessageOutcome> {
+	private enqueueMessage(raw: unknown, source: MessageSource): Promise<DashboardSubmission> {
 		const arrivalGeneration = this._pageGeneration;
 		const parsed = parseDashboardRequest(raw);
 		if (!parsed.success) {
-			this.env.log("Ignoring malformed dashboard message", { issues: parsed.issues });
+			// Codes and a count only: an issue path names the keys the sender
+			// wrote (a record's model key, a header name), and the buffer feeds
+			// public issue reports.
+			this.env.log("Ignoring malformed dashboard message", {
+				issueCount: parsed.issues.length,
+				codes: [...new Set(parsed.issues.map((issue) => issue.code))],
+			});
+			const issues = parsed.issues;
 			// A parse whose envelope frame survived still identifies the caller:
 			// answer a notifying method with a correlated refusal, or an editor
 			// waiting on this id would stay pending forever. Reads stay silent -
 			// their fail path does not exist on the wire.
 			const frame = parsed.frame;
 			if (frame !== undefined && isNotifyingMethod(frame.method)) {
-				this.postToPanel({
+				const reply = {
 					kind: "fail",
 					id: frame.id,
 					method: frame.method,
 					message: l10n.t("The change was not applied; see the LiteLLM output log."),
 					failureKind: "validation",
-				});
-				return Promise.resolve("validation-error");
+				} as const;
+				if (source === "webview") {
+					this.postToPanel(reply);
+				}
+				return Promise.resolve({ outcome: "validation-error", reply, issues });
 			}
-			return Promise.resolve("ignored-malformed");
+			return Promise.resolve({ outcome: "ignored-malformed", issues });
 		}
 		const request = parsed.request;
 		if (DASHBOARD_ENDPOINTS[request.method].channel === "concurrent") {
-			const outcome = this.handleRequest(request, arrivalGeneration);
-			outcome.then(undefined, (error) => {
+			const submission = this.handleRequest(request, arrivalGeneration, source);
+			submission.then(undefined, (error) => {
 				this.env.logError("Dashboard message handling failed", error);
 			});
-			return outcome;
+			return submission;
 		}
-		const outcome = this._messageChain.then(() => this.handleRequest(request, arrivalGeneration));
-		this._messageChain = outcome.then(
+		const submission = this._messageChain.then(() => this.handleRequest(request, arrivalGeneration, source));
+		this._messageChain = submission.then(
 			() => undefined,
 			(error) => {
 				this.env.logError("Dashboard message handling failed", error);
 			}
 		);
-		return outcome;
+		return submission;
 	}
 
 	dispose(): void {
@@ -387,6 +429,11 @@ export class DashboardController implements vscode.Disposable {
 		if (this._panel === undefined) {
 			return;
 		}
+		this.postToPanel({ kind: "push", state: this.readState() });
+	}
+
+	/** Everything the dashboard knows; the state push and the agent tools' configuration read share it. */
+	readState(): DashboardState {
 		const snapshots = this.env.getSnapshots();
 		for (const snapshot of snapshots) {
 			const key = observedIdentityKey(snapshot.status.label, snapshot.status.baseUrl);
@@ -413,30 +460,27 @@ export class DashboardController implements vscode.Disposable {
 		// In FEATURE_MODEL_IDS order for a stable push, whatever object the env
 		// built its probes record from.
 		const featureProbes = FEATURE_MODEL_IDS.filter((feature) => this.env.featureProbes[feature] !== undefined);
-		this.postToPanel({
-			kind: "push",
-			state: buildDashboardState({
-				snapshots,
+		return buildDashboardState({
+			snapshots,
+			reader,
+			declared,
+			entryReports,
+			featureProbes,
+			removedGroups,
+			wasGroupObserved,
+			wasLabeledGroupObserved,
+			catalog: this.env.getCatalogStatus(),
+			usage: this.env.getUsage(),
+			diagnostics: buildConfigDiagnostics({
 				reader,
-				declared,
 				entryReports,
-				featureProbes,
-				removedGroups,
-				wasGroupObserved,
-				wasLabeledGroupObserved,
-				catalog: this.env.getCatalogStatus(),
-				usage: this.env.getUsage(),
-				diagnostics: buildConfigDiagnostics({
-					reader,
-					entryReports,
-					declared: declared.views,
-					// The same list the servers section's hidden-groups line renders.
-					hiddenGroups,
-					// The advisory-hint evidence: per entry its own server's observed
-					// set, global records the cross-server union.
-					observedKeysByEntry: observedKeysByEntryLabel(snapshots, declared.views),
-					observedKeysUnion: observedModelInfoKeysUnion(snapshots),
-				}),
+				declared: declared.views,
+				// The same list the servers section's hidden-groups line renders.
+				hiddenGroups,
+				// The advisory-hint evidence: per entry its own server's observed
+				// set, global records the cross-server union.
+				observedKeysByEntry: observedKeysByEntryLabel(snapshots, declared.views),
+				observedKeysUnion: observedModelInfoKeysUnion(snapshots),
 			}),
 		});
 	}
@@ -641,19 +685,32 @@ export class DashboardController implements vscode.Disposable {
 	 * event of their own; the focus flush after it is the ready handshake's
 	 * second half and a guarded no-op for every other method.
 	 */
-	private async handleRequest(request: RpcRequestType, arrivalGeneration: number): Promise<DashboardMessageOutcome> {
+	private async handleRequest(
+		request: RpcRequestType,
+		arrivalGeneration: number,
+		source: MessageSource
+	): Promise<DashboardSubmission> {
+		const answer = (reply: DashboardReply): DashboardSubmission => {
+			if (source === "webview") {
+				this.postToPanel(reply);
+			}
+			// One class for every refused-or-failed intent: the outcome consumer
+			// only needs "did not act as asked", and the validation/operation
+			// split already travels via the fail notice's failureKind.
+			return reply.kind === "fail" ? { outcome: "validation-error", reply } : { outcome: "ok", reply };
+		};
 		if (isReadRequest(request)) {
-			this.postToPanel(this.answerRead(request));
-			return "ok";
+			return answer(this.answerRead(request));
 		}
 		try {
 			const notice = await this.runIntent(request, { arrivalGeneration });
+			let submission: DashboardSubmission = { outcome: "ok" };
 			if (isAckedRequest(request)) {
 				// The notice's plain-string form is the quiet success; the object
 				// form rides its warning tone onto the ack (see IntentAckNotice).
 				const note: { readonly message: string; readonly tone?: IntentAckTone } | undefined =
 					typeof notice === "string" ? { message: notice } : notice;
-				this.postToPanel({
+				submission = answer({
 					kind: "ack",
 					id: request.id,
 					method: request.method,
@@ -663,7 +720,7 @@ export class DashboardController implements vscode.Disposable {
 			}
 			this.pushState();
 			this.flushPendingFocus();
-			return "ok";
+			return submission;
 		} catch (error) {
 			// The write did not land (or only partially landed), so the failure
 			// notice is the webview's signal to surface the message and return the
@@ -699,7 +756,7 @@ export class DashboardController implements vscode.Disposable {
 			// validated payload, so the page can place the notice without a
 			// correlation map of its own.
 			const row = settingWriteRow(request);
-			this.postToPanel({
+			return answer({
 				kind: "fail",
 				id: request.id,
 				method: request.method,
@@ -708,10 +765,6 @@ export class DashboardController implements vscode.Disposable {
 				...(classification !== undefined ? { classification } : {}),
 				...(row !== undefined ? { row } : {}),
 			});
-			// One class for every refused-or-failed intent: the outcome consumer
-			// only needs "did not act as asked", and the validation/operation
-			// split already travels via the fail notice's failureKind.
-			return "validation-error";
 		}
 	}
 

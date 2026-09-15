@@ -232,6 +232,74 @@ The outgoing prompt is capped at 60,000 characters, a fixed limit like the commi
 
 Privacy is the same trust boundary as chat - your own server, no third party - but, like inline completions, without a per-request action from you, and with the agent rather than you choosing what to send, which is why this ships off and takes an explicit model. The question and context the agent writes go to the LiteLLM server you named for the tool, and the requests count toward the same [usage and spend tracking and budget alerts](usage.md) as everything else. The dashboard's "Test model" button is the one exception: it sends a single fixed question on your click, never anything of yours.
 
+### Let an agent manage your LiteLLM setup
+
+Copilot's agent mode can also read and change this extension's own setup, through a set of tools that ship off. One switch turns on the read tools; each tool that changes something has its own switch and stays unregistered until that one is on too:
+
+```jsonc
+"litellm-vscode-chat.agentTools.enabled": true,                  // the read tools
+"litellm-vscode-chat.agentTools.setSetting.enabled": true,       // litellm_set_setting
+"litellm-vscode-chat.agentTools.editModelRecords.enabled": true, // litellm_edit_model_records
+"litellm-vscode-chat.agentTools.saveServer.enabled": true,       // litellm_save_server
+"litellm-vscode-chat.agentTools.removeServer.enabled": true,     // litellm_remove_server
+"litellm-vscode-chat.agentTools.runAction.enabled": true,        // litellm_run_action
+"litellm-vscode-chat.agentTools.secretValues.enabled": true      // tool input may carry secret values
+```
+
+All seven are user settings: a workspace cannot turn them on, and the set-setting tool refuses them, so an agent cannot switch itself on. Enable only the writes you want; the read tools alone answer most questions.
+
+**The read tools** answer from what the extension already knows and touch none of your servers. Each also takes a single prompt through its `#` handle:
+
+- `litellm_diagnostics` (`#litellmDiagnostics`): connection state, one row per server (label, base URL, state, error classification, served model count), the configuration problems, the latest error, and on request the recent log lines. Log and error text pass through the same redaction the issue report uses.
+- `litellm_configuration` (`#litellmConfiguration`): everything the dashboard shows - servers with their settings and where each secret is stored (never the value), the settings with the scope each is configured in, the models, hidden groups, the catalog status, and usage. An optional list of sections keeps the answer small.
+- `litellm_inspect_model` (`#litellmInspectModel`): one model's effective capabilities and parameters, each value tagged with where it came from - the server's report, the catalog, your record, or the floor.
+- `litellm_search_catalog` (`#litellmSearchCatalog`): a search over the bundled OpenRouter catalog.
+
+**The write tools** change your settings, one switch each:
+
+- `litellm_set_setting` (`#litellmSetSetting`): any plain setting by name; `null` removes the configured value from the scope that sets it - workspace first, else user - the same as the dashboard's Reset, so the next scope's value or the default shows through. Never `servers`, the two model record settings, or the agent tools' own switches.
+- `litellm_edit_model_records` (`#litellmEditModelRecords`): one matcher key of `models.capabilities` or `models.parameters` - set fields, unset fields, or remove the key - globally (the scope the dashboard edits) or on one `servers` entry.
+- `litellm_save_server` (`#litellmSaveServer`): add, edit, rename, or adopt a `servers` entry; omitted fields keep their stored values.
+- `litellm_remove_server` (`#litellmRemoveServer`): remove a `servers` entry, or hide or unhide an external provider group.
+- `litellm_run_action` (`#litellmRunAction`): test a stored server's connection, send a fixed probe prompt to a feature's picked model (a model request, billed like any other), sync models, refresh the OpenRouter catalog, or refresh usage.
+
+Every write goes through the validation the dashboard's own forms use. The tool rejects what the form would reject, and says why; nothing is parsed twice. A change shows in an open dashboard immediately.
+
+**Every write asks first.** Before a write runs, VS Code shows a confirmation card. What it shows depends on the write:
+
+- A setting or record change: the value before and after.
+- A server save: the changed field names, and for a secret only where it goes - "apiKey: set (secure)", "cleared", or "you will be asked to type it" - never a value.
+- A removal or an action: only its target.
+
+Choosing Always Allow on the card is VS Code's standard behavior and skips the card for that tool from then on.
+
+**Secrets stay out of the chat** unless you say otherwise. The agent may say where a key goes - settings or secure storage - and VS Code asks you to type the value into a masked box, so it never enters the agent's context or transcript. With `agentTools.secretValues.enabled` on, tool input may carry the value itself; turn that on only where the transcript is already a secure place.
+
+A kept secret never follows a changed host. Moving an entry to another base URL while keeping its key is refused, and the key must be set again.
+
+**The agent decides when to call a tool**, as with the consult tool above, so weigh what leaves the machine. A read tool's output - server labels, base URLs, model IDs, redacted logs - goes to whatever model the agent runs on: a cloud model, or one of your own LiteLLM models if the picker names one.
+
+A repository's files can try to steer that agent, which is why the write switches stay off on a machine where you do not want an agent changing settings.
+
+What reaches your LiteLLM servers:
+
+- A write that touches a `servers` entry - save, remove, adopt, or a per-entry record edit - makes the same discovery and usage requests to that host that saving in the dashboard makes.
+- `litellm_run_action`'s connection test probes a stored server, and its feature-model test sends a fixed prompt to the feature's picked model, a billable model request. Sync and refresh reach only the hosts in your configuration and the catalog URL.
+
+**An example**, the case that motivated the tools (#349). A gateway blocks its model-info endpoint, so the model's context size falls to the floor, and you type:
+
+> The glm-5.3 context window is wrong, it is 200k. Fix it.
+
+The agent calls `litellm_inspect_model` for `glm-5.3`, sees `context_length` tagged as the floor, and calls `litellm_edit_model_records` to set `context_length` on `models.capabilities["glm-5.3"]`. Before anything is written, this card appears:
+
+```text
+models.capabilities["glm-5.3"]  (global settings)
+before: (absent)
+after:  {"context_length":200000}
+```
+
+Accept it, and the picker shows the new context size at once; the [inspector](models.md#inspectors) now points at your record as the source. That is the same fix as the [first recipe](#correct-a-capability-the-server-reports-wrong), typed by the agent instead of you.
+
 ### Get review comments on your code
 
 A model reads your code and leaves comments on the lines they are about, in the same threaded UI a pull request review uses. Two settings turn it on - the opt-in and an explicit model choice, the same `{ "server", "model" }` shape as the recipes above:

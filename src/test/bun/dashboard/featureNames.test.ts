@@ -40,6 +40,7 @@ const EXPECTED = {
 		sentence: "chat participant",
 		logSurface: "ChatParticipant",
 	},
+	agentTools: { title: "Agent tools", sentence: "agent tools", logSurface: "AgentTools" },
 } as const satisfies Record<FeatureId, ExpectedNames>;
 
 const FORMS = ["title", "sentence"] as const;

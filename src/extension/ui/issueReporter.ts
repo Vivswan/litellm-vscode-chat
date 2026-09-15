@@ -64,6 +64,7 @@ const FEATURE_PROSE_NAMES: Readonly<Record<FeatureId, string>> = {
 	quickFix: "Quick fix",
 	reviewComments: "Review comments",
 	chatParticipant: "Chat participant",
+	agentTools: "Agent tools",
 };
 
 /**

@@ -24,6 +24,7 @@ The extension connects GitHub Copilot Chat to any number of LiteLLM servers: the
 | Get ghost-text completions in the editor from one of my own models | [Getting started: the inline completions recipe](getting-started.md#get-inline-completions-from-a-litellm-model) |
 | Ask a question in chat and have one of my own models answer | [Getting started: the @litellm chat recipe](getting-started.md#chat-with-litellm) |
 | Let a chat agent ask one of my models for a second opinion | [Getting started: the consult tool recipe](getting-started.md#let-an-agent-ask-a-second-model) |
+| Let a chat agent diagnose or change this extension's setup for me | [Getting started: the agent tools recipe](getting-started.md#let-an-agent-manage-your-litellm-setup) |
 | Fix or explain an error in my editor with one of my own models | [Getting started: the quick fix recipe](getting-started.md#fix-or-explain-a-diagnostic) |
 | Have a model review my code and comment on the lines | [Getting started: the review comments recipe](getting-started.md#get-review-comments-on-your-code) |
 | Set a spending budget and get warned before it runs out | [Usage: budgets](usage.md#budgets) and [alerts](usage.md#alerts) |
