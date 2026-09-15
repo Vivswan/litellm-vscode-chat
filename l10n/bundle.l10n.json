@@ -812,6 +812,7 @@
 	"OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.chat.timeout\" setting if your identity provider needs more time.": "OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.chat.timeout\" setting if your identity provider needs more time.",
 	"OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.discovery.timeout\" setting if your identity provider needs more time.": "OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.discovery.timeout\" setting if your identity provider needs more time.",
 	"Off, the agent chooses only where a key is stored and VS Code asks you to type it. On, tool input may carry the key itself.": "Off, the agent chooses only where a key is stored and VS Code asks you to type it. On, tool input may carry the key itself.",
+	"Off, you type a key the agent asks to set into a box, masked by default (ui.maskSecretInputs governs it), and it never enters the chat. On, the key travels through the agent's context and transcript.": "Off, you type a key the agent asks to set into a box, masked by default (ui.maskSecretInputs governs it), and it never enters the chat. On, the key travels through the agent's context and transcript.",
 	"Off/Reasoning effort level label in the model picker": {
 		"message": "Off",
 		"comment": [
@@ -1271,7 +1272,6 @@
 	"Which record set each value on each model, e.g. temperature 0.3 from your gpt-5* record. Read-only, and it never leaves this dashboard.": "Which record set each value on each model, e.g. temperature 0.3 from your gpt-5* record. Read-only, and it never leaves this dashboard.",
 	"Which secret?": "Which secret?",
 	"Which server?": "Which server?",
-	"With this off, a key the agent asks to set is typed by you into a masked box and never enters the chat. With it on, the key travels through the agent's context and transcript.": "With this off, a key the agent asks to set is typed by you into a masked box and never enters the chat. With it on, the key travels through the agent's context and transcript.",
 	"Workspace": "Workspace",
 	"Workspace folder": "Workspace folder",
 	"Workspace settings override {0} in this window; the imported values take effect where no workspace override exists.": "Workspace settings override {0} in this window; the imported values take effect where no workspace override exists.",

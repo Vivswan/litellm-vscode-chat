@@ -273,7 +273,9 @@ Every write goes through the validation the dashboard's own forms use. The tool 
 
 Choosing Always Allow on the card is VS Code's standard behavior and skips the card for that tool from then on.
 
-**Secrets stay out of the chat** unless you say otherwise. The agent may say where a key goes - settings or secure storage - and VS Code asks you to type the value into a masked box, so it never enters the agent's context or transcript. With `agentTools.secretValues.enabled` on, tool input may carry the value itself; turn that on only where the transcript is already a secure place.
+**Secrets stay out of the chat** unless you say otherwise. The agent may say where a key goes - settings or secure storage - and VS Code asks you to type the value into an input box, masked by default (`ui.maskSecretInputs` governs it), so it never enters the agent's context or transcript.
+
+With `agentTools.secretValues.enabled` on, tool input may carry the value itself; turn that on only where the transcript is already a secure place.
 
 A kept secret never follows a changed host. Moving an entry to another base URL while keeping its key is refused, and the key must be set again.
 

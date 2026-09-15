@@ -449,7 +449,7 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 			);
 		case "agentTools.secretValues.enabled":
 			return l10n.t(
-				"With this off, a key the agent asks to set is typed by you into a masked box and never enters the chat. With it on, the key travels through the agent's context and transcript."
+				"Off, you type a key the agent asks to set into a box, masked by default (ui.maskSecretInputs governs it), and it never enters the chat. On, the key travels through the agent's context and transcript."
 			);
 		default:
 			return undefined;

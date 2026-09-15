@@ -317,7 +317,8 @@
 									"usage"
 								]
 							},
-							"description": "Which sections to return. Default: all."
+							"description": "Which sections to return. Default: all.",
+							"minItems": 1
 						}
 					},
 					"additionalProperties": false

@@ -287,12 +287,13 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 	},
 	"agentTools.saveServer.enabled": {
 		en:
-			"Lets the agent add, edit, rename, or adopt a `servers` entry. You type secret values into a masked box unless " +
-			"`agentTools.secretValues.enabled` lets the agent pass them; a kept secret never follows a changed host. Needs " +
+			"Lets the agent add, edit, rename, or adopt a `servers` entry. You type secret values into an input box, masked by " +
+			"default (`ui.maskSecretInputs` governs it) and never entering the chat, unless `agentTools.secretValues.enabled` " +
+			"lets the agent pass them; a kept secret never follows a changed host. Needs " +
 			"`agentTools.enabled`. Recipe: [Let an agent manage your LiteLLM " +
 			"setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
-		zhCn: "允许代理添加、编辑、重命名或采纳 `servers` 条目。密钥值由你在掩码输入框中输入, 除非 `agentTools.secretValues.enabled` 允许代理传递; 保留的密钥绝不会跟随改变了的主机。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
-		zhTw: "允許代理新增、編輯、重新命名或採納 `servers` 項目。密鑰值由您在遮罩輸入框中輸入, 除非 `agentTools.secretValues.enabled` 允許代理傳遞; 保留的密鑰絕不會跟隨變更了的主機。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+		zhCn: "允许代理添加、编辑、重命名或采纳 `servers` 条目。密钥值由你在输入框中输入, 该输入框默认掩码显示 (由 `ui.maskSecretInputs` 控制) 且值绝不进入聊天, 除非 `agentTools.secretValues.enabled` 允许代理传递; 保留的密钥绝不会跟随改变了的主机。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "允許代理新增、編輯、重新命名或採納 `servers` 項目。密鑰值由您在輸入框中輸入, 該輸入框預設遮罩顯示 (由 `ui.maskSecretInputs` 控制) 且值絕不進入聊天, 除非 `agentTools.secretValues.enabled` 允許代理傳遞; 保留的密鑰絕不會跟隨變更了的主機。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
 	},
 	"agentTools.removeServer.enabled": {
 		en:
@@ -312,10 +313,11 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 	"agentTools.secretValues.enabled": {
 		en:
 			"Lets agent tool input carry secret values (API keys, client secrets). Off, the agent only chooses where a secret " +
-			"is stored and VS Code asks you to type it. Turn on only where the chat transcript is already a secure place, " +
+			"is stored and VS Code asks you to type it into an input box, masked by default (`ui.maskSecretInputs` governs it); " +
+			"the value never enters the chat. Turn on only where the chat transcript is already a secure place, " +
 			"such as a zero-retention deployment. Recipe: [Let an agent manage your LiteLLM " +
 			"setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
-		zhCn: "允许代理工具的输入携带密钥值 (API 密钥、客户端密钥)。关闭时, 代理只选择密钥的存储位置, 由 VS Code 请你输入。仅在聊天记录本身已是安全场所时开启, 例如零留存部署。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
-		zhTw: "允許代理工具的輸入攜帶密鑰值 (API 金鑰、用戶端密鑰)。關閉時, 代理只選擇密鑰的儲存位置, 由 VS Code 請您輸入。僅在聊天記錄本身已是安全場所時開啟, 例如零留存部署。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+		zhCn: "允许代理工具的输入携带密钥值 (API 密钥、客户端密钥)。关闭时, 代理只选择密钥的存储位置, 由 VS Code 请你在输入框中输入, 该输入框默认掩码显示 (由 `ui.maskSecretInputs` 控制); 值绝不进入聊天。仅在聊天记录本身已是安全场所时开启, 例如零留存部署。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "允許代理工具的輸入攜帶密鑰值 (API 金鑰、用戶端密鑰)。關閉時, 代理只選擇密鑰的儲存位置, 由 VS Code 請您在輸入框中輸入, 該輸入框預設遮罩顯示 (由 `ui.maskSecretInputs` 控制); 值絕不進入聊天。僅在聊天記錄本身已是安全場所時開啟, 例如零留存部署。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
 	},
 };

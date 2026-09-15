@@ -231,6 +231,9 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					return undefined;
 				}
 				const input = parsed.input;
+				if (planSaveServer(input, state, agentToolsAcceptSecretValues()).kind === "refused") {
+					return undefined;
+				}
 				if ("adoptFrom" in input) {
 					return {
 						title: l10n.t(
@@ -242,10 +245,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					};
 				}
 				const plan = planSaveServer(input, state, agentToolsAcceptSecretValues());
-				if (plan.kind !== "requests") {
-					return undefined;
-				}
-				const payload = plan.requests[0]?.payload;
+				const payload = plan.kind === "requests" ? plan.requests[0]?.payload : undefined;
+				const prompts = plan.kind === "requests" ? plan.prompts : [];
 				const existing = declaredRow(state, input.renameFrom ?? input.label);
 				const after = isRecord(payload) && isRecord(payload.server) ? payload.server : { label: input.label };
 				return {
@@ -255,7 +256,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 						existing === undefined ? undefined : { ...savePayloadFromRow(existing) },
 						after,
 						secretSummary(payload),
-						plan.prompts
+						prompts
 					),
 				};
 			}

@@ -601,6 +601,13 @@ suite("extension/features/agentTools wiring", () => {
 				assert.match(card, /apiKey: copied to settings storage/);
 				// The fields the agent did not place take the secure default.
 				assert.match(card, /oauthClientSecret: copied to secure storage/);
+				// A source the planner cannot find gets no card: the refusal reaches
+				// the agent without asking the user to approve nothing.
+				const missing = prepareLive(spies, "saveServer", {
+					label: "Imported",
+					adoptFrom: { label: "Missing", baseUrl: "http://missing.test" },
+				});
+				assert.strictEqual(missing.confirmationMessages, undefined, "no card for a refused adoption");
 			});
 		});
 	});
