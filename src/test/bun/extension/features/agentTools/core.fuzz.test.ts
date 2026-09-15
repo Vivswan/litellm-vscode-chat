@@ -141,13 +141,19 @@ const shapedInput: Record<AgentToolId, fc.Arbitrary<unknown>> = {
 			{ requiredKeys: ["label"] }
 		)
 	),
-	removeServer: fc.record(
-		{
+	removeServer: fc.oneof(
+		fc.record({ action: fc.constant("remove"), label: labelArb }),
+		fc.record({
+			action: fc.constantFrom("hide", "unhide"),
 			label: labelArb,
-			baseUrl: optional(fc.constantFrom(COPILOT_BASE_URL, "http://nowhere.test")),
-			action: optional(fc.constantFrom("remove", "hide", "unhide")),
-		},
-		{ requiredKeys: ["label"] }
+			baseUrl: fc.constantFrom(
+				COPILOT_BASE_URL,
+				"http://old.test",
+				"http://old2.test/",
+				"http://moved.test",
+				"http://nowhere.test"
+			),
+		})
 	),
 	runAction: fc.oneof(
 		fc.record({ action: fc.constant("testConnection"), label: labelArb }),

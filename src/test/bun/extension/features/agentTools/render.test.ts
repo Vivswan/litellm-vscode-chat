@@ -235,6 +235,7 @@ describe("agentTools render", () => {
 			[]
 		);
 		expect(dropCredentials).toContain("baseUrl:");
+		expect(dropCredentials).toContain("(differs only in text the card does not show, such as URL credentials)");
 		expect(dropCredentials).not.toContain("(no field changes)");
 		expect(dropCredentials).not.toContain(secret);
 		// The rebuild is per string: a text-level pass over the serialized card

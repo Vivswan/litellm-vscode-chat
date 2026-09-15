@@ -192,7 +192,7 @@ export function refusalText(reason: RefusalReason, detail: Readonly<Record<strin
 		case "external-group-not-found":
 			return `No external provider group is at "${displayUrl(detail.baseUrl ?? "")}"${detail.label !== undefined ? ` labeled "${detail.label}"` : ""}.`;
 		case "hidden-group-not-found":
-			return `No hidden group is labeled "${detail.label}". Read the configuration tool's "hiddenGroups" section.`;
+			return `No removed group is labeled "${detail.label}" at "${displayUrl(detail.baseUrl ?? "")}". Read the configuration tool's "hiddenGroups" section; only groups with reason "removed" can be unhidden.`;
 		case "secret-locations-unproven":
 			return `The entry "${detail.label}" has not finished loading its secret locations; call again in a moment.`;
 		case "secret-value-refused":
@@ -273,11 +273,14 @@ export function describeServerChange(
 		const previous = before?.[key];
 		const next = after[key];
 		// Compared raw, rendered scrubbed: dropping a URL's credentials is a
-		// change the card must show even though both sides display alike.
+		// change the card must show even though both sides display alike, so
+		// a change the scrub hides is named as such.
 		if (JSON.stringify(previous) !== JSON.stringify(next)) {
-			lines.push(
-				`${key}: ${previous === undefined ? "(absent)" : json(previous)} -> ${next === undefined ? "(absent)" : json(next)}`
-			);
+			const shownPrevious = previous === undefined ? "(absent)" : json(previous);
+			const shownNext = next === undefined ? "(absent)" : json(next);
+			const hidden =
+				shownPrevious === shownNext ? " (differs only in text the card does not show, such as URL credentials)" : "";
+			lines.push(`${key}: ${shownPrevious} -> ${shownNext}${hidden}`);
 		}
 	}
 	for (const line of secrets) {

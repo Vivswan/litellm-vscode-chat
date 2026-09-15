@@ -475,7 +475,7 @@ describe("agentTools planner external groups by the URL the agent sees", () => {
 		if (adopted.kind === "requests") {
 			expect(adopted.requests[0]?.payload).toMatchObject({ sourceHandle: CRED_HANDLE, baseUrl: CRED_BASE_URL });
 		}
-		const hidden = planRemoveServer({ label: "Cred", baseUrl: CRED_DISPLAY_URL, action: "hide" }, state);
+		const hidden = planRemoveServer({ action: "hide", label: "Cred", baseUrl: CRED_DISPLAY_URL }, state);
 		expect(hidden.kind).toBe("requests");
 		if (hidden.kind === "requests") {
 			expect(hidden.requests[0]?.payload).toMatchObject({ sourceHandle: CRED_HANDLE, baseUrl: CRED_BASE_URL });
@@ -485,25 +485,39 @@ describe("agentTools planner external groups by the URL the agent sees", () => {
 
 describe("agentTools planner remove_server, run_action, inspect_model", () => {
 	test.each<[string, AgentToolInput<"removeServer">, AgentRequest]>([
-		["remove a declared entry", { label: "Prod" }, { method: "removeServerSetting", payload: { label: "Prod" } }],
+		[
+			"remove a declared entry",
+			{ action: "remove", label: "Prod" },
+			{ method: "removeServerSetting", payload: { label: "Prod" } },
+		],
 		[
 			"hide the twin at the shared base URL picks its handle by label",
 			{ label: "Twin", baseUrl: `${COPILOT_BASE_URL}/`, action: "hide" },
 			{ method: "hideExternalServer", payload: { baseUrl: COPILOT_BASE_URL, sourceHandle: TWIN_HANDLE } },
 		],
 		[
-			"unhide a hidden group echoes its stored identity",
-			{ label: "Old", action: "unhide" },
-			{ method: "unhideServer", payload: { label: "Old", baseUrl: "http://old.test" } },
+			"unhide picks the hidden group at the named URL when two share a label",
+			{ label: "Old", baseUrl: "http://old2.test/", action: "unhide" },
+			{ method: "unhideServer", payload: { label: "Old", baseUrl: "http://old2.test" } },
 		],
 	])("remove_server: %s", (_name, input, request) => {
 		expect(requestsOf(planRemoveServer(input, state)).requests).toEqual([request]);
 	});
 
+	// Drifts silently: a superseded group has no removal tombstone, so an
+	// unhide submitted for it fails at the dashboard after the user approved a card.
+	test("unhiding a superseded group is refused before anything is submitted", () => {
+		expect(
+			refusalOf(planRemoveServer({ label: "Moved", baseUrl: "http://moved.test", action: "unhide" }, state)).reason
+		).toBe("hidden-group-not-found");
+	});
+
 	// Drifts silently: an external-only label falling into the declared branch
 	// would submit a removeServerSetting the dashboard then fails on.
 	test("removing an external-only label is refused as not declared", () => {
-		expect(refusalOf(planRemoveServer({ label: "Copilot" }, state)).reason).toBe("server-not-declared");
+		expect(refusalOf(planRemoveServer({ action: "remove", label: "Copilot" }, state)).reason).toBe(
+			"server-not-declared"
+		);
 	});
 
 	test.each<[string, AgentToolInput<"runAction">, AgentRequest]>([

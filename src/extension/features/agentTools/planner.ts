@@ -468,34 +468,39 @@ export function planSaveServer(
 }
 
 export function planRemoveServer(input: AgentToolInput<"removeServer">, state: DashboardState): ToolPlan {
-	const action = input.action ?? "remove";
-	if (action === "unhide") {
-		const hidden = state.hiddenGroups.find(
-			(group) => group.label === input.label && (input.baseUrl === undefined || sameHost(group.baseUrl, input.baseUrl))
-		);
-		if (hidden === undefined) {
-			return refused("hidden-group-not-found", { label: input.label });
+	switch (input.action) {
+		case "unhide": {
+			// Only a removal tombstone can be cleared; a superseded group has none
+			// to clear, so it is refused here instead of failing at the dashboard.
+			const hidden = state.hiddenGroups.find(
+				(group) => group.reason === "removed" && group.label === input.label && sameHost(group.baseUrl, input.baseUrl)
+			);
+			if (hidden === undefined) {
+				return refused("hidden-group-not-found", { label: input.label, baseUrl: input.baseUrl });
+			}
+			return requests({ method: "unhideServer", payload: { label: hidden.label, baseUrl: hidden.baseUrl } });
 		}
-		return requests({ method: "unhideServer", payload: { label: hidden.label, baseUrl: hidden.baseUrl } });
-	}
-	if (action === "hide") {
-		if (input.baseUrl === undefined) {
-			return refused("base-url-required", { label: input.label });
+		case "hide": {
+			const row = externalRow(state, input.label, input.baseUrl);
+			if (row === undefined) {
+				return refused("external-group-not-found", { label: input.label, baseUrl: input.baseUrl });
+			}
+			return requests({
+				method: "hideExternalServer",
+				payload: { baseUrl: row.baseUrl, sourceHandle: row.adoptHandle },
+			});
 		}
-		const row = externalRow(state, input.label, input.baseUrl);
-		if (row === undefined) {
-			return refused("external-group-not-found", { label: input.label, baseUrl: input.baseUrl });
+		case "remove": {
+			const declared = state.servers.find(
+				(server) => server.label === input.label && (server.origin === "declared" || server.origin === "misconfigured")
+			);
+			if (declared === undefined) {
+				const external = state.servers.some((server) => server.origin === "external" && server.label === input.label);
+				return refused(external ? "server-not-declared" : "server-not-found", { label: input.label });
+			}
+			return requests({ method: "removeServerSetting", payload: { label: input.label } });
 		}
-		return requests({ method: "hideExternalServer", payload: { baseUrl: row.baseUrl, sourceHandle: row.adoptHandle } });
 	}
-	const declared = state.servers.find(
-		(server) => server.label === input.label && (server.origin === "declared" || server.origin === "misconfigured")
-	);
-	if (declared === undefined) {
-		const external = state.servers.some((server) => server.origin === "external" && server.label === input.label);
-		return refused(external ? "server-not-declared" : "server-not-found", { label: input.label });
-	}
-	return requests({ method: "removeServerSetting", payload: { label: input.label } });
 }
 
 // ---------------------------------------------------------------------------

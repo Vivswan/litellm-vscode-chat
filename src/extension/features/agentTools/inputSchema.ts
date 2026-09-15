@@ -98,11 +98,13 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 			renameFrom: label.optional(),
 		}),
 	]),
-	removeServer: z.strictObject({
-		label,
-		baseUrl: z.string().min(1).optional(),
-		action: z.enum(["remove", "hide", "unhide"]).optional(),
-	}),
+	// Hide and unhide name the base URL: two groups can share a label, and the
+	// dashboard treats label plus base URL as the identity.
+	removeServer: z.discriminatedUnion("action", [
+		z.strictObject({ action: z.literal("remove"), label }),
+		z.strictObject({ action: z.literal("hide"), label, baseUrl: z.string().min(1) }),
+		z.strictObject({ action: z.literal("unhide"), label, baseUrl: z.string().min(1) }),
+	]),
 	// Each action names exactly the argument it needs, so a probe without its
 	// target is a parse refusal, not a planner sentinel.
 	runAction: z.discriminatedUnion("action", [

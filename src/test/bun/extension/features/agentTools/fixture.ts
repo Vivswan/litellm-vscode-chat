@@ -62,7 +62,11 @@ export function agentToolsState(): DashboardState {
 			makeExternalServer({ label: "Twin", baseUrl: COPILOT_BASE_URL, adoptHandle: TWIN_HANDLE }),
 			makeExternalServer({ label: "Cred", baseUrl: CRED_BASE_URL, adoptHandle: CRED_HANDLE }),
 		],
-		hiddenGroups: [{ label: "Old", baseUrl: "http://old.test", reason: "removed" }],
+		hiddenGroups: [
+			{ label: "Old", baseUrl: "http://old.test", reason: "removed" },
+			{ label: "Old", baseUrl: "http://old2.test", reason: "removed" },
+			{ label: "Moved", baseUrl: "http://moved.test", reason: "superseded", declaredBaseUrl: "http://moved.test/v1" },
+		],
 		models: [
 			makeModel({ serverLabel: "Prod", rawId: "gpt-test", id: "gpt-test", scopeKey: "scope-prod" }),
 			makeModel({ serverLabel: "Copilot", rawId: "claude", id: "claude", scopeKey: "scope-copilot" }),

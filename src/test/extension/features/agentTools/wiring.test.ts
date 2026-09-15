@@ -676,7 +676,7 @@ suite("extension/features/agentTools wiring", () => {
 				setSetting: { setting: "chat.timeout", value: 1 },
 				editModelRecords: { kind: "parameters", key: "gpt-*", set: { temperature: 0 } },
 				saveServer: NEW_SERVER,
-				removeServer: { label: "Prod" },
+				removeServer: { action: "remove", label: "Prod" },
 				runAction: { action: "syncModels" },
 			};
 			for (const id of WRITE_IDS) {

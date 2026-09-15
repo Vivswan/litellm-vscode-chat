@@ -13,6 +13,7 @@ import type { Logger } from "../../../shared/logger";
 import { localizedError } from "../../../shared/mirroredError";
 import type { SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { displayUrl } from "../../../shared/util/displayUrl";
 import { isRecord } from "../../../shared/util/json";
 import type { DashboardController } from "../../dashboard/panel";
 import type { SettingsAccess } from "../../settingsAccess";
@@ -202,6 +203,9 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					return undefined;
 				}
 				const input = parsed.input;
+				if (planEditModelRecords(input, state).kind === "refused") {
+					return undefined;
+				}
 				const row = input.server === undefined ? undefined : declaredRow(state, input.server);
 				const current =
 					input.server === undefined
@@ -260,10 +264,16 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				if (!parsed.ok) {
 					return undefined;
 				}
-				const action = parsed.input.action ?? "remove";
+				const input = parsed.input;
+				if (planRemoveServer(input, state).kind === "refused") {
+					return undefined;
+				}
+				// A hide or unhide is identified by label AND base URL (two groups can
+				// share a label), so the card names both.
+				const target = input.action === "remove" ? input.label : `${input.label} at ${displayUrl(input.baseUrl)}`;
 				return {
-					title: l10n.t("{0} the LiteLLM server {1}?", action, parsed.input.label),
-					message: describeAction(action, parsed.input.label),
+					title: l10n.t("{0} the LiteLLM server {1}?", input.action, input.label),
+					message: describeAction(input.action, target),
 				};
 			}
 			case "runAction": {
@@ -271,12 +281,22 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				if (!parsed.ok) {
 					return undefined;
 				}
+				if (planRunAction(parsed.input, state).kind === "refused") {
+					return undefined;
+				}
+				const input = parsed.input;
+				const target =
+					"label" in input
+						? `${input.label}${(() => {
+								const row = declaredRow(state, input.label);
+								return row === undefined ? "" : ` at ${displayUrl(row.baseUrl)}`;
+							})()}`
+						: "feature" in input
+							? input.feature
+							: undefined;
 				return {
-					title: l10n.t("Run the LiteLLM action {0}?", parsed.input.action),
-					message: describeAction(
-						parsed.input.action,
-						"label" in parsed.input ? parsed.input.label : "feature" in parsed.input ? parsed.input.feature : undefined
-					),
+					title: l10n.t("Run the LiteLLM action {0}?", input.action),
+					message: describeAction(input.action, target),
 				};
 			}
 			default:

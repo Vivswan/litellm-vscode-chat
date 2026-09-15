@@ -835,34 +835,75 @@
 				"toolReferenceName": "litellmRemoveServer",
 				"displayName": "%litellm.tool.removeServer.displayName%",
 				"userDescription": "%litellm.tool.removeServer.userDescription%",
-				"modelDescription": "Remove a LiteLLM servers entry by label; or, with action hide and baseUrl, hide an external provider group that is not in the setting; or with action unhide restore a hidden one. The user confirms first.",
+				"modelDescription": "Remove a LiteLLM servers entry by label (action remove); or hide an external provider group that is not in the setting (action hide, with its label and base URL); or restore a hidden group (action unhide, with its label and base URL; only groups the configuration tool lists with reason removed can be restored). The user confirms first.",
 				"canBeReferencedInPrompt": true,
 				"icon": "$(trash)",
 				"when": "config.litellm-vscode-chat.agentTools.enabled && config.litellm-vscode-chat.agentTools.removeServer.enabled",
 				"inputSchema": {
 					"type": "object",
-					"properties": {
-						"label": {
-							"type": "string"
-						},
-						"baseUrl": {
-							"type": "string",
-							"description": "Required for hide; optional for unhide."
-						},
-						"action": {
-							"type": "string",
-							"enum": [
-								"remove",
-								"hide",
-								"unhide"
+					"anyOf": [
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "remove"
+								},
+								"label": {
+									"type": "string",
+									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
+								}
+							},
+							"required": [
+								"action",
+								"label"
 							],
-							"description": "Default remove."
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "hide"
+								},
+								"label": {
+									"type": "string",
+									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
+								},
+								"baseUrl": {
+									"type": "string",
+									"description": "The group's base URL as litellm_configuration shows it; with the label it identifies the group."
+								}
+							},
+							"required": [
+								"action",
+								"label",
+								"baseUrl"
+							],
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"properties": {
+								"action": {
+									"const": "unhide"
+								},
+								"label": {
+									"type": "string",
+									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
+								},
+								"baseUrl": {
+									"type": "string",
+									"description": "The group's base URL as litellm_configuration shows it; with the label it identifies the group."
+								}
+							},
+							"required": [
+								"action",
+								"label",
+								"baseUrl"
+							],
+							"additionalProperties": false
 						}
-					},
-					"required": [
-						"label"
-					],
-					"additionalProperties": false
+					]
 				}
 			},
 			{
