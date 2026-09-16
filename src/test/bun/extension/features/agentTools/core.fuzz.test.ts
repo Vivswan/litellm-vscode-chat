@@ -172,6 +172,16 @@ const shapedInput: Record<AgentToolId, fc.Arbitrary<unknown>> = {
 	),
 };
 
+/**
+ * Not fc.string at this length: it draws one character at a time, and 60k
+ * draws per run is most of the suite's wall clock at the nightly's run count.
+ * A repeated unit keeps backticks and URL shapes in reach of the fence and the
+ * URL scrub.
+ */
+const overBoundString = fc
+	.tuple(fc.string({ minLength: 1, maxLength: 20 }), fc.integer({ min: 60_001, max: 70_000 }))
+	.map(([unit, length]) => unit.repeat(Math.ceil(length / unit.length)).slice(0, length));
+
 function planFor(tool: AgentToolId, raw: unknown, acceptSecretValues: boolean): ToolPlan | undefined {
 	const parsed = parseAgentToolInput(tool, raw);
 	if (!parsed.ok) {
@@ -250,7 +260,7 @@ describe("agentTools core fuzz", () => {
 				fc.jsonValue(),
 				// Values past the reply bound included, so the cut is exercised on
 				// generated input rather than on the fixture's fixed size.
-				fc.oneof(fc.jsonValue(), fc.string({ minLength: 60_001, maxLength: 70_000 })),
+				fc.oneof(fc.jsonValue(), overBoundString),
 				fc.string({ maxLength: 40 }),
 				(before, after, key) => {
 					expect(() => describeSettingChange(key, before, after, null)).not.toThrow();
