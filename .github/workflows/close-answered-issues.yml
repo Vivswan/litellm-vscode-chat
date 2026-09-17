@@ -4,21 +4,47 @@
 # activity (a comment, an edit, a label change) resets the clock. Closed
 # issues are skipped entirely; reopening one counts as activity, so the next
 # run strips both labels instead of re-closing it.
+#
+# A non-maintainer reply hands an open issue back and clears both labels at
+# once, so the sweep never closes an issue where the reporter spoke last.
+# Bot comments (this workflow's own close message) and comments on closed
+# issues leave the labels alone, or the reopen cleanup above finds nothing.
 name: Close Answered Issues
 
 on:
   schedule:
     - cron: "23 7 * * *"
   workflow_dispatch:
+  issue_comment:
+    types: [created]
 
-permissions:
-  issues: write
-  # The action persists its operations state through the Actions cache.
-  actions: write
+permissions: {}
 
 jobs:
-  close:
+  handed-back:
+    if: >-
+      github.event_name == 'issue_comment'
+      && !github.event.issue.pull_request
+      && github.event.issue.state == 'open'
+      && contains(github.event.issue.labels.*.name, 'awaiting-reply')
+      && github.event.comment.user.type != 'Bot'
+      && !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - run: gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label awaiting-reply,auto-closed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+
+  close:
+    if: github.event_name != 'issue_comment'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      # The action persists its operations state through the Actions cache.
+      actions: write
     steps:
       - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
         with:
