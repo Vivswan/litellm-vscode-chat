@@ -11,7 +11,7 @@
     ".github/copilot-instructions.md": {"class": "mirror", "kind": "symlink", "hash": "79909577a70fc4971a7fcfd3cbec6a1af7182ca2dadc87f2979dce5e28f93ca0"},
     ".github/dependabot.yml": {"class": "managed", "hash": "a9e955fa9fd485a2d4cd9c86113252a6176d841223e6846c3f091c4317675223"},
     ".github/instructions/review.instructions.md": {"class": "managed", "hash": "89d5c9bc2bea185a076b37a4cefb5ffea25a37f050c4e39512b875b95e2db380"},
-    ".github/repo-platform-manifest.json": {"class": "managed", "hash": null, "commit": "64fff284ee30b049790ff6051d07091fb883dedb"},
+    ".github/repo-platform-manifest.json": {"class": "managed", "hash": null, "commit": "411cd5229101dc461e6f08bf7b361676553f4e77"},
     ".github/settings.local.yml": {"class": "starter"},
     ".github/settings.yml": {"class": "managed", "hash": "778b95c1d31cd84082dc4ca247d667550f90c3783f204db8830001be79f657e0"},
     ".github/workflows/auto-assign.yml": {"class": "managed", "hash": "bd512e0e114675a95f42468802fc9e8bb118215f38ed7c7b70d4235a88592f54"},
@@ -31,7 +31,7 @@
     ".release-please-manifest.json": {"class": "starter"},
     ".typography-allow": {"class": "managed", "hash": "768ce791aa89e0061a7ccce09ee389478c45062d28d0c256e09b9e7160455ac3"},
     ".yamllint": {"class": "managed", "hash": "5a32565bac44b0b6b2bc8741b2962d2b07ff3afcd2c4ea832ec5cab63af5f3ed"},
-    "AGENTS.md": {"class": "split", "grammar": "managed-region", "begin": "<!-- BEGIN REPO-PLATFORM MANAGED -->", "end": "<!-- END REPO-PLATFORM MANAGED -->", "hash": "c4fd2c694b8ad504cc4cada66b131728374995c690ad6c28530fd30d199d4fe5"},
+    "AGENTS.md": {"class": "split", "grammar": "managed-region", "begin": "<!-- BEGIN REPO-PLATFORM MANAGED -->", "end": "<!-- END REPO-PLATFORM MANAGED -->", "hash": "0564e101c16085f8c39bcf36f124d447ba14ebf7f4cb07302e71cef87da40fd8"},
     "CLAUDE.md": {"class": "mirror", "kind": "symlink", "hash": "a54ff182c7e8acf56acfd6e4b9c3ff41e2c41a31c9b211b2deb9df75d9a478f9"},
     "LICENSE.md": {"class": "split", "grammar": "managed-region", "begin": "<!-- BEGIN REPO-PLATFORM MANAGED -->", "end": "<!-- END REPO-PLATFORM MANAGED -->", "hash": "d0dc0940411f2d6102e0165497daa4e0a00c4b12794796fed35b2c6e3c9e3fd6"},
     "release-please-config.json": {"class": "starter"}
