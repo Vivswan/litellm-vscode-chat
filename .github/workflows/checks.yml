@@ -291,7 +291,7 @@ jobs:
           # which re-run all jobs.
           overwrite: true
 
-  # Biome ci, helper-script typecheck, knip, type-aware promise lint,
+  # Biome ci, helper-script typecheck, type-aware promise lint,
   # @types/vscode vs engines.vscode, and the packaged-file-list check. Waits
   # for the catalog job because the packaged-file-list check downloads its
   # artifact instead of fetching the catalog itself: the ordering cost is the
