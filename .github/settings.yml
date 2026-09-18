@@ -40,7 +40,7 @@ labels:
       description: release-please release PR has been tagged
     - name: awaiting-reply
       color: 0E8A16
-      description: Answered; auto-closes after three quiet days
+      description: Answered; a reporter reply clears it, three quiet days auto-close
     - name: bug
       color: d73a4a
       description: Something isn't working

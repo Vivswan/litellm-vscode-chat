@@ -13,7 +13,7 @@
     ".github/instructions/review.instructions.md": {"class": "managed", "hash": "89d5c9bc2bea185a076b37a4cefb5ffea25a37f050c4e39512b875b95e2db380"},
     ".github/repo-platform-manifest.json": {"class": "managed", "hash": null, "commit": "411cd5229101dc461e6f08bf7b361676553f4e77"},
     ".github/settings.local.yml": {"class": "starter"},
-    ".github/settings.yml": {"class": "managed", "hash": "778b95c1d31cd84082dc4ca247d667550f90c3783f204db8830001be79f657e0"},
+    ".github/settings.yml": {"class": "managed", "hash": "f217773488228feed4725d633708a8c3684691217519cc963b093b1c3f15f7d3"},
     ".github/workflows/auto-assign.yml": {"class": "managed", "hash": "bd512e0e114675a95f42468802fc9e8bb118215f38ed7c7b70d4235a88592f54"},
     ".github/workflows/auto-format.yml": {"class": "starter"},
     ".github/workflows/checks.yml": {"class": "starter"},
