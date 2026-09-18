@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.6](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.5...v0.6.6) (2026-09-18)
+
+
+### Bug Fixes
+
+* **ci:** clear awaiting-reply when the reporter replies ([#372](https://github.com/Vivswan/litellm-vscode-chat/issues/372)) ([c541cdc](https://github.com/Vivswan/litellm-vscode-chat/commit/c541cdc309821217fd2e3cb2aa3484b2b7ad2d81))
+
 ## [0.6.5](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.4...v0.6.5) (2026-09-15)
 
 
