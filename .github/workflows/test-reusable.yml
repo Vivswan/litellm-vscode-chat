@@ -23,6 +23,16 @@ on:
         required: false
         type: string
         default: ''
+      vscode-version:
+        description: 'VS Code build to run the host suites on (stable, insiders, or a version; empty is the current stable)'
+        required: false
+        type: string
+        default: ''
+      litellm-image:
+        description: 'LiteLLM image reference for the docker suite (empty runs the version docker-compose.yml pins)'
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       os:
@@ -42,6 +52,16 @@ on:
         default: 'unit'
       docker-only:
         description: 'Comma-separated docker-test labels to run (docker suite on Linux only; empty runs the full set)'
+        required: false
+        type: string
+        default: ''
+      vscode-version:
+        description: 'VS Code build to run the host suites on (stable, insiders, or a version; empty is the current stable)'
+        required: false
+        type: string
+        default: ''
+      litellm-image:
+        description: 'LiteLLM image reference for the docker suite (empty runs the version docker-compose.yml pins)'
         required: false
         type: string
         default: ''
@@ -68,13 +88,15 @@ jobs:
     steps:
       # The run steps below map only the exact value 'docker' to the docker
       # suite, so a typo'd suite would otherwise silently run the unit suite.
-      # docker-only likewise only reaches the Linux docker run step, so any
-      # other combination must fail here rather than silently run everything.
+      # docker-only and litellm-image likewise only reach the docker suite, so
+      # any other combination must fail here rather than silently run the
+      # pinned stack or everything.
       - name: Validate the suite input
         shell: bash
         env:
           SUITE: ${{ inputs.suite }}
           DOCKER_ONLY: ${{ inputs.docker-only }}
+          LITELLM_IMAGE: ${{ inputs.litellm-image }}
         run: |
           if [ "$SUITE" != "unit" ] && [ "$SUITE" != "docker" ]; then
             echo "::error::Unknown suite '$SUITE'; expected 'unit' or 'docker'."
@@ -82,6 +104,10 @@ jobs:
           fi
           if [ -n "$DOCKER_ONLY" ] && { [ "$SUITE" != "docker" ] || [ "$RUNNER_OS" != "Linux" ]; }; then
             echo "::error::docker-only is set but this is the '$SUITE' suite on $RUNNER_OS; it applies only to the docker suite on Linux."
+            exit 1
+          fi
+          if [ -n "$LITELLM_IMAGE" ] && [ "$SUITE" != "docker" ]; then
+            echo "::error::litellm-image is set but this is the '$SUITE' suite; it applies only to the docker suite."
             exit 1
           fi
 
@@ -118,11 +144,16 @@ jobs:
       # one coverage-enforcing OS keeps CI time in check. A non-empty
       # docker-only narrows the docker orchestrator to the listed labels
       # (the validation step has already pinned it to this suite and OS).
+      # VSCODE_TEST_VERSION is read by .vscode-test.mjs, LITELLM_IMAGE by
+      # docker-compose.yml; both empty means the gate's defaults, the current
+      # stable VS Code and the pinned image.
       - name: Run tests (Linux)
         if: runner.os == 'Linux'
         shell: bash
         env:
           DOCKER_ONLY: ${{ inputs.docker-only }}
+          VSCODE_TEST_VERSION: ${{ inputs.vscode-version }}
+          LITELLM_IMAGE: ${{ inputs.litellm-image }}
           SUITE_SCRIPT: ${{ inputs.suite == 'docker' && 'test:docker' || 'test:coverage' }}
         run: |
           if [ -n "$DOCKER_ONLY" ]; then
@@ -135,5 +166,7 @@ jobs:
         if: runner.os != 'Linux'
         shell: bash
         env:
+          VSCODE_TEST_VERSION: ${{ inputs.vscode-version }}
+          LITELLM_IMAGE: ${{ inputs.litellm-image }}
           SUITE_SCRIPT: ${{ inputs.suite == 'docker' && 'test:docker' || 'test' }}
         run: bun run "$SUITE_SCRIPT"

@@ -14,6 +14,7 @@ CI, settings, and standards files here arrive from the fleet sync; a file whose 
 
 - CI gates on the `all-green` status check - the CI workflow's own `all-green` job, which needs every gating job and fails unless each result is success or skipped, with at least one success.
 - Repository-specific checks live in `.github/workflows/checks.yml`; run the commands it lists locally before pushing.
+- `.github/workflows/nightly.yml` re-runs the gate's test jobs every night with one thing moved ahead at a time: VS Code Insiders, or LiteLLM's rolling `main-stable` image. A red night files a `nightly-failure` issue; its header comment says what each job's red points at.
 - A typography gate enforces plain ASCII punctuation: no curly quotes, em-dashes, or invisible unicode.
 
 ## Security

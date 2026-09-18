@@ -98,6 +98,11 @@ const launchArgsFor = (label) => {
 
 const passthroughEnv = (...names) => Object.fromEntries(names.map((name) => [name, process.env[name] || ""]));
 
+// The VS Code build every entry below runs on; unset means the current
+// stable. The nightly workflow sets `insiders` to run the same suites one
+// release ahead of the PR gate.
+const codeVersion = process.env.VSCODE_TEST_VERSION || undefined;
+
 const dockerLabel = (label, { file = label, timeout, extraEnv = {} }) => ({
 	label,
 	files: `out/test/${file}.test.js`,
@@ -244,5 +249,5 @@ export default defineConfig({
 			launchArgs: launchArgsFor("host-fidelity"),
 		},
 		...dockerLabels.map((label) => dockerLabel(label, dockerSuites[label])),
-	],
+	].map((test) => ({ ...test, version: codeVersion })),
 });

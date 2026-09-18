@@ -1,7 +1,8 @@
 # Manual docker-stack runs. The suite was promoted into checks.yml (inside
 # the all-green gate) after its burn-in streak on main; this workflow stays
 # for on-demand dispatch only, so pushes and PRs do not run it twice.
-# nightly.yml still runs the docker suites at high iteration counts.
+# nightly-fuzz.yml still runs the docker suites at high iteration counts,
+# and nightly.yml runs them against LiteLLM's rolling stable image.
 
 name: Docker Stack
 

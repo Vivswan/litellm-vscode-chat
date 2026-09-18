@@ -1,10 +1,24 @@
-# Nightly CI starter. Generated once by the fleet sync
-# and never overwritten by it, so edit freely. Replace the
-# placeholder step with this repository's own nightly checks (the suites too
-# slow for every PR: full end-to-end runs, docker image builds, live
-# integration tests); the report job below keeps working unchanged - a red
-# night files or updates one label-deduplicated tracking issue, a green
-# night closes it (the fleet's docs/nightly.md has the contract).
+# Nightly drift probes. Generated once by the fleet sync and never
+# overwritten by it, so edit freely; the report job below keeps working
+# unchanged - a red night files or updates one label-deduplicated tracking
+# issue, a green night closes it (the fleet's docs/nightly.md has the
+# contract).
+#
+# The PR gate (checks.yml) runs the test jobs on the stable VS Code of the
+# day and on the LiteLLM image docker-compose.yml pins. Nothing in a PR can
+# tell us what the next VS Code release or the next LiteLLM stable will do.
+# Each job here is the same reusable test job with one input moved ahead:
+#
+#   vscode-insiders  the host suites on VS Code Insiders. Red points at the
+#                    extension host API moving under us before it reaches
+#                    stable (engines.vscode, @types/vscode, or the code).
+#   litellm-stable   the docker suites on LiteLLM's rolling main-stable tag,
+#                    the proxy a user pulling `latest` runs. Red points at a
+#                    response shape, status code, or endpoint the suites pin.
+#
+# A red night can also be a download or image pull that failed; the run log
+# says which. Either way it is lead time: fix before the change reaches
+# stable VS Code, or before the LiteLLM pin is bumped.
 name: Nightly
 
 on:
@@ -19,36 +33,34 @@ concurrency:
   group: nightly
   cancel-in-progress: false
 
-# The checks job needs only the checkout; the report job scopes its own
+# The probe jobs need only the checkout; the report job scopes its own
 # issue permission below.
 permissions:
   contents: read
 
 jobs:
-  checks:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  vscode-insiders:
+    uses: ./.github/workflows/test-reusable.yml
+    with:
+      os: 'ubuntu-latest'
+      vscode-version: 'insiders'
 
-      # Set up whatever the nightly checks need here (toolchains, docker,
-      # service containers, caches, ...). Add sibling jobs freely: list
-      # every one in the report job's `needs` and fold its result into the
-      # red/green conditions there.
+  # Same image repository as the pin, so the tag is the only variable.
+  # main-latest would also page on LiteLLM's own unreviewed dev builds.
+  litellm-stable:
+    uses: ./.github/workflows/test-reusable.yml
+    with:
+      os: 'ubuntu-latest'
+      suite: 'docker'
+      litellm-image: 'ghcr.io/berriai/litellm-database:main-stable'
 
-      - name: Nightly checks
-        run: |
-          # Replace this placeholder with the repository's nightly checks.
-          # Any failing step in this job makes the report job below file
-          # or update the tracking issue. Until then this step is a green
-          # no-op on purpose: an uncustomized starter must not file issues.
-          echo "::warning::nightly starter not customized yet - replace the placeholder step (the fleet's docs/nightly.md has the contract)"
-
-  # Runs whatever happened to the checks job, and treats a CANCELLED checks
-  # job as red: a job that hits its timeout is cancelled, not failed, and a
-  # hang is exactly what a nightly run exists to catch.
+  # Runs whatever happened to the probe jobs, and treats a CANCELLED job as
+  # red: a job that hits its timeout is cancelled, not failed, and a hang is
+  # exactly what a nightly run exists to catch. The conditions read every
+  # result in `needs`, so a new probe is one more entry there and nothing
+  # else; probes carry no `if:`, so a skipped result cannot occur.
   report:
-    needs: [checks]
+    needs: [vscode-insiders, litellm-stable]
     if: always()
     runs-on: ubuntu-latest
     # A few gh calls behind a bun setup; a hung reporter is the residual
@@ -59,7 +71,7 @@ jobs:
       issues: write
     steps:
       - name: File or update the nightly issue
-        if: needs.checks.result == 'failure' || needs.checks.result == 'cancelled'
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: report
@@ -75,7 +87,7 @@ jobs:
           stream: generic
 
       - name: Close the nightly issue on a green night
-        if: needs.checks.result == 'success'
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
         uses: Vivswan/repo-platform/actions/fuzz-issue@stable
         with:
           mode: resolve
