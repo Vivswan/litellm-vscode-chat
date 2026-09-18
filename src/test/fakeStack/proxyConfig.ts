@@ -51,11 +51,7 @@ export type EnvLookup = (name: string) => string;
 
 /** Aliases are what a real deployment would name; dots allowed. */
 const ALIAS_PATTERN = /^[a-z0-9][a-z0-9.-]*$/;
-/**
- * Upstream ids stay deliberately unrecognizable: the mandatory fake- prefix
- * keeps them out of LiteLLM's price map, whose only enrichment key is
- * litellm_params.model, never model_name.
- */
+/** The mandatory fake- prefix; models.ts says why upstream ids stay unrecognizable. */
 const UPSTREAM_PATTERN = /^fake-[a-z0-9-]+$/;
 
 /**
@@ -84,11 +80,11 @@ const PRICING_WIRE_KEYS: Readonly<Record<keyof FakeModelPricing, string>> = {
 };
 
 /**
- * Exhaustive for the same reason; tools is excluded because it is emitted
- * explicitly (true AND false - discovery defaults a missing flag to true, so
- * only an explicit false is a real tools-negative), and reasoningEffortLevels
- * because it emits one supports_<level>_reasoning_effort flag per level below
- * rather than a single boolean key.
+ * Exhaustive for the same reason. Every key is emitted explicitly, true or
+ * false (models.ts says why omission is not a negative). tools is excluded
+ * because it fans out to two keys, and reasoningEffortLevels because it emits
+ * one supports_<level>_reasoning_effort flag per level below rather than a
+ * single boolean key.
  */
 const CAPABILITY_WIRE_KEYS: Readonly<
 	Record<Exclude<keyof FakeModelCapabilities, "tools" | "reasoningEffortLevels">, string>
@@ -125,9 +121,7 @@ function consolidatedInfoLines(model: FakeModel, deployment: FakeModel["deployme
 	for (const [property, wireKey] of Object.entries(CAPABILITY_WIRE_KEYS) as Array<
 		[Exclude<keyof FakeModelCapabilities, "tools" | "reasoningEffortLevels">, string]
 	>) {
-		if (model.capabilities[property]) {
-			lines.push(`      ${wireKey}: true`);
-		}
+		lines.push(`      ${wireKey}: ${model.capabilities[property] === true}`);
 	}
 	for (const level of model.capabilities.reasoningEffortLevels ?? []) {
 		lines.push(`      supports_${level}_reasoning_effort: true`);

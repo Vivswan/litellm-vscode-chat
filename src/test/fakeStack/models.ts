@@ -3,17 +3,18 @@
  * unrecognizable fake- upstreams. This table drives BOTH the generated LiteLLM
  * proxy config and the docker suite's expectations, so the two cannot drift.
  *
- * Naming is load-bearing: LiteLLM enriches /model/info from litellm_params.model
- * only, never from model_name, so realistic names live on the alias side while
- * every upstream id carries the fake- prefix that keeps it out of the price map.
+ * Naming is load-bearing: every upstream id carries the fake- prefix that keeps
+ * it out of LiteLLM's price map, while realistic names live on the alias side.
  * Observed on v1.93: an entry with NO declared pricing comes back with
  * input/output_cost_per_token stamped to 0, so "no pricing" arrives as zero
- * pricing through the real proxy.
+ * pricing through the real proxy. Observed on main-stable: the alias is read
+ * too, and gpt-5.2 came back supports_reasoning: true from LiteLLM's map.
  *
  * The capability matrix is deliberate: every discovery axis has at least one
- * positive and one negative among the registered survivors. Discovery defaults a
- * MISSING supports_function_calling to TRUE, so the tools-negatives must EMIT
- * explicit false flags or the negative silently disappears.
+ * positive and one negative among the registered survivors. A negative has to
+ * be spelled out: discovery defaults a MISSING supports_function_calling to
+ * TRUE, and LiteLLM fills any other missing flag from its map, so every
+ * boolean capability flag is emitted explicitly, true or false.
  */
 
 export interface FakeModelPricing {
@@ -44,12 +45,8 @@ interface FakeDeployment {
 }
 
 export interface FakeModelCapabilities {
-	/**
-	 * Always emitted explicitly, true or false: discovery treats a missing
-	 * tools flag as true, so only an explicit false is a real negative.
-	 */
 	tools: boolean;
-	/** The rest are emitted only when true; omission is the negative. */
+	/** Omitted here means emitted as false (see the file comment). */
 	vision?: boolean;
 	pdfInput?: boolean;
 	reasoning?: boolean;
