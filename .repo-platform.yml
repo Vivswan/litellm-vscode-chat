@@ -5,6 +5,7 @@ modules:
   - pr-title
   - fuzzer
   - nightly
+  - site
 project:
   name: LiteLLM VSCode Chat
   slug: litellm-vscode-chat

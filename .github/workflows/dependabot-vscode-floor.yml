@@ -2,9 +2,8 @@
 # with it, so those PRs land red on the check-vscode-types gate (typings
 # newer than the floor are rejected). This raises the floor and every doc
 # stating it on Dependabot's own PRs; a bump the floor already covers is a
-# no-op. Same token contract as the managed dependabot-bun-lockfile.yml:
-# register REPO_PLATFORM_TOKEN as a Dependabot secret so the fix commit
-# re-runs CI (github.token starts no workflows).
+# no-op. Token contract: register REPO_PLATFORM_TOKEN as a Dependabot
+# secret so the fix commit re-runs CI (github.token starts no workflows).
 
 name: Dependabot VS Code Floor
 
@@ -25,9 +24,8 @@ concurrency:
 jobs:
   raise-floor:
     # Dependabot's own pushes only, same-repo only (the token cannot push
-    # to a fork). github.actor on purpose, as in the managed
-    # dependabot-bun-lockfile.yml: gating on the PR author instead would
-    # re-fire on the fix commit this job pushes.
+    # to a fork). github.actor on purpose: gating on the PR author instead
+    # would re-fire on the fix commit this job pushes.
     if: github.actor == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository # zizmor: ignore[bot-conditions]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -68,9 +66,9 @@ jobs:
           # [dependabot skip] keeps Dependabot rebasing and updating the
           # PR over this commit.
           git commit -m "build: raise engines.vscode to match @types/vscode" -m "[dependabot skip]"
-          # The managed bun-lockfile workflow can push to the same head in
-          # the same window; its commit touches only bun.lock, so a rebase
-          # is conflict-free. Three attempts, then fail loudly.
+          # Dependabot can rebase or amend the same head in this window, so
+          # a rejected push refetches and rebases onto it. Three attempts,
+          # then fail loudly.
           for _ in 1 2 3; do
             if git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$HEAD_REF"; then
               pushed=true

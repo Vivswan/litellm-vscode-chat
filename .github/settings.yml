@@ -47,6 +47,9 @@ labels:
     - name: dependencies
       color: 0366d6
       description: Dependency updates
+    - name: docs-link-rot
+      color: D4A72C
+      description: Automated docs-site link-rot report
     - name: enhancement
       color: a2eeef
       description: New feature or request
@@ -178,3 +181,5 @@ rulesets:
         - actor_id: 5
           actor_type: RepositoryRole
           bypass_mode: always
+pages:
+  build_type: workflow
