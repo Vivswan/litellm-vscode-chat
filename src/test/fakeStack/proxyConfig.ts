@@ -51,11 +51,7 @@ export type EnvLookup = (name: string) => string;
 
 /** Aliases are what a real deployment would name; dots allowed. */
 const ALIAS_PATTERN = /^[a-z0-9][a-z0-9.-]*$/;
-/**
- * Upstream ids stay deliberately unrecognizable: the mandatory fake- prefix
- * keeps them out of LiteLLM's price map, whose only enrichment key is
- * litellm_params.model, never model_name.
- */
+/** The mandatory fake- prefix; models.ts says why upstream ids stay unrecognizable. */
 const UPSTREAM_PATTERN = /^fake-[a-z0-9-]+$/;
 
 /**
