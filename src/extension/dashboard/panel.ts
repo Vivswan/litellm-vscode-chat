@@ -60,6 +60,7 @@ import {
 } from "../../shared/webviewPaths";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
+import { openManageLanguageModels } from "../servers/manageLanguageModels";
 import type { ServerSyncEngine } from "../servers/serverSync";
 import {
 	deleteServerSecrets,
@@ -660,6 +661,7 @@ export class DashboardController implements vscode.Disposable {
 		adoptServer: (payload) => executeDashboardIntent({ method: "adoptServer", payload }, this.env),
 		hideExternalServer: (payload) => executeDashboardIntent({ method: "hideExternalServer", payload }, this.env),
 		unhideServer: (payload) => executeDashboardIntent({ method: "unhideServer", payload }, this.env),
+		manageHiddenGroup: (payload) => executeDashboardIntent({ method: "manageHiddenGroup", payload }, this.env),
 		executeCommand: (payload) => executeDashboardIntent({ method: "executeCommand", payload }, this.env),
 		syncModels: (payload) => executeDashboardIntent({ method: "syncModels", payload }, this.env),
 	};
@@ -1022,6 +1024,8 @@ export function registerDashboardCommand(
 		// background refresh.
 		hideGroup: (identity) => removals.addTombstone(identity),
 		unhideGroup: (identity) => removals.removeTombstone(identity),
+		isGroupHidden: (identity) => removals.isTombstoned(identity.label, identity.baseUrl),
+		openManageLanguageModels: (search) => openManageLanguageModels(search),
 		// The draft-connection test's probe: one throwaway discovery pass, no
 		// mutation, no caching, and no logger (its discovery chatter would enter
 		// the issue-report buffer).

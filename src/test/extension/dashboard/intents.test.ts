@@ -679,5 +679,36 @@ suite("extension/dashboard/intents", () => {
 			);
 			assert.deepStrictEqual(recorded.unhidden, []);
 		});
+
+		test("manageHiddenGroup opens the host editor on a hidden group's name, and only on a hidden group", async () => {
+			const recorded = makeEnv();
+			recorded.hiddenIdentities = [{ label: "Old", baseUrl: "http://old.test" }];
+			await executeDashboardIntent(
+				{ method: "manageHiddenGroup", payload: { label: "Old", baseUrl: "http://old.test" } },
+				recorded.env
+			);
+			assert.deepStrictEqual(recorded.manageOpens, ["Old"]);
+
+			// A stale or forged identity opens nothing: the search string handed to
+			// the host is always a tombstone's own name.
+			await assert.rejects(
+				executeDashboardIntent(
+					{ method: "manageHiddenGroup", payload: { label: "Old", baseUrl: "http://elsewhere.test" } },
+					recorded.env
+				),
+				/No hidden group/
+			);
+			assert.deepStrictEqual(recorded.manageOpens, ["Old"]);
+
+			// A host without the editor says so instead of acking an open that never happened.
+			recorded.manageAvailable = false;
+			await assert.rejects(
+				executeDashboardIntent(
+					{ method: "manageHiddenGroup", payload: { label: "Old", baseUrl: "http://old.test" } },
+					recorded.env
+				),
+				/no Manage Language Models editor/
+			);
+		});
 	});
 });

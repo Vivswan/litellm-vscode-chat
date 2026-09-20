@@ -115,9 +115,18 @@ export type ExternalServerProvenance =
  * "superseded" is a live group whose entry now declares `declaredBaseUrl`, the
  * leftover an add-only host kept under the old connection - hidden for as long
  * as the entry points elsewhere, so there is nothing to unhide.
+ *
+ * Hiding is all the extension can do; deleting the group is the host's, in
+ * Manage Language Models (its Delete action) or by editing the models file.
+ * A removed group carries `syncedName` when the group was ever served
+ * carrying an entry label: the sync engine names the groups it creates after
+ * that label, so this is the name to search the editor for. A native Rename
+ * Group can change the host name afterwards, which is why the models file
+ * stays offered beside the search. A group never seen labeled was added
+ * outside the extension, and the host never hands over its name.
  */
 export type HiddenGroup =
-	| { readonly label: string; readonly baseUrl: string; readonly reason: "removed" }
+	| { readonly label: string; readonly baseUrl: string; readonly reason: "removed"; readonly syncedName?: string }
 	| {
 			readonly label: string;
 			readonly baseUrl: string;

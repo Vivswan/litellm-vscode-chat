@@ -34,7 +34,13 @@ const fixture: RenderFixture = {
 					} as DashboardServer,
 				],
 				hiddenGroups: [
-					{ label: "old-staging", baseUrl: "http://staging.example:4000", reason: "removed" },
+					{
+						label: "old-staging",
+						baseUrl: "http://staging.example:4000",
+						reason: "removed",
+						syncedName: "old-staging",
+					},
+					{ label: "bare.example", baseUrl: "http://bare.example:4000", reason: "removed" },
 					{
 						label: "prod",
 						baseUrl: "http://legacy.example:4000",

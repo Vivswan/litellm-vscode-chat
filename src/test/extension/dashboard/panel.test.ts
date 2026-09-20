@@ -208,6 +208,8 @@ function makeHarness(): Harness {
 		resolveExternalGroup: () => undefined,
 		hideGroup: async () => {},
 		unhideGroup: async () => false,
+		isGroupHidden: () => false,
+		openManageLanguageModels: async () => true,
 		// The probe is gated so tests can hold it open (a slow discovery) and
 		// prove a later Save is not queued behind it; ungated it resolves empty.
 		probeDraftConnection: () => {

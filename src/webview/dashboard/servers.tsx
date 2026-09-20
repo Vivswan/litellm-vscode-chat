@@ -374,10 +374,38 @@ function ServerRow({
 }
 
 /**
+ * One acked intent's standing failure, framed by the action that failed and dismissed through
+ * the hook's reset. The adopt and save banners stay hand-built: a committed write's failure
+ * drops the frame, since the message then reports what landed.
+ */
+function IntentFailureBanner({
+	message,
+	heading,
+	onDismiss,
+}: {
+	message: string;
+	heading: string;
+	onDismiss: () => void;
+}) {
+	return (
+		<div className="banner banner-error" role="alert">
+			<p>
+				<FailureText message={message} frame={(headline) => sectionFailureText(heading, headline)} />
+			</p>
+			<Button variant="secondary" size="compact" onClick={onDismiss}>
+				{l10n.t("Dismiss")}
+			</Button>
+		</div>
+	);
+}
+
+/**
  * The collapsed hidden-groups line. A removed group offers Unhide, which clears the removal
  * tombstone extension-side (the group's models return on the host's next re-resolution, which
- * the extension triggers). A superseded leftover offers nothing: it stays hidden while its
- * entry points at another URL, and the declared row carries the fix.
+ * the extension triggers), and the routes to a real deletion: the models file always, and
+ * Manage Language Models searched for the synced name when the sync created the group. A
+ * superseded leftover offers nothing: it stays hidden while its entry points at another URL,
+ * and the declared row carries the fix.
  */
 function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	const [expanded, setExpanded] = useState(false);
@@ -420,18 +448,52 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 									)}
 								</span>
 							) : (
-								<Button
-									variant="secondary"
-									size="compact"
-									onClick={() =>
-										sendRequest("unhideServer", {
-											label: group.label,
-											baseUrl: group.baseUrl,
-										})
-									}
-								>
-									{l10n.t("Unhide")}
-								</Button>
+								<>
+									<Button
+										variant="secondary"
+										size="compact"
+										onClick={() =>
+											sendRequest("unhideServer", {
+												label: group.label,
+												baseUrl: group.baseUrl,
+											})
+										}
+									>
+										{l10n.t("Unhide")}
+									</Button>{" "}
+									{group.syncedName !== undefined ? (
+										<>
+											<Button
+												variant="secondary"
+												size="compact"
+												onClick={() =>
+													sendRequest("manageHiddenGroup", {
+														label: group.label,
+														baseUrl: group.baseUrl,
+													})
+												}
+											>
+												{l10n.t("Manage Language Models")}
+											</Button>{" "}
+										</>
+									) : null}
+									<Button
+										variant="secondary"
+										size="compact"
+										onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}
+									>
+										{l10n.t("Open Models File")}
+									</Button>{" "}
+									<span className="hidden-reason">
+										{group.syncedName !== undefined
+											? l10n.t(
+													"VS Code still keeps this group; delete it in Manage Language Models, or from the models file and reload the window"
+												)
+											: l10n.t(
+													"VS Code still keeps this group; delete its object from the models file, then reload the window"
+												)}
+									</span>
+								</>
 							)}
 						</li>
 					))}
@@ -523,6 +585,7 @@ export function ServersSection({
 	const adoptIntent = useIntentOutcome("adoptServer");
 	const hideIntent = useIntentOutcome("hideExternalServer");
 	const unhideIntent = useIntentOutcome("unhideServer");
+	const manageIntent = useIntentOutcome("manageHiddenGroup");
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
 	// The row whose Retry is in flight, and the request that will answer it. The id is held,
 	// not just the row: useIntentOutcome reports the METHOD's latest envelope whoever
@@ -590,6 +653,7 @@ export function ServersSection({
 	const adoptFailure = adoptIntent.outcome?.result === "fail" ? adoptIntent.outcome : undefined;
 	const hideFailure = hideIntent.outcome?.result === "fail" ? hideIntent.outcome : undefined;
 	const unhideFailure = unhideIntent.outcome?.result === "fail" ? unhideIntent.outcome : undefined;
+	const manageFailure = manageIntent.outcome?.result === "fail" ? manageIntent.outcome : undefined;
 	const declareFailure = declareIntent.outcome?.result === "fail" ? declareIntent.outcome : undefined;
 	const noServers = servers.length === 0;
 	// The snapshot's spend inputs once, read by rows, diagnostics, and header meta alike, so
@@ -762,56 +826,39 @@ export function ServersSection({
 				</div>
 			) : null}
 			{removeFailure !== undefined ? (
-				<div className="banner banner-error" role="alert">
-					<p>
-						<FailureText
-							message={removeFailure.message}
-							frame={(headline) => sectionFailureText(l10n.t("Removing failed:"), headline)}
-						/>
-					</p>
-					<Button variant="secondary" size="compact" onClick={removeIntent.reset}>
-						{l10n.t("Dismiss")}
-					</Button>
-				</div>
+				<IntentFailureBanner
+					message={removeFailure.message}
+					heading={l10n.t("Removing failed:")}
+					onDismiss={removeIntent.reset}
+				/>
 			) : null}
 			{hideFailure !== undefined ? (
-				<div className="banner banner-error" role="alert">
-					<p>
-						<FailureText
-							message={hideFailure.message}
-							frame={(headline) => sectionFailureText(l10n.t("Hiding the group failed:"), headline)}
-						/>
-					</p>
-					<Button variant="secondary" size="compact" onClick={hideIntent.reset}>
-						{l10n.t("Dismiss")}
-					</Button>
-				</div>
+				<IntentFailureBanner
+					message={hideFailure.message}
+					heading={l10n.t("Hiding the group failed:")}
+					onDismiss={hideIntent.reset}
+				/>
 			) : null}
 			{unhideFailure !== undefined ? (
-				<div className="banner banner-error" role="alert">
-					<p>
-						<FailureText
-							message={unhideFailure.message}
-							frame={(headline) => sectionFailureText(l10n.t("Unhiding the group failed:"), headline)}
-						/>
-					</p>
-					<Button variant="secondary" size="compact" onClick={unhideIntent.reset}>
-						{l10n.t("Dismiss")}
-					</Button>
-				</div>
+				<IntentFailureBanner
+					message={unhideFailure.message}
+					heading={l10n.t("Unhiding the group failed:")}
+					onDismiss={unhideIntent.reset}
+				/>
+			) : null}
+			{manageFailure !== undefined ? (
+				<IntentFailureBanner
+					message={manageFailure.message}
+					heading={l10n.t("Opening Manage Language Models failed:")}
+					onDismiss={manageIntent.reset}
+				/>
 			) : null}
 			{declareFailure !== undefined ? (
-				<div className="banner banner-error" role="alert">
-					<p>
-						<FailureText
-							message={declareFailure.message}
-							frame={(headline) => sectionFailureText(l10n.t("Declaring the expected failure failed:"), headline)}
-						/>
-					</p>
-					<Button variant="secondary" size="compact" onClick={declareIntent.reset}>
-						{l10n.t("Dismiss")}
-					</Button>
-				</div>
+				<IntentFailureBanner
+					message={declareFailure.message}
+					heading={l10n.t("Declaring the expected failure failed:")}
+					onDismiss={declareIntent.reset}
+				/>
 			) : null}
 			{noServers ? (
 				<div className="empty-start">

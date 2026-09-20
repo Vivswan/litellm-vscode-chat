@@ -153,6 +153,14 @@ export interface IntentEnvironment {
 	hideGroup(identity: { label: string; baseUrl: string }): Promise<void>;
 	/** Clear one removed-group tombstone. Resolves false when no tombstone matched the identity. */
 	unhideGroup(identity: { label: string; baseUrl: string }): Promise<boolean>;
+	/** Whether a removed-group tombstone holds this identity right now. */
+	isGroupHidden(identity: { label: string; baseUrl: string }): boolean;
+	/**
+	 * Open the host's Manage Language Models editor searched for `search` (a
+	 * group name); its Delete action is the one real group removal. Resolves
+	 * false on a host without the editor's command.
+	 */
+	openManageLanguageModels(search: string): Promise<boolean>;
 	/** Classification-only logging (the buffer feeds public issue reports); never a payload value. */
 	log(message: string, data?: unknown): void;
 	/**
@@ -832,6 +840,22 @@ export async function executeDashboardIntent(
 			const removed = await env.unhideGroup({ label: intent.payload.label, baseUrl: intent.payload.baseUrl });
 			if (!removed) {
 				throw new DashboardValidationError(l10n.t("No hidden group matches this identity; it may already be visible"));
+			}
+			return undefined;
+		}
+		case "manageHiddenGroup": {
+			// Bound to a live tombstone like unhideServer: the search string handed
+			// to the host is a hidden group's own name, never free webview text.
+			const identity = { label: intent.payload.label, baseUrl: intent.payload.baseUrl };
+			if (!env.isGroupHidden(identity)) {
+				throw new DashboardValidationError(l10n.t("No hidden group matches this identity; it may already be visible"));
+			}
+			if (!(await env.openManageLanguageModels(identity.label))) {
+				throw new DashboardValidationError(
+					l10n.t(
+						"This VS Code has no Manage Language Models editor; delete the group's object from the models file instead"
+					)
+				);
 			}
 			return undefined;
 		}
