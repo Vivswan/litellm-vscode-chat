@@ -181,5 +181,7 @@ rulesets:
         - actor_id: 5
           actor_type: RepositoryRole
           bypass_mode: always
+actions:
+  can_approve_pull_request_reviews: true
 pages:
   build_type: workflow
