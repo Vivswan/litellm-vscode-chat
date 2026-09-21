@@ -20,6 +20,7 @@ import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import type { MessageAction } from "../../ui/notifier";
 import { showActionableMessage } from "../../ui/notifier";
 import type { GroupRemovalStore } from "../groupRemovals";
+import { manageLanguageModelsAvailable, openManageLanguageModels } from "../manageLanguageModels";
 import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engine";
 import { entryGroupCredentialsFor } from "./entryCredentials";
 import { inlineSecretValues, readServerSecretsRecord, secretDestination, updateServerSecret } from "./secrets";
@@ -51,16 +52,12 @@ const openGroupsFileAction = () => ({
  * models file alone.
  */
 async function manageLanguageModelsAction(search: string | undefined): Promise<MessageAction | undefined> {
-	const commands = await vscode.commands.getCommands(true);
-	if (!commands.includes(HOST_CMD.manageLanguageModels)) {
+	if (!(await manageLanguageModelsAvailable())) {
 		return undefined;
 	}
 	return {
 		label: l10n.t("Manage Language Models"),
-		run: () =>
-			void (search === undefined
-				? vscode.commands.executeCommand(HOST_CMD.manageLanguageModels)
-				: vscode.commands.executeCommand(HOST_CMD.manageLanguageModels, search)),
+		run: () => void openManageLanguageModels(search),
 	};
 }
 

@@ -833,12 +833,19 @@ export function visibleHiddenGroups(inputs: HiddenGroupsInputs): HiddenGroup[] {
 				!superseded.some((group) => sameIdentity(group, identity.label, identity.baseUrl))
 		)
 		.map((identity): HiddenGroup => {
-			const declaredBaseUrl = wasLabeledGroupObserved(identity.label, identity.baseUrl)
-				? supersedingBaseUrl(declared, identity.label, identity.baseUrl)
-				: undefined;
-			return declaredBaseUrl === undefined
-				? { label: identity.label, baseUrl: identity.baseUrl, reason: "removed" }
-				: { label: identity.label, baseUrl: identity.baseUrl, reason: "superseded", declaredBaseUrl };
+			// A labeled observation means the sync created the group under its
+			// label (see HiddenGroup.syncedName).
+			const labeled = wasLabeledGroupObserved(identity.label, identity.baseUrl);
+			const declaredBaseUrl = labeled ? supersedingBaseUrl(declared, identity.label, identity.baseUrl) : undefined;
+			if (declaredBaseUrl !== undefined) {
+				return { label: identity.label, baseUrl: identity.baseUrl, reason: "superseded", declaredBaseUrl };
+			}
+			return {
+				label: identity.label,
+				baseUrl: identity.baseUrl,
+				reason: "removed",
+				...(labeled ? { syncedName: identity.label } : {}),
+			};
 		});
 	return [...fromTombstones, ...superseded].sort(
 		(a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl)

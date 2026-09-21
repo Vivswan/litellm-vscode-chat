@@ -114,10 +114,12 @@ export type ExternalServerProvenance =
  * the external row), and its identity is what the unhideServer intent echoes;
  * "superseded" is a live group whose entry now declares `declaredBaseUrl`, the
  * leftover an add-only host kept under the old connection - hidden for as long
- * as the entry points elsewhere, so there is nothing to unhide.
+ * as the entry points elsewhere, so there is nothing to unhide. Deleting a
+ * group is the host's job (Manage Language Models, or the models file), and
+ * `syncedName` is the name the sync gave a group it created (its entry label).
  */
 export type HiddenGroup =
-	| { readonly label: string; readonly baseUrl: string; readonly reason: "removed" }
+	| { readonly label: string; readonly baseUrl: string; readonly reason: "removed"; readonly syncedName?: string }
 	| {
 			readonly label: string;
 			readonly baseUrl: string;

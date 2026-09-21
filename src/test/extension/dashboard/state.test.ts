@@ -1380,7 +1380,9 @@ suite("extension/dashboard/state", () => {
 			// snapshot can be absent while the group exists; the tombstone's
 			// classification must not flip to "removed" (with an Unhide the
 			// suppression would ignore) in that gap. An identity only ever seen as
-			// an UNLABELED group is not an entry's leftover and stays removed.
+			// an UNLABELED group is not an entry's leftover and stays removed with
+			// no synced name; a labeled one whose entry is gone stays removed and
+			// carries the name the sync gave the group.
 			const state = buildDashboardState({
 				snapshots: [],
 				reader: makeReader({}),
@@ -1395,15 +1397,17 @@ suite("extension/dashboard/state", () => {
 					tombstones: [
 						{ label: "Prod", baseUrl: "http://old.test" },
 						{ label: "bare.test", baseUrl: "http://bare.test" },
+						{ label: "Gone", baseUrl: "http://gone.test" },
 					],
 					origins: [],
 				},
 				wasGroupObserved: () => true,
-				wasLabeledGroupObserved: (label) => label === "Prod",
+				wasLabeledGroupObserved: (label) => label === "Prod" || label === "Gone",
 			});
 
 			assert.deepStrictEqual(state.hiddenGroups, [
 				{ label: "bare.test", baseUrl: "http://bare.test", reason: "removed" },
+				{ label: "Gone", baseUrl: "http://gone.test", reason: "removed", syncedName: "Gone" },
 				{ label: "Prod", baseUrl: "http://old.test", reason: "superseded", declaredBaseUrl: "http://new.test" },
 			]);
 		});

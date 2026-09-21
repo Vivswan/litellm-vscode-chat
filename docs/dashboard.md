@@ -19,7 +19,9 @@ English | [简体中文](zh-cn/dashboard.md) | [繁體中文](zh-tw/dashboard.md
 
 ## Servers
 
-The server list shows every server the extension knows about: entries declared in the [`litellm-vscode-chat.servers` setting](servers.md#entry-reference), and "external" servers that exist only as VS Code provider groups (added outside this extension - see [adoption](servers.md#external-servers-and-adoption)). Groups hidden by a removed entry fold into a "hidden groups" line with an Unhide action, and superseded leftovers (a group still at an entry's old URL) sit on the same line with the URL the entry now declares ([lifecycle](servers.md#lifecycle-renames-removals-hidden-groups)).
+The server list shows every server the extension knows about: entries declared in the [`litellm-vscode-chat.servers` setting](servers.md#entry-reference), and "external" servers that exist only as VS Code provider groups (added outside this extension - see [adoption](servers.md#external-servers-and-adoption)).
+
+Groups hidden by a removed entry fold into a "hidden groups" line with an Unhide action and the deletion routes (Manage Language Models, or the models file), and superseded leftovers (a group still at an entry's old URL) sit on the same line with the URL the entry now declares ([lifecycle](servers.md#lifecycle-renames-removals-hidden-groups)).
 
 The section heading carries a one-line summary - the server count, how many rows need attention, the worst budget use among fresh rows (marked "stale rows excluded" when a stale figure is visible below it), and whether background polling is off - plus Add server and a Refresh now button that fetches usage data immediately (disabled while a fetch is in flight).
 

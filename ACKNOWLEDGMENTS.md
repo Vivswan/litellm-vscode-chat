@@ -51,6 +51,7 @@ Pull requests that were merged, or whose implementations and ideas were folded i
 | [@Tomoushie](https://github.com/Tomoushie) | Unresolvable `www.localhost` base URL, which drove the bare-localhost suggestion ([#269](https://github.com/Vivswan/litellm-vscode-chat/issues/269)) |
 | [@uiop860](https://github.com/uiop860) | Wrong gpt-5.5 default parameters ([#82](https://github.com/Vivswan/litellm-vscode-chat/issues/82)) |
 | [@Unlifate](https://github.com/Unlifate) | Base URL trailing-slash normalization ([#54](https://github.com/Vivswan/litellm-vscode-chat/issues/54)) |
+| [@videohead](https://github.com/videohead) | A removed server still listed after unhide, remove, and reload, which drove the deletion routes on the hidden-groups line ([#373](https://github.com/Vivswan/litellm-vscode-chat/issues/373)) |
 | [@wartzar-bee](https://github.com/wartzar-bee) | Prompt-caching discussion ([#125](https://github.com/Vivswan/litellm-vscode-chat/issues/125)) |
 | [@webysther](https://github.com/webysther) | Provider name in the model list ([#48](https://github.com/Vivswan/litellm-vscode-chat/issues/48)) |
 | [@wgenchi-mwb](https://github.com/wgenchi-mwb) | Prompt-caching discussion ([#125](https://github.com/Vivswan/litellm-vscode-chat/issues/125)) |

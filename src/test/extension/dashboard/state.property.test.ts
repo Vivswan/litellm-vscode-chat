@@ -195,6 +195,7 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	}),
 	hideExternalServer: fc.record({ baseUrl: fc.string(), sourceHandle: requestId }),
 	unhideServer: fc.record({ label: fc.string(), baseUrl: fc.string() }),
+	manageHiddenGroup: fc.record({ label: fc.string(), baseUrl: fc.string() }),
 	readInlineSecrets: fc.record({
 		replace: fc.record({
 			label: fc.string(),

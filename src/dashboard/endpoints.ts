@@ -255,6 +255,8 @@ export const DASHBOARD_ENDPOINTS = {
 	adoptServer: { outcome: "acked", channel: "chained" },
 	hideExternalServer: { outcome: "acked", channel: "chained" },
 	unhideServer: { outcome: "acked", channel: "chained" },
+	/** Open the host's Manage Language Models editor on a hidden group, where its Delete action lives. */
+	manageHiddenGroup: { outcome: "acked", channel: "chained" },
 	/**
 	 * Run a full model sync now. Acked because the answer IS the point: state
 	 * pushes emit long before discovery starts, so a control disabled during the
@@ -394,6 +396,12 @@ interface DashboardEndpointIO {
 	hideExternalServer: { request: { readonly baseUrl: string; readonly sourceHandle: string } };
 	/** Clear one hidden group's tombstone (the identity its HiddenGroup row carried). */
 	unhideServer: { request: { readonly label: string; readonly baseUrl: string } };
+	/**
+	 * Open Manage Language Models searched for a hidden group's synced name (the
+	 * identity its HiddenGroup row carried, offered only with syncedName).
+	 * Resolved against the tombstones, so a stale request opens nothing.
+	 */
+	manageHiddenGroup: { request: { readonly label: string; readonly baseUrl: string } };
 	/**
 	 * A declared entry's inline-stored secret values, for the edit form's
 	 * prefill: inline values already sit in plaintext in the settings file.

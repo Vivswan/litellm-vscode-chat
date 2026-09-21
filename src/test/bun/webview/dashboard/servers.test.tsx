@@ -752,7 +752,7 @@ test("the hidden-groups line states the count, expands to rows, offers Unhide to
 			onAddServer={() => {}}
 			servers={[makeDeclaredServer()]}
 			hidden={[
-				{ label: "Old", baseUrl: "http://old.test", reason: "removed" },
+				{ label: "Old", baseUrl: "http://old.test", reason: "removed", syncedName: "Old" },
 				{ label: "Gone", baseUrl: "http://gone.test", reason: "removed" },
 				{
 					label: "Moved",
@@ -783,9 +783,24 @@ test("the hidden-groups line states the count, expands to rows, offers Unhide to
 	// suppression lasts as long as the entry does, so a button could not lift it.
 	const unhides = [...root.querySelectorAll("button")].filter((el) => el.textContent?.trim() === "Unhide");
 	expect(unhides.length).toBe(2);
-	const moved = [...(line?.querySelectorAll("li") ?? [])].find((el) => el.textContent?.includes("Moved"));
+	const rows = [...(line?.querySelectorAll("li") ?? [])];
+	const moved = rows.find((el) => el.textContent?.includes("Moved"));
 	expect(moved?.textContent).toContain("the entry now points at http://moved.test");
 	expect(moved?.querySelector("button")).toBeNull();
+	// Every removed row says the group still exists in VS Code and carries the deletion routes:
+	// the models file always, plus the host editor when the sync named the group.
+	const old = rows.find((el) => el.textContent?.includes("Old"));
+	expect(old?.textContent).toContain("VS Code still keeps this group");
+	expect([...(old?.querySelectorAll("button") ?? [])].map((el) => el.textContent?.trim())).toEqual([
+		"Unhide",
+		"Manage Language Models",
+		"Open Models File",
+	]);
+	const gone = rows.find((el) => el.textContent?.includes("Gone"));
+	expect([...(gone?.querySelectorAll("button") ?? [])].map((el) => el.textContent?.trim())).toEqual([
+		"Unhide",
+		"Open Models File",
+	]);
 	const unhide = unhides[0];
 	fireClick(unhide as HTMLElement);
 	expect(postedMessages.length).toBe(1);
@@ -795,6 +810,24 @@ test("the hidden-groups line states the count, expands to rows, offers Unhide to
 	expect(posted.payload.label).toBe("Old");
 	expect(posted.payload.baseUrl).toBe("http://old.test");
 	expect(typeof posted.id).toBe("string");
+	// The editor button posts the same identity; the models-file button is the shared command.
+	fireClick(buttonByText(root, "Manage Language Models"));
+	const manage = postedMessages[1] as RpcRequest<"manageHiddenGroup">;
+	expect(manage.method).toBe("manageHiddenGroup");
+	expect(manage.payload).toEqual({ label: "Old", baseUrl: "http://old.test" });
+	fireClick(buttonByText(root, "Open Models File"));
+	expect(postedCalls()[2]).toEqual({ method: "executeCommand", payload: { command: "openGroupsFile" } });
+	// An acked intent's failure is the section's to show: a host without the editor must not
+	// fail silently behind a button that looked like it worked.
+	pushToWebview({
+		kind: "fail",
+		id: manage.id,
+		method: "manageHiddenGroup",
+		message: "This VS Code has no Manage Language Models editor",
+		failureKind: "validation",
+	});
+	expect(root.textContent).toContain("Opening Manage Language Models failed");
+	expect(root.textContent).toContain("no Manage Language Models editor");
 });
 
 test("without hidden groups no hidden-groups line renders; with them it renders even beside the empty start", () => {

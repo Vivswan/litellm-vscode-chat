@@ -163,6 +163,11 @@ export interface RecordedEnv {
 	/** Every unhideGroup call; unhideResult is what the fake reports back. */
 	unhidden: { label: string; baseUrl: string }[];
 	unhideResult: boolean;
+	/** What isGroupHidden answers true for: the identities a tombstone holds. */
+	hiddenIdentities: { label: string; baseUrl: string }[];
+	/** Every openManageLanguageModels search; manageAvailable is what the fake reports back. */
+	manageOpens: string[];
+	manageAvailable: boolean;
 	/** How many refreshCatalogNow kicks arrived (the refreshCatalog intent). */
 	catalogRefreshes: number;
 	/** How many refreshUsageNow kicks arrived (the refreshUsage intent). */
@@ -199,6 +204,9 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		hidden: [],
 		unhidden: [],
 		unhideResult: true,
+		hiddenIdentities: [],
+		manageOpens: [],
+		manageAvailable: true,
 		catalogRefreshes: 0,
 		usageRefreshes: 0,
 		env: {
@@ -293,6 +301,14 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			unhideGroup: async (identity) => {
 				recorded.unhidden.push({ ...identity });
 				return recorded.unhideResult;
+			},
+			isGroupHidden: (identity) =>
+				recorded.hiddenIdentities.some(
+					(hidden) => hidden.label === identity.label && hidden.baseUrl === identity.baseUrl
+				),
+			openManageLanguageModels: async (search) => {
+				recorded.manageOpens.push(search);
+				return recorded.manageAvailable;
 			},
 			probeDraftConnection: async (connection) => {
 				recorded.probes.push(connection);
