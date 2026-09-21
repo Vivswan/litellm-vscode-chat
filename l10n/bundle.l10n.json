@@ -1239,7 +1239,7 @@
 	"User": "User",
 	"User-set.": "User-set.",
 	"VS Code keeps the old connection until you remove this server from the models file, reload, and run Sync Models Now.": "VS Code keeps the old connection until you remove this server from the models file, reload, and run Sync Models Now.",
-	"VS Code still keeps this group; delete it in Manage Language Models, or from the models file and reload the window": "VS Code still keeps this group; delete it in Manage Language Models, or from the models file and reload the window",
+	"VS Code still keeps this group; delete it in Manage Language Models or from the models file, then reload the window": "VS Code still keeps this group; delete it in Manage Language Models or from the models file, then reload the window",
 	"VS Code still keeps this group; delete its object from the models file, then reload the window": "VS Code still keeps this group; delete its object from the models file, then reload the window",
 	"Value": "Value",
 	"Value for \"{0}\"": "Value for \"{0}\"",

@@ -1124,7 +1124,7 @@
 	"User": "用户",
 	"User-set.": "用户设置。",
 	"VS Code keeps the old connection until you remove this server from the models file, reload, and run Sync Models Now.": "在你从模型文件中移除此服务器、重新加载并运行 Sync Models Now 之前, VS Code 仍会沿用旧的连接。",
-	"VS Code still keeps this group; delete it in Manage Language Models, or from the models file and reload the window": "VS Code 仍保留着此组; 请在「管理语言模型」中删除它, 或从模型文件删除它并重新加载窗口",
+	"VS Code still keeps this group; delete it in Manage Language Models or from the models file, then reload the window": "VS Code 仍保留着此组; 请在「管理语言模型」中或从模型文件删除它, 然后重新加载窗口",
 	"VS Code still keeps this group; delete its object from the models file, then reload the window": "VS Code 仍保留着此组; 请从模型文件删除它的对象, 然后重新加载窗口",
 	"Value": "值",
 	"Value for \"{0}\"": "「{0}」的值",

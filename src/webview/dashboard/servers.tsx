@@ -487,7 +487,7 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 									<span className="hidden-reason">
 										{group.syncedName !== undefined
 											? l10n.t(
-													"VS Code still keeps this group; delete it in Manage Language Models, or from the models file and reload the window"
+													"VS Code still keeps this group; delete it in Manage Language Models or from the models file, then reload the window"
 												)
 											: l10n.t(
 													"VS Code still keeps this group; delete its object from the models file, then reload the window"

@@ -116,8 +116,7 @@ export type ExternalServerProvenance =
  * leftover an add-only host kept under the old connection - hidden for as long
  * as the entry points elsewhere, so there is nothing to unhide. Deleting a
  * group is the host's job (Manage Language Models, or the models file), and
- * `syncedName` is the name the sync gave a group it created (its entry label):
- * the search key for that editor, which a native Rename Group may have changed.
+ * `syncedName` is the name the sync gave a group it created (its entry label).
  */
 export type HiddenGroup =
 	| { readonly label: string; readonly baseUrl: string; readonly reason: "removed"; readonly syncedName?: string }
