@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.6](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.5...v0.6.6) (2026-09-21)
+
+
+### Bug Fixes
+
+* **ci:** clear awaiting-reply when the reporter replies ([#372](https://github.com/Vivswan/litellm-vscode-chat/issues/372)) ([c541cdc](https://github.com/Vivswan/litellm-vscode-chat/commit/c541cdc309821217fd2e3cb2aa3484b2b7ad2d81))
+* **dashboard:** offer the deletion routes on removed hidden groups ([#373](https://github.com/Vivswan/litellm-vscode-chat/issues/373), thanks [@videohead](https://github.com/videohead)) ([#381](https://github.com/Vivswan/litellm-vscode-chat/issues/381)) ([82f2142](https://github.com/Vivswan/litellm-vscode-chat/commit/82f21428cc1e49d3e2e2ebe43a7a9e457930063d))
+
 ## [0.6.5](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.4...v0.6.5) (2026-09-15)
 
 
