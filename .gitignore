@@ -3,17 +3,10 @@
 !.claude/settings.json
 .codex/*
 !.codex/hooks.json
-.worktrees/
 .impeccable/
 
 # IDEs and editors
 .idea/
-
-# tsc outDir (tests run from here; the published bundle lives in dist/)
-out
-
-# Packaged extension artifacts
-*.vsix
 
 # Generated at bundle time from runtime dependencies' license files
 ThirdPartyNotices.txt
@@ -50,9 +43,6 @@ docker/.generated/
 # its mountpoint on a fresh checkout
 docker/.copilot-token/*
 !docker/.copilot-token/.gitkeep
-
-# Live log tees written by `bun run dev` (litellm, fake-openai, extension)
-/logs/
 
 # Local screenshot output from the render harness (design review material)
 /renders/
