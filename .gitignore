@@ -435,6 +435,12 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
+# Astro generated types
+.astro/
+
+# Turbo Repo
+.turbo
+
 ## bun (github/gitignore bun.gitignore)
 # Logs
 logs
