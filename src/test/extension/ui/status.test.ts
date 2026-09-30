@@ -714,9 +714,11 @@ suite("extension/ui/status", () => {
 			const ok: ServerStatus = {
 				serverId: "srv1",
 				label: "Prod",
+				entryLabel: "Prod",
 				baseUrl: "http://prod.test",
 				state: "ok",
 				servedModelCount: 2,
+				hiddenByRemoval: false,
 				hasApiKey: true,
 				hasOAuth: false,
 				modelInfoUnsupported: "timeout",
@@ -725,6 +727,7 @@ suite("extension/ui/status", () => {
 			const failed: ServerStatus = {
 				serverId: "srv2",
 				label: "Down",
+				entryLabel: "Down",
 				baseUrl: "http://down.test",
 				state: "error",
 				error: "listing answered 404",
