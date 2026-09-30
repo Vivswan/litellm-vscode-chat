@@ -288,7 +288,7 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
  * whenever the persisted shape changes, and the change is detected instead of
  * tolerated by lenient dual readings.
  */
-const PERSISTED_STATUS_VERSION = 1;
+const PERSISTED_STATUS_VERSION = 2;
 
 const persistedStatusSchema = z.discriminatedUnion("state", [
 	z.looseObject({ state: z.literal("not-configured"), lastChecked: z.string().optional() }),
