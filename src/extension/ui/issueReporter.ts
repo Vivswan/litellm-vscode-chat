@@ -36,7 +36,7 @@ export interface DiagnosticsSnapshot {
 	platform: string;
 	connectionState: string;
 	modelCount?: number | undefined;
-	/** "unknown" when the configurations are VS Code-managed and none were observed yet. */
+	/** "unknown" when no key sits inline in the setting and the groups' reports do not settle it: a SecretStorage key cannot be read here. */
 	apiKeyConfigured: boolean | "unknown";
 	baseUrlConfigured: boolean;
 	/** Every feature's flags, keyed by FeatureId; featureFlagLines renders them, the fingerprint folds them in. */
@@ -95,7 +95,7 @@ function featureFlagLines(
 
 function apiKeyConfiguredText(snapshot: DiagnosticsSnapshot): string {
 	if (snapshot.apiKeyConfigured === "unknown") {
-		return "Unknown (managed by VS Code)";
+		return "Unknown (key presence not yet determined)";
 	}
 	return snapshot.apiKeyConfigured ? "yes" : "no";
 }

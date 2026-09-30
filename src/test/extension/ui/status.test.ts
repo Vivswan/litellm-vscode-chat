@@ -43,7 +43,7 @@ function expectErrorElement(serverStatuses: readonly ServerStatus[]): ServerStat
  * visit every restore expectation here.
  */
 function stamped(status: unknown): unknown {
-	return { v: 1, status };
+	return { v: 2, status };
 }
 
 suite("extension/ui/status", () => {
@@ -714,9 +714,11 @@ suite("extension/ui/status", () => {
 			const ok: ServerStatus = {
 				serverId: "srv1",
 				label: "Prod",
+				entryLabel: "Prod",
 				baseUrl: "http://prod.test",
 				state: "ok",
 				servedModelCount: 2,
+				hiddenByRemoval: false,
 				hasApiKey: true,
 				hasOAuth: false,
 				modelInfoUnsupported: "timeout",
@@ -725,6 +727,7 @@ suite("extension/ui/status", () => {
 			const failed: ServerStatus = {
 				serverId: "srv2",
 				label: "Down",
+				entryLabel: "Down",
 				baseUrl: "http://down.test",
 				state: "error",
 				error: "listing answered 404",
@@ -745,7 +748,7 @@ suite("extension/ui/status", () => {
 			const persisted: unknown = JSON.parse(JSON.stringify(first.context.globalState.get(LAST_CONNECTION_STATUS_KEY)));
 			assert.deepStrictEqual(
 				persisted,
-				JSON.parse(JSON.stringify({ v: 1, status: first.manager.connectionStatus })),
+				JSON.parse(JSON.stringify({ v: 2, status: first.manager.connectionStatus })),
 				"the on-disk format is the stamped envelope"
 			);
 			const second = createManager(persisted, () => true);
@@ -1069,9 +1072,9 @@ suite("extension/ui/status", () => {
 			const rejected: ReadonlyArray<[string, unknown]> = [
 				// The envelope gate: only the current version stamp is readable.
 				["the blob has no version stamp (every pre-stamp version's format)", { state: "loading" }],
-				["the stamp is a different version", { v: 2, status: { state: "loading" } }],
-				["the stamp is not a number", { v: "1", status: { state: "loading" } }],
-				["the envelope has no status", { v: 1 }],
+				["the stamp is the previous release's version", { v: 1, status: { state: "loading" } }],
+				["the stamp is not a number", { v: "2", status: { state: "loading" } }],
+				["the envelope has no status", { v: 2 }],
 				// The status shape gate, inside a current-version envelope.
 				["state is missing", stamped({ totalModels: 5 })],
 				["state is not a known connection state", stamped({ state: "exploded" })],

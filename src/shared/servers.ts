@@ -29,6 +29,13 @@ interface ServerStatusCommon {
 	 * plus declared models), so serving-through-failure stays visible.
 	 */
 	servedModelCount: number;
+	/**
+	 * The group's CONFIGURED label, never the URL-host display fallback an
+	 * unlabeled group renders under as `label`, which can collide with a
+	 * declared entry's label. ui/diagnostics.ts pairs a report with its
+	 * declared entry on it.
+	 */
+	entryLabel?: string | undefined;
 	/** Whether the configuration carries credentials; the secrets themselves never leave their store. */
 	hasApiKey?: boolean | undefined;
 	/**

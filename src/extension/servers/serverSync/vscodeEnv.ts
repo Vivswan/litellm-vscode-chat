@@ -24,7 +24,7 @@ import { manageLanguageModelsAvailable, openManageLanguageModels } from "../mana
 import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engine";
 import { entryGroupCredentialsFor } from "./entryCredentials";
 import { inlineSecretValues, readServerSecretsRecord, secretDestination, updateServerSecret } from "./secrets";
-import type { EntryModelCapabilities, EntryModelParameters } from "./setting";
+import type { DeclaredServer, EntryModelCapabilities, EntryModelParameters } from "./setting";
 import {
 	acceptedEntry,
 	entryApiVersionFor,
@@ -257,6 +257,15 @@ function readRawServersSetting(): unknown {
 }
 
 /**
+ * The accepted entries of the servers setting as it reads right now: the truth
+ * for "is anything declared" before the first sync pass has run and while the
+ * provider's group statuses are transiently empty.
+ */
+export function currentDeclaredServers(): DeclaredServer[] {
+	return parseServersSetting(readRawServersSetting()).entries;
+}
+
+/**
  * The provider's credential-overlay resolver over the real setting and
  * SecretStorage channels (see entryCredentials.ts for the resolution rules).
  * Never rejects: the overlay's callers treat a failure as "keep the baked
@@ -377,7 +386,7 @@ export function registerSetServerSecretCommand(
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.setServerSecret, async () => {
-			const { entries } = parseServersSetting(readRawServersSetting());
+			const entries = currentDeclaredServers();
 			if (entries.length === 0) {
 				void vscode.window.showInformationMessage(
 					l10n.t(

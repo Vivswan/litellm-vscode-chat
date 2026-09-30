@@ -180,6 +180,7 @@ const persistedOkElementSchema = z.looseObject({
 	hiddenByRemoval: z.boolean().optional().catch(undefined),
 	modelInfoUnsupported: z.enum(["timeout", "status"]).optional().catch(undefined),
 	serverId: z.string().optional().catch(undefined),
+	entryLabel: z.string().optional().catch(undefined),
 	lastChecked: z.string().optional().catch(undefined),
 	hasApiKey: z.boolean().optional().catch(undefined),
 	hasOAuth: z.boolean().optional().catch(undefined),
@@ -200,6 +201,7 @@ const persistedErrorElementSchema = z.looseObject({
 	servedModelCount: z.number().int().nonnegative(),
 	declaredModelCount: z.number().int().nonnegative().optional().catch(undefined),
 	serverId: z.string().optional().catch(undefined),
+	entryLabel: z.string().optional().catch(undefined),
 	lastChecked: z.string().optional().catch(undefined),
 	hasApiKey: z.boolean().optional().catch(undefined),
 	hasOAuth: z.boolean().optional().catch(undefined),
@@ -245,6 +247,7 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 			state: "ok",
 			serverId: element.serverId ?? "",
 			label: element.label,
+			entryLabel: element.entryLabel,
 			baseUrl: element.baseUrl,
 			lastChecked: element.lastChecked ?? "",
 			servedModelCount: element.servedModelCount,
@@ -260,6 +263,7 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 		state: "error",
 		serverId: element.serverId ?? "",
 		label: element.label,
+		entryLabel: element.entryLabel,
 		baseUrl: element.baseUrl,
 		lastChecked: element.lastChecked ?? "",
 		servedModelCount: element.servedModelCount,
@@ -284,7 +288,7 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
  * whenever the persisted shape changes, and the change is detected instead of
  * tolerated by lenient dual readings.
  */
-const PERSISTED_STATUS_VERSION = 1;
+const PERSISTED_STATUS_VERSION = 2;
 
 const persistedStatusSchema = z.discriminatedUnion("state", [
 	z.looseObject({ state: z.literal("not-configured"), lastChecked: z.string().optional() }),
