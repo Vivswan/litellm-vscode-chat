@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../provider";
 import { CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION, TOKEN_ESTIMATION_SETTING_KEY } from "../../shared/config/settingSpec";
-import { getTokenEstimationMode, isOpenRouterCatalogEnabled, SERVERS_SETTING_KEY } from "../../shared/config/settings";
+import { getTokenEstimationMode, isOpenRouterCatalogEnabled } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
 import type { DebouncedAction } from "../../shared/util/debounce";
 import { debounced } from "../../shared/util/debounce";
@@ -11,7 +11,7 @@ import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import { createOpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
 import {
-	parseServersSetting,
+	currentDeclaredServers,
 	readEntryApiVersion,
 	readEntryCredentials,
 	readEntryDeclaredModels,
@@ -99,10 +99,7 @@ export function wireProvider(
 	}, CONFIG_CHANGE_DEBOUNCE_MS);
 	context.subscriptions.push(notifyModelsChanged);
 
-	// The setting itself is the truth here, not the sync engine's view: the
-	// welcome toast can run before the first sync pass finishes.
-	const hasDeclaredServers = () =>
-		parseServersSetting(vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY)).entries.length > 0;
+	const hasDeclaredServers = () => currentDeclaredServers().length > 0;
 	// The shared not-configured gate: declared servers-setting entries and live
 	// provider groups both mean "configured" before anything toasts.
 	// hasSeenGroupConfiguration is the cold-start-honest signal: the host's

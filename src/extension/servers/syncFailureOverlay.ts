@@ -43,12 +43,13 @@ export function declaredPresentation(
  * both by construction, so no fallback classification exists here.
  */
 function syncFailureStatus(
-	identity: Pick<ServerStatus, "serverId" | "label" | "baseUrl" | "lastChecked" | "hasApiKey">,
+	identity: Pick<ServerStatus, "serverId" | "label" | "entryLabel" | "baseUrl" | "lastChecked" | "hasApiKey">,
 	presentation: Extract<DeclaredPresentation, { kind: "sync-failed" }>
 ): ServerStatus {
 	return {
 		serverId: identity.serverId,
 		label: identity.label,
+		...(identity.entryLabel !== undefined ? { entryLabel: identity.entryLabel } : {}),
 		baseUrl: identity.baseUrl,
 		lastChecked: identity.lastChecked,
 		...(identity.hasApiKey !== undefined ? { hasApiKey: identity.hasApiKey } : {}),

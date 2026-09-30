@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { buildDiagnosticsSnapshot } from "../../../extension/ui/diagnostics";
 import type { DiagnosticsSnapshot } from "../../../extension/ui/issueReporter";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
+import type { ConnectionStatus } from "../../../extension/ui/status";
 import { markLogSafe } from "../../../shared/logger";
 import { expectDefined } from "../../pureHelpers";
 import { makeServerStatus, withConfig } from "../../testUtils";
@@ -59,9 +60,9 @@ suite("extension/ui/diagnostics", () => {
 				platform: `${process.platform} ${process.arch}`,
 				connectionState: "connected",
 				modelCount: 7,
-				// Unobserved native groups cannot be ruled out.
+				// A secure key cannot be ruled out without a group report.
 				apiKeyConfigured: "unknown",
-				baseUrlConfigured: false,
+				baseUrlConfigured: true,
 				// Flags only, never the model or label the configured ref names;
 				// the participant carries no model flag by construction.
 				featureFlags: {
@@ -109,49 +110,136 @@ suite("extension/ui/diagnostics", () => {
 			});
 		});
 
-		test("observed group statuses count as configuration", () => {
-			const snapshot = buildDiagnosticsSnapshot(
-				{
+		// The observed statuses empty out during a Test Connection pass, and a
+		// report built in that window once denied a configured server (#389).
+		const presenceCases: readonly {
+			readonly name: string;
+			readonly servers: readonly Record<string, unknown>[];
+			readonly status: ConnectionStatus;
+			readonly expected: Pick<DiagnosticsSnapshot, "baseUrlConfigured" | "apiKeyConfigured">;
+		}[] = [
+			{
+				name: "nothing declared, nothing observed",
+				servers: [],
+				status: { state: "not-configured" },
+				expected: { baseUrlConfigured: false, apiKeyConfigured: "unknown" },
+			},
+			{
+				name: "a declared entry whose group has not reported yet (#389)",
+				servers: [{ label: "Prod", baseUrl: "http://prod.test" }],
+				status: { state: "connecting", attention: false },
+				expected: { baseUrlConfigured: true, apiKeyConfigured: "unknown" },
+			},
+			{
+				name: "a declared entry with an inline key proves the key before any report",
+				servers: [{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-inline" } }],
+				status: { state: "connecting", attention: false },
+				expected: { baseUrlConfigured: true, apiKeyConfigured: true },
+			},
+			{
+				name: "an observed group with a key, nothing declared",
+				servers: [],
+				status: {
 					state: "connected",
 					totalModels: 4,
 					serverStatuses: [makeServerStatus({ serverId: "group:abc:http://prod.test", hasApiKey: true })],
 				},
-				"1.2.3",
-				"9.9.9",
-				new IssueReporter()
-			);
-
-			assert.strictEqual(snapshot.baseUrlConfigured, true, "an observed group server counts as configured");
-			assert.strictEqual(snapshot.apiKeyConfigured, true, "a group that carries a key counts as key-configured");
-			assert.strictEqual(snapshot.latestError, undefined);
-			assert.deepStrictEqual(snapshot.recentLogs, []);
-		});
-
-		test("keyless groups configure a base URL but no API key", () => {
-			const snapshot = buildDiagnosticsSnapshot(
-				{
+				expected: { baseUrlConfigured: true, apiKeyConfigured: true },
+			},
+			{
+				name: "an observed keyless group with nothing declared denies the key",
+				servers: [],
+				status: {
 					state: "connected",
 					totalModels: 4,
 					serverStatuses: [makeServerStatus({ serverId: "group:abc:http://prod.test", hasApiKey: false })],
 				},
-				"1.2.3",
-				"9.9.9",
-				new IssueReporter()
-			);
-
-			assert.strictEqual(snapshot.baseUrlConfigured, true);
-			assert.strictEqual(snapshot.apiKeyConfigured, false, "keyless groups must not report a configured key");
-		});
-
-		test("key presence is unknown until group statuses are observed", () => {
-			const snapshot = buildDiagnosticsSnapshot({ state: "not-configured" }, "1.2.3", "9.9.9", new IssueReporter());
-
-			assert.strictEqual(snapshot.baseUrlConfigured, false);
-			assert.strictEqual(
-				snapshot.apiKeyConfigured,
-				"unknown",
-				"a missing status window proves nothing about key presence"
-			);
-		});
+				expected: { baseUrlConfigured: true, apiKeyConfigured: false },
+			},
+			{
+				name: "a declared OAuth unit counts as configured authentication before any report",
+				servers: [
+					{
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "c1", clientSecret: "shh" } },
+					},
+				],
+				status: { state: "connecting", attention: false },
+				expected: { baseUrlConfigured: true, apiKeyConfigured: true },
+			},
+			{
+				name: "the declared entry's own keyless report denies the key",
+				servers: [{ label: "Prod", baseUrl: "http://prod.test" }],
+				status: {
+					state: "connected",
+					totalModels: 4,
+					serverStatuses: [
+						makeServerStatus({ serverId: "group:abc:http://prod.test", entryLabel: "Prod", hasApiKey: false }),
+					],
+				},
+				expected: { baseUrlConfigured: true, apiKeyConfigured: false },
+			},
+			{
+				name: "a keyless report for one of two declared entries leaves the key open",
+				servers: [
+					{ label: "Prod", baseUrl: "http://prod.test" },
+					{ label: "Staging", baseUrl: "http://staging.test" },
+				],
+				status: {
+					state: "connected",
+					totalModels: 4,
+					serverStatuses: [
+						makeServerStatus({ serverId: "group:abc:http://prod.test", entryLabel: "Prod", hasApiKey: false }),
+					],
+				},
+				expected: { baseUrlConfigured: true, apiKeyConfigured: "unknown" },
+			},
+			{
+				name: "an unlabeled group's host display label is not the entry's own report",
+				servers: [{ label: "prod.test", baseUrl: "http://prod.test" }],
+				status: {
+					state: "connected",
+					totalModels: 4,
+					serverStatuses: [
+						makeServerStatus({ serverId: "group:abc:http://prod.test", label: "prod.test", hasApiKey: false }),
+					],
+				},
+				expected: { baseUrlConfigured: true, apiKeyConfigured: "unknown" },
+			},
+			{
+				name: "a report without a key verdict leaves the key open",
+				servers: [{ label: "Prod", baseUrl: "http://prod.test" }],
+				status: {
+					state: "connected",
+					totalModels: 4,
+					serverStatuses: [makeServerStatus({ serverId: "group:abc:http://prod.test", entryLabel: "Prod" })],
+				},
+				expected: { baseUrlConfigured: true, apiKeyConfigured: "unknown" },
+			},
+			{
+				name: "an inline key outranks the entry's own keyless report",
+				servers: [{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-inline" } }],
+				status: {
+					state: "connected",
+					totalModels: 4,
+					serverStatuses: [
+						makeServerStatus({ serverId: "group:abc:http://prod.test", entryLabel: "Prod", hasApiKey: false }),
+					],
+				},
+				expected: { baseUrlConfigured: true, apiKeyConfigured: true },
+			},
+		];
+		for (const { name, servers, status, expected } of presenceCases) {
+			test(`configuration presence: ${name}`, async () => {
+				const snapshot = await withConfig({ servers }, () =>
+					buildDiagnosticsSnapshot(status, "1.2.3", "9.9.9", new IssueReporter())
+				);
+				assert.deepStrictEqual(
+					{ baseUrlConfigured: snapshot.baseUrlConfigured, apiKeyConfigured: snapshot.apiKeyConfigured },
+					expected
+				);
+			});
+		}
 	});
 });

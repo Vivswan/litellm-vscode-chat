@@ -25,6 +25,7 @@ Pull requests that were merged, or whose implementations and ideas were folded i
 | Author | Helped with |
 |---|---|
 | [@adrenalinedj](https://github.com/adrenalinedj) | Configurable request timeout ([#104](https://github.com/Vivswan/litellm-vscode-chat/issues/104)) |
+| [@albangs865-lgtm](https://github.com/albangs865-lgtm) | A diagnostics report that surfaced the issue report denying a configured server while its groups re-resolved ([#389](https://github.com/Vivswan/litellm-vscode-chat/issues/389)) |
 | [@calexandre](https://github.com/calexandre) | Rotated API keys never reaching an existing provider group ([#277](https://github.com/Vivswan/litellm-vscode-chat/issues/277)) |
 | [@carvajalluis](https://github.com/carvajalluis) | Filtering blocked models out of discovery ([#182](https://github.com/Vivswan/litellm-vscode-chat/issues/182)) |
 | [@cihatsarsilmaz](https://github.com/cihatsarsilmaz) | Diagnostics reports that surfaced the issue-reporter double-encoding bug ([#192](https://github.com/Vivswan/litellm-vscode-chat/issues/192), [#193](https://github.com/Vivswan/litellm-vscode-chat/issues/193)) |

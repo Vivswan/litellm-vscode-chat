@@ -63,10 +63,10 @@ suite("IssueReporter", () => {
 		assert.ok(url.includes("body="));
 	});
 
-	test("an unknown key state renders as VS Code-managed instead of a false no", () => {
+	test("an unknown key state renders as an open verdict instead of a false no", () => {
 		const reporter = new IssueReporter();
 		const body = reporter.buildBody(makeSnapshot({ apiKeyConfigured: "unknown" }));
-		assert.ok(body.includes("API key configured: Unknown (managed by VS Code)"), body);
+		assert.ok(body.includes("API key configured: Unknown (key presence not yet determined)"), body);
 	});
 
 	test("buildTitle sanitizes error message secrets", () => {

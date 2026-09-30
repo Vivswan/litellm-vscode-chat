@@ -289,7 +289,7 @@ Two migration effects worth knowing when a matcher stops matching:
 The Report Issue action opens a GitHub issue prefilled with diagnostics:
 
 - extension and VS Code versions, platform, and connection state
-- whether an API key and base URL are configured: yes, no, or unknown when VS Code manages the credentials; never the values themselves
+- whether a base URL is configured (a `servers` entry or a live provider group) and whether an API key or OAuth credentials are: yes, no, or unknown while the servers' reports have not yet settled it (a securely stored key is only visible through them); never the values themselves
 - the most recent error, and recent log lines
 
 The extension's logs record classifications of what happened, never text derived from server responses, so the prefilled body cannot leak your prompts, completions, or credentials; still, the issue opens in your browser for review before you submit anything. When the diagnostics are too large for a URL, the full text goes to your clipboard (and a local file, when possible) instead, and the issue body says what was omitted.

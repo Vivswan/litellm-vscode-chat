@@ -43,6 +43,7 @@ export {
 } from "./setting";
 export {
 	createServerSyncEnv,
+	currentDeclaredServers,
 	readEntryApiVersion,
 	readEntryCredentials,
 	readEntryDeclaredModels,

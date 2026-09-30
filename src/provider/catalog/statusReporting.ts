@@ -97,6 +97,7 @@ export class GroupStatusReporter {
 		const status: ServerStatus = {
 			serverId: server.id,
 			label: server.label,
+			...(groupServer.label !== undefined ? { entryLabel: groupServer.label } : {}),
 			baseUrl: server.baseUrl,
 			lastChecked: new Date().toISOString(),
 			// Diagnostics reads this as "authentication configured", so OAuth
