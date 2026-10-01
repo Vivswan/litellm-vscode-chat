@@ -168,6 +168,10 @@ const discoveryArb = fc.oneof(
 				fc.array(fc.constantFrom<unknown>("model-a", " model-b ", "", "  ", 42), { maxLength: 4 }),
 				junkScalar
 			),
+			includeModes: fc.oneof(
+				fc.array(fc.constantFrom<unknown>("completion", "embedding", "bogus", 42, ""), { maxLength: 4 }),
+				junkScalar
+			),
 		},
 		{ requiredKeys: [] }
 	)
@@ -243,6 +247,7 @@ function serializeEntry(entry: DeclaredServer): Record<string, unknown> {
 	const discovery: Record<string, unknown> = {
 		...(entry.expectedFailures !== undefined ? { expectedFailures: entry.expectedFailures } : {}),
 		...(entry.declaredModels !== undefined ? { declared: entry.declaredModels } : {}),
+		...(entry.includeModes !== undefined ? { includeModes: entry.includeModes } : {}),
 	};
 	return {
 		label: entry.label,
@@ -494,7 +499,7 @@ suite("extension/servers/serverSync setting parser properties (nested shape)", (
 				auth: { apiKey: "sk-1", virtualKey: { header: "x-key", value: "vk-1" } },
 				headers: { "x-team": "core" },
 				models: { parameters: { "gpt-*": { temperature: 0 } }, capabilities: { "*": { toolCalling: true } } },
-				discovery: { expectedFailures: ["modelInfo"], declared: ["model-a"] },
+				discovery: { expectedFailures: ["modelInfo"], declared: ["model-a"], includeModes: ["completion"] },
 				budget: 50,
 			},
 		]).entries[0] as DeclaredServer;

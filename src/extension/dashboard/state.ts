@@ -153,6 +153,7 @@ function buildServer(
 		adoptHandle: adoptSourceHandle(status.serverId),
 		...(provenance !== undefined ? { provenance } : {}),
 		...(snapshot.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: snapshot.observedModelInfoKeys } : {}),
+		...(snapshot.skippedModeCounts !== undefined ? { skippedModeCounts: snapshot.skippedModeCounts } : {}),
 	} as const;
 	return status.state === "ok"
 		? { ...base, state: "ok", servedModelCount: status.servedModelCount }
@@ -381,7 +382,10 @@ function buildServers(
 		}
 		if (
 			entryFieldsInactive &&
-			(view.modelCapabilities !== undefined || view.expectedFailures !== undefined || view.declaredModels !== undefined)
+			(view.modelCapabilities !== undefined ||
+				view.expectedFailures !== undefined ||
+				view.declaredModels !== undefined ||
+				view.includeModes !== undefined)
 		) {
 			notices.push("entry-capabilities-inactive");
 		}
@@ -405,6 +409,16 @@ function buildServers(
 			// of declared and stale models it serves.
 			notices.push("expected-failures-nothing-declared");
 		}
+		if (
+			outcome.state === "ok" &&
+			outcome.servedModelCount === 0 &&
+			Object.values(matched?.snapshot.skippedModeCounts ?? {}).some((count) => count > 0)
+		) {
+			// Every usable model the server lists has a mode discovery drops by
+			// default; only the entry's includeModes can admit them, so the row
+			// says so instead of reading as a healthy empty server.
+			notices.push("non-chat-modes-skipped");
+		}
 		const secrets = secretsView(view, declaredInput.source);
 		// The presence verdict reads the SAME union the edit form gates on. Only
 		// the deny needs proof: an unproven view's non-"none" location can only
@@ -424,6 +438,9 @@ function buildServers(
 			origin: "declared",
 			...(matched?.snapshot.observedModelInfoKeys !== undefined
 				? { observedModelInfoKeys: matched.snapshot.observedModelInfoKeys }
+				: {}),
+			...(matched?.snapshot.skippedModeCounts !== undefined
+				? { skippedModeCounts: matched.snapshot.skippedModeCounts }
 				: {}),
 			config: {
 				// Both registries ride whole: the parser only ever emits present,

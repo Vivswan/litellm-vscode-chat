@@ -19,6 +19,7 @@ import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import { CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
 import { publicErrorText } from "../../../shared/logger";
+import type { NonChatMode, SkippedModeCounts } from "../../../shared/serverEntry";
 import {
 	discoveryHandlers,
 	emptyErrorResponse,
@@ -290,6 +291,7 @@ suite("provider/catalog/discovery", () => {
 				!("observedModelInfoKeys" in fallback),
 				"the fallback listing reports no model_info, so the field must be absent, not empty"
 			);
+			assert.ok(!("skippedModeCounts" in fallback), "no model_info means no modes were judged either");
 
 			const hostile = Object.fromEntries(Array.from({ length: 600 }, (_, i) => [`k${String(i).padStart(4, "0")}`, 1]));
 			mswServer.use(
@@ -716,6 +718,71 @@ suite("provider/catalog/discovery", () => {
 				false,
 				"The /v1/models fallback would re-list the non-chat models; an all-non-chat payload must stay empty"
 			);
+		});
+
+		test("includeModes admits the listed modes; the skip counts report what stayed dropped", async () => {
+			// The blocked deployment is judged before its mode, so it is never a
+			// skip count; a mode the payload never carries changes nothing.
+			const payload = {
+				data: [
+					{ model_name: "fim-a", model_info: { mode: "completion" } },
+					{ model_name: "fim-b", model_info: { mode: "completion" } },
+					{ model_name: "fim-paused", model_info: { mode: "completion", blocked: true } },
+					{ model_name: "embed-a", model_info: { mode: "embedding" } },
+					{ model_name: "chat-model", model_info: { mode: "chat" } },
+				],
+			};
+			const cases: readonly {
+				readonly name: string;
+				readonly includeModes?: readonly NonChatMode[];
+				readonly ids: readonly string[];
+				readonly counts: SkippedModeCounts;
+				/** The admitted-entry log lines, one per registered non-chat model. */
+				readonly admitted: number;
+			}[] = [
+				{ name: "nothing included", ids: ["chat-model"], counts: { completion: 2, embedding: 1 }, admitted: 0 },
+				{
+					name: "completion included",
+					includeModes: ["completion"],
+					ids: ["fim-a", "fim-b", "chat-model"],
+					counts: { embedding: 1 },
+					admitted: 2,
+				},
+				{
+					name: "a mode the payload lacks",
+					includeModes: ["rerank"],
+					ids: ["chat-model"],
+					counts: { completion: 2, embedding: 1 },
+					admitted: 0,
+				},
+			];
+			for (const { name, includeModes, ids, counts, admitted } of cases) {
+				mswServer.use(http.get(MODEL_INFO_URL, () => HttpResponse.json(payload)));
+				const logged: { message: string; data?: unknown }[] = [];
+				const result = await fetchModels({
+					...request((message, data) => logged.push({ message, data })),
+					...(includeModes !== undefined ? { includeModes } : {}),
+				});
+				assert.deepStrictEqual(
+					result.models.map((m) => m.id),
+					ids,
+					`${name}: the admitted modes register, the rest stay dropped`
+				);
+				assert.deepStrictEqual(result.skippedModeCounts, counts, `${name}: counts per still-dropped mode`);
+				// The mode lines carry the mode constant and nothing else: the
+				// server-provided ids feed the issue-report buffer otherwise.
+				const modeLines = logged.filter((l) => l.message.includes("non-chat model/info entry"));
+				assert.deepStrictEqual(
+					modeLines.map((l) => Object.keys(l.data as object)),
+					modeLines.map(() => ["mode"]),
+					`${name}: classification only`
+				);
+				assert.strictEqual(
+					modeLines.filter((l) => l.message.startsWith("Registering included")).length,
+					admitted,
+					`${name}: one admitted line per registered non-chat model`
+				);
+			}
 		});
 
 		test("a malformed mode value degrades to undefined and the entry registers", async () => {

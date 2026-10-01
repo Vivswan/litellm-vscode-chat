@@ -29,11 +29,12 @@ import type {
 	ExpectedFailureCategory,
 	McpOptIn,
 	MutableEntryViewFields,
+	NonChatMode,
 	NonSecretOptionalFields,
 	OptionalEntryFieldId,
 	OptionalEntryFields,
 } from "../../../shared/serverEntry";
-import { isExpectedFailureCategory, NON_SECRET_OPTIONAL_FIELD_IDS } from "../../../shared/serverEntry";
+import { isExpectedFailureCategory, isNonChatMode, NON_SECRET_OPTIONAL_FIELD_IDS } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
@@ -349,6 +350,27 @@ export function serverSettingReports(raw: unknown): ServerEntryReport[] {
 }
 
 /**
+ * One closed-vocabulary list field of the discovery object (expectedFailures,
+ * includeModes): the known tokens, deduplicated. Unknown tokens are counted in
+ * the report, never echoed - they are user text. A non-array is no list.
+ */
+function knownTokens<T extends string>(
+	raw: unknown,
+	isKnown: (value: unknown) => value is T,
+	field: string,
+	report: (what: string) => void
+): T[] {
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	const known = raw.filter(isKnown);
+	if (known.length < raw.length) {
+		report(`lists ${raw.length - known.length} unknown discovery.${field} value(s), ignored`);
+	}
+	return [...new Set(known)];
+}
+
+/**
  * The accepted entries with their raw-array indices: the single place the
  * acceptance rules live, so parseServersSetting and acceptedEntry cannot
  * disagree about which raw entry a label resolves to.
@@ -462,24 +484,21 @@ function acceptEntries(
 			report("has a discovery value that is not an object, ignored");
 		} else if (isRecord(record.discovery)) {
 			const discovery = record.discovery;
-			// Named on purpose: a typo silently reading as "no expected failures" or
-			// "nothing declared" would be invisible.
+			// Named on purpose: a typo silently reading as "no expected failures",
+			// "nothing declared", or "nothing included" would be invisible.
 			for (const key of Object.keys(discovery)) {
-				if (key !== "expectedFailures" && key !== "declared") {
+				if (key !== "expectedFailures" && key !== "declared" && key !== "includeModes") {
 					report(`has an unknown discovery key "${key}", ignored`);
 				}
 			}
-			if (Array.isArray(discovery.expectedFailures)) {
-				const knownCategories = discovery.expectedFailures.filter(isExpectedFailureCategory);
-				if (knownCategories.length < discovery.expectedFailures.length) {
-					// Counted, never echoed: unknown tokens are user text.
-					const unknownCount = discovery.expectedFailures.length - knownCategories.length;
-					report(`lists ${unknownCount} unknown discovery.expectedFailures value(s), ignored`);
-				}
-				const categories = [...new Set(knownCategories)];
-				if (categories.length > 0) {
-					entry.expectedFailures = categories;
-				}
+			const expectedFailures = knownTokens(
+				discovery.expectedFailures,
+				isExpectedFailureCategory,
+				"expectedFailures",
+				report
+			);
+			if (expectedFailures.length > 0) {
+				entry.expectedFailures = expectedFailures;
 			}
 			if (Array.isArray(discovery.declared)) {
 				const ids = discovery.declared.map(usableString).filter((id): id is string => id !== undefined);
@@ -491,6 +510,10 @@ function acceptEntries(
 				if (unique.length > 0) {
 					entry.declaredModels = unique;
 				}
+			}
+			const includeModes = knownTokens(discovery.includeModes, isNonChatMode, "includeModes", report);
+			if (includeModes.length > 0) {
+				entry.includeModes = includeModes;
 			}
 		}
 
@@ -642,6 +665,11 @@ export function entryExpectedFailuresFor(
 	baseUrl: string
 ): readonly ExpectedFailureCategory[] | undefined {
 	return matchedEntryFor(raw, label, baseUrl)?.expectedFailures;
+}
+
+/** The discovery path's resolution of one declared entry's discovery.includeModes; see matchedEntryFor. */
+export function entryIncludeModesFor(raw: unknown, label: string, baseUrl: string): readonly NonChatMode[] | undefined {
+	return matchedEntryFor(raw, label, baseUrl)?.includeModes;
 }
 
 /** The request and discovery paths' resolution of one declared entry's custom headers; see matchedEntryFor. */

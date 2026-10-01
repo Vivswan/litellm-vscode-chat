@@ -1,7 +1,7 @@
 import { getDiscoveryCacheTtl } from "../../shared/config/settings";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
 import { MirroredError } from "../../shared/mirroredError";
-import type { ExpectedFailureCategory } from "../../shared/serverEntry";
+import type { ExpectedFailureCategory, NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { apiRootOf } from "../../shared/util/baseUrl";
 import type { ChatClient, ServerConnection } from "../transport/chatClient";
 import { statusErrorTexts } from "../transport/errorMapping";
@@ -44,6 +44,8 @@ export interface DiscoveredGroupModels {
 	readonly discoveredRawIds: readonly string[];
 	/** See FetchModelsResult.observedModelInfoKeys; rides the cache so cached serves re-report it. */
 	readonly observedModelInfoKeys?: readonly string[];
+	/** See FetchModelsResult.skippedModeCounts; rides the cache so cached serves re-report it. */
+	readonly skippedModeCounts?: SkippedModeCounts;
 	/**
 	 * See FetchModelsResult.modelInfoUnsupported; rides the cache so cached
 	 * serves re-report it. The serve gates it against the entry's CURRENT
@@ -54,12 +56,13 @@ export interface DiscoveredGroupModels {
 }
 
 /**
- * The apiVersion lives outside the group configuration, so the fetched root joins the group client ID, and
- * every cache touch composes through here so a rotated root's entry is unreachable and pruned alike.
- * JSON-encoded, not delimiter-joined, or shifted free-form content could collide (the oauthCredentialFingerprint rule).
+ * The apiVersion and includeModes live outside the group configuration yet change what a fetch yields, so
+ * both join the group client ID, and every cache touch composes through here so a rotated root's or an
+ * edited mode list's entry is unreachable and pruned alike. JSON-encoded, not delimiter-joined, or shifted
+ * free-form content could collide (the oauthCredentialFingerprint rule).
  */
-function discoveryCacheKey(groupClientId: string, apiRoot: string): string {
-	return JSON.stringify([groupClientId, apiRoot]);
+function discoveryCacheKey(groupClientId: string, apiRoot: string, includeModes: readonly NonChatMode[]): string {
+	return JSON.stringify([groupClientId, apiRoot, [...includeModes].sort()]);
 }
 
 export interface GroupDiscoveryOptions {
@@ -79,6 +82,8 @@ export interface GroupDiscoveryOptions {
 	getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
 	/** Per-entry expectedFailures resolver, matched by label and normalized base URL. */
 	getExpectedFailures: (label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined;
+	/** Per-entry includeModes resolver, matched like getExpectedFailures; it also keys the discovery cache. */
+	getEntryIncludeModes: (label: string, baseUrl: string) => readonly NonChatMode[] | undefined;
 	/** The extension layer's tombstone predicate; see LiteLLMChatModelProviderOptions.isGroupSuppressed. */
 	isGroupSuppressed: (label: string, baseUrl: string, entryLabel: string | undefined) => boolean;
 	// Facade-bound log callbacks: this module logs only through them, so the
@@ -133,6 +138,11 @@ export class GroupDiscovery {
 		return (entryLabel !== undefined ? this._options.getExpectedFailures(entryLabel, baseUrl) : undefined) ?? [];
 	}
 
+	/** See expectedFailuresFor; the same label-gated read for includeModes. */
+	private includeModesFor(entryLabel: string | undefined, baseUrl: string): readonly NonChatMode[] {
+		return (entryLabel !== undefined ? this._options.getEntryIncludeModes(entryLabel, baseUrl) : undefined) ?? [];
+	}
+
 	/** The entry's categories in discovery's per-endpoint shape; see ExpectedDiscoveryFailures. */
 	private expectedDiscoveryFailures(entryLabel: string | undefined, baseUrl: string): ExpectedDiscoveryFailures {
 		const categories = this.expectedFailuresFor(entryLabel, baseUrl);
@@ -155,7 +165,11 @@ export class GroupDiscovery {
 				? this._options.getEntryApiVersion(groupServer.label, groupServer.baseUrl)
 				: undefined
 		);
-		return discoveryCacheKey(groupClientId(groupServer), apiRoot);
+		return discoveryCacheKey(
+			groupClientId(groupServer),
+			apiRoot,
+			this.includeModesFor(groupServer.label, groupServer.baseUrl)
+		);
 	}
 
 	/**
@@ -271,6 +285,7 @@ export class GroupDiscovery {
 		// Resolved before the cache read: the ok-path hint below gates on the
 		// entry's CURRENT declarations, cached serve or fresh.
 		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
+		const includeModes = this.includeModesFor(groupServer.label, server.baseUrl);
 		// The unserved-probe hint one ok serve carries; see DiscoveredGroupModels.modelInfoUnsupported.
 		const probeHint = (
 			discovered: Pick<DiscoveredGroupModels, "modelInfoUnsupported">
@@ -295,6 +310,7 @@ export class GroupDiscovery {
 					{
 						discoveredRawIds: cached.discoveredRawIds,
 						observedModelInfoKeys: cached.observedModelInfoKeys,
+						skippedModeCounts: cached.skippedModeCounts,
 					}
 				).served;
 			}
@@ -303,14 +319,13 @@ export class GroupDiscovery {
 		this._options.log("Fetching models for provider group", { baseUrl: server.baseUrl, silent });
 		try {
 			const load = async (): Promise<DiscoveredGroupModels> => {
-				const { models, observedModelInfoKeys, modelInfoUnsupported } = await this._options.client.fetchModels(
-					server,
-					expectedFailures
-				);
+				const { models, observedModelInfoKeys, skippedModeCounts, modelInfoUnsupported } =
+					await this._options.client.fetchModels(server, expectedFailures, includeModes);
 				return {
 					infos: buildModelInfos(models, server, 1, (msg) => this._options.log(msg)).infos,
 					discoveredRawIds: models.map((model) => model.id),
 					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
+					...(skippedModeCounts !== undefined ? { skippedModeCounts } : {}),
 					...(modelInfoUnsupported !== undefined ? { modelInfoUnsupported } : {}),
 				};
 			};
@@ -328,6 +343,7 @@ export class GroupDiscovery {
 				{
 					discoveredRawIds: discovered.discoveredRawIds,
 					observedModelInfoKeys: discovered.observedModelInfoKeys,
+					skippedModeCounts: discovered.skippedModeCounts,
 				}
 			).served;
 		} catch (error) {

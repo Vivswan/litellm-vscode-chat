@@ -161,9 +161,10 @@ const FAKE_MODEL_DEFS = [
 	{
 		// The completions-mode model: mode: completion declares it a
 		// text-completion model, and the inline-completions (FIM) feature calls
-		// it on /v1/completions. Discovery skips completion-mode models, so it
-		// never joins the chat picker and docker-litellm's six survivors stay
-		// six. Tools-false like a real completion endpoint; the alias
+		// it on /v1/completions. Discovery skips completion-mode models unless
+		// the entry's discovery.includeModes lists completion, so it stays out
+		// of the chat picker here and docker-litellm's six survivors stay six.
+		// Tools-false like a real completion endpoint; the alias
 		// deliberately matches nothing in the pinned OpenRouter fixture
 		// (models.test.ts guards it).
 		alias: "codestral-fim",

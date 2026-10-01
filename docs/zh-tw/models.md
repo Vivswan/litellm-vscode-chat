@@ -35,7 +35,7 @@
 
 可連線伺服器回報的每個可聊天模型都會出現在選擇器中。三條排除規則:
 
-- `model_info.mode` 指向非聊天端點 (`embedding`、`image_generation`、`audio_speech`、`audio_transcription`、`rerank`、`moderation`) 的模型被刻意排除, 因為對它們的聊天請求只會失敗。未宣告 mode 的模型始終註冊。
+- `model_info.mode` 指向非聊天端點 (`embedding`、`image_generation`、`audio_speech`、`audio_transcription`、`rerank`、`moderation`、`completion`) 的模型被刻意排除: 對前六種的聊天請求只會失敗, 而 `completion` 模型是行內補全功能的目標。未宣告 mode 的模型始終註冊, 項目的 [`discovery.includeModes`](servers.md#非聊天模式) 可放行代理標註寬鬆的模式 (LiteLLM 會把聊天請求橋接給 `completion` 模型)。
 - 代理已暫停的部署 (`model_info.blocked`) 被略過。
 - 其他不做任何過濾: 完全沒有能力資料的模型照樣註冊, 空缺由下文的[能力來源](#能力優先順序)填補。
 

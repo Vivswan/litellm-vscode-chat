@@ -35,7 +35,7 @@ Discovery is not the only way in: a server entry's `discovery.declared` lists ex
 
 Every chat-capable model a reachable server reports appears in the picker. Three exclusions apply:
 
-- Models whose `model_info.mode` names a non-chat endpoint (`embedding`, `image_generation`, `audio_speech`, `audio_transcription`, `rerank`, `moderation`) are left out on purpose, since a chat request to them can only fail. Models with no declared mode always register.
+- Models whose `model_info.mode` names a non-chat endpoint (`embedding`, `image_generation`, `audio_speech`, `audio_transcription`, `rerank`, `moderation`, `completion`) are left out on purpose: a chat request to the first six can only fail, and `completion` models are the inline-completions feature's targets. Models with no declared mode always register, and an entry's [`discovery.includeModes`](servers.md#non-chat-modes) admits the modes a proxy labels loosely (LiteLLM bridges chat requests to `completion` models).
 - Deployments the proxy has paused (`model_info.blocked`) are skipped.
 - Nothing else is filtered: a model with no capability data at all still registers, its gaps filled by the [capability sources](#capability-precedence) below.
 

@@ -190,6 +190,12 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 					.unknown()
 					.optional()
 					.describe("An array of the discovery endpoints this server is expected to fail: modelListing, modelInfo."),
+				includeModes: z
+					.unknown()
+					.optional()
+					.describe(
+						"An array of model_info modes discovery skips by default but this server should register anyway, e.g. completion (discovery.includeModes)."
+					),
 				modelCapabilities: z.unknown().optional().describe("The entry's own models.capabilities record, whole."),
 				modelParameters: z.unknown().optional().describe("The entry's own models.parameters record, whole."),
 				budget: z.unknown().optional().describe("Manual usage budget in USD, a number; null clears it."),

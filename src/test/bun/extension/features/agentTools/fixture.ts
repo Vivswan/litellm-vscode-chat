@@ -34,6 +34,7 @@ export const PROD_CONFIG = {
 	budget: 25,
 	declaredModels: ["decl-1"],
 	expectedFailures: ["modelInfo"],
+	includeModes: ["completion"],
 	modelCapabilities: { "gpt-*": { vision: true } },
 	modelParameters: { "gpt-*": { temperature: 0.2 } },
 	mcp: { url: "http://prod.test/mcp" },

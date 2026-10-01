@@ -11,6 +11,7 @@ import {
 	resolveDashboardModelCapabilities,
 } from "../../../extension/dashboard/state";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
+import type { SkippedModeCounts } from "../../../shared/serverEntry";
 import { makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
 import { buildState, makeDeclared, makeReader } from "./stateHelpers";
@@ -137,6 +138,65 @@ suite("extension/dashboard/state: capabilities", () => {
 			assert.ok(server?.state === "error");
 			assert.strictEqual(server.servedModelCount, 0);
 			assert.deepStrictEqual(server.notices, ["expected-failures-nothing-declared"]);
+		});
+
+		test("only an ok row that serves nothing while modes were skipped raises the include-modes notice", () => {
+			const cases: readonly {
+				readonly name: string;
+				readonly servedModelCount: number;
+				readonly skippedModeCounts: SkippedModeCounts;
+				readonly notices: readonly string[] | undefined;
+			}[] = [
+				{
+					name: "nothing served, completion skipped (#392)",
+					servedModelCount: 0,
+					skippedModeCounts: { completion: 26 },
+					notices: ["non-chat-modes-skipped"],
+				},
+				{
+					name: "models served beside skipped ones",
+					servedModelCount: 3,
+					skippedModeCounts: { completion: 26 },
+					notices: undefined,
+				},
+				{ name: "nothing served, nothing skipped", servedModelCount: 0, skippedModeCounts: {}, notices: undefined },
+			];
+			for (const { name, servedModelCount, skippedModeCounts, notices } of cases) {
+				const state = buildState(
+					[
+						{
+							status: makeServerStatus({
+								serverId: "group:fp-prod-labeled:http://x.test",
+								label: "Prod",
+								baseUrl: "http://x.test",
+								state: "ok",
+								servedModelCount,
+							}),
+							models: [],
+							skippedModeCounts,
+						},
+					],
+					makeReader({}),
+					[
+						makeDeclared({
+							label: "Prod",
+							baseUrl: "http://x.test",
+							expectedClientId: "group:fp-prod-labeled:http://x.test",
+						}),
+					]
+				);
+				const server = state.servers[0];
+				assert.ok(server?.origin === "declared", name);
+				assert.deepStrictEqual(server.notices, notices, name);
+				assert.deepStrictEqual(server.skippedModeCounts, skippedModeCounts, `${name}: the row carries the evidence`);
+			}
+		});
+
+		test("the config prefill carries the entry's includeModes", () => {
+			const state = buildState([], makeReader({}), [makeDeclared({ includeModes: ["completion"] })]);
+			const server = state.servers[0];
+			assert.ok(server?.origin === "declared");
+			assert.deepStrictEqual(server.config.includeModes, ["completion"]);
 		});
 
 		test("an expected failure serving only the stale window raises no needs-declare notice", () => {

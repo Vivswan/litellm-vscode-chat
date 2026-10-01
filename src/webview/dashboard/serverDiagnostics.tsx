@@ -38,7 +38,7 @@ const INACTIVE_NOTICE_PRESENTATION = {
 		surface: () => l10n.t("per-server model parameters"),
 	},
 	"entry-capabilities-inactive": {
-		surface: () => l10n.t("per-server model capabilities, declared models, and expected failures"),
+		surface: () => l10n.t("per-server model capabilities, declared models, expected failures, and included modes"),
 	},
 	"entry-headers-inactive": {
 		surface: () => l10n.t("per-server custom headers"),
@@ -469,6 +469,36 @@ export function serverDiagnostics(
 				withheld && inactive.length === 0 ? entryInactiveFixText() : undefined
 			),
 			actions: [...(withheld ? [] : declareActions("modelInfo")), openAiCompatibleGuide],
+		});
+	}
+	if (server.origin === "declared" && server.notices?.includes("non-chat-modes-skipped") === true) {
+		// Serves nothing: blocking. Every model the server lists carries a mode discovery
+		// drops by default, so only the entry's includeModes can put any in the picker.
+		// The counts are classifications (mode tokens from the closed vocabulary), so
+		// they ride the English details line like the other protocol facts.
+		const dropped = Object.entries(server.skippedModeCounts ?? {})
+			.map(([mode, count]) => `${mode}: ${count}`)
+			.join(", ");
+		found.push({
+			key: "non-chat-modes-skipped",
+			severity: "blocking",
+			headline: l10n.t(
+				"{0} serves no models: every model it lists has a mode this extension skips by default.",
+				server.label
+			),
+			details: detailLines(
+				`Skipped by mode: ${dropped}. Tick the modes to include under Discovery, or set "discovery": { "includeModes": [...] } on this entry.`
+			),
+			actions: [
+				{
+					kind: "button",
+					id: "include-modes",
+					label: l10n.t("Include modes"),
+					ariaLabel: l10n.t("Include skipped modes for {0}", server.label),
+					onClick: actions.onEdit,
+				},
+				retryAction(),
+			],
 		});
 	}
 	if (inactive.length > 0) {

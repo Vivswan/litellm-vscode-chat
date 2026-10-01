@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IntentAckTone, ReplacedEntryIdentity } from "../../dashboard/endpoints";
 import type { GroupProblems } from "../../dashboard/recordDraft";
-import { toCapabilityGroups, toGroups, toggleExpectedFailure, toHeaderRows } from "../../dashboard/recordDraft";
+import { toCapabilityGroups, toGroups, toggleCanonical, toHeaderRows } from "../../dashboard/recordDraft";
 import type {
 	ApiVersionDraft,
 	AuthFormId,
@@ -43,9 +43,10 @@ import type {
 import { isEditableServer } from "../../dashboard/viewModels";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
-import type { ExpectedFailureCategory, SecretFieldId } from "../../shared/serverEntry";
+import type { ExpectedFailureCategory, NonChatMode, SecretFieldId, SkippedModeCounts } from "../../shared/serverEntry";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
+	NON_CHAT_MODES,
 	pickNonSecretOptionalFields,
 	SECRET_FIELD_IDS,
 	secretDestination,
@@ -129,19 +130,15 @@ export type FormTarget =
 type ServerFormTarget = Extract<FormTarget, { kind: "add" | "edit" }>;
 
 /**
- * The edit form's live hint evidence: the CURRENT row's observed /model/info key set,
- * looked up per render rather than from the form's frozen open-time snapshot - a
- * discovery pass finishing under an open form must update the unknown-key hints.
+ * The edit form's live evidence row: the CURRENT declared row, looked up per render
+ * rather than from the form's frozen open-time snapshot - a discovery pass finishing
+ * under an open form must update the unknown-key hints and the skipped-mode checkboxes.
  */
-function observedKeysForForm(
-	servers: readonly DashboardServer[],
-	target: ServerFormTarget
-): readonly string[] | undefined {
+function liveRowForForm(servers: readonly DashboardServer[], target: ServerFormTarget): DashboardServer | undefined {
 	if (target.kind !== "edit") {
 		return undefined;
 	}
-	const row = servers.find((server) => server.origin === "declared" && server.label === target.original.label);
-	return row?.observedModelInfoKeys;
+	return servers.find((server) => server.origin === "declared" && server.label === target.original.label);
 }
 
 /**
@@ -224,6 +221,11 @@ function expectedFailureLabel(category: ExpectedFailureCategory): string {
 	}
 }
 
+/** One included-mode checkbox label: the mode token (a protocol term, untranslated) plus what the last listing dropped. */
+function includeModeLabel(mode: NonChatMode, skipped: number | undefined): string {
+	return skipped !== undefined && skipped > 0 ? l10n.t("{0} ({1} skipped)", mode, skipped) : mode;
+}
+
 /**
  * What an empty MCP endpoint publishes, said concretely. The entry's own base
  * URL is right there in the draft, so the hint names the exact address rather
@@ -265,6 +267,7 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 		modelParameters: toGroups(original.config.modelParameters ?? {}),
 		modelCapabilities: toCapabilityGroups(original.config.modelCapabilities ?? {}),
 		expectedFailures: original.config.expectedFailures ?? [],
+		includeModes: original.config.includeModes ?? [],
 	};
 }
 
@@ -492,7 +495,8 @@ export function ServerEditPage({
 			<ServerForm
 				target={target}
 				declaredLabels={declaredLabels}
-				observedModelInfoKeys={observedKeysForForm(servers, target)}
+				observedModelInfoKeys={liveRowForForm(servers, target)?.observedModelInfoKeys}
+				skippedModeCounts={liveRowForForm(servers, target)?.skippedModeCounts}
 				onDirtyChange={onDirtyChange}
 				onSavePosted={(requestId) => {
 					// A retry starts clean: the banner belongs to the round trip
@@ -540,14 +544,17 @@ function ServerForm({
 	target,
 	declaredLabels,
 	observedModelInfoKeys,
+	skippedModeCounts,
 	onDirtyChange,
 	onSavePosted,
 	onRequestClose,
 }: {
 	target: ServerFormTarget;
 	declaredLabels: readonly string[];
-	/** The edited entry's LIVE observed /model/info key set (observedKeysForForm); the capability hints' evidence. */
+	/** The edited entry's LIVE observed /model/info key set (liveRowForForm); the capability hints' evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
+	/** The edited entry's LIVE per-mode skip counts (liveRowForForm); the include-modes checkboxes' evidence. */
+	skippedModeCounts?: SkippedModeCounts | undefined;
 	/** Reports that the draft has edits worth asking about; the shell's navigation guard reads it. */
 	onDirtyChange: (dirty: boolean) => void;
 	/** Hands the posted intent's requestId to the page, which owns the round trip. */
@@ -702,6 +709,15 @@ function ServerForm({
 	// the hint evidence): entry-scoped records apply to this server only, so other servers'
 	// vocabularies never leak in.
 	const entryCapabilityKeySuggestions = capabilityKeySuggestions(observedModelInfoKeys);
+	// Evidence-gated, so nobody is asked about a mode that never applied to
+	// their server. The SAVED entry's modes stay offered while the form is
+	// open, not the draft's: gating on the draft made unchecking a retained
+	// mode with no current skips remove its checkbox, so the edit could not
+	// be reversed without discarding the form.
+	const savedModes = target.kind === "edit" ? (target.original.config.includeModes ?? []) : [];
+	const offeredModes = NON_CHAT_MODES.filter(
+		(mode) => (skippedModeCounts?.[mode] ?? 0) > 0 || savedModes.includes(mode)
+	);
 	const headerRowProblems: readonly (string | undefined)[] = parse.ok ? [] : parse.headerProblems;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
 	// Every field is in the same scroll, so a problem is always reachable before Save.
@@ -834,6 +850,7 @@ function ServerForm({
 						field === "label" ||
 						field === "modelCapabilities" ||
 						field === "expectedFailures" ||
+						field === "includeModes" ||
 						field === "declaredModels" ||
 						(CONNECTION_FIELDS as readonly string[]).includes(field)
 				)
@@ -1314,7 +1331,8 @@ function ServerForm({
 									disabled={saving}
 									onChange={(event) =>
 										props.patch({
-											expectedFailures: toggleExpectedFailure(
+											expectedFailures: toggleCanonical(
+												EXPECTED_FAILURE_CATEGORIES,
 												draft.expectedFailures,
 												category,
 												event.currentTarget.checked
@@ -1327,6 +1345,43 @@ function ServerForm({
 						))}
 					</fieldset>
 				</FieldRow>
+				{offeredModes.length > 0 && (
+					<FieldRow
+						label={serverFormFieldLabel("includeModes")}
+						help={
+							<Help
+								text={serverFieldHelp("includeModes")}
+								name={l10n.t("Help: {0}", serverFormFieldLabel("includeModes"))}
+							/>
+						}
+						wide={true}
+					>
+						<fieldset
+							className="expected-failures m-0 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-0 p-0 text-[12.5px] @max-[560px]/pane:flex-col @max-[560px]/pane:items-start"
+							aria-label={serverFormFieldLabel("includeModes")}
+						>
+							{offeredModes.map((mode) => (
+								<label key={mode} className="setting-check flex items-center gap-1.5">
+									<Checkbox
+										checked={draft.includeModes.includes(mode)}
+										disabled={saving}
+										onChange={(event) =>
+											props.patch({
+												includeModes: toggleCanonical(
+													NON_CHAT_MODES,
+													draft.includeModes,
+													mode,
+													event.currentTarget.checked
+												),
+											})
+										}
+									/>
+									{includeModeLabel(mode, skippedModeCounts?.[mode])}
+								</label>
+							))}
+						</fieldset>
+					</FieldRow>
+				)}
 			</FormSection>
 			<FormSection
 				quiet={true}

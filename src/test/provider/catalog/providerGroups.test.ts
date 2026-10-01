@@ -1381,6 +1381,42 @@ suite("provider groups: capability overrides and declared models", () => {
 		assert.strictEqual(expectDefined(statuses.at(-1)).totalModels, 1, "declared models join the aggregate totals");
 	});
 
+	test("an entry's includeModes reach discovery: the included mode registers for that entry's group only", async () => {
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getEntryIncludeModes: (label, baseUrl) =>
+				label === "Gateway" && baseUrl === TEST_BASE_URL ? ["completion"] : undefined,
+		});
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () =>
+				HttpResponse.json({
+					data: [
+						{ model_name: "fim-coder", model_info: { mode: "completion" } },
+						{ model_name: "chat-model", model_info: { mode: "chat" } },
+					],
+				})
+			)
+		);
+
+		const included = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" }),
+			cancellation()
+		);
+		assert.deepStrictEqual(
+			included.map((info) => info.id).sort(),
+			["chat-model", "fim-coder"],
+			"the entry's included mode registers"
+		);
+		const other = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, label: "Other" }),
+			cancellation()
+		);
+		assert.deepStrictEqual(
+			other.map((info) => info.id),
+			["chat-model"],
+			"another entry at the same host keeps the default filter"
+		);
+	});
+
 	test("a non-silent expected failure returns the declared set instead of throwing; unexpected still throws", async () => {
 		const expectIt = { value: true };
 		const provider = makeProvider(undefined, "test-key", undefined, {

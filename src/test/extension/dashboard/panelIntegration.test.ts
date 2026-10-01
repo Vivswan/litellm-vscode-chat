@@ -266,6 +266,7 @@ suite("extension/dashboard/panelIntegration", () => {
 						baseUrl: "http://localhost:49999",
 						modelCapabilities: capabilities,
 						expectedFailures: ["modelListing"],
+						includeModes: ["completion"],
 					}),
 					secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
 				},
@@ -283,7 +284,10 @@ suite("extension/dashboard/panelIntegration", () => {
 			>;
 		};
 		assert.deepStrictEqual(entryAfter().models, { capabilities });
-		assert.deepStrictEqual(entryAfter().discovery, { expectedFailures: ["modelListing"] });
+		assert.deepStrictEqual(entryAfter().discovery, {
+			expectedFailures: ["modelListing"],
+			includeModes: ["completion"],
+		});
 
 		// The edit-in-place rebuild: the same fields posted again must survive
 		// the whole intent -> schema -> saveServer chain, not silently vanish.
@@ -309,7 +313,11 @@ suite("extension/dashboard/panelIntegration", () => {
 		);
 		assert.strictEqual(edited, "ok");
 		assert.deepStrictEqual(entryAfter().models, { capabilities });
-		assert.deepStrictEqual(entryAfter().discovery, { expectedFailures: ["modelListing", "modelInfo"] });
+		assert.deepStrictEqual(
+			entryAfter().discovery,
+			{ expectedFailures: ["modelListing", "modelInfo"] },
+			"an edit that no longer includes modes clears the list, like every always-sent field"
+		);
 
 		assert.strictEqual(await inject(request("removeServerSetting", { label: "PanelIT-Caps" }, "pi-caps-rm")), "ok");
 	});

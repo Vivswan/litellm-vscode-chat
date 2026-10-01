@@ -505,6 +505,7 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 		expectedFailures: [],
 		headers: {},
 		declaredModels: [],
+		includeModes: [],
 		budget: null,
 		mcp: null,
 	});
@@ -1077,6 +1078,7 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 		expectedFailures: [],
 		headers: {},
 		declaredModels: [],
+		includeModes: [],
 		budget: null,
 		mcp: null,
 	});
@@ -1823,6 +1825,57 @@ test("an expected failure with nothing declared reads blocking and offers Declar
 	expect(actions).toContain("Retry");
 });
 
+test("every model skipped by mode reads blocking, names the counts, and offers Include modes", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Gateway",
+			servedModelCount: 0,
+			skippedModeCounts: { completion: 26 },
+			notices: ["non-chat-modes-skipped"],
+		}),
+	]);
+	const line = root.querySelector(".row-diagnostic");
+	expect(line?.classList.contains("tier-error")).toBe(true);
+	expect(line?.textContent).toContain("completion: 26");
+	expect(line?.textContent).toContain("includeModes");
+	const actions = [...(line?.querySelectorAll(".row-diagnostic-actions button") ?? [])].map((el) =>
+		el.textContent?.trim()
+	);
+	expect(actions).toContain("Include modes");
+	expect(actions).toContain("Retry");
+});
+
+test("the include-modes checkboxes appear only with evidence, carry the skipped counts, and ride the save", () => {
+	// No listing ever dropped a model here: the control stays out of the form.
+	const silent = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
+	expect(silent.querySelector('fieldset[aria-label="Include skipped modes"]')).toBeNull();
+
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod", skippedModeCounts: { completion: 26 } })]);
+	const fieldset = root.querySelector('fieldset[aria-label="Include skipped modes"]') as HTMLElement;
+	expect(fieldset).not.toBeNull();
+	expect([...fieldset.querySelectorAll("label")].map((label) => label.textContent?.trim())).toEqual([
+		"completion (26 skipped)",
+	]);
+	fireCheck(fieldset.querySelector("input") as HTMLInputElement, true);
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages.length).toBe(1);
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.payload.server.includeModes).toEqual(["completion"]);
+
+	// A saved mode whose skips have since ended stays offered while the form is
+	// open: unchecking it must leave the box in place so the edit can be undone.
+	const retained = mountEditPage([
+		makeDeclaredServer({ label: "Prod", config: { secrets: provenSecrets(), includeModes: ["completion"] } }),
+	]);
+	const retainedBox = retained.querySelector('fieldset[aria-label="Include skipped modes"] input') as HTMLInputElement;
+	expect(retainedBox.checked).toBe(true);
+	expect(retainedBox.parentElement?.textContent?.trim()).toBe("completion");
+	fireCheck(retainedBox, false);
+	const afterUncheck = retained.querySelector('fieldset[aria-label="Include skipped modes"] input') as HTMLInputElement;
+	expect(afterUncheck).not.toBeNull();
+	expect(afterUncheck.checked).toBe(false);
+});
+
 test("an unserved model-info probe raises the quiet declare hint; the two-step confirm posts declareExpectedFailure", () => {
 	const root = mountSection([
 		makeDeclaredServer({ label: "Ollama", servedModelCount: 3, modelInfoUnsupported: "timeout" }),
@@ -1979,7 +2032,7 @@ test("several inactive surfaces on one row share a single line naming them all",
 	const line = lines[0]?.textContent ?? "";
 	expect(line).toContain("Prod");
 	expect(line).toContain("per-server model parameters");
-	expect(line).toContain("per-server model capabilities, declared models, and expected failures");
+	expect(line).toContain("per-server model capabilities, declared models, expected failures, and included modes");
 });
 
 test("the api-version-inactive notice names its surface on the row it belongs to", () => {

@@ -55,6 +55,7 @@
 | `models.capabilities` | 记录 | 只针对此服务器模型的能力覆盖; 机制相同 ([详情](models.md#能力)) |
 | `discovery.declared` | 字符串数组 | 即使发现列不出也要注册的精确模型 ID ([下文](#声明的模型)) |
 | `discovery.expectedFailures` | 字符串数组 | 此服务器预期失败的发现终结点: `"modelListing"` (`/v1/models`)、`"modelInfo"` (`/v1/model/info`)。各只尝试一次, 记一条 info 级日志而非红色错误 ([下文](#发现与预期失败)) |
+| `discovery.includeModes` | 字符串数组 | 照常注册其模型的非聊天 `model_info.mode` 值, 例如代理把聊天模型标成 `"completion"` 时 ([下文](#非聊天模式)) |
 | `budget` | 数字 | 用于[用量警报](usage.md#预算)的手动预算 (以服务器自身的计费货币计)。优先于密钥自身的 `max_budget`; 仪表板两者都显示 |
 | `mcp` | `true` 或对象 | 让此服务器自身的 MCP 工具可在聊天中使用 ([下文](#mcp-工具))。`true` 发布 `<baseUrl>/mcp`; `{ "url": "..." }` 指定另一个端点 |
 
@@ -72,7 +73,8 @@
   },
   "discovery": {
     "expectedFailures": ["modelListing", "modelInfo"],
-    "declared": ["deepseek-r1"]
+    "declared": ["deepseek-r1"],
+    "includeModes": ["completion"]
   },
   "budget": 50,
   "mcp": true
@@ -264,6 +266,18 @@ LiteLLM 代理可以通过 Model Context Protocol 提供工具。条目的 `mcp`
 - 「预期」标记的是失败不足为奇, 而不是终结点被禁用: 被点名却有应答的终结点照常使用 - 它的数据照常胜出, 它列出的任何[声明的](#声明的模型) ID 转为休眠。无论成败, 只尝试一次是唯一持续的效果。
 - 列表中的未知值 (`"modelListing"` 和 `"modelInfo"` 之外的任何东西) 被忽略并报告。
 - 与 `discovery.declared` 组合, 就是完全没有发现能力的网关的配方: 声明模型, 预期两种失败, 服务器表现得像一等公民 - 状态栏、仪表板和「测试连接」都报告声明的模型而不是错误。
+
+### 非聊天模式
+
+发现会排除 `model_info.mode` 指向非聊天终结点的模型: `embedding`、`image_generation`、`audio_speech`、`audio_transcription`、`rerank`、`moderation` 与 `completion` ([哪些模型会注册](models.md#哪些模型会注册))。当代理把可聊天的模型标成了其中一种 - 最常见的是 `completion`, LiteLLM 会把聊天请求桥接给它 - 点名要放行的模式:
+
+```jsonc
+"discovery": { "includeModes": ["completion"] }
+```
+
+- 只接受上述模式; 其他值被忽略并报告。未声明 mode 的模型从不需要放行: 它们始终注册。
+- 仪表板在条目的「发现」区以复选框提供同样的选择, 但只列出某次列表确实丢弃过模型的模式 (每个模式旁显示丢弃数量), 以及条目已经包含的模式。所有模型都被丢弃的服务器会在其行上说明。
+- 编辑该列表会重新获取: 发现缓存以它为键, 下次同步直接提供新集合, 无需等待 `discovery.cacheTtl` 过期。
 
 ## 密钥与密钥存储
 

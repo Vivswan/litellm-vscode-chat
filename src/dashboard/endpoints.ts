@@ -27,6 +27,7 @@ import type { TransportErrorClassification } from "../shared/errorClassification
 import type {
 	ExpectedFailureCategory,
 	McpOptIn,
+	NonChatMode,
 	NonSecretOptionalFields,
 	SecretFieldId,
 	SecretLocation,
@@ -162,6 +163,8 @@ export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly headers: Readonly<Record<string, HeaderScalar>>;
 	/** The entry's discovery.declared model IDs; empty means none. */
 	readonly declaredModels: readonly string[];
+	/** The entry's discovery.includeModes; empty means none. */
+	readonly includeModes: readonly NonChatMode[];
 	/** The entry's manual usage budget in USD; null means none (clearing any stored budget). */
 	readonly budget: number | null;
 	/**

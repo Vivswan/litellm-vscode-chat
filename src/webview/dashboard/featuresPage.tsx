@@ -220,8 +220,9 @@ function FeatureModelRow({
 }) {
 	// Dangling is judged by the SERVER label alone: the feature resolves a ref
 	// through its declared entry, and a declared server may legitimately serve
-	// IDs the chat catalog never lists (completion-mode FIM models above all),
-	// so absence from the options proves nothing about the model.
+	// IDs the chat catalog does not list (completion-mode FIM models above all,
+	// unless the entry includes the mode), so absence from the options proves
+	// nothing about the model.
 	const dangling = value !== null && !declaredLabels.includes(value.server);
 	// A configured pair the options do not list joins them so the pick stays
 	// visible and keepable; labels and model IDs are user configuration, safe

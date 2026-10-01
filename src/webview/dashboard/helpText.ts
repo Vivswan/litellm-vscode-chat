@@ -53,7 +53,7 @@ export function helpConnectionSection(): string {
 
 export function helpDiscoverySection(): string {
 	return l10n.t(
-		"Only needed when the proxy cannot list its own models, or cannot report their info. Declared IDs register anyway; marked failures log quietly and skip retries."
+		"For a proxy that cannot list its models or report their info, or that labels chat models with a skipped mode. Declared IDs register anyway, marked failures log quietly, included modes register despite the label."
 	);
 }
 
@@ -142,6 +142,10 @@ export function serverFieldHelp(field: ServerFormField): string {
 		case "declaredModels":
 			return l10n.t(
 				"Exact model IDs to register even when discovery cannot list them, e.g. deepseek-r1. A declaration goes inert once the server lists the ID."
+			);
+		case "includeModes":
+			return l10n.t(
+				"Register this server's models of a mode the extension skips by default, e.g. completion. LiteLLM bridges chat requests to them; the counts show what the last listing dropped."
 			);
 		case "budget":
 			return l10n.t(

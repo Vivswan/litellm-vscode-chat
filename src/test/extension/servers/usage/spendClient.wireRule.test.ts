@@ -31,6 +31,7 @@ const SHAPE_FIELD_VALUES: ShapeFieldValues = {
 	modelCapabilities: {},
 	expectedFailures: ["modelListing"],
 	declaredModels: ["model-a"],
+	includeModes: ["completion"],
 	budget: 5,
 	mcp: true,
 };

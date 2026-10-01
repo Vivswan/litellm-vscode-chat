@@ -30,6 +30,7 @@ Pull requests that were merged, or whose implementations and ideas were folded i
 | [@carvajalluis](https://github.com/carvajalluis) | Filtering blocked models out of discovery ([#182](https://github.com/Vivswan/litellm-vscode-chat/issues/182)) |
 | [@cihatsarsilmaz](https://github.com/cihatsarsilmaz) | Diagnostics reports that surfaced the issue-reporter double-encoding bug ([#192](https://github.com/Vivswan/litellm-vscode-chat/issues/192), [#193](https://github.com/Vivswan/litellm-vscode-chat/issues/193)) |
 | [@doggy8088](https://github.com/doggy8088) | Models missing from the model picker, which drove the discovery diagnostics ([#19](https://github.com/Vivswan/litellm-vscode-chat/issues/19)) |
+| [@ekoenig4](https://github.com/ekoenig4) | Diagnostics report of a proxy most of whose models carry mode `completion` and vanished from the picker, which led to `discovery.includeModes` ([#392](https://github.com/Vivswan/litellm-vscode-chat/issues/392)) |
 | [@emelylongpre1414](https://github.com/emelylongpre1414) | Diagnostics report that surfaced the issue-reporter double-encoding bug ([#189](https://github.com/Vivswan/litellm-vscode-chat/issues/189)) |
 | [@gavinvw](https://github.com/gavinvw) | Models not shown in the Language Models window ([#188](https://github.com/Vivswan/litellm-vscode-chat/issues/188)) |
 | [@hugocoder2015](https://github.com/hugocoder2015) | Turns dying on no-argument tool calls streamed with empty arguments ([#281](https://github.com/Vivswan/litellm-vscode-chat/issues/281)) |

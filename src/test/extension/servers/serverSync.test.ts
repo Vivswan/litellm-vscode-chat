@@ -11,6 +11,7 @@ import {
 	buildGroupArgs,
 	deleteServerSecrets,
 	entryExpectedFailuresFor,
+	entryIncludeModesFor,
 	entryModelCapabilitiesFor,
 	entryModelParametersFor,
 	entrySupersedingBaseUrl,
@@ -611,33 +612,41 @@ suite("extension/servers/serverSync", () => {
 							'{"gpt-4": {"context_length": 200000, "supports_vision": true}, "claude": "not a record", "__proto__": {"polluted": true}}'
 						) as unknown,
 					},
-					discovery: { expectedFailures: ["modelInfo", "modelListing", "modelInfo", "not-a-category", 42] },
+					discovery: {
+						expectedFailures: ["modelInfo", "modelListing", "modelInfo", "not-a-category", 42],
+						includeModes: ["completion", "completion", "chat", 7],
+					},
 				},
 				{
 					label: "Junk",
 					baseUrl: "http://junk.test",
 					models: { capabilities: "junk" },
-					discovery: { expectedFailures: "junk" },
+					discovery: { expectedFailures: "junk", includeModes: "junk" },
 				},
 				{
 					label: "Empty",
 					baseUrl: "http://empty.test",
 					models: { capabilities: {} },
-					discovery: { expectedFailures: [] },
+					discovery: { expectedFailures: [], includeModes: [] },
 				},
 				{ label: "Bare", baseUrl: "http://bare.test" },
 			]);
 
 			// Unknown expectedFailures values are counted, never echoed: the
 			// problems are logged and the tokens are user text.
-			assert.deepStrictEqual(problems, ["entry 1 lists 2 unknown discovery.expectedFailures value(s), ignored"]);
+			assert.deepStrictEqual(problems, [
+				"entry 1 lists 2 unknown discovery.expectedFailures value(s), ignored",
+				"entry 1 lists 2 unknown discovery.includeModes value(s), ignored",
+			]);
 			assert.deepStrictEqual(entries[0]?.modelCapabilities, {
 				"gpt-4": { context_length: 200000, supports_vision: true },
 			});
 			assert.deepStrictEqual(entries[0]?.expectedFailures, ["modelInfo", "modelListing"], "known tokens, deduplicated");
+			assert.deepStrictEqual(entries[0]?.includeModes, ["completion"], "known modes, deduplicated");
 			for (const entry of entries.slice(1)) {
 				assert.ok(!("modelCapabilities" in entry), `"${entry.label}" must read as carrying no entry capabilities`);
 				assert.ok(!("expectedFailures" in entry), `"${entry.label}" must read as expecting no failures`);
+				assert.ok(!("includeModes" in entry), `"${entry.label}" must read as including no modes`);
 			}
 		});
 
@@ -647,7 +656,7 @@ suite("extension/servers/serverSync", () => {
 					label: "Prod",
 					baseUrl: "http://prod.test/",
 					models: { capabilities: { "gpt-4": { supports_reasoning: true } } },
-					discovery: { expectedFailures: ["modelInfo"] },
+					discovery: { expectedFailures: ["modelInfo"], includeModes: ["completion"] },
 				},
 				{
 					label: "Stage",
@@ -661,6 +670,9 @@ suite("extension/servers/serverSync", () => {
 				"trailing slashes are insignificant on both sides"
 			);
 			assert.deepStrictEqual(entryExpectedFailuresFor(raw, "Prod", "http://prod.test"), ["modelInfo"]);
+			assert.deepStrictEqual(entryIncludeModesFor(raw, "Prod", "http://prod.test"), ["completion"]);
+			assert.strictEqual(entryIncludeModesFor(raw, "Prod", "http://stage.test"), undefined);
+			assert.strictEqual(entryIncludeModesFor(raw, "Stage", "http://stage.test"), undefined);
 			assert.strictEqual(
 				entryModelCapabilitiesFor(raw, "Prod", "http://stage.test"),
 				undefined,
@@ -689,6 +701,7 @@ suite("extension/servers/serverSync", () => {
 				...bare,
 				modelCapabilities: { "gpt-4": { context_length: 200000 } },
 				expectedFailures: ["modelListing", "modelInfo"],
+				includeModes: ["completion"],
 			};
 			const stored: StoredServerSecrets = { virtualKeyValue: "vk-1" };
 
@@ -705,7 +718,7 @@ suite("extension/servers/serverSync", () => {
 					label: "A",
 					baseUrl: "http://a.test",
 					models: { capabilities: { "gpt-4": { supports_vision: true } } },
-					discovery: { expectedFailures: ["modelInfo"] },
+					discovery: { expectedFailures: ["modelInfo"], includeModes: ["completion"] },
 				},
 			]);
 			const engine = new ServerSyncEngine(recorded.env);
@@ -716,10 +729,12 @@ suite("extension/servers/serverSync", () => {
 				"capabilities stay out of the host configuration"
 			);
 			assert.ok(!("expectedFailures" in (recorded.upserts[0] ?? {})), "expectedFailures stay out too");
+			assert.ok(!("includeModes" in (recorded.upserts[0] ?? {})), "includeModes stay out too");
 			const printed = recorded.fingerprints.A;
 			assert.ok(printed !== undefined);
 			assert.deepStrictEqual(engine.getDeclared()[0]?.modelCapabilities, { "gpt-4": { supports_vision: true } });
 			assert.deepStrictEqual(engine.getDeclared()[0]?.expectedFailures, ["modelInfo"]);
+			assert.deepStrictEqual(engine.getDeclared()[0]?.includeModes, ["completion"]);
 
 			recorded.setting = [
 				{

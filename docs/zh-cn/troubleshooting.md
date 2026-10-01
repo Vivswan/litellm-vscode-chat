@@ -146,7 +146,9 @@ VS Code 无法与基础 URL 建立可信的 HTTPS 连接; 扩展没有绕过证�
 
 ### 「我的嵌入或图像生成模型没有出现在选择器中」
 
-LiteLLM `model_info.mode` 指向非聊天终结点 (`embedding`、`image_generation`、`audio_speech`、`audio_transcription`、`rerank`、`moderation`) 的模型被有意排除在聊天选择器之外, 因为对它们的聊天请求只会失败; 未声明 mode 的模型始终注册。代理已暂停的部署 (`model_info.blocked`) 同样被跳过。见[模型: 模型如何出现](models.md#模型如何出现)。
+LiteLLM `model_info.mode` 指向非聊天终结点 (`embedding`、`image_generation`、`audio_speech`、`audio_transcription`、`rerank`、`moderation`、`completion`) 的模型被有意排除在聊天选择器之外; 未声明 mode 的模型始终注册。代理已暂停的部署 (`model_info.blocked`) 同样被跳过。见[模型: 模型如何出现](models.md#模型如何出现)。
+
+如果你的代理把可聊天的模型标成了其中一种模式 (最常见的是 `completion`), 条目的 [`discovery.includeModes`](servers.md#非聊天模式) 可放行它们。一旦某次列表丢弃过这类模型, 仪表板也会提供同样的选项。
 
 ### 「模型不接受图像, 或从不使用工具」
 

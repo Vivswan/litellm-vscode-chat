@@ -313,6 +313,7 @@ export function TextField({
 		| "modelParameters"
 		| "modelCapabilities"
 		| "expectedFailures"
+		| "includeModes"
 	>;
 	placeholder?: string;
 	/** The line beside the field; the field's problem takes its place while one stands. */
@@ -506,6 +507,7 @@ export function fieldHasContent(draft: ServerFormDraft, field: ServerFormField):
 		field === "modelParameters" ||
 		field === "modelCapabilities" ||
 		field === "expectedFailures" ||
+		field === "includeModes" ||
 		field === "headers"
 	) {
 		return draft[field].length > 0;

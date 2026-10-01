@@ -5,6 +5,7 @@
  * here and reports the merged view.
  */
 
+import type { SkippedModeCounts } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import type { GroupServer, PreAttachModelInfo } from "./groupModels";
 
@@ -32,6 +33,8 @@ export interface ServerModelsSnapshot {
 	 * when the last success came from the /models fallback, or none were reported.
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
+	/** The per-mode skip counts of the last successful listing, carried forward like observedModelInfoKeys. */
+	readonly skippedModeCounts?: SkippedModeCounts | undefined;
 	/**
 	 * The declared entry label the group's configuration carries (the sync
 	 * engine writes it; see GroupServer.label), absent for unlabeled groups
@@ -66,6 +69,7 @@ type StatusWindowEntry = {
 	 */
 	discoveredRawIds: readonly string[];
 	observedModelInfoKeys: readonly string[] | undefined;
+	skippedModeCounts: SkippedModeCounts | undefined;
 	/** The group's resolved connection; every entry is a VS Code provider group. */
 	groupServer: GroupServer;
 };
@@ -99,6 +103,8 @@ export interface DiscoveryObservations {
 	readonly discoveredRawIds?: readonly string[] | undefined;
 	/** The observed model_info keys, when the listing reported them; see ServerModelsSnapshot.observedModelInfoKeys. */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
+	/** The per-mode skip counts, when the listing reported them; see ServerModelsSnapshot.skippedModeCounts. */
+	readonly skippedModeCounts?: SkippedModeCounts | undefined;
 }
 
 /**
@@ -232,6 +238,7 @@ export class StatusWindow {
 				status.state === "ok" ? (observations.discoveredRawIds ?? []) : (previous?.discoveredRawIds ?? []),
 			observedModelInfoKeys:
 				status.state === "ok" ? observations.observedModelInfoKeys : previous?.observedModelInfoKeys,
+			skippedModeCounts: status.state === "ok" ? observations.skippedModeCounts : previous?.skippedModeCounts,
 			groupServer,
 		});
 		if (entered) {
@@ -245,6 +252,7 @@ export class StatusWindow {
 			status: entry.status,
 			models: entry.models,
 			...(entry.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: entry.observedModelInfoKeys } : {}),
+			...(entry.skippedModeCounts !== undefined ? { skippedModeCounts: entry.skippedModeCounts } : {}),
 			...(entry.groupServer.label !== undefined ? { entryLabel: entry.groupServer.label } : {}),
 		}));
 	}

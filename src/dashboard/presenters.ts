@@ -168,7 +168,7 @@ function entryInactiveText(subject: string): string {
 const ENTRY_PARAMS_INACTIVE_TEXT = entryInactiveText("per-entry modelParameters are not applied");
 
 const ENTRY_CAPABILITIES_INACTIVE_TEXT = entryInactiveText(
-	"per-entry modelCapabilities, declared models, and expectedFailures are not applied"
+	"per-entry modelCapabilities, declared models, expectedFailures, and includeModes are not applied"
 );
 
 const ENTRY_HEADERS_INACTIVE_TEXT = entryInactiveText("per-entry custom headers are not applied");
@@ -180,6 +180,10 @@ const ENTRY_API_VERSION_INACTIVE_TEXT = entryInactiveText(
 /** The expected-failure-with-nothing-to-serve line; English by the same issue-report policy. */
 const EXPECTED_FAILURES_NOTHING_DECLARED_TEXT =
 	"discovery fails in an expected category and no models are declared; add IDs to the entry's discovery.declared list to serve models without discovery";
+
+/** The every-model-skipped-by-mode line; English by the same issue-report policy. */
+const NON_CHAT_MODES_SKIPPED_TEXT =
+	"every model the server lists has a mode discovery skips by default; add the modes to the entry's discovery.includeModes list to register them";
 
 /** One notice classification's fixed diagnostics prose; see the constants above. */
 function noticeText(notice: DeclaredServerNotice): string {
@@ -194,6 +198,8 @@ function noticeText(notice: DeclaredServerNotice): string {
 			return ENTRY_API_VERSION_INACTIVE_TEXT;
 		case "expected-failures-nothing-declared":
 			return EXPECTED_FAILURES_NOTHING_DECLARED_TEXT;
+		case "non-chat-modes-skipped":
+			return NON_CHAT_MODES_SKIPPED_TEXT;
 	}
 }
 

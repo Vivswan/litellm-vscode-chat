@@ -9,6 +9,7 @@ import * as l10n from "@vscode/l10n";
 import type {
 	ExpectedFailureCategory,
 	McpOptIn,
+	NonChatMode,
 	NonSecretOptionalFieldId,
 	SecretFieldId,
 	SecretLocation,
@@ -93,6 +94,7 @@ export type ServerFormDraft = {
 	readonly modelParameters: readonly PrefixGroup[];
 	readonly modelCapabilities: readonly PrefixGroup[];
 	readonly expectedFailures: readonly ExpectedFailureCategory[];
+	readonly includeModes: readonly NonChatMode[];
 } & Readonly<Record<NonSecretOptionalFieldId, string>> &
 	Readonly<Record<SecretFieldId, SecretFieldDraft>>;
 
@@ -117,6 +119,7 @@ export const EMPTY_SERVER_FORM: ServerFormDraft = {
 	modelParameters: [],
 	modelCapabilities: [],
 	expectedFailures: [],
+	includeModes: [],
 };
 
 export type ServerFormField = keyof ServerFormDraft;
@@ -138,6 +141,7 @@ export const SERVER_FORM_FIELD_ORDER: readonly ServerFormField[] = [
 	"modelCapabilities",
 	"declaredModels",
 	"expectedFailures",
+	"includeModes",
 	"headers",
 	"budget",
 	"mcp",
@@ -186,7 +190,15 @@ export function serverFormFieldLabel(field: ServerFormField): string {
 			return l10n.t("Model capabilities");
 		case "expectedFailures":
 			return l10n.t("Expected failures");
+		case "includeModes":
+			return l10n.t("Include skipped modes");
 	}
+}
+
+/** Set equality for the canonical-order token lists: a stored entry keeps its author's order. */
+function sameTokenSet(now: readonly string[], baseline: readonly string[]): boolean {
+	const set = new Set(now);
+	return set.size === baseline.length && baseline.every((token) => set.has(token));
 }
 
 /** Problems keyed by the field they belong to; an empty record means the draft is savable. */
@@ -235,15 +247,11 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 				parseDeclaredModelsText(baseline.declaredModels).join("\n")
 			);
 		}
-		if (field === "expectedFailures") {
+		if (field === "expectedFailures" || field === "includeModes") {
 			// A set, not a list: comparing sequences would report a change for a
 			// check-then-uncheck round trip (the toggle canonicalizes the order
 			// while a stored entry keeps its author's).
-			const now = new Set(draft.expectedFailures);
-			return (
-				now.size !== baseline.expectedFailures.length ||
-				baseline.expectedFailures.some((category) => !now.has(category))
-			);
+			return !sameTokenSet(draft[field], baseline[field]);
 		}
 		if (field === "authForm") {
 			// The selector itself, by draft: see the carve-out above.
@@ -855,6 +863,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		expectedFailures: draft.expectedFailures,
 		headers: values.headers,
 		declaredModels: parseDeclaredModelsText(draft.declaredModels),
+		includeModes: draft.includeModes,
 		budget: values.budget,
 		mcp: values.mcp,
 	};
@@ -926,6 +935,7 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 		expectedFailures: draft.expectedFailures,
 		headers: values.headers,
 		declaredModels: parseDeclaredModelsText(draft.declaredModels),
+		includeModes: draft.includeModes,
 		budget: null,
 		mcp: null,
 	};

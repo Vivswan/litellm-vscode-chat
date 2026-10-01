@@ -12,7 +12,7 @@ import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getMaskSecretInputs, SERVERS_SETTING_KEY } from "../../../shared/config/settings";
 import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
 import type { Logger } from "../../../shared/logger";
-import type { ExpectedFailureCategory, SecretFieldId } from "../../../shared/serverEntry";
+import type { ExpectedFailureCategory, NonChatMode, SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { validatedStringRecord } from "../../../shared/util/json";
@@ -31,6 +31,7 @@ import {
 	entryDeclaredModelsFor,
 	entryExpectedFailuresFor,
 	entryHeadersFor,
+	entryIncludeModesFor,
 	entryModelCapabilitiesFor,
 	entryModelParametersFor,
 	entrySupersedingBaseUrl,
@@ -321,6 +322,15 @@ export function readEntryExpectedFailures(
 	baseUrl: string
 ): readonly ExpectedFailureCategory[] | undefined {
 	return entryExpectedFailuresFor(readRawServersSetting(), label, baseUrl);
+}
+
+/**
+ * The discovery path's read of one declared entry's includeModes; the same
+ * live read and label-plus-URL match as readEntryModelParameters, injected
+ * the same way.
+ */
+export function readEntryIncludeModes(label: string, baseUrl: string): readonly NonChatMode[] | undefined {
+	return entryIncludeModesFor(readRawServersSetting(), label, baseUrl);
 }
 
 /**

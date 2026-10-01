@@ -87,7 +87,7 @@ suite("extension/dashboard/intents: the servers setting", () => {
 					parameters: { "gpt-4": { temperature: 0.2 } },
 					capabilities: { "gpt-4": { supports_vision: true } },
 				},
-				discovery: { expectedFailures: ["modelInfo"], declared: ["gpt-4"] },
+				discovery: { expectedFailures: ["modelInfo"], declared: ["gpt-4"], includeModes: ["completion"] },
 				budget: 25,
 				mcp: { url: "https://gateway.internal/mcp" },
 			};
@@ -110,6 +110,7 @@ suite("extension/dashboard/intents: the servers setting", () => {
 					expectedFailures: view.expectedFailures ?? [],
 					headers: view.headers ?? {},
 					declaredModels: view.declaredModels ?? [],
+					includeModes: view.includeModes ?? [],
 					budget: view.budget ?? null,
 					mcp: view.mcp ?? null,
 				},

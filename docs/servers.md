@@ -55,6 +55,7 @@ Every property an entry can carry:
 | `models.capabilities` | record | Capability overrides for this server's models only; same mechanics ([details](models.md#capabilities)) |
 | `discovery.declared` | string[] | Exact model IDs to register even when discovery cannot list them ([below](#declared-models)) |
 | `discovery.expectedFailures` | string[] | Discovery endpoints this server is expected to fail: `"modelListing"` (`/v1/models`), `"modelInfo"` (`/v1/model/info`). Each gets a single attempt and an info-level log line instead of a red error ([below](#discovery-and-expected-failures)) |
+| `discovery.includeModes` | string[] | Non-chat `model_info.mode` values whose models register anyway, e.g. `"completion"` when the proxy labels chat models that way ([below](#non-chat-modes)) |
 | `budget` | number | Manual budget, in the server's billing currency, for [usage alerts](usage.md#budgets). Outranks the key's own `max_budget`; the dashboard shows both |
 | `mcp` | `true` or object | Make this server's own MCP tools available in chat ([below](#mcp-tools)). `true` publishes `<baseUrl>/mcp`; `{ "url": "..." }` names another endpoint |
 
@@ -72,7 +73,8 @@ A complete entry:
   },
   "discovery": {
     "expectedFailures": ["modelListing", "modelInfo"],
-    "declared": ["deepseek-r1"]
+    "declared": ["deepseek-r1"],
+    "includeModes": ["completion"]
   },
   "budget": 50,
   "mcp": true
@@ -264,6 +266,18 @@ If your gateway simply does not serve one or both endpoints, say so and the exte
 - "Expected" marks failure as unremarkable, not the endpoint as off-limits: a named endpoint that does answer is used normally - its data wins as usual, and any [declared](#declared-models) IDs it lists go inert. The single attempt is the one standing effect, succeed or fail.
 - Unknown values in the list (anything but `"modelListing"` and `"modelInfo"`) are ignored and reported.
 - Combined with `discovery.declared`, this is the recipe for a gateway with no discovery at all: declare the models, expect both failures, and the server behaves like a first-class citizen - the status bar, dashboard, and Test connection all report the declared models instead of errors.
+
+### Non-chat modes
+
+Discovery leaves out models whose `model_info.mode` names a non-chat endpoint: `embedding`, `image_generation`, `audio_speech`, `audio_transcription`, `rerank`, `moderation`, and `completion` ([what registers](models.md#what-registers)). When a proxy labels chat-capable models with one of these - most often `completion`, which LiteLLM bridges chat requests to - name the modes to admit:
+
+```jsonc
+"discovery": { "includeModes": ["completion"] }
+```
+
+- Only the modes above are accepted; anything else is ignored and reported. Models with no declared mode never needed including: they always register.
+- The dashboard offers the same choice as checkboxes in the entry's Discovery section, but only for modes a listing actually dropped models of (the dropped count sits beside each) or modes the entry already includes. A server whose every model was dropped says so on its row.
+- Editing the list refetches: the discovery cache is keyed on it, so the next sync serves the new set without waiting out `discovery.cacheTtl`.
 
 ## Secrets and secret storage
 

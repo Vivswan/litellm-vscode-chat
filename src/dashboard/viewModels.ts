@@ -26,9 +26,11 @@ import type { TransportErrorClassification, UnservedEndpointEvidence } from "../
 import type {
 	ExpectedFailureCategory,
 	McpOptIn,
+	NonChatMode,
 	NonSecretOptionalFields,
 	SecretFieldId,
 	SecretLocation,
+	SkippedModeCounts,
 } from "../shared/serverEntry";
 
 /** A per-entry modelParameters record: model-ID prefix to request parameters. Non-secret user configuration. */
@@ -77,6 +79,8 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
 	readonly headers?: Readonly<Record<string, string>> | undefined;
 	/** The entry's discovery.declared model IDs, when it lists any. */
 	readonly declaredModels?: readonly string[] | undefined;
+	/** The entry's discovery.includeModes, when it names any. */
+	readonly includeModes?: readonly NonChatMode[] | undefined;
 	/** The entry's manual usage budget in USD, when set. */
 	readonly budget?: number | undefined;
 	/** The entry's MCP opt-in, when it carries one; the edit form's prefill. */
@@ -97,7 +101,10 @@ export type InactiveEntryNotice =
 	| "entry-headers-inactive"
 	| "entry-api-version-inactive";
 
-export type DeclaredServerNotice = InactiveEntryNotice | "expected-failures-nothing-declared";
+export type DeclaredServerNotice =
+	| InactiveEntryNotice
+	| "expected-failures-nothing-declared"
+	| "non-chat-modes-skipped";
 
 /**
  * Why an external group exists, when removal bookkeeping knows; absent for
@@ -164,6 +171,13 @@ interface DashboardServerBase {
 	 * legal member).
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
+	/**
+	 * How many usable /model/info entries the last successful listing dropped
+	 * per non-chat mode: the edit form offers includeModes on this evidence, and
+	 * an all-dropped row explains its empty picker with it. Absent = nothing
+	 * observed, like observedModelInfoKeys.
+	 */
+	readonly skippedModeCounts?: SkippedModeCounts | undefined;
 }
 
 /**
