@@ -718,7 +718,7 @@ function narrowModelInfoData(
 		if (parsed !== undefined) {
 			usableEntryCount += 1;
 			if (parsed.model_info?.blocked === true) {
-				log("Skipping blocked model/info entry", { modelId: parsed.modelId });
+				log("Skipping blocked model/info entry");
 				continue;
 			}
 			if (dropsByMode(parsed.model_info?.mode)) {
@@ -741,7 +741,7 @@ function narrowModelInfoData(
 			// deployment is blocked, never a skipped mode and never admitted.
 			const modelInfo = isRecord(entry.model_info) ? entry.model_info : undefined;
 			if (modelInfo?.blocked === true) {
-				log("Skipping blocked model/info entry", { modelId: entry.id });
+				log("Skipping blocked model/info entry");
 				continue;
 			}
 			if (dropsByMode(modelInfo?.mode)) {

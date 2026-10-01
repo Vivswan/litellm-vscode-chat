@@ -181,9 +181,9 @@ const ENTRY_API_VERSION_INACTIVE_TEXT = entryInactiveText(
 const EXPECTED_FAILURES_NOTHING_DECLARED_TEXT =
 	"discovery fails in an expected category and no models are declared; add IDs to the entry's discovery.declared list to serve models without discovery";
 
-/** The every-model-skipped-by-mode line; English by the same issue-report policy. */
+/** The nothing-registered-and-modes-skipped line; English by the same issue-report policy. */
 const NON_CHAT_MODES_SKIPPED_TEXT =
-	"every model the server lists has a mode discovery skips by default; add the modes to the entry's discovery.includeModes list to register them";
+	"no models registered, and discovery skipped models by mode; add the modes to the entry's discovery.includeModes list to register them";
 
 /** One notice classification's fixed diagnostics prose; see the constants above. */
 function noticeText(notice: DeclaredServerNotice): string {

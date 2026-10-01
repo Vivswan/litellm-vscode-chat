@@ -321,7 +321,7 @@ describe("dashboard/presenters renderers", () => {
 			);
 			assert.strictEqual(
 				line,
-				"OK (0 models) - every model the server lists has a mode discovery skips by default; add the modes to the entry's discovery.includeModes list to register them"
+				"OK (0 models) - no models registered, and discovery skipped models by mode; add the modes to the entry's discovery.includeModes list to register them"
 			);
 		});
 

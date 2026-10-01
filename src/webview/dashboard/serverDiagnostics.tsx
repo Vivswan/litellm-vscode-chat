@@ -472,10 +472,11 @@ export function serverDiagnostics(
 		});
 	}
 	if (server.origin === "declared" && server.notices?.includes("non-chat-modes-skipped") === true) {
-		// Serves nothing: blocking. Every model the server lists carries a mode discovery
-		// drops by default, so only the entry's includeModes can put any in the picker.
-		// The counts are classifications (mode tokens from the closed vocabulary), so
-		// they ride the English details line like the other protocol facts.
+		// Serves nothing: blocking. The skip counts are the one cause the row can name
+		// (blocked or malformed entries may have dropped the rest), and only the entry's
+		// includeModes can put the skipped ones in the picker. The counts are
+		// classifications (mode tokens from the closed vocabulary), so they ride the
+		// English details line like the other protocol facts.
 		const dropped = Object.entries(server.skippedModeCounts ?? {})
 			.map(([mode, count]) => `${mode}: ${count}`)
 			.join(", ");
@@ -487,7 +488,7 @@ export function serverDiagnostics(
 			key: "non-chat-modes-skipped",
 			severity: "blocking",
 			headline: l10n.t(
-				"{0} serves no models: every model it lists has a mode this extension skips by default.",
+				"{0} serves no models, and discovery skipped models whose mode this extension drops by default.",
 				server.label
 			),
 			details: detailLines(
