@@ -467,7 +467,7 @@ suite("extension/dashboard/panel", () => {
 					parameters: { "gpt-4": { temperature: 0.2 } },
 					capabilities: { "gpt-4": { supports_vision: true } },
 				},
-				discovery: { expectedFailures: ["modelInfo"], declared: ["gpt-4"] },
+				discovery: { expectedFailures: ["modelInfo"], declared: ["gpt-4"], includeModes: ["completion"] },
 				budget: 25,
 				mcp: { url: "https://gateway.internal/mcp" },
 			};

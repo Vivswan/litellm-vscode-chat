@@ -1843,6 +1843,26 @@ test("every model skipped by mode reads blocking, names the counts, and offers I
 	);
 	expect(actions).toContain("Include modes");
 	expect(actions).toContain("Retry");
+
+	// A group that joined by URL alone cannot be reached by an entry edit, so
+	// the one-click edit is withheld and the identity fix stands in its place.
+	const inactive = mountSection([
+		makeDeclaredServer({
+			label: "Gateway",
+			servedModelCount: 0,
+			entryFieldsInactive: true,
+			skippedModeCounts: { completion: 26 },
+			notices: ["non-chat-modes-skipped"],
+		}),
+	]);
+	const inactiveLine = inactive.querySelector(".row-diagnostic");
+	const inactiveActions = [...(inactiveLine?.querySelectorAll(".row-diagnostic-actions button") ?? [])].map((el) =>
+		el.textContent?.trim()
+	);
+	expect(inactiveActions).not.toContain("Include modes");
+	expect(inactiveActions).toContain("Retry");
+	expect(inactiveLine?.textContent).toContain("Once the group carries this entry's identity");
+	expect(inactiveLine?.textContent).toContain("labeled identity");
 });
 
 test("the include-modes checkboxes appear only with evidence, carry the skipped counts, and ride the save", () => {

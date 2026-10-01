@@ -479,6 +479,10 @@ export function serverDiagnostics(
 		const dropped = Object.entries(server.skippedModeCounts ?? {})
 			.map(([mode, count]) => `${mode}: ${count}`)
 			.join(", ");
+		// Like the model-info declare action: an entry edit cannot reach a group
+		// that did not join by the entry's identity, so the one-click edit is
+		// withheld there and the details carry the identity fix instead.
+		const withheld = server.entryFieldsInactive === true;
 		found.push({
 			key: "non-chat-modes-skipped",
 			severity: "blocking",
@@ -487,16 +491,23 @@ export function serverDiagnostics(
 				server.label
 			),
 			details: detailLines(
-				`Skipped by mode: ${dropped}. Tick the modes to include under Discovery, or set "discovery": { "includeModes": [...] } on this entry.`
+				withheld
+					? `Skipped by mode: ${dropped}. Once the group carries this entry's identity, tick the modes to include under Discovery, or set "discovery": { "includeModes": [...] } on this entry.`
+					: `Skipped by mode: ${dropped}. Tick the modes to include under Discovery, or set "discovery": { "includeModes": [...] } on this entry.`,
+				withheld && inactive.length === 0 ? entryInactiveFixText() : undefined
 			),
 			actions: [
-				{
-					kind: "button",
-					id: "include-modes",
-					label: l10n.t("Include modes"),
-					ariaLabel: l10n.t("Include skipped modes for {0}", server.label),
-					onClick: actions.onEdit,
-				},
+				...(withheld
+					? []
+					: [
+							{
+								kind: "button" as const,
+								id: "include-modes",
+								label: l10n.t("Include modes"),
+								ariaLabel: l10n.t("Include skipped modes for {0}", server.label),
+								onClick: actions.onEdit,
+							},
+						]),
 				retryAction(),
 			],
 		});

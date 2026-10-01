@@ -680,6 +680,24 @@ function narrowModelInfoData(
 	let usableEntryCount = 0;
 	const observedKeys = new Set<string>();
 	const skippedModeCounts: { -readonly [M in NonChatMode]?: number } = {};
+	// One mode verdict for both entry shapes: a listing-shaped entry may carry
+	// model_info too, and a verdict read off the rich shape alone let such
+	// entries register uncounted, includeModes or not.
+	const dropsByMode = (mode: unknown): boolean => {
+		if (!isNonChatMode(mode)) {
+			return false;
+		}
+		// Classification only: the logged mode is always one of the
+		// NON_CHAT_MODES constants; the server-provided model id stays out
+		// of the issue-report buffer.
+		if (includeModes.includes(mode)) {
+			log("Registering included non-chat model/info entry", { mode });
+			return false;
+		}
+		skippedModeCounts[mode] = (skippedModeCounts[mode] ?? 0) + 1;
+		log("Skipping non-chat model/info entry", { mode });
+		return true;
+	};
 	type Slot =
 		| { kind: "deployments"; group: [MappedModelInfo, ...MappedModelInfo[]] }
 		| { kind: "model"; model: LiteLLMModelItem };
@@ -703,17 +721,8 @@ function narrowModelInfoData(
 				log("Skipping blocked model/info entry", { modelId: parsed.modelId });
 				continue;
 			}
-			const mode = parsed.model_info?.mode;
-			if (isNonChatMode(mode)) {
-				// Classification only: the logged mode is always one of the
-				// NON_CHAT_MODES constants; the server-provided model id stays out
-				// of the issue-report buffer.
-				if (!includeModes.includes(mode)) {
-					skippedModeCounts[mode] = (skippedModeCounts[mode] ?? 0) + 1;
-					log("Skipping non-chat model/info entry", { mode });
-					continue;
-				}
-				log("Registering included non-chat model/info entry", { mode });
+			if (dropsByMode(parsed.model_info?.mode)) {
+				continue;
 			}
 			const mapped = mapModelInfoEntry(parsed);
 			const group = deploymentsById.get(mapped.id);
@@ -728,6 +737,9 @@ function narrowModelInfoData(
 		}
 		if (isLiteLLMModelItem(entry)) {
 			usableEntryCount += 1;
+			if (dropsByMode(isRecord(entry.model_info) ? entry.model_info.mode : undefined)) {
+				continue;
+			}
 			slots.push({ kind: "model", model: normalizeModelItem(entry, log) });
 			continue;
 		}

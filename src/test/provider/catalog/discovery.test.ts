@@ -722,7 +722,9 @@ suite("provider/catalog/discovery", () => {
 
 		test("includeModes admits the listed modes; the skip counts report what stayed dropped", async () => {
 			// The blocked deployment is judged before its mode, so it is never a
-			// skip count; a mode the payload never carries changes nothing.
+			// skip count; a mode the payload never carries changes nothing; a
+			// listing-shaped entry's model_info gets the same verdict as the
+			// rich shape's.
 			const payload = {
 				data: [
 					{ model_name: "fim-a", model_info: { mode: "completion" } },
@@ -730,6 +732,7 @@ suite("provider/catalog/discovery", () => {
 					{ model_name: "fim-paused", model_info: { mode: "completion", blocked: true } },
 					{ model_name: "embed-a", model_info: { mode: "embedding" } },
 					{ model_name: "chat-model", model_info: { mode: "chat" } },
+					{ id: "fim-listing", providers: [], model_info: { mode: "completion" } },
 				],
 			};
 			const cases: readonly {
@@ -740,19 +743,19 @@ suite("provider/catalog/discovery", () => {
 				/** The admitted-entry log lines, one per registered non-chat model. */
 				readonly admitted: number;
 			}[] = [
-				{ name: "nothing included", ids: ["chat-model"], counts: { completion: 2, embedding: 1 }, admitted: 0 },
+				{ name: "nothing included", ids: ["chat-model"], counts: { completion: 3, embedding: 1 }, admitted: 0 },
 				{
 					name: "completion included",
 					includeModes: ["completion"],
-					ids: ["fim-a", "fim-b", "chat-model"],
+					ids: ["fim-a", "fim-b", "chat-model", "fim-listing"],
 					counts: { embedding: 1 },
-					admitted: 2,
+					admitted: 3,
 				},
 				{
 					name: "a mode the payload lacks",
 					includeModes: ["rerank"],
 					ids: ["chat-model"],
-					counts: { completion: 2, embedding: 1 },
+					counts: { completion: 3, embedding: 1 },
 					admitted: 0,
 				},
 			];
