@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.7](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.6...v0.6.7) (2026-10-01)
+
+
+### Features
+
+* **discovery:** per-server includeModes admits skipped non-chat modes ([#392](https://github.com/Vivswan/litellm-vscode-chat/issues/392), thanks [@ekoenig4](https://github.com/ekoenig4)) ([#394](https://github.com/Vivswan/litellm-vscode-chat/issues/394)) ([79bab50](https://github.com/Vivswan/litellm-vscode-chat/commit/79bab50ec8bcb3d436f86b0ab717b710a812bdfb))
+
+
+### Bug Fixes
+
+* **diagnostics:** read configured servers from the setting, not only observed groups ([#389](https://github.com/Vivswan/litellm-vscode-chat/issues/389), thanks [@albangs865-lgtm](https://github.com/albangs865-lgtm)) ([#390](https://github.com/Vivswan/litellm-vscode-chat/issues/390)) ([2c236bf](https://github.com/Vivswan/litellm-vscode-chat/commit/2c236bfd7a803ac74b5f2d98b29915fe5b111fc7))
+
 ## [0.6.6](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.5...v0.6.6) (2026-09-21)
 
 
