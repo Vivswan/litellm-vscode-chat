@@ -721,10 +721,10 @@ suite("provider/catalog/discovery", () => {
 		});
 
 		test("includeModes admits the listed modes; the skip counts report what stayed dropped", async () => {
-			// The blocked deployment is judged before its mode, so it is never a
-			// skip count; a mode the payload never carries changes nothing; a
-			// listing-shaped entry's model_info gets the same verdict as the
-			// rich shape's.
+			// A blocked deployment is judged before its mode in BOTH entry shapes,
+			// so it is never a skip count and never admitted; a mode the payload
+			// never carries changes nothing; a listing-shaped entry's model_info
+			// gets the same verdicts as the rich shape's.
 			const payload = {
 				data: [
 					{ model_name: "fim-a", model_info: { mode: "completion" } },
@@ -733,6 +733,7 @@ suite("provider/catalog/discovery", () => {
 					{ model_name: "embed-a", model_info: { mode: "embedding" } },
 					{ model_name: "chat-model", model_info: { mode: "chat" } },
 					{ id: "fim-listing", providers: [], model_info: { mode: "completion" } },
+					{ id: "fim-listing-paused", providers: [], model_info: { mode: "completion", blocked: true } },
 				],
 			};
 			const cases: readonly {

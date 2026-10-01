@@ -737,7 +737,14 @@ function narrowModelInfoData(
 		}
 		if (isLiteLLMModelItem(entry)) {
 			usableEntryCount += 1;
-			if (dropsByMode(isRecord(entry.model_info) ? entry.model_info.mode : undefined)) {
+			// The same two judgments as the rich shape, in the same order: a paused
+			// deployment is blocked, never a skipped mode and never admitted.
+			const modelInfo = isRecord(entry.model_info) ? entry.model_info : undefined;
+			if (modelInfo?.blocked === true) {
+				log("Skipping blocked model/info entry", { modelId: entry.id });
+				continue;
+			}
+			if (dropsByMode(modelInfo?.mode)) {
 				continue;
 			}
 			slots.push({ kind: "model", model: normalizeModelItem(entry, log) });
