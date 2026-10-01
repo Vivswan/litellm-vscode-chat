@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../../provider";
 import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../../provider/catalog/groupDiscovery";
+import type { NonChatMode } from "../../../shared/serverEntry";
 import type { AggregatedStatus } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
@@ -416,6 +417,31 @@ suite("provider group discovery caching", () => {
 		const last = expectDefined(statuses.at(-1));
 		assert.strictEqual(last.serverStatuses.length, 2, "cached sweeps must keep both groups in the merged status");
 		assert.strictEqual(last.totalModels, 2);
+	});
+
+	test("editing an entry's includeModes lands on a new cache key, so the next serve refetches", async () => {
+		// includeModes changes what a fetch yields, like apiVersion, so it keys
+		// the cache: an edit must not serve the old filtered result until the TTL.
+		const entry = { includeModes: undefined as readonly NonChatMode[] | undefined };
+		const provider = new LiteLLMChatModelProvider({
+			userAgent: "GitHubCopilotChat/test VSCode/test",
+			getEntryIncludeModes: () => entry.includeModes,
+		});
+		const counter = countingHandlers();
+		const labeled = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "group-key", label: "Prod" };
+		const groupless = () => provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+		const serve = () => provider.provideLanguageModelChatInformation(groupOptions(labeled), cancellation());
+
+		await groupless();
+		await serve();
+		await groupless();
+		await serve();
+		assert.strictEqual(counter.hits(), 1, "an unchanged includeModes list serves from the cache");
+
+		entry.includeModes = ["completion"];
+		await groupless();
+		await serve();
+		assert.strictEqual(counter.hits(), 2, "a changed includeModes list misses the cache and refetches");
 	});
 
 	test("a rotated group key evicts the old credentials' entry once its status ages out", async () => {

@@ -13,8 +13,8 @@ import {
 	sortedGroupOrder,
 	toCapabilityGroups,
 	toGroups,
+	toggleCanonical,
 	toggleDirectiveField,
-	toggleExpectedFailure,
 	toHeaderRows,
 } from "../../../dashboard/recordDraft";
 import {
@@ -24,6 +24,7 @@ import {
 	RECORD_TYPE_DIRECTIVES,
 	wrongTypeDirectives,
 } from "../../../shared/config/recordResolution";
+import { EXPECTED_FAILURE_CATEGORIES } from "../../../shared/serverEntry";
 
 function parsedValue<P extends GroupsParse | HeaderRowsParse>(parse: P): Extract<P, { ok: true }>["value"] {
 	if (!parse.ok) {
@@ -536,14 +537,18 @@ describe("dashboard/recordDraft", () => {
 		});
 	});
 
-	describe("toggleExpectedFailure", () => {
+	describe("toggleCanonical", () => {
 		test("toggling keeps the canonical category order regardless of insertion order", () => {
-			assert.deepStrictEqual(toggleExpectedFailure([], "modelInfo", true), ["modelInfo"]);
-			assert.deepStrictEqual(toggleExpectedFailure(["modelInfo"], "modelListing", true), ["modelListing", "modelInfo"]);
-			assert.deepStrictEqual(toggleExpectedFailure(["modelListing", "modelInfo"], "modelListing", false), [
+			assert.deepStrictEqual(toggleCanonical(EXPECTED_FAILURE_CATEGORIES, [], "modelInfo", true), ["modelInfo"]);
+			assert.deepStrictEqual(toggleCanonical(EXPECTED_FAILURE_CATEGORIES, ["modelInfo"], "modelListing", true), [
+				"modelListing",
 				"modelInfo",
 			]);
-			assert.deepStrictEqual(toggleExpectedFailure(["modelInfo"], "modelInfo", false), []);
+			assert.deepStrictEqual(
+				toggleCanonical(EXPECTED_FAILURE_CATEGORIES, ["modelListing", "modelInfo"], "modelListing", false),
+				["modelInfo"]
+			);
+			assert.deepStrictEqual(toggleCanonical(EXPECTED_FAILURE_CATEGORIES, ["modelInfo"], "modelInfo", false), []);
 		});
 	});
 

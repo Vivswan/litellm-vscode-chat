@@ -34,6 +34,7 @@ export type { DeclaredServer, ServerEntryReport } from "./setting";
 export {
 	acceptedEntry,
 	entryExpectedFailuresFor,
+	entryIncludeModesFor,
 	entryModelCapabilitiesFor,
 	entryModelParametersFor,
 	entrySupersedingBaseUrl,
@@ -49,6 +50,7 @@ export {
 	readEntryDeclaredModels,
 	readEntryExpectedFailures,
 	readEntryHeaders,
+	readEntryIncludeModes,
 	readEntryModelCapabilities,
 	readEntryModelParameters,
 	readEntrySupersedingBaseUrl,

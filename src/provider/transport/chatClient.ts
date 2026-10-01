@@ -16,6 +16,7 @@ import { estimateToolTokens, estimateWireMessagesTokens } from "../../shared/con
 import { convertTools } from "../../shared/conversion/tools";
 import type { Logger } from "../../shared/logger";
 import { chatErrorMessage, englishChatErrorMessage, localizedError } from "../../shared/mirroredError";
+import type { NonChatMode } from "../../shared/serverEntry";
 import type { ServerWithKey } from "../../shared/servers";
 import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
@@ -191,8 +192,12 @@ export class ChatClient {
 		this.clients.prune(serverIds);
 	}
 
-	/** `expected` carries the entry's expected-failure declarations; see FetchModelsRequest. */
-	async fetchModels(server: ServerConnection, expected?: ExpectedDiscoveryFailures): Promise<FetchModelsResult> {
+	/** `expected` and `includeModes` carry the entry's discovery declarations; see FetchModelsRequest. */
+	async fetchModels(
+		server: ServerConnection,
+		expected?: ExpectedDiscoveryFailures,
+		includeModes?: readonly NonChatMode[]
+	): Promise<FetchModelsResult> {
 		this.log("fetchModels called", { baseUrl: server.baseUrl, hasApiKey: !!server.apiKey, hasOAuth: !!server.oauth });
 		const customHeaders = this.customHeadersFor(server.entryLabel, server.baseUrl);
 		const apiVersion = this.apiVersionFor(server.entryLabel, server.baseUrl);
@@ -218,6 +223,7 @@ export class ChatClient {
 				entryLabel: server.entryLabel,
 				log: this.log,
 				...(expected !== undefined ? { expected } : {}),
+				...(includeModes !== undefined ? { includeModes } : {}),
 				...(headers !== undefined ? { headers } : {}),
 			});
 		} catch (error) {

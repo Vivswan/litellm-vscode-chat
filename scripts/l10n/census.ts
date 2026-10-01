@@ -332,6 +332,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"candidateProblem",
 	"troubleshootingLink",
 	"expectedFailureLabel",
+	"includeModeLabel",
 	"authFormName",
 	"matcherCountAside",
 	"serverDiagnostics",

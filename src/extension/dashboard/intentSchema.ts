@@ -30,7 +30,12 @@ import {
 	UI_ACCENTS,
 	UI_THEMES,
 } from "../../shared/config/settingSpec";
-import { EXPECTED_FAILURE_CATEGORIES, NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import {
+	EXPECTED_FAILURE_CATEGORIES,
+	NON_CHAT_MODES,
+	NON_SECRET_OPTIONAL_FIELD_IDS,
+	SECRET_FIELD_IDS,
+} from "../../shared/serverEntry";
 import { recordFromKeys } from "../../shared/util/json";
 
 const asEnum = <T extends string>(values: readonly T[]) => z.enum(values as [T, ...T[]]);
@@ -96,6 +101,8 @@ const saveServerSchema = z.strictObject({
 		.record(z.string().max(256), z.union([z.string().max(4096), z.number(), z.boolean()]))
 		.refine((record) => Object.keys(record).length <= 64),
 	declaredModels: z.array(z.string().max(WIRE_LIMITS.modelId)).max(WIRE_LIMITS.declaredModels),
+	// Closed like expectedFailures: only the modes discovery drops can be included.
+	includeModes: z.array(asEnum(NON_CHAT_MODES)).max(NON_CHAT_MODES.length),
 	budget: z.union([z.number().finite(), z.null()]),
 	// `true` is the derived-endpoint opt-in; the object form may name the URL,
 	// bounded like every other webview-minted string. null clears the opt-in.

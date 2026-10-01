@@ -28,6 +28,7 @@ import {
 } from "../../../shared/config/settingSpec";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
+	NON_CHAT_MODES,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	SECRET_FIELD_IDS,
 } from "../../../shared/serverEntry";
@@ -77,6 +78,7 @@ const saveServerPayload = fc.record(
 			maxKeys: 3,
 		}),
 		expectedFailures: fc.uniqueArray(fc.constantFrom(...EXPECTED_FAILURE_CATEGORIES)),
+		includeModes: fc.uniqueArray(fc.constantFrom(...NON_CHAT_MODES)),
 		headers: fc.dictionary(
 			fc.string({ maxLength: 32 }),
 			fc.oneof(fc.string({ maxLength: 64 }), finiteNumber, fc.boolean()),
@@ -100,6 +102,7 @@ const saveServerPayload = fc.record(
 			"baseUrl",
 			"modelCapabilities",
 			"expectedFailures",
+			"includeModes",
 			"headers",
 			"declaredModels",
 			"budget",

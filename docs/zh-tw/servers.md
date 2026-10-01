@@ -55,6 +55,7 @@
 | `models.capabilities` | 記錄 | 只針對此伺服器模型的能力覆寫; 機制相同 ([詳情](models.md#能力)) |
 | `discovery.declared` | 字串陣列 | 即使探索列不出也要註冊的精確模型 ID ([下文](#宣告的模型)) |
 | `discovery.expectedFailures` | 字串陣列 | 此伺服器預期失敗的探索端點: `"modelListing"` (`/v1/models`)、`"modelInfo"` (`/v1/model/info`)。各只嘗試一次, 記一條 info 層級記錄而非紅色錯誤 ([下文](#探索與預期失敗)) |
+| `discovery.includeModes` | 字串陣列 | 照常註冊其模型的非聊天 `model_info.mode` 值, 例如代理把聊天模型標成 `"completion"` 時 ([下文](#非聊天模式)) |
 | `budget` | 數字 | 用於[用量警示](usage.md#預算)的手動預算 (以伺服器自身的計費貨幣計)。優先於金鑰自身的 `max_budget`; 儀表板兩者都顯示 |
 | `mcp` | `true` 或物件 | 讓此伺服器自身的 MCP 工具可在聊天中使用 ([下文](#mcp-工具))。`true` 發布 `<baseUrl>/mcp`; `{ "url": "..." }` 指定另一個端點 |
 
@@ -72,7 +73,8 @@
   },
   "discovery": {
     "expectedFailures": ["modelListing", "modelInfo"],
-    "declared": ["deepseek-r1"]
+    "declared": ["deepseek-r1"],
+    "includeModes": ["completion"]
   },
   "budget": 50,
   "mcp": true
@@ -264,6 +266,18 @@ LiteLLM 代理可以透過 Model Context Protocol 提供工具。項目的 `mcp`
 - 「預期」標記的是失敗不足為奇, 而不是端點被禁用: 被指名卻有回應的端點照常使用 - 它的資料照常勝出, 它列出的任何[宣告的](#宣告的模型) ID 轉為休眠。無論成敗, 只嘗試一次是唯一持續的效果。
 - 清單中的未知值 (`"modelListing"` 與 `"modelInfo"` 之外的任何東西) 會被忽略並回報。
 - 與 `discovery.declared` 組合, 就是完全沒有探索能力的閘道的配方: 宣告模型, 預期兩種失敗, 伺服器表現得像一等公民 - 狀態列、儀表板與「測試連線」都回報宣告的模型而不是錯誤。
+
+### 非聊天模式
+
+探索會排除 `model_info.mode` 指向非聊天端點的模型: `embedding`、`image_generation`、`audio_speech`、`audio_transcription`、`rerank`、`moderation` 與 `completion` ([哪些模型會註冊](models.md#哪些模型會註冊))。當代理把可聊天的模型標成了其中一種 - 最常見的是 `completion`, LiteLLM 會把聊天請求橋接給它 - 指名要放行的模式:
+
+```jsonc
+"discovery": { "includeModes": ["completion"] }
+```
+
+- 只接受上述模式; 其他值會被忽略並回報。未宣告 mode 的模型從不需要放行: 它們始終註冊。
+- 儀表板在項目的「探索」區以核取方塊提供同樣的選擇, 但只列出某次清單確實丟棄過模型的模式 (每個模式旁顯示丟棄數量), 以及項目已經包含的模式。所有模型都被丟棄的伺服器會在其列上說明。
+- 編輯該清單會重新擷取: 探索快取以它為鍵, 下次同步直接提供新集合, 無需等待 `discovery.cacheTtl` 過期。
 
 ## 祕密與祕密儲存體
 

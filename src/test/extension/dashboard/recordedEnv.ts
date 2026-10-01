@@ -96,6 +96,7 @@ export function serverPayload(
 		expectedFailures: [],
 		headers: {},
 		declaredModels: [],
+		includeModes: [],
 		budget: null,
 		mcp: null,
 		...fields,

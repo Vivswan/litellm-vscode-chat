@@ -653,8 +653,9 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			english: `LiteLLM inline completion request timed out after ${timeoutMs}ms.`,
 		}),
 		notFound: {
-			// Sync Models cannot help here: completion-mode models never join
-			// the chat catalog, so the advice is the model setting itself.
+			// Sync Models cannot help here: completion-mode models stay out of
+			// the chat catalog unless the entry includes the mode, so the advice
+			// is the model setting itself.
 			headline: () => ({
 				display: l10n.t(
 					"The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves."

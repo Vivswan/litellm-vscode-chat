@@ -261,6 +261,7 @@ describe("dashboard/serverForm", () => {
 				expectedFailures: [],
 				headers: {},
 				declaredModels: [],
+				includeModes: [],
 				budget: null,
 				mcp: null,
 			});
@@ -426,6 +427,7 @@ describe("dashboard/serverForm", () => {
 						},
 					],
 					expectedFailures: ["modelListing", "modelInfo"],
+					includeModes: ["completion"],
 				})
 			);
 			assert.deepStrictEqual(intent.server.modelCapabilities, {
@@ -437,11 +439,13 @@ describe("dashboard/serverForm", () => {
 				},
 			});
 			assert.deepStrictEqual(intent.server.expectedFailures, ["modelListing", "modelInfo"]);
-			// Empty drafts still send both fields: present-but-empty is the
+			assert.deepStrictEqual(intent.server.includeModes, ["completion"]);
+			// Empty drafts still send the fields: present-but-empty is the
 			// deliberate clear; absent is reserved for pre-editor payloads.
 			const empty = intentOf(draft()).server;
 			assert.deepStrictEqual(empty.modelCapabilities, {});
 			assert.deepStrictEqual(empty.expectedFailures, []);
+			assert.deepStrictEqual(empty.includeModes, []);
 		});
 	});
 
@@ -699,8 +703,8 @@ describe("dashboard/serverForm", () => {
 
 		test("CONNECTION_FIELDS is exactly the field catalog minus label and the record, list, budget, and mcp fields", () => {
 			// A new connection-shaped field must join CONNECTION_FIELDS or this
-			// fails. modelCapabilities, expectedFailures, declaredModels, and
-			// budget stay out by design: they shape the probe's OUTCOME
+			// fails. modelCapabilities, expectedFailures, includeModes, declaredModels,
+			// and budget stay out by design: they shape the probe's OUTCOME
 			// presentation, never the connection it tests, and mcp names a second
 			// endpoint the probe never dials. The auth-form pick and the header
 			// rows ARE connection-shaped: the probe sends what they say.
@@ -710,6 +714,7 @@ describe("dashboard/serverForm", () => {
 					field !== "modelParameters" &&
 					field !== "modelCapabilities" &&
 					field !== "expectedFailures" &&
+					field !== "includeModes" &&
 					field !== "declaredModels" &&
 					field !== "budget" &&
 					field !== "mcp"

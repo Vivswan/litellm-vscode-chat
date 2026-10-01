@@ -134,6 +134,36 @@ export function isExpectedFailureCategory(value: unknown): value is ExpectedFail
 }
 
 /**
+ * The model_info modes that provably serve a non-chat endpoint, so discovery
+ * drops them unless the entry's `discovery.includeModes` names them.
+ * Deliberately not the inverse (an allow-list of chat modes): an absent or
+ * unrecognized mode keeps registering, never losing a model to a vocabulary
+ * this extension has not learned yet. `completion` is listed because text
+ * completion models are the inline-completions feature's targets; LiteLLM
+ * still bridges chat requests to them, which is what includeModes admits.
+ */
+export const NON_CHAT_MODES = [
+	"embedding",
+	"image_generation",
+	"audio_speech",
+	"audio_transcription",
+	"rerank",
+	"moderation",
+	"completion",
+] as const;
+
+/** A mode discovery drops by default: the only tokens `discovery.includeModes` may name. */
+export type NonChatMode = (typeof NON_CHAT_MODES)[number];
+
+/** The one membership check for the mode tokens, shared by discovery, the setting parser, and the dashboard's form. */
+export function isNonChatMode(value: unknown): value is NonChatMode {
+	return typeof value === "string" && (NON_CHAT_MODES as readonly string[]).includes(value);
+}
+
+/** How many usable /model/info entries discovery dropped per mode: the dashboard's evidence for offering includeModes. */
+export type SkippedModeCounts = Readonly<Partial<Record<NonChatMode, number>>>;
+
+/**
  * An entry's `mcp` opt-in: `true` publishes the server's MCP endpoint at
  * <baseUrl>/mcp, and the object form may name the exact endpoint URL instead.
  * Another extension-side-only field, so it stays out of OPTIONAL_ENTRY_FIELDS
@@ -169,6 +199,8 @@ export interface EntryViewFieldValues {
 	readonly expectedFailures: readonly ExpectedFailureCategory[];
 	/** Exact model IDs to register when discovery does not list them (discovery.declared). */
 	readonly declaredModels: readonly string[];
+	/** The non-chat modes discovery admits to the chat catalog for this entry (discovery.includeModes). */
+	readonly includeModes: readonly NonChatMode[];
 	/** The entry's manual usage budget in USD; the usage surfaces read it. */
 	readonly budget: number;
 	/** The entry's MCP opt-in; the MCP publisher and the edit form's prefill read it. */
@@ -187,6 +219,7 @@ const ENTRY_VIEW_FIELD_SET = {
 	modelCapabilities: true,
 	expectedFailures: true,
 	declaredModels: true,
+	includeModes: true,
 	budget: true,
 	mcp: true,
 } as const satisfies Readonly<Record<keyof EntryViewFieldValues, true>>;

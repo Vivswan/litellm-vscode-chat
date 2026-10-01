@@ -286,6 +286,9 @@ export async function applySaveServerSetting(
 	if (declaredModels.length > 0) {
 		discovery.declared = declaredModels;
 	}
+	if (intent.server.includeModes.length > 0) {
+		discovery.includeModes = intent.server.includeModes;
+	}
 	if (Object.keys(discovery).length > 0) {
 		newEntry.discovery = discovery;
 	}

@@ -262,6 +262,7 @@ export function savePayloadFromRow(row: DeclaredRow): SaveServerPayload {
 		expectedFailures: config.expectedFailures ?? [],
 		headers: config.headers ?? {},
 		declaredModels: config.declaredModels ?? [],
+		includeModes: config.includeModes ?? [],
 		budget: config.budget ?? null,
 		mcp: config.mcp ?? null,
 	};
@@ -446,6 +447,7 @@ export function planSaveServer(
 		...fieldOf("expectedFailures", input.expectedFailures, base?.expectedFailures, []),
 		...fieldOf("headers", input.headers, base?.headers, {}),
 		...fieldOf("declaredModels", input.declaredModels, base?.declaredModels, []),
+		...fieldOf("includeModes", input.includeModes, base?.includeModes, []),
 		...fieldOf("budget", input.budget, base?.budget, null),
 		...fieldOf("mcp", input.mcp, base?.mcp, null),
 	};

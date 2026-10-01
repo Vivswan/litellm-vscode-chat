@@ -656,6 +656,17 @@
 										"null"
 									]
 								},
+								"includeModes": {
+									"description": "An array of model_info modes discovery skips by default but this server should register anyway, e.g. completion (discovery.includeModes).",
+									"type": [
+										"string",
+										"number",
+										"boolean",
+										"object",
+										"array",
+										"null"
+									]
+								},
 								"modelCapabilities": {
 									"description": "The entry's own models.capabilities record, whole.",
 									"type": [
@@ -1547,6 +1558,23 @@
 											},
 											"uniqueItems": true,
 											"description": "%litellm.config.servers.discovery.declared.description%"
+										},
+										"includeModes": {
+											"type": "array",
+											"items": {
+												"type": "string",
+												"enum": [
+													"embedding",
+													"image_generation",
+													"audio_speech",
+													"audio_transcription",
+													"rerank",
+													"moderation",
+													"completion"
+												]
+											},
+											"uniqueItems": true,
+											"description": "%litellm.config.servers.discovery.includeModes.description%"
 										}
 									}
 								},

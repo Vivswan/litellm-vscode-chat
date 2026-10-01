@@ -204,6 +204,18 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 			]);
 		});
 
+		test("the draft's includeModes reach the probe, so Test connection counts what a save would register", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeResult = ["fim-coder"];
+			const notice = await draftTest(recorded, {
+				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", includeModes: ["completion"] }),
+			});
+			assert.deepStrictEqual(recorded.probes, [
+				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "", expected: NO_EXPECTED, includeModes: ["completion"] },
+			]);
+			assert.strictEqual(notice, "Connected - 1 model");
+		});
+
 		test("an expected modelListing failure with nothing declared warns: the needs-declare state, not a pass", async () => {
 			const recorded = makeEnv([]);
 			recorded.probeError = new RequestError("404 page not found", "http", {

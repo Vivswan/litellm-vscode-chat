@@ -22,8 +22,6 @@ import {
 	OPENROUTER_MODEL_DIRECTIVE,
 	wrongTypeDirectives,
 } from "../shared/config/recordResolution";
-import type { ExpectedFailureCategory } from "../shared/serverEntry";
-import { EXPECTED_FAILURE_CATEGORIES } from "../shared/serverEntry";
 import type { HeaderScalar } from "../shared/util/headers";
 import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../shared/util/json";
@@ -895,18 +893,18 @@ export function parseCapabilityGroups(
 }
 
 /**
- * Toggle one expected-failure category in the checkbox set's draft list.
- * Always returns the canonical category order, so two drafts that mean the
- * same set serialize identically.
+ * Toggle one token in a closed-vocabulary checkbox set's draft list (the
+ * expected-failure categories, the included modes). Always returns the
+ * vocabulary's canonical order, so two drafts that mean the same set
+ * serialize identically.
  */
-export function toggleExpectedFailure(
-	current: readonly ExpectedFailureCategory[],
-	category: ExpectedFailureCategory,
+export function toggleCanonical<T extends string>(
+	vocabulary: readonly T[],
+	current: readonly T[],
+	token: T,
 	enabled: boolean
-): ExpectedFailureCategory[] {
-	return EXPECTED_FAILURE_CATEGORIES.filter((candidate) =>
-		candidate === category ? enabled : current.includes(candidate)
-	);
+): T[] {
+	return vocabulary.filter((candidate) => (candidate === token ? enabled : current.includes(candidate)));
 }
 
 /** The per-row checkbox directives: `_fallback` on capability rows, `_force` on parameter rows, `_inheritable` on both. */

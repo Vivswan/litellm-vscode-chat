@@ -108,6 +108,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `models.capabilities` | 记录 | 只针对此服务器的能力覆盖; 机制相同 |
 | `discovery.declared` | 字符串数组 | 发现列不出时也要注册的精确模型 ID; [服务器 - 声明的模型](servers.md#声明的模型) |
 | `discovery.expectedFailures` | 字符串数组 | 此处预期失败的发现终结点 (`"modelListing"`、`"modelInfo"`): 一次尝试, info 级日志, 不算故障 |
+| `discovery.includeModes` | 字符串数组 | 照常注册其模型的非聊天模式 (例如 `"completion"`); [服务器 - 非聊天模式](servers.md#非聊天模式) |
 | `budget` | 数字 | 手动预算, 以服务器自身的计费货币计, 大于 0; 在[用量警报](usage.md#预算)中优先于密钥自身的 `max_budget`; 两者都显示 |
 | `mcp` | `true` 或对象 | 让此服务器自身的 MCP 工具可在聊天中使用; `true` 发布 `<baseUrl>/mcp`, `{ "url": "..." }` 指定另一个端点 (仅在与条目同源时带上凭据); [服务器 - MCP 工具](servers.md#mcp-工具) |
 

@@ -143,13 +143,13 @@ suite("extension/dashboard/intents: request validation", () => {
 				// The always-sent fields are required: a save rebuilds the whole entry,
 				// so an omission-tolerant schema would let a stale sender silently
 				// delete hand-written configuration.
-				...(["modelCapabilities", "expectedFailures", "headers", "declaredModels", "budget"] as const).map(
-					(omitted) => {
-						const server: Record<string, unknown> = { ...serverPayload({ label: "P", baseUrl: "http://x" }) };
-						delete server[omitted];
-						return req("saveServerSetting", { server, secrets: KEEP_ALL });
-					}
-				),
+				...(
+					["modelCapabilities", "expectedFailures", "includeModes", "headers", "declaredModels", "budget"] as const
+				).map((omitted) => {
+					const server: Record<string, unknown> = { ...serverPayload({ label: "P", baseUrl: "http://x" }) };
+					delete server[omitted];
+					return req("saveServerSetting", { server, secrets: KEEP_ALL });
+				}),
 				req("removeServerSetting", {}),
 				req("removeServerSetting", { label: 4 }),
 				// The size bounds: no honest value meets them, so anything over is a
@@ -175,6 +175,14 @@ suite("extension/dashboard/intents: request validation", () => {
 						label: "P",
 						baseUrl: "http://x",
 						expectedFailures: Array.from({ length: 3 }, () => "modelInfo" as const),
+					}),
+					secrets: KEEP_ALL,
+				}),
+				req("saveServerSetting", {
+					server: serverPayload({
+						label: "P",
+						baseUrl: "http://x",
+						includeModes: Array.from({ length: 8 }, () => "completion" as const),
 					}),
 					secrets: KEEP_ALL,
 				}),

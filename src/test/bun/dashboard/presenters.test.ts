@@ -315,6 +315,16 @@ describe("dashboard/presenters renderers", () => {
 			);
 		});
 
+		test("an ok row with every model skipped by mode names the includeModes fix", () => {
+			const line = serverOutcomeText(
+				declaredServer({ state: "ok", servedModelCount: 0, notices: ["non-chat-modes-skipped"] })
+			);
+			assert.strictEqual(
+				line,
+				"OK (0 models) - no models registered, and discovery skipped models by mode; add the modes to the entry's discovery.includeModes list to register them"
+			);
+		});
+
 		test("an expected failure with nothing declared stays an annotated error line", () => {
 			const line = serverOutcomeText(
 				declaredServer({
@@ -349,7 +359,7 @@ describe("dashboard/presenters renderers", () => {
 			const line = serverOutcomeText(declaredServer({ servedModelCount: 2, notices: ["entry-capabilities-inactive"] }));
 			assert.ok(
 				line.startsWith(
-					"OK (2 models) - per-entry modelCapabilities, declared models, and expectedFailures are not applied"
+					"OK (2 models) - per-entry modelCapabilities, declared models, expectedFailures, and includeModes are not applied"
 				),
 				line
 			);
@@ -389,12 +399,14 @@ describe("dashboard/presenters renderers", () => {
 			);
 			assert.ok(line.includes("per-entry modelParameters are not applied"), line);
 			assert.ok(
-				line.includes("per-entry modelCapabilities, declared models, and expectedFailures are not applied"),
+				line.includes(
+					"per-entry modelCapabilities, declared models, expectedFailures, and includeModes are not applied"
+				),
 				line
 			);
 			assert.ok(
 				line.indexOf("modelParameters are not applied") <
-					line.indexOf("modelCapabilities, declared models, and expectedFailures"),
+					line.indexOf("modelCapabilities, declared models, expectedFailures, and includeModes"),
 				line
 			);
 		});

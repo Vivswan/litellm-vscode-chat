@@ -3,6 +3,8 @@ import type OpenAI from "openai";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
 import { classificationOf, errorMessageText } from "../../shared/logger";
+import type { NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
+import { isNonChatMode } from "../../shared/serverEntry";
 import { displayUrl } from "../../shared/util/displayUrl";
 import { collapseWhitespace } from "../../shared/util/errorText";
 import { isRecord } from "../../shared/util/json";
@@ -335,6 +337,14 @@ export interface FetchModelsResult {
 	 */
 	observedModelInfoKeys?: readonly string[];
 	/**
+	 * How many usable /model/info entries were dropped per non-chat mode,
+	 * present ONLY when that listing succeeded, like observedModelInfoKeys: the
+	 * dashboard offers includeModes on this evidence, and an all-dropped server
+	 * explains its empty picker with it. Counts exclude blocked deployments
+	 * (judged first) and the modes the entry already includes.
+	 */
+	skippedModeCounts?: SkippedModeCounts;
+	/**
 	 * Present when the model-info probe failed like an unserved endpoint (timed
 	 * out, or answered 404/405) while the /models fallback succeeded in the same
 	 * pass, and the entry did NOT declare the failure expected: the server works
@@ -370,6 +380,8 @@ export interface FetchModelsRequest {
 	discoveryTimeout: number;
 	/** Failure categories the server's entry declares expected; see ExpectedDiscoveryFailures. */
 	expected?: ExpectedDiscoveryFailures;
+	/** The non-chat modes the entry's discovery.includeModes admits to the chat catalog; see NON_CHAT_MODES. */
+	includeModes?: readonly NonChatMode[];
 	/**
 	 * The declared entry's label, when the server has one, so the
 	 * endpoint-unserved hints can name the entry the declaration belongs on.
@@ -646,6 +658,8 @@ interface NarrowedModelInfoData {
 	usableEntryCount: number;
 	/** See FetchModelsResult.observedModelInfoKeys; sorted and capped here. */
 	observedModelInfoKeys: readonly string[];
+	/** See FetchModelsResult.skippedModeCounts. */
+	skippedModeCounts: SkippedModeCounts;
 }
 
 /** Sorted before truncation, and an oversized key is dropped, never clipped, so truncation cannot alias two keys. */
@@ -653,33 +667,37 @@ const OBSERVED_MODEL_INFO_KEYS_MAX = 512;
 const OBSERVED_MODEL_INFO_KEY_MAX_LENGTH = 128;
 
 /**
- * Modes that provably serve a non-chat endpoint, so they must not register.
- * Deliberately not the inverse (an allow-list of chat modes): an absent or
- * unrecognized mode keeps registering, never losing a model to a vocabulary
- * this extension has not learned yet.
- */
-const NON_CHAT_MODES: readonly string[] = [
-	"embedding",
-	"image_generation",
-	"audio_speech",
-	"audio_transcription",
-	"rerank",
-	"moderation",
-	// Text-completion models serve /completions, not chat: they are the
-	// inline-completions feature's targets and must not appear in the chat
-	// picker as models that cannot chat.
-	"completion",
-];
-
-/**
  * Narrow a /v1/model/info payload element-wise: unrecognized entries are
  * skipped with a log line instead of aborting the whole registration. Blocked
  * (paused) deployments and provably non-chat modes are dropped, and deployments
  * sharing one model id merge in first-seen order.
  */
-function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): NarrowedModelInfoData {
+function narrowModelInfoData(
+	data: unknown[],
+	log: FetchModelsRequest["log"],
+	includeModes: readonly NonChatMode[] = []
+): NarrowedModelInfoData {
 	let usableEntryCount = 0;
 	const observedKeys = new Set<string>();
+	const skippedModeCounts: { -readonly [M in NonChatMode]?: number } = {};
+	// One mode verdict for both entry shapes: a listing-shaped entry may carry
+	// model_info too, and a verdict read off the rich shape alone let such
+	// entries register uncounted, includeModes or not.
+	const dropsByMode = (mode: unknown): boolean => {
+		if (!isNonChatMode(mode)) {
+			return false;
+		}
+		// Classification only: the logged mode is always one of the
+		// NON_CHAT_MODES constants; the server-provided model id stays out
+		// of the issue-report buffer.
+		if (includeModes.includes(mode)) {
+			log("Registering included non-chat model/info entry", { mode });
+			return false;
+		}
+		skippedModeCounts[mode] = (skippedModeCounts[mode] ?? 0) + 1;
+		log("Skipping non-chat model/info entry", { mode });
+		return true;
+	};
 	type Slot =
 		| { kind: "deployments"; group: [MappedModelInfo, ...MappedModelInfo[]] }
 		| { kind: "model"; model: LiteLLMModelItem };
@@ -700,15 +718,10 @@ function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): N
 		if (parsed !== undefined) {
 			usableEntryCount += 1;
 			if (parsed.model_info?.blocked === true) {
-				log("Skipping blocked model/info entry", { modelId: parsed.modelId });
+				log("Skipping blocked model/info entry");
 				continue;
 			}
-			const mode = parsed.model_info?.mode;
-			if (mode !== undefined && NON_CHAT_MODES.includes(mode)) {
-				// Classification only: the logged mode is always one of the
-				// NON_CHAT_MODES constants; the server-provided model id stays out
-				// of the issue-report buffer.
-				log("Skipping non-chat model/info entry", { mode });
+			if (dropsByMode(parsed.model_info?.mode)) {
 				continue;
 			}
 			const mapped = mapModelInfoEntry(parsed);
@@ -724,6 +737,16 @@ function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): N
 		}
 		if (isLiteLLMModelItem(entry)) {
 			usableEntryCount += 1;
+			// The same two judgments as the rich shape, in the same order: a paused
+			// deployment is blocked, never a skipped mode and never admitted.
+			const modelInfo = isRecord(entry.model_info) ? entry.model_info : undefined;
+			if (modelInfo?.blocked === true) {
+				log("Skipping blocked model/info entry");
+				continue;
+			}
+			if (dropsByMode(modelInfo?.mode)) {
+				continue;
+			}
 			slots.push({ kind: "model", model: normalizeModelItem(entry, log) });
 			continue;
 		}
@@ -737,11 +760,11 @@ function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): N
 	// unobserved, letting a spurious unknown-key hint through downstream. The
 	// set never gains keys the server did not send.
 	const observedModelInfoKeys = [...observedKeys].sort().slice(0, OBSERVED_MODEL_INFO_KEYS_MAX);
-	return { models, usableEntryCount, observedModelInfoKeys };
+	return { models, usableEntryCount, observedModelInfoKeys, skippedModeCounts };
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { client, baseUrl, apiVersion, discoveryTimeout, expected, entryLabel, headers, log } = request;
+	const { client, baseUrl, apiVersion, discoveryTimeout, expected, includeModes, entryLabel, headers, log } = request;
 
 	log("Fetching from:", modelInfoUrl(baseUrl, apiVersion));
 
@@ -774,7 +797,11 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			const data: unknown[] = parsedInfo.data;
 			log("Parsed model/info response:", { modelCount: data.length });
 
-			const { models, usableEntryCount, observedModelInfoKeys } = narrowModelInfoData(data, log);
+			const { models, usableEntryCount, observedModelInfoKeys, skippedModeCounts } = narrowModelInfoData(
+				data,
+				log,
+				includeModes
+			);
 			if (data.length > 0 && usableEntryCount === 0) {
 				log("model/info returned data but no usable models; falling back", {
 					dataLength: data.length,
@@ -782,7 +809,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 				});
 			} else {
 				log("Successfully fetched models:", models.length);
-				return { models, observedModelInfoKeys };
+				return { models, observedModelInfoKeys, skippedModeCounts };
 			}
 		} else {
 			log("model/info response has no data array; falling back", { payload: truncateForLog(parsedInfo) });

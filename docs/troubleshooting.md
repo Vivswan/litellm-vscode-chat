@@ -146,7 +146,9 @@ Your LiteLLM proxy is reachable but has no models configured (the log line reads
 
 ### "My embedding or image-generation model is missing from the picker"
 
-Models whose LiteLLM `model_info.mode` names a non-chat endpoint (`embedding`, `image_generation`, `audio_speech`, `audio_transcription`, `rerank`, `moderation`) are left out of the chat picker on purpose, since a chat request to them can only fail; models with no declared mode always register. Deployments the proxy has paused (`model_info.blocked`) are skipped too. See [Models: how models appear](models.md#how-models-appear).
+Models whose LiteLLM `model_info.mode` names a non-chat endpoint (`embedding`, `image_generation`, `audio_speech`, `audio_transcription`, `rerank`, `moderation`, `completion`) are left out of the chat picker on purpose; models with no declared mode always register. Deployments the proxy has paused (`model_info.blocked`) are skipped too. See [Models: how models appear](models.md#how-models-appear).
+
+If your proxy labels chat-capable models with one of these modes (most often `completion`), the entry's [`discovery.includeModes`](servers.md#non-chat-modes) admits them. The dashboard offers the same choice once a listing has dropped some.
 
 ### "A model will not take images, or never uses tools"
 

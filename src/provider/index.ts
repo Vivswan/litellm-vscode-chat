@@ -16,7 +16,7 @@ import { getDiscoveryStaleServeWindow, getDiscoveryTimeout } from "../shared/con
 import { countTextTokens } from "../shared/conversion/textTokens";
 import { estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
 import type { Logger } from "../shared/logger";
-import type { ExpectedFailureCategory } from "../shared/serverEntry";
+import type { ExpectedFailureCategory, NonChatMode } from "../shared/serverEntry";
 import type { AggregatedStatus } from "../shared/servers";
 import { DiscoveryCache } from "./catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "./catalog/groupDiscovery";
@@ -117,6 +117,12 @@ export interface LiteLLMChatModelProviderOptions {
 	getExpectedFailures?:
 		| ((label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined)
 		| undefined;
+	/**
+	 * Discovery-time resolver for a declared entry's includeModes, matched like
+	 * getExpectedFailures: the non-chat modes whose /model/info entries register
+	 * anyway. Part of the discovery cache key, so an edit refetches.
+	 */
+	getEntryIncludeModes?: ((label: string, baseUrl: string) => readonly NonChatMode[] | undefined) | undefined;
 	/**
 	 * The host bakes credentials into a group at creation and its group commands are add-only, so the entry's
 	 * CURRENT credentials (matched like getEntryHeaders) overlay the baked ones before anything derives identity.
@@ -236,6 +242,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			decorator: this._decorator,
 			getEntryApiVersion: options.getEntryApiVersion ?? (() => undefined),
 			getExpectedFailures: options.getExpectedFailures ?? (() => undefined),
+			getEntryIncludeModes: options.getEntryIncludeModes ?? (() => undefined),
 			isGroupSuppressed: options.isGroupSuppressed ?? (() => false),
 			log: (message, data) => this.log(message, data),
 			logError: (message, error) => this.logError(message, error),

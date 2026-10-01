@@ -34,7 +34,7 @@ import {
 	USAGE_STATUS_BAR_MODES,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../../shared/config/settings";
-import { EXPECTED_FAILURE_CATEGORIES } from "../../../shared/serverEntry";
+import { EXPECTED_FAILURE_CATEGORIES, NON_CHAT_MODES } from "../../../shared/serverEntry";
 import type { HeaderScalar } from "../../../shared/util/headers";
 import { HEADER_SCALAR_TYPES } from "../../../shared/util/headers";
 import { resolveNls } from "../../util/nls";
@@ -400,6 +400,19 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 		// parser, the provider's demotion, and the dashboard's checkbox set all
 		// derive from that one list.
 		assert.deepStrictEqual(schema.items?.enum, [...EXPECTED_FAILURE_CATEGORIES]);
+	});
+
+	test("a servers entry declares discovery.includeModes as an array over exactly the shared non-chat modes", () => {
+		const entryProperties = settingSchema(allProperties(), SERVERS_SETTING_KEY).items?.properties;
+		assert.ok(entryProperties);
+		const schema = entryProperties.discovery?.properties?.includeModes;
+		assert.ok(schema, "the servers discovery schema declares no includeModes property");
+		assert.strictEqual(schema.type, "array");
+		// The enum mirrors NON_CHAT_MODES, order included: discovery's filter,
+		// the parser, the intent schema, and the dashboard's checkbox set all
+		// derive from that one list, so the manifest cannot offer a mode the
+		// extension never skips.
+		assert.deepStrictEqual(schema.items?.enum, [...NON_CHAT_MODES]);
 	});
 
 	test("HEADER_SCALAR_TYPES names exactly the HeaderScalar member types", () => {

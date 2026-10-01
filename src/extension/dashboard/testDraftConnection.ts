@@ -20,7 +20,7 @@ import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/aut
 import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { transportClassificationOf } from "../../shared/errorClassification";
-import type { SecretFieldId } from "../../shared/serverEntry";
+import type { NonChatMode, SecretFieldId } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { recordFromKeys } from "../../shared/util/json";
 import { buildGroupArgs } from "../servers/serverSync/engine";
@@ -52,6 +52,8 @@ export interface DraftConnection {
 	readonly headers?: Readonly<Record<string, string>> | undefined;
 	/** The draft's expectedFailures in discovery's per-endpoint shape: expected endpoints probe with a single attempt, like production. */
 	readonly expected?: ExpectedDiscoveryFailures | undefined;
+	/** The draft's includeModes (present only when non-empty), so the probe counts what a save would register. */
+	readonly includeModes?: readonly NonChatMode[] | undefined;
 }
 
 /** An optional payload field trimmed to content, or undefined; the save path's empty-means-absent rule. */
@@ -192,6 +194,7 @@ export async function applyTestServerDraft(
 			modelInfo: intent.server.expectedFailures.includes("modelInfo"),
 			modelListing: intent.server.expectedFailures.includes("modelListing"),
 		},
+		...(intent.server.includeModes.length > 0 ? { includeModes: intent.server.includeModes } : {}),
 	};
 	try {
 		const discovered = await env.probeDraftConnection(connection);
@@ -255,7 +258,8 @@ export function createDraftConnectionProbe(
 				...(connection.oauth !== undefined ? { oauth: connection.oauth } : {}),
 				...(connection.virtualKey !== undefined ? { virtualKey: connection.virtualKey } : {}),
 			},
-			connection.expected
+			connection.expected,
+			connection.includeModes
 		);
 		return models.map((model) => model.id);
 	};
