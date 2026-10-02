@@ -35,6 +35,26 @@ describe("stalledBeforeTests", () => {
 			stalled: true,
 		},
 		{
+			name: "a column-0 line whose continuation chunk begins with two spaces is one line, not an indented one",
+			chunks: ["[main] Validated version:", "  more words\n", `${HOST_STALL_MARKER}\n`],
+			status: 1,
+			stalled: true,
+		},
+		{
+			// The kept tail is exactly "  " + 4094 x's: the head was dropped, so the
+			// two spaces are mid-line, not indentation.
+			name: "a column-0 line longer than the partial-line cap, cut so its kept tail begins with two spaces",
+			chunks: [`${"y".repeat(500)}  ${"x".repeat(4094)}`, `\n${HOST_STALL_MARKER}\n`],
+			status: 1,
+			stalled: true,
+		},
+		{
+			name: "blank lines before vscode-test's column-0 progress are not indentation",
+			chunks: ["\n\n✔ Validated version: 1.140.0\n", `${HOST_STALL_MARKER}\n`],
+			status: 1,
+			stalled: true,
+		},
+		{
 			name: "an indented check mark before the marker: a mid-run crash is a verdict",
 			chunks: ["  \u001b[32m✔\u001b[0m a test that passed\n", ...nightly],
 			status: 1,
@@ -45,12 +65,6 @@ describe("stalledBeforeTests", () => {
 			chunks: ["\u001b[0m  Docker LiteLLM stack\u001b[0m\n", ...nightly],
 			status: 1,
 			stalled: false,
-		},
-		{
-			name: "blank lines before vscode-test's column-0 progress are not indentation",
-			chunks: ["\n\n✔ Validated version: 1.140.0\n", `${HOST_STALL_MARKER}\n`],
-			status: 1,
-			stalled: true,
 		},
 		{
 			name: "a colored numbered failure line",
@@ -75,8 +89,8 @@ describe("stalledBeforeTests", () => {
 			stalled: false,
 		},
 		{
-			name: "the marker beside a mocha summary",
-			chunks: [`${HOST_STALL_MARKER}\n  3 failing\n`],
+			name: "a mocha summary as the pipe's last line, with no trailing newline",
+			chunks: [`${HOST_STALL_MARKER}\n  3 failing`],
 			status: 1,
 			stalled: false,
 		},
@@ -90,6 +104,7 @@ describe("stalledBeforeTests", () => {
 			for (const chunk of chunks) {
 				pipe.feed(chunk);
 			}
+			pipe.end();
 			assert.strictEqual(stalledBeforeTests(status, pipe), stalled);
 		});
 	}

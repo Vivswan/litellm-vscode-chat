@@ -130,15 +130,16 @@ const run = (command: string, env: Record<string, string> = {}): void => {
  * paths below stay as they are.
  */
 const runLeg = async (label: DockerTestLabel, env: Record<string, string>): Promise<void> => {
-	const command = `vscode-test --config .vscode-test.mjs --label ${label}`;
+	// argv form, no shell, like runCompose: the label is the one variable and it
+	// comes from DOCKER_TEST_LABELS.
+	const argv = ["vscode-test", "--config", ".vscode-test.mjs", "--label", label];
 	for (let attempt = 1; ; attempt += 1) {
 		// One detector per pipe: each decodes its own byte stream, so a glyph or
 		// the marker split across chunks still reads whole.
 		const stdout = new HostStallDetector();
 		const stderr = new HostStallDetector();
 		const status = await new Promise<number | null>((resolve, reject) => {
-			const child = spawn(command, {
-				shell: true,
+			const child = spawn(argv[0] as string, argv.slice(1), {
 				env: { ...process.env, ...env },
 				stdio: ["inherit", "pipe", "pipe"],
 			});
@@ -153,6 +154,8 @@ const runLeg = async (label: DockerTestLabel, env: Record<string, string>): Prom
 			child.on("error", reject);
 			child.on("close", (code) => resolve(code));
 		});
+		stdout.end();
+		stderr.end();
 		if (status === 0) {
 			return;
 		}
@@ -162,7 +165,7 @@ const runLeg = async (label: DockerTestLabel, env: Record<string, string>): Prom
 			);
 			continue;
 		}
-		throw Object.assign(new Error(`${command} exited with status ${status}`), { status });
+		throw Object.assign(new Error(`${argv.join(" ")} exited with status ${status}`), { status });
 	}
 };
 // Compose goes through the shared no-shell executor (runCompose), so a quoted

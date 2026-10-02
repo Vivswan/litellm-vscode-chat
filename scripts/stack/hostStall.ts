@@ -17,31 +17,52 @@ const ANSI = /\u001b\[[0-9;]*m/g;
  * A line mocha's spec reporter has printed: it indents everything, suite titles included, by at
  * least two spaces (a suite title precedes suiteSetup, so a stall after it may already have run
  * state-mutating setup), and its summary stands alone. vscode-test's own progress ("✔ Validated
- * version", "- Downloading") and VS Code's "[main ...]" lines start at column 0. Horizontal
- * whitespace only, so blank lines before a column-0 line never read as indentation.
+ * version", "- Downloading") and VS Code's "[main ...]" lines start at column 0. Judged per
+ * complete line, so indentation is read only where the line's start is known.
  */
-const MOCHA_OUTPUT = /^[ \t]{2,}\S|^[ \t]*\d+ (?:passing|failing|pending)\b/m;
+const MOCHA_LINE = /^[ \t]{2,}\S|^[ \t]*\d+ (?:passing|failing|pending)\b/;
 
-/** Enough raw tail to rejoin a marker, an escape sequence, or a line start split across chunks. */
-const CARRY = 64;
+/** An unterminated line kept past this loses its head and is then judged with its start unknown. */
+const MAX_PARTIAL_LINE = 4096;
 
-/** One per pipe: the decoder rejoins multi-byte glyphs split across chunks, the carry rejoins text. */
+/** One per pipe: the decoder rejoins multi-byte glyphs split across chunks, the partial line rejoins text. */
 export class HostStallDetector {
 	private readonly decoder = new StringDecoder("utf8");
-	private carry = "";
+	private partial = "";
+	private partialStartKnown = true;
 	sawMarker = false;
 	sawTests = false;
 
 	feed(chunk: Buffer | string): void {
-		const raw = this.carry + (typeof chunk === "string" ? chunk : this.decoder.write(chunk));
-		const text = raw.replace(ANSI, "");
-		if (!this.sawMarker && text.includes(HOST_STALL_MARKER)) {
+		const text = this.partial + (typeof chunk === "string" ? chunk : this.decoder.write(chunk));
+		const lines = text.split("\n");
+		this.partial = lines.pop() ?? "";
+		lines.forEach((line, index) => {
+			this.judge(line, index > 0 || this.partialStartKnown);
+		});
+		if (lines.length > 0) {
+			this.partialStartKnown = true;
+		}
+		if (this.partial.length > MAX_PARTIAL_LINE) {
+			this.partial = this.partial.slice(-MAX_PARTIAL_LINE);
+			this.partialStartKnown = false;
+		}
+	}
+
+	/** The pipe closed: the last line may have arrived without its newline. */
+	end(): void {
+		this.judge(this.partial + this.decoder.end(), this.partialStartKnown);
+		this.partial = "";
+	}
+
+	private judge(line: string, startKnown: boolean): void {
+		const clean = line.replace(ANSI, "");
+		if (clean.includes(HOST_STALL_MARKER)) {
 			this.sawMarker = true;
 		}
-		if (!this.sawTests && MOCHA_OUTPUT.test(text)) {
+		if (startKnown && MOCHA_LINE.test(clean)) {
 			this.sawTests = true;
 		}
-		this.carry = raw.slice(-CARRY);
 	}
 }
 
