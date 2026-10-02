@@ -20,7 +20,7 @@
 //   bun run test:docker --skip-host-fidelity-groups
 //   KEEP_DOCKER_STACK=1 bun run test:docker leave the stack running afterward
 
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import {
 	DOCKER_SKIP_FLAGS,
 	DOCKER_TEST_LABELS,
@@ -29,6 +29,7 @@ import {
 } from "../src/test/dockerTestLabels";
 import { PLAYBACK_MODEL } from "../src/test/fakeStack/models";
 import { resolveComposeCommand, runCompose } from "./stack/composeCommand";
+import { HOST_STALL_MARKER, HostStallDetector, stalledBeforeTests } from "./stack/hostStall";
 import { composeSetting, ensureGeneratedConfig, readEnvFile, STACK_DEFAULTS } from "./stack/litellmConfig";
 import { seedStackUsageBudgetKey } from "./stack/seedUsage";
 
@@ -121,6 +122,49 @@ const composeDisplay = resolveComposeCommand().join(" ");
 const run = (command: string, env: Record<string, string> = {}): void => {
 	execSync(command, { stdio: "inherit", env: { ...process.env, ...env } });
 };
+
+/**
+ * One vscode-test leg, streamed to the console and watched for the host-stall signature
+ * (scripts/stack/hostStall.ts). A stall before any test ran relaunches the leg once; anything
+ * else, a test verdict included, throws with execSync's error shape so the catch and teardown
+ * paths below stay as they are.
+ */
+const runLeg = async (label: DockerTestLabel, env: Record<string, string>): Promise<void> => {
+	const command = `vscode-test --config .vscode-test.mjs --label ${label}`;
+	for (let attempt = 1; ; attempt += 1) {
+		// One detector per pipe: each decodes its own byte stream, so a glyph or
+		// the marker split across chunks still reads whole.
+		const stdout = new HostStallDetector();
+		const stderr = new HostStallDetector();
+		const status = await new Promise<number | null>((resolve, reject) => {
+			const child = spawn(command, {
+				shell: true,
+				env: { ...process.env, ...env },
+				stdio: ["inherit", "pipe", "pipe"],
+			});
+			const watch = (stream: NodeJS.ReadableStream | null, sink: NodeJS.WriteStream, pipe: HostStallDetector) => {
+				stream?.on("data", (chunk: Buffer) => {
+					sink.write(chunk);
+					pipe.feed(chunk);
+				});
+			};
+			watch(child.stdout, process.stdout, stdout);
+			watch(child.stderr, process.stderr, stderr);
+			child.on("error", reject);
+			child.on("close", (code) => resolve(code));
+		});
+		if (status === 0) {
+			return;
+		}
+		if (attempt === 1 && stalledBeforeTests(status, stdout, stderr)) {
+			console.log(
+				`\nThe VS Code test host stalled before any test ran (${HOST_STALL_MARKER}); relaunching ${label} once.`
+			);
+			continue;
+		}
+		throw Object.assign(new Error(`${command} exited with status ${status}`), { status });
+	}
+};
 // Compose goes through the shared no-shell executor (runCompose), so a quoted
 // COMPOSE_CMD behaves identically here and in scripts/stack/compose.ts. A
 // non-zero exit throws with `status`, keeping execSync's error shape for the
@@ -196,7 +240,7 @@ async function main(): Promise<void> {
 				continue;
 			}
 			console.log(`\n${legs[label].banner}`);
-			run(`vscode-test --config .vscode-test.mjs --label ${label}`, legs[label].env);
+			await runLeg(label, legs[label].env);
 		}
 	} catch (error) {
 		failed = true;

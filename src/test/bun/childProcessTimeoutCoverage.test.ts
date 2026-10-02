@@ -74,6 +74,7 @@ const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["node:fs", "file system calls"],
 	["node:os", "reads host facts"],
 	["node:path", "string arithmetic"],
+	["node:string_decoder", "in-process byte-to-text decoding"],
 	["node:util", "in-process comparison and formatting helpers"],
 	["react", "component runtime"],
 	["react-dom/client", "component runtime"],
