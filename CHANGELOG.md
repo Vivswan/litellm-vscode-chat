@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.8](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.7...v0.6.8) (2026-10-03)
+
+
+### Bug Fixes
+
+* **ci:** relaunch a docker leg once when the VS Code host stalls before any test runs ([#396](https://github.com/Vivswan/litellm-vscode-chat/issues/396)) ([9ad94e3](https://github.com/Vivswan/litellm-vscode-chat/commit/9ad94e3d764f5325b737be9aa8dbc3ee1381f058))
+
 ## [0.6.7](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.6...v0.6.7) (2026-10-01)
 
 
