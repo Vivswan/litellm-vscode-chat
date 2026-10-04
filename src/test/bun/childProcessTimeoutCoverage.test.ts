@@ -67,6 +67,7 @@ const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["class-variance-authority", "class-name composition"],
 	["clsx", "class-name composition"],
 	["fast-check", "in-process property generators"],
+	["github-slugger", "string arithmetic over a heading"],
 	["gpt-tokenizer/encoding/cl100k_base", "in-process tokenizer tables"],
 	["gpt-tokenizer/encoding/o200k_base", "in-process tokenizer tables"],
 	["node:assert", "assertions"],

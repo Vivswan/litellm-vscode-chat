@@ -5,7 +5,7 @@ import { CMD } from "../../shared/config/commandIds";
 import { HAS_SHOWN_WELCOME_KEY } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { AggregatedStatus } from "../../shared/servers";
-import { GITHUB_DOCS_URL } from "../../shared/util/links";
+import { DOCS_GETTING_STARTED_URL } from "../../shared/util/links";
 import type { DashboardController } from "../dashboard/panel";
 import { registerManageCommand } from "../servers/serverManagement";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
@@ -124,7 +124,7 @@ export async function maybeShowWelcome(
 			reconfigureAction(configureNowLabel()),
 			{
 				label: l10n.t("Documentation"),
-				run: () => void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS_URL)),
+				run: () => void vscode.env.openExternal(vscode.Uri.parse(DOCS_GETTING_STARTED_URL)),
 			},
 		]).catch((error) => {
 			logger.error("Welcome message failed", error);

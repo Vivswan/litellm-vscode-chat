@@ -1,10 +1,12 @@
 /**
- * The dashboard's "learn more" links into the docs: every path and #anchor the webview or the host ships exists
- * under docs/, and each section renders its link. Plain anchors need no plumbing or CSP grant.
+ * The dashboard's "learn more" links into the docs: every page and #anchor the webview, the host, or a text carrier
+ * ships exists under docs/ as the published site serves it, and each section renders its link. Plain anchors need
+ * no plumbing or CSP grant.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { slug } from "github-slugger";
 import type { DashboardSectionId } from "../../../../dashboard/viewModels";
 import * as links from "../../../../shared/util/links";
 import { App } from "../../../../webview/dashboard/app";
@@ -30,7 +32,7 @@ afterEach(() => {
 });
 
 const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..", "..");
-const DOCS_BASE = `${links.GITHUB_REPO_URL}/blob/main/docs/`;
+const DOCS_BASE = `${links.DOCS_SITE_URL}/`;
 
 /**
  * Every host-side link the links module exports: flat string constants plus the values of record exports. Swept
@@ -40,31 +42,65 @@ function hostLinkUrls(): [name: string, url: string][] {
 	return Object.entries(links).flatMap(([name, value]): [string, string][] =>
 		typeof value === "string"
 			? [[name, value]]
-			: Object.entries(value).map(([key, url]): [string, string] => [`${name}.${key}`, url])
+			: typeof value === "object"
+				? Object.entries(value).map(([key, url]): [string, string] => [`${name}.${key}`, url])
+				: []
 	);
 }
 
-/** Every docs URL the code ships: the webview constants plus the host-side links rooted under docs/. */
+/**
+ * The prose carriers that may spell a docs-site URL outright: the manifest's string bundles (walkthrough titles,
+ * markdownDescriptions) in every locale, read as JSON so an escaped solidus still counts, and the walkthrough pages,
+ * read as text. A link pasted into any of them is resolved like the code's.
+ */
+function carrierDocsUrls(): [name: string, url: string][] {
+	const walkthroughDir = path.join(repoRoot, "assets", "walkthrough");
+	const texts: [name: string, text: string][] = [
+		...fs
+			.readdirSync(repoRoot)
+			.filter((name) => /^package\.nls(\.[\w-]+)?\.json$/.test(name))
+			.map((name): [string, string] => [
+				name,
+				Object.values(JSON.parse(fs.readFileSync(path.join(repoRoot, name), "utf8")) as Record<string, string>).join(
+					"\n"
+				),
+			]),
+		...fs
+			.readdirSync(walkthroughDir)
+			.map((name): [string, string] => [
+				path.join("assets", "walkthrough", name),
+				fs.readFileSync(path.join(walkthroughDir, name), "utf8"),
+			]),
+	];
+	// Each occurrence of the origin plus its slash, extended to the end of its URL: whitespace, a quote, a markdown
+	// link's `)`, or an autolink's `>`.
+	return texts.flatMap(([name, text]) =>
+		text
+			.split(DOCS_BASE)
+			.slice(1)
+			.map((rest): [string, string] => [name, `${DOCS_BASE}${/^[^\s"'<>)]*/.exec(rest)?.[0] ?? ""}`])
+	);
+}
+
+/** Every docs URL the extension ships: the webview constants, the host-side links on the site, and the carriers'. */
 function allDocsUrls(): [name: string, url: string][] {
 	const entries = Object.entries(docsLinks).filter(([, value]) => typeof value === "string") as [string, string][];
-	return [...entries, ...hostLinkUrls().filter(([, url]) => url.startsWith(DOCS_BASE))];
+	return [...entries, ...hostLinkUrls().filter(([, url]) => url.startsWith(DOCS_BASE)), ...carrierDocsUrls()];
 }
 
-/** A markdown heading as GitHub's anchor slugger renders it. */
-function slug(heading: string): string {
-	return heading
-		.toLowerCase()
-		.replace(/[^\w\- ]/g, "")
-		.trim()
-		.replace(/ /g, "-");
-}
-
-test("every docs URL resolves to an existing file, and its #anchor to a real heading", () => {
-	for (const [name, url] of allDocsUrls()) {
-		const [file, fragment] = url.slice(DOCS_BASE.length).split("#");
-		const target = path.join(repoRoot, "docs", file ?? "");
+test("every docs URL resolves to a page under docs/, and its #anchor to a heading the site serves", () => {
+	const urls = allDocsUrls();
+	expect(urls.length).toBeGreaterThan(0);
+	for (const [name, url] of urls) {
+		const [route, fragment] = url.slice(DOCS_BASE.length).split("#");
+		// The site serves docs/<path>.md at /<path>.html, the zh-cn and zh-tw twins at their directory's prefix.
+		expect(route, `${name}: ${url} names a rendered page`).toMatch(/^[\w-]+(\/[\w-]+)*\.html$/);
+		const file = `${(route ?? "").slice(0, -".html".length)}.md`;
+		const target = path.join(repoRoot, "docs", file);
 		expect(fs.existsSync(target), `${name}: docs/${file} exists`).toBe(true);
 		if (fragment !== undefined) {
+			// Heading ids on the site are github-slugger's (the same package the site build slugs with), so the
+			// markdown heading text slugs straight to the id the page serves.
 			const headings = fs
 				.readFileSync(target, "utf8")
 				.split("\n")
@@ -72,7 +108,7 @@ test("every docs URL resolves to an existing file, and its #anchor to a real hea
 					const match = /^#+\s+(.*)$/.exec(line);
 					return match?.[1] === undefined ? [] : [slug(match[1])];
 				});
-			expect(headings, `${name}: docs/${file}#${fragment}`).toContain(fragment);
+			expect(headings, `${name}: docs/${file}#${fragment}`).toContain(decodeURIComponent(fragment));
 		}
 	}
 });
