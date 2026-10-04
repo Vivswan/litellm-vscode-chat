@@ -38,7 +38,6 @@ A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Lan
 
 - **Never launch VS Code or any GUI to verify.** Humans test with `F5` or `bun run dev`.
 - **`bun run typecheck` after any TypeScript change.** It covers all four tsconfig projects; `compile` builds only the root one, and `lint:types` typechecks nothing despite its name.
-- **Bun tests run through `bun run test:bun`**, which builds the hermetic git environment before the process starts; a bare `bun test` is refused by the preload.
 - **The provider owns exactly `model`, `messages`, `stream`, `stream_options`, `max_tokens`, and `tools`/`tool_choice`** (`src/shared/config/parameterResolution.ts`). Nothing else is injected.
 - **User records and runtime options reach LiteLLM unchanged.** Underscore keys are directives and are never sent.
 - **Capabilities come from the server, parameters from the user.** The capability vocabulary is open and the user is right about their server (`src/shared/config/capabilityResolution.ts`).
@@ -58,7 +57,8 @@ A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Lan
 - **One-shot features take nothing from the records except `_fim_template`** (`src/extension/features/`). Features never import each other; `features/quickFixChatCommands.ts` is the one declared bridge.
 - **Migrations are idempotent, state-detecting, and expire** (`src/extension/migrations/expiries.ts`). A passed expiry turns the build red until the migration is deleted.
 - **The two `models.*` record settings are `restricted`; every `.enabled`, `.model`, and `models.openRouterCatalog` is machine-overridable** (`src/shared/config/settingSpec.ts`).
-- **Every `contributes` block of `package.json` and `docs/settings.md` with its zh-cn/zh-tw twins are generated output** (`bun run manifest:generate`, `bun run docs:settings`; the sources are the code constants plus the presentation tables in `scripts/dev/manifest/`). Edit the source and commit; the pre-commit hook regenerates and stages the outputs, and CI's `--check` is the backstop.
+- **Every `contributes` block of `package.json` and `docs/settings.md` with its zh-cn/zh-tw twins are generated output** (`bun run manifest:generate`, `bun run docs:settings`; the sources are the code constants plus the presentation tables in `scripts/dev/manifest/`). Edit the source, run the generator, commit; the hook's `check:static` and CI refuse drift and name the command.
+- **A pre-commit hook only checks.** When a check fails the hook fails; it may write the fix into the working tree first (regenerate, format) but it still fails, and it never stages or commits anything. The developer reruns the commit. `bun run format` is the fix biome's refusal calls for.
 - **English for the manifest stays in `package.nls.json`** under the keys the generator derives from the ids; a new setting needs a prose entry in all three locales. The agent tools' model-facing text lives in `src/extension/features/agentTools/inputSchema.ts`.
 - **Fuzz findings are pinned, not fixed in place**: a fuzz-found failure gets a corpus entry in `src/test/fuzzCorpus.ts`.
 - **Dashboard appearance is reviewed, not gated**: `check-overflow` and `check-geometry` gate fit and geometry; looks are judged against `docs/dashboard-visual-language.md`.

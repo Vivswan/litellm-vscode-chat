@@ -1,8 +1,8 @@
 /**
  * Regenerates the contributes blocks of package.json from the code constants and the authored presentation tables
  * (contributions.ts names the blocks). `--check` verifies instead of writing and exits 1 on drift; `--root <dir>`
- * points the output at another directory (tests use it). The pre-commit hook does not run this:
- * scripts/dev/stageGenerated.ts regenerates and stages its registered generators' outputs in one run.
+ * points the output at another directory (tests use it). Nothing regenerates on the developer's behalf: the
+ * pre-commit hook and CI run `--check`, refuse drift, and name the command.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -22,7 +22,7 @@ function main(): void {
 	if (mode === "check") {
 		for (const what of stale) {
 			console.error(
-				`manifest: ${what} is stale; run: bun run manifest:generate (the pre-commit hook does this; a --no-verify commit or a web edit skipped it)`
+				`manifest: ${what} is stale; run: bun run manifest:generate, then stage package.json and commit again`
 			);
 		}
 		process.exitCode = 1;
