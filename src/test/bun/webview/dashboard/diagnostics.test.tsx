@@ -4,8 +4,8 @@
  * through Copy diagnostics here; servers.test.tsx pins their on-screen twins.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { DOCS_GETTING_STARTED_URL } from "../../../../shared/util/links";
 import { App } from "../../../../webview/dashboard/app";
-import { DOCS_LINK_GETTING_STARTED } from "../../../../webview/dashboard/docsLinks";
 import {
 	FEEDBACK_LINK_FEATURE_REQUEST,
 	FEEDBACK_LINK_RATE,
@@ -363,7 +363,7 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 		["Rate this extension", FEEDBACK_LINK_RATE],
 		["Request a feature", FEEDBACK_LINK_FEATURE_REQUEST],
 		["GitHub repository", FEEDBACK_LINK_REPOSITORY],
-		["Documentation", DOCS_LINK_GETTING_STARTED],
+		["Documentation", DOCS_GETTING_STARTED_URL],
 	];
 	for (const [text, href] of expectations) {
 		const anchor = anchorByText(root, text);

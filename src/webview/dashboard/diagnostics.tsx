@@ -29,10 +29,10 @@ import {
 } from "../../shared/config/capabilityDisplay";
 import type { RecordDiagnostic } from "../../shared/config/recordResolution";
 import { displayUrl } from "../../shared/util/displayUrl";
+import { DOCS_GETTING_STARTED_URL } from "../../shared/util/links";
 import type { DocsUrl } from "./docsLinks";
 import {
 	DOCS_LINK_AUTHENTICATION,
-	DOCS_LINK_GETTING_STARTED,
 	DOCS_LINK_MODEL_MATCHING,
 	DOCS_LINK_RESOLVED_MODELS,
 	DOCS_LINK_SETTINGS_MIGRATION,
@@ -1145,7 +1145,7 @@ function Support() {
 	return (
 		<nav aria-label={l10n.t("Support")}>
 			<ul className="feedback-links">
-				<LinkRow href={DOCS_LINK_GETTING_STARTED} icon={<IconBook />} label={l10n.t("Documentation")} />
+				<LinkRow href={DOCS_GETTING_STARTED_URL} icon={<IconBook />} label={l10n.t("Documentation")} />
 				<LinkRow href={FEEDBACK_LINK_REPOSITORY} icon={<IconRepo />} label={l10n.t("GitHub repository")} />
 				<LinkRow href={FEEDBACK_LINK_FEATURE_REQUEST} icon={<IconLightbulb />} label={l10n.t("Request a feature")} />
 				<LinkRow href={FEEDBACK_LINK_RATE} icon={<IconStar />} label={l10n.t("Rate this extension")} />
