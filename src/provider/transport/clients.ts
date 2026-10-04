@@ -36,7 +36,7 @@ const KEYLESS_PLACEHOLDER = "keyless";
 export const MODEL_INFO_PATH = "/model/info";
 export const MODELS_PATH = "/models";
 export const CHAT_COMPLETIONS_PATH = "/chat/completions";
-export const COMPLETIONS_PATH = "/completions";
+const COMPLETIONS_PATH = "/completions";
 
 /** The absolute model-discovery endpoint, for logs; requests go through MODEL_INFO_PATH on the client. */
 export function modelInfoUrl(baseUrl: string, apiVersion: string | undefined): string {

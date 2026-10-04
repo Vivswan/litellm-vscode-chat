@@ -7,15 +7,13 @@ import { resolveNls } from "../../util/nls";
 import { REPO_ROOT } from "../../util/repoRoot";
 
 /**
- * Per locale, the title the palette shows (package.nls.<locale>.json, native
- * %key% substitution) must equal the title messages interpolate (the bundle's
- * translation of the English title). The two file families are checked for
- * parity against their own English references by scripts/l10n/check.ts, never
- * against each other, so a translator editing one of them leaves guidance that
- * names a command the palette does not show, with nothing else failing.
- * Manifest key names may change, so the manage command's nls key(s) are found
- * by English VALUE. Deliberately NOT manageCommandTitle(): on a non-English
- * test host that returns a translated value and the compare would mislead.
+ * Per locale, the title the palette shows (package.nls.<locale>.json) must
+ * equal the title messages interpolate (the bundle's translation). The l10n
+ * gate checks each family against its own English reference, never one
+ * against the other, so a translator editing one leaves guidance naming a
+ * command the palette does not show, with nothing else failing. The manage
+ * command's nls keys are found by English VALUE, since key names may change.
+ * Not manageCommandTitle(): a non-English host returns a translated value.
  */
 
 const englishBundlePath = path.join(REPO_ROOT, "l10n", "bundle.l10n.json");
