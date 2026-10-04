@@ -129,6 +129,26 @@ jobs:
       - name: Set up development environment
         run: bash scripts/env/setup-env.sh
 
+      # The same cache as test-reusable.yml's, for the same reason: a dead update service must not kill the job.
+      - name: Stamp the week
+        id: vscode-week
+        shell: bash
+        run: echo "stamp=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the VS Code build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .vscode-test
+          key: vscode-test-${{ runner.os }}-${{ runner.arch }}-stable-${{ steps.vscode-week.outputs.stamp }}
+          restore-keys: vscode-test-${{ runner.os }}-${{ runner.arch }}-stable-
+
+      # A prefix restore would otherwise carry every build ever cached; the fallback only ever reads the newest.
+      - name: Keep only the newest cached build
+        shell: bash
+        run: |
+          shopt -s nullglob
+          printf '%s\n' .vscode-test/vscode-*/ | sort -V | sed '$d' | while read -r dir; do rm -rf "$dir"; done
+
       - name: Fuzz the unit property suites
         shell: bash
         run: |
@@ -162,6 +182,26 @@ jobs:
 
       - name: Set up development environment
         run: bash scripts/env/setup-env.sh
+
+      # The same cache as test-reusable.yml's, for the same reason: a dead update service must not kill the job.
+      - name: Stamp the week
+        id: vscode-week
+        shell: bash
+        run: echo "stamp=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the VS Code build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .vscode-test
+          key: vscode-test-${{ runner.os }}-${{ runner.arch }}-stable-${{ steps.vscode-week.outputs.stamp }}
+          restore-keys: vscode-test-${{ runner.os }}-${{ runner.arch }}-stable-
+
+      # A prefix restore would otherwise carry every build ever cached; the fallback only ever reads the newest.
+      - name: Keep only the newest cached build
+        shell: bash
+        run: |
+          shopt -s nullglob
+          printf '%s\n' .vscode-test/vscode-*/ | sort -V | sed '$d' | while read -r dir; do rm -rf "$dir"; done
 
       - name: Fuzz the docker stream suites
         env:
