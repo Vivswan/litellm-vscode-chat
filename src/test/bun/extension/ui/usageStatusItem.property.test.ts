@@ -8,8 +8,7 @@ import { isUsageFresh, usageFreshnessWindowMs } from "../../../../extension/serv
 import type { ServerUsageState, UsageEndpointState } from "../../../../extension/servers/usage/store";
 import { UNPROBED_ENDPOINTS } from "../../../../extension/servers/usage/store";
 import { renderUsageStatus } from "../../../../extension/ui/usageStatusItem";
-import { NUMBER_SETTING_SPECS } from "../../../../shared/config/settingSpec";
-import type { UsageStatusBarMode } from "../../../../shared/config/settings";
+import { NUMBER_SETTING_SPECS, type UsageStatusBarMode } from "../../../../shared/config/settingSpec";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;

@@ -1,22 +1,13 @@
 /**
- * The capability display helpers: the $/M cost formatter's rounding rules (both
- * inspectors render through it) and the consumed-field label coverage. The
- * formatter contract: zero is "$0", a dollar and up rounds to cents, sub-dollar
- * values keep three significant digits with trailing zeros trimmed but never
- * below two decimals, and NOTHING ever renders in scientific notation - the raw
- * wire values (5e-7) stringify exponentially, the regression this pins against.
+ * The capability display helpers: the $/M cost formatter's rounding rules (both inspectors render through it), the
+ * unit label, and the parameter count. The formatter contract: zero is "$0", a dollar and up rounds to cents,
+ * sub-dollar values keep three significant digits with trailing zeros trimmed but never below two decimals, and
+ * NOTHING ever renders in scientific notation - the raw wire values (5e-7) stringify exponentially, the regression
+ * this pins against.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import {
-	COST_CAPABILITY_FIELDS,
-	capabilityDisplayLabel,
-	costUnitLabel,
-	formatCostPerMillion,
-	isCostCapabilityField,
-	parameterCountText,
-} from "../../../../shared/config/capabilityDisplay";
-import { CONSUMED_CAPABILITY_FIELDS } from "../../../../shared/config/capabilityResolution";
+import { costUnitLabel, formatCostPerMillion, parameterCountText } from "../../../../shared/config/capabilityDisplay";
 
 describe("shared/config/capabilityDisplay formatCostPerMillion", () => {
 	test("each rounding band renders its documented shape", () => {
@@ -91,26 +82,7 @@ describe("shared/config/capabilityDisplay costUnitLabel", () => {
 	});
 });
 
-describe("shared/config/capabilityDisplay labels", () => {
-	test("every consumed field has a friendly label; unknown keys have none", () => {
-		for (const name of Object.keys(CONSUMED_CAPABILITY_FIELDS)) {
-			assert.notStrictEqual(capabilityDisplayLabel(name), undefined, `no label for consumed field ${name}`);
-		}
-		assert.strictEqual(capabilityDisplayLabel("supports_web_search"), undefined);
-		assert.strictEqual(capabilityDisplayLabel("toString"), undefined);
-	});
-
-	test("the cost-field list is exactly the consumed cost vocabulary", () => {
-		const consumedCosts = Object.entries(CONSUMED_CAPABILITY_FIELDS)
-			.filter(([, kind]) => kind === "cost")
-			.map(([name]) => name);
-		assert.deepStrictEqual([...COST_CAPABILITY_FIELDS].sort(), [...consumedCosts].sort());
-		for (const name of COST_CAPABILITY_FIELDS) {
-			assert.ok(isCostCapabilityField(name));
-		}
-		assert.ok(!isCostCapabilityField("context_length"));
-	});
-
+describe("shared/config/capabilityDisplay parameterCountText", () => {
 	test("the parameter count picks the singular and plural readings", () => {
 		assert.strictEqual(parameterCountText(1), "1 parameter");
 		assert.strictEqual(parameterCountText(0), "0 parameters");

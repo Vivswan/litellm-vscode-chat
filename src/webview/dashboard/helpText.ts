@@ -346,7 +346,7 @@ export function helpDiagnosticsTools(): string {
  * The settings rows that carry a "?", in row order; sparse on purpose - only where a longer
  * explanation earns it. Static ids (nothing localized), so the list may live at module level.
  */
-export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)[] = [
+export const SETTING_ROW_HELP_IDS = [
 	"chat.timeout",
 	"chat.maxToolsPerRequest",
 	"discovery.timeout",
@@ -364,98 +364,102 @@ export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)
 	"chatParticipant.enabled",
 	"agentTools.enabled",
 	"agentTools.secretValues.enabled",
-];
+] as const satisfies readonly (NumberSettingId | BooleanSettingId)[];
+
+type SettingRowHelpId = (typeof SETTING_ROW_HELP_IDS)[number];
+
+/**
+ * The help text per id as a thunk, so the text resolves at call time. Total over SETTING_ROW_HELP_IDS and closed to
+ * anything else, so the id list and the texts cannot drift.
+ */
+const SETTING_ROW_HELP: Readonly<Record<SettingRowHelpId, () => string>> = {
+	"chat.timeout": () =>
+		l10n.t({
+			message:
+				"A hard bound on the whole chat call, and on each one-shot feature call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
+			comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
+		}),
+	"chat.maxToolsPerRequest": () =>
+		l10n.t(
+			"A request carrying more, e.g. 200 tools against a 128 cap, is refused before sending. Most servers cap at 128."
+		),
+	"discovery.timeout": () =>
+		l10n.t({
+			message:
+				"Applies per call, and a discovery pass makes several - the model-info listing and the /models fallback each get a fresh budget - so one pass can take a multiple of this. Type 30s, 1m, or plain ms.",
+			comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
+		}),
+	"discovery.cacheTtl": () =>
+		l10n.t(
+			"Sync Models Now always asks the servers immediately, whatever this says; type 1h, 30m, or 0 to refresh every time."
+		),
+	"discovery.staleServeWindow": () =>
+		l10n.t({
+			message:
+				"Counted from the last successful sync; held models wear a stale warning, e.g. 1h suits a homelab proxy that sleeps. Type 1h, 30m, or plain ms; 0 drops them at once.",
+			comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
+		}),
+	"usage.pollInterval": () =>
+		l10n.t({
+			message:
+				"0 stops only the background timer - Refresh Usage Now still fetches on demand, and opening the dashboard fetches when the numbers are older than this interval (or its 5m default at 0). Type 5m, 90s, or plain ms.",
+			comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
+		}),
+	"chat.promptCaching": () =>
+		l10n.t(
+			"Applies only on models that advertise support, currently Anthropic Claude models (supports_prompt_caching); the reused prefix bills at the cache rate instead of full price."
+		),
+	// The filter reads THIS tip and the live status, never the row's displaced static
+	// description; the two keys translate independently, so never rely on identity.
+	"models.openRouterCatalog": () =>
+		l10n.t(
+			"Fill missing model capabilities from the OpenRouter catalog, refreshed weekly. Off, only explicit _openrouter_model directives read the cached snapshot."
+		),
+	// The description states both gates; the tip carries the privacy fact.
+	"inlineCompletions.enabled": () =>
+		l10n.t("Inline completions send nearby file text to your LiteLLM server as you type."),
+	"commitGeneration.enabled": () =>
+		l10n.t(
+			"Generating sends the diff, untracked file names, and your last five commit subjects to your LiteLLM server."
+		),
+	// Same shape as the commit tip: the description states both gates, the
+	// tip says what leaves the machine.
+	"prGeneration.enabled": () =>
+		l10n.t(
+			"Generating sends the branch's commits and a patch per changed file to your LiteLLM server; from the GitHub Pull Requests view, your PR template and referenced issues go too, private ones included."
+		),
+	// The description states both gates; the tip carries the fact the
+	// description no longer spells out - WHO decides, and what leaves.
+	"consultTool.enabled": () =>
+		l10n.t("The agent decides when to consult, sending the question and background it writes to your LiteLLM server."),
+	// The row's own description names both paths; the tip carries what the
+	// model picker below it does NOT decide, which is where the code goes
+	// on the path most people will take.
+	"quickFix.enabled": () =>
+		l10n.t(
+			"Picking Fix or Explain sends the diagnostic and its lines to @litellm, on whichever model the chat picker names."
+		),
+	// Two commands, two scopes; the tip carries what each one sends, since
+	// that is the choice the user makes at invocation time.
+	"reviewComments.enabled": () =>
+		l10n.t(
+			"Reviewing sends the diff of each changed file - or, for one file, its whole content - to your LiteLLM server."
+		),
+	// Its own row has no model picker, so the tip carries the one fact that
+	// explains both the cost and the privacy story: it is a chat turn.
+	"chatParticipant.enabled": () =>
+		l10n.t("Type @litellm in chat; it answers with the model the picker has selected, and bills like chat."),
+	"agentTools.enabled": () =>
+		l10n.t(
+			"The agent decides when to call a tool. Read output (labels, base URLs, model IDs, redacted logs) goes to the model the agent runs on; a server edit triggers the usual discovery and usage requests to that host."
+		),
+	"agentTools.secretValues.enabled": () =>
+		l10n.t(
+			"Off, you type a key the agent asks to set into a box, masked by default (ui.maskSecretInputs governs it), and it never enters the chat. On, the key travels through the agent's context and transcript."
+		),
+};
 
 /** Per-setting help for the ids in SETTING_ROW_HELP_IDS; undefined for rows whose description is enough. */
 export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string | undefined {
-	switch (id) {
-		case "chat.timeout":
-			return l10n.t({
-				message:
-					"A hard bound on the whole chat call, and on each one-shot feature call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
-				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
-			});
-		case "chat.maxToolsPerRequest":
-			return l10n.t(
-				"A request carrying more, e.g. 200 tools against a 128 cap, is refused before sending. Most servers cap at 128."
-			);
-		case "discovery.timeout":
-			return l10n.t({
-				message:
-					"Applies per call, and a discovery pass makes several - the model-info listing and the /models fallback each get a fresh budget - so one pass can take a multiple of this. Type 30s, 1m, or plain ms.",
-				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
-			});
-		case "discovery.cacheTtl":
-			return l10n.t(
-				"Sync Models Now always asks the servers immediately, whatever this says; type 1h, 30m, or 0 to refresh every time."
-			);
-		case "discovery.staleServeWindow":
-			return l10n.t({
-				message:
-					"Counted from the last successful sync; held models wear a stale warning, e.g. 1h suits a homelab proxy that sleeps. Type 1h, 30m, or plain ms; 0 drops them at once.",
-				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
-			});
-		case "usage.pollInterval":
-			return l10n.t({
-				message:
-					"0 stops only the background timer - Refresh Usage Now still fetches on demand, and opening the dashboard fetches when the numbers are older than this interval (or its 5m default at 0). Type 5m, 90s, or plain ms.",
-				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
-			});
-		case "chat.promptCaching":
-			return l10n.t(
-				"Applies only on models that advertise support, currently Anthropic Claude models (supports_prompt_caching); the reused prefix bills at the cache rate instead of full price."
-			);
-		case "models.openRouterCatalog":
-			// The filter reads THIS tip and the live status, never the row's displaced static
-			// description; the two keys translate independently, so never rely on identity.
-			return l10n.t(
-				"Fill missing model capabilities from the OpenRouter catalog, refreshed weekly. Off, only explicit _openrouter_model directives read the cached snapshot."
-			);
-		case "inlineCompletions.enabled":
-			// The description states both gates; the tip carries the privacy fact.
-			return l10n.t("Inline completions send nearby file text to your LiteLLM server as you type.");
-		case "commitGeneration.enabled":
-			return l10n.t(
-				"Generating sends the diff, untracked file names, and your last five commit subjects to your LiteLLM server."
-			);
-		case "prGeneration.enabled":
-			// Same shape as the commit tip: the description states both gates, the
-			// tip says what leaves the machine.
-			return l10n.t(
-				"Generating sends the branch's commits and a patch per changed file to your LiteLLM server; from the GitHub Pull Requests view, your PR template and referenced issues go too, private ones included."
-			);
-		case "consultTool.enabled":
-			// The description states both gates; the tip carries the fact the
-			// description no longer spells out - WHO decides, and what leaves.
-			return l10n.t(
-				"The agent decides when to consult, sending the question and background it writes to your LiteLLM server."
-			);
-		case "quickFix.enabled":
-			// The row's own description names both paths; the tip carries what the
-			// model picker below it does NOT decide, which is where the code goes
-			// on the path most people will take.
-			return l10n.t(
-				"Picking Fix or Explain sends the diagnostic and its lines to @litellm, on whichever model the chat picker names."
-			);
-		case "reviewComments.enabled":
-			// Two commands, two scopes; the tip carries what each one sends, since
-			// that is the choice the user makes at invocation time.
-			return l10n.t(
-				"Reviewing sends the diff of each changed file - or, for one file, its whole content - to your LiteLLM server."
-			);
-		case "chatParticipant.enabled":
-			// Its own row has no model picker, so the tip carries the one fact that
-			// explains both the cost and the privacy story: it is a chat turn.
-			return l10n.t("Type @litellm in chat; it answers with the model the picker has selected, and bills like chat.");
-		case "agentTools.enabled":
-			return l10n.t(
-				"The agent decides when to call a tool. Read output (labels, base URLs, model IDs, redacted logs) goes to the model the agent runs on; a server edit triggers the usual discovery and usage requests to that host."
-			);
-		case "agentTools.secretValues.enabled":
-			return l10n.t(
-				"Off, you type a key the agent asks to set into a box, masked by default (ui.maskSecretInputs governs it), and it never enters the chat. On, the key travels through the agent's context and transcript."
-			);
-		default:
-			return undefined;
-	}
+	return Object.hasOwn(SETTING_ROW_HELP, id) ? SETTING_ROW_HELP[id as SettingRowHelpId]() : undefined;
 }

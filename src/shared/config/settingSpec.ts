@@ -305,6 +305,19 @@ export function isUsableThreshold(value: number): boolean {
 }
 
 /**
+ * The thresholds that participate in a scale: the usable ones, deduplicated and ascending. The one list normalizer
+ * behind the settings reader, the dashboard's spend tone, the status bar, and the budget resolver.
+ */
+export function usableThresholds(thresholds: readonly number[]): number[] {
+	return [...new Set(thresholds.filter(isUsableThreshold))].sort((a, b) => a - b);
+}
+
+/** When the usage status-bar item shows: always, only while an alert threshold is crossed, or never. */
+export const USAGE_STATUS_BAR_MODES = ["always", "alerts-only", "off"] as const;
+
+export type UsageStatusBarMode = (typeof USAGE_STATUS_BAR_MODES)[number];
+
+/**
  * The settings under the config section with no scalar spec: the object and
  * array settings plus the free and enum strings. Their value grammars live
  * with their readers; this list only names the keys.

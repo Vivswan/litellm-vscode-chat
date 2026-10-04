@@ -19,7 +19,6 @@ import type {
 	SettingRowId,
 	SettingScope,
 	StringListSetting,
-	UsageStatusBarModeSetting,
 } from "../../dashboard/viewModels";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, settingRowPage } from "../../dashboard/viewModels";
 import type {
@@ -28,8 +27,15 @@ import type {
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
+	UsageStatusBarMode,
 } from "../../shared/config/settingSpec";
-import { isUsableThreshold, TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
+import {
+	isUsableThreshold,
+	TOKEN_ESTIMATION_MODES,
+	UI_ACCENTS,
+	UI_THEMES,
+	USAGE_STATUS_BAR_MODES,
+} from "../../shared/config/settingSpec";
 import { useAlertOnce } from "./announceOnce";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink } from "./help";
@@ -236,7 +242,7 @@ function uiAccentDescription(): string {
 }
 
 /** The usage.statusBar mode names, resolved at call time (no module-level localized constants). */
-function statusBarModeLabel(mode: UsageStatusBarModeSetting): string {
+function statusBarModeLabel(mode: UsageStatusBarMode): string {
 	switch (mode) {
 		case "always":
 			return l10n.t("Always shown");
@@ -246,8 +252,6 @@ function statusBarModeLabel(mode: UsageStatusBarModeSetting): string {
 			return l10n.t("Never shown");
 	}
 }
-
-const USAGE_STATUS_BAR_MODES: readonly UsageStatusBarModeSetting[] = ["always", "alerts-only", "off"];
 
 /** The chat.tokenEstimation mode names, resolved at call time (no module-level localized constants). */
 function tokenEstimationLabel(mode: TokenEstimationMode): string {

@@ -17,10 +17,8 @@ import {
 	planSettingsImport,
 	resolveImportPlan,
 	suggestRenamedLabel,
-	USAGE_STATUS_BAR_MODE_VALUES,
 } from "../../../extension/settingsTransfer/importPlan";
 import { SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
-import { USAGE_STATUS_BAR_MODES } from "../../../shared/config/settings";
 
 function server(label: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
 	return { label, baseUrl: `http://${label.toLowerCase()}.test`, ...extra };
@@ -47,10 +45,6 @@ void ({
 void ({ label: "A", secrets: {}, owners: {} } satisfies SecretWrite);
 
 suite("extension/settingsTransfer/importPlan", () => {
-	test("the local usage.statusBar vocabulary mirrors the settings module's enum", () => {
-		assert.deepStrictEqual([...USAGE_STATUS_BAR_MODE_VALUES], [...USAGE_STATUS_BAR_MODES]);
-	});
-
 	suite("planSettingsImport", () => {
 		test("known non-servers keys become writes in ALL_SETTING_KEYS order", () => {
 			const plan = planSettingsImport(

@@ -6,25 +6,30 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import { CONSUMED_CAPABILITY_FIELDS } from "./capabilityResolution";
+import type { ConsumedCapabilityField, ConsumedFieldOfKind } from "./capabilityResolution";
+import { consumedFieldsOfKind } from "./capabilityResolution";
+
+export type CostCapabilityField = ConsumedFieldOfKind<"cost">;
 
 /**
- * The eight cost fields in display order: the base tier, then the long-context
- * tier, input before output and cache read before cache write within each.
- * Both pricing surfaces group and order by this list.
+ * Display rank of every cost field: the base tier, then the long-context tier, input before output and cache read
+ * before cache write within each. Total over the union, so a newly consumed cost field cannot ship without a seat.
  */
-export const COST_CAPABILITY_FIELDS = [
-	"input_cost_per_token",
-	"output_cost_per_token",
-	"cache_read_input_token_cost",
-	"cache_creation_input_token_cost",
-	"long_context_input_cost_per_token",
-	"long_context_output_cost_per_token",
-	"long_context_cache_read_input_token_cost",
-	"long_context_cache_creation_input_token_cost",
-] as const;
+const COST_FIELD_DISPLAY_RANK = {
+	input_cost_per_token: 0,
+	output_cost_per_token: 1,
+	cache_read_input_token_cost: 2,
+	cache_creation_input_token_cost: 3,
+	long_context_input_cost_per_token: 4,
+	long_context_output_cost_per_token: 5,
+	long_context_cache_read_input_token_cost: 6,
+	long_context_cache_creation_input_token_cost: 7,
+} as const satisfies Record<CostCapabilityField, number>;
 
-export type CostCapabilityField = (typeof COST_CAPABILITY_FIELDS)[number];
+/** The cost fields in display order; both pricing surfaces group and order by this list. */
+export const COST_CAPABILITY_FIELDS: readonly CostCapabilityField[] = consumedFieldsOfKind("cost").sort(
+	(a, b) => COST_FIELD_DISPLAY_RANK[a] - COST_FIELD_DISPLAY_RANK[b]
+);
 
 const COST_FIELD_SET: ReadonlySet<string> = new Set(COST_CAPABILITY_FIELDS);
 
@@ -38,11 +43,7 @@ export function isCostCapabilityField(name: string): name is CostCapabilityField
  * (the same derivation the record editors' inputs use), so a new number-kind
  * field renders as a token count the day it is consumed.
  */
-const TOKEN_FIELD_SET: ReadonlySet<string> = new Set(
-	Object.entries(CONSUMED_CAPABILITY_FIELDS)
-		.filter(([, kind]) => kind === "number")
-		.map(([name]) => name)
-);
+const TOKEN_FIELD_SET: ReadonlySet<string> = new Set(consumedFieldsOfKind("number"));
 
 /** Whether a capability key's numbers render as token counts; other numbers (costs aside) render plain. */
 export function isTokenCapabilityField(name: string): boolean {
@@ -50,55 +51,46 @@ export function isTokenCapabilityField(name: string): boolean {
 }
 
 /**
- * A capability field's human display label, resolved at call time (no
- * module-level localized constants). Undefined for every other key - an open
+ * Every consumed field's display label as a thunk, so the text resolves at call time (no module-level localized
+ * constants). Total over the consumed vocabulary: a newly consumed field fails typecheck until it has a label.
+ */
+const CAPABILITY_DISPLAY_LABELS: Readonly<Record<ConsumedCapabilityField, () => string>> = {
+	context_length: () => l10n.t("Context length"),
+	max_input_tokens: () => l10n.t("Max input tokens"),
+	max_output_tokens: () => l10n.t("Max output tokens"),
+	supports_function_calling: () => l10n.t("Tool calling"),
+	supports_vision: () => l10n.t("Vision"),
+	supports_reasoning: () => l10n.t("Reasoning"),
+	supports_audio_input: () => l10n.t("Audio input"),
+	supports_prompt_caching: () => l10n.t("Prompt caching"),
+	supports_pdf_input: () => l10n.t("PDF input"),
+	supports_response_schema: () => l10n.t("Response schema"),
+	supported_openai_params: () => l10n.t("Supported parameters"),
+	reasoning_effort_levels: () => l10n.t("Reasoning effort levels"),
+	input_cost_per_token: () => l10n.t({ message: "Input", comment: ["Pricing row label: cost of input tokens"] }),
+	output_cost_per_token: () => l10n.t({ message: "Output", comment: ["Pricing row label: cost of output tokens"] }),
+	cache_read_input_token_cost: () =>
+		l10n.t({ message: "Cache read", comment: ["Pricing row label: cost of cached input tokens"] }),
+	cache_creation_input_token_cost: () =>
+		l10n.t({ message: "Cache write", comment: ["Pricing row label: cost of writing the prompt cache"] }),
+	long_context_input_cost_per_token: () =>
+		l10n.t({ message: "Long-context input", comment: ["Pricing row label: long-context tier"] }),
+	long_context_output_cost_per_token: () =>
+		l10n.t({ message: "Long-context output", comment: ["Pricing row label: long-context tier"] }),
+	long_context_cache_read_input_token_cost: () =>
+		l10n.t({ message: "Long-context cache read", comment: ["Pricing row label: long-context tier"] }),
+	long_context_cache_creation_input_token_cost: () =>
+		l10n.t({ message: "Long-context cache write", comment: ["Pricing row label: long-context tier"] }),
+};
+
+/**
+ * A capability field's human display label. Undefined for every key outside the consumed vocabulary - an open
  * field's wire key IS its name, and callers render it raw, never localized.
  */
 export function capabilityDisplayLabel(name: string): string | undefined {
-	switch (name) {
-		case "context_length":
-			return l10n.t("Context length");
-		case "max_input_tokens":
-			return l10n.t("Max input tokens");
-		case "max_output_tokens":
-			return l10n.t("Max output tokens");
-		case "supports_function_calling":
-			return l10n.t("Tool calling");
-		case "supports_vision":
-			return l10n.t("Vision");
-		case "supports_reasoning":
-			return l10n.t("Reasoning");
-		case "supports_audio_input":
-			return l10n.t("Audio input");
-		case "supports_prompt_caching":
-			return l10n.t("Prompt caching");
-		case "supports_pdf_input":
-			return l10n.t("PDF input");
-		case "supports_response_schema":
-			return l10n.t("Response schema");
-		case "supported_openai_params":
-			return l10n.t("Supported parameters");
-		case "reasoning_effort_levels":
-			return l10n.t("Reasoning effort levels");
-		case "input_cost_per_token":
-			return l10n.t({ message: "Input", comment: ["Pricing row label: cost of input tokens"] });
-		case "output_cost_per_token":
-			return l10n.t({ message: "Output", comment: ["Pricing row label: cost of output tokens"] });
-		case "cache_read_input_token_cost":
-			return l10n.t({ message: "Cache read", comment: ["Pricing row label: cost of cached input tokens"] });
-		case "cache_creation_input_token_cost":
-			return l10n.t({ message: "Cache write", comment: ["Pricing row label: cost of writing the prompt cache"] });
-		case "long_context_input_cost_per_token":
-			return l10n.t({ message: "Long-context input", comment: ["Pricing row label: long-context tier"] });
-		case "long_context_output_cost_per_token":
-			return l10n.t({ message: "Long-context output", comment: ["Pricing row label: long-context tier"] });
-		case "long_context_cache_read_input_token_cost":
-			return l10n.t({ message: "Long-context cache read", comment: ["Pricing row label: long-context tier"] });
-		case "long_context_cache_creation_input_token_cost":
-			return l10n.t({ message: "Long-context cache write", comment: ["Pricing row label: long-context tier"] });
-		default:
-			return undefined;
-	}
+	return Object.hasOwn(CAPABILITY_DISPLAY_LABELS, name)
+		? CAPABILITY_DISPLAY_LABELS[name as ConsumedCapabilityField]()
+		: undefined;
 }
 
 /** The localized "N parameters" reading of a supported_openai_params list. */

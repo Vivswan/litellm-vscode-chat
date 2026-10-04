@@ -15,14 +15,9 @@
 import * as l10n from "@vscode/l10n";
 import type * as vscode from "vscode";
 import type { SpendTone } from "../../dashboard/spendFormat";
-import {
-	formatMoney,
-	formatPercent,
-	stalenessText,
-	usableThresholds,
-	worstSpendTone,
-} from "../../dashboard/spendFormat";
-import type { UsageStatusBarMode } from "../../shared/config/settings";
+import { formatMoney, formatPercent, stalenessText, worstSpendTone } from "../../dashboard/spendFormat";
+import type { UsageStatusBarMode } from "../../shared/config/settingSpec";
+import { usableThresholds } from "../../shared/config/settingSpec";
 import type { Clock, Timer } from "../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../shared/util/timer";
 import { isUsageFresh, usageFreshnessWindowMs } from "../servers/usage/freshness";

@@ -47,7 +47,10 @@ import {
 	type UiAccent,
 	type UiTheme,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
+	USAGE_STATUS_BAR_MODES,
 	USAGE_STATUS_BAR_SETTING_KEY,
+	type UsageStatusBarMode,
+	usableThresholds,
 } from "./settingSpec";
 
 type LogFn = (message: string, data?: unknown) => void;
@@ -263,7 +266,7 @@ export function normalizeUsageAlertThresholds(raw: unknown, log?: LogFn): readon
 	if (valid.length < raw.length) {
 		log?.("Ignoring usage.alertThresholds entries outside (0, 1]", { ignored: raw.length - valid.length });
 	}
-	return [...new Set(valid)].sort((a, b) => a - b);
+	return usableThresholds(valid);
 }
 
 export function getUsageAlertThresholds(log?: LogFn): readonly number[] {
@@ -272,11 +275,6 @@ export function getUsageAlertThresholds(log?: LogFn): readonly number[] {
 		log
 	);
 }
-
-/** When the usage status-bar item shows: always, only while an alert threshold is crossed, or never. */
-export const USAGE_STATUS_BAR_MODES = ["always", "alerts-only", "off"] as const;
-
-export type UsageStatusBarMode = (typeof USAGE_STATUS_BAR_MODES)[number];
 
 const DEFAULT_USAGE_STATUS_BAR_MODE: UsageStatusBarMode = "always";
 

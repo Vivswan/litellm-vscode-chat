@@ -8,7 +8,7 @@
  * stays in the status so the UI can show it beside the effective one.
  */
 
-import { usableThresholds } from "../../../dashboard/spendFormat";
+import { usableThresholds } from "../../../shared/config/settingSpec";
 
 /** Which source provided the effective budget. */
 type BudgetSource = "entry" | "key" | "none";

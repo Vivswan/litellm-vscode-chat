@@ -20,7 +20,7 @@ import {
 	toggleDirectiveField,
 	wrongRecordTypeHint,
 } from "../../dashboard/recordDraft";
-import { CONSUMED_CAPABILITY_FIELDS } from "../../shared/config/capabilityResolution";
+import { CONSUMED_CAPABILITY_FIELDS, consumedFieldKind } from "../../shared/config/capabilityResolution";
 import {
 	FALLBACK_DIRECTIVE,
 	FORCE_DIRECTIVE,
@@ -722,7 +722,7 @@ export function capabilityValueKind(key: string): "number" | "boolean" | "cost" 
 	if (key === OPENROUTER_MODEL_DIRECTIVE) {
 		return "catalog-id";
 	}
-	const kind = Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key) ? CONSUMED_CAPABILITY_FIELDS[key] : undefined;
+	const kind = consumedFieldKind(key);
 	return kind === undefined || kind === "string-array" ? "json" : kind;
 }
 
