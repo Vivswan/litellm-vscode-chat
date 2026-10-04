@@ -1,15 +1,11 @@
-import type {
-	CostCapabilityField,
-	ServerCapabilityValues,
-	ServerDeclaredCapabilities,
-} from "../../shared/config/capabilityResolution";
+import type { ServerCapabilityValues, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
 import {
 	consumedFieldsOfKind,
 	FLOOR_CONTEXT_LENGTH,
 	FLOOR_MAX_OUTPUT_TOKENS,
 } from "../../shared/config/capabilityResolution";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
-import type { LiteLLMProvider, OutputLimitSource, PerTokenCosts } from "./schemas";
+import type { DeclaredPerTokenCosts, LiteLLMProvider, OutputLimitSource, PerTokenCosts } from "./schemas";
 
 export function buildExposedModelId(rawModelId: string, serverId: string, serverCount: number): string {
 	if (serverCount <= 1) {
@@ -120,7 +116,7 @@ const COST_FIELDS = consumedFieldsOfKind("cost");
  * entries carry null for disagreeing costs, which reads as absent here).
  */
 function serverCostValues(costs: Readonly<PerTokenCosts>): Partial<ServerCapabilityValues> {
-	const values: { -readonly [K in CostCapabilityField]?: number } = {};
+	const values: DeclaredPerTokenCosts = {};
 	for (const field of COST_FIELDS) {
 		const cost = normalizeCostPerToken(costs[field]);
 		if (cost !== undefined) {

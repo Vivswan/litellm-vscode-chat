@@ -18,7 +18,7 @@ import { normalizeModelItem } from "../../../provider/catalog/discovery";
 import type { PreAttachModelInfo } from "../../../provider/catalog/groupModels";
 import type { ModelPricing } from "../../../provider/catalog/registration";
 import { buildModelInfos, pricingFromCosts } from "../../../provider/catalog/registration";
-import type { LiteLLMModelItem, LiteLLMProvider } from "../../../provider/catalog/schemas";
+import type { DeclaredPerTokenCosts, LiteLLMModelItem, LiteLLMProvider } from "../../../provider/catalog/schemas";
 import type {
 	BooleanCapabilityField,
 	CapabilityCatalogLookup,
@@ -956,7 +956,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 				maxLength: 4,
 				selector: ([name]) => name,
 			})
-			.map((pairs) => Object.fromEntries(pairs) as Partial<Record<CostCapabilityField, number>>);
+			.map((pairs) => Object.fromEntries(pairs) as DeclaredPerTokenCosts);
 		fc.assert(
 			fc.property(seamScenario, userCostsArb, (s, userCosts) => {
 				// Records are cost-stripped and the catch-all entry record carries the
@@ -974,7 +974,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 				const served = applyCapabilityOverrides(infos, SERVER, opts);
 				for (const info of served) {
 					const baseline = info.litellm.serverDeclared;
-					const merged: { -readonly [K in CostCapabilityField]?: number } = {};
+					const merged: DeclaredPerTokenCosts = {};
 					for (const name of COST_FIELD_NAMES) {
 						const user = userCosts[name];
 						// The parse canonicalizes a user-written -0 to +0 ("free" never

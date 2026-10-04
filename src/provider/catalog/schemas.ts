@@ -44,6 +44,12 @@ export const WIRE_COST_FIELDS: readonly WireCostField[] = consumedFieldsOfKind("
 export type PerTokenCosts = { [K in CostCapabilityField]?: number | null | undefined };
 
 /**
+ * PerTokenCosts narrowed to the costs a model declares: a number per present field, so neither the absent-reading null
+ * nor undefined can ride into a server level or a pricing block.
+ */
+export type DeclaredPerTokenCosts = { [K in keyof PerTokenCosts]: number };
+
+/**
  * A single underlying provider (e.g. together, groq) for a model: capability
  * metadata read from the LiteLLM API - what the model CAN do, not what we ask
  * it to do. Only `provider` is validated on the wire; discovery authors the
