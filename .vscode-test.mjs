@@ -172,7 +172,6 @@ export default defineConfig({
 				"out/test/envFile.test.js",
 				"out/test/scenarios.test.js",
 				"out/test/stackDrift.test.js",
-				"out/test/fakeStack/*.test.js",
 				"out/test/shared/*.test.js",
 				"out/test/shared/config/*.test.js",
 				"out/test/shared/conversion/*.test.js",

@@ -1,7 +1,8 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
-import type { MaterializedEntry, StrippedEntry } from "../../../extension/settingsTransfer/secretSurgery";
-import { materializeEntrySecrets, stripEntrySecrets } from "../../../extension/settingsTransfer/secretSurgery";
+import type { StoredServerSecrets } from "../../../../extension/servers/serverSync/secrets";
+import type { MaterializedEntry, StrippedEntry } from "../../../../extension/settingsTransfer/secretSurgery";
+import { materializeEntrySecrets, stripEntrySecrets } from "../../../../extension/settingsTransfer/secretSurgery";
 
 function entryWith(auth: unknown): Record<string, unknown> {
 	return { label: "A", baseUrl: "http://a.test", ...(auth === undefined ? {} : { auth }) };
@@ -15,8 +16,8 @@ void (materializeEntrySecrets satisfies (
 	blob: StoredServerSecrets
 ) => MaterializedEntry);
 
-suite("extension/settingsTransfer/secretSurgery", () => {
-	suite("stripEntrySecrets", () => {
+describe("extension/settingsTransfer/secretSurgery", () => {
+	describe("stripEntrySecrets", () => {
 		test("the string apiKey form strips to a formless auth, which is deleted", () => {
 			const { entry, secrets } = stripEntrySecrets(entryWith({ apiKey: "sk-1" }));
 			assert.deepStrictEqual(entry, { label: "A", baseUrl: "http://a.test" });
@@ -237,7 +238,7 @@ suite("extension/settingsTransfer/secretSurgery", () => {
 		});
 	});
 
-	suite("materializeEntrySecrets", () => {
+	describe("materializeEntrySecrets", () => {
 		test("apiKey lands at auth.apiKey, creating auth when the strip deleted it", () => {
 			const { entry, unmaterialized } = materializeEntrySecrets(entryWith(undefined), { apiKey: "sk-1" });
 			assert.deepStrictEqual(entry, entryWith({ apiKey: "sk-1" }));

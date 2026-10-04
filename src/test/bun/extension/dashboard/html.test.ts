@@ -1,7 +1,8 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import { buildDashboardHtml } from "../../../extension/dashboard/html";
+import { buildDashboardHtml } from "../../../../extension/dashboard/html";
 
-suite("extension/dashboard/html", () => {
+describe("extension/dashboard/html", () => {
 	const options = {
 		cspSource: "https://webview.test",
 		nonce: "abc123",

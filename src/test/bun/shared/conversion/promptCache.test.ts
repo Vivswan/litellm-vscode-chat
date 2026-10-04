@@ -1,7 +1,12 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import { applyPromptCacheBreakpoints, type PromptCachedRequest } from "../../../shared/conversion/promptCache";
-import type { OpenAIChatContentBlock, OpenAIChatMessage, OpenAIFunctionToolDef } from "../../../shared/conversion/wire";
-import { expectDefined } from "../../pureHelpers";
+import { applyPromptCacheBreakpoints, type PromptCachedRequest } from "../../../../shared/conversion/promptCache";
+import type {
+	OpenAIChatContentBlock,
+	OpenAIChatMessage,
+	OpenAIFunctionToolDef,
+} from "../../../../shared/conversion/wire";
+import { expectDefined } from "../../../pureHelpers";
 
 const EPHEMERAL = { type: "ephemeral" } as const;
 
@@ -56,7 +61,7 @@ function markers(result: PromptCachedRequest): string[] {
 	return found;
 }
 
-suite("shared/promptCache applyPromptCacheBreakpoints", () => {
+describe("shared/promptCache applyPromptCacheBreakpoints", () => {
 	test("marks the last tool definition and leaves earlier tools untouched", () => {
 		const tools = [toolDef("alpha"), toolDef("beta"), toolDef("gamma")];
 		const result = applyPromptCacheBreakpoints({ messages: [], tools });

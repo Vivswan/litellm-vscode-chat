@@ -1,15 +1,16 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { formatPercent } from "../../../dashboard/spendFormat";
-import type { BudgetStatus } from "../../../extension/servers/usage/budget";
-import { resolveBudget } from "../../../extension/servers/usage/budget";
-import { isUsageFresh, usageFreshnessWindowMs } from "../../../extension/servers/usage/freshness";
-import type { ServerUsageState, UsageEndpointState } from "../../../extension/servers/usage/store";
-import { UNPROBED_ENDPOINTS } from "../../../extension/servers/usage/store";
-import { renderUsageStatus } from "../../../extension/ui/usageStatusItem";
-import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
-import type { UsageStatusBarMode } from "../../../shared/config/settings";
-import { resolveFuzzSeed } from "../../fuzzStream";
+import { formatPercent } from "../../../../dashboard/spendFormat";
+import type { BudgetStatus } from "../../../../extension/servers/usage/budget";
+import { resolveBudget } from "../../../../extension/servers/usage/budget";
+import { isUsageFresh, usageFreshnessWindowMs } from "../../../../extension/servers/usage/freshness";
+import type { ServerUsageState, UsageEndpointState } from "../../../../extension/servers/usage/store";
+import { UNPROBED_ENDPOINTS } from "../../../../extension/servers/usage/store";
+import { renderUsageStatus } from "../../../../extension/ui/usageStatusItem";
+import { NUMBER_SETTING_SPECS } from "../../../../shared/config/settingSpec";
+import type { UsageStatusBarMode } from "../../../../shared/config/settings";
+import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
@@ -190,7 +191,7 @@ function oracle(
 	return { fractions, worst, lowest, highest, severity };
 }
 
-suite("extension/ui renderUsageStatus properties", () => {
+describe("extension/ui renderUsageStatus properties", () => {
 	test("hidden exactly per the documented rules; otherwise the worst fresh ratio shows literally", () => {
 		fc.assert(
 			fc.property(scenarioArb, ({ states, thresholds, mode, pollIntervalMs, nowMs }) => {

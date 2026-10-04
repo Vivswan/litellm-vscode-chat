@@ -1,8 +1,9 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import type { UsageServerCardView, UsageServerView } from "../../../dashboard/viewModels";
-import type { UsageViewInput } from "../../../extension/dashboard/usageView";
-import { buildUsageView } from "../../../extension/dashboard/usageView";
-import type { BudgetStatus, ServerUsageState, UsageTotals } from "../../../extension/servers/usage";
+import type { UsageServerCardView, UsageServerView } from "../../../../dashboard/viewModels";
+import type { UsageViewInput } from "../../../../extension/dashboard/usageView";
+import { buildUsageView } from "../../../../extension/dashboard/usageView";
+import type { BudgetStatus, ServerUsageState, UsageTotals } from "../../../../extension/servers/usage";
 
 /** Narrow a card to the full usage view; fails the test on the forbidden variant. */
 function fullCard(card: UsageServerCardView | undefined): UsageServerView {
@@ -77,7 +78,7 @@ function makeInput(overrides: Partial<UsageViewInput> = {}): UsageViewInput {
 	};
 }
 
-suite("extension/dashboard/usageView", () => {
+describe("extension/dashboard/usageView", () => {
 	test("only availability-proven servers surface; unknown and unavailable stay hidden silently", () => {
 		const view = buildUsageView(
 			makeInput({

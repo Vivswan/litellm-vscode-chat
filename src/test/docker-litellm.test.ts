@@ -828,7 +828,7 @@ suite("Docker LiteLLM stack", () => {
 				// manifest change that starts accepting system messages fails loudly
 				// and upgrades this to the four-anchor branch. Until then the docker
 				// suite pins three anchors and the four-anchor invariant stays covered
-				// by src/test/shared/conversion/promptCache.test.ts.
+				// by src/test/bun/shared/conversion/promptCache.test.ts.
 				assert.match(
 					String(outcome.error),
 					/languageModelSystem/,
