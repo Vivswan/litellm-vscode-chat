@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, test } from "bun:test";
+import { afterAll, describe, test } from "bun:test";
 import * as assert from "node:assert";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -13,59 +13,21 @@ import { CHILD_PROCESS_TIMEOUT_MS } from "../childProcessTimeout";
  */
 const tempDirs: string[] = [];
 
-/**
- * A pre-commit hook exports GIT_DIR, GIT_INDEX_FILE, and the other hook variables to everything it runs, and the hook
- * runs this suite. Leaked into a spawned git, they redirect a `-C <scratch>` call at the repository being committed:
- * that happened once, when a scratch `git init`, `git config user.*`, and `git commit` rewrote the real repository's
- * shared config and replaced the branch head with a three-file "fixture" commit. Two defenses, one per spawner:
- *
- * - The fixture's own git runs with every GIT_* variable stripped, the user's and system's config files replaced by
- *   /dev/null, the walk up from the fixture ceilinged at its parent, and the identity passed per command with -c,
- *   never written anywhere.
- * - The helper under test strips GIT_* itself but keeps GIT_INDEX_FILE (in the hook, that is the index being
- *   committed): a relative path resolved against the scratch root names nothing, an absolute one still names the
- *   hook's repository. So the suite removes the hook variables from its own process for its duration and restores
- *   them for the suites that follow in the same runner (hooksFailClosed.test.ts reads GIT_INDEX_FILE).
- */
-const hookEnvironment = new Map<string, string>();
-
-beforeAll(() => {
-	for (const [name, value] of Object.entries(process.env)) {
-		if (name.startsWith("GIT_") && value !== undefined) {
-			hookEnvironment.set(name, value);
-			delete process.env[name];
-		}
-	}
-});
-
 afterAll(() => {
-	for (const [name, value] of hookEnvironment) {
-		process.env[name] = value;
-	}
 	for (const dir of tempDirs) {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
 
-function fixtureEnv(root: string): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = {};
-	for (const [name, value] of Object.entries(process.env)) {
-		if (!name.startsWith("GIT_")) {
-			env[name] = value;
-		}
-	}
-	env.GIT_CONFIG_GLOBAL = "/dev/null";
-	env.GIT_CONFIG_SYSTEM = "/dev/null";
-	env.GIT_CEILING_DIRECTORIES = path.dirname(root);
-	return env;
-}
-
+/**
+ * The fixture's git runs in the environment scripts/bun-test.ts built before bun started: no hook export (a leaked
+ * GIT_DIR once redirected a scratch `git init` and `git commit` at the repository being committed), empty global and
+ * system config, discovery ceilinged at the tmpdir, a fixed identity. The suite adds nothing to it. The helper under
+ * test strips GIT_* itself and so keeps only the first of those: it finds no GIT_INDEX_FILE, so it reads the scratch
+ * index.
+ */
 function git(root: string, ...args: readonly string[]): string {
-	return execFileSync("git", ["-C", root, "-c", "user.name=fixture", "-c", "user.email=fixture@example.com", ...args], {
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-		env: fixtureEnv(root),
-	});
+	return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
 /** A repository with one committed input and the two generators' three committed outputs. */
