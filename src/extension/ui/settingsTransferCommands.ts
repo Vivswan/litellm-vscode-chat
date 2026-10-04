@@ -123,6 +123,8 @@ export interface SettingsTransferEnv {
 	homeDir(): string;
 	readonly extensionVersion: string;
 	requestServerSync(): void;
+	/** Hold the engine for the flow's writes; the release schedules the one pass they earned (ServerSyncEngine.hold). */
+	holdServerSync(): Promise<() => void>;
 	/** English-only classification log; counts and classifications, never values, paths, or secret material. */
 	log(message: string, data?: Record<string, unknown>): void;
 }
@@ -286,7 +288,7 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 /** The real environment over the extension context, the sync engine, and the logger. */
 export function createSettingsTransferEnv(
 	context: vscode.ExtensionContext,
-	syncEngine: Pick<ServerSyncEngine, "requestSync">,
+	syncEngine: Pick<ServerSyncEngine, "requestSync" | "hold">,
 	logger: Logger
 ): SettingsTransferEnv {
 	return {
@@ -317,6 +319,7 @@ export function createSettingsTransferEnv(
 		homeDir: () => os.homedir(),
 		extensionVersion: String(context.extension.packageJSON?.version ?? "unknown"),
 		requestServerSync: () => syncEngine.requestSync(),
+		holdServerSync: () => syncEngine.hold(),
 		log: (message, data) => logger.log(message, data),
 	};
 }
@@ -443,7 +446,9 @@ async function applyServersUnit(
 	env: SettingsTransferEnv,
 	serversValue: readonly unknown[],
 	secretWrites: readonly SecretWrite[],
-	settingsLanded: boolean
+	settingsLanded: boolean,
+	/** Releases the flow's engine hold once the unit's last write or rollback is done, before any dialog waits. */
+	releaseSync: () => void
 ): Promise<"landed" | "rolled-back" | "rollback-failed"> {
 	const overwritten: {
 		label: string;
@@ -503,6 +508,7 @@ async function applyServersUnit(
 			} else {
 				env.log("Settings import: the sync request was withheld; an unrestored secret could not be cleared");
 			}
+			releaseSync();
 			await env.prompts.notify(
 				"error",
 				`${l10n.t("LiteLLM: The settings import failed, and some stored server secrets could not be restored.")}\n${l10n.t(
@@ -516,6 +522,7 @@ async function applyServersUnit(
 			error: errorLabel(error),
 		});
 		env.requestServerSync();
+		releaseSync();
 		const message = l10n.t(
 			"LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back."
 		);
@@ -533,6 +540,7 @@ async function applyServersUnit(
 
 /** LiteLLM: Import Settings... - open dialog, preview, collision prompts, snapshot, guarded apply, summary. */
 export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<void> {
+	let releaseSync: (() => void) | undefined;
 	try {
 		const source = await env.showOpenDialog();
 		if (source === undefined) {
@@ -692,6 +700,8 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				});
 			}
 		};
+		// From the first write to the last the engine is held: no pass reads a half-applied import.
+		releaseSync = await env.holdServerSync();
 		if (!writesNothing) {
 			previousSlot = await env.readSnapshotSlot();
 			// Snapshot FIRST: the whole pre-import state into the one SecretStorage
@@ -706,6 +716,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				await env.writeSnapshotSlot(JSON.stringify(snapshot));
 			} catch (error) {
 				env.log("Settings import cancelled: the undo snapshot could not be saved", { error: errorLabel(error) });
+				releaseSync();
 				await env.prompts.notify(
 					"error",
 					l10n.t("LiteLLM: The import was cancelled because the undo snapshot could not be saved; nothing was changed.")
@@ -733,7 +744,8 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				env,
 				application.serversValue,
 				application.secretWrites,
-				writtenSettings > 0
+				writtenSettings > 0,
+				() => releaseSync?.()
 			);
 			if (outcome !== "landed") {
 				// A clean rollback with no landed settings changed nothing, so the
@@ -746,6 +758,8 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			}
 		}
 		env.requestServerSync();
+		// The writes are done; the dialogs below may wait for the user, so the engine runs now.
+		releaseSync();
 
 		// Nothing survived: same as a no-op run, the previous snapshot comes
 		// back and there is nothing to undo.
@@ -820,8 +834,11 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			writesNothing || !landedAnything ? [] : [undoImportAction(env)]
 		);
 	} catch (error) {
+		releaseSync?.();
 		env.log("Settings import failed", { error: errorLabel(error) });
 		await env.prompts.notify("error", l10n.t("LiteLLM: The settings import failed."));
+	} finally {
+		releaseSync?.();
 	}
 }
 
@@ -1018,6 +1035,7 @@ async function clearMismatchedBlobs(
 
 /** LiteLLM: Undo Last Settings Import - the wholesale pre-import snapshot restore. */
 export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<void> {
+	let releaseSync: (() => void) | undefined;
 	try {
 		const slot = await env.readSnapshotSlot();
 		if (slot === undefined) {
@@ -1040,6 +1058,8 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		if (!(await env.prompts.confirmUndo(snapshot.at))) {
 			return;
 		}
+		// From the first write to the last the engine is held: no pass reads a half-restored pair.
+		releaseSync = await env.holdServerSync();
 		// What the restore reconnects, computed BEFORE anything changes. The host
 		// group API is add-only, so a reverted connection change cannot be
 		// reconciled by the trailing sync - the affected row shows the steps.
@@ -1079,8 +1099,8 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 
 		let failures = 0;
 		// Blobs with a recorded entry restore before the servers setting, as the import adopts, so a stop on a failed blob
-		// leaves the setting untouched. Both writes wake the engine (wiring/servers.ts), and a pass over a half-restored
-		// pair meets the engine's own guards:
+		// leaves the setting untouched. The hold above keeps this window's passes out of the flow; the stamps below refuse
+		// a foreign-destination pairing to any reader the hold does not cover (another window's engine):
 		//   credential-only difference -> the identity print excludes credentials, so the group fingerprint is unchanged
 		//   restored field refused     -> resolveOwnedSecrets (stamps from restoredOwners); that entry makes no host call
 		//   no recorded entry, removal -> after the setting, once the live entry for the label is the recorded one
@@ -1112,6 +1132,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 				UNDO_CLEAR_FAILURE_LOG
 			);
 			env.log("Undo import: some blob restores failed; the settings phase was not started", { failures });
+			releaseSync();
 			await notifyKeptSnapshot(env, failures);
 			return;
 		}
@@ -1178,10 +1199,13 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			// The slot is kept: what failed this time may succeed on a retry,
 			// and clearing it would strand the un-restored remainder.
 			env.log("Undo import: some restore steps failed; the snapshot was kept", { failures });
+			releaseSync();
 			await notifyKeptSnapshot(env, failures);
 			return;
 		}
 		env.requestServerSync();
+		// The writes are done; the dialog below may wait for the user, so the engine runs now.
+		releaseSync();
 		await env.clearSnapshotSlot();
 		env.log("Settings import undone", {
 			settings: restore.settingWrites.length,
@@ -1205,8 +1229,11 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		}
 		await env.prompts.notify("info", summary.join(" "));
 	} catch (error) {
+		releaseSync?.();
 		env.log("Undo import failed", { error: errorLabel(error) });
 		await env.prompts.notify("error", l10n.t("LiteLLM: The undo failed; the snapshot was kept."));
+	} finally {
+		releaseSync?.();
 	}
 }
 

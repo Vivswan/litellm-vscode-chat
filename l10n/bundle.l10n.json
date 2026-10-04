@@ -1557,6 +1557,7 @@
 	"worst budget use {0} (stale rows excluded)": "worst budget use {0} (stale rows excluded)",
 	"yes": "yes",
 	"{0} (assumed)": "{0} (assumed)",
+	"{0} (client {1})": "{0} (client {1})",
 	"{0} ({1} skipped)": "{0} ({1} skipped)",
 	"{0} - last updated {1}": "{0} - last updated {1}",
 	"{0} Spend figure: {1}.": "{0} Spend figure: {1}.",

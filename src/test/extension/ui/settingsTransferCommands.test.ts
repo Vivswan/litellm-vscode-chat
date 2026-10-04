@@ -67,12 +67,13 @@ interface FakeWorld {
 	ops: string[];
 	/**
 	 * A real engine wired as wiring/servers.ts wires it: woken by a changed secret value, a delete of a present key, the
-	 * servers setting write, and the flow's explicit request. Undefined in the fake-only tests.
+	 * servers setting write, and the flow's explicit request; held through the flow's hold. Undefined in the fake-only
+	 * tests.
 	 */
-	syncEngine: Pick<ServerSyncEngine, "requestSync"> | undefined;
+	syncEngine: Pick<ServerSyncEngine, "requestSync" | "hold"> | undefined;
 	/**
 	 * When true, every secret write and delete and every settings write lands one macrotask later, so a zero-debounce
-	 * engine pass runs between any two writes.
+	 * engine pass has the chance to run between any two writes unless the flow holds the engine.
 	 */
 	slowWrites: boolean;
 	/** The raw SecretStorage map behind readServerSecrets/updateServerSecret. */
@@ -128,8 +129,7 @@ function makeWorld(
 			if (world.slowWrites) {
 				await macrotask();
 			}
-			// Wakes only on a changed value: the incident's pass ran after the field that changed, not after a rewrite of
-			// an untouched one.
+			// A rewrite of an unchanged value wakes nothing.
 			const changed = secretValues.get(key) !== value;
 			secretValues.set(key, value);
 			if (changed) {
@@ -296,6 +296,7 @@ function makeWorld(
 			world.syncRequests += 1;
 			world.syncEngine?.requestSync();
 		},
+		holdServerSync: async () => (world.syncEngine === undefined ? () => {} : world.syncEngine.hold()),
 		log: (message, data) => {
 			world.logs.push(data === undefined ? message : `${message} ${JSON.stringify(data)}`);
 		},
@@ -1210,7 +1211,9 @@ suite("settingsTransferCommands undo flow", () => {
 	 *   dormant-oauth    -> an unstamped client secret under an entry without OAuth: the empty destination is a stamp
 	 *   absent           -> no pre-import blob, so the imported one is removed; before the setting that would add the
 	 *                       imported entry credential-less and the restored entry would collide on the host
-	 *   legacy-collision -> a pre-release string stamp spelling the imported destination; only a structured stamp matches
+	 *   legacy-collision -> a pre-release string stamp spelling the object form's JSON; only a structured stamp matches
+	 *   same-destination -> the imported key under the same base URL is owned by the restored entry too; only the hold
+	 *                       keeps a pass from adding it before the removal
 	 */
 	const OAUTH_OLD = {
 		label: "a",
@@ -1303,14 +1306,20 @@ suite("settingsTransferCommands undo flow", () => {
 					auth: { oauth: { tokenUrl: "http://other:4000/token", clientId: "OLD-ID" } },
 				},
 			],
-			// A pre-release stamp was any token URL text, so one can spell the imported entry's destination exactly.
+			// A pre-release stamp was any token URL text, so one can spell the entry's own object form's JSON exactly; a
+			// string must still never match a structured stamp, so the restored entry cannot use this secret.
 			preImportSecret: {
 				field: "oauthClientSecret",
 				value: "OLD-SECRET",
-				owner: { raw: JSON.stringify(["http://auth:4000/token", "NEW-ID"]) },
+				owner: { raw: JSON.stringify({ tokenUrl: "http://other:4000/token", clientId: "OLD-ID" }) },
 			},
 			imported: [OAUTH_NEW],
 			expectedAdds: [],
+		},
+		"same-destination": {
+			initialServers: [{ label: "a", baseUrl: "http://same:4000" }],
+			imported: [{ label: "a", baseUrl: "http://same:4000", auth: { apiKey: "NEW-KEY" } }],
+			expectedAdds: [hostAdd("http://same:4000", {})],
 		},
 	};
 

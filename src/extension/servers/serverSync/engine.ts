@@ -338,6 +338,8 @@ export class ServerSyncEngine implements vscode.Disposable {
 	private running: Promise<void> | undefined;
 	private queued: { force: boolean; promise: Promise<void>; resolve: () => void } | undefined;
 	private timer: ReturnType<typeof setTimeout> | undefined;
+	private holds = 0;
+	private heldRequest: { force: boolean; waiters: (() => void)[] } | undefined;
 	private disposed = false;
 	/** Listeners on completed sync passes; see onDidSync. */
 	private readonly syncListeners = new Set<() => void>();
@@ -381,6 +383,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 		if (this.disposed) {
 			return;
 		}
+		if (this.holds > 0) {
+			this.heldRequest ??= { force: false, waiters: [] };
+			return;
+		}
 		if (this.timer !== undefined) {
 			clearTimeout(this.timer);
 		}
@@ -390,12 +396,60 @@ export class ServerSyncEngine implements vscode.Disposable {
 		}, this.debounceMs);
 	}
 
+	/**
+	 * A multi-write flow (settings import, its undo) is one unit to the engine: no pass starts while held, whichever
+	 * path asks (the SecretStorage and configuration listeners through requestSync, the queued follow-up of a finished
+	 * pass, an explicit syncNow, which then resolves after the post-release pass), and release runs exactly one pass if
+	 * anything asked. A pass already in flight finishes before the hold is granted, so none straddles the flow's first
+	 * write.
+	 */
+	async hold(): Promise<() => void> {
+		this.holds += 1;
+		if (this.timer !== undefined) {
+			clearTimeout(this.timer);
+			this.timer = undefined;
+			this.heldRequest ??= { force: false, waiters: [] };
+		}
+		// The finally of a finishing pass relaunches its queued follow-up before this continuation resumes; the loop sees
+		// that relaunch land in the held branch (no new `running`) or awaits it.
+		while (this.running !== undefined) {
+			await this.running;
+		}
+		let released = false;
+		return () => {
+			if (released) {
+				return;
+			}
+			released = true;
+			this.holds -= 1;
+			const request = this.heldRequest;
+			if (this.holds > 0 || request === undefined) {
+				return;
+			}
+			this.heldRequest = undefined;
+			const settle = () => {
+				for (const waiter of request.waiters) {
+					waiter();
+				}
+			};
+			void this.syncNow(request.force).then(settle, settle);
+		};
+	}
+
 	async syncNow(force = false): Promise<void> {
 		// Checked here, not only at scheduling: the queued follow-up relaunch
 		// below routes through syncNow, and this guard is what stops it from
 		// starting a pass after disposal.
 		if (this.disposed) {
 			return;
+		}
+		if (this.holds > 0) {
+			this.heldRequest ??= { force: false, waiters: [] };
+			this.heldRequest.force ||= force;
+			const request = this.heldRequest;
+			return new Promise<void>((resolve) => {
+				request.waiters.push(resolve);
+			});
 		}
 		if (this.running !== undefined) {
 			if (this.queued === undefined) {
@@ -432,9 +486,13 @@ export class ServerSyncEngine implements vscode.Disposable {
 		// A queued follow-up will never run; its waiters must still settle
 		// (the poller's dispose contract, mirrored). The in-flight pass is left
 		// to finish: its host call cannot be recalled anyway, and its finally
-		// finds the queue already empty.
+		// finds the queue already empty. Explicit callers held for a pass settle the same way.
 		this.queued?.resolve();
 		this.queued = undefined;
+		for (const waiter of this.heldRequest?.waiters ?? []) {
+			waiter();
+		}
+		this.heldRequest = undefined;
 	}
 
 	private async runOnce(force: boolean): Promise<void> {

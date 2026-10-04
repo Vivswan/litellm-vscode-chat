@@ -41,9 +41,9 @@ suite("extension/migrations/oauthStampClientId", () => {
 			},
 			{
 				label: "collision",
-				owner: JSON.stringify([TOKEN_URL, "cid"]),
+				owner: JSON.stringify(CURRENT_STAMP),
 				declaresOauth: true,
-				expected: { tokenUrl: JSON.stringify([TOKEN_URL, "cid"]) },
+				expected: { tokenUrl: JSON.stringify(CURRENT_STAMP) },
 			},
 			{ label: "empty", owner: "", declaresOauth: true, expected: {} },
 			{ label: "unstamped", owner: undefined, declaresOauth: true, expected: undefined },

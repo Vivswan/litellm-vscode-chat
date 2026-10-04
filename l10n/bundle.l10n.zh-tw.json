@@ -1342,6 +1342,7 @@
 	"worst budget use {0} (stale rows excluded)": "最高預算佔用 {0} (不含已過時的列)",
 	"yes": "是",
 	"{0} (assumed)": "{0} (推測)",
+	"{0} (client {1})": "{0}(用戶端 {1})",
 	"{0} ({1} skipped)": "{0} (已略過 {1} 個)",
 	"{0} - last updated {1}": "{0} - 上次更新於 {1}",
 	"{0} Spend figure: {1}.": "{0}支出金額: {1}。",

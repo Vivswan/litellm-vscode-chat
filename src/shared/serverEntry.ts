@@ -74,8 +74,8 @@ export type SecretLocation = "settings" | "secure" | "none";
 
 /**
  * The ownership stamp serverSync/secrets.ts records at store time and resolveOwnedSecrets compares at use time; the
- * dashboard's stale-key detection (src/dashboard/serverForm.ts) reads this same rule, and describeSecretDestination
- * renders it for people.
+ * dashboard's stale-key detection (src/dashboard/serverForm.ts) reads this same rule, and the edit page renders it
+ * through l10n.
  *
  *   key                 -> base URL, normalized (the transport treats a trailing slash there as insignificant)
  *   OAuth client secret -> { tokenUrl, clientId }: the token URL VERBATIM (the exchange fetches it exactly, so /token
@@ -138,19 +138,6 @@ export function parseSecretOwner(raw: unknown): SecretOwner | undefined {
 		return undefined;
 	}
 	return { ...(tokenUrl !== undefined ? { tokenUrl } : {}), ...(clientId !== undefined ? { clientId } : {}) };
-}
-
-/** The destination as the dashboard names it to the user; the stamp itself is an opaque equality key. */
-export function describeSecretDestination(entry: SecretDestinationEntry, field: SecretFieldId): string {
-	if (field !== "oauthClientSecret") {
-		return normalizeBaseUrl(entry.baseUrl);
-	}
-	if (entry.oauthTokenUrl === undefined) {
-		return "";
-	}
-	return entry.oauthClientId === undefined
-		? entry.oauthTokenUrl
-		: `${entry.oauthTokenUrl} (client ${entry.oauthClientId})`;
 }
 
 /**

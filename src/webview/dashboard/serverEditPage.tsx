@@ -45,11 +45,11 @@ import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/setting
 import type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
 import type { ExpectedFailureCategory, NonChatMode, SecretFieldId, SkippedModeCounts } from "../../shared/serverEntry";
 import {
-	describeSecretDestination,
 	EXPECTED_FAILURE_CATEGORIES,
 	NON_CHAT_MODES,
 	pickNonSecretOptionalFields,
 	SECRET_FIELD_IDS,
+	secretDestination,
 } from "../../shared/serverEntry";
 import { DEFAULT_API_VERSION, mcpEndpointOf } from "../../shared/util/baseUrl";
 import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
@@ -732,17 +732,27 @@ function ServerForm({
 		setPhase({ phase: "saving", requestId });
 	};
 
-	// The stale-key dialog's detail line. Deduplicated because the keys share the base URL; a destination-free
-	// fallback covers a client secret stored before the entry had a token URL; resolved per render, so l10n stays
-	// call-time.
+	// The stale-key dialog's detail line.
+	//   destinations deduplicated -> the keys share the base URL
+	//   no token URL              -> nothing to name; the sentence without a destination
+	//   resolved per render       -> l10n stays call-time
+	const describeDestination = (field: SecretFieldId): string => {
+		if (original === undefined) {
+			return "";
+		}
+		const destination = secretDestination(original, field);
+		if (typeof destination === "string") {
+			return destination;
+		}
+		if (destination.tokenUrl === undefined) {
+			return "";
+		}
+		return destination.clientId === undefined
+			? destination.tokenUrl
+			: l10n.t("{0} (client {1})", destination.tokenUrl, destination.clientId);
+	};
 	const staleKeyDetail = (): string => {
-		const destinations = [
-			...new Set(
-				(staleKeyFields ?? [])
-					.map((field) => (original !== undefined ? describeSecretDestination(original, field) : ""))
-					.filter((destination) => destination !== "")
-			),
-		];
+		const destinations = [...new Set((staleKeyFields ?? []).map(describeDestination).filter((d) => d !== ""))];
 		return destinations.length > 0
 			? l10n.t(
 					"The stored key was saved for {0}. Clearing the key removes it from secret storage.",
