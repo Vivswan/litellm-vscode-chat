@@ -12,6 +12,8 @@ export interface Block {
 	readonly context: readonly string[];
 	/** Where the block's prelude starts in the sheet; source order settles equal-specificity arguments. */
 	readonly start: number;
+	/** Just past the closing brace; an offset between `start` and `end` lies inside this block. */
+	readonly end: number;
 }
 
 /**
@@ -66,6 +68,7 @@ export function blocks(css: string): readonly Block[] {
 				text: css.slice(closed.at, i + 1).trim(),
 				context: closed.context,
 				start: closed.at,
+				end: i + 1,
 			});
 		} else if (char === ";") {
 			preludeStart = i + 1;
