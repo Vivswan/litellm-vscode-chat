@@ -1,22 +1,35 @@
-# Repo-owned: generated once by Vivswan/repo-platform, never
-# overwritten by sync. ci.yml's `site` leg runs this action on the judged
-# commit before the fleet renders docs/ and deploys: build this repository's
-# own website here. Contract and examples: repo-platform's docs/site.md.
+# Repo-owned: seeded once by Vivswan/repo-platform, never overwritten by sync. repo-platform's reusable-site.yml runs
+# it only when this file exists, inside the deploy job's own workspace, so dist is handed over with no artifact hop.
 
 name: Site Build
-description: Builds this repository's own website for the fleet's Pages deploy.
+description: |
+  Builds this repository's own website for the fleet's Pages deploy.
+
+  The fleet's deploy job runs it on the judged commit and assembles the Pages site from its dist output and docs/.
+  Until the build step is filled in, it names no directory and docs/ publishes alone.
+
+  The caller's obligations:
+    - pass base-path and origin, both required
+    - run it from a checkout of the judged commit
+    - grant the deploy job's token: contents read, pages and id-token write, issues write
+    - have bash on PATH
+
+  The dist output names the built site's directory, relative to the repository root, holding an index.html.
+  Empty means no repository website.
+
+  Contract and examples: repo-platform's docs/modules/site.md.
 
 inputs:
   base-path:
-    description: The URL path the site is served under ("/" with a custom domain, else "/<repo>/")
+    description: The URL path the site is served under ("/" with a custom domain, else "/<repo>/").
     required: true
   origin:
-    description: The site's origin (https://<owner>.github.io, or https://<domain>)
+    description: The site's origin (https://<owner>.github.io, or https://<domain>).
     required: true
 
 outputs:
   dist:
-    description: The built site's directory, relative to the repository root; empty = no repository site
+    description: The built site's directory, relative to the repository root, or empty for no repository website.
     value: ${{ steps.build.outputs.dist }}
 
 runs:
