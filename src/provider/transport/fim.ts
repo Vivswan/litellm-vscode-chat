@@ -1,9 +1,4 @@
-/**
- * Pure fill-in-the-middle helpers for the inline-completions transport: the
- * prompt/suffix construction (context budgets and the `_fim_template`
- * directive) and the lenient non-streaming /completions response parse. No
- * network, no vscode - the request path composes these around its send.
- */
+/** No network, no vscode - the request path composes these around its send. */
 
 import { isFimTemplateValue } from "../../shared/config/recordResolution";
 import { isRecord } from "../../shared/util/json";
@@ -27,10 +22,8 @@ export interface FimPromptInput {
 	/** Document text after the cursor; only the first FIM_SUFFIX_BUDGET units are used. */
 	readonly suffix: string;
 	/**
-	 * The resolved parameter record's `_fim_template` directive value
-	 * (ResolvedModelParameters.fimTemplate), untyped for totality: only a
-	 * string with both placeholders applies, and a malformed value degrades to
-	 * the native path.
+	 * The resolved parameter record's `_fim_template` directive value (ResolvedModelParameters.fimTemplate), untyped
+	 * for totality: only a string with both placeholders applies, and a malformed value degrades to the native path.
 	 */
 	readonly fimTemplate?: unknown;
 }
@@ -44,27 +37,22 @@ export interface FimPrompt {
 const TEMPLATE_PLACEHOLDER = /\{(prefix|suffix)\}/g;
 
 /**
- * The prefix's budgeted tail: shared/util/text's surrogate-safe tail rule
- * bound to FIM_PREFIX_BUDGET. Exported as the one truncation pipeline: the
- * inline provider windows its document reads through this, so its cache key
- * IS the wire prefix.
+ * Exported as the one truncation pipeline: the inline provider windows its document reads through this, so its cache
+ * key IS the wire prefix.
  */
 export function truncateFimPrefix(prefix: string): string {
 	return truncateKeepingTail(prefix, FIM_PREFIX_BUDGET);
 }
 
-/** The suffix's budgeted head; the shared mirror rule bound to FIM_SUFFIX_BUDGET. */
 export function truncateFimSuffix(suffix: string): string {
 	return truncateKeepingHead(suffix, FIM_SUFFIX_BUDGET);
 }
 
 /**
- * Build the /completions prompt from the cursor's surrounding context. The
- * prefix keeps its tail and the suffix its head, so the text nearest the
- * cursor always survives the budgets. With a valid `_fim_template` the prompt
- * is the template with every `{prefix}`/`{suffix}` occurrence substituted in
- * one pass (a placeholder spelled inside document text is never re-scanned),
- * and the wire `suffix` field is omitted - the template placed it already.
+ * The prefix keeps its tail and the suffix its head, so the text nearest the cursor always survives the budgets. With
+ * a valid `_fim_template` the prompt is the template with every `{prefix}`/`{suffix}` occurrence substituted in one
+ * pass (a placeholder spelled inside document text is never re-scanned), and the wire `suffix` field is omitted - the
+ * template placed it already.
  */
 export function buildFimPrompt(input: FimPromptInput): FimPrompt {
 	const prefix = truncateFimPrefix(input.prefix);
@@ -79,11 +67,8 @@ export function buildFimPrompt(input: FimPromptInput): FimPrompt {
 }
 
 /**
- * The completion text of a non-streaming /completions response body: the
- * first choice carrying a string `text`, so junk choices drop instead of
- * failing the response (the transport's log-and-skip leniency). Total over
- * any input; malformed shapes read as undefined, and nothing here throws or
- * quotes response text.
+ * The completion text of a non-streaming /completions response body: the first choice carrying a string `text`, so
+ * junk choices drop instead of failing the response (the transport's log-and-skip leniency).
  */
 export function parseCompletionText(payload: unknown): string | undefined {
 	if (!isRecord(payload) || !Array.isArray(payload.choices)) {

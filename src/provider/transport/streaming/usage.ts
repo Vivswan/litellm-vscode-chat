@@ -1,16 +1,14 @@
 import { isRecord } from "../../../shared/util/json";
 
 /**
- * The known numeric token counts of a usage trailer. The record is
- * response-owned, so logging it wholesale would let arbitrary server keys
- * ride into the issue-report buffer; only these counts have diagnostic
- * value, and only numbers pass.
+ * The record is response-owned, so logging it wholesale would let arbitrary server keys ride into the issue-report
+ * buffer; only these counts have diagnostic value, and only numbers pass.
  */
 export function knownUsageCounts(usage: object): Record<string, number> {
 	const record = usage as Record<string, unknown>;
 	const counts: Record<string, number> = {};
-	// Number.isFinite, not typeof: a server literal like 1e999 parses to
-	// Infinity, which is useless as a diagnostic count.
+	// Number.isFinite, not typeof: a server literal like 1e999 parses to Infinity, which is useless as a diagnostic
+	// count.
 	for (const key of [
 		"prompt_tokens",
 		"completion_tokens",
@@ -43,8 +41,8 @@ export function knownUsageCounts(usage: object): Record<string, number> {
 }
 
 /**
- * The trailer is response-owned, so only known numeric counts pass, never the object verbatim. Number.isFinite
- * guards every count because a literal like 1e999 serializes as null, which makes the consumer reject the whole payload.
+ * The trailer is response-owned, so only known numeric counts pass, never the object verbatim. Number.isFinite guards
+ * every count because a literal like 1e999 serializes as null.
  *
  *   prompt_tokens_details.cached_tokens / cache_creation_input_tokens -> the OpenAI shape, read first
  *   top-level cache_read_input_tokens / cache_creation_input_tokens   -> LiteLLM's shape on Anthropic routes

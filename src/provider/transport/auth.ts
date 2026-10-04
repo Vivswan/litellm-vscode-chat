@@ -15,15 +15,7 @@ import {
 	twoPartTexts,
 } from "./errorMapping";
 
-/**
- * OAuth2 client-credentials authentication for gateways behind an identity
- * provider: the extension exchanges a client ID and secret at a token endpoint
- * for a short-lived bearer token and sends it as the Authorization header on
- * every request to the server.
- *
- * Error ownership follows the transport-module convention: construct and throw
- * without logging. Token values and client secrets never appear in any message.
- */
+/** Error ownership follows the transport-module convention: construct and throw without logging. */
 
 /** Client-credentials grant configuration; present as a whole or not at all. */
 export interface OAuthConfig {
@@ -42,20 +34,19 @@ export interface VirtualKeyConfig {
 }
 
 /**
- * Which caller's error surface renders a token failure: the exchange is the
- * same on every path, but the two-part message join differs, so every token
- * request states the surface it fails toward.
+ * Which caller's error surface renders a token failure: the exchange is the same on every path, but the two-part
+ * message join differs, so every token request states the surface it fails toward.
  */
 export type OAuthErrorSurface = MapErrorContext["surface"];
 
 /**
- * A hard time bound together with the identity of the setting that owns it,
- * minted at the ONE place the number is read from configuration (or fixed in
- * code) and passed through as a unit. Timeout advice renders from `setting`,
- * so it can never name a setting that does not govern the elapsed clock -
- * the drift a caller-side table of budget choices once shipped. `setting` is
- * required but may be undefined: a fixed bound no setting can raise states
- * that explicitly instead of omitting it.
+ * A hard time bound together with the identity of the setting that owns it, minted at the ONE place the number is read
+ * from configuration (or fixed in code) and passed through as a unit.
+ *
+ * `setting` is required but may be undefined: a fixed bound no setting can raise states that explicitly instead of
+ * omitting it.
+ *
+ *   Timeout advice renders from `setting` -> it can never name a setting that does not govern the elapsed clock
  */
 export interface TimeoutBudget {
 	readonly ms: number;
@@ -63,15 +54,10 @@ export interface TimeoutBudget {
 }
 
 /**
- * Non-secret identity of a credential set: what makes OAuth credentials "the
- * same". Rotating any part (secret included) changes the key, so caches keyed
- * by it self-invalidate. JSON-encoded before hashing: the fields are free-form
- * strings, so a delimiter join would let two different credential sets
- * serialize identically and share a cached token.
+ * JSON-encoded before hashing: the fields are free-form strings, so a delimiter join would let two different credential
+ * sets serialize identically and share a cached token.
  */
 export function oauthCredentialFingerprint(config: OAuthConfig): string {
-	// The satisfies clause breaks the build when a field is added without
-	// extending `parts`, so every OAuthConfig field participates in the identity.
 	const parts = {
 		tokenUrl: config.tokenUrl,
 		clientId: config.clientId,
@@ -81,11 +67,7 @@ export function oauthCredentialFingerprint(config: OAuthConfig): string {
 	return fingerprint(JSON.stringify(parts));
 }
 
-/**
- * A token is refreshed this long before its nominal expiry so it never goes
- * stale mid-request; clamped to half the lifetime so short-lived tokens
- * still spend some of their life cached.
- */
+/** Clamped to half the lifetime so short-lived tokens still spend some of their life cached. */
 const REFRESH_SKEW_MS = 60_000;
 
 /** Applied when the token response omits expires_in (RFC 6749 only recommends it). */
@@ -98,19 +80,13 @@ interface CachedToken {
 	refreshAtMs: number;
 }
 
-/**
- * Fetches and caches client-credentials tokens, keyed by the credential
- * fingerprint so a rotated secret starts from a fresh entry. Concurrent
- * requests for the same credentials share one in-flight exchange.
- */
 export class OAuthTokenSource {
 	private readonly tokens = new Map<string, CachedToken>();
 	private readonly pending = new Map<string, Promise<string>>();
 
 	/**
-	 * The cached token until it is due for refresh, else a fresh exchange bounded by `budget` (whose setting
-	 * identity is what timeout advice names, or none) and, when given, by `signal`. Concurrent calls for the
-	 * same credentials share ONE live exchange, yet every waiter's bounds and error surface stay its own.
+	 * Concurrent calls for the same credentials share ONE live exchange, yet every waiter's bounds and error surface
+	 * stay its own.
 	 *
 	 *   a joiner's clock or `signal` fires -> only its own wait ends; the exchange continues for the others
 	 *   the shared exchange fails          -> each waiter renders it through its OWN surface
@@ -126,10 +102,8 @@ export class OAuthTokenSource {
 		try {
 			return await this.acquireToken(config, budget, signal);
 		} catch (error) {
-			// The ONE render boundary: a surface-free exchange failure becomes
-			// this caller's error here, so the carrier cannot escape by
-			// construction; cancellation reasons and already-rendered errors pass
-			// through unchanged.
+			// The ONE render boundary: a surface-free exchange failure becomes this caller's error here, so the carrier
+			// cannot escape by construction; cancellation reasons and already-rendered errors pass through unchanged.
 			throw error instanceof OAuthExchangeFailure ? error.render(surface) : error;
 		}
 	}
@@ -141,24 +115,22 @@ export class OAuthTokenSource {
 		if (cached && Date.now() < cached.refreshAtMs) {
 			return cached.accessToken;
 		}
-		// This waiter's OWN clock and signal. They bound every JOIN wait and gate
-		// every pass of the loop; an exchange this waiter originates runs on its
-		// own fresh budget instead (see getToken's doc). Neither cancels a shared
-		// exchange for its other waiters.
+		// This waiter's OWN clock and signal.
+		//
+		// Neither cancels a shared exchange for its other waiters.
+		//   an exchange this waiter originates -> runs on its own fresh budget instead (see getToken's doc)
 		const waitTimeout = AbortSignal.timeout(budget.ms);
 		const waitSignal = signal !== undefined ? AbortSignal.any([waitTimeout, signal]) : waitTimeout;
 		for (;;) {
-			// Re-read on every pass: a fall-through below may find the token a
-			// racing caller cached since this waiter last looked.
+			// Re-read on every pass: a fall-through below may find the token a racing caller cached since this waiter
+			// last looked.
 			const fresh = this.tokens.get(key);
 			if (fresh && Date.now() < fresh.refreshAtMs) {
 				return fresh.accessToken;
 			}
-			// The caller's own abort outranks its elapsed clock when both have
-			// fired: an abort the caller asked for must not be relabeled a token
-			// timeout (the exchange applies the same rule). Checked ahead of the
-			// join AND the originate branch, so a waiter whose own bounds fired
-			// never starts a fresh exchange either.
+			// The caller's own abort outranks its elapsed clock when both have fired: an abort the caller asked for
+			// must not be relabeled a token timeout (the exchange applies the same rule). Checked ahead of the join AND
+			// the originate branch, so a waiter whose own bounds fired never starts a fresh exchange either.
 			if (signal?.aborted) {
 				throw abortReason(signal);
 			}
@@ -188,9 +160,8 @@ export class OAuthTokenSource {
 					if (!error.originatorBound) {
 						throw error;
 					}
-					// The exchange died of its originator's clock - a bound that was
-					// never this waiter's, so neither the elapsed ms nor any setting
-					// advice would be truthful here. Recover below instead.
+					// The exchange died of its originator's clock - a bound that was never this waiter's, so neither
+					// the elapsed ms nor any setting advice would be truthful here. Recover below instead.
 				} else {
 					if (signal?.aborted) {
 						throw abortReason(signal);
@@ -198,23 +169,19 @@ export class OAuthTokenSource {
 					if (waitTimeout.aborted) {
 						throw timeoutError(config.tokenUrl, budget, error);
 					}
-					// The exchange rejects non-carriers only when its originator's
-					// own cancellation interrupted it - and either way, a reason
-					// that is not this waiter's own is not its to surface.
+					// The exchange rejects non-carriers only when its originator's own cancellation interrupted it -
+					// and either way, a reason that is not this waiter's own is not its to surface.
 				}
-				// Fall through: serve the token a racing caller may have cached
-				// since, join a newer exchange, or originate a fresh one - each
-				// pass still gated by this waiter's own bounds above.
+				// Fall through: serve the token a racing caller may have cached since, join a newer exchange, or
+				// originate a fresh one - each pass still gated by this waiter's own bounds above.
 			}
 		}
 	}
 
 	/**
-	 * Drop the cached token after the server rejected it, so the next request
-	 * performs a fresh exchange; the rejected call itself is never retried.
-	 * When the rejected token is known and a fresh one has already replaced it,
-	 * the fresh token is kept: a straggling 401 earned by the old token must
-	 * not discard its successor.
+	 * Drop the cached token after the server rejected it, so the next request performs a fresh exchange; the rejected
+	 * call itself is never retried. When the rejected token is known and a fresh one has already replaced it, the
+	 * fresh token is kept: a straggling 401 earned by the old token must not discard its successor.
 	 */
 	invalidate(config: OAuthConfig, rejectedToken?: string): void {
 		const key = oauthCredentialFingerprint(config);
@@ -234,10 +201,8 @@ function abortReason(signal: AbortSignal): unknown {
 }
 
 /**
- * Await a shared promise but stop waiting as soon as the caller's own signal
- * aborts: the rejection carries the abort reason, while the shared work
- * continues untouched for its other waiters. The listener is removed once
- * either side settles.
+ * Await a shared promise but stop waiting as soon as the caller's own signal aborts: the rejection carries the abort
+ * reason, while the shared work continues untouched for its other waiters.
  */
 function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 	if (signal.aborted) {
@@ -275,14 +240,12 @@ class OAuthExchangeFailure extends Error {
 }
 
 /**
- * The advice rides the TimeoutBudget minted where the number was read, so it cannot drift from the budget
- * choice, and an undefined `setting` (the fixed inline-completion bound) gets none, since advising a setting
- * that cannot extend the bound is a lie. The switch is exhaustive on purpose; a ladder's fall-through would misattribute a new setting.
+ * The advice rides the TimeoutBudget minted where the number was read, so it cannot drift from the budget choice, and
+ * an undefined `setting` (the fixed inline-completion bound) gets none, since advising a setting that cannot extend
+ * the bound is a lie. The switch is exhaustive on purpose; a ladder's fall-through would misattribute a new setting.
  */
 function timeoutError(tokenUrl: string, budget: TimeoutBudget, cause?: unknown): RequestError {
 	const url = displayUrl(tokenUrl);
-	// English mirrors ride each construction for the output channel and the
-	// issue-report buffer; the display message localizes.
 	switch (budget.setting) {
 		case undefined:
 			return new RequestError(l10n.t("OAuth token request to {0} timed out after {1}ms.", url, budget.ms), "timeout", {
@@ -323,11 +286,8 @@ function timeoutError(tokenUrl: string, budget: TimeoutBudget, cause?: unknown):
 }
 
 /**
- * The RFC 6749 error code and description from an error response, when the
- * body carries them, as bare "error: description" text (empty when absent).
- * Never the raw body: it is untrusted and can be huge. The configured client
- * secret is scrubbed in case the identity provider echoes it back in the
- * description.
+ * Never the raw body: it is untrusted and can be huge. The configured client secret is scrubbed in case the identity
+ * provider echoes it back in the description.
  */
 function oauthErrorDetail(payload: string, clientSecret: string): string {
 	try {
@@ -337,11 +297,9 @@ function oauthErrorDetail(payload: string, clientSecret: string): string {
 				(part): part is string => typeof part === "string" && part.length > 0
 			);
 			if (parts.length > 0) {
-				// Scrub before truncating: a secret longer than the cap, or one
-				// crossing it, must not leak its prefix. Scrub again after the
-				// whitespace collapse: a secret containing whitespace dodges the
-				// exact-match pass when the IdP echoes it with different
-				// whitespace, and the collapse would otherwise reassemble it.
+				// Scrub before truncating: a secret longer than the cap, or one crossing it, must not leak its prefix.
+				// Scrub again after the whitespace collapse: a secret containing whitespace dodges the exact-match pass
+				// when the IdP echoes it with different whitespace, and the collapse would otherwise reassemble it.
 				let detail = parts.join(": ");
 				if (clientSecret.length > 0) {
 					detail = detail.split(clientSecret).join("[REDACTED]");
@@ -361,10 +319,8 @@ function oauthErrorDetail(payload: string, clientSecret: string): string {
 }
 
 /**
- * The token lifetime in seconds: the advertised expires_in, a conservative
- * default when the field is absent, and zero (already due for refresh, so
- * never served from cache) when it is present but zero, negative, or
- * unparseable.
+ * The token lifetime in seconds: the advertised expires_in, a conservative default when the field is absent, and zero
+ * (already due for refresh, so never served from cache) when it is present but zero, negative, or unparseable.
  */
 function tokenLifetimeSeconds(parsed: Record<string, unknown>): number {
 	if (!("expires_in" in parsed)) {
@@ -383,9 +339,8 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 	} catch {
 		parsed = undefined;
 	}
-	// Each malformed shape throws a localized headline over a fixed English
-	// detail line; these errors carry no logClassification, so the
-	// byte-faithful English mirror is what the diagnostics surfaces render.
+	// Each malformed shape throws a localized headline over a fixed English detail line; these errors carry no
+	// logClassification, so the byte-faithful English mirror is what the diagnostics surfaces render.
 	if (!isRecord(parsed) || typeof parsed.access_token !== "string" || parsed.access_token.length === 0) {
 		const detail = `OAuth token endpoint ${displayUrl(tokenUrl)} answered 2xx without JSON containing a non-empty access_token.`;
 		throw new OAuthExchangeFailure((surface) => {
@@ -424,9 +379,8 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 }
 
 /**
- * Retries like the discovery GETs because the exchange is idempotent, under `budget.ms` as a hard bound
- * across all attempts. Every concurrent getToken caller shares this exchange, so non-cancellation failures
- * leave surface-free as OAuthExchangeFailure, while a `signal` abort rethrows as-is so the caller attributes it truthfully.
+ * Non-cancellation failures leave surface-free as OAuthExchangeFailure, while a `signal` abort rethrows as-is so the
+ * caller attributes it truthfully.
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,
@@ -444,12 +398,11 @@ async function exchangeClientCredentials(
 	});
 
 	let lastFailure: unknown;
-	// The client-credentials exchange is idempotent, so it retries like the discovery GETs.
 	for (let attempt = 0; attempt <= DISCOVERY_MAX_RETRIES; attempt += 1) {
 		if (attempt > 0) {
 			await sleepUnlessAborted(RETRY_DELAY_MS * attempt, signal);
-			// The outer signal wins the classification when both have fired: an
-			// abort the caller asked for must not be relabeled a token timeout.
+			// The outer signal wins the classification when both have fired: an abort the caller asked for must not be
+			// relabeled a token timeout.
 			if (outerSignal?.aborted) {
 				throw abortReason(outerSignal);
 			}
@@ -494,9 +447,8 @@ async function exchangeClientCredentials(
 		const { status } = response;
 		const idpDetail = oauthErrorDetail(payload, config.clientSecret);
 		if (status >= 500) {
-			// `idpDetail` quotes the IdP's error/error_description
-			// (response-derived), so it rides only the message and its English
-			// mirror; the classification is what public surfaces record.
+			// `idpDetail` quotes the IdP's error/error_description (response-derived), so it rides only the message and
+			// its English mirror; the classification is what public surfaces record.
 			const detailLine = collapseWhitespace(
 				`OAuth token endpoint ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
@@ -573,12 +525,9 @@ async function exchangeClientCredentials(
 	if (lastFailure instanceof OAuthExchangeFailure) {
 		throw lastFailure;
 	}
-	// The shared socket-failure classifier: identical kind and cause-detail
-	// rules as the chat and discovery transports, with token-endpoint advice.
-	// Its timeout arm renders this exchange's own budget message, a number and
-	// setting only the exchange's originator owns - so a timeout-flavored
-	// failure marks the carrier originatorBound and joiners recover instead.
-	// The exchange's signal-governed timeouts have already thrown above.
+	// Its timeout arm renders this exchange's own budget message, a number and setting only the exchange's originator
+	// owns - so a timeout-flavored failure marks the carrier originatorBound and joiners recover instead. The
+	// exchange's signal-governed timeouts have already thrown above.
 	const failure = lastFailure;
 	throw new OAuthExchangeFailure(
 		(surface) =>

@@ -23,11 +23,9 @@ export interface TokenConstraints {
 }
 
 /**
- * A minimum taken over several constraints is server-declared only when
- * every contributing limit was: one floor-filled contributor can supply
- * the minimum itself, and its true limit is unknown either way. No
- * contributors at all also means a floor fill, so the helper can never fail
- * open on vacuous input.
+ * A minimum taken over several constraints is server-declared only when every contributing limit was: one floor-filled
+ * contributor can supply the minimum itself, and its true limit is unknown either way. No contributors at all also
+ * means a floor fill, so the helper can never fail open on vacuous input.
  */
 function combinedOutputLimitSource(constraints: readonly TokenConstraints[]): OutputLimitSource {
 	return constraints.length > 0 && constraints.every((c) => c.outputLimitSource === "provider")
@@ -36,18 +34,16 @@ function combinedOutputLimitSource(constraints: readonly TokenConstraints[]): Ou
 }
 
 /**
- * The effective token constraints a provider entry advertises. The single
- * home of the fallback rules: an unreported limit falls back to the built-in
- * floor (the same FLOOR_* literals the capability walk floors to), and a
- * missing input limit derives from context minus output. The limit fields are
- * read as-is: discovery narrowed them to positive numbers or undefined at the
- * mapping sites, so no per-read re-normalization exists here.
+ * The single home of the fallback rules: an unreported limit falls back to the built-in floor (the same FLOOR_*
+ * literals the capability walk floors to), and a missing input limit derives from context minus output. The limit
+ * fields are read as-is: discovery narrowed them to positive numbers or undefined at the mapping sites, so no per-read
+ * re-normalization exists here.
  */
 export function deriveTokenConstraints(provider: LiteLLMProvider | undefined): TokenConstraints {
 	const declaredOutputTokens = provider?.max_output_tokens ?? provider?.max_tokens;
 	const maxOutputTokens = declaredOutputTokens ?? FLOOR_MAX_OUTPUT_TOKENS;
-	// Only an exact "defaults" marker demotes, so a passed-through wire field
-	// can never promote a floor-derived limit to server-declared.
+	// Only an exact "defaults" marker demotes, so a passed-through wire field can never promote a floor-derived limit
+	// to server-declared.
 	const outputLimitSource: OutputLimitSource =
 		declaredOutputTokens !== undefined && provider?.output_limit_source !== "defaults" ? "provider" : "defaults";
 
@@ -59,12 +55,8 @@ export function deriveTokenConstraints(provider: LiteLLMProvider | undefined): T
 }
 
 /**
- * The conservative collapse of several contributors' effective constraints:
- * each contributor's standalone constraints are derived and the per-field
- * minimum is taken. The one home of the min-collapse rule: deployment merging
- * and registration's cheapest/fastest aggregates both advertise through it, so
- * neither can advertise more input than the strictest contributor accepts. The
- * non-empty parameter type keeps the minimums grounded in a real contributor.
+ * The one home of the min-collapse rule: deployment merging and registration's cheapest/fastest aggregates both
+ * advertise through it, so neither can advertise more input than the strictest contributor accepts.
  */
 export function collapseTokenConstraints(
 	contributors: readonly [LiteLLMProvider, ...LiteLLMProvider[]]
@@ -78,24 +70,25 @@ export function collapseTokenConstraints(
 	};
 }
 
-/** A contributor's own output limit, before any floor fill; the same field priority deriveTokenConstraints uses. */
+/** Before any floor fill; the same field priority deriveTokenConstraints uses. */
 function reportedOutputTokens(provider: LiteLLMProvider): number | undefined {
 	return provider.max_output_tokens ?? provider.max_tokens;
 }
 
-/** Which token-limit fields any contributor actually reported. */
 export interface ReportedLimits {
 	readonly context: boolean;
 	readonly input: boolean;
 	readonly output: boolean;
-	/** Any of the three: the input limit is server-grounded whenever anything numeric was reported (see the baseline doc). */
+	/**
+	 * Any of the three: the input limit is server-grounded whenever anything numeric was reported (see the baseline
+	 * doc).
+	 */
 	readonly any: boolean;
 }
 
 /**
- * The reported-vs-floor-filled judgment for a set of contributors, shared by
- * deployment merging and the capability baseline so the two can never classify
- * one field differently.
+ * The reported-vs-floor-filled judgment for a set of contributors, shared by deployment merging and the capability
+ * baseline so the two can never classify one field differently.
  */
 export function reportedLimits(providers: readonly LiteLLMProvider[]): ReportedLimits {
 	const context = providers.some((p) => p.context_length !== undefined);
@@ -107,13 +100,10 @@ export function reportedLimits(providers: readonly LiteLLMProvider[]): ReportedL
 const COST_FIELDS = consumedFieldsOfKind("cost");
 
 /**
- * The cost fields of one baseline, normalized. Server costs are
- * present-means-declared by construction: discovery's serverCostsOf already
- * mapped LiteLLM's 0/0 no-pricing stamp to undefined at ingest, so every cost
- * a provider entry still carries was declared and each field with a usable
- * cost is stored (normalizeCostPerToken canonicalizes -0 to +0, so a stored
- * zero cannot ride a negative sign into the per-million conversion; merged
- * entries carry null for disagreeing costs, which reads as absent here).
+ * Server costs are present-means-declared by construction: discovery's serverCostsOf already mapped LiteLLM's 0/0
+ * no-pricing stamp to undefined at ingest, so every cost a provider entry still carries was declared and each field
+ * with a usable cost is stored (normalizeCostPerToken canonicalizes -0 to +0, so a stored zero cannot ride a negative
+ * sign into the per-million conversion; merged entries carry null for disagreeing costs, which reads as absent here).
  */
 function serverCostValues(costs: Readonly<PerTokenCosts>): Partial<ServerCapabilityValues> {
 	const values: DeclaredPerTokenCosts = {};
@@ -127,11 +117,9 @@ function serverCostValues(costs: Readonly<PerTokenCosts>): Partial<ServerCapabil
 }
 
 /**
- * The intersection of a contributor set's string lists: present only when
- * EVERY contributor carries an array, holding the strings every contributor
- * lists. Providers-array entries are lenient pass-throughs, so each list is
- * re-narrowed element-wise to non-empty strings, the same vocabulary the
- * user-record "string-array" kind validates.
+ * The intersection of a contributor set's string lists: present only when EVERY contributor carries an array, holding
+ * the strings every contributor lists. Providers-array entries are lenient pass-throughs, so each list is re-narrowed
+ * element-wise to non-empty strings, the same vocabulary the user-record "string-array" kind validates.
  */
 function intersectReportedLists(lists: readonly (string[] | null | undefined)[]): readonly string[] | undefined {
 	const [first, ...rest] = lists;
@@ -144,20 +132,14 @@ function intersectReportedLists(lists: readonly (string[] | null | undefined)[])
 	return narrow(first).filter((param) => tails.every((tail) => tail.has(param)));
 }
 
-/** The supported-params answer of a contributor set; see intersectReportedLists for the presence rule. */
 function intersectReportedParams(providers: readonly LiteLLMProvider[]): readonly string[] | undefined {
 	return intersectReportedLists(providers.map((p) => p.supported_openai_params));
 }
 
 /**
- * The reasoning-effort level list of a contributor set, from the flag-derived
- * lists discovery authored: present only when every contributor carries one,
- * holding their intersection. An EMPTY intersection (contributors flagging
- * disjoint levels) collapses to no signal, so the menu falls back rather than
- * registering empty - only a user-written [] means "no levels", and that value
- * never passes through here. The one levels rule registration's
- * configurationSchemaFor and the capability baseline both read, so the two
- * cannot disagree.
+ * An EMPTY intersection (contributors flagging disjoint levels) collapses to no signal, so the menu falls back rather
+ * than registering empty - only a user-written [] means "no levels", and that value never passes through here. The one
+ * levels rule registration's configurationSchemaFor and the capability baseline both read, so the two cannot disagree.
  */
 export function reportedReasoningLevels(providers: readonly LiteLLMProvider[]): readonly string[] | undefined {
 	const intersection = intersectReportedLists(providers.map((p) => p.reasoning_effort_levels));
@@ -174,11 +156,9 @@ export interface DiscoveredBaselineInput {
 	/** Whether this entry advertises the reasoning-effort control (registration's answer for its shape). */
 	readonly reasoning: boolean;
 	/**
-	 * The per-token costs this entry's registration would have priced: present
-	 * ONLY for the shapes whose route pins the serving deployment's cost. The
-	 * untooled base entry and the cheapest/fastest aggregates pass none -
-	 * registration deliberately never priced them, and the walk's server level
-	 * must not offer what the picker refused to advertise.
+	 * The per-token costs this entry's registration would have priced: present ONLY for the shapes whose route pins the
+	 * serving deployment's cost. The untooled base entry and the cheapest/fastest aggregates pass none - registration
+	 * deliberately never priced them, and the walk's server level must not offer what the picker refused to advertise.
 	 */
 	readonly costs?: Readonly<PerTokenCosts> | undefined;
 }

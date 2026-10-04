@@ -17,43 +17,37 @@ import {
 import { displayUrl, redactUrlCredentials } from "../../shared/util/displayUrl";
 import { collapseWhitespace } from "../../shared/util/errorText";
 
-/** The kind union lives in shared (status surfaces and the dashboard protocol may not import this layer); the transport keeps its established name. */
+/**
+ * The kind union lives in shared (status surfaces and the dashboard protocol may not import this layer); the transport
+ * keeps its established name.
+ */
 export type RequestErrorKind = TransportErrorKind;
 
 /**
- * Error thrown across the provider's transport boundary. `kind` lets callers
- * branch without matching on message text; the message itself stays the
- * user-facing string surfaced in the chat UI and the status callback.
+ * Extends MirroredError, so every construction site must pass at least one of the two English renderings, and the
+ * choice stays PER CONSTRUCTION SITE, never derived from `kind`:
  *
- * Extends MirroredError, so every construction site must pass at least one of
- * the two English renderings, and the choice stays PER CONSTRUCTION SITE,
- * never derived from `kind`:
- *
- * - `logClassification` when the message embeds response-derived text (an
- *   HTTP error body, an IdP's error_description).
+ * - `logClassification` when the message embeds response-derived text (an HTTP error body, an IdP's error_description).
  * - `englishMessage` when the message goes through l10n.t.
  *
- * `setupHint` is a per-construction-site opt-in: the id of the setup advice UI
- * surfaces may append. Only a site that knows the advice is right sets one -
- * sites where the same kind/status can mean something else (OAuth endpoints in
- * auth.ts, upstream-auth 401s, chat 404s) must NOT.
+ * `setupHint` is a per-construction-site opt-in: the id of the setup advice UI surfaces may append.
+ *   a site that knows the advice is right                                            -> sets one
+ *   sites where the same kind/status can mean something else (OAuth endpoints in
+ *   auth.ts, upstream-auth 401s, chat 404s)                                           -> must NOT
  */
 export class RequestError extends MirroredError {
 	readonly kind: RequestErrorKind;
 	readonly status?: number | undefined;
 	readonly setupHint?: SetupHintKind;
 	/**
-	 * Discovery's endpoint-unsupported marker, assigned only at the discovery
-	 * construction site that proved it in one pass; see
-	 * TransportErrorClassification.unsupportedEndpoint.
+	 * Discovery's endpoint-unsupported marker, assigned only at the discovery construction site that proved it in one
+	 * pass; see TransportErrorClassification.unsupportedEndpoint.
 	 */
 	readonly unsupportedEndpoint?: "modelListing";
 	/**
-	 * Set at the OAuth token-endpoint construction sites (auth.ts and the
-	 * shared socket-failure classifier's oauthToken context): the failure
-	 * happened during the token exchange, BEFORE the target endpoint was
-	 * called, so consumers judging the target endpoint from this error must
-	 * treat it as proving nothing about that endpoint.
+	 * Set at the OAuth token-endpoint construction sites (auth.ts and the shared socket-failure classifier's oauthToken
+	 * context): the failure happened during the token exchange, BEFORE the target endpoint was called, so consumers
+	 * judging the target endpoint from this error must treat it as proving nothing about that endpoint.
 	 */
 	readonly oauthTokenEndpoint?: true;
 
@@ -84,12 +78,6 @@ export class RequestError extends MirroredError {
 	}
 }
 
-/**
- * The error surfaces the transport maps for. Every member owns a SURFACE_COPY
- * row: the Record fails closed, so adding a surface here does not compile
- * until its copy exists, and the per-surface test suites derive their lists
- * from the table's keys.
- */
 export type TransportErrorSurface =
 	| "chat"
 	| "discovery"
@@ -101,12 +89,9 @@ export type TransportErrorSurface =
 	| "reviewComments";
 
 /**
- * Each model-picking feature's transport error surface, fail-closed by the
- * total Record: a new FeatureModelId does not compile until it names its
- * surface here. Five features share their surface's name; inlineCompletions is
- * the /completions FIM path, so it maps to "completion". The features' shared
- * send helper derives its surface from this table, so a feature cannot send
- * under another feature's error copy.
+ * Five features share their surface's name; inlineCompletions is the /completions FIM path, so it maps to
+ * "completion". The features' shared send helper derives its surface from this table, so a feature cannot send under
+ * another feature's error copy.
  */
 export const FEATURE_ERROR_SURFACE: Record<FeatureModelId, TransportErrorSurface> = {
 	inlineCompletions: "completion",
@@ -119,20 +104,18 @@ export const FEATURE_ERROR_SURFACE: Record<FeatureModelId, TransportErrorSurface
 
 export interface MapErrorContext {
 	/**
-	 * "completion" is the inline-completions /completions call: its errors
-	 * degrade silently in the editor, so the texts serve the log surfaces and
-	 * the dashboard's test probe, and they join discovery-style (the "\n" the
-	 * dashboard splits on). "commitGeneration" is the commit-message
-	 * /chat/completions call, surfaced as a VS Code notification by its command
-	 * boundary - notifications flatten newlines, so it joins chat-style with
-	 * the "Details:" lead-in. "consultTool" is the consult tool's
-	 * /chat/completions call: its failure is thrown back into the chat view
-	 * that invoked the tool, so it joins chat-style too. "prGeneration" is the
-	 * PR title-and-description call, surfaced like commit generation.
-	 * "quickFix" is the quick-fix fallback's /chat/completions call, surfaced as
-	 * a notification by its command boundary, so it joins chat-style as well.
-	 * "reviewComments" is the review commands' /chat/completions call, surfaced
-	 * as a notification by its command boundary, so it joins chat-style too.
+	 * "completion" is the inline-completions /completions call: its errors degrade silently in the editor, so the texts
+	 * serve the log surfaces and the dashboard's test probe, and they join discovery-style (the "\n" the dashboard
+	 * splits on). "commitGeneration" is the commit-message /chat/completions call, surfaced as a VS Code notification
+	 * by its command boundary - notifications flatten newlines, so it joins chat-style with the "Details:" lead-in.
+	 *
+	 *   "consultTool" is the consult tool's /chat/completions call: its failure is thrown back into the chat view that
+	 *     invoked the tool -> it joins chat-style too
+	 *   "prGeneration" is the PR title-and-description call -> surfaced like commit generation
+	 *   "quickFix" is the quick-fix fallback's /chat/completions call, surfaced as a notification by its command
+	 *     boundary -> it joins chat-style as well
+	 *   "reviewComments" is the review commands' /chat/completions call, surfaced as a notification by its command
+	 *     boundary -> it joins chat-style too
 	 */
 	surface: TransportErrorSurface;
 	baseUrl: string;
@@ -140,12 +123,8 @@ export interface MapErrorContext {
 }
 
 /**
- * Both renderings of a failed fetch for the error status, plus the
- * classification when the reason carries one: `error` renders directly in the
- * status bar and toasts, `logSafeError` is what log lines carry, and
- * `classification` is the enum-only shape UI surfaces branch on for setup
- * hints (absent for unclassified errors). An empty message is classified here,
- * at the boundary that constructs the status.
+ * Both renderings of a failed fetch for the error status, plus the classification when the reason carries one: `error`
+ * renders directly in the status bar and toasts, `logSafeError` is what log lines carry.
  */
 export function statusErrorTexts(reason: unknown): {
 	error: string;
@@ -154,8 +133,6 @@ export function statusErrorTexts(reason: unknown): {
 } {
 	const display = errorMessageText(reason);
 	const logSafe = publicErrorText(reason);
-	// The shared extractor duck-types kind/status/setupHint, which for a
-	// RequestError is exactly its classification; a plain Error yields none.
 	const classification = transportClassificationOf(reason);
 	return {
 		error: display.length > 0 ? display : l10n.t("Unknown error"),
@@ -165,16 +142,12 @@ export function statusErrorTexts(reason: unknown): {
 }
 
 /**
- * Wrap a classified transport failure in the stable LanguageModelError so
- * vscode.lm consumers can branch on the documented codes instead of matching
- * message text. Only the taxonomy-backed cases map; everything else -
- * including CancellationError, which is never wrapped or logged - passes
- * through unchanged, and 401s keep their auth classification rather than being
- * re-wrapped as anything else. The message is preserved because it renders in
- * the chat UI. The original RequestError rides as `cause` for in-process
- * inspection only: the extension-host boundary flattens a thrown error to
- * name, message, stack, and code, so the code itself is the surviving
- * contract.
+ * Only the taxonomy-backed cases map; everything else - including CancellationError, which is never wrapped or logged
+ * - passes through unchanged, and 401s keep their auth classification rather than being re-wrapped as anything else.
+ *
+ *   it renders in the chat UI -> the message is preserved
+ *   Wrap a classified transport failure in the stable LanguageModelError -> vscode.lm consumers can branch on the
+ *     documented codes instead of matching message text
  */
 export function toLanguageModelError(err: unknown): unknown {
 	if (!(err instanceof RequestError)) {
@@ -196,9 +169,9 @@ export function toLanguageModelError(err: unknown): unknown {
 }
 
 /**
- * Lazy so the l10n bundle lookup and the interpolated manage-command title
- * both resolve at 401 time, not module load. The paired *_ENGLISH constant is
- * the English mirror the log surfaces record.
+ * Lazy so the l10n bundle lookup and the interpolated manage-command title both resolve at 401 time, not module load.
+ *
+ *   The paired *_ENGLISH constant -> the English mirror the log surfaces record
  */
 function authMessage(): string {
 	return l10n.t(
@@ -218,20 +191,17 @@ function upstreamAuthMessage(): string {
 	);
 }
 
-/** English mirror of upstreamAuthMessage. */
 const UPSTREAM_AUTH_MESSAGE_ENGLISH =
 	"Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.";
 
 /**
- * Whether a 401 body reports the proxy's own upstream call failing to
- * authenticate rather than this client's key being rejected. LiteLLM wraps
- * upstream failures in its exception names ("litellm.AuthenticationError:
- * ..."); its own gate answers with an auth_error envelope. The envelope type
- * outranks the message text: an exception name quoted inside an auth_error
- * body is still the proxy rejecting this client's key. Telling them apart
- * matters: the proxy message tells the user to fix the extension's key, the
- * wrong credential entirely for an upstream failure. Classification only; the
- * body text itself is never echoed anywhere.
+ * LiteLLM wraps upstream failures in its exception names ("litellm.AuthenticationError: ..."); its own gate answers
+ * with an auth_error envelope. The envelope type outranks the message text: an exception name quoted inside an
+ * auth_error body is still the proxy rejecting this client's key.
+ *
+ *   the proxy message tells the user to fix the extension's key, the wrong credential entirely for an upstream failure
+ *     -> Telling them apart matters
+ *   Classification only -> the body text itself is never echoed anywhere
  */
 function isUpstreamAuthFailure(error: unknown): boolean {
 	if (typeof error !== "object" || error === null) {
@@ -244,7 +214,6 @@ function isUpstreamAuthFailure(error: unknown): boolean {
 	return typeof message === "string" && /litellm\.[\w.]*AuthenticationError/i.test(message);
 }
 
-/** The localized display string for a timed-out call; the same table row's `english` leg mirrors it for the log side. */
 export function timeoutMessage(ctx: MapErrorContext): string {
 	return surfaceCopy(ctx.surface).timeout(ctx.timeoutMs).display;
 }
@@ -265,9 +234,6 @@ function causeChain(err: unknown): ChainLink[] {
 	const chain: ChainLink[] = [];
 	let current: unknown = err;
 	while (current instanceof Error && chain.length < 10) {
-		// Every read is guarded and coerced: a hostile subclass's throwing
-		// getter or non-string field must not escape mapSdkError, whose
-		// contract is total.
 		let link: ChainLink;
 		try {
 			const rawCode = (current as Error & { code?: unknown }).code;
@@ -285,9 +251,8 @@ function causeChain(err: unknown): ChainLink[] {
 			if (next instanceof Error) {
 				current = next;
 			} else if (current instanceof AggregateError && current.errors[0] instanceof Error) {
-				// Undici aggregates parallel connect attempts (IPv4 + IPv6) into an
-				// AggregateError whose own message is empty; the first attempt
-				// carries the actionable socket text.
+				// Undici aggregates parallel connect attempts (IPv4 + IPv6) into an AggregateError whose own message is
+				// empty; the first attempt carries the actionable socket text.
 				current = current.errors[0];
 			} else {
 				break;
@@ -299,13 +264,6 @@ function causeChain(err: unknown): ChainLink[] {
 	return chain;
 }
 
-/**
- * One link's diagnostic text: its message, or its bare code when the message is
- * empty (Node's AggregateError shape). The one choke point for chain-derived
- * text entering displayed detail lines, so URL-embedded credentials are
- * scrubbed here (Node and undici quote the offending URL verbatim in some
- * failure messages).
- */
 function linkText(link: ChainLink | undefined): string {
 	if (link === undefined) {
 		return "";
@@ -313,11 +271,7 @@ function linkText(link: ChainLink | undefined): string {
 	return redactUrlCredentials(link.message !== "" ? link.message : (link.code ?? ""));
 }
 
-/**
- * One compact diagnostic from the cause chain: the first link's text (trailing
- * period trimmed) plus the deepest distinct cause. Compacted so a multi-line
- * cause cannot break the two-line message shape.
- */
+/** Compacted so a multi-line cause cannot break the two-line message shape. */
 function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
 	const fallback = redactUrlCredentials(typeof fallbackMessage === "string" ? fallbackMessage : "");
 	const first = chain.length > 0 ? linkText(chain[0]) : fallback;
@@ -327,13 +281,15 @@ function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
 	return compactText(joined, 300);
 }
 
-/** Server-derived text made one compact line: whitespace runs collapsed, trimmed, capped. */
 function compactText(text: string, cap: number): string {
 	const collapsed = collapseWhitespace(text);
 	return collapsed.length > cap ? `${collapsed.slice(0, cap)}...` : collapsed;
 }
 
-/** A compact non-empty string, with LiteLLM's literal "None" counting as absent; capped so a hostile type/code field cannot bloat a detail line. */
+/**
+ * A compact non-empty string, with LiteLLM's literal "None" counting as absent; capped so a hostile type/code field
+ * cannot bloat a detail line.
+ */
 function meaningfulString(value: unknown): string | undefined {
 	if (typeof value !== "string") {
 		return undefined;
@@ -342,7 +298,6 @@ function meaningfulString(value: unknown): string | undefined {
 	return compact !== "" && compact !== "None" ? compact : undefined;
 }
 
-/** LiteLLM's error envelope when the body parsed as one: err.error as an object, fields kept only when meaningful. */
 interface ErrorEnvelope {
 	message: string | undefined;
 	type: string | undefined;
@@ -359,18 +314,16 @@ function errorEnvelopeOf(raw: unknown): ErrorEnvelope | undefined {
 		type: meaningfulString(type),
 		code: typeof code === "number" ? String(code) : meaningfulString(code),
 	};
-	// An object body with none of the envelope fields ({}, [], FastAPI's
-	// {"detail": ...}) is not LiteLLM's envelope; headline branches keying on
-	// envelope presence (the 403 split) must not treat it as one.
+	// An object body with none of the envelope fields ({}, [], FastAPI's {"detail": ...}) is not LiteLLM's envelope;
+	// headline branches keying on envelope presence (the 403 split) must not treat it as one.
 	return envelope.message === undefined && envelope.type === undefined && envelope.code === undefined
 		? undefined
 		: envelope;
 }
 
 /**
- * The recovery the old raw-body suffix performed for bodies that did not
- * parse as a JSON envelope: the SDK keeps the raw text in its message behind
- * a "{status} " prefix.
+ * The recovery the old raw-body suffix performed for bodies that did not parse as a JSON envelope: the SDK keeps the
+ * raw text in its message behind a "{status} " prefix.
  */
 function recoveredSdkText(status: number, err: APIError, cap: number): string {
 	const prefix = `${status} `;
@@ -379,11 +332,8 @@ function recoveredSdkText(status: number, err: APIError, cap: number): string {
 }
 
 /**
- * The user-facing classes the generic HTTP branch (and the stream error frame)
- * sorts a status plus envelope into. A CLOSED set decided by this classifier:
- * budget_exceeded and context_window_exceeded ride the logClassification
- * (classify FROM the body, never quote it), so response text must never become
- * a member.
+ * A CLOSED set decided by this classifier: budget_exceeded and context_window_exceeded ride the logClassification
+ * (classify FROM the body, never quote it), so response text must never become a member.
  */
 type HttpErrorClass =
 	| "budget_exceeded"
@@ -400,19 +350,19 @@ type HttpErrorClass =
 	| "unexpected";
 
 /**
- * The one classifier for both delivery paths of the same LiteLLM envelope: an
- * HTTP error response (status known) and an in-band stream error frame (the
- * response was already 200, so there is no status). The failure marks and
- * message signatures are detected once here so the two paths cannot drift.
- * Without a status only the classes the envelope itself proves may be claimed
- * - everything else returns undefined and the frame keeps its generic
- * interrupted-stream headline. One asymmetry is inherent: with a status the
- * status arbitrates (429 is rate-limited whatever the message says, the
- * context-window signatures count only at 400, where the status vouches that
- * the request was refused and the mention just picks the flavor); a frame has
- * no status, so its envelope is judged alone, in budget > context-window >
- * rate-limit order, and a bare context-window mention proves nothing there -
- * the structured marks or an exceedance signature must accompany it.
+ * The one classifier for both delivery paths of the same LiteLLM envelope: an HTTP error response (status known) and
+ * an in-band stream error frame (the response was already 200, so there is no status).
+ *
+ * One asymmetry is inherent:
+ *   with a status         -> the status arbitrates
+ *   with a status         -> the context-window signatures count only at 400, where the status vouches that the
+ *     request was refused and the mention just picks the flavor
+ *   a frame has no status -> its envelope is judged alone, in budget > context-window > rate-limit order, and a bare
+ *     context-window mention proves nothing there - the structured marks or an exceedance signature must accompany it
+ *
+ *   The failure marks and message signatures are detected once here           -> the two paths cannot drift
+ *   Without a status only the classes the envelope itself proves may be claimed -> everything else returns undefined
+ *     and the frame keeps its generic interrupted-stream headline
  */
 function classifyEnvelope(envelope: ErrorEnvelope | undefined, status: number): HttpErrorClass;
 function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number): HttpErrorClass | undefined;
@@ -423,8 +373,8 @@ function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number):
 	const contextWindowMarks = marks.includes("context_window_exceeded") || marks.includes("context_length_exceeded");
 	const contextWindowMention = /context (window|length)/i.test(message);
 	if (status === undefined) {
-		// The signature is exceed/too-long/too-large or OpenAI's exact
-		// "maximum context length is N" shape; a bare "maximum" proves nothing.
+		// The signature is exceed/too-long/too-large or OpenAI's exact "maximum context length is N" shape; a bare
+		// "maximum" proves nothing.
 		const contextWindowProven =
 			contextWindowMarks ||
 			(contextWindowMention && /exceed|too (long|large)|maximum context length is \d/i.test(message));
@@ -466,13 +416,11 @@ function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number):
 	return "unexpected";
 }
 
-/** A localized display string paired with its English mirror; the pair is built at call time (no localized constants). */
 interface LocalizedText {
 	display: string;
 	english: string;
 }
 
-/** The 404 advice one surface renders: the headline, the certain setup hint if any, and how the detail line reads the envelope. */
 interface NotFoundCopy {
 	/** `url` is the display form of the base URL (credentials already stripped); non-discovery headlines ignore it. */
 	readonly headline: (url: string) => LocalizedText;
@@ -481,38 +429,24 @@ interface NotFoundCopy {
 	readonly detail: (err: APIError, envelope: ErrorEnvelope | undefined) => string;
 }
 
-/** The mid-response connection-death message one surface renders; `url` is the display form of the base URL. */
+/** `url` is the display form of the base URL. */
 interface DroppedCopy {
 	readonly headline: (url: string) => LocalizedText;
 	readonly detail: (url: string, chainText: string) => string;
 }
 
 /**
- * Everything that legitimately varies per error surface, as one row per
- * surface: the headline/detail join, the timeout advice, the 404 advice, the
- * context-window advice, the dropped-connection message, and the prose phrase
- * naming the surface. The Record fails closed - a new TransportErrorSurface
- * member does not compile until its row exists - and the per-surface test
- * suites derive their lists from the table's keys, so a new row joins every
- * pin automatically. Copy only: classification (kind, status, the envelope
- * classifier) is surface-invariant and stays in the mapping functions.
+ * The Record fails closed - a new TransportErrorSurface member does not compile until its row exists. Copy only:
+ * classification (kind, status, the envelope classifier) is surface-invariant and stays in the mapping functions.
  */
 interface SurfaceCopy {
 	/**
-	 * How twoPartTexts joins headline and detail: "detailsLeadIn" is the blank
-	 * line plus "Details:" for newline-flattening hosts (Copilot Chat's error
-	 * block, VS Code notifications); "newline" is the single "\n" the dashboard
-	 * and tooltips split on.
+	 * How twoPartTexts joins headline and detail: "detailsLeadIn" is the blank line plus "Details:" for
+	 * newline-flattening hosts (Copilot Chat's error block, VS Code notifications); "newline" is the single "\n" the
+	 * dashboard and tooltips split on.
 	 */
 	readonly join: "detailsLeadIn" | "newline";
-	/**
-	 * Which base vocabulary the generic HTTP branch speaks for this surface,
-	 * headline and detail alike: "request" is chat's framing (it serves every
-	 * completion-style surface), "modelList" discovery's. A new row must
-	 * choose - no surface inherits a vocabulary silently.
-	 */
 	readonly httpVocabulary: "request" | "modelList";
-	/** The timed-out call's message: what timed out, and which setting (if any) raises the bound. */
 	readonly timeout: (timeoutMs: number) => LocalizedText;
 	readonly notFound: NotFoundCopy;
 	/** The context_window_exceeded headline - the one HTTP class whose advice must name what to shrink per surface. */
@@ -523,10 +457,9 @@ interface SurfaceCopy {
 }
 
 /**
- * The standard 404 detail: the envelope code (unless it just repeats the
- * status) outranks the type, and a non-envelope body recovers the SDK's raw
- * text so the nginx/wrong-server signature of a mispointed base URL stays
- * visible.
+ * The standard 404 detail:
+ *   a non-envelope body recovers the SDK's raw text -> the nginx/wrong-server signature of a mispointed base URL stays
+ *     visible
  */
 function standardNotFoundDetail(err: APIError, envelope: ErrorEnvelope | undefined): string {
 	const kind =
@@ -539,13 +472,15 @@ function standardNotFoundDetail(err: APIError, envelope: ErrorEnvelope | undefin
 	return text !== "" ? `LiteLLM 404${kind}: ${text}` : `LiteLLM 404${kind}`;
 }
 
-/** Discovery's 404 detail renders only when the body parsed as an error envelope with a message; the headline says the rest. */
+/**
+ * Discovery's 404 detail renders only when the body parsed as an error envelope with a message; the headline says the
+ * rest.
+ */
 function discoveryNotFoundDetail(_err: APIError, envelope: ErrorEnvelope | undefined): string {
 	const typeSeg = envelope?.type !== undefined ? ` ${envelope.type}` : "";
 	return envelope?.message !== undefined ? `LiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
 }
 
-/** The dropped-connection detail everywhere the server had accepted the request and the body then died. */
 function midResponseDroppedDetail(url: string, chainText: string): string {
 	return `Connection to ${url} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
 }
@@ -563,11 +498,9 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			english: `LiteLLM request timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`,
 		}),
 		notFound: {
-			// A chat 404 usually means the proxy dropped the model, so no
-			// setupHint - "check the base URL" would be wrong advice for an
-			// otherwise healthy server. "LiteLLM: Sync Models Now" is the palette
-			// title package.json contributes (the manageCommandTitle mirror
-			// pattern).
+			// A chat 404 usually means the proxy dropped the model, so no setupHint - "check the base URL" would be
+			// wrong advice for an otherwise healthy server. "LiteLLM: Sync Models Now" is the palette title
+			// package.json contributes (the manageCommandTitle mirror pattern).
 			headline: () => ({
 				display: l10n.t(
 					'The server did not recognize this request - the model may have been removed from the proxy. Run "{0}" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
@@ -608,11 +541,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			english: `LiteLLM model discovery timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your server needs more time.`,
 		}),
 		notFound: {
-			// A discovery 404 almost always means the base URL points at
-			// something that is not a LiteLLM proxy (wrong port, a path that is
-			// not the API root), so the advice is certain. The headline is quoted
-			// verbatim by docs/troubleshooting.md - only the detail line may
-			// change.
+			// A discovery 404 almost always means the base URL points at something that is not a LiteLLM proxy (wrong
+			// port, a path that is not the API root).
 			headline: (url) => ({
 				display: l10n.t(
 					"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
@@ -623,15 +553,15 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			setupHint: "check-base-url",
 			detail: discoveryNotFoundDetail,
 		},
-		// Discovery has no conversation to trim: a context-window 400 on the
-		// model-list request reads as the generic refusal.
+		// Discovery has no conversation to trim: a context-window 400 on the model-list request reads as the generic
+		// refusal.
 		contextWindow: () => ({
 			display: l10n.t("The server refused the model-list request."),
 			english: "The server refused the model-list request.",
 		}),
 		dropped: {
-			// Distinct from the never-connected discovery headline: here the
-			// server did respond, then the connection died.
+			// Distinct from the never-connected discovery headline: here the server did respond, then the connection
+			// died.
 			headline: (url) => ({
 				display: l10n.t(
 					"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
@@ -646,16 +576,14 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 	completion: {
 		join: "newline",
 		httpVocabulary: "request",
-		// The FIM bound is fixed in code (FIM_TIMEOUT_MS), so no setting is
-		// named - advice to raise one would be a lie.
+		// The FIM bound is fixed in code (FIM_TIMEOUT_MS), so no setting is named - advice to raise one would be a lie.
 		timeout: (timeoutMs) => ({
 			display: l10n.t("LiteLLM inline completion request timed out after {0}ms.", timeoutMs),
 			english: `LiteLLM inline completion request timed out after ${timeoutMs}ms.`,
 		}),
 		notFound: {
-			// Sync Models cannot help here: completion-mode models stay out of
-			// the chat catalog unless the entry includes the mode, so the advice
-			// is the model setting itself.
+			// Sync Models cannot help here: completion-mode models stay out of the chat catalog unless the entry
+			// includes the mode, so the advice is the model setting itself.
 			headline: () => ({
 				display: l10n.t(
 					"The server did not recognize this completion request. Check that the configured inline completions model is a text-completion model the server still serves."
@@ -665,8 +593,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			}),
 			detail: standardNotFoundDetail,
 		},
-		// There is no conversation to trim and no new chat to start - the code
-		// context around the cursor is what was too long.
+		// There is no conversation to trim and no new chat to start - the code context around the cursor is what was
+		// too long.
 		contextWindow: () => ({
 			display: l10n.t("The completion was refused: the code context around the cursor is too long for this model."),
 			english: "The completion was refused: the code context around the cursor is too long for this model.",
@@ -686,8 +614,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 	commitGeneration: {
 		join: "detailsLeadIn",
 		httpVocabulary: "request",
-		// The commit call runs under the chat timeout setting, so that IS the
-		// bound to raise - only the wording names the commit call.
+		// The commit call runs under the chat timeout setting, so that IS the bound to raise - only the wording names
+		// the commit call.
 		timeout: (timeoutMs) => ({
 			display: l10n.t(
 				'LiteLLM commit message generation timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
@@ -697,8 +625,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			english: `LiteLLM commit message generation timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`,
 		}),
 		notFound: {
-			// Sync Models refreshes the chat catalog, which the commit model
-			// setting never reads - the advice is the setting itself.
+			// Sync Models refreshes the chat catalog, which the commit model setting never reads - the advice is the
+			// setting itself.
 			headline: () => ({
 				display: l10n.t(
 					"The server did not recognize this commit message request. Check that the configured commit message model is one the server still serves."
@@ -708,8 +636,7 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			}),
 			detail: standardNotFoundDetail,
 		},
-		// No conversation, no attachments, no new chat - only the change being
-		// described.
+		// No conversation, no attachments, no new chat.
 		contextWindow: () => ({
 			display: l10n.t(
 				"The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window."
@@ -718,8 +645,7 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 				"The changes are too large for this model - stage a smaller change or pick a commit model with a larger context window.",
 		}),
 		dropped: {
-			// The commit call is non-streaming, so a dropped connection leaves
-			// no cut-short answer - nothing was generated at all.
+			// The commit call is non-streaming, so a dropped connection leaves no cut-short answer.
 			headline: () => ({
 				display: l10n.t(
 					"The connection dropped before the reply arrived, so no commit message was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
@@ -734,8 +660,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 	consultTool: {
 		join: "detailsLeadIn",
 		httpVocabulary: "request",
-		// The consultation runs under the chat timeout setting, so that IS the
-		// bound to raise - only the wording names the consulted model.
+		// The consultation runs under the chat timeout setting, so that IS the bound to raise - only the wording names
+		// the consulted model.
 		timeout: (timeoutMs) => ({
 			display: l10n.t(
 				'The consulted model did not answer within {0}ms, so there is no second opinion. Increase the "{1}.chat.timeout" setting if it needs more time.',
@@ -745,8 +671,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			english: `The consulted model did not answer within ${timeoutMs}ms, so there is no second opinion. Increase the "${CONFIG_SECTION}.chat.timeout" setting if it needs more time.`,
 		}),
 		notFound: {
-			// Sync Models refreshes the chat catalog, which the consult tool's
-			// model setting never reads - the advice is the setting itself.
+			// Sync Models refreshes the chat catalog, which the consult tool's model setting never reads - the advice
+			// is the setting itself.
 			headline: () => ({
 				display: l10n.t(
 					"The server did not recognize this consultation request. Check that the configured consult tool model is one the server still serves."
@@ -756,9 +682,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			}),
 			detail: standardNotFoundDetail,
 		},
-		// The tool is called by another model mid-task: there is no conversation
-		// of the user's to trim and no new chat to start, only the question and
-		// the context the caller passed.
+		// The tool is called by another model mid-task: there is no conversation of the user's to trim and no new chat
+		// to start, only the question and the context the caller passed.
 		contextWindow: () => ({
 			display: l10n.t(
 				"The question and its context are too long for the consulted model - ask with less context, or pick a consult tool model with a larger context window."
@@ -767,8 +692,7 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 				"The question and its context are too long for the consulted model - ask with less context, or pick a consult tool model with a larger context window.",
 		}),
 		dropped: {
-			// The consultation is non-streaming, so a dropped connection leaves no
-			// cut-short answer - nothing came back at all.
+			// The consultation is non-streaming, so a dropped connection leaves no cut-short answer.
 			headline: () => ({
 				display: l10n.t(
 					"The connection dropped before the reply arrived, so the consultation returned nothing. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
@@ -783,8 +707,7 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 	prGeneration: {
 		join: "detailsLeadIn",
 		httpVocabulary: "request",
-		// The PR call runs under the chat timeout setting, like commit
-		// generation, so that IS the bound to raise.
+		// The PR call runs under the chat timeout setting, like commit generation, so that IS the bound to raise.
 		timeout: (timeoutMs) => ({
 			display: l10n.t(
 				'LiteLLM pull request description generation timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
@@ -794,8 +717,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			english: `LiteLLM pull request description generation timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`,
 		}),
 		notFound: {
-			// Sync Models refreshes the chat catalog, which the PR model setting
-			// never reads - the advice is the setting itself.
+			// Sync Models refreshes the chat catalog, which the PR model setting never reads - the advice is the
+			// setting itself.
 			headline: () => ({
 				display: l10n.t(
 					"The server did not recognize this pull request description request. Check that the configured PR generation model is one the server still serves."
@@ -805,8 +728,6 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			}),
 			detail: standardNotFoundDetail,
 		},
-		// The branch is what was too large: fewer commits or a smaller diff, or
-		// a model that can hold this one.
 		contextWindow: () => ({
 			display: l10n.t(
 				"The branch is too large for this model - compare against a nearer base branch or pick a PR generation model with a larger context window."
@@ -815,8 +736,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 				"The branch is too large for this model - compare against a nearer base branch or pick a PR generation model with a larger context window.",
 		}),
 		dropped: {
-			// Non-streaming like the commit call: a dropped connection leaves no
-			// partial description, it leaves none at all.
+			// Non-streaming like the commit call: a dropped connection leaves no partial description, it leaves none at
+			// all.
 			headline: () => ({
 				display: l10n.t(
 					"The connection dropped before the reply arrived, so no pull request description was generated. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
@@ -831,8 +752,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 	quickFix: {
 		join: "detailsLeadIn",
 		httpVocabulary: "request",
-		// The fallback call runs under the chat timeout setting, so that IS the
-		// bound to raise; only the wording names the quick fix.
+		// The fallback call runs under the chat timeout setting, so that IS the bound to raise; only the wording names
+		// the quick fix.
 		timeout: (timeoutMs) => ({
 			display: l10n.t(
 				'LiteLLM quick fix timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
@@ -842,8 +763,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			english: `LiteLLM quick fix timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`,
 		}),
 		notFound: {
-			// Sync Models refreshes the chat catalog, which the quick-fix model
-			// setting never reads - the advice is the setting itself.
+			// Sync Models refreshes the chat catalog, which the quick-fix model setting never reads - the advice is the
+			// setting itself.
 			headline: () => ({
 				display: l10n.t(
 					"The server did not recognize this quick fix request. Check that the configured quick fix model is one the server still serves."
@@ -853,9 +774,6 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			}),
 			detail: standardNotFoundDetail,
 		},
-		// This surface exists BECAUSE the chat view was unavailable, so advice to
-		// trim a conversation or start a new chat would name something the user
-		// cannot reach. What was too long is the code the action claimed.
 		contextWindow: () => ({
 			display: l10n.t(
 				"The code and diagnostics are too large for this model - fix a smaller range, or pick a quick fix model with a larger context window."
@@ -864,8 +782,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 				"The code and diagnostics are too large for this model - fix a smaller range, or pick a quick fix model with a larger context window.",
 		}),
 		dropped: {
-			// The fallback call is non-streaming, so a dropped connection leaves no
-			// cut-short answer - nothing was written at all.
+			// The fallback call is non-streaming, so a dropped connection leaves no cut-short answer - nothing was
+			// written at all.
 			headline: () => ({
 				display: l10n.t(
 					"The connection dropped before the reply arrived, so no answer was written. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
@@ -880,8 +798,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 	reviewComments: {
 		join: "detailsLeadIn",
 		httpVocabulary: "request",
-		// The review call runs under the chat timeout setting, so that IS the
-		// bound to raise; only the wording names the review.
+		// The review call runs under the chat timeout setting, so that IS the bound to raise; only the wording names
+		// the review.
 		timeout: (timeoutMs) => ({
 			display: l10n.t(
 				'LiteLLM code review timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time, or review a smaller change.',
@@ -891,8 +809,8 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			english: `LiteLLM code review timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time, or review a smaller change.`,
 		}),
 		notFound: {
-			// Sync Models refreshes the chat catalog, which the review model
-			// setting never reads - the advice is the setting itself.
+			// Sync Models refreshes the chat catalog, which the review model setting never reads - the advice is the
+			// setting itself.
 			headline: () => ({
 				display: l10n.t(
 					"The server did not recognize this review request. Check that the configured review comments model is one the server still serves."
@@ -902,8 +820,6 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			}),
 			detail: standardNotFoundDetail,
 		},
-		// No conversation and no attachments - the code sent for review is what
-		// was too long, and the user chooses how much of it to send.
 		contextWindow: () => ({
 			display: l10n.t(
 				"The code sent for review is too large for this model - review a single file or a smaller change, or pick a model with a larger context window."
@@ -912,8 +828,7 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 				"The code sent for review is too large for this model - review a single file or a smaller change, or pick a model with a larger context window.",
 		}),
 		dropped: {
-			// The review call is non-streaming, so a dropped connection leaves no
-			// partial review - this file simply produced no comments.
+			// The review call is non-streaming, so a dropped connection leaves no partial review.
 			headline: () => ({
 				display: l10n.t(
 					"The connection dropped before the reply arrived, so this file was not reviewed. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
@@ -927,25 +842,19 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 	},
 };
 
-/** Every surface, derived from the copy table's keys, so per-surface suites and fuzz arbitraries stay total when a row is added. */
 export const TRANSPORT_ERROR_SURFACES = Object.keys(SURFACE_COPY) as readonly TransportErrorSurface[];
 
 /**
- * The one table read, total like mapSdkError itself: a surface outside the
- * union (unreachable from typed callers, but this module hardens against
- * hostile input elsewhere) falls back to chat's row instead of throwing.
+ * The one table read, total like mapSdkError itself: a surface outside the union (unreachable from typed callers, but
+ * this module hardens against hostile input elsewhere) falls back to chat's row instead of throwing.
  */
 function surfaceCopy(surface: TransportErrorSurface): SurfaceCopy {
 	return SURFACE_COPY[surface] ?? SURFACE_COPY.chat;
 }
 
 /**
- * A 2xx that arrived without a response body, the one shape the transports
- * cannot parse anything out of. One constructor for the streaming chat path
- * and the one-shot stream, so the headline, the localized detail, and the
- * per-surface join cannot drift between them. Free of mapSdkError's
- * socket-signature tokens, and it passes the mapping catch unchanged
- * (mirrored errors are never re-wrapped).
+ * Free of mapSdkError's socket-signature tokens, and it passes the mapping catch unchanged (mirrored errors are never
+ * re-wrapped).
  */
 export function bodylessResponseError(surface: TransportErrorSurface, status: number, baseUrl: string): MirroredError {
 	const url = displayUrl(baseUrl);
@@ -958,9 +867,8 @@ export function bodylessResponseError(surface: TransportErrorSurface, status: nu
 	};
 	const detailDisplay = l10n.t("LiteLLM answered {0} with a missing response body ({1})", status, url);
 	const detailEnglish = `LiteLLM answered ${status} with a missing response body (${url})`;
-	// The detail localizes (unlike the English-only technical lines above), so
-	// the join applies to each rendering's own detail rather than through
-	// twoPartTexts' single-detail shape.
+	// The detail localizes (unlike the English-only technical lines above), so the join applies to each rendering's
+	// own detail rather than through twoPartTexts' single-detail shape.
 	return surfaceCopy(surface).join === "detailsLeadIn"
 		? localizedError(
 				chatErrorMessage(headline.display, detailDisplay),
@@ -970,11 +878,8 @@ export function bodylessResponseError(surface: TransportErrorSurface, status: nu
 }
 
 /**
- * Both renderings of a two-part error message, joined per the surface's copy
- * row (see SurfaceCopy.join). The English mirror is byte-faithful to the
- * English display: the same join applied to the English headline and the same
- * detail. An empty detail renders the headline alone rather than a trailing
- * blank detail line.
+ * The English mirror is byte-faithful to the English display: the same join applied to the English headline and the
+ * same detail. An empty detail renders the headline alone rather than a trailing blank detail line.
  */
 export function twoPartTexts(
 	surface: TransportErrorSurface,
@@ -993,9 +898,8 @@ export function twoPartTexts(
 }
 
 /**
- * The chat-vocabulary headline per error class, also serving the one-shot
- * surfaces; context_window_exceeded is absent BY TYPE - that class's advice
- * is per-surface and lives in SURFACE_COPY, chosen by httpHeadline.
+ * The chat-vocabulary headline per error class, also serving the one-shot surfaces; context_window_exceeded is absent
+ * BY TYPE - that class's advice is per-surface and lives in SURFACE_COPY, chosen by httpHeadline.
  */
 function chatHttpHeadline(cls: Exclude<HttpErrorClass, "context_window_exceeded">): LocalizedText {
 	switch (cls) {
@@ -1057,7 +961,6 @@ function chatHttpHeadline(cls: Exclude<HttpErrorClass, "context_window_exceeded"
 	}
 }
 
-/** The discovery-vocabulary headline per error class: what the failure means for the model list. */
 function discoveryHttpHeadline(cls: Exclude<HttpErrorClass, "context_window_exceeded">): LocalizedText {
 	switch (cls) {
 		case "budget_exceeded":
@@ -1103,10 +1006,9 @@ function discoveryHttpHeadline(cls: Exclude<HttpErrorClass, "context_window_exce
 }
 
 /**
- * The one HTTP headline choice: context_window_exceeded reads its per-surface
- * advice from the copy table (the one class whose base-vocabulary advice
- * would mislead the other surfaces), every other class the surface's declared
- * base vocabulary.
+ * The one HTTP headline choice: context_window_exceeded reads its per-surface advice from the copy table (the one class
+ * whose base-vocabulary advice would mislead the other surfaces), every other class the surface's declared base
+ * vocabulary.
  */
 function httpHeadline(surface: TransportErrorSurface, cls: HttpErrorClass): LocalizedText {
 	const copy = surfaceCopy(surface);
@@ -1116,12 +1018,7 @@ function httpHeadline(surface: TransportErrorSurface, cls: HttpErrorClass): Loca
 	return copy.httpVocabulary === "modelList" ? discoveryHttpHeadline(cls) : chatHttpHeadline(cls);
 }
 
-/**
- * Compact technical line for a chat-surface HTTP error. Never a re-serialized
- * JSON envelope and never the literal "undefined"; the type outranks the code,
- * and a code that is just the stringified status is dropped. Response-derived,
- * so it rides only in message/englishMessage, never the logClassification.
- */
+/** Response-derived, so it rides only in message/englishMessage, never the logClassification. */
 function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
 	const kind =
 		envelope?.type !== undefined
@@ -1135,8 +1032,7 @@ function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope |
 }
 
 /**
- * Discovery twin of chatHttpDetail. "LiteLLM" brands only bodies that parsed
- * as LiteLLM's envelope - a 502/504 body is often the gateway speaking, and
+ * "LiteLLM" brands only bodies that parsed as LiteLLM's envelope - a 502/504 body is often the gateway speaking, and
  * gets the plain HTTP form with the recovered body text.
  */
 function discoveryHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
@@ -1154,20 +1050,18 @@ function discoveryHttpDetail(status: number, err: APIError, envelope: ErrorEnvel
 }
 
 /**
- * An in-band error frame: a streamed `data: {"error": {...}}` payload, the
- * shape LiteLLM emits when an upstream dies after the 200. Constructed here so
- * the stream processor throws a classified transport error instead of ending
- * the request as a silent truncation. There is no HTTP status - the response
- * was already 200 - so the RequestError carries none, and none may be derived
- * from the envelope's code: a synthesized status 429 would re-map the frame as
- * Blocked.
+ * Constructed here so the stream processor throws a classified transport error instead of ending the request as a
+ * silent truncation. There is no HTTP status - the response was already 200 - so the RequestError carries none, and
+ * none may be derived from the envelope's code: a synthesized status 429 would re-map the frame as Blocked.
+ *
+ *   An in-band error frame -> a streamed `data: {"error": {...}}` payload, the shape LiteLLM emits when an upstream
+ *                             dies after the 200
  */
 export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 	const envelope = errorEnvelopeOf(error);
-	// A frame carrying a known failure class gets that class's headline (a
-	// budget or context-window frame must not promise that trying again may
-	// work); classified FROM the envelope by the same classifier as the HTTP
-	// path, never quoting it.
+	// A frame carrying a known failure class gets that class's headline (a budget or context-window frame must not
+	// promise that trying again may work); classified FROM the envelope by the same classifier as the HTTP path, never
+	// quoting it.
 	const knownClass = classifyEnvelope(envelope);
 	const headline: LocalizedText =
 		knownClass !== undefined
@@ -1193,24 +1087,19 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 			detail += `: ${compactText(envelope.message, 300)}`;
 		}
 	}
-	// The classifier's closed-set token may ride the classification (the same
-	// rule as the HTTP path); the response text itself never does.
+	// The classifier's closed-set token may ride the classification (the same rule as the HTTP path); the response
+	// text itself never does.
 	const token = knownClass === "budget_exceeded" || knownClass === "context_window_exceeded" ? `, ${knownClass}` : "";
 	const texts = twoPartTexts("chat", headline, detail);
 	return new RequestError(texts.message, "http", {
-		// The detail is response-derived; the distinct classification keeps a
-		// mid-stream death recognizable in an issue.
+		// The detail is response-derived; the distinct classification keeps a mid-stream death recognizable in an
+		// issue.
 		logClassification: `RequestError(http, in-band stream error frame${token})`,
 		englishMessage: texts.englishMessage,
 	});
 }
 
-/**
- * Where a non-HTTP fetch failure happened. The endpoint varies ADVICE only -
- * which headline renders, which URL it names, whether a setup hint is certain -
- * never the classification: kind and cause-detail extraction are one rule for
- * the chat, discovery, and OAuth token-endpoint callers.
- */
+/** kind and cause-detail extraction are one rule for the chat, discovery, and OAuth token-endpoint callers. */
 interface SocketFailureContext {
 	endpoint: TransportErrorSurface | "oauthToken";
 	/** The surface whose two-part join renders the message; the token exchange fails toward its caller's surface. */
@@ -1219,7 +1108,6 @@ interface SocketFailureContext {
 	url: string;
 }
 
-/** Expired-certificate advice per endpoint: who renews it, and which URL setting to revisit. */
 function expiredCertificateHeadline(ctx: SocketFailureContext): LocalizedText {
 	const url = displayUrl(ctx.url);
 	if (ctx.endpoint === "oauthToken") {
@@ -1240,7 +1128,6 @@ function expiredCertificateHeadline(ctx: SocketFailureContext): LocalizedText {
 	};
 }
 
-/** Unverified-certificate advice per endpoint: whose certificate authority to trust or whose admin to call. */
 function unverifiedCertificateHeadline(ctx: SocketFailureContext): LocalizedText {
 	if (ctx.endpoint === "oauthToken") {
 		return {
@@ -1261,14 +1148,14 @@ function unverifiedCertificateHeadline(ctx: SocketFailureContext): LocalizedText
 }
 
 /**
- * The corrected URL to suggest when the target host sits under `.localhost`
- * (www.localhost, api.localhost, ...): those hosts do not resolve on stock
- * systems while plain `localhost` does, so the same URL with the bare host is
- * a recognizable fix rather than a guess. Undefined for every other host -
- * bare `localhost` included - and for unparseable URLs. The family is decided
- * by hostname alone (port irrelevant); the parser lowercases registered names,
- * one trailing dot counts (it fails resolution the same way), and an IPv6
- * literal never ends in the suffix.
+ * The corrected URL to suggest when the target host sits under `.localhost` (www.localhost, api.localhost, ...): those
+ * hosts do not resolve on stock systems while plain `localhost` does, so the same URL with the bare host is a
+ * recognizable fix rather than a guess.
+ *
+ * The family is decided by hostname alone (port irrelevant); the parser lowercases registered names, one trailing dot
+ * counts (it fails resolution the same way), and an IPv6 literal never ends in the suffix.
+ *
+ *   for every other host - bare `localhost` included - and for unparseable URLs -> Undefined
  */
 function bareLocalhostUrl(url: string): string | undefined {
 	let parsed: URL;
@@ -1283,20 +1170,15 @@ function bareLocalhostUrl(url: string): string | undefined {
 	}
 	parsed.hostname = "localhost";
 	const suggested = parsed.href;
-	// href appends "/" to a bare origin; trim that one back so the common
-	// bare-origin case reads like the configured URL. Other href
-	// normalizations (default-port drop, "/" before a query) may remain.
+	// href appends "/" to a bare origin; trim that one back so the common bare-origin case reads like the configured
+	// URL. Other href normalizations (default-port drop, "/" before a query) may remain.
 	return !url.endsWith("/") && suggested.endsWith("/") && parsed.pathname === "/" ? suggested.slice(0, -1) : suggested;
 }
 
 /**
- * Nothing-answered advice per endpoint: which process to check and which URL
- * setting names it. `suggestedUrl` is the caller's ENOTFOUND-proven
- * bare-localhost correction; when present the correction IS the headline,
- * leading the sentence - toasts truncate from the tail, so advice appended
- * there is the first thing cut - in lockstep with the use-bare-localhost hint
- * the caller assigns. The certain diagnosis replaces the generic
- * is-the-server-running advice rather than following it.
+ * The certain diagnosis replaces the generic is-the-server-running advice rather than following it.
+ *   toasts truncate from the tail, so advice appended there is the first thing cut -> when present the correction IS
+ *     the headline, leading the sentence
  */
 function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): LocalizedText {
 	const url = displayUrl(ctx.url);
@@ -1328,7 +1210,6 @@ function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): L
 	};
 }
 
-/** Generic could-not-reach advice per endpoint; chat and discovery keep their distinct framing of what was lost. */
 function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
 	const url = displayUrl(ctx.url);
 	if (ctx.endpoint === "oauthToken") {
@@ -1340,9 +1221,6 @@ function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
 			english: `Network Error: Unable to reach the OAuth token endpoint at ${url}. Please check that the URL is correct and the identity provider is reachable.`,
 		};
 	}
-	// Discovery keeps its distinct framing of what was lost; the chat wording
-	// serves every other completion-style endpoint (the FIM and commit paths
-	// included).
 	return ctx.endpoint === "discovery"
 		? {
 				display: l10n.t(
@@ -1361,27 +1239,25 @@ function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
 }
 
 /**
- * Whether a non-HTTP fetch failure is timeout-flavored: its cause chain
- * carries a TimeoutError link, the arm socketFailureRequestError defers to
- * `onTimeout`. Exported so the OAuth exchange classifies the SAME failure by
- * the SAME rule before deciding who may render it: the timeout arm's message
- * quotes the exchange's own budget, which only the exchange's originator owns.
+ * Whether a non-HTTP fetch failure is timeout-flavored: its cause chain carries a TimeoutError link, the arm
+ * socketFailureRequestError defers to `onTimeout`. Exported so the OAuth exchange classifies the SAME failure by the
+ * SAME rule before deciding who may render it: the timeout arm's message quotes the exchange's own budget, which only
+ * the exchange's originator owns.
  */
 export function socketFailureIsTimeout(root: unknown): boolean {
 	return causeChain(root).some((link) => link.name === "TimeoutError");
 }
 
 /**
- * The one classifier for every non-HTTP fetch failure: the chat and discovery
- * transports (via mapSdkError) and the OAuth token exchange (auth.ts) all
- * classify the same raw socket failures here, so an expired certificate or an
- * ECONNREFUSED gets the same kind and the same cause-detail extraction
- * whichever endpoint tripped it; only the advice wording follows the context.
- * `root` is where the cause chain starts (the SDK error's cause, or the raw
- * fetch rejection), `cause` is what the RequestError carries. A TimeoutError
- * link defers to `onTimeout`: timeout messages stay endpoint-owned because
- * each endpoint has its own budget (the OAuth exchange's hard bound is not the
- * chat timeout).
+ * The chat and discovery transports (via mapSdkError) and the OAuth token exchange (auth.ts) all classify the same
+ * raw socket failures here, so an expired certificate or an ECONNREFUSED gets the same kind and the same cause-detail
+ * extraction whichever endpoint tripped it.
+ *
+ * A TimeoutError link defers to `onTimeout`: timeout messages stay endpoint-owned because each endpoint has its own
+ * budget (the OAuth exchange's hard bound is not the chat timeout).
+ *
+ *   root  -> where the cause chain starts (the SDK error's cause, or the raw fetch rejection)
+ *   cause -> what the RequestError carries
  */
 export function socketFailureRequestError(
 	root: unknown,
@@ -1396,8 +1272,7 @@ export function socketFailureRequestError(
 	}
 	const oauthMark = ctx.endpoint === "oauthToken" ? { oauthTokenEndpoint: true as const } : {};
 	if (haystack.includes("certificate has expired") || haystack.includes("CERT_HAS_EXPIRED")) {
-		// The headline already states the socket-level diagnosis, so it carries
-		// no detail line - at any endpoint.
+		// The headline already states the socket-level diagnosis, so it carries no detail line - at any endpoint.
 		const headline = expiredCertificateHeadline(ctx);
 		return new RequestError(headline.display, "certificate", {
 			cause,
@@ -1406,9 +1281,8 @@ export function socketFailureRequestError(
 		});
 	}
 	if (haystack.includes("certificate")) {
-		// The deepest chain link naming the certificate carries the socket-level
-		// diagnosis; the joined haystack is never rendered (it splices unrelated
-		// wrapper messages together). Node's hostname-mismatch text embeds the
+		// The deepest chain link naming the certificate carries the socket-level diagnosis; the joined haystack is
+		// never rendered (it splices unrelated wrapper messages together). Node's hostname-mismatch text embeds the
 		// server-supplied SAN list, so the public surfaces get the classification.
 		const certLink =
 			[...chain].reverse().find((link) => link.message.includes("certificate") || (link.code ?? "").includes("CERT")) ??
@@ -1428,17 +1302,12 @@ export function socketFailureRequestError(
 	// An empty cause chain gets no detail line rather than a trailing blank.
 	const detail = chainDetail(chain, "");
 	if (haystack.includes("ENOTFOUND") || haystack.includes("ECONNREFUSED")) {
-		// A *.localhost host that failed to RESOLVE is a recognizable
-		// misconfiguration (subdomains of localhost do not resolve on stock
-		// systems while plain localhost does), so the corrected URL is the
-		// certain advice there. ECONNREFUSED proves resolution worked and
-		// nothing listens on that port - bare localhost would reach the same
-		// loopback - so it keeps "is the proxy running?" even for the family.
-		// At the token endpoint the stopped process would be the identity
-		// provider, not the proxy, and a plain-host ENOTFOUND is just DNS (the
-		// process may run fine behind a mistyped hostname) - so no hint.
-		// The correction derives from the display form of the URL, so it can
-		// never carry userinfo the headline just stripped.
+		// At the token endpoint the stopped process would be the identity provider, not the proxy, and a plain-host
+		// ENOTFOUND is just DNS (the process may run fine behind a mistyped hostname) - so no hint. The correction
+		// derives from the display form of the URL, so it can never carry userinfo the headline just stripped.
+		//
+		//   A *.localhost host that failed to RESOLVE -> the corrected URL is the certain advice there
+		//   ECONNREFUSED                              -> it keeps "is the proxy running?" even for the family
 		const suggestedUrl =
 			ctx.endpoint !== "oauthToken" && haystack.includes("ENOTFOUND")
 				? bareLocalhostUrl(displayUrl(ctx.url))
@@ -1465,14 +1334,7 @@ export function socketFailureRequestError(
 	});
 }
 
-/**
- * Map an error thrown by the openai SDK transport onto the provider's typed
- * errors. Every mapped message follows the two-part shape: a plain-language
- * headline (localized) plus one compact English technical line - never a
- * re-serialized response envelope - joined per surface by twoPartTexts.
- * Network classification walks the full cause chain because the SDK adds a
- * wrapper level over the socket/TLS error that carries the actionable string.
- */
+/** The SDK adds a wrapper level over the socket/TLS error that carries the actionable string. */
 export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof APIError && typeof err.status === "number") {
 		if (err.status === 401) {
@@ -1486,18 +1348,12 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 						status: 401,
 						cause: err,
 						englishMessage: AUTH_MESSAGE_ENGLISH,
-						// The proxy's own gate rejected this client's key, so the advice
-						// is certain; the upstream variant above gets none (updating the
-						// extension's key cannot fix the proxy's provider credentials).
+						// The upstream variant above gets none (updating the extension's key cannot fix the proxy's
+						// provider credentials).
 						setupHint: "configure-api-key",
 					});
 		}
 		const envelope = errorEnvelopeOf(err.error);
-		// 404 gets its own guidance per surface (the copy table's notFound row):
-		// on discovery it almost always means the base URL points at something
-		// that is not a LiteLLM proxy; on the other surfaces it usually means the
-		// server no longer serves the model the surface's setting or picker
-		// names.
 		if (err.status === 404) {
 			const copy = surfaceCopy(ctx.surface).notFound;
 			const texts = twoPartTexts(ctx.surface, copy.headline(displayUrl(ctx.baseUrl)), copy.detail(err, envelope));
@@ -1515,9 +1371,8 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			surfaceCopy(ctx.surface).httpVocabulary === "modelList"
 				? discoveryHttpDetail(err.status, err, envelope)
 				: chatHttpDetail(err.status, err, envelope);
-		// The classifier's own closed-set token may ride the classification
-		// (classify FROM the body, never quote it); the response text itself
-		// rides only in message/englishMessage.
+		// The classifier's own closed-set token may ride the classification (classify FROM the body, never quote it);
+		// the response text itself rides only in message/englishMessage.
 		const token = cls === "budget_exceeded" || cls === "context_window_exceeded" ? `, ${cls}` : "";
 		const texts = twoPartTexts(ctx.surface, headline, detail);
 		return new RequestError(texts.message, "http", {
@@ -1565,11 +1420,10 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof RequestError || err instanceof MirroredError || err instanceof CancellationError) {
 		return err;
 	}
-	// Errors shaped elsewhere but carrying the English mirror duck-typed already
-	// carry their display/English pair; re-headlining them would double-wrap,
-	// and a socket term quoted in their text must not reclassify them, so this
-	// pass-through sits before the socket branch. The property read is guarded:
-	// a hostile getter must not escape mapSdkError.
+	// Errors shaped elsewhere but carrying the English mirror duck-typed already carry their display/English pair;
+	// re-headlining them would double-wrap, and a socket term quoted in their text must not reclassify them, so this
+	// pass-through sits before the socket branch. The property read is guarded: a hostile getter must not escape
+	// mapSdkError.
 	if (err instanceof Error) {
 		let mirrored = false;
 		try {
@@ -1582,26 +1436,20 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		}
 	}
 
-	// A socket that dies AFTER headers surfaces from the body reader, not from
-	// the SDK transport: the SDK already returned the Response, so undici's
-	// bare TypeError arrives here wrapped in no SDK error class, and the user
-	// would otherwise see the raw "terminated". The match requires a
-	// socket-level signature (or undici's exact top-level TypeError): a mere
-	// "terminated" inside some other error's message must not reclassify it.
+	// A socket that dies AFTER headers surfaces from the body reader, not from the SDK transport: the SDK already
+	// returned the Response, so undici's bare TypeError arrives here wrapped in no SDK error class, and the user would
+	// otherwise see the raw "terminated". The match requires a socket-level signature (or undici's exact top-level
+	// TypeError): a mere "terminated" inside some other error's message must not reclassify it.
 	if (err instanceof Error) {
 		const chain = causeChain(err);
 		const haystack = chain.map((link) => `${link.name} ${link.message} ${link.code ?? ""}`).join(" ");
 		const socketSignature = /other side closed|ECONNRESET|UND_ERR_SOCKET/.test(haystack);
-		// The top link is causeChain's guarded read of err.message: arbitrary
-		// errors reach this branch from the body reader, so err.message is
-		// never read directly here (a hostile getter must not escape).
+		// The top link is causeChain's guarded read of err.message: arbitrary errors reach this branch from the body
+		// reader, so err.message is never read directly here (a hostile getter must not escape).
 		const topMessage = chain[0]?.message ?? "";
 		const undiciTermination = err instanceof TypeError && topMessage === "terminated";
 		if (socketSignature || undiciTermination) {
 			const chainText = chainDetail(chain, topMessage);
-			// The per-surface message is the copy table's dropped row: what was
-			// lost (a cut-short answer, a missing commit message, an incomplete
-			// model list) and where the detail carries the URL.
 			const copy = surfaceCopy(ctx.surface).dropped;
 			const url = displayUrl(ctx.baseUrl);
 			const texts = twoPartTexts(ctx.surface, copy.headline(url), copy.detail(url, chainText));
@@ -1612,11 +1460,6 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		}
 	}
 
-	// The truly anonymous tail: an Error no branch recognized, or a non-Error
-	// throw. errorMessageText is total; the name read is guarded the same way,
-	// and only an identifier-shaped name may enter the classification - an
-	// arbitrary name string is caller-controlled text and stays off the public
-	// log surfaces.
 	let name: string;
 	if (err instanceof Error) {
 		try {
@@ -1628,11 +1471,9 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		name = typeof err;
 	}
 	const rawText = errorMessageText(err);
-	// Arbitrary error text can quote a credentialed URL verbatim; scrubbed by
-	// construction rather than argued unreachable.
+	// Arbitrary error text can quote a credentialed URL verbatim; scrubbed by construction rather than argued
+	// unreachable.
 	const text = compactText(redactUrlCredentials(typeof rawText === "string" ? rawText : ""), 300);
-	// The camelCase surface id stays in logClassification; the detail line is
-	// prose, so it names the copy table's phrase for the surface.
 	const detail = `Unexpected ${name} during the ${surfaceCopy(ctx.surface).phrase} request to ${displayUrl(ctx.baseUrl)}${text !== "" ? `: ${text}` : ""}`;
 	const tailHeadline: LocalizedText = {
 		display: l10n.t(

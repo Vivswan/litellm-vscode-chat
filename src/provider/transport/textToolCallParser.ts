@@ -3,7 +3,6 @@ const ARG_BEGIN = "<|tool_call_argument_begin|>";
 const ARG_END = "<|tool_call_argument_end|>";
 const END = "<|tool_call_end|>";
 
-/** Inline tool call recovered from control tokens embedded in streamed text. */
 export interface TextToolCall {
 	/** Monotonic identity within one parser lifetime; lets callers pair a provisional call with its completion. */
 	seq: number;
@@ -15,16 +14,14 @@ export interface TextToolCall {
 export type TextParseEvent = { type: "text"; text: string } | { type: "call"; call: TextToolCall };
 
 export interface TextParseResult {
-	/** Text and completed calls in the order they appeared in the input. */
 	events: TextParseEvent[];
 	/** Call whose argument section is still open; args reflect what has arrived so far. */
 	provisionalCall?: TextToolCall | undefined;
 }
 
 /**
- * Length of the longest proper prefix of `token` that `data` ends with, i.e.
- * how many trailing characters must be held back because the next chunk may
- * complete the token.
+ * Length of the longest proper prefix of `token` that `data` ends with, i.e. how many trailing characters must be held
+ * back because the next chunk may complete the token.
  */
 function longestPartialSuffixHold(data: string, token: string): number {
 	for (let k = Math.min(token.length - 1, data.length); k > 0; k--) {
@@ -35,7 +32,6 @@ function longestPartialSuffixHold(data: string, token: string): number {
 	return 0;
 }
 
-/** Parse the "name" or "name:index" header between the begin token and the next delimiter. */
 function parseToolHeader(header: string): { name?: string | undefined; index?: number | undefined } {
 	const m = header.trim().match(/^([A-Za-z0-9_\-.]+)(?::(\d+))?/);
 	return { name: m?.[1], index: m?.[2] ? Number(m[2]) : undefined };
@@ -47,12 +43,6 @@ function stripControlTokens(text: string): string {
 		.replace(/<\|tool_call_(?:argument_)?(?:begin|end)\|>/g, "");
 }
 
-/**
- * True when `text` is the remains of a tool call the stream truncated: either
- * a nonempty proper prefix of a structural token, or a call opened by a
- * complete begin token that never reached its end token (the parser buffers
- * those as BEGIN + remainder while waiting for the argument delimiter).
- */
 export function isTruncatedToolCallText(text: string): boolean {
 	if (text.length === 0) {
 		return false;
@@ -60,8 +50,6 @@ export function isTruncatedToolCallText(text: string): boolean {
 	if (text.startsWith(BEGIN)) {
 		return true;
 	}
-	// A tail that already spells out "_section" can only be a truncated section
-	// marker, which is protocol text, never model output.
 	if (text.startsWith("<|") && text.includes("_section")) {
 		return true;
 	}
@@ -72,7 +60,6 @@ export function isTruncatedToolCallText(text: string): boolean {
 	);
 }
 
-/** True when `tail` (starting at "<") could still grow into a control token. */
 function isPartialControlToken(tail: string): boolean {
 	for (const literal of [BEGIN, ARG_BEGIN, ARG_END, END]) {
 		if (tail.length < literal.length && literal.startsWith(tail)) {
@@ -92,10 +79,9 @@ function isPartialControlToken(tail: string): boolean {
 }
 
 /**
- * How many trailing characters must be held back because the chunk may end
- * mid control token: the begin token that opens a call, but also the
- * strippable shapes (section markers, stray end/argument tokens), which would
- * otherwise leak into visible text when split across chunk boundaries.
+ * How many trailing characters must be held back because the chunk may end mid control token: the begin token that
+ * opens a call, but also the strippable shapes (section markers, stray end/argument tokens), which would otherwise leak
+ * into visible text when split across chunk boundaries.
  */
 function controlTokenHold(data: string): number {
 	const lastLt = data.lastIndexOf("<");
@@ -183,8 +169,8 @@ export class TextToolCallParser {
 			if (!this._active.argsClosed) {
 				const argEndAt = data.indexOf(ARG_END);
 				if (argEndAt !== -1 && (endAt === -1 || argEndAt < endAt)) {
-					// Some providers close arguments explicitly; the token must not
-					// contaminate the JSON or the whole call fails to parse.
+					// Some providers close arguments explicitly; the token must not contaminate the JSON or the whole
+					// call fails to parse.
 					this._active.argBuffer += data.slice(0, argEndAt);
 					this._active.argsClosed = true;
 					data = data.slice(argEndAt + ARG_END.length);
@@ -219,10 +205,8 @@ export class TextToolCallParser {
 	}
 
 	/**
-	 * Drain end-of-stream state. A text event carries any held-back partial
-	 * token text; provisionalCall carries a call still missing its end token.
-	 * While a call is active the buffer is call-internal (a partial end token),
-	 * never visible text, so it is discarded.
+	 * While a call is active the buffer is call-internal (a partial end token), never visible text, so it is
+	 * discarded.
 	 */
 	flush(): TextParseResult {
 		const events: TextParseEvent[] = this._buffer && !this._active ? [{ type: "text", text: this._buffer }] : [];

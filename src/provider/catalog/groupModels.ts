@@ -23,22 +23,15 @@ import type { OAuthConfig, VirtualKeyConfig } from "../transport/auth";
 import { oauthCredentialFingerprint } from "../transport/auth";
 
 /**
- * Support for VS Code-managed provider groups. The host stores one
- * configuration object per named group and hands the exact
- * LanguageModelChatInformation objects a provider returned back to
- * provideLanguageModelChatResponse and provideTokenCount, so LiteLLM facts ride
- * on the model objects themselves.
+ * The host stores one configuration object per named group and hands the exact LanguageModelChatInformation objects a
+ * provider returned back to provideLanguageModelChatResponse and provideTokenCount, so LiteLLM facts ride on the model
+ * objects themselves.
  */
 
-/** Connection details resolved from a provider group's configuration. */
 export interface GroupServer {
 	baseUrl: NormalizedBaseUrl;
 	apiKey: string;
-	/**
-	 * The declared settings entry this group mirrors, written into the group
-	 * configuration by the sync engine, so external and pre-label groups lack it.
-	 * Non-secret. Part of the group's identity (see groupClientId).
-	 */
+	/** Non-secret. Part of the group's identity (see groupClientId). */
 	label?: string;
 	/** Client-credentials authentication; present only when the configuration names a token URL and client ID. */
 	oauth?: OAuthConfig;
@@ -46,29 +39,23 @@ export interface GroupServer {
 	virtualKey?: VirtualKeyConfig;
 }
 
-/** The LiteLLM facts every model object carries, with or without a server attached. */
 interface LiteLLMModelMetadataBase {
 	/**
-	 * The raw LiteLLM model ID this entry routes to (the request's `model`
-	 * field), stamped by the mints (registration and declared-model synthesis),
-	 * which are the only places that know it: synthetic variants like
-	 * `foo:cheapest` and `foo:groq` carry their routed ID here, so no consumer
-	 * ever re-derives a raw ID from the exposed one.
+	 * The raw LiteLLM model ID this entry routes to (the request's `model` field), stamped by the mints (registration
+	 * and declared-model synthesis), which are the only places that know it: synthetic variants like `foo:cheapest`
+	 * and `foo:groq` carry their routed ID here.
 	 */
 	readonly rawModelId: string;
 	readonly supportsPromptCaching: boolean;
 	/**
-	 * Where maxOutputTokens came from: server-declared ("provider") and
-	 * user-set ("user", any capability-override level) values escape the
-	 * request-side cap; only "defaults" keeps it, because a guessed limit must
-	 * not be sent as-is.
+	 * Where maxOutputTokens came from.
+	 *   server-declared ("provider") and user-set ("user") -> values escape the request-side cap
+	 *   only "defaults"                                    -> keeps it, because a guessed limit must not be sent as-is
 	 */
 	readonly outputLimitSource: EffectiveOutputLimitSource;
 	/**
-	 * True when the LiteLLM capability data listed audio among the model's
-	 * input modalities; gates the input_audio message conversion. Optional
-	 * because model objects round-trip through the host and older metadata
-	 * lacks it (absent reads as false).
+	 * Gates the input_audio message conversion. Optional because model objects round-trip through the host and older
+	 * metadata lacks it (absent reads as false).
 	 */
 	readonly supportsAudioInput?: boolean;
 	/** True for a declared model (an entry's discovery.declared; discovery does not list it). */
@@ -76,22 +63,24 @@ interface LiteLLMModelMetadataBase {
 }
 
 /**
- * The `never` pins the credential boundary, so a group-attached copy, whose server embeds the group's
- * credentials, does not compile into the discovery cache (groupDiscovery.ts), StatusWindow.record
- * (statusWindow.ts), or a dashboard snapshot.
+ * The `never` pins the credential boundary, so a group-attached copy, whose server embeds the group's credentials, does
+ * not compile into the discovery cache (groupDiscovery.ts), StatusWindow.record (statusWindow.ts), or a dashboard
+ * snapshot.
  */
 export interface PreAttachModelInfo extends LanguageModelChatInformation {
 	readonly litellm: LiteLLMModelMetadataBase & {
-		/** Required, so an entry without a baseline is unrepresentable; attach drops it, since the chat path reads patched values. */
+		/**
+		 * Required, so an entry without a baseline is unrepresentable; attach drops it, since the chat path reads
+		 * patched values.
+		 */
 		readonly serverDeclared: ServerDeclaredCapabilities;
 		readonly server?: never;
 	};
 }
 
 /**
- * A model entry with its group's resolved connection attached, for the host
- * round trip only: attachGroupServer is the sole constructor, and the value
- * must never enter a cache, a status snapshot, or a state push.
+ * A model entry with its group's resolved connection attached, for the host round trip only: attachGroupServer is the
+ * sole constructor, and the value must never enter a cache, a status snapshot, or a state push.
  */
 export interface AttachedModelInfo extends LanguageModelChatInformation {
 	readonly litellm: LiteLLMModelMetadataBase & {
@@ -100,17 +89,14 @@ export interface AttachedModelInfo extends LanguageModelChatInformation {
 	};
 }
 
-/** The model information this provider returns to (and receives back from) the host. */
 export type LiteLLMModelInfo = PreAttachModelInfo | AttachedModelInfo;
 
 /** The credential slice of a group server: what the entry-credentials overlay replaces as one unit. */
 export type GroupCredentials = Pick<GroupServer, "apiKey" | "oauth" | "virtualKey">;
 
 /**
- * Replace a group server's baked-in credentials with a declared entry's
- * current ones. Wholesale, never merged: the entry's resolved credential set
- * is the complete truth, so an entry that dropped its OAuth unit (or virtual
- * key) must strip the baked one rather than keep authenticating with it.
+ * Wholesale, never merged: the entry's resolved credential set is the complete truth, so an entry that dropped its
+ * OAuth unit (or virtual key) must strip the baked one rather than keep authenticating with it.
  */
 export function overlayGroupCredentials(server: GroupServer, credentials: GroupCredentials): GroupServer {
 	return {
@@ -146,14 +132,13 @@ export function groupClientId(server: GroupServer): string {
 }
 
 /**
- * Accepts unknown because callers also classify persisted status entries,
- * which older extension versions may have written with arbitrary shapes.
+ * Accepts unknown because callers also classify persisted status entries, which older extension versions may have
+ * written with arbitrary shapes.
  */
 export function isGroupClientId(serverId: unknown): boolean {
 	return typeof serverId === "string" && serverId.startsWith(GROUP_CLIENT_ID_PREFIX);
 }
 
-/** A non-empty string after trimming, or undefined; the lenient unit of configuration narrowing. */
 function usableString(value: unknown): string | undefined {
 	if (typeof value !== "string") {
 		return undefined;
@@ -162,7 +147,6 @@ function usableString(value: unknown): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
-/** The optional entry fields as a host configuration (or a round-tripped sub-object) carried them, unnarrowed. */
 type RawOptionalFields = { readonly [K in OptionalEntryFieldId]?: unknown };
 
 /**
@@ -182,9 +166,8 @@ function usableNonSecretFields(raw: RawOptionalFields): NonSecretOptionalFields 
 }
 
 /**
- * OAuth is present as one typed unit or not at all: a usable token URL and
- * client ID make the unit, anything less degrades to absent. The secret is
- * taken verbatim (an empty one means a public client) and scopes are optional.
+ * OAuth is present as one typed unit or not at all: a usable token URL and client ID make the unit, anything less
+ * degrades to absent. The secret is taken verbatim (an empty one means a public client) and scopes are optional.
  */
 function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
 	const fields = usableNonSecretFields(raw);
@@ -205,15 +188,7 @@ type NarrowLog = (message: string, data?: unknown) => void;
 /** One warning per rejected header name, so per-request re-narrowing does not spam the log. */
 const reportedInvalidVirtualKeys = new Set<string>();
 
-/**
- * The virtual key is present only with a valid header name and a value in
- * the header-value charset; anything less degrades to absent. The value is
- * trimmed first (the platform strips leading and trailing whitespace from
- * header values anyway), then rejected if interior CR/LF or other control
- * octets remain: those would make the platform's Headers throw a TypeError
- * that embeds the full plaintext value. A rejection is logged once per
- * header name so typos are diagnosable; the value never reaches the log.
- */
+/** A rejection is logged once per header name so typos are diagnosable; the value never reaches the log. */
 function narrowVirtualKey(raw: RawOptionalFields, log?: NarrowLog): VirtualKeyConfig | undefined {
 	if (raw.virtualKeyHeader === undefined && raw.virtualKeyValue === undefined) {
 		return undefined;
@@ -279,7 +254,6 @@ void ({} satisfies Record<Exclude<OptionalEntryFieldId, ClaimedField>, never>);
 
 type CredentialSlots = { -readonly [S in keyof GroupCredentials]?: GroupCredentials[S] };
 
-/** Narrow one unit into its slot; generic over the slot so the value and the slot share the one S. */
 function fillSlot<S extends keyof GroupCredentials>(
 	slots: CredentialSlots,
 	unit: {
@@ -295,7 +269,7 @@ function fillSlot<S extends keyof GroupCredentials>(
 	}
 }
 
-/** Every unit of CREDENTIAL_UNITS narrowed into its slot; an absent key is the empty string, GroupServer's no-key value. */
+/** An absent key is the empty string, GroupServer's no-key value. */
 function narrowCredentials(raw: RawOptionalFields, log?: NarrowLog): GroupCredentials {
 	const slots: CredentialSlots = {};
 	for (const field of SECRET_FIELD_IDS) {
@@ -318,9 +292,8 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
 	if (baseUrl === undefined || baseUrl.length === 0) {
 		return undefined;
 	}
-	// The entry label the sync engine stamps into the configuration; not an
-	// OPTIONAL_ENTRY_FIELDS member because it is a required field of the
-	// declared entry itself, read explicitly here like baseUrl.
+	// The entry label the sync engine stamps into the configuration; not an OPTIONAL_ENTRY_FIELDS member because it is
+	// a required field of the declared entry itself, read explicitly here like baseUrl.
 	const label = usableString(configuration.label);
 	const raw: { -readonly [K in OptionalEntryFieldId]?: unknown } = {};
 	for (const { id } of OPTIONAL_ENTRY_FIELDS) {
@@ -337,7 +310,6 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
 export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer): AttachedModelInfo {
 	const { detail: _detail, ...rest } = info;
 	const { baseUrl: _url, apiKey: _key, label: _label, oauth: _oauth, virtualKey: _vk, ...unconsumed } = server;
-	// A new GroupServer field lands in `unconsumed` and fails this assignment.
 	void (unconsumed satisfies Record<string, never>);
 	return {
 		...rest,
@@ -369,38 +341,35 @@ export function markStale(infos: readonly AttachedModelInfo[], lastSyncedDisplay
 }
 
 /**
- * The LiteLLM facts of one model object, re-validated in a single pass. Model
- * objects come back across the host boundary, so only their shape is
- * trustworthy, not their type; this is the chat path's one parse of
- * `model.litellm`.
+ * Model objects come back across the host boundary, so only their shape is trustworthy, not their type. This is the
+ * chat path's one parse of `model.litellm`.
  */
 export interface ParsedModelMetadata {
 	/**
-	 * The attached group server, or undefined when the model object carries
-	 * none - a state the provider never serves, which the request path fails
-	 * loudly on.
+	 * The attached group server, or undefined when the model object carries none - a state the provider never serves,
+	 * which the request path fails loudly on.
 	 */
 	readonly server: GroupServer | undefined;
 	/**
-	 * The raw LiteLLM model ID the request's `model` field carries, from the
-	 * stamped metadata; a model object whose round trip lost the stamp falls
-	 * back to its exposed ID, which group registrations mint raw anyway.
+	 * A model object whose round trip lost the stamp falls back to its exposed ID, which group registrations mint raw
+	 * anyway.
 	 */
 	readonly rawModelId: string;
 	readonly supportsPromptCaching: boolean;
 	readonly supportsAudioInput: boolean;
 	/** The registered imageInput capability, re-narrowed like the litellm fields; gates image message conversion. */
 	readonly imageInput: boolean;
-	/** Anything but an exact "provider" or "user" (a missing field, an older extension's metadata) keeps the conservative cap. */
+	/**
+	 * Anything but an exact "provider" or "user" (a missing field, an older extension's metadata) keeps the
+	 * conservative cap.
+	 */
 	readonly outputLimitSource: EffectiveOutputLimitSource;
 }
 
 /**
- * Parse a model object's LiteLLM metadata at the host boundary. The attached
- * server's base URL is re-normalized because identity surfaces require the
- * normalized form and the host round trip could hand back anything
- * string-shaped. OAuth and virtual-key sub-objects get the same lenient
- * narrowing as the group configuration: malformed ones degrade to absent.
+ * The attached server's base URL is re-normalized because identity surfaces require the normalized form and the host
+ * round trip could hand back anything string-shaped. OAuth and virtual-key sub-objects get the same lenient narrowing
+ * as the group configuration: malformed ones degrade to absent.
  */
 export function parseModelMetadata(model: LiteLLMModelInfo, log?: NarrowLog): ParsedModelMetadata {
 	const rawModelId = model.litellm?.rawModelId;
@@ -414,15 +383,13 @@ export function parseModelMetadata(model: LiteLLMModelInfo, log?: NarrowLog): Pa
 	};
 }
 
-/** The lenient re-narrowing of an attached group server; see parseModelMetadata. */
 function parseAttachedServer(candidate: unknown, log?: NarrowLog): GroupServer | undefined {
 	if (!isRecord(candidate) || typeof candidate.baseUrl !== "string" || typeof candidate.apiKey !== "string") {
 		return undefined;
 	}
 	const baseUrl = normalizeBaseUrl(candidate.baseUrl);
 	if (baseUrl.length === 0) {
-		// Symmetric with parseGroupConfiguration: a URL that normalizes to
-		// nothing (e.g. "/") is no server.
+		// Symmetric with parseGroupConfiguration: a URL that normalizes to nothing (e.g. "/") is no server.
 		return undefined;
 	}
 	const label = usableString(candidate.label);
@@ -457,18 +424,12 @@ function modelSupportsAudioInput(model: LiteLLMModelInfo): boolean {
 	return model.litellm?.supportsAudioInput === true;
 }
 
-/**
- * The provenance of model.maxOutputTokens, re-validated because model objects
- * come back across the host boundary: only the exact declared markers
- * ("provider" for server-declared, "user" for a capability override) lift the
- * request-side cap; anything else keeps it.
- */
 function modelOutputLimitSource(model: LiteLLMModelInfo): EffectiveOutputLimitSource {
 	const source: unknown = model.litellm?.outputLimitSource;
 	return source === "provider" || source === "user" ? source : "defaults";
 }
 
-/** Display label for a group server without a configured label: the host never hands the group NAME to the extension, so the URL host stands in. */
+/** The host never hands the group NAME to the extension, so the URL host stands in. */
 export function groupServerLabel(baseUrl: string): string {
 	try {
 		return new URL(baseUrl).host;

@@ -13,21 +13,19 @@ import type { TransportFetch } from "./nodeHttpFetch";
 import { nodeHttpFetch } from "./nodeHttpFetch";
 
 /**
- * No retries, since completions never retry. Transport-module error ownership applies, so every call throws
- * specific errors under its caller's error surface WITHOUT logging, the caller's boundary logs once, and
- * cancellation surfaces as vscode.CancellationError, never logged.
+ * No retries, since completions never retry.
+ *   Transport-module error ownership applies -> the caller's boundary logs once, and cancellation surfaces as
+ *     vscode.CancellationError, never logged
  */
 
-/** One wire message of a one-shot request; this path carries plain text only, no multimodal parts. */
 export interface OneShotChatMessage {
 	readonly role: "system" | "user" | "assistant";
 	readonly content: string;
 }
 
 /**
- * The request fields a one-shot chat call sends, and nothing else: the body is
- * exactly model/messages/stream:false, plus max_tokens only when the caller
- * sets it - the pass-through invariant's "never inject what the user did not
+ * The request fields a one-shot chat call sends, and nothing else: the body is exactly model/messages/stream:false,
+ * plus max_tokens only when the caller sets it - the pass-through invariant's "never inject what the user did not
  * set" applied to a provider-owned surface.
  */
 export interface OneShotChatRequest {
@@ -38,11 +36,9 @@ export interface OneShotChatRequest {
 
 /**
  * The request fields a FIM call sends, and nothing else: the body is exactly
- * model/prompt/suffix/max_tokens/stream:false, with `suffix` omitted when a
- * `_fim_template` already placed it inside the prompt. models.parameters
- * records deliberately do NOT apply to /completions - the template directive
- * is the one documented exception, and it is applied by the caller through
- * buildFimPrompt, never sent.
+ * model/prompt/suffix/max_tokens/stream:false, with `suffix` omitted when a `_fim_template` already placed it inside
+ * the prompt. models.parameters records deliberately do NOT apply to /completions - the template directive is the one
+ * documented exception, and it is applied by the caller through buildFimPrompt, never sent.
  */
 export interface FimCompletionRequest {
 	readonly model: string;
@@ -53,17 +49,16 @@ export interface FimCompletionRequest {
 }
 
 /**
- * One server's connection material for a one-shot call, fully resolved by the
- * caller. Structurally satisfied by the usage subsystem's UsageConnection, so
- * extension-side features resolve their connection once and hand it to both.
+ * Structurally satisfied by the usage subsystem's UsageConnection, so extension-side features resolve their
+ * connection once and hand it to both.
  */
 export interface OneShotConnection {
 	readonly baseUrl: string;
-	/** The entry's apiVersion override, forwarded to apiRootOf; undefined means the auto rule. */
+	/** Forwarded to apiRootOf; undefined means the auto rule. */
 	readonly apiVersion?: string | undefined;
 	/** Empty string for keyless servers, matching the transport convention. */
 	readonly apiKey: string;
-	/** The entry's custom headers; auth headers win conflicts. */
+	/** Auth headers win conflicts. */
 	readonly headers: Readonly<Record<string, string>>;
 	readonly oauth?: OAuthConfig | undefined;
 	readonly virtualKey?: VirtualKeyConfig | undefined;
@@ -71,30 +66,24 @@ export interface OneShotConnection {
 
 export interface OneShotClientOptions {
 	readonly userAgent: string;
-	/** The HTTP transport; tests inject a fake here. Defaults to nodeHttpFetch. */
+	/** The HTTP transport; tests inject a fake here. */
 	readonly fetch?: TransportFetch | undefined;
 }
 
 export interface OneShotCallOptions {
 	/**
-	 * Hard whole-call bound, the OAuth exchange and the body read included,
-	 * with the identity of the setting that owns it (undefined for fixed bounds
-	 * like the inline-completion timeout). Minted where the caller reads its
-	 * number, so exchange-timeout advice names the setting that really governs
-	 * this call's clock or none.
+	 * Hard whole-call bound, the OAuth exchange and the body read included, with the identity of the setting that owns
+	 * it (undefined for fixed bounds like the inline-completion timeout). Minted where the caller reads its number, so
+	 * exchange-timeout advice names the setting that really governs this call's clock or none.
 	 */
 	readonly timeout: TimeoutBudget;
 	readonly token: vscode.CancellationToken;
 }
 
 /**
- * The per-call abort machinery a postJson consumer may need: the combined
- * cancel+timeout signal the fetch is armed with, its timeout source, and the
- * abort that kills the in-flight exchange. Consumers that let the body outlive
- * the call hold this scope in their bridge closures, which also keeps both
- * signals strongly reachable for the body's lifetime - AbortSignal.any's
- * source tracking has been weak in some runtimes (nodejs/node#57736), and the
- * whole-call bound must not be collectable while a body is outstanding.
+ * Consumers that let the body outlive the call hold this scope in their bridge closures, which also keeps both signals
+ * strongly reachable for the body's lifetime - AbortSignal.any's source tracking has been weak in some runtimes
+ * (nodejs/node#57736), and the whole-call bound must not be collectable while a body is outstanding.
  */
 interface CallScope {
 	readonly requestSignal: AbortSignal;
@@ -103,20 +92,16 @@ interface CallScope {
 }
 
 /**
- * Keep user cancellation aborting an in-flight response whose body outlives
- * the call: postJson's own call-scoped bridge dies in its finally, so a
- * consumer handing the body outward (sendJson) arms this second bridge. It
- * disposes itself when the combined signal fires - the
- * whole-call timeout always does - so nothing dangles past the call's hard
- * bound, and its closures hold `scope` (see CallScope) for the body's
- * lifetime.
+ * Keep user cancellation aborting an in-flight response whose body outlives the call: postJson's own call-scoped
+ * bridge dies in its finally, so a consumer handing the body outward (sendJson) arms this second bridge. It disposes
+ * itself when the combined signal fires - the whole-call timeout always does - so nothing dangles past the call's hard
+ * bound, and its closures hold `scope` (see CallScope) for the body's lifetime.
  */
 function armOutlivingCancelBridge(scope: CallScope, token: vscode.CancellationToken): void {
 	const bridge = token.onCancellationRequested(() => scope.abort());
 	if (scope.requestSignal.aborted) {
-		// An already-aborted signal never fires "abort" again (a token cancelled
-		// synchronously during registration lands here), so the bridge would
-		// linger on the token's emitter; dispose it on the spot instead.
+		// An already-aborted signal never fires "abort" again (a token cancelled synchronously during registration
+		// lands here), so the bridge would linger on the token's emitter; dispose it on the spot instead.
 		bridge.dispose();
 		return;
 	}
@@ -124,9 +109,8 @@ function armOutlivingCancelBridge(scope: CallScope, token: vscode.CancellationTo
 }
 
 /**
- * The reply text of a non-streaming chat completion, leniently: anything not
- * shaped as choices[0].message.content reads as an empty answer rather than an
- * error, so a malformed 200 body never rides into an error message.
+ * The reply text of a non-streaming chat completion, leniently: anything not shaped as choices[0].message.content
+ * reads as an empty answer rather than an error, so a malformed 200 body never rides into an error message.
  */
 function oneShotContentOf(payload: string): string {
 	let parsed: unknown;
@@ -146,12 +130,11 @@ function oneShotContentOf(payload: string): string {
 }
 
 /**
- * Owns the HTTP side of one-shot completions: header composition through the
- * shared overlay and the whole-call timeout. Exactly ONE instance exists per
- * activation - extension/wiring/features.ts constructs it and hands it to
- * every feature wiring - so OAuth tokens cache across features and
- * invalidate on 401 exactly like the chat and usage paths; a second instance
- * would split that cache.
+ * Owns the HTTP side of one-shot completions.
+ *
+ *   Exactly ONE instance exists per activation - extension/wiring/features.ts constructs it -> OAuth tokens cache
+ *     across features and invalidate on 401 exactly like the chat and usage paths; a second instance would split
+ *     that cache
  */
 export class OneShotClient {
 	private readonly oauthTokens = new OAuthTokenSource();
@@ -162,14 +145,9 @@ export class OneShotClient {
 	}
 
 	/**
-	 * POST one JSON body and return the raw Response, its body unread. Every
-	 * failure up to and including the response headers - and any non-2xx, whose
-	 * error body is read here - has already been mapped through the shared
-	 * pipeline under `surface`. The returned body stays armed with the
-	 * whole-call timeout signal, and user cancellation keeps aborting the
-	 * in-flight response for as long as that bound runs, so an unconsumed or
-	 * stalled body is always reclaimed; failures while the CALLER reads the
-	 * body surface raw and are that caller's to map.
+	 * The returned body stays armed with the whole-call timeout signal, and user cancellation keeps aborting the
+	 * in-flight response for as long as that bound runs, so an unconsumed or stalled body is always reclaimed; failures
+	 * while the CALLER reads the body surface raw and are that caller's to map.
 	 */
 	async sendJson(
 		url: string,
@@ -184,7 +162,6 @@ export class OneShotClient {
 		});
 	}
 
-	/** POST the request and return the reply's message content; "" when the model answered with none. */
 	async completeChatOnce(
 		connection: OneShotConnection,
 		request: OneShotChatRequest,
@@ -205,9 +182,8 @@ export class OneShotClient {
 	}
 
 	/**
-	 * POST one non-streaming /completions (FIM) request and return its
-	 * completion text; undefined when the 200 body carried none (malformed or
-	 * choiceless - the caller treats it as "no suggestion", never an error).
+	 * POST one non-streaming /completions (FIM) request and return its completion text; undefined when the 200 body
+	 * carried none (malformed or choiceless - the caller treats it as "no suggestion", never an error).
 	 */
 	async completeFim(
 		connection: OneShotConnection,
@@ -235,10 +211,8 @@ export class OneShotClient {
 	}
 
 	/**
-	 * Read the whole body inside the call's error pipeline: an abort is left
-	 * for postJson's catch to attribute (cancellation first, then timeout), and
-	 * a socket death mid-body wraps like a fetch failure, so mapSdkError
-	 * classifies it exactly like one on the chat stream.
+	 * Read the whole body inside the call's error pipeline: an abort is left for postJson's catch to attribute
+	 * (cancellation first, then timeout), and a socket death mid-body wraps like a fetch failure.
 	 */
 	private async readBodyText(response: Response, requestSignal: AbortSignal): Promise<string> {
 		try {
@@ -252,11 +226,11 @@ export class OneShotClient {
 	}
 
 	/**
-	 * The editor sends these headers itself and owns the 401s, so a token the server stops accepting is
-	 * corrected by the next exchange after expiry, never by a rejection here.
+	 * The editor sends these headers itself and owns the 401s, so a token the server stops accepting is corrected by
+	 * the next exchange after expiry, never by a rejection here.
 	 *
-	 * Deliberately NO whole-call timeout of its own, because only the token exchange can block and a second
-	 * bound sharing that budget would race the exchange's own, burying the OAuth message that names the setting to raise.
+	 * Deliberately NO whole-call timeout of its own, because only the token exchange can block and a second bound
+	 * sharing that budget would race the exchange's own, burying the OAuth message that names the setting to raise.
 	 */
 	async authHeaders(
 		connection: OneShotConnection,
@@ -271,9 +245,8 @@ export class OneShotClient {
 				userAgent: this.options.userAgent,
 				customHeaders: connection.headers,
 			});
-			// The overlay scope is deliberately dropped: no request of ours goes
-			// out with these headers (the editor sends them), so no rejection ever
-			// comes back here to route through fail - the documented pairless call
+			// The overlay scope is deliberately dropped: no request of ours goes out with these headers (the editor
+			// sends them), so no rejection ever comes back here to route through fail - the documented pairless call
 			// site in the authOverlayScope census.
 			await applyAuthOverlay(headers, connection, {
 				tokens: this.oauthTokens,
@@ -286,8 +259,6 @@ export class OneShotClient {
 			if (opts.token.isCancellationRequested) {
 				throw new vscode.CancellationError();
 			}
-			// The exchange already classifies its own failures under `surface`;
-			// anything else reaches the shared pipeline like a request's would.
 			throw err instanceof RequestError
 				? err
 				: mapSdkError(err, { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeout.ms });
@@ -297,12 +268,10 @@ export class OneShotClient {
 	}
 
 	/**
-	 * The shared HTTP core of every one-shot call: header composition through
-	 * the shared overlay, the whole-call timeout, and the one error pipeline
-	 * (mapSdkError via the SDK's own error factory). `consume` runs INSIDE the
-	 * pipeline with the vetted Response and the call's abort scope, so a body
-	 * read there fails exactly like the fetch itself would; each caller owns
-	 * its lenient parse of what consume returns.
+	 * The shared HTTP core of every one-shot call: header composition through the shared overlay, the whole-call
+	 * timeout, and the one error pipeline (mapSdkError via the SDK's own error factory). `consume` runs INSIDE the
+	 * pipeline with the vetted Response and the call's abort scope, so a body read there fails exactly like the fetch
+	 * itself would; each caller owns its lenient parse of what consume returns.
 	 */
 	private async postJson<T>(
 		url: string,
@@ -312,9 +281,8 @@ export class OneShotClient {
 		opts: OneShotCallOptions,
 		consume: (response: Response, scope: CallScope) => Promise<T>
 	): Promise<T> {
-		// User cancellation must abort the in-flight request, not just abandon
-		// the await, so the token is bridged onto an AbortController combined
-		// with the whole-call timeout (the chatClient.send pattern).
+		// User cancellation must abort the in-flight request, not just abandon the await, so the token is bridged onto
+		// an AbortController combined with the whole-call timeout (the chatClient.send pattern).
 		const cancelController = new AbortController();
 		const cancelListener = opts.token.onCancellationRequested(() => cancelController.abort());
 		const timeoutSignal = AbortSignal.timeout(opts.timeout.ms);
@@ -329,9 +297,7 @@ export class OneShotClient {
 				userAgent: this.options.userAgent,
 				customHeaders: connection.headers,
 			});
-			// Before the overlay, so a virtual key named Content-Type still owns
-			// that header the way it always has: what a credential displaces is
-			// not this refactor's to change.
+			// Before the overlay, so a virtual key named Content-Type still owns that header.
 			setOwnedHeader(headers, "Content-Type", "application/json");
 			auth = await applyAuthOverlay(headers, connection, {
 				tokens: this.oauthTokens,
@@ -347,18 +313,16 @@ export class OneShotClient {
 					// Attributed by the outer catch: cancellation first, then timeout.
 					throw fetchError;
 				}
-				// The transport rejects with a bare TypeError on socket failures; the
-				// SDK wrapper is what routes it into mapSdkError's socket classifier,
-				// so an ECONNREFUSED here reads exactly like one on the chat stream.
+				// The transport rejects with a bare TypeError on socket failures; the SDK wrapper is what routes it
+				// into mapSdkError's socket classifier, so an ECONNREFUSED here reads exactly like one on the chat
+				// stream.
 				throw new APIConnectionError({ cause: fetchError instanceof Error ? fetchError : undefined });
 			}
 			if (!response.ok) {
-				// The SDK's own error factory (it extracts the body's `error` envelope
-				// itself), so the catch below classifies this plain-fetch failure
-				// through the exact mapSdkError pipeline the streaming chat path uses
-				// - one classifier, one message shape. A body that is not a JSON
-				// object (unparseable, a bare string, an array) rides as recovered
-				// text instead, like the SDK keeps raw bodies in its message.
+				// The SDK's own error factory (it extracts the body's `error` envelope itself), so the catch below
+				// classifies this plain-fetch failure through the exact mapSdkError pipeline the streaming chat path
+				// uses - one classifier, one message shape. A body that is not a JSON object (unparseable, a bare
+				// string, an array) rides as recovered text instead, like the SDK keeps raw bodies in its message.
 				const payload = await this.readBodyText(response, requestSignal);
 				let parsed: unknown;
 				try {

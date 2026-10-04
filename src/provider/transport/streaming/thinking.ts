@@ -33,13 +33,9 @@ function thinkingBlockContents(blocks: readonly ThinkingBlockDelta[] | undefined
 }
 
 /**
- * Extract thinking/reasoning content from a streaming choice. Covers the four
- * provider formats: a structured thinking object (choice- or delta-level), a
- * thinking_blocks array (Anthropic extended thinking via LiteLLM, whose text
- * duplicates reasoning_content but whose signature and redacted data exist
- * nowhere else), a reasoning_content string, and a reasoning string. Each
- * format wins only when it yields usable content, so an empty higher-priority
- * field never suppresses a populated lower-priority one.
+ * Each format wins only when it yields usable content, so an empty higher-priority field never suppresses a populated
+ * lower-priority one.
+ *   a thinking_blocks array -> Anthropic extended thinking via LiteLLM, whose text duplicates reasoning_content
  */
 export function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefined): ThinkingContent[] {
 	const choiceStructured = structuredThinkingContents(choice.thinking);
@@ -59,11 +55,9 @@ export function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefin
 }
 
 /**
- * The fixed message for a normally-finished stream that produced no parts at
- * all while reasoning output was dropped. A thrown error rather than a
- * fallback text part: text parts round-trip into replayed chat history, and an
- * error surfaces in the chat UI and flows through the provider boundary's
- * single-point logging. Static string only; nothing response-derived.
+ * A thrown error rather than a fallback text part: text parts round-trip into replayed chat history, and an error
+ * surfaces in the chat UI and flows through the provider boundary's single-point logging. Static string only; nothing
+ * response-derived.
  */
 export const REASONING_ONLY_RESPONSE_MESSAGE =
 	"The model produced only reasoning output, which this version of VS Code could not display: the LanguageModelThinkingPart API is missing or failed. Update VS Code to a version that supports thinking parts, or use a model that returns final text.";
@@ -76,11 +70,10 @@ export function reasoningOnlyResponseMessage(): string {
 }
 
 /**
- * Per-request aggregate of reasoning dropped because no thinking part could be
- * built: counts and lengths only, never the text. "parts" counts thinking
- * items, not SSE chunks. logged and threw latch the once-per-request drop log
- * line and the reasoning-only error, because finishStream runs more than once
- * per stream.
+ * Per-request aggregate of reasoning dropped because no thinking part could be built: counts and lengths only, never
+ * the text. "parts" counts thinking items, not SSE chunks.
+ *   logged and threw -> latch the once-per-request drop log line and the reasoning-only error, because finishStream
+ *                       runs more than once per stream
  */
 export interface DroppedReasoning {
 	parts: number;
