@@ -29,6 +29,8 @@ import { applyAuthOverlay, plainFetchBaseHeaders } from "../../../provider/trans
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
+import type { SecretFieldCarrier, SecretFieldId } from "../../../shared/serverEntry";
+import { presentCarriers } from "../../../shared/serverEntry";
 import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import { isValidHeaderName, isValidHeaderValue } from "../../../shared/util/headers";
@@ -74,40 +76,76 @@ export interface UsageConnection {
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 }
 
+declare const secretFieldBrand: unique symbol;
+
+/** A secret field's resolved value, branded by its field, so one field's unit cannot be built from another's value. */
+type ResolvedSecret<F extends SecretFieldId> = string & { readonly [secretFieldBrand]: F };
+
 /**
- * The virtual key must be header-legal because an invalid name or value makes the platform's fetch throw a
- * TypeError, and such an error can expose the plaintext value (narrowVirtualKey applies the same rule on the
- * chat path). The base URL is normalized because a doubled slash reaches LiteLLM as `//key/info`, which answers
- * 404 and would misclassify the server as usage-unsupported.
+ * One secret field's unit inputs, paired by the field: its carriers as the entry carries them (SECRET_FIELD_CARRIERS
+ * through presentCarriers) and its value under the inline-wins rule. A unit builder takes one field's pair, so its
+ * carriers are its own field's by shape and its secret sinks accept only its own field's value by brand.
+ */
+interface SecretUnitInput<F extends SecretFieldId> {
+	readonly carriers: { readonly [K in SecretFieldCarrier<F>]: string } | undefined;
+	readonly value: ResolvedSecret<F> | undefined;
+}
+
+/**
+ * The OAuth unit: present exactly when the entry carries the client secret's carriers, the secret itself taken as
+ * resolved (absent means a public client) and the scopes optional.
+ */
+function oauthUnit(input: SecretUnitInput<"oauthClientSecret">, scopes: string | undefined): OAuthConfig | undefined {
+	if (input.carriers === undefined) {
+		return undefined;
+	}
+	return {
+		tokenUrl: input.carriers.oauthTokenUrl,
+		clientId: input.carriers.oauthClientId,
+		clientSecret: input.value ?? "",
+		...(scopes !== undefined ? { scopes } : {}),
+	};
+}
+
+/**
+ * The virtual-key unit must be header-legal because an invalid name or value makes the platform's fetch throw a
+ * TypeError, and such an error can expose the plaintext value (narrowVirtualKey applies the same rule on the chat
+ * path).
+ */
+function virtualKeyUnit({ carriers, value }: SecretUnitInput<"virtualKeyValue">): VirtualKeyConfig | undefined {
+	return carriers !== undefined &&
+		value !== undefined &&
+		isValidHeaderName(carriers.virtualKeyHeader) &&
+		isValidHeaderValue(value)
+		? { header: carriers.virtualKeyHeader, value }
+		: undefined;
+}
+
+/**
+ * The base URL is normalized because a doubled slash reaches LiteLLM as `//key/info`, which answers 404 and would
+ * misclassify the server as usage-unsupported.
  */
 export function usageConnectionFor(entry: DeclaredServer, stored: StoredServerSecrets): UsageConnection {
 	const inline = inlineSecretValues(entry);
-	const secret = (field: keyof typeof inline): string | undefined => inline[field] ?? stored[field];
-	const oauth: OAuthConfig | undefined =
-		entry.oauthTokenUrl !== undefined && entry.oauthClientId !== undefined
-			? {
-					tokenUrl: entry.oauthTokenUrl,
-					clientId: entry.oauthClientId,
-					clientSecret: secret("oauthClientSecret") ?? "",
-					...(entry.oauthScopes !== undefined ? { scopes: entry.oauthScopes } : {}),
-				}
-			: undefined;
-	const virtualKeyValue = secret("virtualKeyValue");
-	const virtualKey: VirtualKeyConfig | undefined =
-		entry.virtualKeyHeader !== undefined &&
-		virtualKeyValue !== undefined &&
-		isValidHeaderName(entry.virtualKeyHeader) &&
-		isValidHeaderValue(virtualKeyValue)
-			? { header: entry.virtualKeyHeader, value: virtualKeyValue }
-			: undefined;
+	const input = <F extends SecretFieldId>(field: F): SecretUnitInput<F> => ({
+		carriers: presentCarriers(field, entry),
+		value: (inline[field] ?? stored[field]) as ResolvedSecret<F> | undefined,
+	});
+	// Each secret field's unit on the connection, keyed by the field it carries: total over SecretFieldId, so a new
+	// secret field does not compile until it says how it rides a usage call.
+	const units = {
+		apiKey: input("apiKey").value ?? "",
+		oauthClientSecret: oauthUnit(input("oauthClientSecret"), entry.oauthScopes),
+		virtualKeyValue: virtualKeyUnit(input("virtualKeyValue")),
+	} satisfies Record<SecretFieldId, unknown>;
 	return {
 		label: entry.label,
 		baseUrl: normalizeBaseUrl(entry.baseUrl),
 		...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
-		apiKey: secret("apiKey") ?? "",
+		apiKey: units.apiKey,
 		headers: entry.headers ?? {},
-		...(oauth !== undefined ? { oauth } : {}),
-		...(virtualKey !== undefined ? { virtualKey } : {}),
+		...(units.oauthClientSecret !== undefined ? { oauth: units.oauthClientSecret } : {}),
+		...(units.virtualKeyValue !== undefined ? { virtualKey: units.virtualKeyValue } : {}),
 	};
 }
 

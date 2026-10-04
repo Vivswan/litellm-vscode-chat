@@ -87,11 +87,13 @@ export function secretDestination(
 }
 
 /**
- * The non-secret fields a secret field rides with: the unit rule, owned once for its two readers. entryUsesSecretField
- * below judges an ENTRY by the carriers' presence; parseGroupConfiguration (provider/catalog/groupModels.ts) narrows a
- * host configuration by their usability, reading the carrier names through this table, so the chat path can never
- * send a secret the rule denies. Total over SecretFieldId: a new secret field declares its carriers here before
- * either reader compiles.
+ * The non-secret fields a secret field rides with: the unit rule, owned once for every reader. entryUsesSecretField
+ * below judges an ENTRY by the carriers' presence; usageConnectionFor (extension/servers/usage/spendClient.ts) builds
+ * an entry's auth units from the carriers presentCarriers hands it; parseGroupConfiguration
+ * (provider/catalog/groupModels.ts) narrows a host configuration by their usability, reading the carrier names
+ * through this table. So neither the chat path nor the usage path can send a secret whose carriers the rule denies;
+ * the no-server arm is each path's own refusal (the parser yields no configuration, the usage GET has no absolute
+ * URL to form). Total over SecretFieldId: a new secret field declares its carriers here before any reader compiles.
  */
 export const SECRET_FIELD_CARRIERS = {
 	apiKey: [],
@@ -101,6 +103,28 @@ export const SECRET_FIELD_CARRIERS = {
 
 /** The carriers of one secret field, as a name union. */
 export type SecretFieldCarrier<F extends SecretFieldId> = (typeof SECRET_FIELD_CARRIERS)[F][number];
+
+/**
+ * A secret field's carriers (SECRET_FIELD_CARRIERS) as the entry carries them, or undefined when any is absent: the
+ * value-bearing form of the unit rule. A unit built from the result cannot require fewer carriers than the table
+ * lists, so it can form only where entryUsesSecretField attributes the field to an entry that has a server; the
+ * value's own presence and legality narrow the send further.
+ */
+export function presentCarriers<F extends SecretFieldId>(
+	field: F,
+	entry: NonSecretOptionalFields
+): { readonly [K in SecretFieldCarrier<F>]: string } | undefined {
+	const values: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
+	for (const carrier of SECRET_FIELD_CARRIERS[field]) {
+		const value = entry[carrier];
+		if (value === undefined) {
+			return undefined;
+		}
+		values[carrier] = value;
+	}
+	// Every carrier of `field` was assigned above; the loop's partial record type cannot say so.
+	return values as { readonly [K in SecretFieldCarrier<F>]: string };
+}
 
 /**
  * The ONE "entry uses this credential field" judgment; it judges the ENTRY alone, so it errs toward "uses it".
@@ -114,10 +138,7 @@ export function entryUsesSecretField(
 	entry: { readonly baseUrl: string } & NonSecretOptionalFields,
 	field: SecretFieldId
 ): boolean {
-	if (normalizeBaseUrl(entry.baseUrl).length === 0) {
-		return false;
-	}
-	return SECRET_FIELD_CARRIERS[field].every((carrier) => entry[carrier] !== undefined);
+	return normalizeBaseUrl(entry.baseUrl).length > 0 && presentCarriers(field, entry) !== undefined;
 }
 
 /**
