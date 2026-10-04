@@ -14,12 +14,12 @@ import type { ModelRecordMap } from "./config/modelMatcher";
 import { normalizeBaseUrl } from "./util/baseUrl";
 
 /**
- * The optional fields an entry may carry beyond label and baseUrl, secret ones
- * flagged (inline storage is legal for those; a SecretStorage blob is the
- * alternative). THE ORDER IS LOAD-BEARING: buildGroupArgs emits the
- * provider-group args in this order, and the sync engine fingerprints a
- * JSON.stringify of that object, so reordering silently invalidates every
- * stored fingerprint and re-pushes every group.
+ * The optional fields an entry may carry beyond label and baseUrl, secret ones flagged (inline storage is legal for
+ * those; a SecretStorage blob is the alternative). THE ORDER IS LOAD-BEARING while migrations/fingerprintProjection.ts
+ * lives: buildGroupArgs emits the provider-group args in this order, and that migration recognises a pre-projection
+ * record by re-rendering the full-args JSON, so a reorder changes the rendering of every record whose args carry two
+ * or more reordered fields and leaves those to the migration's ledger proof. The current "i1:" fingerprint reads only
+ * the identity projection (serverSync/engine.ts groupIdentityArgs) and is order-free.
  */
 export const OPTIONAL_ENTRY_FIELDS = [
 	{ id: "apiKey", secret: true },

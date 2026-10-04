@@ -1,10 +1,9 @@
 /**
- * The usage DataPart at the end of a stream and the ChatResponseStream adapter.
+ * The usage DataPart at the end of a stream.
  */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { StreamProcessor } from "../../../provider/transport/streaming";
-import { chatResponseStreamSink } from "../../../provider/transport/streaming/processor";
 import type { DataPartCtor } from "../../../shared/conversion/dataPart";
 import { resetDataPartLogOnce } from "../../../shared/conversion/dataPart";
 import { expectDefined } from "../../pureHelpers";
@@ -26,8 +25,11 @@ suite("provider/streaming usage DataPart", () => {
 		return new vscode.CancellationTokenSource().token;
 	}
 
-	function usageProcessor(log: (message: string, data?: unknown) => void = () => {}): StreamProcessor {
-		return new StreamProcessor(idSource(), log, null, fakeDataCtor);
+	function usageProcessor(
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		log: (message: string, data?: unknown) => void = () => {}
+	): StreamProcessor {
+		return new StreamProcessor(idSource(), log, progress, null, fakeDataCtor);
 	}
 
 	function usagePartsOf(parts: vscode.LanguageModelResponsePart[]): Record<string, unknown>[] {
@@ -39,8 +41,8 @@ suite("provider/streaming usage DataPart", () => {
 	const TRAILER = 'data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":80,"total_tokens":200}}\n';
 
 	test("the empty-choices trailer emits exactly one usage DataPart despite the repeated end-of-stream runs", async () => {
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		// finish_reason, [DONE], and EOF each run finishStream; the trailer
 		// arrives between the first two, the standard OpenAI stream shape.
 		const body = sseStream([
@@ -50,7 +52,7 @@ suite("provider/streaming usage DataPart", () => {
 			"data: [DONE]\n",
 		]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		assert.strictEqual(visibleTextOf(parts), "answer");
 		const usages = usagePartsOf(parts);
@@ -59,14 +61,14 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("usage riding the finish_reason chunk itself is captured", async () => {
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}\n',
 			"data: [DONE]\n",
 		]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		const usages = usagePartsOf(parts);
 		assert.strictEqual(usages.length, 1);
@@ -76,8 +78,8 @@ suite("provider/streaming usage DataPart", () => {
 	test("an interim usage object does not pin stale counts: the final trailer wins", async () => {
 		// Some providers stamp running usage onto ordinary chunks. Emission is
 		// reserved for the post-loop run, so the interim counts never ship.
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"content":"hi"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n',
 			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
@@ -85,7 +87,7 @@ suite("provider/streaming usage DataPart", () => {
 			"data: [DONE]\n",
 		]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		const usages = usagePartsOf(parts);
 		assert.strictEqual(usages.length, 1, "exactly one usage part despite interim usage objects");
@@ -97,8 +99,8 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("a straggler trailer behind [DONE] still wins: emission happens only at the true end", async () => {
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
 			TRAILER,
@@ -106,7 +108,7 @@ suite("provider/streaming usage DataPart", () => {
 			'data: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}\n',
 		]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		assert.deepStrictEqual(
 			usagePartsOf(parts),
@@ -119,15 +121,15 @@ suite("provider/streaming usage DataPart", () => {
 		// A wire literal like 1e999 parses to Infinity. As a required count it
 		// kills the emission outright; as an optional detail it is omitted
 		// while the finite trio still ships.
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		const body = sseStream([
 			'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":1e999}}\n',
 			'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"prompt_tokens_details":{"cached_tokens":1e999}}}\n',
 			"data: [DONE]\n",
 		]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		assert.deepStrictEqual(
 			usagePartsOf(parts),
@@ -138,22 +140,20 @@ suite("provider/streaming usage DataPart", () => {
 
 	test("NaN counts injected through processDelta neither emit nor reach the usage log", () => {
 		const logged: { message: string; data?: unknown }[] = [];
+		const { parts, progress } = collector();
 		const stream = new StreamProcessor(
 			idSource(),
 			(message, data) => logged.push({ message, data }),
+			progress,
 			null,
 			fakeDataCtor
 		);
-		const { parts, progress } = collector();
 
-		stream.processDelta(
-			{
-				choices: [],
-				usage: { prompt_tokens: Number.NaN, completion_tokens: 2, total_tokens: Number.POSITIVE_INFINITY },
-			},
-			progress
-		);
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+		stream.processDelta({
+			choices: [],
+			usage: { prompt_tokens: Number.NaN, completion_tokens: 2, total_tokens: Number.POSITIVE_INFINITY },
+		});
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] });
 
 		assert.strictEqual(usagePartsOf(parts).length, 0, "a payload missing finite required counts must not emit");
 		const usageLog = logged.find((l) => l.message === "Token usage");
@@ -161,8 +161,8 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("OpenAI-style detail groups round-trip into the payload", async () => {
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		const usage = {
 			prompt_tokens: 100,
 			completion_tokens: 50,
@@ -172,7 +172,7 @@ suite("provider/streaming usage DataPart", () => {
 		};
 		const body = sseStream([`data: {"choices":[],"usage":${JSON.stringify(usage)}}\n`, "data: [DONE]\n"]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		assert.deepStrictEqual(usagePartsOf(parts), [
 			{
@@ -186,8 +186,8 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("Anthropic-style top-level cache fields map into prompt_tokens_details", async () => {
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		const usage = {
 			prompt_tokens: 100,
 			completion_tokens: 50,
@@ -197,7 +197,7 @@ suite("provider/streaming usage DataPart", () => {
 		};
 		const body = sseStream([`data: {"choices":[],"usage":${JSON.stringify(usage)}}\n`, "data: [DONE]\n"]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		assert.deepStrictEqual(usagePartsOf(parts), [
 			{
@@ -210,8 +210,8 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("the OpenAI-style detail keys outrank the top-level cache fields when both are present", async () => {
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		const usage = {
 			prompt_tokens: 100,
 			completion_tokens: 50,
@@ -221,15 +221,15 @@ suite("provider/streaming usage DataPart", () => {
 		};
 		const body = sseStream([`data: {"choices":[],"usage":${JSON.stringify(usage)}}\n`, "data: [DONE]\n"]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		const usages = usagePartsOf(parts);
 		assert.deepStrictEqual(expectDefined(usages[0]).prompt_tokens_details, { cached_tokens: 90 });
 	});
 
 	test("arbitrary server keys never reach the emitted payload", async () => {
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		const usage = {
 			prompt_tokens: 1,
 			completion_tokens: 2,
@@ -239,7 +239,7 @@ suite("provider/streaming usage DataPart", () => {
 		};
 		const body = sseStream([`data: {"choices":[],"usage":${JSON.stringify(usage)}}\n`, "data: [DONE]\n"]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		const usages = usagePartsOf(parts);
 		assert.strictEqual(usages.length, 1);
@@ -256,11 +256,11 @@ suite("provider/streaming usage DataPart", () => {
 			{ prompt_tokens: 1, completion_tokens: 2, total_tokens: "3" },
 			{ total_tokens: 3 },
 		]) {
-			const stream = usageProcessor();
 			const { parts, progress } = collector();
+			const stream = usageProcessor(progress);
 			const body = sseStream([`data: {"choices":[],"usage":${JSON.stringify(usage)}}\n`, "data: [DONE]\n"]);
 
-			await stream.processStreamingResponse(body, progress, token());
+			await stream.processStreamingResponse(body, token());
 
 			assert.strictEqual(
 				usagePartsOf(parts).length,
@@ -271,23 +271,23 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("a cancelled stream emits no usage part", async () => {
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		const source = new vscode.CancellationTokenSource();
 		const body = sseStream([TRAILER], () => source.cancel());
 
-		await stream.processStreamingResponse(body, progress, source.token);
+		await stream.processStreamingResponse(body, source.token);
 
 		assert.strictEqual(usagePartsOf(parts).length, 0);
 	});
 
 	test("a host without the DataPart class drops the usage silently, without the generated-media notice", async () => {
 		const logs: string[] = [];
-		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg), null, null);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg), progress, null, null);
 		const body = sseStream(['data: {"choices":[{"delta":{"content":"text"}}]}\n', TRAILER, "data: [DONE]\n"]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		assert.strictEqual(visibleTextOf(parts), "text");
 		assert.strictEqual(parts.length, 1, "no usage part without the class");
@@ -297,8 +297,8 @@ suite("provider/streaming usage DataPart", () => {
 	test("the usage part is bookkeeping: a reasoning-only stream fails loudly and forfeits its usage", async () => {
 		// The reasoning-only error fires at the [DONE] run; usage emission is
 		// reserved for the final post-loop run, which the throw never reaches.
-		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor);
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}]}\n',
 			TRAILER,
@@ -306,7 +306,7 @@ suite("provider/streaming usage DataPart", () => {
 		]);
 
 		await assert.rejects(
-			() => stream.processStreamingResponse(body, progress, token()),
+			() => stream.processStreamingResponse(body, token()),
 			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output"),
 			"the retained usage must not suppress the reasoning-only error"
 		);
@@ -316,8 +316,8 @@ suite("provider/streaming usage DataPart", () => {
 	test("a reasoning-only stream that fails at its finish_reason chunk forfeits the later trailer too", async () => {
 		// Same forfeit through the other route: the throw at finish_reason
 		// aborts the request before the trailer is even parsed.
-		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor);
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}]}\n',
 			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
@@ -326,7 +326,7 @@ suite("provider/streaming usage DataPart", () => {
 		]);
 
 		await assert.rejects(
-			() => stream.processStreamingResponse(body, progress, token()),
+			() => stream.processStreamingResponse(body, token()),
 			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output")
 		);
 		assert.strictEqual(parts.length, 0, "the failed request emits nothing, usage included");
@@ -336,8 +336,8 @@ suite("provider/streaming usage DataPart", () => {
 		// The three-way collision: terminal checks run before either trailer,
 		// so the failed request ships neither the Sources list nor the
 		// accounting part.
-		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor);
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}],"citations":["https://example.test/cited"]}\n',
 			TRAILER,
@@ -346,7 +346,7 @@ suite("provider/streaming usage DataPart", () => {
 		]);
 
 		await assert.rejects(
-			() => stream.processStreamingResponse(body, progress, token()),
+			() => stream.processStreamingResponse(body, token()),
 			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output")
 		);
 		assert.strictEqual(parts.length, 0, "no parts at all: no sources trailer, no usage part");
@@ -356,15 +356,15 @@ suite("provider/streaming usage DataPart", () => {
 		// No finish_reason and no [DONE]: the post-loop EOF run is the first
 		// end-of-stream run, and its invalid buffered tool call must throw
 		// before the trailers emit.
-		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor);
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{\\"a\\":"}}]}}]}\n',
 			TRAILER,
 		]);
 
 		await assert.rejects(
-			() => stream.processStreamingResponse(body, progress, token()),
+			() => stream.processStreamingResponse(body, token()),
 			(e: unknown) => e instanceof Error && e.message.startsWith("The model sent a broken tool call")
 		);
 		assert.strictEqual(usagePartsOf(parts).length, 0, "an EOF-only failure ships no usage");
@@ -374,15 +374,15 @@ suite("provider/streaming usage DataPart", () => {
 	test("the sources trailer precedes the usage DataPart at end of stream", async () => {
 		// Citations are chat content, usage is metadata: the visible trailer
 		// renders before the accounting part.
-		const stream = usageProcessor();
 		const { parts, progress } = collector();
+		const stream = usageProcessor(progress);
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"content":"hi"}}],"citations":["https://example.test/o"]}\n',
 			TRAILER,
 			"data: [DONE]\n",
 		]);
 
-		await stream.processStreamingResponse(body, progress, token());
+		await stream.processStreamingResponse(body, token());
 
 		assert.strictEqual(usagePartsOf(parts).length, 1);
 		const last = parts[parts.length - 1];
@@ -396,23 +396,20 @@ suite("provider/streaming usage DataPart", () => {
 
 	test("the usage log line carries the top-level cache fields as numbers only", () => {
 		const logged: { message: string; data?: unknown }[] = [];
-		const stream = new StreamProcessor(idSource(), (message, data) => logged.push({ message, data }));
 		const { progress } = collector();
+		const stream = new StreamProcessor(idSource(), (message, data) => logged.push({ message, data }), progress);
 
-		stream.processDelta(
-			{
-				choices: [],
-				usage: {
-					prompt_tokens: 10,
-					completion_tokens: 5,
-					total_tokens: 15,
-					cache_read_input_tokens: 7,
-					cache_creation_input_tokens: 3,
-					prompt_tokens_details: { cache_creation_input_tokens: "not-a-number" },
-				},
+		stream.processDelta({
+			choices: [],
+			usage: {
+				prompt_tokens: 10,
+				completion_tokens: 5,
+				total_tokens: 15,
+				cache_read_input_tokens: 7,
+				cache_creation_input_tokens: 3,
+				prompt_tokens_details: { cache_creation_input_tokens: "not-a-number" },
 			},
-			progress
-		);
+		});
 
 		const usageLog = logged.find((l) => l.message === "Token usage");
 		assert.deepStrictEqual(expectDefined(usageLog?.data), {
@@ -422,33 +419,5 @@ suite("provider/streaming usage DataPart", () => {
 			cache_read_input_tokens: 7,
 			cache_creation_input_tokens: 3,
 		});
-	});
-});
-
-suite("provider/streaming ChatResponseStream adapter", () => {
-	/** A recording stand-in for the participant API's stream; only markdown is consulted by the adapter. */
-	function recordingStream(rendered: string[]): vscode.ChatResponseStream {
-		return {
-			markdown: (value: string | vscode.MarkdownString) => {
-				rendered.push(typeof value === "string" ? value : value.value);
-			},
-		} as vscode.ChatResponseStream;
-	}
-
-	test("text parts render as markdown; tool-call parts are dropped by design", () => {
-		const rendered: string[] = [];
-		const sink = chatResponseStreamSink(recordingStream(rendered));
-		sink.report(new vscode.LanguageModelTextPart("hello "));
-		sink.report(new vscode.LanguageModelToolCallPart("id-1", "some_tool", { a: 1 }));
-		sink.report(new vscode.LanguageModelTextPart("world"));
-		assert.deepStrictEqual(rendered, ["hello ", "world"]);
-	});
-
-	test("the adapter satisfies the processor's structural sink: a delta streams straight into markdown", () => {
-		const rendered: string[] = [];
-		const sink = chatResponseStreamSink(recordingStream(rendered));
-		const stream = new StreamProcessor(idSource(), () => {});
-		stream.processDelta({ choices: [{ delta: { content: "chunk" } }] }, sink);
-		assert.deepStrictEqual(rendered, ["chunk"]);
 	});
 });

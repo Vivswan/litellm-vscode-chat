@@ -74,12 +74,8 @@ export function sseStream(chunks: string[], onEnd?: () => void): ReadableStream<
  * end-of-stream trailers emit only on the loop's final run, so tests asserting
  * on them must go through here rather than calling processDelta.
  */
-export async function playChunks(
-	stream: StreamProcessor,
-	chunks: unknown[],
-	progress: vscode.Progress<vscode.LanguageModelResponsePart>
-): Promise<void> {
+export async function playChunks(stream: StreamProcessor, chunks: unknown[]): Promise<void> {
 	const lines = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n`);
 	lines.push("data: [DONE]\n");
-	await stream.processStreamingResponse(sseStream(lines), progress, new vscode.CancellationTokenSource().token);
+	await stream.processStreamingResponse(sseStream(lines), new vscode.CancellationTokenSource().token);
 }

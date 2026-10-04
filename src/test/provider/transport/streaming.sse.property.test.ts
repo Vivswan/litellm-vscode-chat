@@ -60,19 +60,19 @@ interface RunResult {
 async function runBytes(byteChunks: Uint8Array[]): Promise<RunResult> {
 	let malformedLogs = 0;
 	const malformedPayloads: unknown[] = [];
-	const processor = new StreamProcessor(idSource(), (message, data) => {
-		if (message === "Skipping malformed SSE line") {
-			malformedLogs++;
-			malformedPayloads.push(data);
-		}
-	});
 	const parts: vscode.LanguageModelResponsePart[] = [];
 	const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
-	await processor.processStreamingResponse(
-		byteStream(byteChunks),
-		progress,
-		new vscode.CancellationTokenSource().token
+	const processor = new StreamProcessor(
+		idSource(),
+		(message, data) => {
+			if (message === "Skipping malformed SSE line") {
+				malformedLogs++;
+				malformedPayloads.push(data);
+			}
+		},
+		progress
 	);
+	await processor.processStreamingResponse(byteStream(byteChunks), new vscode.CancellationTokenSource().token);
 	return { parts, malformedLogs, malformedPayloads };
 }
 

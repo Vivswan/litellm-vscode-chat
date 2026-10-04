@@ -21,10 +21,10 @@ suite("provider/streaming thinking parts", () => {
 	const fakeCtor = FakeThinkingPart as unknown as ThinkingPartCtor;
 
 	test("structured thinking object emits a thinking part", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta({ choices: [{ delta: { thinking: { text: "deep", id: "t1" } } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { thinking: { text: "deep", id: "t1" } } }] });
 
 		assert.equal(parts.length, 1);
 		const part = parts[0] as unknown as FakeThinkingPart;
@@ -34,20 +34,20 @@ suite("provider/streaming thinking parts", () => {
 	});
 
 	test("reasoning_content string emits a thinking part", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta({ choices: [{ delta: { reasoning_content: "steps" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { reasoning_content: "steps" } }] });
 
 		assert.equal(parts.length, 1);
 		assert.equal((parts[0] as unknown as FakeThinkingPart).text, "steps");
 	});
 
 	test("reasoning string emits a thinking part", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta({ choices: [{ delta: { reasoning: "why" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { reasoning: "why" } }] });
 
 		assert.equal(parts.length, 1);
 		assert.equal((parts[0] as unknown as FakeThinkingPart).text, "why");
@@ -60,10 +60,10 @@ suite("provider/streaming thinking parts", () => {
 				throw new Error("boom");
 			}
 		} as unknown as ThinkingPartCtor;
-		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg), throwingCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg), progress, throwingCtor);
 
-		stream.processDelta({ choices: [{ delta: { thinking: "x", content: "visible" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { thinking: "x", content: "visible" } }] });
 
 		assert.ok(
 			logs.some((l) => l.includes("Failed to construct thinking part")),
@@ -73,31 +73,28 @@ suite("provider/streaming thinking parts", () => {
 	});
 
 	test("no thinking part is emitted when the constructor is unavailable", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, null);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, null);
 
-		stream.processDelta({ choices: [{ delta: { reasoning_content: "hidden" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { reasoning_content: "hidden" } }] });
 
 		assert.equal(parts.length, 0);
 	});
 
 	test("thinking_blocks emit one part per block and suppress the duplicate reasoning_content", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta(
-			{
-				choices: [
-					{
-						delta: {
-							reasoning_content: "step one",
-							thinking_blocks: [{ type: "thinking", thinking: "step one", signature: "sig-1" }],
-						},
+		stream.processDelta({
+			choices: [
+				{
+					delta: {
+						reasoning_content: "step one",
+						thinking_blocks: [{ type: "thinking", thinking: "step one", signature: "sig-1" }],
 					},
-				],
-			},
-			progress
-		);
+				},
+			],
+		});
 
 		assert.equal(parts.length, 1, "The block and reasoning_content carry the same text; only the block may emit");
 		const part = parts[0] as unknown as FakeThinkingPart;
@@ -106,13 +103,10 @@ suite("provider/streaming thinking parts", () => {
 	});
 
 	test("a redacted thinking block emits an empty-text part carrying the opaque data", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta(
-			{ choices: [{ delta: { thinking_blocks: [{ type: "redacted_thinking", data: "opaque" }] } }] },
-			progress
-		);
+		stream.processDelta({ choices: [{ delta: { thinking_blocks: [{ type: "redacted_thinking", data: "opaque" }] } }] });
 
 		assert.equal(parts.length, 1);
 		const part = parts[0] as unknown as FakeThinkingPart;
@@ -121,30 +115,30 @@ suite("provider/streaming thinking parts", () => {
 	});
 
 	test("an empty choice-level thinking string does not suppress populated delta thinking", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta({ choices: [{ thinking: "", delta: { thinking: "deep" } }] }, progress);
+		stream.processDelta({ choices: [{ thinking: "", delta: { thinking: "deep" } }] });
 
 		assert.equal(parts.length, 1);
 		assert.equal((parts[0] as unknown as FakeThinkingPart).text, "deep");
 	});
 
 	test("an empty reasoning_content does not suppress populated reasoning", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta({ choices: [{ delta: { reasoning_content: "", reasoning: "why" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { reasoning_content: "", reasoning: "why" } }] });
 
 		assert.equal(parts.length, 1);
 		assert.equal((parts[0] as unknown as FakeThinkingPart).text, "why");
 	});
 
 	test("contentless thinking_blocks do not suppress populated reasoning_content", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta({ choices: [{ delta: { thinking_blocks: [{}], reasoning_content: "steps" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { thinking_blocks: [{}], reasoning_content: "steps" } }] });
 
 		assert.equal(parts.length, 1);
 		assert.equal((parts[0] as unknown as FakeThinkingPart).text, "steps");
@@ -169,12 +163,12 @@ suite("provider/streaming thinking part pass-through", () => {
 	}
 
 	test("wire-provided ids pass through untouched", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta({ choices: [{ delta: { thinking: { text: "a1", id: "wire-a" } } }] }, progress);
-		stream.processDelta({ choices: [{ delta: { thinking: { text: "a2", id: "wire-a" } } }] }, progress);
-		stream.processDelta({ choices: [{ delta: { thinking: { text: "b1", id: "wire-b" } } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { thinking: { text: "a1", id: "wire-a" } } }] });
+		stream.processDelta({ choices: [{ delta: { thinking: { text: "a2", id: "wire-a" } } }] });
+		stream.processDelta({ choices: [{ delta: { thinking: { text: "b1", id: "wire-b" } } }] });
 
 		assert.deepEqual(
 			thinkingPartsOf(parts).map((p) => p.id),
@@ -183,15 +177,12 @@ suite("provider/streaming thinking part pass-through", () => {
 	});
 
 	test("id-less thinking deltas emit with no id; the host mints its own unique one", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta({ choices: [{ delta: { reasoning_content: "step one " } }] }, progress);
-		stream.processDelta({ choices: [{ delta: { reasoning: "step two " } }] }, progress);
-		stream.processDelta(
-			{ choices: [{ delta: { thinking_blocks: [{ type: "thinking", thinking: "three" }] } }] },
-			progress
-		);
+		stream.processDelta({ choices: [{ delta: { reasoning_content: "step one " } }] });
+		stream.processDelta({ choices: [{ delta: { reasoning: "step two " } }] });
+		stream.processDelta({ choices: [{ delta: { thinking_blocks: [{ type: "thinking", thinking: "three" }] } }] });
 
 		assert.deepEqual(
 			thinkingPartsOf(parts).map((p) => p.id),
@@ -200,13 +191,10 @@ suite("provider/streaming thinking part pass-through", () => {
 	});
 
 	test("an empty-text signature part is emitted, not dropped: the host treats empty chunks as thinking separators", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta(
-			{ choices: [{ delta: { thinking_blocks: [{ type: "thinking", signature: "sig-2" }] } }] },
-			progress
-		);
+		stream.processDelta({ choices: [{ delta: { thinking_blocks: [{ type: "thinking", signature: "sig-2" }] } }] });
 
 		const emitted = thinkingPartsOf(parts);
 		assert.equal(emitted.length, 1);
@@ -216,17 +204,13 @@ suite("provider/streaming thinking part pass-through", () => {
 	});
 
 	test("signature and redacted metadata pass through emission byte-identical, with no minted id", async () => {
-		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress, fakeCtor);
 
-		stream.processDelta(
-			{ choices: [{ delta: { thinking_blocks: [{ type: "thinking", thinking: "final", signature: "sig-1" }] } }] },
-			progress
-		);
-		stream.processDelta(
-			{ choices: [{ delta: { thinking_blocks: [{ type: "redacted_thinking", data: "opaque" }] } }] },
-			progress
-		);
+		stream.processDelta({
+			choices: [{ delta: { thinking_blocks: [{ type: "thinking", thinking: "final", signature: "sig-1" }] } }],
+		});
+		stream.processDelta({ choices: [{ delta: { thinking_blocks: [{ type: "redacted_thinking", data: "opaque" }] } }] });
 
 		const emitted = thinkingPartsOf(parts);
 		assert.equal(emitted.length, 2);
@@ -241,13 +225,13 @@ suite("provider/streaming thinking part pass-through", () => {
 
 	test("a missing thinking class is logged once across processors and reasoning is dropped", async () => {
 		const logs: string[] = [];
-		const first = new StreamProcessor(idSource(), (msg) => logs.push(msg), null);
-		const second = new StreamProcessor(idSource(), (msg) => logs.push(msg), null);
 		const { parts, progress } = collector();
+		const first = new StreamProcessor(idSource(), (msg) => logs.push(msg), progress, null);
+		const second = new StreamProcessor(idSource(), (msg) => logs.push(msg), progress, null);
 
-		first.processDelta({ choices: [{ delta: { reasoning_content: "hidden" } }] }, progress);
-		first.processDelta({ choices: [{ delta: { reasoning_content: "still hidden" } }] }, progress);
-		second.processDelta({ choices: [{ delta: { reasoning: "also hidden" } }] }, progress);
+		first.processDelta({ choices: [{ delta: { reasoning_content: "hidden" } }] });
+		first.processDelta({ choices: [{ delta: { reasoning_content: "still hidden" } }] });
+		second.processDelta({ choices: [{ delta: { reasoning: "also hidden" } }] });
 
 		assert.equal(parts.length, 0, "Reasoning must be dropped, not emitted as text");
 		assert.deepEqual(logs, ["Host does not support thinking parts; reasoning output will not be displayed"]);

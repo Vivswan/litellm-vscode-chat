@@ -1,8 +1,13 @@
 import type { LanguageModelChatInformation } from "vscode";
 import { ThemeIcon } from "vscode";
 import type { EffectiveOutputLimitSource, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
-import type { OptionalEntryFieldId, SecretFieldCarrier, SecretFieldId } from "../../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_CARRIERS } from "../../shared/serverEntry";
+import type {
+	NonSecretOptionalFieldId,
+	OptionalEntryFieldId,
+	SecretFieldCarrier,
+	SecretFieldId,
+} from "../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_CARRIERS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { NormalizedBaseUrl } from "../../shared/util/baseUrl";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
@@ -234,9 +239,75 @@ function narrowVirtualKey(raw: RawOptionalFields, log?: NarrowLog): VirtualKeyCo
 }
 
 /**
- * Malformed OAuth or virtual-key fields degrade to absent, not to a failed group, and unknown fields pass
- * for forward compatibility. The rest-destructure below stops compiling when OPTIONAL_ENTRY_FIELDS grows a
- * field the parser skips, so nothing buildGroupArgs (serverSync/engine.ts) sends drops silently.
+ * How one secret field rides a GroupServer: the credential slot it fills, the non-secret fields that ride along
+ * without deciding the unit's presence (the ones that decide it are its SECRET_FIELD_CARRIERS), and the narrowing
+ * from the raw fields to the slot's value, undefined leaving the slot absent. Discriminated on the slot, so a unit's
+ * narrowing must produce its own slot's type.
+ */
+type CredentialUnit = {
+	[S in keyof GroupCredentials]-?: {
+		readonly slot: S;
+		readonly passengers: readonly NonSecretOptionalFieldId[];
+		readonly narrow: (raw: RawOptionalFields, log?: NarrowLog) => GroupCredentials[S] | undefined;
+	};
+}[keyof GroupCredentials];
+
+/**
+ * The parser's reading of the secret-field vocabulary, total over SecretFieldId: a secret field without a unit here
+ * does not compile, so buildGroupArgs (serverSync/engine.ts) cannot send one the parser drops. narrowCredentials
+ * reads this table, never the field names.
+ */
+const CREDENTIAL_UNITS = {
+	apiKey: {
+		slot: "apiKey",
+		passengers: [],
+		narrow: (raw) => (typeof raw.apiKey === "string" ? raw.apiKey : undefined),
+	},
+	oauthClientSecret: { slot: "oauth", passengers: ["oauthScopes"], narrow: narrowOAuth },
+	virtualKeyValue: { slot: "virtualKey", passengers: [], narrow: narrowVirtualKey },
+} as const satisfies Record<SecretFieldId, CredentialUnit>;
+
+/**
+ * Every descriptor field is a secret, a carrier of one, or a passenger of one; a field outside all three would ride
+ * buildGroupArgs' configuration and vanish here, so it fails this check until a unit claims it.
+ */
+type ClaimedField =
+	| SecretFieldId
+	| SecretFieldCarrier<SecretFieldId>
+	| (typeof CREDENTIAL_UNITS)[SecretFieldId]["passengers"][number];
+void ({} satisfies Record<Exclude<OptionalEntryFieldId, ClaimedField>, never>);
+
+type CredentialSlots = { -readonly [S in keyof GroupCredentials]?: GroupCredentials[S] };
+
+/** Narrow one unit into its slot; generic over the slot so the value and the slot share the one S. */
+function fillSlot<S extends keyof GroupCredentials>(
+	slots: CredentialSlots,
+	unit: {
+		readonly slot: S;
+		readonly narrow: (raw: RawOptionalFields, log?: NarrowLog) => GroupCredentials[S] | undefined;
+	},
+	raw: RawOptionalFields,
+	log?: NarrowLog
+): void {
+	const value = unit.narrow(raw, log);
+	if (value !== undefined) {
+		slots[unit.slot] = value;
+	}
+}
+
+/** Every unit of CREDENTIAL_UNITS narrowed into its slot; an absent key is the empty string, GroupServer's no-key value. */
+function narrowCredentials(raw: RawOptionalFields, log?: NarrowLog): GroupCredentials {
+	const slots: CredentialSlots = {};
+	for (const field of SECRET_FIELD_IDS) {
+		fillSlot(slots, CREDENTIAL_UNITS[field], raw, log);
+	}
+	return { ...slots, apiKey: slots.apiKey ?? "" };
+}
+
+/**
+ * Malformed OAuth or virtual-key fields degrade to absent, not to a failed group, and unknown fields pass for
+ * forward compatibility. The credentials come off CREDENTIAL_UNITS, so the fields this parser carries are the fields
+ * that table claims.
  */
 export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog): GroupServer | undefined {
 	if (!isRecord(configuration)) {
@@ -251,31 +322,11 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
 	// OPTIONAL_ENTRY_FIELDS member because it is a required field of the
 	// declared entry itself, read explicitly here like baseUrl.
 	const label = usableString(configuration.label);
-	const fields: { -readonly [K in OptionalEntryFieldId]?: unknown } = {};
+	const raw: { -readonly [K in OptionalEntryFieldId]?: unknown } = {};
 	for (const { id } of OPTIONAL_ENTRY_FIELDS) {
-		fields[id] = configuration[id];
+		raw[id] = configuration[id];
 	}
-	const {
-		apiKey,
-		oauthTokenUrl,
-		oauthClientId,
-		oauthClientSecret,
-		oauthScopes,
-		virtualKeyHeader,
-		virtualKeyValue,
-		...unconsumed
-	} = fields;
-	// A new descriptor field lands in `unconsumed` and fails this assignment.
-	void (unconsumed satisfies Record<string, never>);
-	const oauth = narrowOAuth({ oauthTokenUrl, oauthClientId, oauthClientSecret, oauthScopes });
-	const virtualKey = narrowVirtualKey({ virtualKeyHeader, virtualKeyValue }, log);
-	return {
-		baseUrl,
-		apiKey: typeof apiKey === "string" ? apiKey : "",
-		...(label !== undefined ? { label } : {}),
-		...(oauth !== undefined ? { oauth } : {}),
-		...(virtualKey !== undefined ? { virtualKey } : {}),
-	};
+	return { baseUrl, ...narrowCredentials(raw, log), ...(label !== undefined ? { label } : {}) };
 }
 
 /**

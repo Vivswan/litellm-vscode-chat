@@ -44,40 +44,12 @@ export interface ToolCallIdSource {
 }
 
 /**
- * Where the processor's emitted parts go. Structurally what
- * vscode.Progress<LanguageModelResponsePart> already is, so the provider's
- * host-supplied progress satisfies it unchanged, and consumers without one -
- * a chat participant's response stream (see chatResponseStreamSink), a
- * collecting array in a feature or test - satisfy it with a plain object.
+ * Where the processor's emitted parts go. Structurally what vscode.Progress<LanguageModelResponsePart> already is, so
+ * the provider's host-supplied progress satisfies it unchanged, and a collecting array in a test satisfies it with a
+ * plain object.
  */
 export interface ResponsePartSink {
 	report(part: vscode.LanguageModelResponsePart): void;
-}
-
-/**
- * The delta handlers' only road to the host. Every part through emit counts toward the end-of-stream empty-response
- * check, and the raw ResponsePartSink never reaches a handler, so none can report around the count. The two
- * end-of-stream trailers (Sources, usage) decorate an already-validated response and deliberately bypass it from
- * endOfStream, the one place that still holds the raw sink.
- */
-interface PartEmitter {
-	emit(part: vscode.LanguageModelResponsePart): void;
-}
-
-/**
- * Adapt a chat participant's ChatResponseStream to the processor's part sink:
- * text parts render as markdown, and every other kind (tool calls, thinking,
- * data) is dropped by design - the participant transport requests none of
- * them, and a stray one has no participant rendering.
- */
-export function chatResponseStreamSink(stream: vscode.ChatResponseStream): ResponsePartSink {
-	return {
-		report(part: vscode.LanguageModelResponsePart): void {
-			if (part instanceof vscode.LanguageModelTextPart) {
-				stream.markdown(part.value);
-			}
-		},
-	};
 }
 
 function normalizeToolCallIndex(index: number | string | undefined): number {
@@ -114,7 +86,7 @@ interface RequestState {
 	usage: Record<string, unknown> | undefined;
 	/** Accumulating generated audio; cleared on every flush. */
 	audioBuffer: AudioBuffer | undefined;
-	/** Set by the PartEmitter on every part; the end-of-stream empty-response check reads it. */
+	/** Set by _emit on every part; the end-of-stream empty-response check reads it. */
 	reportedAnyPart: boolean;
 	/** Reasoning lost to a missing or throwing thinking-part class; see DroppedReasoning. */
 	droppedReasoning: DroppedReasoning;
@@ -147,6 +119,12 @@ function freshRequestState(): RequestState {
 
 export class StreamProcessor {
 	private _req: RequestState;
+	/**
+	 * The one road to the host: every part counts toward the end-of-stream empty-response check, then reaches the
+	 * sink. The raw sink is a constructor argument this closure alone captures, so no handler can report around the
+	 * count; a processor serves the one request whose progress it was built for.
+	 */
+	private readonly _emit: (part: vscode.LanguageModelResponsePart) => void;
 	private _toolCallIds: ToolCallIdSource;
 	private _log: (message: string, data?: unknown) => void;
 	private _thinkingPartCtor: ThinkingPartCtor | undefined;
@@ -156,11 +134,16 @@ export class StreamProcessor {
 	constructor(
 		toolCallIds: ToolCallIdSource,
 		log: (message: string, data?: unknown) => void,
+		progress: ResponsePartSink,
 		partCtor: ThinkingPartCtor | null | undefined = thinkingPartCtor,
 		dataCtor: DataPartCtor | null | undefined = dataPartCtor,
 		requestAudioFormat: string | undefined = undefined
 	) {
 		this._req = freshRequestState();
+		this._emit = (part) => {
+			this._req.reportedAnyPart = true;
+			progress.report(part);
+		};
 		this._toolCallIds = toolCallIds;
 		this._log = log;
 		this._thinkingPartCtor = partCtor ?? undefined;
@@ -176,16 +159,6 @@ export class StreamProcessor {
 
 	resetState(): void {
 		this._req = freshRequestState();
-	}
-
-	/** The counted road to `progress`; built at each public entry point so the handlers never see the raw sink. */
-	private emitterFor(progress: ResponsePartSink): PartEmitter {
-		return {
-			emit: (part) => {
-				this._req.reportedAnyPart = true;
-				progress.report(part);
-			},
-		};
 	}
 
 	/** Aggregate only (part count and character length); the reasoning text never reaches the logs. */
@@ -213,16 +186,14 @@ export class StreamProcessor {
 
 	async processStreamingResponse(
 		responseBody: ReadableStream<Uint8Array>,
-		progress: ResponsePartSink,
 		token: vscode.CancellationToken
 	): Promise<void> {
-		const emit = this.emitterFor(progress);
 		let sawDone = false;
 		try {
 			for await (const frame of sseFrames(responseBody, token)) {
 				if (frame.kind === "done") {
 					sawDone = true;
-					this.finishStream(emit, !token.isCancellationRequested);
+					this.finishStream(!token.isCancellationRequested);
 					continue;
 				}
 				const data = frame.payload;
@@ -252,9 +223,9 @@ export class StreamProcessor {
 				if (!sawDone && chunk.error && !(chunk.choices && chunk.choices.length > 0)) {
 					throw streamErrorFrame(chunk.error);
 				}
-				this.processDeltaWith(chunk, emit, token);
+				this.processDelta(chunk, token);
 			}
-			this.endOfStream(progress, !token.isCancellationRequested);
+			this.endOfStream(!token.isCancellationRequested);
 		} finally {
 			// A request that fails mid-stream never reaches finishStream; its drop
 			// aggregate still logs here before the state resets.
@@ -265,12 +236,17 @@ export class StreamProcessor {
 
 	/**
 	 * The post-loop end-of-stream run: the terminal checks, then - only for a stream that finished normally and passed
-	 * them - the trailers. A harness that feeds processDelta directly calls it to mirror the transport loop.
+	 * them - the trailers, then a fresh request state, so nothing this run counted (the trailers included) can satisfy
+	 * a later run's checks. A harness that feeds processDelta directly calls it to mirror the transport loop.
 	 */
-	endOfStream(progress: ResponsePartSink, finishedNormally = true): void {
-		this.finishStream(this.emitterFor(progress), finishedNormally, true);
-		if (finishedNormally) {
-			this.emitTrailers(progress);
+	endOfStream(finishedNormally = true): void {
+		try {
+			this.finishStream(finishedNormally, true);
+			if (finishedNormally) {
+				this.emitTrailers();
+			}
+		} finally {
+			this._req = freshRequestState();
 		}
 	}
 
@@ -306,11 +282,7 @@ export class StreamProcessor {
 		}
 	}
 
-	processDelta(chunk: ChatCompletionChunk, progress: ResponsePartSink, token?: vscode.CancellationToken): boolean {
-		return this.processDeltaWith(chunk, this.emitterFor(progress), token);
-	}
-
-	private processDeltaWith(chunk: ChatCompletionChunk, emit: PartEmitter, token?: vscode.CancellationToken): boolean {
+	processDelta(chunk: ChatCompletionChunk, token?: vscode.CancellationToken): boolean {
 		let emitted = false;
 
 		if (chunk.usage) {
@@ -347,7 +319,7 @@ export class StreamProcessor {
 					this._log("Failed to construct thinking part", { error: String(e) });
 				}
 				if (part) {
-					emit.emit(part);
+					this._emit(part);
 					emitted = true;
 				} else {
 					// A host class that throws loses the reasoning exactly like a
@@ -368,7 +340,7 @@ export class StreamProcessor {
 				// No content: refusal text can echo user data into issue reports.
 				this._log("Model refused the request");
 			}
-			emit.emit(new vscode.LanguageModelTextPart(delta.refusal));
+			this._emit(new vscode.LanguageModelTextPart(delta.refusal));
 			this._req.hasEmittedAssistantText = true;
 			emitted = true;
 		}
@@ -387,7 +359,7 @@ export class StreamProcessor {
 							block.type === "text" && typeof block.text === "string" ? [block.text] : []
 						);
 			for (const text of texts) {
-				const res = this.processText(text, emit);
+				const res = this.processTextContent(text);
 				if (res.emittedText) {
 					this._req.hasEmittedAssistantText = true;
 				}
@@ -398,7 +370,7 @@ export class StreamProcessor {
 		}
 
 		if (delta?.images && delta.images.length > 0) {
-			if (this.processImagesDelta(delta.images, emit)) {
+			if (this.processImagesDelta(delta.images)) {
 				emitted = true;
 			}
 		}
@@ -408,7 +380,7 @@ export class StreamProcessor {
 			// has no delta.content), so it streams as ordinary text, independently
 			// of DataPart support, which only gates the binary clip.
 			if (delta.audio.transcript) {
-				const res = this.processText(delta.audio.transcript, emit);
+				const res = this.processTextContent(delta.audio.transcript);
 				if (res.emittedText) {
 					this._req.hasEmittedAssistantText = true;
 				}
@@ -416,14 +388,14 @@ export class StreamProcessor {
 					emitted = true;
 				}
 			}
-			if (this.processAudioDelta(delta.audio, emit)) {
+			if (this.processAudioDelta(delta.audio)) {
 				emitted = true;
 			}
 		}
 
 		if (delta?.tool_calls) {
 			if (!this._req.emittedBeginToolCallsHint && this._req.hasEmittedAssistantText && delta.tool_calls.length > 0) {
-				emit.emit(new vscode.LanguageModelTextPart(" "));
+				this._emit(new vscode.LanguageModelTextPart(" "));
 				this._req.emittedBeginToolCallsHint = true;
 			}
 
@@ -444,14 +416,14 @@ export class StreamProcessor {
 				}
 				this._req.toolCallBuffers.set(idx, buf);
 
-				this.tryEmitBufferedToolCall(idx, emit);
+				this.tryEmitBufferedToolCall(idx);
 			}
 		}
 
 		if (choice.finish_reason !== undefined) {
 			this._req.lastFinishReason = choice.finish_reason;
 			if (TERMINAL_FINISH_REASONS.includes(choice.finish_reason)) {
-				this.finishStream(emit, !token?.isCancellationRequested);
+				this.finishStream(!token?.isCancellationRequested);
 			}
 		}
 
@@ -463,7 +435,7 @@ export class StreamProcessor {
 	 * order relative to the surrounding text. A malformed entry is skipped and
 	 * logged as a classification; the stream continues either way.
 	 */
-	private processImagesDelta(images: NonNullable<ChunkDelta["images"]>, emit: PartEmitter): boolean {
+	private processImagesDelta(images: NonNullable<ChunkDelta["images"]>): boolean {
 		if (!this._dataPartCtor) {
 			logMissingDataPartSupportOnce(this._log);
 			return false;
@@ -485,7 +457,7 @@ export class StreamProcessor {
 			}
 			const part = this.constructDataPart(decoded.bytes, decoded.mime);
 			if (part) {
-				emit.emit(part);
+				this._emit(part);
 				emitted = true;
 			}
 		}
@@ -500,7 +472,7 @@ export class StreamProcessor {
 	 * at end of stream. The mime derives from the request's audio.format (the
 	 * wire delta carries no format field); see audioMimeForFormat.
 	 */
-	private processAudioDelta(audio: ChunkAudio, emit: PartEmitter): boolean {
+	private processAudioDelta(audio: ChunkAudio): boolean {
 		if (!this._dataPartCtor) {
 			logMissingDataPartSupportOnce(this._log);
 			return false;
@@ -508,7 +480,7 @@ export class StreamProcessor {
 		let emitted = false;
 		const previous = this._req.audioBuffer;
 		if (previous !== undefined && previous.id !== undefined && audio.id !== undefined && audio.id !== previous.id) {
-			emitted = this.flushAudioBuffer(emit);
+			emitted = this.flushAudioBuffer();
 		}
 		const buffer = this._req.audioBuffer ?? { id: undefined, base64: "" };
 		// Real deployments send the id on the first fragment only, so the first observed id sticks.
@@ -519,7 +491,7 @@ export class StreamProcessor {
 	}
 
 	/** Emit the accumulated audio as one DataPart; an undecodable or empty payload is logged as a classification and dropped. */
-	private flushAudioBuffer(emit: PartEmitter): boolean {
+	private flushAudioBuffer(): boolean {
 		const buffer = this._req.audioBuffer;
 		this._req.audioBuffer = undefined;
 		if (buffer === undefined || buffer.base64 === "") {
@@ -534,7 +506,7 @@ export class StreamProcessor {
 		if (!part) {
 			return false;
 		}
-		emit.emit(part);
+		this._emit(part);
 		return true;
 	}
 
@@ -551,19 +523,15 @@ export class StreamProcessor {
 		}
 	}
 
-	processTextContent(input: string, progress: ResponsePartSink): { emittedText: boolean; emittedAny: boolean } {
-		return this.processText(input, this.emitterFor(progress));
-	}
-
 	/** Push one text fragment through the inline tool-call parser and emit what it releases. */
-	private processText(input: string, emit: PartEmitter): { emittedText: boolean; emittedAny: boolean } {
+	processTextContent(input: string): { emittedText: boolean; emittedAny: boolean } {
 		const result: TextParseResult = this._req.textParser.push(input);
 		let emittedText = false;
 		let emittedAny = false;
 
 		for (const event of result.events) {
 			if (event.type === "text") {
-				emit.emit(new vscode.LanguageModelTextPart(event.text));
+				this._emit(new vscode.LanguageModelTextPart(event.text));
 				emittedText = true;
 				emittedAny = true;
 				continue;
@@ -582,7 +550,7 @@ export class StreamProcessor {
 				this._log("Dropping inline tool call with invalid JSON arguments", { argsLength: call.args.length });
 				continue;
 			}
-			if (this.emitInlineToolCall(call, parsed.value, emit)) {
+			if (this.emitInlineToolCall(call, parsed.value)) {
 				emittedAny = true;
 			}
 		}
@@ -592,7 +560,7 @@ export class StreamProcessor {
 			const parsed = tryParseJSONObject(provisional.args);
 			if (parsed.ok) {
 				this._req.ledger.markHandled(provisional.seq);
-				if (this.emitInlineToolCall(provisional, parsed.value, emit)) {
+				if (this.emitInlineToolCall(provisional, parsed.value)) {
 					emittedAny = true;
 				}
 			}
@@ -601,13 +569,13 @@ export class StreamProcessor {
 		return { emittedText, emittedAny };
 	}
 
-	private emitInlineToolCall(call: TextToolCall, parsedArgs: Record<string, unknown>, emit: PartEmitter): boolean {
+	private emitInlineToolCall(call: TextToolCall, parsedArgs: Record<string, unknown>): boolean {
 		const name = call.name ?? "unknown_tool";
 		const contentKey = `${name}:${JSON.stringify(parsedArgs)}`;
 		if (this._req.ledger.inlineAlreadyEmitted(name, call.index, contentKey)) {
 			return false;
 		}
-		const emitted = this.emitToolCall(emit, { name, parsedArgs });
+		const emitted = this.emitToolCall({ name, parsedArgs });
 		// Registered even when suppressed as a cross-channel duplicate: either way
 		// this inline call is accounted for, and a replay of it must not emit.
 		this._req.ledger.recordInlineEmission(name, call.index, contentKey);
@@ -615,7 +583,6 @@ export class StreamProcessor {
 	}
 
 	private emitToolCall(
-		emit: PartEmitter,
 		call: { id?: string | undefined; name: string; parsedArgs: Record<string, unknown> },
 		bufferIndex?: number
 	): boolean {
@@ -638,12 +605,12 @@ export class StreamProcessor {
 
 		this._req.ledger.recordEmission(source, key);
 		const id = call.id ?? `call_${this._toolCallIds.next()}`;
-		emit.emit(new vscode.LanguageModelToolCallPart(id, call.name, call.parsedArgs));
+		this._emit(new vscode.LanguageModelToolCallPart(id, call.name, call.parsedArgs));
 		retireBuffer();
 		return true;
 	}
 
-	private tryEmitBufferedToolCall(index: number, emit: PartEmitter): void {
+	private tryEmitBufferedToolCall(index: number): void {
 		const buf = this._req.toolCallBuffers.get(index);
 		if (!buf?.name) {
 			return;
@@ -652,7 +619,7 @@ export class StreamProcessor {
 		if (!parsed.ok) {
 			return;
 		}
-		this.emitToolCall(emit, { id: buf.id, name: buf.name, parsedArgs: parsed.value }, index);
+		this.emitToolCall({ id: buf.id, name: buf.name, parsedArgs: parsed.value }, index);
 	}
 
 	/**
@@ -674,7 +641,7 @@ export class StreamProcessor {
 	 * so it counts toward the classified failure instead of emitting a call
 	 * the model never finished.
 	 */
-	private flushToolCallBuffers(emit: PartEmitter, emptyArgs: "hold" | "emit" | "invalid"): number {
+	private flushToolCallBuffers(emptyArgs: "hold" | "emit" | "invalid"): number {
 		let invalidCount = 0;
 		for (const [index, buf] of Array.from(this._req.toolCallBuffers.entries())) {
 			if (buf.args.trim() === "") {
@@ -688,7 +655,7 @@ export class StreamProcessor {
 					this._req.toolCallBuffers.delete(index);
 					continue;
 				}
-				this.emitToolCall(emit, { id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: {} }, index);
+				this.emitToolCall({ id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: {} }, index);
 				continue;
 			}
 			const parsed = tryParseJSONObject(buf.args);
@@ -699,7 +666,7 @@ export class StreamProcessor {
 				this._req.toolCallBuffers.delete(index);
 				continue;
 			}
-			this.emitToolCall(emit, { id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: parsed.value }, index);
+			this.emitToolCall({ id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: parsed.value }, index);
 		}
 		return invalidCount;
 	}
@@ -711,7 +678,7 @@ export class StreamProcessor {
 	 * alone may finalize empty delta buffers and emit the trailers; the finish_reason and [DONE] runs can still be
 	 * followed by more chunks.
 	 */
-	private finishStream(emit: PartEmitter, finishedNormally: boolean, isFinal = false): void {
+	private finishStream(finishedNormally: boolean, isFinal = false): void {
 		// Empty delta buffers finalize only at the true EOF run of a
 		// normally-finished stream; a cancelled stream downgrades them to the
 		// same logged drops its unparseable leftovers get (the "invalid" count
@@ -722,7 +689,7 @@ export class StreamProcessor {
 			: !finishedNormally || this._req.lastFinishReason === "length"
 				? "invalid"
 				: "emit";
-		let invalidCount = this.flushToolCallBuffers(emit, emptyArgs);
+		let invalidCount = this.flushToolCallBuffers(emptyArgs);
 
 		const rest = this._req.textParser.flush();
 		const call = rest.provisionalCall;
@@ -739,7 +706,7 @@ export class StreamProcessor {
 			const parsed = tryParseJSONObject(inlineArgs);
 			if (parsed.ok) {
 				this._req.ledger.markHandled(call.seq);
-				this.emitInlineToolCall(call, parsed.value, emit);
+				this.emitInlineToolCall(call, parsed.value);
 			} else {
 				// Classification only: the name and arguments are response text.
 				this._log("Dropping unterminated inline tool call with invalid JSON arguments", {
@@ -761,7 +728,7 @@ export class StreamProcessor {
 					length: trailingText.length,
 				});
 			} else {
-				emit.emit(new vscode.LanguageModelTextPart(trailingText));
+				this._emit(new vscode.LanguageModelTextPart(trailingText));
 			}
 		}
 
@@ -770,7 +737,7 @@ export class StreamProcessor {
 		// clip. Flushing clears the buffer, so the repeated finishStream runs
 		// cannot emit the audio twice.
 		if (finishedNormally) {
-			this.flushAudioBuffer(emit);
+			this.flushAudioBuffer();
 		} else {
 			this._req.audioBuffer = undefined;
 		}
@@ -828,13 +795,13 @@ export class StreamProcessor {
 	}
 
 	/**
-	 * The end-of-stream trailers, on the raw sink by design: they decorate a response finishStream already validated,
-	 * so neither may satisfy its reasoning-only check. Only endOfStream calls this, after the terminal checks and only
-	 * for a normally-finished stream: earlier runs are premature - more chunks may still deliver sources, title
-	 * upgrades, or a later usage trailer, and last-wins must hold - and a cancelled or failed stream has no successful
-	 * response to trail.
+	 * The end-of-stream trailers (Sources, usage). They decorate a response, so they must not satisfy finishStream's
+	 * reasoning-only check: only endOfStream calls this, after that check has run and before it resets the request
+	 * state, so the count they add reaches no check. Earlier runs are premature - more chunks may still deliver
+	 * sources, title upgrades, or a later usage trailer, and last-wins must hold - and a cancelled or failed stream has
+	 * no successful response to trail.
 	 */
-	private emitTrailers(progress: ResponsePartSink): void {
+	private emitTrailers(): void {
 		if (this._req.citations.size > 0) {
 			const escapeTitle = (title: string) => title.replace(/[\r\n]+/g, " ").replace(/[[\]\\]/g, "\\$&");
 			// encodeURIComponent leaves "(" and ")" alone, and those break
@@ -844,7 +811,7 @@ export class StreamProcessor {
 			const lines = Array.from(this._req.citations.entries()).map(
 				([url, title]) => `- [${escapeTitle(title)}](${escapeUrl(url)})`
 			);
-			progress.report(new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
+			this._emit(new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
 		}
 
 		// The retained usage trailer rides out as one DataPart with the bare mimeType "usage", the convention the
@@ -854,7 +821,7 @@ export class StreamProcessor {
 			if (payload !== undefined && this._dataPartCtor) {
 				const part = this.constructDataPart(new TextEncoder().encode(JSON.stringify(payload)), "usage");
 				if (part !== undefined) {
-					progress.report(part);
+					this._emit(part);
 				}
 			}
 		}
