@@ -306,11 +306,10 @@ jobs:
       catalog-artifact: openrouter-catalog
       catalog-outcome: ${{ needs.openrouter-catalog.outputs.catalog }}
 
-  # All four tsconfig projects. The reusable format-check only typechecks
-  # the helper scripts, the pre-commit hook likewise, and the bun test tree
-  # and bundle are transpile-only - so without this job nothing automated
-  # typechecks src/webview or src/test/bun at all (a broken webview
-  # project once reached a merge commit through that gap).
+  # All four tsconfig projects. The reusable format-check only typechecks the helper scripts, and the bun test tree and
+  # bundle are transpile-only, so without this job nothing on a push typechecks src/webview or src/test/bun: the
+  # pre-commit hook's check:static does, but a --no-verify commit or a web edit skips it, and a broken webview project
+  # once reached a merge commit through that gap.
   typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 15

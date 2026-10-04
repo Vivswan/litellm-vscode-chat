@@ -27,15 +27,15 @@ bun scripts/dev/stageGenerated.ts
 # blocks, the settings reference). About twenty seconds together.
 bun run check:static
 
-# The bun tree only, through its launcher (scripts/bun-test.ts), which drops the GIT_DIR and GIT_INDEX_FILE git
-# exports to this hook before bun starts. The VS Code host suite (compile, bundle, and the four vscode-test labels) is
-# CI's to judge on every push, on three OSes; running it here too cost each commit minutes for a verdict the push
-# repeats.
+# The bun tree only, through its launcher (scripts/bun-test.ts), which drops every GIT_* variable git exports to this
+# hook before bun starts and keeps the hook's index only under LVT_HOOK_GIT_INDEX_FILE. The VS Code host suite
+# (compile, bundle, and the four vscode-test labels) is CI's to judge on every push, on three OSes; running it here too
+# cost each commit minutes for a verdict the push repeats.
 bun run test:bun
 
 # Lints and tests above ran against the working tree, not the index. Two exceptions: the staging run enforces
-# index-consistency for the generated files itself, and hooksFailClosed reads the staged .husky files through
-# GIT_INDEX_FILE.
+# index-consistency for the generated files itself, and hooksFailClosed reads the staged .husky files through the
+# launcher's stash of this hook's index, LVT_HOOK_GIT_INDEX_FILE.
 if ! git diff --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
 	echo "note: unstaged or untracked changes present; lint and test results reflect the working tree, not the exact commit."
 fi
