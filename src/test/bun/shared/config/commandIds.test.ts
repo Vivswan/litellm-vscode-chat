@@ -2,7 +2,6 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { manifestInputSchema } from "../../../../../scripts/dev/toolSchemas";
 import {
 	AGENT_TOOL_IDS,
 	AGENT_TOOLS,
@@ -249,14 +248,11 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 		}
 	});
 
-	test("every agent tool contribution gates on the two switches its registration reads and carries its generated inputSchema", () => {
+	test("every agent tool contribution gates on the two switches its registration reads", () => {
 		// The when-clause must say what REGISTRATION says: the feature switch for
 		// a read, the feature switch AND the tool's own toggle for a write. Both
 		// are plain booleans, so config clauses can express it (unlike the
-		// consult tool's readiness). The inputSchema is generated from the zod
-		// envelope the wiring parses (bun run tools:schemas), so the model is
-		// told exactly the arguments, shapes, and descriptions the parse accepts;
-		// a hand edit to either side fails here.
+		// consult tool's readiness).
 		const tools = new Map((readPackageJson().contributes.languageModelTools ?? []).map((tool) => [tool.name, tool]));
 		const featureSwitch = `config.${CONFIG_SECTION}.agentTools.enabled`;
 		for (const id of AGENT_TOOL_IDS) {
@@ -270,11 +266,6 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 			assert.strictEqual(tool.when, expectedWhen, `${contribution.name} when-clause`);
 			assert.strictEqual(tool.toolReferenceName, contribution.referenceName, `${contribution.name} reference name`);
 			assert.strictEqual(tool.canBeReferencedInPrompt, true, `${contribution.name} is #-referenceable`);
-			assert.deepStrictEqual(
-				tool.inputSchema,
-				manifestInputSchema(id),
-				`${contribution.name} inputSchema is stale; run: bun run tools:schemas`
-			);
 		}
 	});
 

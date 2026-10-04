@@ -20,9 +20,10 @@ import { REPO_ROOT } from "../../../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
 
 /**
- * The generator against the shipped docs: every locale's committed file must
- * already be what the generator would write, stamping must touch nothing but
- * the marker region, and every fail-closed edge must abort, not emit a partial.
+ * The generator against the shipped docs: stamping must touch nothing but the
+ * marker region, and every fail-closed edge must abort, not emit a partial.
+ * Whether the committed docs are current is `docs:settings:check`'s question,
+ * asked by check:static and CI's lint job, not here.
  */
 
 const manifest = readManifestSettings(REPO_ROOT);
@@ -31,11 +32,7 @@ function readDoc(locale: DocLocale): string {
 	return fs.readFileSync(path.join(REPO_ROOT, SETTINGS_DOC_PATHS[locale]), "utf8");
 }
 
-/**
- * The doc without its marker lines. Before the stamping run lands this is the
- * doc itself; after it, the strip recreates the pre-stamping shape, so the
- * first-stamping tests hold on both sides of that landing.
- */
+/** The doc without its marker lines: the pre-stamping shape the CLI fixture starts from. */
 function unstamped(locale: DocLocale): string {
 	return readDoc(locale)
 		.split("\n")
@@ -45,12 +42,17 @@ function unstamped(locale: DocLocale): string {
 
 describe("settings reference generation", () => {
 	for (const locale of DOC_LOCALES) {
-		test(`first stamping of ${locale} inserts exactly the two marker lines`, () => {
-			const original = unstamped(locale);
-			const stamped = applyReferenceTable(original, locale, buildReferenceTable(locale, manifest));
-			const strippedLines = stamped.split("\n").filter((line) => line !== BEGIN_MARKER && line !== END_MARKER);
-			assert.strictEqual(stamped.split("\n").length, original.split("\n").length + 2);
-			assert.strictEqual(strippedLines.join("\n"), original);
+		test(`first stamping of ${locale} replaces the hand-kept table with the marked region and touches nothing else`, () => {
+			// A doc from before the markers existed: prose, a hand-kept table under
+			// the locale's header, prose. Hand-authored, so the case holds whether
+			// or not the shipped doc is current.
+			const table = buildReferenceTable(locale, manifest);
+			const [header, separator] = table.split("\n");
+			const before = `# Settings\n\nIntro.\n\n${header}\n${separator}\n| \`old.setting\` | gone | gone |\n\nOutro.\n`;
+			assert.strictEqual(
+				applyReferenceTable(before, locale, table),
+				`# Settings\n\nIntro.\n\n${BEGIN_MARKER}\n${table}\n${END_MARKER}\n\nOutro.\n`
+			);
 		});
 
 		test(`stamping ${locale} is idempotent, and a stale region body regenerates`, () => {
@@ -62,22 +64,6 @@ describe("settings reference generation", () => {
 			assert.strictEqual(applyReferenceTable(corrupted, locale, table), once);
 		});
 	}
-
-	test("every shipped doc is already what the generator would write", () => {
-		// The `docs:settings:check` contract against the real checkout, so the
-		// required test job is the drift gate and a stale docs/settings.md
-		// cannot reach main behind a green run. Stronger than comparing the
-		// table alone: this compares whole files, so a hand-edited row, a
-		// dropped marker, and a nudged blank line all fail here.
-		for (const locale of DOC_LOCALES) {
-			const content = readDoc(locale);
-			assert.strictEqual(
-				applyReferenceTable(content, locale, buildReferenceTable(locale, manifest)),
-				content,
-				`${SETTINGS_DOC_PATHS[locale]} is stale; run: bun run docs:settings`
-			);
-		}
-	});
 
 	test("a contributed setting without a prose entry fails generation", () => {
 		const mutant: Record<string, SettingProse> = { ...SETTING_PROSE };

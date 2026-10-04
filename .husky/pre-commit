@@ -17,7 +17,8 @@ bunx lint-staged
 # The static gates: workflow lint, the @types/vscode versus engines.vscode
 # guard (the same script CI's format-check runs), lint, the typecheck of all
 # four tsconfig projects (`compile` builds the root one alone, and a webview
-# type error once reached main through that gap), and the l10n gate. About
+# type error once reached main through that gap), the l10n gate, and the two
+# generator drift checks (the settings reference, the tool schemas). About
 # twenty seconds together.
 bun run check:static
 

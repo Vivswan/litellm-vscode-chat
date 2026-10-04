@@ -75,7 +75,6 @@ const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["node:os", "reads host facts"],
 	["node:path", "string arithmetic"],
 	["node:string_decoder", "in-process byte-to-text decoding"],
-	["node:util", "in-process comparison and formatting helpers"],
 	["react", "component runtime"],
 	["react-dom/client", "component runtime"],
 	["react/jsx-dev-runtime", "the JSX transform's injected runtime, development form"],
