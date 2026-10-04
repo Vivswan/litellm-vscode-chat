@@ -1,0 +1,29 @@
+# Repo-owned. The host suites ask update.code.visualstudio.com for the current build on every job, and that lookup
+# has died with ETIMEDOUT before a single test ran. The weekly key follows the current build; the prefix restore keeps
+# last week's as the fallback @vscode/test-electron reads when a stable lookup fails (its newest vscode-<platform>-*).
+#   lookup ok, build cached     -> no download
+#   lookup ok, build missing    -> download; saved only when this week's key was a miss
+#   stable lookup times out     -> a warning, the newest cached build runs
+#   insiders lookup times out   -> still fails; its metadata check has no local fallback
+
+name: VS Code Test Cache
+description: Restores the .vscode-test download directory the host suites run on; a dead stable lookup then only warns
+
+inputs:
+  version:
+    description: The VS Code build the suites request (stable, insiders, or a version), as .vscode-test.mjs reads it
+    required: false
+    default: stable
+
+runs:
+  using: composite
+  steps:
+    - id: week
+      shell: bash
+      run: echo "stamp=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .vscode-test
+        key: vscode-test-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}-${{ steps.week.outputs.stamp }}
+        restore-keys: vscode-test-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}-

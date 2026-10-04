@@ -129,6 +129,9 @@ jobs:
       - name: Set up development environment
         run: bash scripts/env/setup-env.sh
 
+      - name: Cache the VS Code build
+        uses: ./.github/actions/vscode-test-cache
+
       - name: Fuzz the unit property suites
         shell: bash
         run: |
@@ -162,6 +165,9 @@ jobs:
 
       - name: Set up development environment
         run: bash scripts/env/setup-env.sh
+
+      - name: Cache the VS Code build
+        uses: ./.github/actions/vscode-test-cache
 
       - name: Fuzz the docker stream suites
         env:

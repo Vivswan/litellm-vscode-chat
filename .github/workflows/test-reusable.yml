@@ -140,6 +140,11 @@ jobs:
       - name: Compile
         run: bun run compile
 
+      - name: Cache the VS Code build
+        uses: ./.github/actions/vscode-test-cache
+        with:
+          version: ${{ inputs.vscode-version || 'stable' }}
+
       # Linux also collects coverage and enforces the line-coverage floor;
       # one coverage-enforcing OS keeps CI time in check. A non-empty
       # docker-only narrows the docker orchestrator to the listed labels
