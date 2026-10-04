@@ -1,7 +1,6 @@
 /**
- * Regenerates each locale's settings reference table. `--check` verifies instead of writing and exits 1 on drift;
- * `--root <dir>` points the output docs at another directory (tests use it). Nothing regenerates on the developer's
- * behalf: the pre-commit hook and CI run `--check`, refuse drift, and name the command.
+ * Regenerates each locale's settings reference table (generatorArgs.ts names the flags). Nothing regenerates on the
+ * developer's behalf: the pre-commit hook and CI run `--check`.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

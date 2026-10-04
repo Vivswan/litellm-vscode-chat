@@ -17,10 +17,9 @@ ThirdPartyNotices.txt
 # npm lockfile (using Bun instead)
 package-lock.json
 
-# Husky's generated hook runtime - except the tracked bootstrap files that
-# keep the hook layer fail-closed in fresh worktrees (a directory exclude
-# would forbid the re-inclusions, hence the file glob). A new hook script
-# needs its shim re-included here, or a fresh worktree never receives it.
+# Husky's generated hook runtime, except the tracked bootstrap files that keep the hook layer fail-closed in fresh
+# worktrees; a directory exclude would forbid the re-inclusions, hence the file glob. A new hook script needs its shim
+# re-included here, or a fresh worktree never receives it.
 .husky/_/*
 !.husky/_/pre-commit
 !.husky/_/commit-msg

@@ -1,10 +1,11 @@
 #!/bin/sh
 
-# A pre-commit hook may check and fail, or check, fail, write the fix into the working tree, and still fail. Forbidden:
-# changing what the commit contains (no stage, no commit, no formatter-and-restage step) and anything else (no
-# fix-then-pass, no git command that writes: stash, checkout, reset, push, config; no network). The read-only query that
-# shows what is staged (`git diff --cached --name-only`) stays. The developer reruns the commit. This hook is the first
-# shape: it writes nothing, runs no git, and a refused check names the command that fixes it.
+# Pre-commit hooks:
+#   allowed:   check -> fail        |  check -> fail -> write the fix into the working tree -> fail
+#   forbidden: changing the commit (stage, commit, format-and-restage); any writing git command
+#              (stash, checkout, reset, push, config); anything else (fix-then-pass, network)
+#   read-only `git diff --cached --name-only` is fine; the developer reruns the commit
+# This hook writes nothing and runs no git; a refused check names its fix command when one exists.
 
 # First, before anything that needs an install: the .husky/_ bootstrap files are tracked so git always finds a hook to
 # run, and a checkout that never ran bun install lands here instead of silently committing with no hooks at all.
@@ -13,12 +14,9 @@ if [ ! -d node_modules ]; then
 	exit 1
 fi
 
-# The static gates, read against the working tree: workflow lint, the @types/vscode versus engines.vscode guard, biome
-# (formatting, lint, import order), the typecheck of all four tsconfig projects (`compile` builds the root one alone,
-# and a webview type error once reached main through that gap), the l10n gate, and the two generator drift checks (the
-# generated manifest blocks, the settings reference). About twenty seconds together.
+# check:static reads the working tree, not the index; about twenty seconds.
 if ! bun run check:static; then
-	echo "pre-commit: refused; nothing was written. Fix what the failing check reported above (it names the command when one exists: bun run format, bun run manifest:generate, bun run docs:settings, bun run l10n:extract), stage, and commit again."
+	echo "pre-commit: refused; nothing was written. Fix what the failing check reported above (when a command exists it is named: bun run format, bun run manifest:generate, bun run docs:settings, bun run l10n:extract; otherwise edit the reported source or translation and rerun bun run check:static), stage, and commit again."
 	exit 1
 fi
 

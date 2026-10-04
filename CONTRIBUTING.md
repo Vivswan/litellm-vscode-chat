@@ -61,9 +61,14 @@ bun run test         # run the VS Code extension tests
 bun run format       # apply Biome formatting, import order, and safe lint fixes
 ```
 
-The Husky pre-commit hook (`.husky/pre-commit`) only checks: the static gates (`bun run check:static`: workflow lint, the `@types/vscode` versus `engines.vscode` guard, Biome, typecheck, the localization gate, `manifest:check`, `docs:settings:check`) and the bun test tree. It writes nothing; a refused check names the command that fixes it (`bun run format`, `bun run manifest:generate`, `bun run docs:settings`), and you stage the result and commit again.
+The Husky pre-commit hook (`.husky/pre-commit`) only checks and never writes: the `node_modules` guard, `bun run check:static`, and the bun test tree. A refused check names its fix command when one exists; stage the result and commit again.
 
-The VS Code host suite is CI's on every push; `bun run check` runs everything locally. The hook refuses the commit when dependencies are not installed.
+- formatting, lint, import order: `bun run format`
+- generated manifest blocks: `bun run manifest:generate`
+- settings docs: `bun run docs:settings`
+- l10n bundle: `bun run l10n:extract`
+
+The VS Code host suite is CI's on every push; `bun run check` runs everything locally.
 
 ## Code style
 

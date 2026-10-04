@@ -8,29 +8,21 @@ import { REPO_ROOT } from "../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
 
 /**
- * The hook layer's fail-closed floor. core.hooksPath points at .husky/_, which husky's prepare script generates only
- * when bun install runs in that checkout, so a fresh `git worktree add` once ran ZERO hooks, silently (7a757c06). The
- * fix tracks husky's generated bootstrap files, so every checkout has a working hook chain whose first act is the
- * node_modules guard. Two facts hold that up and drift silently: the chain refuses a commit in a checkout that never
- * installed, and every shim is executable (git skips a non-executable hook without a word). The working tree is the
- * subject: nothing in this tree spawns git (the hook runs it with git's hook environment exported, and a scratch git
- * under a leaked GIT_DIR once rewrote the real repository), and husky rewrites .husky/_ on every install, so whether
- * the bootstrap files are tracked, and with which bytes, is judged by the developer's `git status`, not here.
+ * Nothing here spawns git: a scratch git under a leaked GIT_DIR once rewrote the real repository. The bootstrap files
+ * under .husky/_ are tracked because husky generates them only on install.
+ *
+ *   fresh worktree, no bun install  -> the hook refuses and names the fix (7a757c06: it ran no hooks at all)
+ *   a hook script's shim            -> exists and is executable (git skips a non-executable hook silently)
  */
 
-/**
- * The hooks this repository relies on. Derivation cannot supply these: a deleted hook script leaves nothing behind to
- * derive a requirement from, so dropping one - and with it, say, the commit-msg credit check - would read as green.
- * Removing a hook is deliberate and edits this list.
- */
+/** A deleted hook script leaves nothing to derive a requirement from, so the relied-on hooks are listed here. */
 const REQUIRED_HOOKS = ["pre-commit", "commit-msg"];
 const HUSKY_DIR = path.join(REPO_ROOT, ".husky");
 const shimOf = (hook: string): string => path.join(HUSKY_DIR, "_", hook);
 
 /**
- * Every hook script in .husky/, so a hook added without its shim fails here instead of silently skipping in every
- * fresh worktree. Over-strict by design: a helper parked in .husky/ is demanded a shim too, since the alternative,
- * intersecting with husky's hook-name list, would silently drop a real git hook husky generates no shim for.
+ * Every file in .husky/ needs a shim, a helper parked there included: intersecting with husky's hook-name list instead
+ * would silently drop a real git hook husky generates no shim for.
  */
 function hookScripts(): readonly string[] {
 	const hooks = fs
@@ -47,10 +39,8 @@ describe("hook layer fails closed", () => {
 	test(
 		"a checkout that never ran bun install refuses the commit with an actionable message",
 		() => {
-			// The chain exactly as git runs it, minus git: the tracked shim sources husky's runtime, which runs the hook
-			// script with sh -e from the current directory. That directory is a scratch one with no node_modules; HOME is
-			// scratch too, so the user's ~/.config/husky/init.sh stays out, and HUSKY is unset, so its =0 escape cannot
-			// turn the probe into a no-op.
+			// The shim sources husky's runtime, which runs the hook script with sh -e from the cwd, a scratch directory
+			// without node_modules. Scratch HOME keeps ~/.config/husky/init.sh out; unset HUSKY keeps its =0 escape out.
 			const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lvt-hooks-"));
 			try {
 				const { HUSKY: _husky, ...env } = process.env;
@@ -71,8 +61,8 @@ describe("hook layer fails closed", () => {
 	);
 
 	test("every hook script has an executable shim, so git actually invokes it", () => {
-		// git skips a shim it cannot execute; the hook script behind it is run through `sh -e` by husky's runtime, so
-		// only the shim's mode matters, and mode bits are a POSIX fact the Windows leg cannot read.
+		// git skips a shim it cannot execute, and husky's runtime runs the script behind it through `sh -e`, so only the
+		// shim's mode matters. Mode bits are a POSIX fact the Windows leg cannot read.
 		assert.ok(fs.existsSync(shimOf("h")), "the husky runtime the shims source is missing");
 		for (const hook of hookScripts()) {
 			assert.ok(fs.existsSync(shimOf(hook)), `.husky/_/${hook} is missing, so git never invokes .husky/${hook}`);
