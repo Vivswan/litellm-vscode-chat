@@ -7,8 +7,9 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { builtinSlashCommands } from "../../../extension/features/participant/slashCommands";
+import { quickFixSlashCommands } from "../../../extension/features/quickFixChatCommands";
 import { wireFeatures } from "../../../extension/wiring/features";
-import { PARTICIPANT_ID } from "../../../shared/config/commandIds";
 import { Logger } from "../../../shared/logger";
 import { REPO_ROOT } from "../../util/repoRoot";
 
@@ -39,16 +40,6 @@ function fakeContext(): vscode.ExtensionContext {
 
 function quietLogger(): Logger {
 	return new Logger({ info() {}, error() {} });
-}
-
-/** The participant command names package.json contributes, in manifest order. */
-function contributedSlashCommandNames(): string[] {
-	const manifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")) as {
-		contributes: { chatParticipants?: readonly { id: string; commands?: readonly { name: string }[] }[] };
-	};
-	const participant = (manifest.contributes.chatParticipants ?? []).find((entry) => entry.id === PARTICIPANT_ID);
-	assert.ok(participant !== undefined, `package.json contributes no chat participant with id ${PARTICIPANT_ID}`);
-	return (participant.commands ?? []).map((command) => command.name);
 }
 
 /**
@@ -140,13 +131,10 @@ suite("extension/wiring features", () => {
 		});
 	});
 
-	test("the live slash-command table and the manifest's contributed commands are the same set", async () => {
-		// The pin that survives the next feature: the host routes "/name" by the
-		// MANIFEST, and the registry is what answers, so a command in one and not
-		// the other is either a dead contribution or an unreachable handler. Read
-		// off wireFeatures rather than the built-in table on purpose - a feature
-		// registering through the seam (the quick-fix /fix and /explain included)
-		// is included here the day it lands.
+	test("the wired slash-command table is what the manifest generator reads", async () => {
+		// The host routes "/name" by the MANIFEST, which is generated from the two command factories, and the seam
+		// is what answers; so the seam's composition must equal the factories' concatenation, or a feature that
+		// registers through the seam without a factory the generator reads is an unreachable handler.
 		await withCommandSpy(async () => {
 			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
 			const { chatParticipant } = wireFeatures(fakeContext(), quietLogger(), {
@@ -158,7 +146,10 @@ suite("extension/wiring features", () => {
 				.list()
 				.map((command) => command.name)
 				.sort();
-			assert.deepStrictEqual(live, [...contributedSlashCommandNames()].sort());
+			assert.deepStrictEqual(
+				live,
+				[...builtinSlashCommands(), ...quickFixSlashCommands()].map((command) => command.name).sort()
+			);
 		});
 	});
 });

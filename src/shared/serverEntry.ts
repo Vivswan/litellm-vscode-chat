@@ -19,11 +19,12 @@ import { normalizeBaseUrl } from "./util/baseUrl";
  * lives: buildGroupArgs emits the provider-group args in this order, and that migration recognises a pre-projection
  * record by re-rendering the full-args JSON, so a reorder changes the rendering of every record whose args carry two
  * or more reordered fields and leaves those to the migration's ledger proof. The current "i1:" fingerprint reads only
- * the identity projection (serverSync/engine.ts groupIdentityArgs) and is order-free.
+ * the identity projection (serverSync/engine.ts groupIdentityArgs) and is order-free. The `format` flag reaches only
+ * the generated provider configuration in package.json (scripts/dev/manifest); the readers here walk `id` and `secret`.
  */
 export const OPTIONAL_ENTRY_FIELDS = [
 	{ id: "apiKey", secret: true },
-	{ id: "oauthTokenUrl", secret: false },
+	{ id: "oauthTokenUrl", secret: false, format: "uri" },
 	{ id: "oauthClientId", secret: false },
 	{ id: "oauthClientSecret", secret: true },
 	{ id: "oauthScopes", secret: false },

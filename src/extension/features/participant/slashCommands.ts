@@ -55,7 +55,7 @@ export interface SlashCommand<Name extends string = string> {
 	 * l10n bundle. The manifest carries its own package.nls copy of the same
 	 * prose for the host's `/` picker, because the host reads the manifest long
 	 * before this process exists and the two runtimes cannot share one string.
-	 * What IS shared is the name vocabulary, pinned by the contribution test.
+	 * What IS shared is the name vocabulary: the manifest's command list is generated from the tables.
 	 */
 	readonly description: string;
 	run(turn: SlashCommandTurn): Promise<void>;
@@ -120,7 +120,7 @@ export function builtinSlashCommands(): [SlashCommand<"tests">, SlashCommand<"do
 /**
  * Every name the participant answers: the built-in table's and the quick-fix bridge's (quickFixChatCommands.ts), read
  * off the tables rather than listed, so a routing site - a followup, for one - naming a command no table registers
- * does not compile. The manifest's command list is the other copy of this vocabulary, pinned by the contribution test.
+ * does not compile. The manifest's command list is generated from the same tables (scripts/dev/manifest).
  */
 export type SlashCommandName = ReturnType<typeof builtinSlashCommands>[number]["name"] | QuickFixSlashCommandName;
 

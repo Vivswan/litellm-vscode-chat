@@ -2110,7 +2110,7 @@
 	"scripts": {
 		"prepare": "husky",
 		"check": "bun run check:static && bun run test",
-		"check:static": "bun run lint:actions && bun scripts/ci/check-vscode-types.ts && bun run lint && bun run typecheck && bun run l10n:check && bun run manifest:check && bun run docs:settings:check && bun run tools:schemas:check",
+		"check:static": "bun run lint:actions && bun scripts/ci/check-vscode-types.ts && bun run lint && bun run typecheck && bun run l10n:check && bun run manifest:check && bun run docs:settings:check",
 		"vscode:prepublish": "tsc -p tsconfig.prod.json && bun scripts/dev/fetch-openrouter-catalog.ts && bun run bundle",
 		"compile": "bun -e \"require('node:fs').rmSync('out',{recursive:true,force:true,maxRetries:5,retryDelay:100})\" && tsc -p ./",
 		"bundle": "bun scripts/dev/bundle.mts --production && bun scripts/dev/generate-third-party-notices.ts",
@@ -2126,8 +2126,6 @@
 		"manifest:check": "bun scripts/dev/manifest/generate-manifest.ts --check",
 		"docs:settings": "bun scripts/docs/generate-settings-reference.ts",
 		"docs:settings:check": "bun scripts/docs/generate-settings-reference.ts --check",
-		"tools:schemas": "bun scripts/dev/generate-tool-schemas.ts",
-		"tools:schemas:check": "bun scripts/dev/generate-tool-schemas.ts --check",
 		"lint:actions": "bun scripts/ci/lint-actions.ts",
 		"lint:knip": "knip",
 		"lint:types": "eslint src scripts",

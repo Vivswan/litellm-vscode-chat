@@ -3,7 +3,7 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { renderConfiguration } from "../../../../../scripts/dev/manifest/configuration";
+import { renderContributes } from "../../../../../scripts/dev/manifest/contributions";
 import { serializeManifest } from "../../../../../scripts/dev/manifest/write";
 import { REPO_ROOT } from "../../../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
@@ -20,13 +20,13 @@ afterAll(() => {
 	}
 });
 
-/** A disposable checkout holding a manifest whose configuration block is exactly what the generator renders. */
+/** A disposable checkout holding a manifest whose generated blocks are exactly what the generator renders. */
 function makeFixture(): string {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "manifest-cli-"));
 	tempDirs.push(root);
 	fs.writeFileSync(
 		path.join(root, "package.json"),
-		serializeManifest({ name: "fixture", contributes: { configuration: renderConfiguration(), commands: [] } })
+		serializeManifest({ name: "fixture", contributes: renderContributes() })
 	);
 	return root;
 }
@@ -45,7 +45,10 @@ function runCli(root: string, ...flags: readonly string[]): { exitCode: number; 
 	return { exitCode: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
-const STALE = /manifest: contributes\.configuration is stale; run: bun run manifest:generate/;
+/** The --check refusal for one block, naming it and the regeneration command. */
+function stale(block: string): RegExp {
+	return new RegExp(`manifest: contributes\\.${block} is stale; run: bun run manifest:generate`);
+}
 
 describe("generate-manifest CLI", () => {
 	test(
@@ -63,16 +66,18 @@ describe("generate-manifest CLI", () => {
 				'"scope": "machine-overridable",\n\t\t\t\t\t\t"type": "boolean",'
 			);
 			const stray = canonical.replace('"minimum": 1000,', '"minimum": 1000,\n\t\t\t\t\t\t"stray": true,');
-			for (const [shape, mutant] of [
-				["a perturbed default", perturbed],
-				["two reordered keys", reordered],
-				["a stray property", stray],
+			const retitled = canonical.replace('"title": "%litellm.command.manage.title%"', '"title": "Manage"');
+			for (const [shape, mutant, block] of [
+				["a perturbed default", perturbed, "configuration"],
+				["two reordered keys", reordered, "configuration"],
+				["a stray property", stray, "configuration"],
+				["a hand-edited command title", retitled, "commands"],
 			] as const) {
 				assert.notStrictEqual(mutant, canonical, `${shape}: the mutation hit the fixture`);
 				fs.writeFileSync(path.join(root, "package.json"), mutant);
 				const drifted = runCli(root, "--check");
 				assert.strictEqual(drifted.exitCode, 1, `${shape}: --check must fail`);
-				assert.match(drifted.stderr, STALE, shape);
+				assert.match(drifted.stderr, stale(block), shape);
 				assert.strictEqual(readManifest(root), mutant, `${shape}: --check wrote nothing`);
 			}
 

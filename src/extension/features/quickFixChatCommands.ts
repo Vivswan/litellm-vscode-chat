@@ -41,11 +41,10 @@ export const EXPLAIN_INSTRUCTION = [
 ].join("\n");
 
 /**
- * The two commands, freshly built per call (the built-in table's contract:
- * descriptions resolve through the l10n bundle at call time, and no caller can
- * mutate another's view). The contribution test pins these names and
- * descriptions against package.json, so the "/" picker and the in-chat help
- * listing cannot describe them two ways.
+ * The two commands, freshly built per call (the built-in table's contract: descriptions resolve through the l10n
+ * bundle at call time, and no caller can mutate another's view). The manifest's entries are generated from these
+ * names, and contribution.test.ts pins package.nls.json's descriptions to these, so the "/" picker and the in-chat
+ * help listing cannot describe them two ways.
  */
 export function quickFixSlashCommands(): [SlashCommand<"fix">, SlashCommand<"explain">] {
 	return [

@@ -5,6 +5,7 @@
  * shapes only - no vscode import - so the bun tree pins every behavior.
  */
 
+import { PARTICIPANT_NAME } from "../../../shared/config/commandIds";
 import { truncateKeepingHead } from "../../../shared/util/text";
 
 export interface QuickFixPosition {
@@ -86,7 +87,8 @@ export function buildChatQuery(mode: QuickFixMode, diagnostics: readonly QuickFi
 	const summary = selectDiagnostics(diagnostics)
 		.map((diagnostic) => truncate(defuseChatSyntax(singleLine(diagnostic.message)), MAX_QUERY_DIAGNOSTIC_TEXT))
 		.join("; ");
-	return summary.length === 0 ? `@litellm ${command}` : `@litellm ${command} ${summary}`;
+	const participant = `@${PARTICIPANT_NAME}`;
+	return summary.length === 0 ? `${participant} ${command}` : `${participant} ${command} ${summary}`;
 }
 
 /**

@@ -1,63 +1,10 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
 	entryUsesSecretField,
 	isExpectedFailureCategory,
-	OPTIONAL_ENTRY_FIELDS,
 } from "../../../shared/serverEntry";
-import { REPO_ROOT } from "../../util/repoRoot";
-
-/**
- * Drift guard against package.json: the languageModelChatProviders configuration mirrors the server-entry field
- * descriptor.
- */
-interface FieldSchema {
-	readonly secret?: boolean;
-}
-
-interface PackageJson {
-	readonly contributes: {
-		readonly languageModelChatProviders: readonly [
-			{
-				readonly configuration: {
-					readonly properties: Record<string, FieldSchema>;
-					readonly required: readonly string[];
-				};
-			},
-		];
-	};
-}
-
-function readPackageJson(): PackageJson {
-	return JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")) as PackageJson;
-}
-
-describe("shared/serverEntry: package.json drift guard", () => {
-	const optionalIds = OPTIONAL_ENTRY_FIELDS.map((field) => field.id);
-
-	test("the provider-group configuration declares the descriptor's fields with its secret flags", () => {
-		const [provider] = readPackageJson().contributes.languageModelChatProviders;
-		// `label` is the one non-descriptor property: it mirrors the group NAME into
-		// the configuration, giving same-URL same-credential entries distinct
-		// identities.
-		assert.deepStrictEqual(Object.keys(provider.configuration.properties), ["baseUrl", "label", ...optionalIds]);
-		assert.deepStrictEqual([...provider.configuration.required], ["baseUrl"]);
-		assert.notStrictEqual(provider.configuration.properties.baseUrl?.secret, true, "baseUrl is not a secret");
-		assert.notStrictEqual(provider.configuration.properties.label?.secret, true, "label is not a secret");
-		for (const field of OPTIONAL_ENTRY_FIELDS) {
-			const schema = provider.configuration.properties[field.id];
-			assert.ok(schema, `provider configuration declares ${field.id}`);
-			assert.strictEqual(
-				schema.secret === true,
-				field.secret,
-				`provider configuration secret flag for ${field.id} matches the descriptor`
-			);
-		}
-	});
-});
 
 describe("shared/serverEntry: expected failure categories", () => {
 	test("isExpectedFailureCategory accepts exactly the declared tokens", () => {
