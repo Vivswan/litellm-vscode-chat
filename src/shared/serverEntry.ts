@@ -73,18 +73,44 @@ export function pickNonSecretOptionalFields(source: NonSecretOptionalFields): No
 export type SecretLocation = "settings" | "secure" | "none";
 
 /**
- * The ownership stamp serverSync/secrets.ts records at store time and resolveOwnedSecrets compares at use time.
- * src/dashboard/serverForm.ts's stale-key detection reads this same rule instead of re-deriving it webview-side.
+ * The ownership stamp serverSync/secrets.ts records at store time and resolveOwnedSecrets compares at use time; the
+ * dashboard's stale-key detection (src/dashboard/serverForm.ts) reads this same rule, and describeSecretDestination
+ * renders it for people.
  *
  *   key                 -> base URL, normalized (the transport treats a trailing slash there as insignificant)
- *   OAuth client secret -> token URL VERBATIM (the exchange fetches it exactly, so /token and /token/ differ)
+ *   OAuth client secret -> JSON [token URL VERBATIM, client id]: the exchange fetches the URL exactly, so /token and
+ *                          /token/ differ, and a client's secret must not follow another client id; the token URL
+ *                          alone is the earlier stamp migrations/oauthStampClientId.ts upgrades
  *   no token URL        -> "", a real stamp, so gaining a token URL later still needs a deliberate re-pairing
  */
-export function secretDestination(
-	entry: { readonly baseUrl: string; readonly oauthTokenUrl?: string | undefined },
-	field: SecretFieldId
-): string {
-	return field === "oauthClientSecret" ? (entry.oauthTokenUrl ?? "") : normalizeBaseUrl(entry.baseUrl);
+export function secretDestination(entry: SecretDestinationEntry, field: SecretFieldId): string {
+	if (field !== "oauthClientSecret") {
+		return normalizeBaseUrl(entry.baseUrl);
+	}
+	if (entry.oauthTokenUrl === undefined) {
+		return "";
+	}
+	return JSON.stringify([entry.oauthTokenUrl, entry.oauthClientId ?? ""]);
+}
+
+/** The fields secretDestination reads; a partial object (a form draft, a base-URL-only fallback) is a legal input. */
+export interface SecretDestinationEntry {
+	readonly baseUrl: string;
+	readonly oauthTokenUrl?: string | undefined;
+	readonly oauthClientId?: string | undefined;
+}
+
+/** The destination as the dashboard names it to the user; the stamp itself is an opaque equality key. */
+export function describeSecretDestination(entry: SecretDestinationEntry, field: SecretFieldId): string {
+	if (field !== "oauthClientSecret") {
+		return normalizeBaseUrl(entry.baseUrl);
+	}
+	if (entry.oauthTokenUrl === undefined) {
+		return "";
+	}
+	return entry.oauthClientId === undefined
+		? entry.oauthTokenUrl
+		: `${entry.oauthTokenUrl} (client ${entry.oauthClientId})`;
 }
 
 /**

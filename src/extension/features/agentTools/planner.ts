@@ -363,7 +363,7 @@ function edited(current: string | undefined, next: string | null | undefined): s
  */
 function keptSecretsChangingDestination(
 	before: EditableDashboardServer,
-	after: { readonly baseUrl: string; readonly oauthTokenUrl?: string | undefined },
+	after: ComposedServer,
 	directives: Readonly<Record<SecretFieldId, SecretDirective>>
 ): SecretFieldId[] {
 	const locations = before.config.secrets.locations;
@@ -371,8 +371,14 @@ function keptSecretsChangingDestination(
 		(field) =>
 			directives[field].action === "keep" &&
 			locations[field] !== "none" &&
-			secretDestination({ baseUrl: before.baseUrl, oauthTokenUrl: before.config.oauthTokenUrl }, field) !==
-				secretDestination(after, field)
+			secretDestination(
+				{
+					baseUrl: before.baseUrl,
+					oauthTokenUrl: before.config.oauthTokenUrl,
+					oauthClientId: before.config.oauthClientId,
+				},
+				field
+			) !== secretDestination(after, field)
 	);
 }
 
@@ -380,6 +386,7 @@ function keptSecretsChangingDestination(
 interface ComposedServer {
 	readonly baseUrl: string;
 	readonly oauthTokenUrl?: string | undefined;
+	readonly oauthClientId?: string | undefined;
 	readonly [field: string]: unknown;
 }
 

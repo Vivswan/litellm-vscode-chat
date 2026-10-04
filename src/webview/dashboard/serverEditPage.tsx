@@ -45,11 +45,11 @@ import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/setting
 import type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
 import type { ExpectedFailureCategory, NonChatMode, SecretFieldId, SkippedModeCounts } from "../../shared/serverEntry";
 import {
+	describeSecretDestination,
 	EXPECTED_FAILURE_CATEGORIES,
 	NON_CHAT_MODES,
 	pickNonSecretOptionalFields,
 	SECRET_FIELD_IDS,
-	secretDestination,
 } from "../../shared/serverEntry";
 import { DEFAULT_API_VERSION, mcpEndpointOf } from "../../shared/util/baseUrl";
 import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
@@ -732,17 +732,14 @@ function ServerForm({
 		setPhase({ phase: "saving", requestId });
 	};
 
-	// The stale-key dialog's detail line: every stale field's OLD destination
-	// (deduplicated - the keys share the base URL), from the same shared
-	// secretDestination rule the stamps record, over the identity the webview
-	// already holds; a destination-free fallback covers a client secret stored
-	// before the entry had a token URL. Resolved per render, so l10n stays
+	// The stale-key dialog's detail line. Deduplicated because the keys share the base URL; a destination-free
+	// fallback covers a client secret stored before the entry had a token URL; resolved per render, so l10n stays
 	// call-time.
 	const staleKeyDetail = (): string => {
 		const destinations = [
 			...new Set(
 				(staleKeyFields ?? [])
-					.map((field) => (original !== undefined ? secretDestination(original, field) : ""))
+					.map((field) => (original !== undefined ? describeSecretDestination(original, field) : ""))
 					.filter((destination) => destination !== "")
 			),
 		];

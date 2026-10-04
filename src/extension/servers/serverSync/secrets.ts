@@ -192,6 +192,26 @@ export async function deleteServerSecrets(secrets: SecretStore, label: string): 
 }
 
 /**
+ * Replace one stored field's stamp only while it still reads `from`; the migration that moves stamps between rules
+ * (migrations/oauthStampClientId.ts) writes through here, so a pairing action landing first is never undone.
+ */
+export async function restampServerSecretOwner(
+	secrets: SecretStore,
+	label: string,
+	field: SecretFieldId,
+	from: string,
+	to: string
+): Promise<void> {
+	await serializedWrite(label, async () => {
+		const record = await readServerSecretsRecord(secrets, label);
+		if (record.values[field] === undefined || record.owners[field] !== from) {
+			return;
+		}
+		await writeRecord(secrets, label, { values: record.values, owners: { ...record.owners, [field]: to } });
+	});
+}
+
+/**
  * The destination one secret field's value is sent to when paired with an
  * entry: the ONE rule, now defined in shared/serverEntry.ts (the dashboard's
  * stale-key detection reads it too) and re-exported here where the stamping

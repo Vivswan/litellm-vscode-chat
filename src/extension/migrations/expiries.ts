@@ -40,6 +40,12 @@ export const MIGRATION_EXPIRIES = [
 		introduced: "2026-08-30",
 		expires: "2026-11-30",
 	},
+	{
+		state: "token-url-only-oauth-stamps",
+		file: "oauthStampClientId.ts",
+		introduced: "2026-10-04",
+		expires: "2027-01-04",
+	},
 ] as const satisfies readonly MigrationExpiry[];
 
 /** The state slug of every live migration, runner-registered or not: the table above is the one list. */

@@ -65,8 +65,8 @@ export function currentMcpEntries(): McpEntry[] {
 
 /**
  * secretDestination pairs a stored proxy key with the entry's base URL and the OAuth client secret with its token
- * URL, so an endpoint at another origin is a destination nothing authorized it for and is published WITHOUT
- * credentials. Any path on that origin counts, because a proxy may serve /mcp away from the root.
+ * URL and client id, so an endpoint at another origin is a destination nothing authorized it for and is published
+ * WITHOUT credentials. Any path on that origin counts, because a proxy may serve /mcp away from the root.
  */
 function sameOrigin(endpoint: string, baseUrl: string): boolean {
 	try {

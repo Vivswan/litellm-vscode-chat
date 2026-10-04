@@ -2,7 +2,9 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { SecretStore, StoredServerSecrets } from "../../../extension/servers/serverSync";
 import { updateServerSecret } from "../../../extension/servers/serverSync";
-import { readServerSecretsRecord } from "../../../extension/servers/serverSync/secrets";
+import { ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
+import { readServerSecretsRecord, secretDestination } from "../../../extension/servers/serverSync/secrets";
+import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
 import type { SettingsAccess, SettingsInspection } from "../../../extension/settingsAccess";
 import type {
 	ImportPreviewSummary,
@@ -14,9 +16,13 @@ import {
 	runImportSettingsFlow,
 	runUndoLastImportFlow,
 } from "../../../extension/ui/settingsTransferCommands";
+import { VENDOR_ID } from "../../../shared/config/commandIds";
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
 import { expectDefined } from "../../pureHelpers";
+import { makeSyncEnv } from "../servers/serverSyncHelpers";
+
+const macrotask = () => new Promise<void>((resolve) => setTimeout(resolve, 1));
 
 /** A recorded toast: kind, message, and the action labels it carried. */
 interface FakeNotification {
@@ -59,6 +65,16 @@ interface FakeWorld {
 	failSecretStoreKeys: Set<string>;
 	/** Every mutation and sync request in arrival order: "settings:<key>", "secret-store:<key>", "secret-delete:<key>", "sync". */
 	ops: string[];
+	/**
+	 * A real engine wired as wiring/servers.ts wires it: woken by a changed secret value, a delete of a present key, the
+	 * servers setting write, and the flow's explicit request. Undefined in the fake-only tests.
+	 */
+	syncEngine: Pick<ServerSyncEngine, "requestSync"> | undefined;
+	/**
+	 * When true, every secret write and delete lands one macrotask later, so a zero-debounce engine pass runs between
+	 * two writes.
+	 */
+	slowSecretWrites: boolean;
 	/** The raw SecretStorage map behind readServerSecrets/updateServerSecret. */
 	secretValues: Map<string, string>;
 	files: Map<string, Uint8Array>;
@@ -109,14 +125,29 @@ function makeWorld(
 			if (secretMutationsFail || secretStoresFail || world.failSecretStoreKeys.has(key)) {
 				throw new Error("secret store failed");
 			}
+			if (world.slowSecretWrites) {
+				await macrotask();
+			}
+			// Wakes only on a changed value: the incident's pass ran after the field that changed, not after a rewrite of
+			// an untouched one.
+			const changed = secretValues.get(key) !== value;
 			secretValues.set(key, value);
+			if (changed) {
+				world.syncEngine?.requestSync();
+			}
 		},
 		delete: async (key) => {
 			world.ops.push(`secret-delete:${key}`);
 			if (secretMutationsFail) {
 				throw new Error("secret delete failed");
 			}
-			secretValues.delete(key);
+			if (world.slowSecretWrites) {
+				await macrotask();
+			}
+			const changed = secretValues.delete(key);
+			if (changed) {
+				world.syncEngine?.requestSync();
+			}
 		},
 	};
 	const access: SettingsAccess = {
@@ -138,6 +169,9 @@ function makeWorld(
 				settings.delete(key);
 			} else {
 				settings.set(key, value);
+			}
+			if (key === SERVERS_SETTING_KEY) {
+				world.syncEngine?.requestSync();
 			}
 		},
 		updateAuto: async () => {
@@ -199,6 +233,8 @@ function makeWorld(
 		armStoreFailureOnServersWrite: false,
 		failSecretStoreKeys: new Set<string>(),
 		ops: [],
+		syncEngine: undefined,
+		slowSecretWrites: false,
 		secretValues,
 		files,
 		saveTarget: vscode.Uri.file("/tmp/fake-out/litellm-settings.json"),
@@ -255,6 +291,7 @@ function makeWorld(
 		requestServerSync: () => {
 			world.ops.push("sync");
 			world.syncRequests += 1;
+			world.syncEngine?.requestSync();
 		},
 		log: (message, data) => {
 			world.logs.push(data === undefined ? message : `${message} ${JSON.stringify(data)}`);
@@ -1137,6 +1174,180 @@ suite("settingsTransferCommands undo flow", () => {
 		assert.ok(lastSecret < firstSetting, "every blob restore must precede every settings write");
 	});
 
+	/**
+	 * The host as the engine sees it: add-only (a second add under a taken name is the duplicate refusal), and
+	 * refusing every add while `refusing` holds. Every add's args are kept, credentials included, because the
+	 * assertion is about which credential each add paired with which entry.
+	 */
+	function attachSyncEngine(world: FakeWorld): {
+		engine: ServerSyncEngine;
+		adds: Record<string, string>[];
+		refusing: { value: boolean };
+		settle(): Promise<void>;
+	} {
+		const adds: Record<string, string>[] = [];
+		const refusing = { value: false };
+		const hostNames = new Set<string>();
+		const recorded = makeSyncEnv();
+		const engine = new ServerSyncEngine(
+			{
+				...recorded.env,
+				readServersSetting: () => world.settings.get(SERVERS_SETTING_KEY),
+				readSecrets: (label) => world.env.readServerSecrets(label),
+				addProviderGroup: async (args) => {
+					if (refusing.value) {
+						throw new Error("host refused the group");
+					}
+					if (hostNames.has(args.name ?? "")) {
+						throw new Error(`Language model group with name ${args.name} already exists for vendor litellm`);
+					}
+					hostNames.add(args.name ?? "");
+					adds.push({ ...args });
+				},
+			},
+			0
+		);
+		world.syncEngine = engine;
+		return {
+			engine,
+			adds,
+			refusing,
+			settle: async () => {
+				for (let i = 0; i < 10; i += 1) {
+					await macrotask();
+				}
+			},
+		};
+	}
+
+	/**
+	 * A debounced engine pass between the blob restore and the servers setting restore reads the imported entry
+	 * beside the restored pre-import credential, and the entry's pending retry (its import-time add failed) sends
+	 * that pairing to the add-only host. Each row is one way the restored value reached that pass resolvable.
+	 *
+	 *   oauth         -> the restored client secret, stamped for the same token URL, resolved under the imported client
+	 *   unstamped     -> a snapshot recorded without stamps restored as the blob it recorded, so any entry resolved it
+	 *   orphan        -> the recorded setting declared no entry for the label, so no entry could stamp the restored value
+	 *   orphan-held   -> the same orphan while the servers write fails, so the imported entry outlives the settings phase
+	 *   legacy        -> a snapshot recording the earlier OAuth stamp; the restored entry must still use its own secret
+	 *   dormant-oauth -> an unstamped client secret under an entry without OAuth: "" must be written as a real stamp
+	 */
+	const OAUTH_OLD = {
+		label: "a",
+		baseUrl: "http://old:4000",
+		auth: { oauth: { tokenUrl: "http://auth:4000/token", clientId: "OLD-ID" } },
+	};
+	const OAUTH_NEW = {
+		label: "a",
+		baseUrl: "http://new:4000",
+		auth: { oauth: { tokenUrl: "http://auth:4000/token", clientId: "NEW-ID", clientSecret: "NEW-SECRET" } },
+	};
+	const hostAdd = (baseUrl: string, credentials: Record<string, string>) => ({
+		name: "a",
+		vendor: VENDOR_ID,
+		label: "a",
+		baseUrl,
+		...credentials,
+	});
+	const OLD_OAUTH_ADD = hostAdd("http://old:4000", {
+		oauthTokenUrl: "http://auth:4000/token",
+		oauthClientId: "OLD-ID",
+		oauthClientSecret: "OLD-SECRET",
+	});
+	const mixedUndoRecipes: Record<
+		string,
+		{
+			initialServers: unknown[];
+			preImportSecret: {
+				field: "oauthClientSecret" | "apiKey";
+				value: string;
+				owner: "stamped" | "legacy" | undefined;
+			};
+			imported: unknown[];
+			/** When set, the undo's servers write fails, so the imported entry stays live after the settings phase. */
+			failServersWrite?: true;
+			/** Every add the host may see, whole and in order; a row that expects one says why beside it. */
+			expectedAdds: Record<string, string>[];
+		}
+	> = {
+		oauth: {
+			initialServers: [OAUTH_OLD],
+			preImportSecret: { field: "oauthClientSecret", value: "OLD-SECRET", owner: "stamped" },
+			imported: [OAUTH_NEW],
+			expectedAdds: [OLD_OAUTH_ADD],
+		},
+		unstamped: {
+			initialServers: [{ label: "a", baseUrl: "http://old:4000" }],
+			preImportSecret: { field: "apiKey", value: "OLD-KEY", owner: undefined },
+			imported: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
+			expectedAdds: [hostAdd("http://old:4000", { apiKey: "OLD-KEY" })],
+		},
+		orphan: {
+			initialServers: [],
+			preImportSecret: { field: "apiKey", value: "OLD-KEY", owner: undefined },
+			imported: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
+			expectedAdds: [],
+		},
+		"orphan-held": {
+			initialServers: [],
+			preImportSecret: { field: "apiKey", value: "OLD-KEY", owner: undefined },
+			imported: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
+			failServersWrite: true,
+			// The failure path clears the imported credential under its still-live entry (recoverable from the import
+			// file), and the pending retry then adds that entry credential-less; OLD-KEY never leaves the hold.
+			expectedAdds: [hostAdd("http://new:4000", {})],
+		},
+		legacy: {
+			initialServers: [OAUTH_OLD],
+			preImportSecret: { field: "oauthClientSecret", value: "OLD-SECRET", owner: "legacy" },
+			imported: [OAUTH_NEW],
+			expectedAdds: [OLD_OAUTH_ADD],
+		},
+		"dormant-oauth": {
+			initialServers: [{ label: "a", baseUrl: "http://old:4000" }],
+			preImportSecret: { field: "oauthClientSecret", value: "OLD-SECRET", owner: undefined },
+			imported: [OAUTH_NEW],
+			// The dormant value rides with its own entry, as buildGroupArgs always bakes a stored field it may resolve.
+			expectedAdds: [hostAdd("http://old:4000", { oauthClientSecret: "OLD-SECRET" })],
+		},
+	};
+
+	for (const [name, recipe] of Object.entries(mixedUndoRecipes)) {
+		test(`an interim pass during the undo pairs nothing mixed on the host (${name})`, async () => {
+			const world = makeWorld({ servers: recipe.initialServers });
+			const { field, value, owner } = recipe.preImportSecret;
+			const entry = acceptedEntry(recipe.initialServers, "a")?.entry;
+			await world.env.updateServerSecret(
+				"a",
+				field,
+				value,
+				owner === "stamped"
+					? secretDestination(expectDefined(entry), field)
+					: owner === "legacy"
+						? expectDefined(entry).oauthTokenUrl
+						: undefined
+			);
+			const host = attachSyncEngine(world);
+			host.refusing.value = true;
+			await host.engine.syncNow();
+			stageEnvelope(world, { servers: recipe.imported });
+			world.answers.collisions = { a: "overwrite" };
+			await runImportSettingsFlow(world.env);
+			await host.settle();
+			assert.deepStrictEqual(host.adds, [], "the host refused every add so far, so the entry carries a pending retry");
+
+			host.refusing.value = false;
+			world.slowSecretWrites = true;
+			if (recipe.failServersWrite) {
+				world.failWrites.add(SERVERS_SETTING_KEY);
+			}
+			await runUndoLastImportFlow(world.env);
+			await host.settle();
+			assert.deepStrictEqual(host.adds, recipe.expectedAdds, "the host's adds differ from the row's");
+			host.engine.dispose();
+		});
+	}
+
 	test("a failed blob restore stops the undo before the settings phase", async () => {
 		// The settings phase never starts over a failed blob restore; the kept slot lets a retry redo the whole restore.
 		const world = makeWorld(
@@ -1409,10 +1620,7 @@ suite("settingsTransferCommands undo flow", () => {
 		);
 		await runUndoLastImportFlow(world.env);
 		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "ONLY-KEY" });
-		// The pre-import blob was recorded unstamped and restores unstamped: the
-		// snapshot round-trips ownership stamps exactly, so the import's stamps
-		// leave with its values.
-		assert.deepStrictEqual(ownersOf(world, "a"), {});
+		assert.deepStrictEqual(ownersOf(world, "a"), { apiKey: "http://x:4000" });
 	});
 
 	test("a failed restore step keeps the slot for a retry and warns", async () => {

@@ -25,11 +25,9 @@ import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } fro
 export type SnapshotEntry<V> = { readonly present: true; readonly value: V } | { readonly present: false };
 
 /**
- * One label's recorded blob: the values plus their ownership stamps, so a
- * restore puts back stamps exactly as they were (a value restored unstamped
- * would resolve for entries its stamp refused). `owners` is absent when the
- * recorded blob carried no stamps - and on snapshots from before stamps
- * existed, which restore unstamped like the blobs they recorded.
+ * One label's recorded blob: the values plus their ownership stamps. The undo writes them back through the current
+ * stamp rule (settingsTransferCommands.ts restoredOwners), so under a recorded entry a stamp recorded by an earlier
+ * rule or not at all still resolves only for the destination that entry names.
  */
 export type SnapshotBlobEntry =
 	| { readonly present: true; readonly value: StoredServerSecrets; readonly owners?: StoredSecretOwners }
