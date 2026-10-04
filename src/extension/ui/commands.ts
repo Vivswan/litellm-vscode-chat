@@ -9,7 +9,7 @@ import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import { unexpectedFailureCount } from "../../shared/servers";
-import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../../shared/util/links";
+import { GITHUB_DOCS_URL, GITHUB_FEATURE_REQUEST_URL, GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { DashboardController } from "../dashboard/panel";
 import type { ServerSyncEngine } from "../servers/serverSync";
@@ -33,8 +33,6 @@ import { profileUserFileUri } from "./profilePath";
 import { detectSetupProblem, showSetupProblemGate } from "./setupGate";
 import type { ConnectionStatus, ZeroModelTexts } from "./status";
 import { zeroModelJudgment } from "./status";
-
-const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO_URL}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
 
 interface ModelInfoProvider {
 	provideLanguageModelChatInformation(
@@ -507,7 +505,7 @@ export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext)
 			const choice = await vscode.window.showQuickPick(
 				[
 					{ label: l10n.t("$(bug) Report Bug"), run: () => vscode.commands.executeCommand(CMD.reportIssue) },
-					{ label: l10n.t("$(lightbulb) Request Feature"), run: () => openUrl(GITHUB_NEW_ISSUE_FEATURE) },
+					{ label: l10n.t("$(lightbulb) Request Feature"), run: () => openUrl(GITHUB_FEATURE_REQUEST_URL) },
 					{ label: l10n.t("$(book) Documentation"), run: () => openUrl(GITHUB_DOCS_URL) },
 				],
 				{ title: l10n.t("LiteLLM: Help & Feedback"), placeHolder: l10n.t("What would you like to do?") }

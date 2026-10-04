@@ -343,6 +343,7 @@
 											"!**/shared/util/displayUrl",
 											"!**/shared/util/errorText",
 											"!**/shared/util/json",
+											"!**/shared/util/links",
 											"!**/shared/util/tokenCount"
 										],
 										"message": "Webview code may import the src/dashboard tree, its own tree, and only the allowlisted pure src/shared modules (they ride into the browser bundle); extension-side state stays behind the message protocol."
