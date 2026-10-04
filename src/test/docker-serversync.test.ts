@@ -477,16 +477,12 @@ suite("Docker server sync", () => {
 			await new Promise((resolve) => setTimeout(resolve, 250));
 		}
 		// Re-declaring the identity clears the tombstone. The re-add itself is refused by the add-only host (the
-		// label's fingerprint was pruned with the entry), which must not matter: the models returning without a
-		// successful add is the proof the host group survived the removal.
+		// label's fingerprint was pruned with the entry); the host serving the label's group at this URL confirms
+		// that refusal as the synced steady state (#398), so the models return and the entry reads in sync.
 		await declareServer({ label: LABEL_STORED, baseUrl: BASE_URL });
 		await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_STORED);
-		assert.strictEqual(
-			view.syncFailure?.message,
-			GROUP_UPDATE_UNAVAILABLE_MESSAGE,
-			"the re-add hits the add-only rejection"
-		);
+		assert.strictEqual(view.syncFailure, undefined, "the surviving group confirms the re-add's duplicate refusal");
 		assert.strictEqual(view.secrets.apiKey, "secure", "the re-added label reads its kept SecretStorage blob");
 	});
 

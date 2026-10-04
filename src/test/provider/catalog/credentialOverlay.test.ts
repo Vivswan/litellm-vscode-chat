@@ -1,9 +1,17 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import { classifyOverall } from "../../../dashboard/presenters";
+import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
+import { publicErrorText } from "../../../shared/logger";
+import { MirroredError } from "../../../shared/mirroredError";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, makeLogger } from "../../pureHelpers";
 import { makeProvider } from "../../testUtils";
+
+/** The unresolved-credentials failure's two log renderings: the classification (status window, issue-report buffer) and the English mirror (output channel). */
+const EXPECTED_CLASSIFICATION = "EntryCredentialsUnavailable(secretsUnreadable)";
+const EXPECTED_ENGLISH = "entry credentials unavailable";
 
 /** The host passes the group configuration structurally; stable typings only declare `silent`. */
 function groupOptions(configuration: unknown, silent = true): { silent: boolean } {
@@ -32,7 +40,7 @@ suite("provider credential overlay", () => {
 		const provider = makeProvider(undefined, "unused", undefined, {
 			resolveEntryCredentials: async (label, baseUrl) => {
 				resolved.push([label, baseUrl]);
-				return { apiKey: "sk-rotated" };
+				return { kind: "resolved", credentials: { apiKey: "sk-rotated" } };
 			},
 		});
 		const captured = capturingDiscovery();
@@ -53,9 +61,9 @@ suite("provider credential overlay", () => {
 		assert.strictEqual(provider.getGroupServer(snapshot.status.serverId)?.apiKey, "sk-rotated");
 	});
 
-	test("a resolver answering undefined keeps the baked credentials in force", async () => {
+	test("an external answer (no declared entry) keeps the baked credentials in force", async () => {
 		const provider = makeProvider(undefined, "unused", undefined, {
-			resolveEntryCredentials: async () => undefined,
+			resolveEntryCredentials: async () => ({ kind: "external" }),
 		});
 		const captured = capturingDiscovery();
 
@@ -72,7 +80,7 @@ suite("provider credential overlay", () => {
 		const provider = makeProvider(undefined, "unused", undefined, {
 			resolveEntryCredentials: async () => {
 				calls += 1;
-				return { apiKey: "sk-never" };
+				return { kind: "resolved", credentials: { apiKey: "sk-never" } };
 			},
 		});
 		const captured = capturingDiscovery();
@@ -86,27 +94,73 @@ suite("provider credential overlay", () => {
 		assert.deepStrictEqual(captured.headers, ["Bearer sk-baked"]);
 	});
 
-	test("a throwing resolver falls back to the baked credentials with one facade log", async () => {
-		const { logger, lines } = makeLogger();
-		const provider = makeProvider(undefined, "unused", undefined, {
-			logger,
-			resolveEntryCredentials: async () => {
-				throw new Error("secret storage exploded");
+	test("a declared entry whose credentials do not resolve is a classified failure, never the baked key", async () => {
+		// The baked key is the copy the host stored at group creation; after a rotation it is the retired key. A
+		// surviving group confirmed by the sync engine (#398) must not read connected on that key when the entry's
+		// own secrets cannot be read, so the serve records the failure and sends nothing.
+		const resolvers: { name: string; resolve: () => Promise<GroupCredentialsResolution> }[] = [
+			{ name: "unavailable", resolve: async () => ({ kind: "unavailable", reason: "secretsUnreadable" }) },
+			{
+				name: "throwing",
+				resolve: async () => {
+					throw new Error("secret storage exploded");
+				},
 			},
+		];
+		for (const { name, resolve } of resolvers) {
+			const { logger, lines } = makeLogger();
+			const provider = makeProvider(undefined, "unused", undefined, { logger, resolveEntryCredentials: resolve });
+			const captured = capturingDiscovery();
+			const configuration = { baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" };
+
+			const silent = await provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
+			assert.deepStrictEqual(silent, [], `${name}: a silent serve hands out nothing`);
+			await assert.rejects(
+				provider.provideLanguageModelChatInformation(groupOptions(configuration, false), cancellation()),
+				(error: unknown) => error instanceof MirroredError && publicErrorText(error) === EXPECTED_CLASSIFICATION,
+				`${name}: a non-silent serve throws the classified failure`
+			);
+
+			assert.deepStrictEqual(captured.headers, [], `${name}: no discovery request carries the baked key`);
+			const statuses = provider.getServerSnapshots().map((snapshot) => snapshot.status);
+			assert.strictEqual(statuses.length, 1, `${name}: the failure is recorded under the group's identity`);
+			assert.strictEqual(statuses[0]?.state, "error");
+			assert.strictEqual(statuses[0]?.logSafeError, EXPECTED_CLASSIFICATION, `${name}: the log rendering`);
+			assert.strictEqual(statuses[0]?.servedModelCount, 0);
+			assert.strictEqual(classifyOverall(statuses), "error", `${name}: the window is not connected`);
+			assert.strictEqual(
+				lines.filter(
+					(line) => line.includes("Failed to fetch models for provider group") && line.includes(EXPECTED_ENGLISH)
+				).length,
+				2,
+				`${name}: the facade logs each failed serve once, with the English mirror on the channel`
+			);
+		}
+	});
+
+	test("an expected model-listing failure does not soften an unresolved-credentials failure", async () => {
+		// The declaration speaks about the listing endpoint. A non-silent serve of an entry declaring it with declared
+		// models normally hands the declared set out under an expected error; a credential failure must not take
+		// that route, or the window reads connected while every request fails before transport.
+		const provider = makeProvider(undefined, "unused", undefined, {
+			resolveEntryCredentials: async () => ({ kind: "unavailable", reason: "secretsUnreadable" }),
+			getExpectedFailures: () => ["modelListing"],
+			getEntryDeclaredModels: () => ["declared-model"],
 		});
-		const captured = capturingDiscovery();
+		capturingDiscovery();
 
-		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" }),
-			cancellation()
+		await assert.rejects(
+			provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" }, false),
+				cancellation()
+			),
+			(error: unknown) => error instanceof MirroredError && publicErrorText(error) === EXPECTED_CLASSIFICATION
 		);
-
-		assert.deepStrictEqual(captured.headers, ["Bearer sk-baked"]);
-		assert.strictEqual(
-			lines.filter((line) => line.includes("Resolving a declared entry's credentials failed")).length,
-			1,
-			"the facade logs the failure exactly once"
-		);
+		const status = provider.getServerSnapshots()[0]?.status;
+		assert.strictEqual(status?.state, "error");
+		assert.strictEqual(status.expected, undefined, "the failure stays unexpected");
+		assert.strictEqual(status.servedModelCount, 1, "the declared model stays listed under the error");
+		assert.strictEqual(classifyOverall([status]), "degraded", "serving under an unexpected error, never connected");
 	});
 
 	test("a rotation evicts the group's retired status identity instead of leaving a ghost twin", async () => {
@@ -116,7 +170,7 @@ suite("provider credential overlay", () => {
 		// tombstone the label the real group serves under.
 		let key = "sk-first";
 		const provider = makeProvider(undefined, "unused", undefined, {
-			resolveEntryCredentials: async () => ({ apiKey: key }),
+			resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: key } }),
 		});
 		capturingDiscovery();
 		const configuration = { baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" };
@@ -142,7 +196,7 @@ suite("provider credential overlay", () => {
 			releaseFirst = resolve;
 		});
 		const provider = makeProvider(undefined, "unused", undefined, {
-			resolveEntryCredentials: async () => ({ apiKey: key }),
+			resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: key } }),
 		});
 		mswServer.use(
 			http.get(MODEL_INFO_URL, async ({ request }) => {
@@ -183,9 +237,9 @@ suite("provider credential overlay", () => {
 				call += 1;
 				if (call === 1) {
 					await firstGate;
-					return { apiKey: "sk-first" };
+					return { kind: "resolved", credentials: { apiKey: "sk-first" } };
 				}
-				return { apiKey: "sk-second" };
+				return { kind: "resolved", credentials: { apiKey: "sk-second" } };
 			},
 		});
 		capturingDiscovery();
@@ -211,7 +265,7 @@ suite("provider credential overlay", () => {
 		let key = "sk-first";
 		let fail = false;
 		const provider = makeProvider(undefined, "unused", undefined, {
-			resolveEntryCredentials: async () => ({ apiKey: key }),
+			resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: key } }),
 		});
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
@@ -230,7 +284,7 @@ suite("provider credential overlay", () => {
 
 	test("the overlay replaces the credential set wholesale: a dropped OAuth unit strips the baked one", async () => {
 		const provider = makeProvider(undefined, "unused", undefined, {
-			resolveEntryCredentials: async () => ({ apiKey: "sk-only" }),
+			resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: "sk-only" } }),
 		});
 		const captured = capturingDiscovery();
 

@@ -27,6 +27,17 @@ import { expectDefined } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } from "../../testUtils";
 import { makeSyncEnv, recordedEvents } from "./serverSyncHelpers";
 
+/** Host-call attempts, not landed adds: a duplicate refusal records no upsert, so only this count can show hammering. */
+function countHostCalls(recorded: ReturnType<typeof makeSyncEnv>): { readonly count: number } {
+	const counter = { count: 0 };
+	const addProviderGroup = recorded.env.addProviderGroup;
+	recorded.env.addProviderGroup = (args) => {
+		counter.count += 1;
+		return addProviderGroup(args);
+	};
+	return counter;
+}
+
 suite("extension/servers/serverSync: ServerSyncEngine", () => {
 	suite("ServerSyncEngine", () => {
 		test("a first pass upserts every entry with resolved secrets and records fingerprints", async () => {
@@ -1070,7 +1081,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			// The removal prunes the label's records while the host keeps serving its (hidden) group, so the re-add's
 			// duplicate refusal has no record to confirm against. One server, 10 served models, and the status
 			// surfaces read "Partial success: 1 serving, 1 failed, 10 models" until the duplicate reads as in sync.
-			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			const entry = { label: "Prod", baseUrl: "http://prod.test" };
+			const recorded = makeSyncEnv([entry]);
+			const hostCalls = countHostCalls(recorded);
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 			recorded.duplicateLabels.add("Prod");
@@ -1080,12 +1093,22 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.deepStrictEqual(recorded.fingerprints, {}, "the removal prunes the record");
 
-			recorded.setting = [{ label: "Prod", baseUrl: "http://prod.test" }];
+			recorded.setting = [entry];
+			await engine.syncNow();
 			await engine.syncNow();
 			const view = expectDefined(engine.getDeclared()[0]);
 			assert.strictEqual(view.syncFailure, undefined, "the served group is the entry's own identity");
-			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Prod"], "the confirmed duplicate records");
+			assert.deepStrictEqual(
+				recorded.fingerprints,
+				{ Prod: groupArgsFingerprint(buildGroupArgs(expectDefined(parseServersSetting([entry]).entries[0]), {})) },
+				"the confirmed duplicate records the re-added entry's own fingerprint"
+			);
 			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://prod.test" }, "the ledger names the group");
+			assert.strictEqual(
+				hostCalls.count,
+				2,
+				"the first add and the re-add's confirmed duplicate; the in-sync pass makes none"
+			);
 
 			const serving = makeServerStatus({ label: "Prod", entryLabel: "Prod", servedModelCount: 10 });
 			const judged = applySyncFailures([serving], engine.getDeclared());
@@ -1102,16 +1125,13 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				{ observed: "http://prod.test/", outcome: "healed" },
 				{ observed: "http://other.test", outcome: "blocked" },
 			];
+			const entry = { label: "Prod", baseUrl: "http://prod.test" };
+			const printed = groupArgsFingerprint(buildGroupArgs(expectDefined(parseServersSetting([entry]).entries[0]), {}));
+			const serving = makeServerStatus({ label: "Prod", entryLabel: "Prod", servedModelCount: 10 });
 			for (const { observed, outcome } of cases) {
-				const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+				const recorded = makeSyncEnv([entry]);
 				recorded.duplicateLabels.add("Prod");
-				// Attempts, not landed adds: a duplicate refusal records no upsert, so only this count can show hammering.
-				let hostCalls = 0;
-				const addProviderGroup = recorded.env.addProviderGroup;
-				recorded.env.addProviderGroup = (args) => {
-					hostCalls += 1;
-					return addProviderGroup(args);
-				};
+				const hostCalls = countHostCalls(recorded);
 				const engine = new ServerSyncEngine(recorded.env);
 				await engine.syncNow(true);
 				assert.strictEqual(
@@ -1119,24 +1139,35 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 					"blocked",
 					`${observed}: before the host reports`
 				);
-				assert.strictEqual(hostCalls, 1);
+				assert.strictEqual(hostCalls.count, 1);
+				assert.strictEqual(
+					classifyOverall(applySyncFailures([serving], engine.getDeclared())),
+					"degraded",
+					`${observed}: the serving row reads as a failing server until the host is heard`
+				);
 
 				recorded.observedGroups = { Prod: [observed] };
 				await engine.syncNow();
 				await engine.syncNow();
-				assert.strictEqual(
-					engine.getDeclared()[0]?.syncFailure?.class,
-					outcome === "healed" ? undefined : "blocked",
+				const healed = outcome === "healed";
+				assert.deepStrictEqual(
+					engine.getDeclared()[0]?.syncFailure,
+					healed ? undefined : { class: "blocked", message: GROUP_UPDATE_UNAVAILABLE_MESSAGE },
 					`${observed}: after the host reports`
 				);
 				assert.deepStrictEqual(
-					Object.keys(recorded.fingerprints),
-					outcome === "healed" ? ["Prod"] : [],
+					recorded.fingerprints,
+					healed ? { Prod: printed } : {},
 					`${observed}: the record follows the verdict`
 				);
+				assert.deepStrictEqual(
+					recorded.entryBaseUrls,
+					{ Prod: healed ? "http://prod.test" : observed },
+					`${observed}: the ledger names the group the host serves`
+				);
 				assert.strictEqual(
-					hostCalls,
-					outcome === "healed" ? 2 : 1,
+					hostCalls.count,
+					healed ? 2 : 1,
 					`${observed}: the heal costs one host call and the in-sync record then stops them; a conflict makes none`
 				);
 				assert.strictEqual(
@@ -1144,6 +1175,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 					1,
 					`${observed}: the first refusal is the only conflict logged`
 				);
+				const judged = applySyncFailures([serving], engine.getDeclared());
+				assert.strictEqual(unexpectedFailureCount(judged), healed ? 0 : 1, `${observed}: the window's failures`);
+				assert.strictEqual(classifyOverall(judged), healed ? "connected" : "degraded", `${observed}: the verdict`);
 			}
 		});
 

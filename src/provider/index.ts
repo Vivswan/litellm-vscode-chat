@@ -21,10 +21,10 @@ import type { AggregatedStatus } from "../shared/servers";
 import { DiscoveryCache } from "./catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "./catalog/groupDiscovery";
 import { GroupDiscovery } from "./catalog/groupDiscovery";
-import type { GroupCredentials, GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
+import type { EntryCredentialsResolver, GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
 import {
 	groupClientId,
-	overlayGroupCredentials,
+	overlayEntryCredentials,
 	parseGroupConfiguration,
 	parseModelMetadata,
 } from "./catalog/groupModels";
@@ -96,12 +96,11 @@ export interface LiteLLMChatModelProviderOptions {
 	 */
 	getEntryIncludeModes?: ((label: string, baseUrl: string) => readonly NonChatMode[] | undefined) | undefined;
 	/**
-	 * `undefined` (no matching entry, refused secret ownership, a failed secrets read) keeps the baked ones in force,
-	 * the fallback for external groups and leftovers whose entry moved hosts.
-	 *   The host bakes credentials into a group at creation and its group commands are add-only
-	 *     -> the entry's CURRENT credentials (matched like getEntryHeaders) overlay the baked ones
+	 * The host bakes credentials into a group at creation and its group commands are add-only, so the entry's CURRENT
+	 * credentials (matched like getEntryHeaders) overlay the baked ones; see GroupCredentialsResolution for the three
+	 * answers and which one keeps the baked set.
 	 */
-	resolveEntryCredentials?: ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>) | undefined;
+	resolveEntryCredentials?: EntryCredentialsResolver | undefined;
 	/** The HTTP transport under the chat client; tests inject a fake here. Defaults to nodeHttpFetch. */
 	fetch?: TransportFetch | undefined;
 	/**
@@ -143,9 +142,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private readonly _reporter: GroupStatusReporter;
 	private readonly _decorator: ServedModelDecorator;
 	private readonly _discovery: GroupDiscovery;
-	private readonly _resolveEntryCredentials?:
-		| ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>)
-		| undefined;
+	private readonly _resolveEntryCredentials?: EntryCredentialsResolver | undefined;
 	private _hasSeenGroupConfiguration = false;
 	private readonly _onDidChangeEmitter = new EventEmitter<void>();
 	private readonly _onDidObserveGroupEmitter = new EventEmitter<void>();
@@ -300,26 +297,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		return [];
 	}
 
-	/**
-	 * Overlay a labeled group's baked credentials with its declared entry's current ones (see
-	 * LiteLLMChatModelProviderOptions.resolveEntryCredentials).
-	 *
-	 * A resolver failure keeps the baked credentials: the facade is the logging boundary, so the failure is logged
-	 * once here.
-	 */
-	private async overlayEntryCredentials(server: GroupServer): Promise<GroupServer> {
-		if (server.label === undefined || this._resolveEntryCredentials === undefined) {
-			return server;
-		}
-		try {
-			const credentials = await this._resolveEntryCredentials(server.label, server.baseUrl);
-			return credentials !== undefined ? overlayGroupCredentials(server, credentials) : server;
-		} catch (error) {
-			this.logError("Resolving a declared entry's credentials failed; using the group's stored credentials", error);
-			return server;
-		}
-	}
-
 	/** Model IDs are returned raw and display names unprefixed because the host namespaces group models itself. */
 	private async provideGroupModels(configuration: unknown, silent: boolean): Promise<LiteLLMModelInfo[]> {
 		const parsed = parseGroupConfiguration(configuration, (message, data) => this.log(message, data));
@@ -331,14 +308,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		// URL, so the pre-overlay parse is a valid claim): a serve that stalls in the resolver while a newer one
 		// completes must yield its record, and only arrival order can decide that.
 		const generation = this._discovery.beginServe(parsed);
-		const groupServer = await this.overlayEntryCredentials(parsed);
+		const overlaid = await overlayEntryCredentials(parsed, this._resolveEntryCredentials);
 
-		const serverId = groupClientId(groupServer);
+		const serverId = groupClientId(overlaid.server);
 		if (this._statusWindow.beginCycleOnReSight(serverId)) {
 			this.pruneServerCaches([...this._statusWindow.serverIds(), serverId]);
 		}
 
-		const models = await this._discovery.fetchGroupModels(groupServer, silent, false, generation);
+		const models = await this._discovery.fetchGroupModels(overlaid.server, silent, false, generation, overlaid.failure);
 		// The serve's record may have evicted a rotated twin's identity from the window.
 		this.pruneServerCaches(this._statusWindow.serverIds());
 		return models;
@@ -394,12 +371,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			try {
 				// Claimed before the overlay's await, like provideGroupModels.
 				const generation = this._discovery.beginServe(groupServer);
-				await this._discovery.fetchGroupModels(
-					await this.overlayEntryCredentials(groupServer),
-					false,
-					true,
-					generation
-				);
+				const overlaid = await overlayEntryCredentials(groupServer, this._resolveEntryCredentials);
+				await this._discovery.fetchGroupModels(overlaid.server, false, true, generation, overlaid.failure);
 			} catch {
 				// Already logged and recorded in the merged status; the remaining group servers still get probed.
 			}

@@ -267,7 +267,7 @@ VS Code 的提供者群組 API 可以建立群組, 但永遠無法更新或移�
 - **"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry."** 這一輪讀取失敗; 項目只是被略過, 不是永久失敗 - 下一輪 (或 "LiteLLM: Sync Models Now") 會再次讀取。
 - **"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session."** 延伸模組無法確認它的同步狀態能在本工作階段之後留存, 所以寧可什麼都不同步, 也不去猜。
 
-兩種狀態下項目都只是本輪被略過: 它的作用中提供者群組繼續提供最近一次同步的模型, 什麼都不會遺失。常見原因是作業系統的鑰匙圈或金鑰圈無法使用 - 在 Linux 上, 沒有金鑰圈服務 (gnome-keyring、KWallet) 的桌面工作階段是最常見的情況。恢復金鑰圈, 重新啟動 VS Code, 然後執行 "LiteLLM: Sync Models Now"。
+兩種狀態下項目都只是本輪被略過, 什麼都不會遺失: 它的作用中提供者群組繼續提供模型。當祕密本身無法讀取時, 該群組在 `discovery.staleServeWindow` 允許的時間內以過期標記繼續提供最近一次探索到的模型, 伺服器列顯示錯誤, 而不是用群組中儲存的認證副本進行驗證。常見原因是作業系統的鑰匙圈或金鑰圈無法使用 - 在 Linux 上, 沒有金鑰圈服務 (gnome-keyring、KWallet) 的桌面工作階段是最常見的情況。恢復金鑰圈, 重新啟動 VS Code, 然後執行 "LiteLLM: Sync Models Now"。
 
 ## 來自舊版本的設定
 

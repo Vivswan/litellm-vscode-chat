@@ -1,9 +1,11 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
+import type { GroupCredentialsResolution, LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { ChatClient } from "../../../provider/transport/chatClient";
 import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
 import { convertMessages } from "../../../shared/conversion/messages";
+import { publicErrorText } from "../../../shared/logger";
+import { MirroredError } from "../../../shared/mirroredError";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { makeLogger, toHeaderMap } from "../../pureHelpers";
 import { withConfig } from "../../testUtils";
@@ -331,7 +333,7 @@ suite("provider/transport/chatClient", () => {
 			userAgent: "test-agent",
 			resolveEntryCredentials: async (label, baseUrl) => {
 				resolved.push([label, baseUrl]);
-				return { apiKey: "k-rotated" };
+				return { kind: "resolved", credentials: { apiKey: "k-rotated" } };
 			},
 			fetch: async (_url, init) => {
 				authHeader = toHeaderMap(init?.headers).authorization;
@@ -347,18 +349,26 @@ suite("provider/transport/chatClient", () => {
 		assert.deepStrictEqual(resolved, [["Default", normalizeBaseUrl("http://litellm.test")]]);
 	});
 
-	test("a resolver answering undefined (or throwing) keeps the attached credentials", async () => {
-		for (const resolveEntryCredentials of [
-			async () => undefined,
-			async () => {
-				throw new Error("secret storage exploded");
+	test("an external answer keeps the attached credentials; an unresolved entry fails before any request", async () => {
+		// The attached key is the serve-time copy a rotation may have retired, so a declared entry whose credentials
+		// cannot be resolved (or a resolver that throws) must fail the request instead of sending it (#398).
+		const cases: { name: string; resolve: () => Promise<GroupCredentialsResolution>; sent: boolean }[] = [
+			{ name: "external", resolve: async () => ({ kind: "external" }), sent: true },
+			{ name: "unavailable", resolve: async () => ({ kind: "unavailable", reason: "secretsMismatched" }), sent: false },
+			{
+				name: "throwing",
+				resolve: async () => {
+					throw new Error("secret storage exploded");
+				},
+				sent: false,
 			},
-		]) {
+		];
+		for (const { name, resolve, sent } of cases) {
 			const stream = controllableStream();
 			let authHeader: string | undefined;
 			const client = new ChatClient({
 				userAgent: "test-agent",
-				resolveEntryCredentials,
+				resolveEntryCredentials: resolve,
 				fetch: async (_url, init) => {
 					authHeader = toHeaderMap(init?.headers).authorization;
 					return sseResponse(stream.stream);
@@ -368,8 +378,20 @@ suite("provider/transport/chatClient", () => {
 			const send = client.send({ model, messages, options, progress: collector().progress, token });
 			stream.push("data: [DONE]\n\n");
 			stream.close();
-			await send;
-			assert.strictEqual(authHeader, "Bearer k", "the attached key remains a valid request input");
+			if (sent) {
+				await send;
+				assert.strictEqual(authHeader, "Bearer k", `${name}: the attached key remains a valid request input`);
+				continue;
+			}
+			await assert.rejects(
+				send,
+				(error: unknown) =>
+					error instanceof MirroredError &&
+					publicErrorText(error) ===
+						`EntryCredentialsUnavailable(${name === "throwing" ? "secretsUnreadable" : "secretsMismatched"})`,
+				`${name}: the classified failure`
+			);
+			assert.strictEqual(authHeader, undefined, `${name}: no request left with the attached key`);
 		}
 	});
 });

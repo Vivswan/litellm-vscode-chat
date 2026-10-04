@@ -162,7 +162,13 @@ export class GroupDiscovery {
 		silent: boolean,
 		bypassCache = false,
 		/** The beginServe claim for this serve; absent for unlabeled groups and callers with no earlier await. */
-		generation?: number
+		generation?: number,
+		/**
+		 * A failure the caller established before any fetch (the entry's credentials did not resolve): it takes the
+		 * fetch's own failure path, cached models included, so an ok record can never stand for a group whose
+		 * requests would fail.
+		 */
+		preflightFailure?: Error
 	): Promise<LiteLLMModelInfo[]> {
 		const server: ServerConnection = {
 			id: groupClientId(groupServer),
@@ -253,6 +259,57 @@ export class GroupDiscovery {
 		// serve or fresh.
 		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
 		const includeModes = this.includeModesFor(groupServer.label, server.baseUrl);
+		// The one failure outcome, for a fetch that threw and for a preflight failure alike. `expected` is the entry's
+		// modelListing declaration for a listing failure only: that declaration speaks about the endpoint, so a
+		// credential failure stays unexpected and the declared-models serve cannot read it as connected.
+		const serveFailure = (error: unknown, expected: boolean): LiteLLMModelInfo[] => {
+			if (expected) {
+				// The one boundary log for an expected terminal failure: an info classification instead of an error.
+				this._options.log(`Model discovery failed (expected: modelListing) for provider group`, {
+					baseUrl: server.baseUrl,
+				});
+			} else {
+				this._options.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
+			}
+			const texts = statusErrorTexts(error);
+			// The window is this session's live state, never the extension layer's persisted status. Only a SILENT
+			// refresh serves the stale set, and only while staleServableModels finds an anchor inside the window;
+			// non-silent failures throw, except an expected one with declared models, which serves the declared set.
+			const stale = this._options.window.staleServableModels(server.id, groupServer);
+			// Its record must not count the stale set the silent path would serve - and the declared synthesis must run
+			// against the empty discovered set, or a pre-outage discovery could inert-suppress a declared ID out of the
+			// only set this serve hands back.
+			const servesDeclaredOnly = !silent && expected;
+			const failureSets = this._options.decorator.decorate(
+				!servesDeclaredOnly && stale !== undefined
+					? { infos: stale.models, discoveredRawIds: stale.discoveredRawIds }
+					: { infos: [], discoveredRawIds: [] },
+				server,
+				groupServer.label
+			);
+			// Recorded is what stays visible under the error: the declared-only serve returns exactly this set, and
+			// the throwing unexpected branch still names the stale set every silent pass keeps serving.
+			const failureServe = recordAndServe(failureSets, {
+				state: "error",
+				...texts,
+				...(expected ? { expected: true } : {}),
+			});
+			if (silent) {
+				// An empty literal, not the attached set, so a decorator surprise cannot serve unmarked models.
+				const staleServed =
+					stale !== undefined ? markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString()) : [];
+				return [...staleServed, ...failureServe.declared];
+			}
+			if (expected && failureSets.declared.length > 0) {
+				return failureServe.declared;
+			}
+			// A non-Error throw is rebuilt with the status's log-safe rendering as its mirror: the display text can
+			// embed response body and must never reach the log path.
+			throw error instanceof Error ? error : new MirroredError(texts.error, { englishMessage: texts.logSafeError });
+		};
+		if (preflightFailure !== undefined) {
+			return serveFailure(preflightFailure, false);
+		}
 		// The unserved-probe hint one ok serve carries; see DiscoveredGroupModels.modelInfoUnsupported.
 		const probeHint = (
 			discovered: Pick<DiscoveredGroupModels, "modelInfoUnsupported">
@@ -312,50 +369,7 @@ export class GroupDiscovery {
 				}
 			).served;
 		} catch (error) {
-			const expected = expectedFailures.modelListing;
-			if (expected) {
-				// The one boundary log for an expected terminal failure: an info classification instead of an error.
-				this._options.log(`Model discovery failed (expected: modelListing) for provider group`, {
-					baseUrl: server.baseUrl,
-				});
-			} else {
-				this._options.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
-			}
-			const texts = statusErrorTexts(error);
-			// The window is this session's live state, never the extension layer's persisted status. Only a SILENT
-			// refresh serves the stale set, and only while staleServableModels finds an anchor inside the window;
-			// non-silent failures throw, except an expected one with declared models, which serves the declared set.
-			const stale = this._options.window.staleServableModels(server.id, groupServer);
-			// Its record must not count the stale set the silent path would serve - and the declared synthesis must run
-			// against the empty discovered set, or a pre-outage discovery could inert-suppress a declared ID out of the
-			// only set this serve hands back.
-			const servesDeclaredOnly = !silent && expected;
-			const failureSets = this._options.decorator.decorate(
-				!servesDeclaredOnly && stale !== undefined
-					? { infos: stale.models, discoveredRawIds: stale.discoveredRawIds }
-					: { infos: [], discoveredRawIds: [] },
-				server,
-				groupServer.label
-			);
-			// Recorded is what stays visible under the error: the declared-only serve returns exactly this set, and
-			// the throwing unexpected branch still names the stale set every silent pass keeps serving.
-			const failureServe = recordAndServe(failureSets, {
-				state: "error",
-				...texts,
-				...(expected ? { expected: true } : {}),
-			});
-			if (silent) {
-				// An empty literal, not the attached set, so a decorator surprise cannot serve unmarked models.
-				const staleServed =
-					stale !== undefined ? markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString()) : [];
-				return [...staleServed, ...failureServe.declared];
-			}
-			if (expected && failureSets.declared.length > 0) {
-				return failureServe.declared;
-			}
-			// A non-Error throw is rebuilt with the status's log-safe rendering as its mirror: the display text can
-			// embed response body and must never reach the log path.
-			throw error instanceof Error ? error : new MirroredError(texts.error, { englishMessage: texts.logSafeError });
+			return serveFailure(error, expectedFailures.modelListing);
 		}
 	}
 }

@@ -22,8 +22,13 @@ import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
 import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/discovery";
 import { fetchModels } from "../catalog/discovery";
-import type { GroupCredentials, GroupServer, LiteLLMModelInfo, ParsedModelMetadata } from "../catalog/groupModels";
-import { groupClientId, overlayGroupCredentials, parseModelMetadata } from "../catalog/groupModels";
+import type {
+	EntryCredentialsResolver,
+	GroupServer,
+	LiteLLMModelInfo,
+	ParsedModelMetadata,
+} from "../catalog/groupModels";
+import { groupClientId, overlayEntryCredentials, parseModelMetadata } from "../catalog/groupModels";
 import { requestParamsFromModelConfiguration } from "../catalog/modelConfiguration";
 import {
 	type OAuthConfig,
@@ -98,7 +103,7 @@ export interface ChatClientOptions {
 	 * matches get the auto rule.
 	 */
 	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
-	resolveEntryCredentials?: ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>) | undefined;
+	resolveEntryCredentials?: EntryCredentialsResolver | undefined;
 	/** The HTTP transport under the SDK client; tests inject a fake here. Defaults to nodeHttpFetch. */
 	fetch?: TransportFetch | undefined;
 }
@@ -113,9 +118,7 @@ export class ChatClient {
 	) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
 	private readonly getEntryHeaders: (label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined;
 	private readonly getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
-	private readonly resolveEntryCredentials?:
-		| ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>)
-		| undefined;
+	private readonly resolveEntryCredentials?: EntryCredentialsResolver | undefined;
 	private readonly clients: ServerClientCache;
 	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly resolution: ModelResolutionTable;
@@ -247,21 +250,18 @@ export class ChatClient {
 	}
 
 	/**
-	 * Overlay an attached labeled server's credentials with the declared entry's current ones (see
-	 * ChatClientOptions.resolveEntryCredentials).
-	 *   transport modules         -> throw without logging
-	 *   the attached credentials  -> remain a valid request input
+	 * The attached credentials are the serve-time copy a rotation may have retired, so an unresolved entry fails the
+	 * request instead of sending them. Throws without logging, like every transport module.
 	 */
 	private async overlaidServer(server: GroupServer | undefined): Promise<GroupServer | undefined> {
-		if (server?.label === undefined || this.resolveEntryCredentials === undefined) {
-			return server;
+		if (server === undefined) {
+			return undefined;
 		}
-		try {
-			const credentials = await this.resolveEntryCredentials(server.label, server.baseUrl);
-			return credentials !== undefined ? overlayGroupCredentials(server, credentials) : server;
-		} catch {
-			return server;
+		const overlaid = await overlayEntryCredentials(server, this.resolveEntryCredentials);
+		if (overlaid.failure !== undefined) {
+			throw overlaid.failure;
 		}
+		return overlaid.server;
 	}
 
 	async send(ctx: ChatRequestContext): Promise<void> {

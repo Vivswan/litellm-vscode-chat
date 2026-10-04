@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { entryGroupCredentialsFor } from "../../../extension/servers/serverSync/entryCredentials";
 import type { SecretStore } from "../../../extension/servers/serverSync/secrets";
 import { readServerSecretsRecord, updateServerSecret } from "../../../extension/servers/serverSync/secrets";
+import type { GroupCredentials, GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
 
 function makeSecretStore(): SecretStore & { failReads: boolean } {
 	const values = new Map<string, string>();
@@ -22,6 +23,8 @@ function makeSecretStore(): SecretStore & { failReads: boolean } {
 	};
 	return store;
 }
+
+const resolved = (credentials: GroupCredentials): GroupCredentialsResolution => ({ kind: "resolved", credentials });
 
 function resolver(setting: unknown, secrets: SecretStore) {
 	return (label: string, baseUrl: string) =>
@@ -44,10 +47,10 @@ suite("extension/servers/serverSync/entryCredentials", () => {
 		];
 		const resolve = resolver(setting, secrets);
 
-		assert.deepStrictEqual(await resolve("Stored", "http://a.test"), { apiKey: "sk-stored" });
+		assert.deepStrictEqual(await resolve("Stored", "http://a.test"), resolved({ apiKey: "sk-stored" }));
 		// Inline settings values outrank the label's SecretStorage blob, the
 		// same precedence buildGroupArgs bakes into a fresh group.
-		assert.deepStrictEqual(await resolve("Inline", "http://b.test"), { apiKey: "sk-inline" });
+		assert.deepStrictEqual(await resolve("Inline", "http://b.test"), resolved({ apiKey: "sk-inline" }));
 	});
 
 	test("narrows OAuth and virtual-key units exactly like the group-configuration parse", async () => {
@@ -67,11 +70,14 @@ suite("extension/servers/serverSync/entryCredentials", () => {
 			},
 		];
 
-		assert.deepStrictEqual(await resolver(setting, secrets)("OAuth", "http://a.test"), {
-			apiKey: "",
-			oauth: { tokenUrl: "https://idp.test/token", clientId: "cid", clientSecret: "cs-1" },
-			virtualKey: { header: "x-vk", value: "vk-1" },
-		});
+		assert.deepStrictEqual(
+			await resolver(setting, secrets)("OAuth", "http://a.test"),
+			resolved({
+				apiKey: "",
+				oauth: { tokenUrl: "https://idp.test/token", clientId: "cid", clientSecret: "cs-1" },
+				virtualKey: { header: "x-vk", value: "vk-1" },
+			})
+		);
 	});
 
 	test("matches by label AND normalized base URL: a group at another host gets nothing", async () => {
@@ -80,24 +86,24 @@ suite("extension/servers/serverSync/entryCredentials", () => {
 		const resolve = resolver(setting, secrets);
 
 		// Normalization equivalence still matches (trailing slash).
-		assert.deepStrictEqual(await resolve("A", "http://a.test"), { apiKey: "sk-a" });
+		assert.deepStrictEqual(await resolve("A", "http://a.test"), resolved({ apiKey: "sk-a" }));
 		// A leftover group at the entry's OLD host must never receive the
 		// entry's credentials.
-		assert.strictEqual(await resolve("A", "http://old.test"), undefined);
-		assert.strictEqual(await resolve("Unknown", "http://a.test"), undefined);
+		assert.deepStrictEqual(await resolve("A", "http://old.test"), { kind: "external" });
+		assert.deepStrictEqual(await resolve("Unknown", "http://a.test"), { kind: "external" });
 	});
 
-	test("fails closed on refused secret ownership and on a failed secrets read", async () => {
+	test("fails closed on refused secret ownership and on a failed secrets read, each as its own unavailable reason", async () => {
 		const secrets = makeSecretStore();
 		// Stamped for a different destination: the entry would use the field, so
-		// the pairing is refused - the overlay must keep the baked credentials
-		// rather than send a value nothing paired with this host.
+		// the pairing is refused - nothing paired with this host may be sent,
+		// and the baked copy is not a fallback either (see GroupCredentialsResolution).
 		await updateServerSecret(secrets, "A", "apiKey", "sk-elsewhere", "http://other.test");
 		const setting = [{ label: "A", baseUrl: "http://a.test" }];
 		const resolve = resolver(setting, secrets);
-		assert.strictEqual(await resolve("A", "http://a.test"), undefined);
+		assert.deepStrictEqual(await resolve("A", "http://a.test"), { kind: "unavailable", reason: "secretsMismatched" });
 
 		secrets.failReads = true;
-		assert.strictEqual(await resolve("A", "http://a.test"), undefined);
+		assert.deepStrictEqual(await resolve("A", "http://a.test"), { kind: "unavailable", reason: "secretsUnreadable" });
 	});
 });

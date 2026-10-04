@@ -9,7 +9,7 @@
  * internal test command may tolerate.
  */
 
-import type { GroupCredentials } from "../../../provider/catalog/groupModels";
+import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
 import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { buildGroupArgs } from "./engine";
@@ -18,14 +18,10 @@ import { resolveOwnedSecrets } from "./secrets";
 import { matchedEntryFor } from "./setting";
 
 /**
- * The declared entry's current credentials for a group at `baseUrl` labeled
- * `label`, or undefined when the baked credentials must stay in force: no
- * declared entry matches on label AND normalized base URL (matchedEntryFor's
- * rule, shared with headers, parameters, and capabilities - a leftover group
- * from a base URL edit must never receive the entry's credentials), a stored
- * secret's ownership stamp refuses the pairing (the same fail-closed rule the
- * sync pass applies), or the secrets read fails. The returned values are
- * resolved secrets: never log them, never push them into state.
+ * The match is matchedEntryFor's label AND normalized base URL rule, shared with headers, parameters, and
+ * capabilities, so a leftover group from a base URL edit never receives the entry's credentials; the ownership check
+ * is the sync pass's own fail-closed rule (resolveOwnedSecrets). The resolved values are secrets: never log them,
+ * never push them into state.
  */
 export async function entryGroupCredentialsFor(
 	readServersSetting: () => unknown,
@@ -33,10 +29,10 @@ export async function entryGroupCredentialsFor(
 	label: string,
 	baseUrl: string,
 	log?: (message: string, data?: unknown) => void
-): Promise<GroupCredentials | undefined> {
+): Promise<GroupCredentialsResolution> {
 	const entry = matchedEntryFor(readServersSetting(), label, baseUrl);
 	if (entry === undefined) {
-		return undefined;
+		return { kind: "external" };
 	}
 	let record: StoredSecretsRecord;
 	try {
@@ -46,19 +42,22 @@ export async function entryGroupCredentialsFor(
 			label,
 			error: errorLabel(error),
 		});
-		return undefined;
+		return { kind: "unavailable", reason: "secretsUnreadable" };
 	}
 	const owned = resolveOwnedSecrets(entry, record);
 	if (owned.refused.length > 0) {
-		return undefined;
+		return { kind: "unavailable", reason: "secretsMismatched" };
 	}
 	const groupServer = parseGroupConfiguration(buildGroupArgs(entry, owned.values));
 	if (groupServer === undefined) {
-		return undefined;
+		return { kind: "unavailable", reason: "unusable" };
 	}
 	return {
-		apiKey: groupServer.apiKey,
-		...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
-		...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
+		kind: "resolved",
+		credentials: {
+			apiKey: groupServer.apiKey,
+			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
+			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
+		},
 	};
 }
