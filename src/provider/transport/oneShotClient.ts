@@ -72,9 +72,9 @@ export interface OneShotClientOptions {
 
 export interface OneShotCallOptions {
 	/**
-	 * Hard whole-call bound, the OAuth exchange and the body read included, with the identity of the setting that owns
-	 * it (undefined for fixed bounds like the inline-completion timeout). Minted where the caller reads its number, so
-	 * exchange-timeout advice names the setting that really governs this call's clock or none.
+	 * Hard whole-call bound, this call's OAuth token wait and the body read included, with the identity of the
+	 * setting that owns it (undefined for fixed bounds like the inline-completion timeout). Minted where the
+	 * caller reads its number, so timeout advice names the setting that really governs this call's clock or none.
 	 */
 	readonly timeout: TimeoutBudget;
 	readonly token: vscode.CancellationToken;
@@ -229,8 +229,10 @@ export class OneShotClient {
 	 * The editor sends these headers itself and owns the 401s, so a token the server stops accepting is corrected by
 	 * the next exchange after expiry, never by a rejection here.
 	 *
-	 * Deliberately NO whole-call timeout of its own, because only the token exchange can block and a second bound
-	 * sharing that budget would race the exchange's own, burying the OAuth message that names the setting to raise.
+	 * The caller's whole-call `timeout` is the token wait's only clock; nothing here adds a second.
+	 *
+	 *   `timeout` elapses -> the OAuth timeout message naming the setting to raise
+	 *   `token` cancels   -> the cancellation, as-is
 	 */
 	async authHeaders(
 		connection: OneShotConnection,

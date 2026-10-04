@@ -455,8 +455,8 @@ export class UsageClient {
 	/**
 	 * One idempotent GET with the discovery retry rules: network failures and 5xx
 	 * retry up to DISCOVERY_MAX_RETRIES, 4xx fail immediately, and the discovery
-	 * timeout bounds the whole call including backoffs and the OAuth exchange.
-	 * `outerSignal` (the poller's dispose) interrupts everything and is rethrown
+	 * timeout bounds the whole call including backoffs and this call's OAuth token
+	 * wait. `outerSignal` (the poller's dispose) ends this call and is rethrown
 	 * as-is so the caller attributes it truthfully.
 	 */
 	private async getJson(connection: UsageConnection, url: string, outerSignal?: AbortSignal): Promise<unknown> {
