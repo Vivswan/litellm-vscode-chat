@@ -436,9 +436,9 @@ function parseFailureMessage(reason: "not-json" | "not-an-export" | "newer-versi
 }
 
 /**
- * The apply step's servers unit, adopt-ordered: secret writes and stale-blob clears per label first, the single servers
- * array write LAST; on failure every recorded secret value is restored. An unrestored field keeps the imported stamp,
- * so a live entry at another destination refuses it (resolveOwnedSecrets) until Undo restores the slot's value.
+ * The apply step's servers unit: each imported label's blob, then the single servers write, with the blobs restored
+ * when the setting fails. Blobs first because a pre-import blob may be unstamped (a label no entry declares, which the
+ * stamp migration cannot reach), and an unstamped value is trusted by whatever entry is live.
  */
 async function applyServersUnit(
 	env: SettingsTransferEnv,
@@ -712,8 +712,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				return;
 			}
 			if (outcome === "rolled-back") {
-				// A clean rollback with no landed settings changed nothing, so the previous import's recovery path comes
-				// back, and there is nothing this run left to undo.
+				// A rollback with no landed settings changed nothing, so the previous import's recovery path comes back.
 				if (writtenSettings === 0) {
 					await restorePreviousSlot();
 				}
@@ -885,7 +884,7 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 			}
 			blob[field as SecretFieldId] = value;
 		}
-		// Ownership stamps are optional (snapshots predating them carry none) but when present must be the builder's
+		// Ownership stamps are optional (a snapshot may record a blob without them) but when present must be the builder's
 		// shape: a stamp (shared/serverEntry.ts SecretOwner) on a field the value record holds.
 		let owners: { -readonly [K in SecretFieldId]?: SecretOwner } | undefined;
 		if ("owners" in entry && entry.owners !== undefined) {
@@ -930,7 +929,7 @@ async function notifyKeptSnapshot(env: SettingsTransferEnv, failures: number): P
  * through, so the two never disagree about which values the restored entry can use.
  *
  *   recorded unstamped, under an entry -> that entry's destination, an empty one included (a real stamp: no token URL)
- *   recorded under the earlier rule    -> upgradedStamp, or the restored entry could not use its own secret
+ *   recorded as a token URL string     -> upgradedStamp, or the restored entry could not use its own secret
  *   no recorded entry                  -> as recorded
  */
 function restoredOwners(

@@ -392,6 +392,11 @@ describe("agentTools planner save_server", () => {
 			{ label: "Oauth", baseUrl: "http://oauth2.test" },
 			"allowed",
 		],
+		[
+			"Oauth client id respelled with surrounding whitespace (the save trims it)",
+			{ label: "Oauth", oauthClientId: " client-1 " },
+			"allowed",
+		],
 	])("kept-secret destination: %s", (_name, input, expected) => {
 		const plan = planSaveServer(input, state, false);
 		if (expected === "allowed") {

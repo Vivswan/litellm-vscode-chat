@@ -979,23 +979,18 @@ suite("settingsTransferCommands import flow", () => {
 		});
 	}
 
-	test("the servers unit writes every secret before the single servers write", async () => {
-		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] });
-		stageEnvelope(world, {
-			servers: [
-				{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "A-KEY" } },
-				{ label: "b", baseUrl: "http://b:4000", auth: { apiKey: "B-KEY" } },
-			],
-		});
-		world.answers.collisions = { a: "overwrite" };
+	test("an unstamped blob under a label the import adds never reaches the host when its blob write fails", async () => {
+		// The one input the blob-first order exists for: a blob no entry declares stays unstamped (SecretStorage cannot
+		// enumerate it), and an unstamped value is trusted by whatever entry is live.
+		const world = makeWorld({ servers: [] }, { retired: { apiKey: "OLD-KEY" } });
+		const host = attachSyncEngine(world);
+		stageEnvelope(world, { servers: [{ label: "retired", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }] });
+		world.failSecretStoreKeys.add(serverSecretsKey("retired"));
 		await runImportSettingsFlow(world.env);
-		const serversWrite = world.ops.indexOf(`settings:${SERVERS_SETTING_KEY}`);
-		assert.notStrictEqual(serversWrite, -1);
-		const secretOps = world.ops.filter((op) => op.startsWith("secret-"));
-		assert.strictEqual(secretOps.length, 2);
-		for (const op of secretOps) {
-			assert.ok(world.ops.indexOf(op) < serversWrite, `secret op ${op} must precede the servers write`);
-		}
+		await host.settle();
+		assert.deepStrictEqual(host.adds, [], "the old key must not ride with the imported entry");
+		assert.deepStrictEqual(blobOf(world, "retired"), { apiKey: "OLD-KEY" });
+		host.engine.dispose();
 	});
 
 	test("a mid-unit secret write failure rolls back the earlier labels and skips the servers write", async () => {
@@ -1211,10 +1206,10 @@ suite("settingsTransferCommands undo flow", () => {
 	 *   orphan           -> the recorded setting declared no entry for the label; the value restores as recorded
 	 *   orphan-held      -> the same orphan while the servers write fails: nothing restores, the imported entry keeps its key
 	 *   oauth-held       -> the oauth row while the servers write fails: the imported entry keeps its own client secret
-	 *   legacy           -> a snapshot recording the earlier OAuth stamp; the restored entry still uses its secret
+	 *   legacy           -> a snapshot whose client-secret stamp is the token URL string; the restored entry still uses it
 	 *   dormant-oauth    -> an unstamped client secret under an entry without OAuth: the empty destination is a stamp
 	 *   absent           -> no pre-import blob, so the imported one is removed after the setting; the old entry adds bare
-	 *   legacy-collision -> a pre-release string stamp spelling the object form's JSON; only a structured stamp matches
+	 *   legacy-collision -> a string stamp spelling the object form's JSON; only a structured stamp matches
 	 *   same-destination -> the imported key is owned by the restored entry too; only the hold keeps a pass from adding
 	 *                       it before the removal
 	 */
@@ -1314,8 +1309,8 @@ suite("settingsTransferCommands undo flow", () => {
 					auth: { oauth: { tokenUrl: "http://other:4000/token", clientId: "OLD-ID" } },
 				},
 			],
-			// A pre-release stamp was any token URL text, so one can spell the entry's own object form's JSON exactly; a
-			// string must still never match a structured stamp, so the restored entry cannot use this secret.
+			// A token URL string stamp can spell the entry's own object form's JSON exactly; a string never matches a
+			// structured stamp, so the restored entry cannot use this secret.
 			preImportSecret: {
 				field: "oauthClientSecret",
 				value: "OLD-SECRET",

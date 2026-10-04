@@ -17,7 +17,7 @@ import { readServerSecretsRecord, restampServerSecretOwner, secretDestination } 
 import { parseServersSetting } from "../servers/serverSync/setting";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
-/** The one reader of the earlier stamp; the undo of a settings import restores a snapshot 0.6.7 wrote through it too. */
+/** The one reader of a token URL string stamp; the undo of a settings import restores a snapshot's stamps through it too. */
 export function upgradedStamp(entry: SecretDestinationEntry, field: SecretFieldId, owner: SecretOwner): SecretOwner {
 	if (field !== "oauthClientSecret" || typeof owner !== "string") {
 		return owner;

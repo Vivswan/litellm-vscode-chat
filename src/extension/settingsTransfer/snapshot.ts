@@ -26,8 +26,8 @@ export type SnapshotEntry<V> = { readonly present: true; readonly value: V } | {
 
 /**
  * One label's recorded blob: the values plus their ownership stamps. The undo writes them back through the current
- * stamp rule (settingsTransferCommands.ts restoredOwners), so under a recorded entry a stamp recorded by an earlier
- * rule or not at all still resolves only for the destination that entry names.
+ * stamp rule (settingsTransferCommands.ts restoredOwners), so under a recorded entry a token URL string stamp or no
+ * stamp still resolves only for the destination that entry names.
  */
 export type SnapshotBlobEntry =
 	| { readonly present: true; readonly value: StoredServerSecrets; readonly owners?: StoredSecretOwners }

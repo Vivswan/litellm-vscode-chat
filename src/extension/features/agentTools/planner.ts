@@ -362,6 +362,15 @@ function edited(current: string | undefined, next: string | null | undefined): s
 }
 
 /**
+ * An OAuth destination field as the save stores it (dashboard/entryAuth.ts trims it and drops a blank), so the
+ * destination compare judges the saved value.
+ */
+function editedOauthField(current: string | undefined, next: string | null | undefined): string | undefined {
+	const trimmed = edited(current, next)?.trim();
+	return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
  * The secret fields a save would send to a NEW destination while keeping the
  * stored value: a kept key must never follow a changed destination, so these refuse
  * (the agent sets the secret again, which prompts the user).
@@ -452,8 +461,8 @@ export function planSaveServer(
 		baseUrl,
 		...(apiVersion !== undefined ? { apiVersion } : {}),
 		...pickNonSecretOptionalFields({
-			oauthTokenUrl: edited(base?.oauthTokenUrl, input.oauthTokenUrl),
-			oauthClientId: edited(base?.oauthClientId, input.oauthClientId),
+			oauthTokenUrl: editedOauthField(base?.oauthTokenUrl, input.oauthTokenUrl),
+			oauthClientId: editedOauthField(base?.oauthClientId, input.oauthClientId),
 			oauthScopes: edited(base?.oauthScopes, input.oauthScopes),
 			virtualKeyHeader: edited(base?.virtualKeyHeader, input.virtualKeyHeader),
 		}),
