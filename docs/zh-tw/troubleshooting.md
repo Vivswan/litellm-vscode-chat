@@ -136,6 +136,7 @@ VS Code 無法與基底 URL 建立可信任的 HTTPS 連線; 延伸模組沒有�
 - 閘道根本無法列出模型 (沒有 `/v1/models`): 用 `discovery.declared` 在項目上宣告它們, 並在旁邊加上 `discovery.expectedFailures`, 讓缺少的端點不再算作故障。配方: [伺服器: 宣告的模型](servers.md#宣告的模型)。
 - 您之前確實見過的模型上有警告圖示, 代表背景重新整理失敗, 延伸模組正在提供標記為過時的最後已知清單 - 見[逾時與重試](#逾時與重試)。
 - 一切顯示已連線, 您伺服器的標籤下卻什麼都沒有, 而您的 Copilot 席次來自組織 (Copilot Business 或 Enterprise): 組織的「Bring your own language model key」原則被停用了。隱藏發生在 Copilot 內部, 所以延伸模組自己的診斷全都回報成功; 請您的 Copilot 管理員啟用該原則, 然後重新載入 VS Code。
+- 一切顯示已連線, "Chat: Manage Language Models" 列出了每個模型, 但在遠端視窗 (WSL, SSH, 容器) 裡選擇器只提供 Copilot 模型: 看一下聊天輸入框裡的 harness 選擇器。當它顯示 Copilot 時, 該 harness 在遠端上無法觸及延伸模組提供的模型。把它切到 Local。要讓新聊天留在那裡, 把 `chat.defaultToCopilotHarness` 和 `chat.editor.preferCopilotHarness` 設為 `false`。
 
 ### 「伺服器有回應, 但未列出任何模型」
 

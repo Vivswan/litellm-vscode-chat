@@ -136,6 +136,7 @@ Check the status bar first - it names the failure class.
 - The gateway cannot list models at all (no `/v1/models`): declare them on the entry with `discovery.declared`, and add `discovery.expectedFailures` beside it so the missing endpoints stop counting as an outage. Recipe: [Servers: declared models](servers.md#declared-models).
 - A warning icon on models you did see before means a background refresh failed and the extension is serving the last known list flagged stale - see [Timeouts and retries](#timeouts-and-retries).
 - Everything shows connected, yet nothing appears under your server's label, and your Copilot seat comes from an organization (Copilot Business or Enterprise): the organization's "Bring your own language model key" policy is disabled. The hiding happens inside Copilot, so the extension's own diagnostics all report success; ask your Copilot administrator to enable the policy, then reload VS Code.
+- Everything shows connected and "Chat: Manage Language Models" lists every model, yet the picker offers only Copilot models in a remote window (WSL, SSH, a container): check the harness picker in the chat input. When it says Copilot, that harness has no path on a remote to extension-provided models. Switch it to Local. To keep new chats there, set `chat.defaultToCopilotHarness` and `chat.editor.preferCopilotHarness` to `false`.
 
 ### "The server answered but listed no models"
 
