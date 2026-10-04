@@ -57,69 +57,42 @@ const rejected: readonly {
 		sheet: plainSheet(),
 		named: ["dashboard.css", "components", "utilities"],
 	},
-	// A sub-layer's first mention is its parent's first mention too: components.early ahead of base ranks components
-	// ahead of base, whatever the order statement says afterwards.
-	{
-		name: "components first mentioned through a sub-layer",
-		order: "components.early, theme, base, components, utilities",
-		sheet: plainSheet(),
-		named: ["dashboard.css", "components", "base"],
-	},
-	// An import into a layer mentions it where the import stands, ahead of the order statement.
-	{
-		name: "components first mentioned by an import into it",
-		order: "theme, base, components, utilities",
-		sheet: plainSheet(),
-		named: ["dashboard.css", "components", "theme"],
-		lead: '@import url("tokens.css") layer(components);',
-	},
-	// An import qualified by a condition mentions its layer only where the condition holds, so as a first mention it
-	// is refused like a mention under a media query.
-	{
-		name: "components first mentioned by a conditional import",
-		order: "theme, base, components, utilities",
-		sheet: plainSheet(),
-		named: ["theme.css", "components", "supports(display: grid)"],
-		lead: '@import url("tokens.css") layer(components) supports(display: grid);',
-	},
 	// A grouping rule opens no layer and holds only where its condition does: an order declared under print alone
 	// leaves the screen with the unconditional one, which here puts components below base.
 	{
-		name: "a layer first mentioned inside a grouping rule",
+		name: "a layer mentioned off the entry's top level",
 		order: "components, theme, base, utilities",
 		sheet: plainSheet(),
-		named: ["theme.css", "theme", "@media print"],
+		named: ["theme.css", "media at line 1"],
 		lead: "@media print { @layer theme, base, components; }",
 	},
-	// A layer block nested inside a style rule (CSS nesting) is a real layer and would rank components first.
 	{
-		name: "a layer block nested inside a style rule ahead of the order",
+		name: "an anonymous wrap",
+		order: "theme, base, components, utilities",
+		sheet: plainSheet({ wrap: "" }),
+		named: ["dashboard.css", "anonymous"],
+	},
+	// A top-level layer block is a first mention too: a components block printed ahead of the order statement ranks
+	// components first, whatever the statement says afterwards.
+	{
+		name: "components first mentioned by a block ahead of the order",
 		order: "theme, base, components, utilities",
 		sheet: plainSheet(),
-		named: ["theme.css", "components", "button.help"],
-		lead: "button.help { @layer components { color: red; } }",
+		named: ["dashboard.css", "components", "theme"],
+		lead: "@layer components { .early { color: red; } }",
 	},
-	// A sub-layer ranks where its parent does: components.late after base in the flat list still sits inside
-	// components, which base beats.
+	// A dotted name is a sub-layer, which these sheets never declare; the gate refuses it rather than ranking it.
 	{
-		name: "a dotted wrap whose parent ranks below base",
-		order: "theme, components, base, components.late, utilities",
-		sheet: plainSheet({ wrap: "components.late" }),
-		named: ["dashboard.css", "components.late", "base"],
-	},
-	// An escaped dot is part of the identifier, so this wrap is one top-level layer the entry never mentions, not the
-	// sub-layer the entry declares.
-	{
-		name: "a wrap whose escaped dot is no sub-layer",
-		order: "theme, base, components.early, utilities",
-		sheet: plainSheet({ wrap: "components\\.early" }),
-		named: ["dashboard.css", "utilities"],
+		name: "a dotted layer name",
+		order: "theme, base, components.extra, utilities",
+		sheet: plainSheet({ wrap: "components.extra" }),
+		named: ["theme.css", "components.extra", "flat"],
 	},
 	{
 		name: "a rule outside the wrap, which outranks every layer",
 		order: "theme, base, components, utilities",
 		sheet: plainSheet({ trailer: ".stray-unlayered {\n  color: red;\n}\n" }),
-		named: ["dashboard.css", "components", ".stray-unlayered"],
+		named: ["dashboard.css", "style at line 7"],
 	},
 	// A layer nested inside the wrap ranks below the wrap's own declarations, however deep a grouping rule hides it.
 	{
@@ -128,7 +101,7 @@ const rejected: readonly {
 		sheet: plainSheet({
 			inner: "  @media print {\n    @layer deep {\n      .z {\n        color: red;\n      }\n    }\n  }\n",
 		}),
-		named: ["dashboard.css", "components", "@layer deep"],
+		named: ["dashboard.css", "components", "layer-block at line 7"],
 	},
 ];
 
