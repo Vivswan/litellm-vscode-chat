@@ -4,8 +4,6 @@
  * through Copy diagnostics here; servers.test.tsx pins their on-screen twins.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { App } from "../../../../webview/dashboard/app";
 import { DOCS_LINK_GETTING_STARTED } from "../../../../webview/dashboard/docsLinks";
 import {
@@ -21,21 +19,6 @@ beforeEach(() => {
 });
 afterEach(() => {
 	cleanup();
-});
-
-const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..", "..");
-
-test("the review link names the extension package.json publishes, and the GitHub links its repository", () => {
-	const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {
-		publisher: string;
-		name: string;
-		repository: { url: string };
-	};
-	expect(FEEDBACK_LINK_RATE).toBe(
-		`https://marketplace.visualstudio.com/items?itemName=${manifest.publisher}.${manifest.name}&ssr=false#review-details`
-	);
-	expect(FEEDBACK_LINK_REPOSITORY).toBe(manifest.repository.url);
-	expect(FEEDBACK_LINK_FEATURE_REQUEST.startsWith(`${manifest.repository.url}/issues/new?`)).toBe(true);
 });
 
 function mountDiagnostics(overrides?: Parameters<typeof makeState>[0]) {

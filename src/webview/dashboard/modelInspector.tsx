@@ -67,7 +67,7 @@ import { SlideOver } from "./slideOver";
 import { AbsentDatum } from "./ui/absent";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Section } from "./ui/section";
+import { Section, sectionId } from "./ui/section";
 
 /** The readModelParameters answer; the inspector's own useRpc instance correlates it. */
 export type ModelParametersResponse = ResponseFor<"readModelParameters">;
@@ -78,10 +78,10 @@ export type ModelCapabilitiesResponse = ResponseFor<"readModelCapabilities">;
 /** The panel's addressable sections; the Diagnostics table's jump links land on one. */
 export type InspectorSection = "params" | "caps";
 
-/** The section element ids the anchors land on; Section derives them from its own id. */
-const SECTION_ELEMENT_ID: Record<InspectorSection, string> = {
-	params: "inspector-params-section",
-	caps: "inspector-caps-section",
+/** The id each addressable Section is rendered under; `sectionId` turns it into the element the anchors land on. */
+const SECTION_ID: Record<InspectorSection, string> = {
+	params: "inspector-params",
+	caps: "inspector-caps",
 };
 
 /** The not-sent annotations, resolved at call time (no module-level localized constants). */
@@ -699,7 +699,7 @@ export function ModelInspector({
 	stateSeq,
 	currencySymbol,
 	anchor,
-	fallbackFocusId = "models-section",
+	fallbackFocusId = sectionId("models"),
 	onClose,
 	onEditRecord,
 	onEditEntry,
@@ -757,7 +757,7 @@ export function ModelInspector({
 		if (anchor === undefined || anchorSettled.current) {
 			return;
 		}
-		const target = document.getElementById(SECTION_ELEMENT_ID[anchor]);
+		const target = document.getElementById(sectionId(SECTION_ID[anchor]));
 		if (target === null) {
 			return;
 		}
@@ -854,7 +854,7 @@ export function ModelInspector({
 					</dd>
 				</dl>
 				<Section
-					id="inspector-params"
+					id={SECTION_ID.params}
 					level={4}
 					title={l10n.t("Parameters")}
 					help={helpParamsInspector()}
@@ -993,7 +993,7 @@ export function ModelInspector({
 					/>
 				</Section>
 				<Section
-					id="inspector-caps"
+					id={SECTION_ID.caps}
 					level={4}
 					title={l10n.t("Capabilities")}
 					help={helpCapsInspector()}

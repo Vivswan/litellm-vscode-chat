@@ -8,6 +8,7 @@ import {
 	DASHBOARD_STYLESHEET_FILENAME,
 	WEBVIEW_DIST_SEGMENTS,
 } from "../../src/shared/webviewPaths.ts";
+import { blocks } from "../../src/test/bun/webview/dashboard/styles/cssBlocks.ts";
 import { tailwindCliBin } from "../../src/test/bun/webview/dashboard/styles/tailwindCliBin.ts";
 
 const watchMode = process.argv.includes("--watch");
@@ -98,6 +99,77 @@ async function bundleCssFile(id: string): Promise<string> {
 }
 
 /**
+ * The emitted stylesheet's cascade contract: a utility class always beats a dashboard rule. The Tailwind entry
+ * declares the layer order and each plain sheet wraps its rules in one layer below `utilities`; the sheets are
+ * compiled apart and cannot share the name, so the bundle checks it where they meet. CSS ranks layers by first
+ * mention and puts an unmentioned one last, so a renamed, reordered, or missing wrap would silently climb above
+ * utilities with every suite green. Exactly one wrap per sheet and none nested inside it: the dashboard sheet
+ * settles its equal-specificity arguments by source order inside one flat layer, and a nested layer ranks below
+ * its parent's own declarations.
+ */
+function assertLayersOrdered(pieces: readonly string[]): void {
+	const [first = "", ...rest] = pieces;
+	// One text for both scans, so a statement's offset and a block's offset compare: string literals emptied first
+	// (a `content: "@layer x;"` is not a mention), then comments out.
+	const entry = first.replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, '""').replace(/\/\*[\s\S]*?\*\//g, "");
+	const mentions = layerBlocks(entry).flatMap((block) =>
+		block.context.length === 0 && block.name !== undefined ? [{ name: block.name, at: block.start }] : []
+	);
+	for (const match of entry.matchAll(/@layer\s+([^{;]+);/g)) {
+		// A statement inside a block names a sub-layer of that block's layer, not a top-level one: only a statement at
+		// brace depth zero ranks. Strings and comments are already out, so the braces before it count cleanly.
+		const before = entry.slice(0, match.index);
+		if ((before.match(/\{/g)?.length ?? 0) !== (before.match(/\}/g)?.length ?? 0)) {
+			continue;
+		}
+		for (const name of (match[1] ?? "").split(",")) {
+			mentions.push({ name: name.trim(), at: match.index });
+		}
+	}
+	const rank = [...new Set(mentions.sort((a, b) => a.at - b.at).map((mention) => mention.name))];
+	const utilities = rank.indexOf("utilities");
+	if (utilities === -1) {
+		throw new Error(
+			"[CSS_ERROR] the Tailwind entry mentions no utilities layer; the cascade contract has nothing to hold"
+		);
+	}
+	for (const piece of rest) {
+		const wraps = layerBlocks(piece);
+		const wrap = wraps[0];
+		if (wrap === undefined || wraps.length !== 1 || wrap.context.length !== 0) {
+			throw new Error(
+				`[CSS_ERROR] a plain stylesheet must wrap its rules in exactly one top-level @layer; found ${wraps.length}`
+			);
+		}
+		if (wrap.name === undefined) {
+			throw new Error(
+				"[CSS_ERROR] a plain stylesheet's @layer wrap is anonymous, so the Tailwind entry cannot order it"
+			);
+		}
+		const position = rank.indexOf(wrap.name);
+		if (position === -1 || position >= utilities) {
+			throw new Error(
+				`[CSS_ERROR] @layer ${wrap.name} does not rank below utilities in the Tailwind entry's layer order`
+			);
+		}
+	}
+}
+
+/**
+ * Every `@layer` block of a compiled sheet - nested and anonymous ones included, since both break the flat-layer
+ * contract - through the style suites' own block walk so a string or comment carrying the words is not mistaken
+ * for one. `name` is undefined for an anonymous `@layer {`.
+ */
+function layerBlocks(
+	css: string
+): { readonly name: string | undefined; readonly context: readonly string[]; readonly start: number }[] {
+	return blocks(css).flatMap((block) => {
+		const match = /^@layer(?:\s+([^\s{]+))?$/.exec(block.prelude);
+		return match === null ? [] : [{ name: match[1], context: block.context, start: block.start }];
+	});
+}
+
+/**
  * Rolldown removed its native CSS bundling (rolldown/rolldown#4271), so the
  * webview's stylesheet imports resolve to empty modules here and the collected
  * files are compiled per file into the sibling stylesheet asset, in import
@@ -148,6 +220,7 @@ function stylesheetPlugin(): Plugin {
 				}
 			}
 			const pieces = await Promise.all(order.map(bundleCssFile));
+			assertLayersOrdered(pieces);
 			this.emitFile({ type: "asset", fileName: DASHBOARD_STYLESHEET_FILENAME, source: pieces.join("") });
 		},
 	};

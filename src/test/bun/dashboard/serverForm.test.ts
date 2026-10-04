@@ -21,7 +21,6 @@ import {
 	parseServerFormForTest,
 	SERVER_FORM_FIELD_ORDER,
 	sectionFailureText,
-	serverFormFieldLabel,
 	staleKeyFieldsOnSave,
 } from "../../../dashboard/serverForm";
 
@@ -224,14 +223,6 @@ describe("dashboard/serverForm", () => {
 	});
 
 	describe("field catalog", () => {
-		test("the field order covers every draft field exactly once, with a display label each", () => {
-			const draftFields = Object.keys(EMPTY_SERVER_FORM).sort();
-			assert.deepStrictEqual([...SERVER_FORM_FIELD_ORDER].sort(), draftFields);
-			for (const field of SERVER_FORM_FIELD_ORDER) {
-				assert.ok(serverFormFieldLabel(field).length > 0, field);
-			}
-		});
-
 		test("a partial-OAuth draft's problems all sit on the OAuth form's own fields", () => {
 			const problems = problemsOf(draft({ authForm: "oauth", oauthTokenUrl: "https://idp.test/token" }));
 			const failing = SERVER_FORM_FIELD_ORDER.filter((field) => problems[field] !== undefined);

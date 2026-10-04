@@ -2,14 +2,8 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../../childProcessTimeout";
-import {
-	blocks,
-	compileDashboard,
-	compileTheme,
-	FORCED_COLORS_QUERY,
-	forcedColorsBlocks,
-	rulesFor,
-} from "./compileStyles";
+import { compileDashboard, compileTheme, FORCED_COLORS_QUERY, forcedColorsBlocks, rulesFor } from "./compileStyles";
+import { blocks } from "./cssBlocks";
 
 const webviewDir = path.resolve(import.meta.dir, "../../../../../webview");
 

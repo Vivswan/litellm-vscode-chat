@@ -124,75 +124,39 @@ export const EMPTY_SERVER_FORM: ServerFormDraft = {
 
 export type ServerFormField = keyof ServerFormDraft;
 
-/** The form's fields in render order; problem summaries name the first offender in this order. */
-export const SERVER_FORM_FIELD_ORDER: readonly ServerFormField[] = [
-	"label",
-	"baseUrl",
-	"apiVersion",
-	"authForm",
-	"apiKey",
-	"oauthTokenUrl",
-	"oauthClientId",
-	"oauthClientSecret",
-	"oauthScopes",
-	"virtualKeyHeader",
-	"virtualKeyValue",
-	"modelParameters",
-	"modelCapabilities",
-	"declaredModels",
-	"expectedFailures",
-	"includeModes",
-	"headers",
-	"budget",
-	"mcp",
-];
-
 /**
- * The display name of one form field, shared by labels and problem summaries.
- * A function, not a module-level catalog: a constant record would freeze the
- * English text before l10n.config runs.
+ * The form's field catalog in render order, keyed by field so the typecheck holds it to exactly the draft's fields:
+ * a draft field without an entry, or an entry for no draft field, fails to compile. Each entry names its field as a
+ * thunk rather than a string, because a module-level string would freeze the English text before l10n.config runs.
  */
+const SERVER_FORM_FIELDS: Readonly<Record<ServerFormField, () => string>> = {
+	label: () => l10n.t("Label"),
+	baseUrl: () => l10n.t("Base URL"),
+	apiVersion: () => l10n.t("API version"),
+	authForm: () => l10n.t("Authentication"),
+	apiKey: () => l10n.t("API key"),
+	oauthTokenUrl: () => l10n.t("OAuth token URL"),
+	oauthClientId: () => l10n.t("OAuth client ID"),
+	oauthClientSecret: () => l10n.t("OAuth client secret"),
+	oauthScopes: () => l10n.t("OAuth scopes"),
+	virtualKeyHeader: () => l10n.t("Virtual key header"),
+	virtualKeyValue: () => l10n.t("Virtual key value"),
+	modelParameters: () => l10n.t("Model parameters"),
+	modelCapabilities: () => l10n.t("Model capabilities"),
+	declaredModels: () => l10n.t("Declared models"),
+	expectedFailures: () => l10n.t("Expected failures"),
+	includeModes: () => l10n.t("Include skipped modes"),
+	headers: () => l10n.t("Custom headers"),
+	budget: () => l10n.t("Budget"),
+	mcp: () => l10n.t("MCP server"),
+};
+
+/** The form's fields in render order; problem summaries name the first offender in this order. */
+export const SERVER_FORM_FIELD_ORDER = Object.keys(SERVER_FORM_FIELDS) as readonly ServerFormField[];
+
+/** The display name of one form field, shared by labels and problem summaries. */
 export function serverFormFieldLabel(field: ServerFormField): string {
-	switch (field) {
-		case "label":
-			return l10n.t("Label");
-		case "baseUrl":
-			return l10n.t("Base URL");
-		case "apiVersion":
-			return l10n.t("API version");
-		case "apiKey":
-			return l10n.t("API key");
-		case "oauthTokenUrl":
-			return l10n.t("OAuth token URL");
-		case "oauthClientId":
-			return l10n.t("OAuth client ID");
-		case "oauthClientSecret":
-			return l10n.t("OAuth client secret");
-		case "oauthScopes":
-			return l10n.t("OAuth scopes");
-		case "virtualKeyHeader":
-			return l10n.t("Virtual key header");
-		case "virtualKeyValue":
-			return l10n.t("Virtual key value");
-		case "authForm":
-			return l10n.t("Authentication");
-		case "headers":
-			return l10n.t("Custom headers");
-		case "declaredModels":
-			return l10n.t("Declared models");
-		case "budget":
-			return l10n.t("Budget");
-		case "mcp":
-			return l10n.t("MCP server");
-		case "modelParameters":
-			return l10n.t("Model parameters");
-		case "modelCapabilities":
-			return l10n.t("Model capabilities");
-		case "expectedFailures":
-			return l10n.t("Expected failures");
-		case "includeModes":
-			return l10n.t("Include skipped modes");
-	}
+	return SERVER_FORM_FIELDS[field]();
 }
 
 /** Set equality for the canonical-order token lists: a stored entry keeps its author's order. */

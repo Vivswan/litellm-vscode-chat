@@ -4,24 +4,23 @@
  */
 import { afterEach, expect, test } from "bun:test";
 import { DOCS_LINK_SERVERS } from "../../../../../webview/dashboard/docsLinks";
-import { Section, SectionHeader } from "../../../../../webview/dashboard/ui/section";
+import { Section, SectionHeader, sectionId } from "../../../../../webview/dashboard/ui/section";
 import { cleanup, mount } from "../../harness";
 
 afterEach(() => {
 	cleanup();
 });
 
-test("a section names itself once, for the deep link and for the accessible name alike", () => {
+test("a section is focusable by an in-page jump and named by its own heading", () => {
 	// An in-page jump (the servers table's model-count link) scrolls to a section by id and moves focus to it, so the
-	// id, the tabIndex making it focusable, the naming heading and the scroll margin clearing whatever is sticky are
-	// one contract rather than four attributes each surface spells by hand.
+	// tabIndex making it focusable, the naming heading and the scroll margin clearing whatever is sticky are one
+	// contract rather than attributes each surface spells by hand.
 	const root = mount(
 		<Section id="models" title="Models">
 			<p>body</p>
 		</Section>
 	);
 	const section = root.querySelector("section");
-	expect(section?.id).toBe("models-section");
 	expect(section?.getAttribute("tabindex")).toBe("-1");
 	expect(section?.getAttribute("aria-labelledby")).toBe("models-title");
 	expect(root.querySelector("#models-title")?.textContent).toBe("Models");
@@ -95,5 +94,5 @@ test("a header variant does not cost the caller the id contract", () => {
 		</Section>
 	);
 	expect(root.querySelector(".section-head")?.classList.contains("compact")).toBe(true);
-	expect(root.querySelector("section")?.id).toBe("variant-section");
+	expect(root.querySelector("section")?.id).toBe(sectionId("variant"));
 });
