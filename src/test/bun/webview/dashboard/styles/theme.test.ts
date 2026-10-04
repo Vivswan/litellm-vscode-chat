@@ -498,6 +498,14 @@ function forcedBlock(theme: "dark" | "light"): string {
 	return block ?? "";
 }
 
+/** The declarations inside theme.css's `:root, body` derivation block; a comment may sit between its two selectors. */
+function rootAndBodyBlock(): string {
+	const source = readFileSync(themeEntry, "utf8");
+	const block = /^:root,\n(?:\/\*[\s\S]*?\*\/\n)?body \{([\s\S]*?)\n\}/m.exec(source)?.[1];
+	expect(block, "theme.css has no `:root, body` block").toBeDefined();
+	return block ?? "";
+}
+
 test("a forced theme redefines every host token the stylesheets read", () => {
 	// Forcing a theme means replacing the HOST's variables, because that is what
 	// every consumer reads: the semantic mapping, the dashboard stylesheet's
@@ -574,9 +582,8 @@ test("a forced-light override of a body-declared token is repeated on the body t
 	// is DERIVED from the two blocks rather than listed, because the failure mode is a
 	// quiet tier landing in three of its four homes and forced light keeping the dark
 	// lean with every suite green.
-	const source = readFileSync(themeEntry, "utf8");
-	const rootAndBody = /^:root,\nbody \{([\s\S]*?)\n\}/m.exec(source)?.[1] ?? "";
-	const twin = /&\[data-theme="light"\] body \{([\s\S]*?)\n\t\}/.exec(source)?.[1] ?? "";
+	const rootAndBody = rootAndBodyBlock();
+	const twin = /&\[data-theme="light"\] body \{([\s\S]*?)\n\t\}/.exec(readFileSync(themeEntry, "utf8"))?.[1] ?? "";
 	const declarations = (block: string) =>
 		[...block.matchAll(/^\s*(--(?!vscode-)[a-z0-9-]+):\s*([^;]+);/gm)].map(
 			(match) => `${match[1]}: ${match[2]?.trim()}`
@@ -765,9 +772,7 @@ test("the status text aliases are declared on :root alone, never on body", () =>
 	// hue and the whole fix was dead in the one mode it was written for. Only
 	// derivations that read a per-surface input belong in the `:root, body`
 	// block.
-	const source = readFileSync(themeEntry, "utf8");
-	const rootAndBody = /:root,\nbody \{([\s\S]*?)\n\}/.exec(source)?.[1] ?? "";
-	expect(rootAndBody.length).toBeGreaterThan(0);
+	const rootAndBody = rootAndBodyBlock();
 	for (const hue of ["ok", "warn", "err"] as const) {
 		expect(rootAndBody).not.toContain(`--${hue}-text:`);
 		expect(rootAndBody).not.toContain(`--${hue}-fill:`);
