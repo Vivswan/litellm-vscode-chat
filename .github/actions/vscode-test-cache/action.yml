@@ -1,17 +1,32 @@
-# Repo-owned. The host suites ask update.code.visualstudio.com for the current build on every job, and that lookup
-# has died with ETIMEDOUT before a single test ran. The weekly key follows the current build; the prefix restore keeps
-# last week's as the fallback @vscode/test-electron reads when a stable lookup fails (its newest vscode-<platform>-*).
-#   lookup ok, build cached     -> no download
-#   lookup ok, build missing    -> download; saved only when this week's key was a miss
-#   stable lookup times out     -> a warning, the newest cached build runs
-#   insiders lookup times out   -> still fails; its metadata check has no local fallback
+# Repo-owned. The per-job build lookup against update.code.visualstudio.com has timed out before a single test ran.
 
 name: VS Code Test Cache
-description: Restores the .vscode-test download directory the host suites run on; a dead stable lookup then only warns
+description: |
+  Restores the .vscode-test download directory the host suites run on, so a stable lookup that times out falls back
+  to the newest cached build, when there is one.
+
+  The cache key is the runner's OS and arch, the requested build, and the ISO week. Once this week's key is saved, a
+  stable release later that week is downloaded by every job until the week rolls over.
+
+  When this week's key misses, a prefix restore serves the newest matching cache, whatever week saved it.
+
+  Outcomes of the suites' build lookup against update.code.visualstudio.com:
+    - lookup ok, build cached: no download
+    - lookup ok, build missing: a download, saved under this week's key when it missed and the job ends green
+    - stable lookup times out, a build restored: a warning, and the newest restored build runs
+    - stable lookup times out, nothing restored: the job fails
+    - insiders lookup times out: the job fails, as its metadata check has no local fallback
+
+  The caller's obligations:
+    - run it after checkout and before the step that launches the test host
+    - set the version input to the build the suites request through VSCODE_TEST_VERSION, so the key names the build
+      the directory holds
+    - have bash and date on PATH, as every GitHub runner does
+  No permissions are needed.
 
 inputs:
   version:
-    description: The VS Code build the suites request (stable, insiders, or a version), as .vscode-test.mjs reads it
+    description: The VS Code build the suites request (stable, insiders, or a version), as .vscode-test.mjs reads it.
     required: false
     default: stable
 
