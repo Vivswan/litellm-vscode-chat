@@ -122,7 +122,7 @@ async function cleanUpLegacyRegistryState(ctx: MigrationContext): Promise<Migrat
  * through the dashboard or the servers setting. A successful cleanup logs only the runner's "migrated" line,
  * and no stored value reaches any log line.
  */
-export const legacyRegistryCleanupMigration: ExtensionMigration = {
+export const legacyRegistryCleanupMigration: ExtensionMigration<"legacy-registry-state"> = {
 	state: "legacy-registry-state",
 	description: "Deleted leftover legacy state: registry keys, their stored secrets, and retired parked records",
 	sourceRelease: "0.3.1",

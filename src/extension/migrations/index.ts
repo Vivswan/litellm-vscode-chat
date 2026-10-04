@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 import type { Logger } from "../../shared/logger";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
+import type { MigrationStateId } from "./expiries";
 import { fingerprintProjectionMigration } from "./fingerprintProjection";
 import { legacyRegistryCleanupMigration } from "./legacyRegistryCleanup";
 import { settingsRedesignMigration } from "./settingsRedesign/apply";
@@ -38,10 +39,14 @@ export type MigrationOutcome = "migrated" | "nothing-to-do" | "in-progress";
  * also makes reruns across many activations the normal mode of operation.
  * Every run is awaited before registerLanguageModelChatProvider, so a
  * migration must not hit the host command surface or the network.
+ *
+ * `State` defaults to the expiry table's vocabulary, so a registered migration cannot exist without an expiry row; a
+ * module names its own literal so the registry below can account for every row. The runner itself accepts any slug
+ * (synthetic migrations in tests).
  */
-export interface ExtensionMigration {
-	/** Stable slug for the legacy state this migrates away from; logs, tests, and MIGRATION_EXPIRIES key on it. */
-	state: string;
+export interface ExtensionMigration<State extends string = MigrationStateId> {
+	/** Stable slug for the legacy state this migrates away from; logs and MIGRATION_EXPIRIES key on it. */
+	state: State;
 	/** One line logged when the migration does work. */
 	description: string;
 	/** The last release whose state this migrates away from; MIGRATIONS stays ordered by it. */
@@ -54,17 +59,30 @@ export interface ExtensionMigration {
  * Chronological by sourceRelease, ties keeping registration order (a test pins
  * this). Registration order is execution order.
  */
-export const MIGRATIONS: readonly ExtensionMigration[] = [
+export const MIGRATIONS = [
 	legacyRegistryCleanupMigration,
 	settingsRedesignMigration,
 	stampSecretOwnersMigration,
 	fingerprintProjectionMigration,
-];
+] as const satisfies readonly ExtensionMigration[];
+
+type RegisteredMigrationState = (typeof MIGRATIONS)[number]["state"];
+
+/**
+ * The expiry rows no runner registration answers to: the out-of-runner read-time views (bareArrayBlobs.ts), which
+ * migrate on read instead of at activation. Total both ways: a row whose migration was deleted is a missing key, a
+ * view that gained a registration is an excess property or, once the Exclude has emptied, a `true` where only
+ * `never` may stand. With ExtensionMigration's `state` type, the expiry table and the live migrations cannot drift.
+ */
+type OutOfRunnerStates = Record<Exclude<MigrationStateId, RegisteredMigrationState>, true> &
+	Partial<Record<RegisteredMigrationState, never>>;
+
+void ({ "bare-array-blobs": true } satisfies OutOfRunnerStates);
 
 /** Best-effort: a failing migration logs once and the rest still run; never rejects. */
 export async function runMigrations(
 	ctx: MigrationContext,
-	migrations: readonly ExtensionMigration[] = MIGRATIONS
+	migrations: readonly ExtensionMigration<string>[] = MIGRATIONS
 ): Promise<void> {
 	for (const migration of migrations) {
 		try {

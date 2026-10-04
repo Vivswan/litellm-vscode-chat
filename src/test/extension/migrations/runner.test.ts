@@ -30,7 +30,7 @@ function synthetic(
 	state: string,
 	run: (ctx: MigrationContext) => Promise<MigrationOutcome>,
 	description = `did ${state}`
-): ExtensionMigration {
+): ExtensionMigration<string> {
 	return { state, description, sourceRelease: "0.0.0", run };
 }
 
@@ -122,24 +122,17 @@ suite("extension/migrations/runner", () => {
 
 	suite("expiry registry", () => {
 		const migrationsDir = path.join(REPO_ROOT, "src", "extension", "migrations");
-		// The migration modules that live outside the MIGRATIONS runner: today
-		// only the bareArrayBlobs read-time view. A new out-of-runner module
-		// joins the dead-man switch by joining this set.
-		const OUT_OF_RUNNER_STATES = ["bare-array-blobs"];
 		/** A string is a real calendar date only if Date round-trips it unchanged. */
 		const isRealIsoDate = (value: string): boolean =>
 			/^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
 
-		test("the registry and the live migrations match exactly, and every entry is well-formed", () => {
-			// Fail-closed both ways: a migration without an expiry entry never
-			// expires, and an entry no live migration answers to is a stale or
-			// duplicate row to delete.
-			const expected = [...MIGRATIONS.map((migration) => migration.state), ...OUT_OF_RUNNER_STATES].sort();
-			assert.deepStrictEqual(
-				MIGRATION_EXPIRIES.map((entry) => entry.state).sort(),
-				expected,
-				"MIGRATION_EXPIRIES must list every live migration exactly once"
-			);
+		test("every entry names an existing module and real, ordered dates, and no state repeats", () => {
+			// The registry's correspondence with the live migrations is a compile-time fact (migrations/index.ts); what the
+			// type cannot see is whether the file is still there, whether the dates parse and order, and multiplicity: a
+			// union erases a duplicate row or a double registration, which would run a migration twice.
+			const states = (entries: readonly { readonly state: string }[]): string[] => entries.map((entry) => entry.state);
+			assert.strictEqual(new Set(states(MIGRATION_EXPIRIES)).size, MIGRATION_EXPIRIES.length, "duplicate expiry row");
+			assert.strictEqual(new Set(states(MIGRATIONS)).size, MIGRATIONS.length, "a migration is registered twice");
 			for (const entry of MIGRATION_EXPIRIES) {
 				assert.ok(
 					fs.existsSync(path.join(migrationsDir, entry.file)),
@@ -152,11 +145,11 @@ suite("extension/migrations/runner", () => {
 		});
 
 		test("every module in migrations/ is covered by a registered expiry", () => {
-			// The directory is the truth the registry must keep up with: a new
-			// migration module - runner-registered or not - fails here until it
-			// carries a MIGRATION_EXPIRIES row (a support module inside a registered
-			// migration's own directory, like settingsRedesign/'s, rides its entry).
-			const registeredFiles = MIGRATION_EXPIRIES.map((entry) => entry.file);
+			// The directory is the truth the registry must keep up with: a new migration module - runner-registered or
+			// not - fails here until it carries a MIGRATION_EXPIRIES row (a support module inside a registered migration's
+			// own directory, like settingsRedesign/'s, rides its entry). The type system cannot see a module nothing
+			// imports, which is exactly what a new out-of-runner view is until its row names it.
+			const registeredFiles: readonly string[] = MIGRATION_EXPIRIES.map((entry) => entry.file);
 			for (const name of fs.readdirSync(migrationsDir)) {
 				// index.ts (the runner and registrations) and expiries.ts (the expiry
 				// registry itself) are registry machinery, not migrations.

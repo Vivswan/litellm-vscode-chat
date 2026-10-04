@@ -40,16 +40,16 @@ interface RunResult {
  * the trailers emit.
  */
 function runChunks(chunks: unknown[]): RunResult {
-	const processor = new StreamProcessor(idSource(), () => {});
 	const parts: vscode.LanguageModelResponsePart[] = [];
 	const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
+	const processor = new StreamProcessor(idSource(), () => {}, progress);
 	for (const raw of chunks) {
 		const chunk = parseChunk(raw);
 		if (chunk) {
-			processor.processDelta(chunk, progress);
+			processor.processDelta(chunk);
 		}
 	}
-	processor.endOfStream(progress);
+	processor.endOfStream();
 	return { parts };
 }
 

@@ -1,43 +1,11 @@
 /**
- * The followups a finished turn offers, and the fail-closed pin that every one
- * of them routes somewhere: a followup naming a command the manifest does not
- * contribute is a button that does nothing when clicked, which no amount of
- * care at the call site prevents.
+ * The followups a finished turn offers. That every one of them routes to a registered command is a compile-time fact
+ * (ParticipantFollowup.command is SlashCommandName); what remains to pin is the offer rule itself.
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { participantFollowups } from "../../../../../extension/features/participant/followups";
-import { PARTICIPANT_ID } from "../../../../../shared/config/commandIds";
-import { REPO_ROOT } from "../../../../util/repoRoot";
-
-/** The participant command names package.json contributes. */
-function contributedCommandNames(): string[] {
-	const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")) as {
-		contributes: { chatParticipants?: readonly { id: string; commands?: readonly { name: string }[] }[] };
-	};
-	const participant = (manifest.contributes.chatParticipants ?? []).find((entry) => entry.id === PARTICIPANT_ID);
-	expect(participant, `package.json contributes no chat participant with id ${PARTICIPANT_ID}`).toBeDefined();
-	return (participant?.commands ?? []).map((command) => command.name);
-}
 
 describe("extension/features/participant followups", () => {
-	test("every followup routes to a contributed command", () => {
-		const contributed = new Set(contributedCommandNames());
-		// Over the whole table, not just one call: the filter must never be what
-		// hides an uncontributed entry.
-		const everyFollowup = [
-			...participantFollowups({}),
-			...participantFollowups({ command: "tests" }),
-			...participantFollowups({ command: "docs" }),
-			...participantFollowups({ command: "models" }),
-		];
-		expect(everyFollowup.length).toBeGreaterThan(0);
-		for (const followup of everyFollowup) {
-			expect(contributed.has(followup.command), `followup /${followup.command} is not contributed`).toBe(true);
-		}
-	});
-
 	test("a plain turn offers the first two of the table", () => {
 		expect(participantFollowups({}).map((followup) => followup.command)).toEqual(["tests", "docs"]);
 	});

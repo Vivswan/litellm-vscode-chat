@@ -47,12 +47,15 @@ export const EXPLAIN_INSTRUCTION = [
  * descriptions against package.json, so the "/" picker and the in-chat help
  * listing cannot describe them two ways.
  */
-export function quickFixSlashCommands(): SlashCommand[] {
+export function quickFixSlashCommands(): [SlashCommand<"fix">, SlashCommand<"explain">] {
 	return [
 		promptCommand("fix", l10n.t("Fix the problem in the code you attach or select"), FIX_INSTRUCTION),
 		promptCommand("explain", l10n.t("Explain a diagnostic on the code you attach or select"), EXPLAIN_INSTRUCTION),
 	];
 }
+
+/** The bridge's half of the participant's name vocabulary; slashCommands.ts folds it into SlashCommandName. */
+export type QuickFixSlashCommandName = ReturnType<typeof quickFixSlashCommands>[number]["name"];
 
 /** Register both into the participant's live table; a duplicate name throws, as it does for any registration. */
 export function registerQuickFixSlashCommands(registry: SlashCommandRegistry): void {

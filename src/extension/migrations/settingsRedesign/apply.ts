@@ -90,7 +90,7 @@ export async function applySettingsRedesign(setting: RedesignSettings, logger: L
  * Runs before registration so the first registration of a session already sees
  * the new-name settings and the restructured entries.
  */
-export const settingsRedesignMigration: ExtensionMigration = {
+export const settingsRedesignMigration: ExtensionMigration<"settings-redesign"> = {
 	state: "settings-redesign",
 	description: "Renamed and restructured the pre-redesign settings into the redesigned namespace",
 	sourceRelease: "0.4.4",

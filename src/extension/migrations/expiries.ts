@@ -6,6 +6,10 @@
  * turns the build red once today is past it. The dates are deliberate expiry
  * decisions, free to push out - what is not free is silence.
  *
+ * The table is also the vocabulary of migration states: MigrationStateId is read off it, every ExtensionMigration's
+ * `state` is typed against it, and index.ts accounts for every id as registered or out-of-runner, so a migration
+ * without a row, or a row without a migration, fails to compile.
+ *
  * ZERO imports on purpose: scripts/ci/migration-expiry-table.ts static-imports
  * this module, and the release-PR workflow runs that script with bare bun and
  * --no-install (no node_modules), so this leaf must stay dependency-free -
@@ -15,7 +19,7 @@
  */
 
 export interface MigrationExpiry {
-	/** The migration's `state` slug, or the registered slug of an out-of-runner module. */
+	/** The migration's `state` slug, or the slug of an out-of-runner module. */
 	readonly state: string;
 	/** The module to delete when the entry expires, relative to src/extension/migrations/. */
 	readonly file: string;
@@ -25,7 +29,7 @@ export interface MigrationExpiry {
 	readonly expires: string;
 }
 
-export const MIGRATION_EXPIRIES: readonly MigrationExpiry[] = [
+export const MIGRATION_EXPIRIES = [
 	{ state: "settings-redesign", file: "settingsRedesign/apply.ts", introduced: "2026-08-08", expires: "2026-11-08" },
 	{ state: "unstamped-server-secrets", file: "stampSecretOwners.ts", introduced: "2026-08-19", expires: "2026-11-19" },
 	{ state: "bare-array-blobs", file: "bareArrayBlobs.ts", introduced: "2026-08-23", expires: "2026-11-23" },
@@ -36,4 +40,7 @@ export const MIGRATION_EXPIRIES: readonly MigrationExpiry[] = [
 		introduced: "2026-08-30",
 		expires: "2026-11-30",
 	},
-];
+] as const satisfies readonly MigrationExpiry[];
+
+/** The state slug of every live migration, runner-registered or not: the table above is the one list. */
+export type MigrationStateId = (typeof MIGRATION_EXPIRIES)[number]["state"];

@@ -486,7 +486,14 @@ export class ChatClient {
 			// stream processor stamps the matching mime on emitted audio parts.
 			const audio = requestBody.audio;
 			const requestAudioFormat = isRecord(audio) && typeof audio.format === "string" ? audio.format : undefined;
-			const streamProcessor = new StreamProcessor(this.toolCallIds, this.log, undefined, undefined, requestAudioFormat);
+			const streamProcessor = new StreamProcessor(
+				this.toolCallIds,
+				this.log,
+				progress,
+				undefined,
+				undefined,
+				requestAudioFormat
+			);
 			// Every 200 arrives with a body stream, so a server that sent nothing shows only as a stream that ends
 			// without a byte; that is the same "nothing came back" as a null body and gets the same error.
 			let bodyBytes = 0;
@@ -498,7 +505,7 @@ export class ChatClient {
 					},
 				})
 			);
-			await streamProcessor.processStreamingResponse(counted, progress, token);
+			await streamProcessor.processStreamingResponse(counted, token);
 			if (bodyBytes === 0) {
 				throw bodylessResponseError("chat", response.status, connection.baseUrl);
 			}
