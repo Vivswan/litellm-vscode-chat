@@ -1,6 +1,7 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import type { FuzzEvent } from "../fuzzCorpus";
+import type { FuzzEvent } from "../../fuzzCorpus";
 import {
 	makePropertyEvent,
 	makeTailEvent,
@@ -8,9 +9,9 @@ import {
 	PROPERTY_EVENT_KIND_WEIGHTS,
 	resolveFuzzSeed,
 	TAIL_EVENT_KINDS,
-} from "../fuzzStream";
-import { expectDefined } from "../pureHelpers";
-import { collapseChunks } from "../scenarios";
+} from "../../fuzzStream";
+import { expectDefined } from "../../pureHelpers";
+import { collapseChunks } from "../../scenarios";
 
 /**
  * Property coverage for collapseChunks, the fake stack's own non-streaming
@@ -21,6 +22,8 @@ import { collapseChunks } from "../scenarios";
  */
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
+// The nightly fuzz raises FUZZ_RUNS by an order of magnitude; the per-test budget scales with it.
+const PROPERTY_TIMEOUT_MS = Math.max(120000, NUM_RUNS * 50);
 const SEED = resolveFuzzSeed();
 
 const seedArb = fc.integer({ min: 0, max: 0x7fffffff });
@@ -123,90 +126,102 @@ function chunksOf(events: FuzzEvent[]): unknown[] {
 	return events.flatMap((event) => event.chunks);
 }
 
-suite("fakeStack/collapseChunks properties", () => {
-	test("collapsed content is the in-order concatenation of every string delta.content", function () {
-		this.timeout(Math.max(120000, NUM_RUNS * 50));
-		fc.assert(
-			fc.property(eventsArb, (events) => {
-				const chunks = chunksOf(events);
-				const choice = soleChoiceOf(collapseChunks(chunks));
-				assert.strictEqual(choice.message.role, "assistant");
-				assert.strictEqual(choice.message.content, concatenatedContentOf(chunks), "content diverged");
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED }
-		);
-	});
+describe("fakeStack/collapseChunks properties", () => {
+	test(
+		"collapsed content is the in-order concatenation of every string delta.content",
+		() => {
+			fc.assert(
+				fc.property(eventsArb, (events) => {
+					const chunks = chunksOf(events);
+					const choice = soleChoiceOf(collapseChunks(chunks));
+					assert.strictEqual(choice.message.role, "assistant");
+					assert.strictEqual(choice.message.content, concatenatedContentOf(chunks), "content diverged");
+				}),
+				{ numRuns: NUM_RUNS, seed: SEED }
+			);
+		},
+		PROPERTY_TIMEOUT_MS
+	);
 
-	test("delta-channel tool calls reassemble in index order with ids kept and arguments concatenated", function () {
-		this.timeout(Math.max(120000, NUM_RUNS * 50));
-		fc.assert(
-			fc.property(deltaToolEventsArb, (events) => {
-				// This expectation leans on a generator guarantee: every event kind
-				// used here emits its first call's frames before its second's, so the
-				// Map insertion order matches both the numeric index order and the
-				// flattened tools[] position. A generator that ever emits a higher
-				// index first breaks this oracle, not the code.
-				const expected = events
-					.flatMap((event) => event.tools ?? [])
-					.map((call, position) => ({
-						id: `call_fuzz_${position}`,
-						type: "function",
-						function: { name: call.name, arguments: JSON.stringify(call.args) },
+	test(
+		"delta-channel tool calls reassemble in index order with ids kept and arguments concatenated",
+		() => {
+			fc.assert(
+				fc.property(deltaToolEventsArb, (events) => {
+					// This expectation leans on a generator guarantee: every event kind
+					// used here emits its first call's frames before its second's, so the
+					// Map insertion order matches both the numeric index order and the
+					// flattened tools[] position. A generator that ever emits a higher
+					// index first breaks this oracle, not the code.
+					const expected = events
+						.flatMap((event) => event.tools ?? [])
+						.map((call, position) => ({
+							id: `call_fuzz_${position}`,
+							type: "function",
+							function: { name: call.name, arguments: JSON.stringify(call.args) },
+						}));
+					const choice = soleChoiceOf(collapseChunks(chunksOf(events)));
+					assert.deepStrictEqual(choice.message.tool_calls, expected, "tool calls diverged");
+				}),
+				{ numRuns: NUM_RUNS, seed: SEED }
+			);
+		},
+		PROPERTY_TIMEOUT_MS
+	);
+
+	test(
+		"last string finish_reason and last non-null usage win",
+		() => {
+			const usageArb = fc.oneof(
+				fc.constant(undefined),
+				fc.constant(null),
+				fc.record({ prompt_tokens: fc.nat({ max: 1000 }), completion_tokens: fc.nat({ max: 1000 }) })
+			);
+			const finishArb = fc.option(fc.constantFrom("stop", "length", "tool_calls", "content_filter"), { nil: null });
+			fc.assert(
+				fc.property(fc.array(fc.tuple(finishArb, usageArb), { maxLength: 10 }), (trailers) => {
+					const chunks = trailers.map(([finish, usage]) => ({
+						id: "chatcmpl-fuzz",
+						object: "chat.completion.chunk",
+						choices: [{ index: 0, delta: {}, finish_reason: finish }],
+						...(usage !== undefined ? { usage } : {}),
 					}));
-				const choice = soleChoiceOf(collapseChunks(chunksOf(events)));
-				assert.deepStrictEqual(choice.message.tool_calls, expected, "tool calls diverged");
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED }
-		);
-	});
+					const collapsed = collapseChunks(chunks);
+					const choice = soleChoiceOf(collapsed);
 
-	test("last string finish_reason and last non-null usage win", function () {
-		this.timeout(Math.max(120000, NUM_RUNS * 50));
-		const usageArb = fc.oneof(
-			fc.constant(undefined),
-			fc.constant(null),
-			fc.record({ prompt_tokens: fc.nat({ max: 1000 }), completion_tokens: fc.nat({ max: 1000 }) })
-		);
-		const finishArb = fc.option(fc.constantFrom("stop", "length", "tool_calls", "content_filter"), { nil: null });
-		fc.assert(
-			fc.property(fc.array(fc.tuple(finishArb, usageArb), { maxLength: 10 }), (trailers) => {
-				const chunks = trailers.map(([finish, usage]) => ({
-					id: "chatcmpl-fuzz",
-					object: "chat.completion.chunk",
-					choices: [{ index: 0, delta: {}, finish_reason: finish }],
-					...(usage !== undefined ? { usage } : {}),
-				}));
-				const collapsed = collapseChunks(chunks);
-				const choice = soleChoiceOf(collapsed);
+					// Pinning what the code does: every *string* finish_reason overwrites the
+					// previous one (so the last string wins), nulls are ignored, and the
+					// default with no string at all is "stop".
+					const strings = trailers.flatMap(([finish]) => (finish === null ? [] : [finish]));
+					assert.strictEqual(choice.finish_reason, strings[strings.length - 1] ?? "stop", "finish_reason diverged");
 
-				// Pinning what the code does: every *string* finish_reason overwrites the
-				// previous one (so the last string wins), nulls are ignored, and the
-				// default with no string at all is "stop".
-				const strings = trailers.flatMap(([finish]) => (finish === null ? [] : [finish]));
-				assert.strictEqual(choice.finish_reason, strings[strings.length - 1] ?? "stop", "finish_reason diverged");
+					// Usage: the last value that is neither undefined nor null wins; a chunk
+					// with usage: null is ignored, and with no usage at all the key is absent.
+					const usages = trailers.map(([, usage]) => usage).filter((usage) => usage !== undefined && usage !== null);
+					if (usages.length > 0) {
+						assert.deepStrictEqual(collapsed.usage, usages[usages.length - 1], "usage diverged");
+					} else {
+						assert.ok(!("usage" in collapsed), "usage key must be absent when no chunk carried one");
+					}
+				}),
+				{ numRuns: NUM_RUNS, seed: SEED }
+			);
+		},
+		PROPERTY_TIMEOUT_MS
+	);
 
-				// Usage: the last value that is neither undefined nor null wins; a chunk
-				// with usage: null is ignored, and with no usage at all the key is absent.
-				const usages = trailers.map(([, usage]) => usage).filter((usage) => usage !== undefined && usage !== null);
-				if (usages.length > 0) {
-					assert.deepStrictEqual(collapsed.usage, usages[usages.length - 1], "usage diverged");
-				} else {
-					assert.ok(!("usage" in collapsed), "usage key must be absent when no chunk carried one");
-				}
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED }
-		);
-	});
-
-	test("never throws on arbitrary JSON chunk lists and always returns the one-choice envelope", function () {
-		this.timeout(Math.max(120000, NUM_RUNS * 50));
-		fc.assert(
-			fc.property(fc.array(fc.jsonValue({ maxDepth: 3 }), { maxLength: 12 }), (junk) => {
-				const collapsed = collapseChunks(junk);
-				const choice = soleChoiceOf(collapsed);
-				assert.strictEqual(typeof choice.message.content, "string");
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED }
-		);
-	});
+	test(
+		"never throws on arbitrary JSON chunk lists and always returns the one-choice envelope",
+		() => {
+			fc.assert(
+				fc.property(fc.array(fc.jsonValue({ maxDepth: 3 }), { maxLength: 12 }), (junk) => {
+					const collapsed = collapseChunks(junk);
+					const choice = soleChoiceOf(collapsed);
+					assert.strictEqual(typeof choice.message.content, "string");
+				}),
+				{ numRuns: NUM_RUNS, seed: SEED }
+			);
+		},
+		PROPERTY_TIMEOUT_MS
+	);
 });

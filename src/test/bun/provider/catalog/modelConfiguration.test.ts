@@ -1,3 +1,4 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import {
 	DEFAULT_REASONING_EFFORT_LEVELS,
@@ -7,13 +8,13 @@ import {
 	reasoningEffortSchema,
 	requestParamsFromModelConfiguration,
 	supportsReasoningEffort,
-} from "../../../provider/catalog/modelConfiguration";
-import type { LiteLLMProvider } from "../../../provider/catalog/schemas";
-import type { EffectiveCapabilityFields } from "../../../shared/config/capabilityResolution";
-import { expectDefined } from "../../pureHelpers";
+} from "../../../../provider/catalog/modelConfiguration";
+import type { LiteLLMProvider } from "../../../../provider/catalog/schemas";
+import type { EffectiveCapabilityFields } from "../../../../shared/config/capabilityResolution";
+import { expectDefined } from "../../../pureHelpers";
 
-suite("provider/catalog/modelConfiguration", () => {
-	suite("reasoning-effort schema", () => {
+describe("provider/catalog/modelConfiguration", () => {
+	describe("reasoning-effort schema", () => {
 		const property = (levels: readonly string[] = DEFAULT_REASONING_EFFORT_LEVELS) =>
 			expectDefined(reasoningEffortSchema(levels).properties?.reasoningEffort);
 
@@ -58,7 +59,7 @@ suite("provider/catalog/modelConfiguration", () => {
 		});
 	});
 
-	suite("reasoningEffortLevelsFromFlags", () => {
+	describe("reasoningEffortLevelsFromFlags", () => {
 		test("collects the true-flagged levels, known ones in menu order", () => {
 			assert.deepStrictEqual(
 				reasoningEffortLevelsFromFlags({
@@ -109,7 +110,7 @@ suite("provider/catalog/modelConfiguration", () => {
 		});
 	});
 
-	suite("effectiveReasoningLevels", () => {
+	describe("effectiveReasoningLevels", () => {
 		const fieldsWith = (value: unknown): EffectiveCapabilityFields =>
 			({ reasoning_effort_levels: { value, level: "server", shadowed: [] } }) as unknown as EffectiveCapabilityFields;
 
@@ -125,7 +126,7 @@ suite("provider/catalog/modelConfiguration", () => {
 		});
 	});
 
-	suite("supportsReasoningEffort", () => {
+	describe("supportsReasoningEffort", () => {
 		const provider = (fields: Partial<LiteLLMProvider>): LiteLLMProvider => ({
 			provider: "test",
 			status: "ok",
@@ -176,7 +177,7 @@ suite("provider/catalog/modelConfiguration", () => {
 		});
 	});
 
-	suite("requestParamsFromModelConfiguration", () => {
+	describe("requestParamsFromModelConfiguration", () => {
 		test("maps reasoningEffort onto the reasoning_effort wire key", () => {
 			for (const level of DEFAULT_REASONING_EFFORT_LEVELS) {
 				assert.deepStrictEqual(requestParamsFromModelConfiguration({ reasoningEffort: level }), {

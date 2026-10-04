@@ -8,33 +8,34 @@
  * secretDirectiveSchema admits exactly its documented shapes.
  */
 
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import type { DashboardMethod } from "../../../dashboard/endpoints";
-import { DASHBOARD_COMMAND_IDS, DASHBOARD_ENDPOINTS, WIRE_LIMITS } from "../../../dashboard/endpoints";
+import type { DashboardMethod } from "../../../../dashboard/endpoints";
+import { DASHBOARD_COMMAND_IDS, DASHBOARD_ENDPOINTS, WIRE_LIMITS } from "../../../../dashboard/endpoints";
 import {
 	BOOLEAN_SETTING_IDS,
 	NUMBER_SETTING_IDS,
 	RESETTABLE_SETTING_IDS,
 	REVEALABLE_SETTING_IDS,
-} from "../../../dashboard/viewModels";
-import { parseDashboardRequest, secretDirectiveSchema } from "../../../extension/dashboard/intentSchema";
+} from "../../../../dashboard/viewModels";
+import { parseDashboardRequest, secretDirectiveSchema } from "../../../../extension/dashboard/intentSchema";
 import {
 	FEATURE_MODEL_IDS,
 	LANGUAGE_FILTER_MODES,
 	TOKEN_ESTIMATION_MODES,
 	UI_ACCENTS,
 	UI_THEMES,
-} from "../../../shared/config/settingSpec";
+} from "../../../../shared/config/settingSpec";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
 	NON_CHAT_MODES,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	SECRET_FIELD_IDS,
-} from "../../../shared/serverEntry";
-import { isUnsafeRecordKey } from "../../../shared/util/json";
-import { REFUSED_DASHBOARD_REQUESTS } from "../../fuzzCorpus";
-import { resolveFuzzSeed } from "../../fuzzStream";
+} from "../../../../shared/serverEntry";
+import { isUnsafeRecordKey } from "../../../../shared/util/json";
+import { REFUSED_DASHBOARD_REQUESTS } from "../../../fuzzCorpus";
+import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
@@ -255,7 +256,7 @@ const validRequest: fc.Arbitrary<RawRequest> = fc.constantFrom(...METHODS).chain
  */
 const junkValue: fc.Arbitrary<unknown> = fc.constantFrom(Number.NaN, [], { unexpected: [] });
 
-suite("extension/dashboard/state webview request schema properties", () => {
+describe("extension/dashboard/state webview request schema properties", () => {
 	test("parseDashboardRequest is total over arbitrary values", () => {
 		fc.assert(
 			fc.property(fc.oneof(fc.jsonValue(), fc.anything()), (input) => {
@@ -382,7 +383,7 @@ const directiveCandidate: fc.Arbitrary<Record<string, unknown>> = fc.oneof(
 		.map((pairs) => Object.fromEntries(pairs))
 );
 
-suite("extension/dashboard/state secret directive schema properties", () => {
+describe("extension/dashboard/state secret directive schema properties", () => {
 	test("secretDirectiveSchema admits exactly the documented shapes", () => {
 		fc.assert(
 			fc.property(directiveCandidate, (candidate) => {

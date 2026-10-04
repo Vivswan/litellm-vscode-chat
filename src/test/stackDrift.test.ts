@@ -368,30 +368,10 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		["src/test/envFile.test.ts", "meta-test: pins the docker stack's env-file grammar beside its stack suites"],
 		["src/test/scenarios.test.ts", "meta-test: pins the canned stream shapes the docker suites replay"],
 		["src/test/stackDrift.test.ts", "meta-test: walks out/test and imports .vscode-test.mjs"],
-		["src/test/extension/dashboard/html.test.ts", "pure today; owned by the dashboard HTML work, port separately"],
-		["src/test/extension/dashboard/state.property.test.ts", "pure today; not yet ported to the bun tree"],
-		["src/test/extension/dashboard/usageView.test.ts", "pure today; not yet ported to the bun tree"],
-		["src/test/extension/servers/usage/freshness.test.ts", "pure today; not yet ported to the bun tree"],
-		["src/test/extension/servers/usage/store.test.ts", "pure today; not yet ported to the bun tree"],
-		["src/test/extension/settingsTransfer/secretSurgery.test.ts", "pure today; not yet ported to the bun tree"],
-		["src/test/extension/settingsTransfer/snapshot.test.ts", "pure today; not yet ported to the bun tree"],
-		[
-			"src/test/extension/ui/usageStatusItem.property.test.ts",
-			"pure since the l10n unification; not yet ported to the bun tree",
-		],
-		[
-			"src/test/extension/ui/usageStatusItem.test.ts",
-			"pure since the l10n unification; not yet ported to the bun tree",
-		],
-		["src/test/fakeStack/collapseChunks.property.test.ts", "pure today; not yet ported to the bun tree"],
-		["src/test/provider/catalog/modelConfiguration.test.ts", "pure today; not yet ported to the bun tree"],
 		[
 			"src/test/provider/transport/nodeHttpFetch.test.ts",
 			"pure by design; must run on the real Node http stack under Electron, not bun's",
 		],
-		["src/test/provider/transport/request.property.test.ts", "pure today; not yet ported to the bun tree"],
-		["src/test/shared/conversion/promptCache.test.ts", "pure today; not yet ported to the bun tree"],
-		["src/test/shared/logger.test.ts", "pure today; not yet ported to the bun tree"],
 	]);
 
 	// Only value-position module references count as runtime edges; type-only

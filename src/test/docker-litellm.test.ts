@@ -822,13 +822,11 @@ suite("Docker LiteLLM stack", () => {
 				(error: unknown) => ({ error })
 			);
 			if ("error" in outcome) {
-				// Observed: the host REJECTS role 3 for extensions without the
-				// languageModelSystem API proposal, in host marshalling before
-				// anything reaches the wire. Pinning that rejection means a host or
-				// manifest change that starts accepting system messages fails loudly
-				// and upgrades this to the four-anchor branch. Until then the docker
-				// suite pins three anchors and the four-anchor invariant stays covered
-				// by src/test/shared/conversion/promptCache.test.ts.
+				// Observed: the host REJECTS role 3 for extensions without the languageModelSystem API proposal, in
+				// host marshalling before anything reaches the wire. Pinning that rejection means a host or manifest
+				// change that starts accepting system messages fails loudly and upgrades this to the four-anchor
+				// branch. Until then the docker suite pins three anchors and the four-anchor invariant stays covered
+				// by src/test/bun/shared/conversion/promptCache.test.ts.
 				assert.match(
 					String(outcome.error),
 					/languageModelSystem/,

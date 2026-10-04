@@ -1,8 +1,9 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import { isUsageFresh, usageFreshnessWindowMs } from "../../../../extension/servers/usage/freshness";
-import type { ServerUsageState } from "../../../../extension/servers/usage/store";
-import { UNPROBED_ENDPOINTS } from "../../../../extension/servers/usage/store";
-import { NUMBER_SETTING_SPECS } from "../../../../shared/config/settingSpec";
+import { isUsageFresh, usageFreshnessWindowMs } from "../../../../../extension/servers/usage/freshness";
+import type { ServerUsageState } from "../../../../../extension/servers/usage/store";
+import { UNPROBED_ENDPOINTS } from "../../../../../extension/servers/usage/store";
+import { NUMBER_SETTING_SPECS } from "../../../../../shared/config/settingSpec";
 
 const NOW = Date.UTC(2026, 7, 1, 12);
 const POLL_INTERVAL_MS = 300_000;
@@ -40,7 +41,7 @@ function state(overrides: Partial<ServerUsageState> = {}): ServerUsageState {
 	return { ...merged, spendUpdatedAt: "spendUpdatedAt" in overrides ? overrides.spendUpdatedAt : merged.lastUpdatedAt };
 }
 
-suite("extension/servers/usage freshness", () => {
+describe("extension/servers/usage freshness", () => {
 	test("the window is two poll intervals, and the configured polling-off window with polling off", () => {
 		assert.strictEqual(usageFreshnessWindowMs(POLL_INTERVAL_MS, POLLING_OFF_WINDOW_MS), 2 * POLL_INTERVAL_MS);
 		assert.strictEqual(usageFreshnessWindowMs(0, POLLING_OFF_WINDOW_MS), POLLING_OFF_WINDOW_MS);

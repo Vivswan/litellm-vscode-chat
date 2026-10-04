@@ -1,6 +1,7 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import type { ServerUsageState } from "../../../../extension/servers/usage";
-import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "../../../../extension/servers/usage/store";
+import type { ServerUsageState } from "../../../../../extension/servers/usage";
+import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "../../../../../extension/servers/usage/store";
 
 function state(label: string, overrides: Partial<ServerUsageState> = {}): ServerUsageState {
 	return {
@@ -28,7 +29,7 @@ function state(label: string, overrides: Partial<ServerUsageState> = {}): Server
 	};
 }
 
-suite("extension/servers/usage store", () => {
+describe("extension/servers/usage store", () => {
 	test("getStates is label-sorted regardless of insertion order", () => {
 		const store = new UsageStore();
 		store.upsert(state("gamma"), []);

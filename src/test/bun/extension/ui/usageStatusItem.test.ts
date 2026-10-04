@@ -1,10 +1,11 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import { formatMoney, spendTone, stalenessText } from "../../../dashboard/spendFormat";
-import { usageFreshnessWindowMs } from "../../../extension/servers/usage/freshness";
-import type { ServerUsageState, UsageEndpointState } from "../../../extension/servers/usage/store";
-import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "../../../extension/servers/usage/store";
-import type { StatusItemLike, StatusItemView } from "../../../extension/ui/status";
-import { renderUsageStatus, UsageStatusBar } from "../../../extension/ui/usageStatusItem";
+import { formatMoney, spendTone, stalenessText } from "../../../../dashboard/spendFormat";
+import { usageFreshnessWindowMs } from "../../../../extension/servers/usage/freshness";
+import type { ServerUsageState, UsageEndpointState } from "../../../../extension/servers/usage/store";
+import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "../../../../extension/servers/usage/store";
+import type { StatusItemLike, StatusItemView } from "../../../../extension/ui/status";
+import { renderUsageStatus, UsageStatusBar } from "../../../../extension/ui/usageStatusItem";
 
 const NOW = Date.UTC(2026, 7, 1, 12);
 const POLL_INTERVAL_MS = 300_000;
@@ -93,7 +94,7 @@ function expectVisible(result: ReturnType<typeof render>) {
 	return result;
 }
 
-suite("extension/ui usageStatusItem renderUsageStatus", () => {
+describe("extension/ui usageStatusItem renderUsageStatus", () => {
 	test("shows the worst fresh server's percentage, rounded", () => {
 		const view = expectVisible(
 			render([
@@ -221,7 +222,7 @@ suite("extension/ui usageStatusItem renderUsageStatus", () => {
 		assert.strictEqual(render([elevenMinutes], { pollIntervalMs: 0 }), "hidden");
 	});
 
-	suite("the tooltip breakdown", () => {
+	describe("the tooltip breakdown", () => {
 		test("carries each server's spend, budget, percentage, reset date, and last-updated", () => {
 			const resetAt = Date.UTC(2026, 7, 31);
 			const view = expectVisible(
@@ -354,7 +355,7 @@ class FakeItem implements StatusItemLike {
 	}
 }
 
-suite("extension/ui usageStatusItem UsageStatusBar", () => {
+describe("extension/ui usageStatusItem UsageStatusBar", () => {
 	function harness(options: { thresholds?: readonly number[]; mode?: "always" | "alerts-only" | "off" } = {}) {
 		const store = new UsageStore();
 		const item = new FakeItem();

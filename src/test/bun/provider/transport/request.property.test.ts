@@ -6,12 +6,13 @@
  * (src/test/shared/config/), and the projection-vs-body equivalence property
  * pins the two sides together.
  */
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import type { ModelConfigurationRequestParams } from "../../../provider/catalog/modelConfiguration";
-import { buildRequestBody } from "../../../provider/transport/request";
-import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
-import { resolveFuzzSeed } from "../../fuzzStream";
+import type { ModelConfigurationRequestParams } from "../../../../provider/catalog/modelConfiguration";
+import { buildRequestBody } from "../../../../provider/transport/request";
+import type { OpenAIChatMessage } from "../../../../shared/conversion/wire";
+import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
@@ -38,7 +39,7 @@ const sourceRecord = fc.dictionary(bodyKey, fc.jsonValue({ maxDepth: 2 }), { max
 const MESSAGES: OpenAIChatMessage[] = [{ role: "user", content: "hi" }];
 const BASE_KEYS: ReadonlySet<string> = new Set(["model", "messages", "stream", "stream_options", "max_tokens"]);
 
-suite("provider/request buildRequestBody ownership properties", () => {
+describe("provider/request buildRequestBody ownership properties", () => {
 	test("owned and underscore keys never pass through; everything else does, options over config over params", () => {
 		fc.assert(
 			fc.property(

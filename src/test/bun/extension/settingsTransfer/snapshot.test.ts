@@ -1,8 +1,9 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import type { StoredSecretsRecord, StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
-import type { PreImportSnapshot, SnapshotRestore } from "../../../extension/settingsTransfer/snapshot";
-import { buildPreImportSnapshot, planSnapshotRestore } from "../../../extension/settingsTransfer/snapshot";
-import { ALL_SETTING_KEYS } from "../../../shared/config/settingSpec";
+import type { StoredSecretsRecord, StoredServerSecrets } from "../../../../extension/servers/serverSync/secrets";
+import type { PreImportSnapshot, SnapshotRestore } from "../../../../extension/settingsTransfer/snapshot";
+import { buildPreImportSnapshot, planSnapshotRestore } from "../../../../extension/settingsTransfer/snapshot";
+import { ALL_SETTING_KEYS } from "../../../../shared/config/settingSpec";
 
 // The frozen signatures are pinned at compile time: a drift fails typecheck,
 // so no runtime test restates what the types already prove. The SnapshotEntry
@@ -14,7 +15,7 @@ void (buildPreImportSnapshot satisfies (
 ) => Promise<PreImportSnapshot>);
 void (planSnapshotRestore satisfies (snapshot: PreImportSnapshot) => SnapshotRestore);
 
-suite("extension/settingsTransfer/snapshot", () => {
+describe("extension/settingsTransfer/snapshot", () => {
 	test("records every setting key as present or absent and each touched label's blob", async () => {
 		const values: Record<string, unknown> = { "chat.timeout": 60000, servers: [{ label: "A" }] };
 		const blobs: Record<string, StoredServerSecrets> = { A: { apiKey: "sk-a" }, B: {} };
