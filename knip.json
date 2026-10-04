@@ -8,6 +8,7 @@
 		"src/test/testUtils.ts",
 		"src/test/capture-server.ts",
 		"src/test/util/fingerprintSalt.ts",
+		"src/test/util/buildDefines.ts",
 		"scripts/**/*.ts",
 		"scripts/**/*.mts",
 		".vscode-test.mjs"

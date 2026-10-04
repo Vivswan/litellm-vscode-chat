@@ -10,6 +10,7 @@ import {
 	reportFingerprint,
 } from "../../../extension/ui/issueReporter";
 import { mapSdkError, RequestError } from "../../../provider/transport/errorMapping";
+import { GITHUB_REPO_URL } from "../../../shared/util/links";
 import { assertContains, assertOmits, assertStartsWith, expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage } from "../../testUtils";
 
@@ -57,7 +58,7 @@ suite("IssueReporter", () => {
 	test("buildIssueUrl produces valid GitHub URL with query params", () => {
 		const reporter = new IssueReporter();
 		const url = reporter.buildIssueUrl(makeSnapshot());
-		assertStartsWith(url, "https://github.com/Vivswan/litellm-vscode-chat/issues/new?");
+		assertStartsWith(url, `${GITHUB_REPO_URL}/issues/new?`);
 		assert.ok(url.includes("labels=bug"));
 		assert.ok(url.includes("title="));
 		assert.ok(url.includes("body="));

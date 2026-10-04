@@ -15,6 +15,19 @@ const watchMode = process.argv.includes("--watch");
 const production = process.argv.includes("--production");
 
 /**
+ * The build-time constants the source reads as bare identifiers, as the JS expression strings oxc's define
+ * substitutes. package.json's `repository.url` owns the repository URL that src/shared/util/links.ts derives
+ * every GitHub link from; the root tsconfig cannot import the manifest from src/shared, so the bundle injects
+ * it, and the test runners set the same global from the same field (src/test/util/buildDefines.ts). A bundle
+ * built without a define leaves the identifier bare, a ReferenceError at module load rather than a stale link.
+ */
+const manifest = JSON.parse(await fs.readFile("package.json", "utf8")) as { repository?: { url?: unknown } };
+if (typeof manifest.repository?.url !== "string") {
+	throw new Error("package.json repository.url must be a string: the GitHub links are built from it");
+}
+const buildDefines = { __LITELLM_REPOSITORY_URL__: JSON.stringify(manifest.repository.url) };
+
+/**
  * Flattens Bun's AggregateError of BuildMessages into the [KIND]-tagged,
  * [ file:line:column ]-located shape the watch ERROR handler surfaces, so CSS
  * syntax errors stay navigable in the Problems panel; rolldown would otherwise
@@ -237,7 +250,7 @@ const extensionOptions: BuildOptions = {
 	platform: "node",
 	external: ["vscode"],
 	tsconfig: false,
-	transform: { target: "es2022" },
+	transform: { target: "es2022", define: buildDefines },
 	output: {
 		dir: "dist",
 		entryFileNames: "extension.js",
@@ -265,7 +278,10 @@ const webviewOptions: BuildOptions = {
 	transform: {
 		target: "es2022",
 		jsx: { runtime: "automatic", importSource: "react" },
-		define: { "process.env.NODE_ENV": JSON.stringify(production ? "production" : "development") },
+		define: {
+			...buildDefines,
+			"process.env.NODE_ENV": JSON.stringify(production ? "production" : "development"),
+		},
 	},
 	output: {
 		dir: WEBVIEW_DIST_SEGMENTS.join("/"),
