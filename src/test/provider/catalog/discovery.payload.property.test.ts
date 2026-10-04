@@ -8,9 +8,16 @@ import {
 	normalizeModelItem,
 	parseModelInfoItem,
 } from "../../../provider/catalog/discovery";
-import type { LiteLLMProvider, RawModelItem } from "../../../provider/catalog/schemas";
+import type { LiteLLMProvider, LongContextCostField, RawModelItem } from "../../../provider/catalog/schemas";
+import {
+	LONG_CONTEXT_COST_FIELDS,
+	LONG_CONTEXT_COST_PREFIX,
+	WIRE_COST_FIELDS,
+} from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
+import type { CostCapabilityField } from "../../../shared/config/capabilityResolution";
+import { consumedFieldsOfKind } from "../../../shared/config/capabilityResolution";
 import { normalizeCostPerToken } from "../../../shared/util/numbers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
@@ -37,12 +44,13 @@ const costValue = fc.oneof(
 	fc.constantFrom(-0, Number.NaN, Number.POSITIVE_INFINITY, -1, -0.5, null, undefined, "0.001", { usd: 1 }, true, [])
 );
 
-const LONG_CONTEXT_BASES = [
-	"input_cost_per_token",
-	"output_cost_per_token",
-	"cache_read_input_token_cost",
-	"cache_creation_input_token_cost",
-] as const;
+const COST_FIELDS = consumedFieldsOfKind("cost");
+
+/** The long-context field LiteLLM reports as `<base>_above_<N>k_tokens`, keyed by that base. */
+const LONG_CONTEXT_FIELD_BY_BASE: ReadonlyMap<string, LongContextCostField> = new Map(
+	LONG_CONTEXT_COST_FIELDS.map((field) => [field.slice(LONG_CONTEXT_COST_PREFIX.length), field])
+);
+const LONG_CONTEXT_BASES = [...LONG_CONTEXT_FIELD_BY_BASE.keys()];
 
 /** Keys that resemble tier keys but must never participate in tier selection. */
 const LOOKALIKE_KEYS = [
@@ -79,40 +87,22 @@ function isUsableCost(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-function assertCostFieldUsableOrAbsent(provider: LiteLLMProvider, field: keyof LiteLLMProvider): void {
+function assertCostFieldUsableOrAbsent(provider: LiteLLMProvider, field: CostCapabilityField): void {
 	const value = provider[field];
-	// These eight fields are discovery-authored as number | undefined; the
-	// null in LiteLLMProvider's type exists for wire pass-through fields only.
+	// A mapped entry's costs are discovery-authored as number | undefined; the null in LiteLLMProvider's type is
+	// mergeModelDeployments' "deployments disagree", which this path never produces.
 	assert.ok(
 		value === undefined || isUsableCost(value),
 		`${String(field)} must be a usable cost or absent, got ${String(value)}`
 	);
 }
 
-const COST_FIELDS = [
-	"input_cost_per_token",
-	"output_cost_per_token",
-	"cache_read_input_token_cost",
-	"cache_creation_input_token_cost",
-	"long_context_input_cost_per_token",
-	"long_context_output_cost_per_token",
-	"long_context_cache_read_input_token_cost",
-	"long_context_cache_creation_input_token_cost",
-] as const satisfies readonly (keyof LiteLLMProvider)[];
-
-const LONG_CONTEXT_FIELD_BY_BASE: Record<(typeof LONG_CONTEXT_BASES)[number], keyof LiteLLMProvider> = {
-	input_cost_per_token: "long_context_input_cost_per_token",
-	output_cost_per_token: "long_context_output_cost_per_token",
-	cache_read_input_token_cost: "long_context_cache_read_input_token_cost",
-	cache_creation_input_token_cost: "long_context_cache_creation_input_token_cost",
-};
-
 /** The tier selection oracle: lowest threshold holding at least one usable cost; per-field values at it. */
 function expectedLongContextCosts(
-	tiers: readonly { base: (typeof LONG_CONTEXT_BASES)[number]; threshold: number; value: unknown }[]
-): Partial<Record<keyof LiteLLMProvider, number>> {
+	tiers: readonly { base: string; threshold: number; value: unknown }[]
+): Partial<Record<LongContextCostField, number>> {
 	// Last write wins per key, matching object-literal assignment order above.
-	const byKey = new Map<string, { base: (typeof LONG_CONTEXT_BASES)[number]; threshold: number; value: unknown }>();
+	const byKey = new Map<string, { base: string; threshold: number; value: unknown }>();
 	for (const tier of tiers) {
 		byKey.set(`${tier.base}_above_${tier.threshold}k_tokens`, tier);
 	}
@@ -121,12 +111,14 @@ function expectedLongContextCosts(
 		return {};
 	}
 	const lowest = Math.min(...usable.map((tier) => tier.threshold));
-	const expected: Partial<Record<keyof LiteLLMProvider, number>> = {};
+	const expected: Partial<Record<LongContextCostField, number>> = {};
 	for (const tier of usable) {
 		if (tier.threshold === lowest) {
 			// Mirror the implementation's canonicalization (-0 comes out as 0);
 			// isUsableCost already guaranteed the value normalizes to a number.
-			expected[LONG_CONTEXT_FIELD_BY_BASE[tier.base]] = expectDefined(normalizeCostPerToken(tier.value));
+			expected[expectDefined(LONG_CONTEXT_FIELD_BY_BASE.get(tier.base))] = expectDefined(
+				normalizeCostPerToken(tier.value)
+			);
 		}
 	}
 	return expected;
@@ -145,7 +137,7 @@ suite("provider/discovery payload parsing properties", () => {
 
 	test("every cost field on a mapped model_info entry is a usable cost or absent", () => {
 		fc.assert(
-			fc.property(tieredRecord, fc.dictionary(fc.constantFrom(...LONG_CONTEXT_BASES), costValue), (tiered, base) => {
+			fc.property(tieredRecord, fc.dictionary(fc.constantFrom(...WIRE_COST_FIELDS), costValue), (tiered, base) => {
 				const parsed = parseModelInfoItem({ model_name: "m", model_info: { ...tiered.record, ...base } });
 				const mapped = mapModelInfoEntry(expectDefined(parsed));
 				for (const field of COST_FIELDS) {
@@ -162,7 +154,7 @@ suite("provider/discovery payload parsing properties", () => {
 				const parsed = parseModelInfoItem({ model_name: "m", model_info: tiered.record });
 				const mapped = mapModelInfoEntry(expectDefined(parsed));
 				const expected = expectedLongContextCosts(tiered.tiers);
-				for (const field of Object.values(LONG_CONTEXT_FIELD_BY_BASE)) {
+				for (const field of LONG_CONTEXT_FIELD_BY_BASE.values()) {
 					assert.strictEqual(
 						mapped.provider[field],
 						expected[field],
@@ -180,7 +172,7 @@ suite("provider/discovery /v1/models normalization properties", () => {
 	const wireProviderArb = fc
 		.tuple(
 			fc.dictionary(fc.string({ maxLength: 16 }), fc.jsonValue({ maxDepth: 1 }), { maxKeys: 5 }),
-			fc.dictionary(fc.constantFrom(...LONG_CONTEXT_BASES), costValue, { maxKeys: 4 }),
+			fc.dictionary(fc.constantFrom(...WIRE_COST_FIELDS), costValue, { maxKeys: 4 }),
 			fc.constantFrom(undefined, "provider", "defaults", "forged", 42),
 			fc.constantFrom<string | number>("some-provider", 42)
 		)
