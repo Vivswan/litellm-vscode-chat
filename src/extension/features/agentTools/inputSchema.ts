@@ -257,24 +257,67 @@ export type AgentToolInput<K extends AgentToolId> = z.infer<(typeof AGENT_TOOL_I
  * shape. Model-facing English by policy; the generated manifest carries these verbatim.
  */
 export const AGENT_TOOL_MODEL_DESCRIPTIONS = {
-	diagnostics:
-		"Read the LiteLLM extension's health: connection state, each configured LiteLLM server (label, base URL, state, error classification, served model count, whether a key is configured), configuration problems, the latest error, and optionally the recent log lines with secrets redacted. Call it first when a user reports LiteLLM models missing, failing, or answering empty. Read-only.",
-	configuration:
-		"Read the LiteLLM extension's configuration as its dashboard shows it: servers (their settings and where each secret is stored, never the values), every setting with the scope it is configured in, the models each server serves (raw model ID, server label, token limits), hidden provider groups, the OpenRouter catalog status, and usage. Pass sections to read a slice; the whole picture can be large. Read-only.",
-	inspectModel:
-		"Explain one model's effective capabilities (context window, token limits, tools, vision, reasoning) and request parameters, with the source of each value: the server's report, the OpenRouter catalog, a models.capabilities or models.parameters record, or the built-in floor. Use it before changing a model record. Read-only.",
-	searchCatalog:
-		"Search the bundled OpenRouter model catalog by name or ID, to find a model's published context window or its catalog ID for a _openrouter_model directive. Read-only.",
-	setSetting:
-		"Change one litellm-vscode-chat setting by its name without the litellm-vscode-chat. prefix (for example chat.timeout or consultTool.model); value null removes the configured value from the highest scope that sets it (the workspace value if one exists, else the user value), which is how the dashboard's Reset works. The extension validates the value exactly as the dashboard does and answers with a refusal you can correct. Not for servers (use litellm_save_server) or models.capabilities and models.parameters (use litellm_edit_model_records). The user confirms the change first.",
-	editModelRecords:
-		"Edit one matcher key of models.capabilities (context_length, max_input_tokens, max_output_tokens, supports_vision, supports_function_calling, supports_reasoning, and any other model_info field) or models.parameters (temperature, max_tokens, reasoning_effort, and other request parameters): set fields, unset fields, or remove the key. The key is a raw model ID or a prefix pattern like gpt-5*. Without server, the record in the settings scope the dashboard edits changes; with server, that servers entry's own record changes. Read litellm_inspect_model first so you change the right source. The user confirms the change first.",
-	saveServer:
-		"Add, edit, rename, or adopt a LiteLLM servers entry. On an edit, fields you omit keep their stored values. Secrets: say where a key goes with secrets.apiKey = { action: set, location: secure } and omit value; the user is asked to type it in a masked box. Include value only if the user's agentTools.secretValues setting allows it. A stored secret never follows a changed host: when you change baseUrl, set the key again or clear it. renameFrom renames an existing entry; adoptFrom (an external provider group's label and base URL from litellm_configuration) copies that group into the setting and accepts no other edit in the same call. The user confirms the change first.",
-	removeServer:
-		"Remove a LiteLLM servers entry by label (action remove); or hide an external provider group that is not in the setting (action hide, with its label and base URL); or restore a hidden group (action unhide, with its label and base URL; only groups the configuration tool lists with reason removed can be restored). The user confirms first.",
-	runAction:
-		"Run one LiteLLM maintenance action: testConnection probes a STORED servers entry (label) with its stored credentials; testFeatureModel sends a feature's picked model (feature) a fixed probe; syncModels re-discovers every server's models; refreshCatalog refreshes the OpenRouter catalog; refreshUsage re-polls spend and budgets. The user confirms first.",
+	diagnostics: [
+		"Read the LiteLLM extension's health: connection state, each configured LiteLLM server (label, base",
+		"URL, state, error classification, served model count, whether a key is configured), configuration",
+		"problems, the latest error, and optionally the recent log lines with secrets redacted. Call it first",
+		"when a user reports LiteLLM models missing, failing, or answering empty. Read-only.",
+	].join(" "),
+	configuration: [
+		"Read the LiteLLM extension's configuration as its dashboard shows it: servers (their settings and",
+		"where each secret is stored, never the values), every setting with the scope it is configured in,",
+		"the models each server serves (raw model ID, server label, token limits), hidden provider groups,",
+		"the OpenRouter catalog status, and usage. Pass sections to read a slice; the whole picture can be",
+		"large. Read-only.",
+	].join(" "),
+	inspectModel: [
+		"Explain one model's effective capabilities (context window, token limits, tools, vision, reasoning)",
+		"and request parameters, with the source of each value: the server's report, the OpenRouter catalog,",
+		"a models.capabilities or models.parameters record, or the built-in floor. Use it before changing a",
+		"model record. Read-only.",
+	].join(" "),
+	searchCatalog: [
+		"Search the bundled OpenRouter model catalog by name or ID, to find a model's published context",
+		"window or its catalog ID for a _openrouter_model directive. Read-only.",
+	].join(" "),
+	setSetting: [
+		"Change one litellm-vscode-chat setting by its name without the litellm-vscode-chat. prefix (for",
+		"example chat.timeout or consultTool.model); value null removes the configured value from the highest",
+		"scope that sets it (the workspace value if one exists, else the user value), which is how the",
+		"dashboard's Reset works. The extension validates the value exactly as the dashboard does and answers",
+		"with a refusal you can correct. Not for servers (use litellm_save_server) or models.capabilities and",
+		"models.parameters (use litellm_edit_model_records). The user confirms the change first.",
+	].join(" "),
+	editModelRecords: [
+		"Edit one matcher key of models.capabilities (context_length, max_input_tokens, max_output_tokens,",
+		"supports_vision, supports_function_calling, supports_reasoning, and any other model_info field) or",
+		"models.parameters (temperature, max_tokens, reasoning_effort, and other request parameters): set",
+		"fields, unset fields, or remove the key. The key is a raw model ID or a prefix pattern like gpt-5*.",
+		"Without server, the record in the settings scope the dashboard edits changes; with server, that",
+		"servers entry's own record changes. Read litellm_inspect_model first so you change the right source.",
+		"The user confirms the change first.",
+	].join(" "),
+	saveServer: [
+		"Add, edit, rename, or adopt a LiteLLM servers entry. On an edit, fields you omit keep their stored",
+		"values. Secrets: say where a key goes with secrets.apiKey = { action: set, location: secure } and",
+		"omit value; the user is asked to type it in a masked box. Include value only if the user's",
+		"agentTools.secretValues setting allows it. A stored secret never follows a changed host: when you",
+		"change baseUrl, set the key again or clear it. renameFrom renames an existing entry; adoptFrom (an",
+		"external provider group's label and base URL from litellm_configuration) copies that group into the",
+		"setting and accepts no other edit in the same call. The user confirms the change first.",
+	].join(" "),
+	removeServer: [
+		"Remove a LiteLLM servers entry by label (action remove); or hide an external provider group that is",
+		"not in the setting (action hide, with its label and base URL); or restore a hidden group (action",
+		"unhide, with its label and base URL; only groups the configuration tool lists with reason removed",
+		"can be restored). The user confirms first.",
+	].join(" "),
+	runAction: [
+		"Run one LiteLLM maintenance action: testConnection probes a STORED servers entry (label) with its",
+		"stored credentials; testFeatureModel sends a feature's picked model (feature) a fixed probe;",
+		"syncModels re-discovers every server's models; refreshCatalog refreshes the OpenRouter catalog;",
+		"refreshUsage re-polls spend and budgets. The user confirms first.",
+	].join(" "),
 } as const satisfies Record<AgentToolId, string>;
 
 /** One parse issue, flattened to path, code, and message; what a refusal hands back to the calling model. */
