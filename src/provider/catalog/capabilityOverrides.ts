@@ -12,16 +12,21 @@ import type {
 	CapabilityCatalogLookup,
 	CapabilityDiagnostic,
 	CapabilityLevel,
+	CostCapabilityField,
 	EffectiveCapabilities,
 	EffectiveCapabilityFields,
 	ModelCapabilitiesRecord,
 } from "../../shared/config/capabilityResolution";
-import { CAPABILITY_FIELDS, CAPABILITY_LEVEL_ORDER, capabilityField } from "../../shared/config/capabilityResolution";
+import {
+	CAPABILITY_FIELDS,
+	CAPABILITY_LEVEL_ORDER,
+	capabilityField,
+	consumedFieldsOfKind,
+} from "../../shared/config/capabilityResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import { getCurrencySymbol } from "../../shared/config/settings";
 import type { ServerConfig } from "../../shared/servers";
 import type { PreAttachModelInfo } from "./groupModels";
-import type { PerTokenCosts } from "./modelCatalog";
 import { buildExposedModelId } from "./modelCatalog";
 import { effectiveReasoningLevels, reasoningEffortPickerValues, reasoningEffortSchema } from "./modelConfiguration";
 import type { ModelPricing } from "./registration";
@@ -70,28 +75,18 @@ const LEVEL_TRIGGERS_REBUILD: Readonly<Record<CapabilityLevel, boolean>> = {
 	floor: false,
 };
 
-/** The 8 cost fields under their wire names, exhaustive over PerTokenCosts by the satisfies check. */
-const COST_CAPABILITY_FIELDS = Object.keys({
-	input_cost_per_token: true,
-	output_cost_per_token: true,
-	cache_read_input_token_cost: true,
-	cache_creation_input_token_cost: true,
-	long_context_input_cost_per_token: true,
-	long_context_output_cost_per_token: true,
-	long_context_cache_read_input_token_cost: true,
-	long_context_cache_creation_input_token_cost: true,
-} satisfies Record<keyof PerTokenCosts, true>) as readonly (keyof PerTokenCosts)[];
+const COST_FIELDS = consumedFieldsOfKind("cost");
 
 /**
  * Every capability field whose effective value feeds a registered artifact:
- * the typed core, the 8 cost fields, supports_prompt_caching,
+ * the typed core, the cost fields, supports_prompt_caching,
  * supported_openai_params, and reasoning_effort_levels. The rebuild reads
  * exactly these, so only they leave the identity fast path: an extras-only
  * configuration leaves registered models alone.
  */
 const REGISTRATION_CONSUMED_FIELDS: readonly string[] = [
 	...Object.keys(CAPABILITY_FIELDS),
-	...COST_CAPABILITY_FIELDS,
+	...COST_FIELDS,
 	"supports_prompt_caching",
 	"supported_openai_params",
 	"reasoning_effort_levels",
@@ -107,8 +102,8 @@ const REGISTRATION_CONSUMED_FIELDS: readonly string[] = [
  * pricingFromCosts prices it as genuinely free on purpose.
  */
 export function pricingFieldsFromEffective(fields: EffectiveCapabilityFields, currencySymbol: string): ModelPricing {
-	const costs: { -readonly [K in keyof PerTokenCosts]?: number } = {};
-	for (const name of COST_CAPABILITY_FIELDS) {
+	const costs: { -readonly [K in CostCapabilityField]?: number } = {};
+	for (const name of COST_FIELDS) {
 		const value = capabilityField(fields, name)?.value;
 		if (typeof value === "number") {
 			costs[name] = value;

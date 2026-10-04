@@ -1,5 +1,13 @@
-import type { ServerCapabilityValues, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
-import { FLOOR_CONTEXT_LENGTH, FLOOR_MAX_OUTPUT_TOKENS } from "../../shared/config/capabilityResolution";
+import type {
+	CostCapabilityField,
+	ServerCapabilityValues,
+	ServerDeclaredCapabilities,
+} from "../../shared/config/capabilityResolution";
+import {
+	consumedFieldsOfKind,
+	FLOOR_CONTEXT_LENGTH,
+	FLOOR_MAX_OUTPUT_TOKENS,
+} from "../../shared/config/capabilityResolution";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
 import type { LiteLLMProvider, OutputLimitSource } from "./schemas";
 
@@ -100,30 +108,13 @@ export function reportedLimits(providers: readonly LiteLLMProvider[]): ReportedL
 	return { context, input, output, any: context || input || output };
 }
 
-/** The per-token cost fields pricingFromCosts converts; a LiteLLMProvider satisfies it as-is. */
-export type PerTokenCosts = Pick<
-	LiteLLMProvider,
-	| "input_cost_per_token"
-	| "output_cost_per_token"
-	| "cache_read_input_token_cost"
-	| "cache_creation_input_token_cost"
-	| "long_context_input_cost_per_token"
-	| "long_context_output_cost_per_token"
-	| "long_context_cache_read_input_token_cost"
-	| "long_context_cache_creation_input_token_cost"
->;
+/**
+ * The per-token cost fields pricingFromCosts converts, nullable as the wire carries them (a merged entry's null
+ * is a disagreeing cost, which reads as absent); a LiteLLMProvider satisfies it as-is.
+ */
+export type PerTokenCosts = { readonly [K in CostCapabilityField]?: number | null | undefined };
 
-/** The 8 cost fields under their wire names, exhaustive over PerTokenCosts by the satisfies check. */
-const SERVER_COST_FIELDS = Object.keys({
-	input_cost_per_token: true,
-	output_cost_per_token: true,
-	cache_read_input_token_cost: true,
-	cache_creation_input_token_cost: true,
-	long_context_input_cost_per_token: true,
-	long_context_output_cost_per_token: true,
-	long_context_cache_read_input_token_cost: true,
-	long_context_cache_creation_input_token_cost: true,
-} satisfies Record<keyof PerTokenCosts, true>) as readonly (keyof PerTokenCosts)[];
+const COST_FIELDS = consumedFieldsOfKind("cost");
 
 /**
  * The cost fields of one baseline, normalized. Server costs are
@@ -135,8 +126,8 @@ const SERVER_COST_FIELDS = Object.keys({
  * entries carry null for disagreeing costs, which reads as absent here).
  */
 function serverCostValues(costs: PerTokenCosts): Partial<ServerCapabilityValues> {
-	const values: { -readonly [K in keyof PerTokenCosts]?: number } = {};
-	for (const field of SERVER_COST_FIELDS) {
+	const values: { -readonly [K in CostCapabilityField]?: number } = {};
+	for (const field of COST_FIELDS) {
 		const cost = normalizeCostPerToken(costs[field]);
 		if (cost !== undefined) {
 			values[field] = cost;

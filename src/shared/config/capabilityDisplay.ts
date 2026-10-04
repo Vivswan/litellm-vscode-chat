@@ -6,10 +6,8 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { ConsumedCapabilityField, ConsumedFieldOfKind } from "./capabilityResolution";
+import type { ConsumedCapabilityField, CostCapabilityField } from "./capabilityResolution";
 import { consumedFieldsOfKind } from "./capabilityResolution";
-
-export type CostCapabilityField = ConsumedFieldOfKind<"cost">;
 
 /**
  * Display rank of every cost field: the base tier, then the long-context tier, input before output and cache read

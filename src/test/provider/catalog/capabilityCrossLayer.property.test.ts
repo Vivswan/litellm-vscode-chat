@@ -16,7 +16,6 @@ import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabi
 import { applyCapabilityOverrides } from "../../../provider/catalog/capabilityOverrides";
 import { normalizeModelItem } from "../../../provider/catalog/discovery";
 import type { PreAttachModelInfo } from "../../../provider/catalog/groupModels";
-import type { PerTokenCosts } from "../../../provider/catalog/modelCatalog";
 import type { ModelPricing } from "../../../provider/catalog/registration";
 import { buildModelInfos, pricingFromCosts } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem, LiteLLMProvider } from "../../../provider/catalog/schemas";
@@ -28,6 +27,7 @@ import type {
 	CapabilityJsonValue,
 	CapabilityLevel,
 	CatalogLookupResult,
+	CostCapabilityField,
 	EffectiveCapabilityField,
 	EffectiveOutputLimitSource,
 	ModelCapabilitiesRecord,
@@ -42,6 +42,7 @@ import {
 	CONSUMED_CAPABILITY_FIELDS,
 	capabilityField,
 	consumedFieldKind,
+	consumedFieldsOfKind,
 	EMPTY_CATALOG_LOOKUP,
 	resolveCapabilityLayer,
 	resolveModelCapabilities,
@@ -69,17 +70,7 @@ const CONSUMED_EXTRA_NAMES = Object.keys(CONSUMED_CAPABILITY_FIELDS).filter(
 const PROTOTYPE_NAMES = ["toString", "valueOf", "constructor", "hasOwnProperty"] as const;
 const USER_SET_LEVELS: readonly CapabilityLevel[] = ["entry", "global", "entry-fallback", "global-fallback"];
 
-/** The 8 cost fields under their wire names, exhaustive over PerTokenCosts by the satisfies check. */
-const COST_FIELD_NAMES = Object.keys({
-	input_cost_per_token: true,
-	output_cost_per_token: true,
-	cache_read_input_token_cost: true,
-	cache_creation_input_token_cost: true,
-	long_context_input_cost_per_token: true,
-	long_context_output_cost_per_token: true,
-	long_context_cache_read_input_token_cost: true,
-	long_context_cache_creation_input_token_cost: true,
-} satisfies Record<keyof PerTokenCosts, true>) as readonly (keyof PerTokenCosts)[];
+const COST_FIELD_NAMES = consumedFieldsOfKind("cost");
 
 /** Every pricing field the seam may stamp on a served model, exhaustive over ModelPricing by the satisfies check. */
 const MODEL_PRICING_KEYS = Object.keys({
@@ -540,7 +531,7 @@ function seamProjection(info: PreAttachModelInfo) {
 	};
 }
 
-/** Strip the 8 cost fields from every record of a map, so server costs are the only cost source left. */
+/** Strip the cost fields from every record of a map, so server costs are the only cost source left. */
 function withoutCostFields(records: ModelCapabilitiesRecord | undefined): ModelCapabilitiesRecord | undefined {
 	if (records === undefined) {
 		return undefined;
@@ -961,11 +952,11 @@ suite("provider/catalog capability cross-layer properties", () => {
 
 	test("user costs beat server costs per field: served pricing derives from the field-wise merge exactly", () => {
 		const userCostsArb = fc
-			.uniqueArray(fc.tuple(fc.constantFrom<keyof PerTokenCosts>(...COST_FIELD_NAMES), validCost), {
+			.uniqueArray(fc.tuple(fc.constantFrom<CostCapabilityField>(...COST_FIELD_NAMES), validCost), {
 				maxLength: 4,
 				selector: ([name]) => name,
 			})
-			.map((pairs) => Object.fromEntries(pairs) as Partial<Record<keyof PerTokenCosts, number>>);
+			.map((pairs) => Object.fromEntries(pairs) as Partial<Record<CostCapabilityField, number>>);
 		fc.assert(
 			fc.property(seamScenario, userCostsArb, (s, userCosts) => {
 				// Records are cost-stripped and the catch-all entry record carries the
@@ -983,7 +974,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 				const served = applyCapabilityOverrides(infos, SERVER, opts);
 				for (const info of served) {
 					const baseline = info.litellm.serverDeclared;
-					const merged: { -readonly [K in keyof PerTokenCosts]?: number } = {};
+					const merged: { -readonly [K in CostCapabilityField]?: number } = {};
 					for (const name of COST_FIELD_NAMES) {
 						const user = userCosts[name];
 						// The parse canonicalizes a user-written -0 to +0 ("free" never

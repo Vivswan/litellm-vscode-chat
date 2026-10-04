@@ -48,9 +48,21 @@ export type NumberCapabilityField = {
 
 export type BooleanCapabilityField = Exclude<CapabilityFieldName, NumberCapabilityField>;
 
-type CapabilityFieldValue<K extends CapabilityFieldName> = (typeof CAPABILITY_FIELDS)[K] extends "number"
+/**
+ * The value kinds the consumed vocabulary validates: "number" is a positive
+ * integer, "cost" a finite non-negative number (zero is how "free" is
+ * written), "string-array" an array of non-empty strings (empty is valid).
+ */
+export type CapabilityValueKind = "number" | "boolean" | "cost" | "string-array";
+
+/** The TypeScript type a validated value of one kind carries. */
+type ValueOfKind<Kind extends CapabilityValueKind> = Kind extends "number" | "cost"
 	? number
-	: boolean;
+	: Kind extends "boolean"
+		? boolean
+		: readonly string[];
+
+type CapabilityFieldValue<K extends CapabilityFieldName> = ValueOfKind<(typeof CAPABILITY_FIELDS)[K]>;
 
 /** A total capability assignment; Partial<CapabilityFieldValues> is the parsed shape of one record. */
 export type CapabilityFieldValues = { readonly [K in CapabilityFieldName]: CapabilityFieldValue<K> };
@@ -63,13 +75,6 @@ export type CapabilityJsonValue =
 	| string
 	| readonly CapabilityJsonValue[]
 	| { readonly [key: string]: CapabilityJsonValue };
-
-/**
- * The value kinds the consumed vocabulary validates: "number" is a positive
- * integer, "cost" a finite non-negative number (zero is how "free" is
- * written), "string-array" an array of non-empty strings (empty is valid).
- */
-export type CapabilityValueKind = "number" | "boolean" | "cost" | "string-array";
 
 /**
  * The kind-validated vocabulary: the core plus every capability key the
@@ -99,6 +104,12 @@ export type ConsumedCapabilityField = keyof typeof CONSUMED_CAPABILITY_FIELDS;
 export type ConsumedFieldOfKind<Kind extends CapabilityValueKind> = {
 	[K in ConsumedCapabilityField]: (typeof CONSUMED_CAPABILITY_FIELDS)[K] extends Kind ? K : never;
 }[ConsumedCapabilityField];
+
+/**
+ * The per-token cost fields. Registration's pricing, the walk's server level, and both dashboard pricing surfaces
+ * key on this union, so a cost field exists exactly once: as a "cost" entry of the consumed vocabulary.
+ */
+export type CostCapabilityField = ConsumedFieldOfKind<"cost">;
 
 /** The consumed field names of one value kind, in the vocabulary's declaration order. */
 export function consumedFieldsOfKind<Kind extends CapabilityValueKind>(kind: Kind): ConsumedFieldOfKind<Kind>[] {
@@ -546,24 +557,11 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 }
 
 /**
- * The typed server-reported capability values the walk may read: the core
- * fields plus the consumed vocabulary's wire keys, as discovery maps them
- * from /model/info.
+ * The typed server-reported capability values the walk may read: every consumed field under its wire key, as
+ * discovery maps them from /model/info, typed by its kind.
  */
-export type ServerCapabilityValues = CapabilityFieldValues & {
-	readonly input_cost_per_token: number;
-	readonly output_cost_per_token: number;
-	readonly cache_read_input_token_cost: number;
-	readonly cache_creation_input_token_cost: number;
-	readonly long_context_input_cost_per_token: number;
-	readonly long_context_output_cost_per_token: number;
-	readonly long_context_cache_read_input_token_cost: number;
-	readonly long_context_cache_creation_input_token_cost: number;
-	readonly supports_prompt_caching: boolean;
-	readonly supports_pdf_input: boolean;
-	readonly supports_response_schema: boolean;
-	readonly supported_openai_params: readonly string[];
-	readonly reasoning_effort_levels: readonly string[];
+export type ServerCapabilityValues = {
+	readonly [K in ConsumedCapabilityField]: ValueOfKind<(typeof CONSUMED_CAPABILITY_FIELDS)[K]>;
 };
 
 /**
