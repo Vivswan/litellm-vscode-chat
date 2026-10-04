@@ -846,6 +846,47 @@ suite("provider/transport/auth", () => {
 			assert.strictEqual(endpoint.requests(), 1, "the originator's abort must not end the exchange for the joiner");
 		});
 
+		test("the last waiter to leave aborts the exchange exactly once, and a newcomer starts afresh", async () => {
+			// An orphaned exchange would keep hitting the identity provider with nobody waiting for its answer.
+			const realFetch = globalThis.fetch;
+			const signals: AbortSignal[] = [];
+			let aborts = 0;
+			globalThis.fetch = (_input, init) => {
+				const signal = init?.signal;
+				assert.ok(signal, "the exchange must arm its fetch with its own signal");
+				signals.push(signal);
+				return new Promise<Response>((_resolve, reject) => {
+					signal.addEventListener(
+						"abort",
+						() => {
+							aborts += 1;
+							reject(signal.reason);
+						},
+						{ once: true }
+					);
+				});
+			};
+			try {
+				const source = new OAuthTokenSource();
+				const controller = new AbortController();
+				const cancelled = source.getToken(oauthConfig(), "discovery", discoveryBudget(), controller.signal);
+				const patient = source.getToken(oauthConfig(), "chat", chatBudget(100));
+				controller.abort();
+
+				await assert.rejects(cancelled, (error: unknown) => error instanceof Error && error.name === "AbortError");
+				assert.strictEqual(aborts, 0, "a departure with a sibling still waiting must not abort the exchange");
+
+				await expectRequestError(patient, "timeout");
+				assert.strictEqual(aborts, 1, "the last departure aborts the exchange exactly once");
+
+				await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget(100)), "timeout");
+				assert.strictEqual(signals.length, 2, "a newcomer after abandonment starts a fresh exchange, not the orphan");
+				assert.notStrictEqual(signals[1], signals[0]);
+			} finally {
+				globalThis.fetch = realFetch;
+			}
+		});
+
 		test("N joiners across surfaces and budgets put exactly one token request on the wire", async () => {
 			const endpoint = gatedTokenEndpoint();
 			const source = new OAuthTokenSource();
