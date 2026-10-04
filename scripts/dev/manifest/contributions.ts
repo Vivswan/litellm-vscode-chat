@@ -44,7 +44,10 @@ import { manifestInputSchema } from "./toolSchemas";
 type CommandKey = keyof typeof CMD;
 type CommandId = (typeof CMD)[CommandKey];
 
-/** The commands a feature's enable setting gates: the only ones a menu may place, since every menu `when` names the gate. */
+/**
+ * The commands a feature's enable setting gates: the only ones a menu may place, since every menu `when` names the
+ * gate.
+ */
 type GatedCommandKey = {
 	[K in CommandKey]: (typeof COMMAND_FEATURES)[K] extends FeatureId ? K : never;
 }[CommandKey];
@@ -323,7 +326,10 @@ export interface ParticipantInputs {
 	readonly disambiguation: readonly (Disambiguation & { readonly key: string })[];
 }
 
-/** /models lists from the snapshots and takes no prompt, so it does not stay in the input the way the prompt commands do. */
+/**
+ * /models lists from the snapshots and takes no prompt, so it does not stay in the input the way the prompt commands
+ * do.
+ */
 const SLASH_COMMANDS = {
 	tests: { isSticky: true, category: "litellm_test_generation", examples: 2 },
 	docs: { isSticky: true, category: "litellm_documentation_writing", examples: 2 },
@@ -332,7 +338,10 @@ const SLASH_COMMANDS = {
 	explain: { isSticky: true, category: "litellm_explain_diagnostic", examples: 2 },
 } as const satisfies Record<SlashCommandName, SlashCommandPresentation>;
 
-/** The live tables, read at render time: the slash-command factories resolve their descriptions through l10n per call. */
+/**
+ * The live tables, read at render time: the slash-command factories resolve their descriptions through l10n per
+ * call.
+ */
 function liveParticipantInputs(): ParticipantInputs {
 	return {
 		commands: [...builtinSlashCommands(), ...quickFixSlashCommands()].map((command) => command.name),
