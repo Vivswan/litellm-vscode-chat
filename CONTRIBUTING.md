@@ -61,7 +61,7 @@ bun run test         # run the VS Code extension tests
 bun run format       # format files with Biome
 ```
 
-The Husky pre-commit hook (`.husky/pre-commit`) runs before every commit: staged-file formatting, workflow lint, the `@types/vscode` versus `engines.vscode` guard, lint, typecheck, the localization gate, and the tests. It refuses the commit when dependencies are not installed.
+The Husky pre-commit hook (`.husky/pre-commit`) runs before every commit: staged-file formatting, the static gates (`bun run check:static`: workflow lint, the `@types/vscode` versus `engines.vscode` guard, lint, typecheck, the localization gate), and the bun test tree. The VS Code host suite is CI's on every push; `bun run check` runs everything locally. The hook refuses the commit when dependencies are not installed.
 
 ## Code style
 

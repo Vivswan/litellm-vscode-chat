@@ -14,32 +14,17 @@ fi
 # repo-wide formatting is CI's job (biome ci and the auto-format workflow).
 bunx lint-staged
 
-# Lint GitHub Actions workflows
-bun run lint:actions
+# The static gates: workflow lint, the @types/vscode versus engines.vscode
+# guard (the same script CI's format-check runs), lint, the typecheck of all
+# four tsconfig projects (`compile` builds the root one alone, and a webview
+# type error once reached main through that gap), and the l10n gate. About
+# twenty seconds together.
+bun run check:static
 
-# Verify the installed @types/vscode stays within engines.vscode. The same
-# script CI's format-check runs: this once compared the DECLARED range while
-# CI compared the INSTALLED version, so a caret range that resolved past the
-# floor was green here and red on main.
-bun scripts/ci/check-vscode-types.ts
-
-# Run linting
-bun run lint
-
-# Type-check every tsconfig project. NOT just the helper scripts, and not just
-# what `compile` covers: `compile` builds the ROOT project alone, so a type
-# error anywhere in src/webview (the dashboard) or src/test/bun passed this hook
-# and every local check that looked like typechecking, and was caught only by
-# CI. That is how a deterministic error reached main three commits running.
-# Runs before the tests because it costs about seven seconds against their
-# minutes, and a type error should not wait behind a suite that cannot pass.
-bun run typecheck
-
-# Localization gate: bundle extraction drift and translation-file parity
-bun run l10n:check
-
-# Run tests
-bun run test
+# The bun tree only. The VS Code host suite (compile, bundle, and the four
+# vscode-test labels) is CI's to judge on every push, on three OSes; running
+# it here too cost each commit minutes for a verdict the push repeats.
+bun run test:bun
 
 # Lints and tests above ran against the working tree, not the index.
 if ! git diff --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
