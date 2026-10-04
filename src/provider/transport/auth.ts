@@ -7,13 +7,7 @@ import { isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
-import {
-	type MapErrorContext,
-	RequestError,
-	socketFailureIsTimeout,
-	socketFailureRequestError,
-	twoPartTexts,
-} from "./errorMapping";
+import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./errorMapping";
 
 /** Error ownership follows the transport-module convention: construct and throw without logging. */
 
@@ -80,18 +74,20 @@ interface CachedToken {
 	refreshAtMs: number;
 }
 
+/** The one in-flight exchange for a credential set. It runs exactly as long as at least one caller awaits it. */
+interface SharedExchange {
+	readonly token: Promise<string>;
+	readonly abandon: () => void;
+	waiters: number;
+}
+
 export class OAuthTokenSource {
 	private readonly tokens = new Map<string, CachedToken>();
-	private readonly pending = new Map<string, Promise<string>>();
+	private readonly exchanges = new Map<string, SharedExchange>();
 
 	/**
-	 * Concurrent calls for the same credentials share ONE live exchange, yet every waiter's bounds and error surface
-	 * stay its own.
-	 *
-	 *   a joiner's clock or `signal` fires -> only its own wait ends; the exchange continues for the others
-	 *   the shared exchange fails          -> each waiter renders it through its OWN surface
-	 *   it died of its ORIGINATOR's bounds -> joiners never render a bound they did not own; they fall through to a
-	 *                                         fresh join or exchange on its own fresh `budget` (join wait + one budget)
+	 * No caller's bounds reach the exchange: it is abandoned only when its last waiter leaves, so a waiter never
+	 * renders a bound or a cancellation that was not its own.
 	 */
 	async getToken(
 		config: OAuthConfig,
@@ -99,89 +95,80 @@ export class OAuthTokenSource {
 		budget: TimeoutBudget,
 		signal?: AbortSignal
 	): Promise<string> {
-		try {
-			return await this.acquireToken(config, budget, signal);
-		} catch (error) {
-			// The ONE render boundary: a surface-free exchange failure becomes this caller's error here, so the carrier
-			// cannot escape by construction; cancellation reasons and already-rendered errors pass through unchanged.
-			throw error instanceof OAuthExchangeFailure ? error.render(surface) : error;
-		}
-	}
-
-	/** getToken's acquisition walk; exchange failures may leave here as surface-free OAuthExchangeFailure carriers. */
-	private async acquireToken(config: OAuthConfig, budget: TimeoutBudget, signal?: AbortSignal): Promise<string> {
 		const key = oauthCredentialFingerprint(config);
 		const cached = this.tokens.get(key);
 		if (cached && Date.now() < cached.refreshAtMs) {
 			return cached.accessToken;
 		}
-		// This waiter's OWN clock and signal.
-		//
-		// Neither cancels a shared exchange for its other waiters.
-		//   an exchange this waiter originates -> runs on its own fresh budget instead (see getToken's doc)
-		const waitTimeout = AbortSignal.timeout(budget.ms);
-		const waitSignal = signal !== undefined ? AbortSignal.any([waitTimeout, signal]) : waitTimeout;
-		for (;;) {
-			// Re-read on every pass: a fall-through below may find the token a racing caller cached since this waiter
-			// last looked.
-			const fresh = this.tokens.get(key);
-			if (fresh && Date.now() < fresh.refreshAtMs) {
-				return fresh.accessToken;
+		if (signal?.aborted) {
+			throw abortReason(signal);
+		}
+		const ownClock = AbortSignal.timeout(budget.ms);
+		const ownBounds = signal !== undefined ? AbortSignal.any([signal, ownClock]) : ownClock;
+		const exchange = this.exchanges.get(key) ?? this.startExchange(key, config);
+		exchange.waiters += 1;
+		try {
+			return await abortableWait(exchange.token, ownBounds);
+		} catch (error) {
+			if (error instanceof OAuthExchangeFailure) {
+				throw error.render(surface, budget);
 			}
-			// The caller's own abort outranks its elapsed clock when both have fired: an abort the caller asked for
-			// must not be relabeled a token timeout (the exchange applies the same rule). Checked ahead of the join AND
-			// the originate branch, so a waiter whose own bounds fired never starts a fresh exchange either.
 			if (signal?.aborted) {
 				throw abortReason(signal);
 			}
-			if (waitTimeout.aborted) {
-				throw timeoutError(config.tokenUrl, budget);
+			if (ownClock.aborted) {
+				throw timeoutError(config.tokenUrl, budget, ownClock.reason);
 			}
-			const inFlight = this.pending.get(key);
-			if (inFlight === undefined) {
-				const exchange = (async () => {
-					try {
-						const { accessToken, expiresInSeconds } = await exchangeClientCredentials(config, budget, signal);
-						const lifetimeMs = expiresInSeconds * 1000;
-						const skewMs = Math.min(REFRESH_SKEW_MS, lifetimeMs / 2);
-						this.tokens.set(key, { accessToken, refreshAtMs: Date.now() + lifetimeMs - skewMs });
-						return accessToken;
-					} finally {
-						this.pending.delete(key);
-					}
-				})();
-				this.pending.set(key, exchange);
-				return exchange;
-			}
-			try {
-				return await abortableWait(inFlight, waitSignal);
-			} catch (error) {
-				if (error instanceof OAuthExchangeFailure) {
-					if (!error.originatorBound) {
-						throw error;
-					}
-					// The exchange died of its originator's clock - a bound that was never this waiter's, so neither
-					// the elapsed ms nor any setting advice would be truthful here. Recover below instead.
-				} else {
-					if (signal?.aborted) {
-						throw abortReason(signal);
-					}
-					if (waitTimeout.aborted) {
-						throw timeoutError(config.tokenUrl, budget, error);
-					}
-					// The exchange rejects non-carriers only when its originator's own cancellation interrupted it -
-					// and either way, a reason that is not this waiter's own is not its to surface.
-				}
-				// Fall through: serve the token a racing caller may have cached since, join a newer exchange, or
-				// originate a fresh one - each pass still gated by this waiter's own bounds above.
+			throw error;
+		} finally {
+			exchange.waiters -= 1;
+			if (exchange.waiters === 0) {
+				this.forget(key, exchange);
+				exchange.abandon();
 			}
 		}
 	}
 
+	private startExchange(key: string, config: OAuthConfig): SharedExchange {
+		const controller = new AbortController();
+		const exchange: SharedExchange = {
+			waiters: 0,
+			abandon: () => controller.abort(),
+			// Publishing the token and leaving the map happen in the settling step itself, so no newcomer can join an
+			// exchange that has already settled.
+			token: exchangeClientCredentials(config, controller.signal).then(
+				({ accessToken, expiresInSeconds }) => {
+					const lifetimeMs = expiresInSeconds * 1000;
+					const skewMs = Math.min(REFRESH_SKEW_MS, lifetimeMs / 2);
+					this.tokens.set(key, { accessToken, refreshAtMs: Date.now() + lifetimeMs - skewMs });
+					this.forget(key, exchange);
+					return accessToken;
+				},
+				(error: unknown) => {
+					this.forget(key, exchange);
+					throw error;
+				}
+			),
+		};
+		// An abandoned exchange rejects after its last waiter has already left.
+		exchange.token.catch(() => undefined);
+		this.exchanges.set(key, exchange);
+		return exchange;
+	}
+
+	/** A settled or abandoned exchange leaves the map; a successor already in its place stays. */
+	private forget(key: string, exchange: SharedExchange): void {
+		if (this.exchanges.get(key) === exchange) {
+			this.exchanges.delete(key);
+		}
+	}
+
 	/**
-	 * Drop the cached token after the server rejected it, so the next request performs a fresh exchange; the rejected
-	 * call itself is never retried. When the rejected token is known and a fresh one has already replaced it, the
-	 * fresh token is kept: a straggling 401 earned by the old token must not discard its successor.
+	 * Drop the cached token after the server rejected it, so the next request
+	 * performs a fresh exchange; the rejected call itself is never retried.
+	 * When the rejected token is known and a fresh one has already replaced it,
+	 * the fresh token is kept: a straggling 401 earned by the old token must
+	 * not discard its successor.
 	 */
 	invalidate(config: OAuthConfig, rejectedToken?: string): void {
 		const key = oauthCredentialFingerprint(config);
@@ -200,10 +187,7 @@ function abortReason(signal: AbortSignal): unknown {
 	return signal.reason ?? new Error("The operation was aborted");
 }
 
-/**
- * Await a shared promise but stop waiting as soon as the caller's own signal aborts: the rejection carries the abort
- * reason, while the shared work continues untouched for its other waiters.
- */
+/** `signal` ends only this wait; the promise runs on for its other awaiters. */
 function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 	if (signal.aborted) {
 		return Promise.reject(abortReason(signal));
@@ -224,28 +208,23 @@ function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> 
 	});
 }
 
-/**
- * `render` mints a fresh RequestError per waiter, since N waiters must never share one error object.
- * `originatorBound` marks a death by the ORIGINATING caller's clock, the one failure whose elapsed ms and
- * setting advice are truthful for the originator alone, so joiners recover instead of rendering it.
- */
+/** A surface-free exchange failure; `render` mints a fresh RequestError per waiter, so waiters never share one. */
 class OAuthExchangeFailure extends Error {
-	constructor(
-		readonly render: (surface: OAuthErrorSurface) => RequestError,
-		readonly originatorBound: boolean = false
-	) {
+	constructor(readonly render: (surface: OAuthErrorSurface, budget: TimeoutBudget) => RequestError) {
 		super("OAuth token exchange failed");
 		this.name = "OAuthExchangeFailure";
 	}
 }
 
 /**
- * The advice rides the TimeoutBudget minted where the number was read, so it cannot drift from the budget choice, and
- * an undefined `setting` (the fixed inline-completion bound) gets none, since advising a setting that cannot extend
- * the bound is a lie. The switch is exhaustive on purpose; a ladder's fall-through would misattribute a new setting.
+ * The advice rides the TimeoutBudget minted where the number was read, so it cannot drift from the budget
+ * choice, and an undefined `setting` (the fixed inline-completion bound) gets none, since advising a setting
+ * that cannot extend the bound is a lie.
  */
 function timeoutError(tokenUrl: string, budget: TimeoutBudget, cause?: unknown): RequestError {
 	const url = displayUrl(tokenUrl);
+	// English mirrors ride each construction for the output channel and the
+	// issue-report buffer; the display message localizes.
 	switch (budget.setting) {
 		case undefined:
 			return new RequestError(l10n.t("OAuth token request to {0} timed out after {1}ms.", url, budget.ms), "timeout", {
@@ -379,16 +358,13 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 }
 
 /**
- * Non-cancellation failures leave surface-free as OAuthExchangeFailure, while a `signal` abort rethrows as-is so the
- * caller attributes it truthfully.
+ * Retries like the discovery GETs, because the grant is idempotent. `signal` is the shared exchange's own
+ * abandonment, never a caller's, so every failure leaves surface-free for each waiter to render as its own.
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,
-	budget: TimeoutBudget,
-	outerSignal?: AbortSignal
+	signal: AbortSignal
 ): Promise<{ accessToken: string; expiresInSeconds: number }> {
-	const timeoutSignal = AbortSignal.timeout(budget.ms);
-	const signal = outerSignal !== undefined ? AbortSignal.any([timeoutSignal, outerSignal]) : timeoutSignal;
 	const form = new URLSearchParams({
 		grant_type: "client_credentials",
 		client_id: config.clientId,
@@ -401,22 +377,8 @@ async function exchangeClientCredentials(
 	for (let attempt = 0; attempt <= DISCOVERY_MAX_RETRIES; attempt += 1) {
 		if (attempt > 0) {
 			await sleepUnlessAborted(RETRY_DELAY_MS * attempt, signal);
-			// The outer signal wins the classification when both have fired: an abort the caller asked for must not be
-			// relabeled a token timeout.
-			if (outerSignal?.aborted) {
-				throw abortReason(outerSignal);
-			}
-			if (timeoutSignal.aborted) {
-				const failure = lastFailure;
-				throw new OAuthExchangeFailure(
-					(surface) =>
-						timeoutError(
-							config.tokenUrl,
-							budget,
-							failure instanceof OAuthExchangeFailure ? failure.render(surface) : failure
-						),
-					true
-				);
+			if (signal.aborted) {
+				throw abortReason(signal);
 			}
 		}
 
@@ -431,11 +393,8 @@ async function exchangeClientCredentials(
 			});
 			payload = await response.text();
 		} catch (error) {
-			if (outerSignal?.aborted) {
+			if (signal.aborted) {
 				throw error;
-			}
-			if (timeoutSignal.aborted) {
-				throw new OAuthExchangeFailure(() => timeoutError(config.tokenUrl, budget, error), true);
 			}
 			lastFailure = error;
 			continue;
@@ -525,15 +484,10 @@ async function exchangeClientCredentials(
 	if (lastFailure instanceof OAuthExchangeFailure) {
 		throw lastFailure;
 	}
-	// Its timeout arm renders this exchange's own budget message, a number and setting only the exchange's originator
-	// owns - so a timeout-flavored failure marks the carrier originatorBound and joiners recover instead. The
-	// exchange's signal-governed timeouts have already thrown above.
 	const failure = lastFailure;
-	throw new OAuthExchangeFailure(
-		(surface) =>
-			socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
-				timeoutError(config.tokenUrl, budget, failure)
-			),
-		socketFailureIsTimeout(failure)
+	throw new OAuthExchangeFailure((surface, budget) =>
+		socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
+			timeoutError(config.tokenUrl, budget, failure)
+		)
 	);
 }

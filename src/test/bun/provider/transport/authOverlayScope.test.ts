@@ -119,7 +119,7 @@ const BUDGET_MINTS: Record<string, { readonly [setting in "chat.timeout" | "disc
 		"src/extension/features/inline/wiring.ts": { fixed: 1 },
 		// The MCP publisher's header composition is bounded like discovery.
 		"src/extension/features/mcp/provider.ts": { "discovery.timeout": 1 },
-		// Both chat-client surfaces bound the exchange by the discovery timeout
+		// Both chat-client surfaces bound their token wait by the discovery timeout
 		// (auth plumbing with its own budget): fetchModels and send.
 		"src/provider/transport/chatClient.ts": { "discovery.timeout": 2 },
 		// Usage polling follows the discovery transport conventions.

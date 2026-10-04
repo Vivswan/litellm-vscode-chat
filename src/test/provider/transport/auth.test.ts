@@ -463,7 +463,7 @@ suite("provider/transport/auth", () => {
 		test("the exchange-timeout advice names the budget's own setting, never the surface's", async () => {
 			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
 
-			// The chat transport bounds the exchange by the discovery timeout
+			// The chat transport bounds its token wait by the discovery timeout
 			// (chat.timeout only interrupts via the outer signal and renders its
 			// own message there), so a chat-surface call carries the
 			// discovery.timeout identity - naming chat.timeout would point at a
@@ -749,7 +749,7 @@ suite("provider/transport/auth", () => {
 			assert.strictEqual(endpoint.requests(), 1, "both surfaces were served by one exchange");
 		});
 
-		test("when the exchange dies at the originator's bound, a joiner recovers and fails on its own bound and surface", async () => {
+		test("the originator's clock ends only its own wait: a joiner keeps the exchange and times out on its own bound", async () => {
 			let requests = 0;
 			mswServer.use(
 				http.post(TOKEN_URL, () => {
@@ -768,20 +768,13 @@ suite("provider/transport/auth", () => {
 			assert.ok(originatorError.message.includes("timed out after 100ms"), originatorError.message);
 			assert.ok(!originatorError.message.includes(".timeout"), "no setting can raise the fixed FIM bound");
 
-			// The originator's clock was never the joiner's bound, so the joiner
-			// does not surface it: it re-originates on its own budget, and when
-			// that exchange times out too, every number and every setting in its
-			// message is the joiner's own.
 			const joinerError = await expectRequestError(joiner, "timeout");
 			assert.ok(joinerError.message.includes("timed out after 300ms"), joinerError.message);
 			assert.ok(joinerError.message.includes("chat.timeout"), "the advice must name the JOINER's bound");
-			assert.strictEqual(requests, 2, "the joiner recovers with exactly one fresh exchange");
+			assert.strictEqual(requests, 1, "the originator's clock must not end the exchange the joiner still awaits");
 		});
 
-		test("a socket failure with a TimeoutError link is the exchange's own budget: a joiner recovers and renders ITS budget", async () => {
-			// The socket classifier's timeout arm quotes the exchange's budget, a
-			// number only the exchange's originator owns - so the carrier is
-			// originator-bound and joiners re-originate instead of quoting it.
+		test("a socket failure with a TimeoutError link is one shared failure that each waiter renders with ITS budget", async () => {
 			const realFetch = globalThis.fetch;
 			let calls = 0;
 			globalThis.fetch = () => {
@@ -804,7 +797,7 @@ suite("provider/transport/auth", () => {
 				const joinerError = await expectRequestError(joiner, "timeout");
 				assert.ok(joinerError.message.includes("timed out after 7000ms"), "the joiner must quote ITS OWN budget");
 				assert.ok(joinerError.message.includes("chat.timeout"), "the advice must name the JOINER's bound");
-				assert.strictEqual(calls, 6, "each of the two exchanges runs its own three socket attempts");
+				assert.strictEqual(calls, 3, "one exchange, its three socket attempts, serves both waiters");
 			} finally {
 				globalThis.fetch = realFetch;
 			}
@@ -833,7 +826,7 @@ suite("provider/transport/auth", () => {
 			assert.strictEqual(endpoint.requests(), 1);
 		});
 
-		test("the originator's cancellation is never surfaced to a joiner: the joiner recovers with a fresh exchange", async () => {
+		test("the originator's cancellation is never surfaced to a joiner: the joiner is served by the surviving exchange", async () => {
 			const endpoint = gatedTokenEndpoint();
 			const source = new OAuthTokenSource();
 
@@ -843,21 +836,14 @@ suite("provider/transport/auth", () => {
 			await endpoint.whenRequested();
 			controller.abort();
 
-			// The originator's own abort interrupts the exchange and surfaces
-			// as-is to the originator (the pinned semantics)...
 			await assert.rejects(originator, (error: unknown) => {
 				assert.ok(error instanceof Error && error.name === "AbortError", `expected AbortError, got ${String(error)}`);
 				return true;
 			});
 
-			// ...but the joiner, whose caller cancelled nothing, must never see
-			// that foreign abort: it starts a fresh exchange on its own clock.
-			while (endpoint.requests() < 2) {
-				await new Promise((resolve) => setTimeout(resolve, 5));
-			}
 			endpoint.respond(tokenResponse());
-			assert.strictEqual(await joiner, "tok-1", "the joiner must recover from the originator's cancellation");
-			assert.strictEqual(endpoint.requests(), 2, "the recovery is one fresh exchange, not a retry storm");
+			assert.strictEqual(await joiner, "tok-1", "the joiner must be served by the exchange it joined");
+			assert.strictEqual(endpoint.requests(), 1, "the originator's abort must not end the exchange for the joiner");
 		});
 
 		test("N joiners across surfaces and budgets put exactly one token request on the wire", async () => {
