@@ -29,11 +29,7 @@ export interface ServerModelsSnapshot {
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
 	/** The per-mode skip counts of the last successful listing, carried forward like observedModelInfoKeys. */
 	readonly skippedModeCounts?: SkippedModeCounts | undefined;
-	/**
-	 * The declared entry label the group's configuration carries (the sync engine writes it; see GroupServer.label),
-	 * absent for unlabeled groups whose status label is only the URL-host display fallback. The dashboard's
-	 * supersession rule keys on this, never on the display label.
-	 */
+	/** The dashboard's supersession rule keys on this, never on the display label. */
 	readonly entryLabel?: string | undefined;
 }
 
@@ -178,8 +174,7 @@ export class StatusWindow {
 		// A credential rotation mints a new client ID for the same logical group. The retired identity is evicted at
 		// once rather than left to age out: a lingering twin double-counts the merged status and renders as a ghost
 		// external row whose Hide would tombstone the label the REAL group serves under.
-		//   Its last success carries into the successor as the stale-serve anchor
-		//     -> a rotation followed by a failed silent refresh still stale-serves instead of vanishing
+		//   Its last success -> carries into the successor as the stale-serve anchor
 		const twin = this.labeledTwin(status.serverId, groupServer);
 		if (twin !== undefined) {
 			this.entries.delete(twin[0]);
