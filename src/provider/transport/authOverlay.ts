@@ -4,68 +4,48 @@ import { buildDefaultHeaders } from "./clients";
 import { RequestError } from "./errorMapping";
 
 /**
- * The per-request credential overlay every transport applies the same way: the
- * OAuth bearer token and the gateway virtual-key header, layered over a
- * plain-object header record with case-insensitive name ownership. One home so
- * the chat path, the usage poller, and the one-shot client cannot drift.
- *
- * Fail-closed by construction: a value isValidHeaderValue rejects never reaches
- * the platform's Headers, whose thrown TypeError embeds the full plaintext
- * value - and these values are secrets.
+ * The per-request credential overlay every transport applies the same way.
+ *   One home -> the chat path, the usage poller, and the one-shot client cannot drift
  */
 
-/** The credential fields of a connection this overlay reads; wider connection shapes satisfy it structurally. */
 export interface AuthOverlayCredentials {
 	readonly oauth?: OAuthConfig | undefined;
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 }
 
-/** What one overlay application needs beyond the credentials themselves. */
 export interface AuthOverlayContext {
 	/** The caller's token cache, so exchanges and 401 invalidation stay per-client. */
 	readonly tokens: OAuthTokenSource;
-	/** The error surface a token-exchange failure renders toward. */
 	readonly surface: OAuthErrorSurface;
 	/**
-	 * Hard bound on the token exchange plus the identity of the setting that
-	 * owns it (exchange-timeout advice renders from that identity): the chat
-	 * and discovery callers pass the discovery timeout (auth plumbing with its
-	 * own budget), the one-shot callers their whole-call budget.
+	 * Hard bound on the token exchange plus the identity of the setting that owns it (exchange-timeout advice renders
+	 * from that identity): the chat and discovery callers pass the discovery timeout (auth plumbing with its own
+	 * budget), the one-shot callers their whole-call budget.
 	 */
 	readonly timeout: TimeoutBudget;
-	/** Interrupts the exchange when the triggering call is aborted or times out. */
 	readonly signal?: AbortSignal | undefined;
 }
 
 /**
- * What applying the overlay hands back: the invalidation path for the very
- * token the headers carry, with that token captured inside. The caller's only
- * remaining duty is to route the request's classified failure through `fail`;
- * which token to drop, whether one was sent at all, and whether the error is
- * a token rejection are all decided in here, so no call site can invalidate
- * the wrong token or forget which one it sent. A fail-closed census
- * (authOverlayScope.test.ts) pins every shipped call site to its routing.
+ * The caller's only remaining duty is to route the request's classified failure through `fail`; which token to drop,
+ * whether one was sent at all, and whether the error is a token rejection are all decided in here, so no call site
+ * can invalidate the wrong token or forget which one it sent. A fail-closed census (authOverlayScope.test.ts) pins
+ * every shipped call site to its routing.
  */
 export interface AuthOverlayScope {
 	/**
-	 * Route the failure of the request these headers authenticated: a 401-class
-	 * auth rejection drops exactly the OAuth token that went out, so the next
-	 * request performs a fresh exchange (the rejected call itself is never
-	 * retried); every other error - and any error when the virtual key owned
-	 * the Authorization header, so no token was sent - is a no-op. Safe to call
-	 * with anything a catch block holds.
+	 * Safe to call with anything a catch block holds.
+	 *   the rejected call itself                                                            -> is never retried
+	 *   any error when the virtual key owned the Authorization header, so no token was sent -> is a no-op
 	 */
 	readonly fail: (error: unknown) => void;
 }
 
 /**
- * Set `name` in a plain-object header record, owning the name outright: every
- * existing spelling is removed first (HTTP header names are case-insensitive,
- * and two spellings in a plain-object fetch would COMBINE into
- * "custom, Bearer ..." on the wire instead of replacing). A value
- * isValidHeaderValue rejects is dropped rather than set - fail closed, so the
- * conflicting header it displaced is not resurrected either. Returns whether
- * the header was actually set.
+ * Set `name` in a plain-object header record, owning the name outright: every existing spelling is removed first (HTTP
+ * header names are case-insensitive, and two spellings in a plain-object fetch would COMBINE into "custom, Bearer ..."
+ * on the wire instead of replacing). A value isValidHeaderValue rejects is dropped rather than set - fail closed, so
+ * the conflicting header it displaced is not resurrected either.
  */
 export function setOwnedHeader(headers: Record<string, string>, name: string, value: string): boolean {
 	for (const existing of Object.keys(headers)) {
@@ -81,11 +61,10 @@ export function setOwnedHeader(headers: Record<string, string>, name: string, va
 }
 
 /**
- * The base header record for a plain-fetch call to a LiteLLM server: the
- * provider's static precedence rule (buildDefaultHeaders) with null-valued
- * entries dropped and every value fail-closed filtered, plus the explicit
- * Bearer Authorization the SDK would add on its own client - no SDK adds one
- * on a plain fetch. X-API-Key already rides in the defaults.
+ * The base header record for a plain-fetch call to a LiteLLM server: the provider's static precedence rule
+ * (buildDefaultHeaders) with null-valued entries dropped and every value fail-closed filtered, plus the explicit Bearer
+ * Authorization the SDK would add on its own client - no SDK adds one on a plain fetch. X-API-Key already rides in the
+ * defaults.
  */
 export function plainFetchBaseHeaders(config: {
 	readonly apiKey: string;
@@ -110,9 +89,9 @@ export function plainFetchBaseHeaders(config: {
 }
 
 /**
- * A virtual key naming the Authorization header (any casing) skips the token exchange, because an
- * unreachable identity provider must not fail a request that would not carry the token anyway. The returned
- * scope captures the bearer token it sent, so no caller handles the token value or re-parses the header.
+ * A virtual key naming the Authorization header (any casing) skips the token exchange, because an unreachable identity
+ * provider must not fail a request that would not carry the token anyway. The returned scope captures the bearer token
+ * it sent, so no caller handles the token value or re-parses the header.
  */
 export async function applyAuthOverlay(
 	headers: Record<string, string>,
@@ -123,9 +102,8 @@ export async function applyAuthOverlay(
 	let sentOAuthToken: string | undefined;
 	if (credentials.oauth && !authorizationOverridden) {
 		const token = await context.tokens.getToken(credentials.oauth, context.surface, context.timeout, context.signal);
-		// Captured only when the header really carries it (parseTokenResponse
-		// already rejects header-illegal tokens, so the drop cannot fire today,
-		// but the scope's claim stays true by construction).
+		// Captured only when the header really carries it (parseTokenResponse already rejects header-illegal tokens, so
+		// the drop cannot fire today, but the scope's claim stays true by construction).
 		if (setOwnedHeader(headers, "Authorization", `Bearer ${token}`)) {
 			sentOAuthToken = token;
 		}
@@ -136,11 +114,9 @@ export async function applyAuthOverlay(
 	const oauth = credentials.oauth;
 	return {
 		fail: (error: unknown): void => {
-			// Keyed on the token that actually went out: a straggling 401 earned by
-			// an old token cannot discard the fresh one that already replaced it
-			// (OAuthTokenSource.invalidate re-checks the same identity), and a
-			// request whose Authorization header the virtual key replaced
-			// invalidates nothing.
+			// Keyed on the token that actually went out: a straggling 401 earned by an old token cannot discard the
+			// fresh one that already replaced it (OAuthTokenSource.invalidate re-checks the same identity), and a
+			// request whose Authorization header the virtual key replaced invalidates nothing.
 			if (!oauth || sentOAuthToken === undefined || !(error instanceof RequestError) || error.kind !== "auth") {
 				return;
 			}

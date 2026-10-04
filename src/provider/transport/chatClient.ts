@@ -50,34 +50,26 @@ export interface ChatRequestContext {
 	token: vscode.CancellationToken;
 }
 
-/**
- * A server to talk to: the connection fields plus the OAuth and virtual-key
- * credentials that only provider-group configurations can carry.
- */
 export interface ServerConnection extends ServerWithKey {
 	oauth?: OAuthConfig;
 	virtualKey?: VirtualKeyConfig;
 	/**
-	 * The label naming the declared entry candidate for per-entry headers: a
-	 * group's CONFIGURED label, never the URL-host display fallback an
-	 * unlabeled group renders under, which could collide with a real entry
-	 * label. Distinct from `label`, which is display text.
+	 * The label naming the declared entry candidate for per-entry headers: a group's CONFIGURED label, never the
+	 * URL-host display fallback an unlabeled group renders under, which could collide with a real entry label. Distinct
+	 * from `label`, which is display text.
 	 */
 	entryLabel?: string | undefined;
 }
 
 /**
- * Everything one chat request needs to reach its server, resolved in full
- * before anything is sent. Every field is required (undefined must be stated,
- * not omitted), so a resolution branch cannot silently drop the credentials
- * another branch carries.
+ * Every field is required (undefined must be stated, not omitted), so a resolution branch cannot silently drop the
+ * credentials another branch carries.
  */
 interface ResolvedConnection {
 	serverId: string;
 	baseUrl: string;
 	apiKey: string;
 	rawModelId: string;
-	/** The label naming the declared entry candidate for per-entry configuration (headers); undefined when none can match. */
 	entryLabel: string | undefined;
 	oauth: OAuthConfig | undefined;
 	virtualKey: VirtualKeyConfig | undefined;
@@ -87,51 +79,31 @@ export interface ChatClientOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
 	/**
-	 * Resolves a declared server entry's per-entry modelParameters at request
-	 * time, from the entry's label and the attached server's base URL, and only
-	 * when both identify the same declared entry. Defaults to none: models
-	 * without an attached labeled server (external groups) get only the global
-	 * modelParameters.
+	 * Resolves a declared server entry's per-entry modelParameters at request time, from the entry's label and the
+	 * attached server's base URL, and only when both identify the same declared entry. Defaults to none: models
+	 * without an attached labeled server (external groups) get only the global modelParameters.
 	 */
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
 		| undefined;
 	/**
-	 * The provider-owned flat resolution table; requests read their configured
-	 * parameters through it so the request path, registration, and the
-	 * dashboard share one cache. Defaults to a private table for callers
-	 * constructed without a provider.
+	 * The provider-owned flat resolution table; requests read their configured parameters through it so the request
+	 * path, registration, and the dashboard share one cache. Defaults to a private table for callers constructed
+	 * without a provider.
 	 */
 	resolution?: ModelResolutionTable | undefined;
-	/**
-	 * Resolves a declared server entry's custom headers at request time, matched
-	 * like getEntryModelParameters. Defaults to none: servers no declared entry
-	 * matches send no custom headers.
-	 */
 	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined) | undefined;
 	/**
-	 * Resolves a declared server entry's apiVersion override (what apiRootOf
-	 * appends to the base URL) at request time. "" is a real value (append
-	 * nothing), distinct from undefined (auto). Defaults to none: servers no
-	 * declared entry matches get the auto rule.
+	 * "" is a real value (append nothing), distinct from undefined (auto). Defaults to none: servers no declared entry
+	 * matches get the auto rule.
 	 */
 	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
-	/**
-	 * Resolves a declared entry's CURRENT credentials at request time, matched
-	 * like getEntryHeaders. Model objects carry the credentials attached at
-	 * serve time, which a rotation since then has outdated; the overlay makes
-	 * every send authenticate with the entry's live ones. Defaults to none:
-	 * the attached credentials stay in force.
-	 */
 	resolveEntryCredentials?: ((label: string, baseUrl: string) => Promise<GroupCredentials | undefined>) | undefined;
 	/** The HTTP transport under the SDK client; tests inject a fake here. Defaults to nodeHttpFetch. */
 	fetch?: TransportFetch | undefined;
 }
 
-/**
- * Owns the HTTP-facing side of the provider: model discovery, chat requests,
- * the prompt-caching gate, and tool-call ID generation.
- */
+/** Owns the HTTP-facing side of the provider. */
 export class ChatClient {
 	private readonly userAgent: string;
 	private readonly logger?: Logger | undefined;
@@ -148,8 +120,7 @@ export class ChatClient {
 	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly resolution: ModelResolutionTable;
 	private _toolCallIdCounter = 0;
-	// The single owner of tool-call ID generation; see ToolCallIdSource for the
-	// synchronous-advance requirement.
+	// The single owner of tool-call ID generation; see ToolCallIdSource for the synchronous-advance requirement.
 	private readonly toolCallIds: ToolCallIdSource = { next: () => ++this._toolCallIdCounter };
 
 	private readonly log = (message: string, data?: unknown): void => {
@@ -167,32 +138,20 @@ export class ChatClient {
 		this.clients = new ServerClientCache(options.fetch ?? nodeHttpFetch);
 	}
 
-	/**
-	 * The custom headers one call to `baseUrl` carries: the declared entry's
-	 * `headers` record when the entry-candidate label and URL identify one,
-	 * none otherwise. Copied because the client cache expects an owned record.
-	 */
+	/** Copied because the client cache expects an owned record. */
 	private customHeadersFor(entryLabel: string | undefined, baseUrl: string): Record<string, string> {
 		const headers = entryLabel !== undefined ? this.getEntryHeaders(entryLabel, baseUrl) : undefined;
 		return headers !== undefined ? { ...headers } : {};
 	}
 
-	/**
-	 * The apiVersion override one call to `baseUrl` resolves under: the
-	 * declared entry's `apiVersion` when the entry-candidate label and URL
-	 * identify one, undefined (the auto rule) otherwise. "" carries through
-	 * as a real value.
-	 */
 	private apiVersionFor(entryLabel: string | undefined, baseUrl: string): string | undefined {
 		return entryLabel !== undefined ? this.getEntryApiVersion(entryLabel, baseUrl) : undefined;
 	}
 
-	/** Drop cached SDK clients for any server ID not in `keep`; the provider includes live group-client IDs. */
 	pruneClients(serverIds: Iterable<string>): void {
 		this.clients.prune(serverIds);
 	}
 
-	/** `expected` and `includeModes` carry the entry's discovery declarations; see FetchModelsRequest. */
 	async fetchModels(
 		server: ServerConnection,
 		expected?: ExpectedDiscoveryFailures,
@@ -233,9 +192,9 @@ export class ChatClient {
 	}
 
 	/**
-	 * Both surfaces this client serves bound the exchange by the discovery timeout (auth plumbing, not a chat
-	 * call), so `timeout` arrives minted at the caller's getDiscoveryTimeout read. `signal`, when the triggering
-	 * call carries one, also interrupts the exchange, so user cancellation and the chat timeout cut in.
+	 * Both surfaces this client serves bound the exchange by the discovery timeout (auth plumbing, not a chat call), so
+	 * `timeout` arrives minted at the caller's getDiscoveryTimeout read. `signal`, when the triggering call carries
+	 * one, also interrupts the exchange, so user cancellation and the chat timeout cut in.
 	 */
 	private async resolveAuthHeaders(
 		credentials: { oauth?: OAuthConfig | undefined; virtualKey?: VirtualKeyConfig | undefined },
@@ -254,14 +213,10 @@ export class ChatClient {
 	}
 
 	/**
-	 * Resolve the complete connection for one chat request from the group
-	 * server attached to the model object. Every served model carries its
-	 * group's resolved connection, so a model without one crossed the host
-	 * boundary in a state this provider never served (most likely a stale model
-	 * object from before a refresh) and fails loudly with a classified error
-	 * instead of an undefined route; the terse classification keeps the model ID
-	 * out of public logs. The routed model ID is the mint-stamped raw ID the
-	 * metadata parse resolved, never re-derived from the exposed one.
+	 * Every served model carries its group's resolved connection, so a model without one crossed the host boundary in
+	 * a state this provider never served (most likely a stale model object from before a refresh) and fails loudly
+	 * with a classified error instead of an undefined route; the terse classification keeps the model ID out of public
+	 * logs.
 	 */
 	private resolveConnection(
 		model: LiteLLMModelInfo,
@@ -274,8 +229,8 @@ export class ChatClient {
 				baseUrl: groupServer.baseUrl,
 				apiKey: groupServer.apiKey,
 				rawModelId: metadata.rawModelId,
-				// The configured group label only; an unlabeled group resolves no
-				// entry configuration (its display label is a URL-host fallback).
+				// The configured group label only; an unlabeled group resolves no entry configuration (its display
+				// label is a URL-host fallback).
 				entryLabel: groupServer.label,
 				oauth: groupServer.oauth,
 				virtualKey: groupServer.virtualKey,
@@ -292,11 +247,10 @@ export class ChatClient {
 	}
 
 	/**
-	 * Overlay an attached labeled server's credentials with the declared
-	 * entry's current ones (see ChatClientOptions.resolveEntryCredentials).
-	 * A resolver failure keeps the attached credentials silently: transport
-	 * modules throw without logging, the extension side already logged the
-	 * read failure, and the attached credentials remain a valid request input.
+	 * Overlay an attached labeled server's credentials with the declared entry's current ones (see
+	 * ChatClientOptions.resolveEntryCredentials).
+	 *   transport modules         -> throw without logging
+	 *   the attached credentials  -> remain a valid request input
 	 */
 	private async overlaidServer(server: GroupServer | undefined): Promise<GroupServer | undefined> {
 		if (server?.label === undefined || this.resolveEntryCredentials === undefined) {
@@ -313,12 +267,11 @@ export class ChatClient {
 	async send(ctx: ChatRequestContext): Promise<void> {
 		const { model, messages, options, progress, token } = ctx;
 
-		// The one parse of the model object's LiteLLM metadata; everything below
-		// reads the parsed result instead of re-narrowing the host round trip.
+		// The one parse of the model object's LiteLLM metadata; everything below reads the parsed result instead of
+		// re-narrowing the host round trip.
 		const parsed = parseModelMetadata(model, this.log);
-		// Attached credentials date from the serve that minted the model object;
-		// the overlay swaps in the entry's current ones so a rotation applies to
-		// the very next request instead of waiting out a host re-resolve.
+		// Attached credentials date from the serve that minted the model object; the overlay swaps in the entry's
+		// current ones so a rotation applies to the very next request instead of waiting out a host re-resolve.
 		const metadata = { ...parsed, server: await this.overlaidServer(parsed.server) };
 		const connection = this.resolveConnection(model, metadata);
 
@@ -326,15 +279,7 @@ export class ChatClient {
 		const customHeaders = this.customHeadersFor(connection.entryLabel, connection.baseUrl);
 		const apiVersion = this.apiVersionFor(connection.entryLabel, connection.baseUrl);
 		const requestTimeout = getRequestTimeout(this.log);
-		// Validation runs before conversion: a rejected request must not pay the
-		// base64 conversion or push conversion's media-drop logs into the public
-		// issue-report buffer for a request that never leaves the machine.
 		validateRequest(messages);
-		// Capability gates for message conversion: the registered imageInput
-		// capability decides whether image DataParts ride the wire, and the
-		// LiteLLM-derived audio metadata decides whether audio DataParts become
-		// input_audio. The pre-send limit check below prices this conversion's
-		// output, so it counts the same transmitted forms the request carries.
 		const wireGates = { imageInput: metadata.imageInput, audioInput: metadata.supportsAudioInput };
 		const converted = convertMessages(messages, { log: this.log, ...wireGates });
 		const toolConfig = convertTools(options, getAdditionalToolSchemaKeywords(this.log));
@@ -360,16 +305,14 @@ export class ChatClient {
 				? applyPromptCacheBreakpoints({ messages: converted, tools: toolConfig?.tools })
 				: { messages: converted, tools: toolConfig?.tools };
 
-		// Price the very message array the request sends, never a second
-		// conversion of the same input; cache_control markers are token-neutral.
-		// Tools price unmarked: a marker would be JSON.stringified as content.
+		// Price the very message array the request sends, never a second conversion of the same input; cache_control
+		// markers are token-neutral. Tools price unmarked: a marker would be JSON.stringified as content.
 		const inputTokenCount = estimateWireMessagesTokens(openaiMessages);
 		const toolTokenCount = estimateToolTokens(toolConfig?.tools);
 		const tokenLimit = Math.max(1, model.maxInputTokens);
 		if (inputTokenCount + toolTokenCount > tokenLimit) {
-			// The numbers must survive in the detail: docs/troubleshooting.md
-			// teaches comparing the limit against the model's real one (the
-			// models.capabilities fix).
+			// The numbers must survive in the detail: docs/troubleshooting.md teaches comparing the limit against the
+			// model's real one (the models.capabilities fix).
 			throw localizedError(
 				chatErrorMessage(
 					l10n.t(
@@ -388,30 +331,21 @@ export class ChatClient {
 			);
 		}
 
-		// The attached server's label and base URL together name the declared
-		// settings entry this request is routed through (two entries may share a
-		// base URL, so the label tells them apart); unlabeled servers contribute
-		// none. The match is label plus URL, deliberately not credentials: any
-		// group carrying the entry's label at the entry's URL resolves, a
-		// hand-labeled native group included. What the URL check excludes is a
-		// same-label group at another URL, stale from a label reuse or a baseUrl
-		// edit.
+		// The match is label plus URL, deliberately not credentials: any group carrying the entry's label at the
+		// entry's URL resolves, a hand-labeled native group included. What the URL check excludes is a same-label group
+		// at another URL, stale from a label reuse or a baseUrl edit.
+		//   two entries may share a base URL -> the label tells them apart
 		const entryModelParameters =
 			metadata.server?.label !== undefined
 				? this.getEntryModelParameters(metadata.server.label, metadata.server.baseUrl)
 				: undefined;
-		// Read through the provider-shared flat table: resolution runs only when
-		// the configuration or the model set changed, never per request.
 		const { params: modelParams, forcedParams } = this.resolution.resolveParameters(
 			connection.serverId,
 			connection.rawModelId,
 			{ globalParameters: getModelParametersConfig(), entryParameters: entryModelParameters }
 		);
 
-		// The one home of the fallback chain is resolveMaxTokens (shared with the
-		// dashboard's inspector): forced configured value, runtime option,
-		// configured parameter, the server-declared or user-overridden limit
-		// honored as-is, else the cap over the defaults-derived guess.
+		// The one home of the fallback chain is resolveMaxTokens (shared with the dashboard's inspector).
 		const { value: maxTokens } = resolveMaxTokens({
 			forcedMaxTokens: forcedParams.max_tokens,
 			runtimeMaxTokens: options.modelOptions?.max_tokens,
@@ -446,13 +380,11 @@ export class ChatClient {
 			messageCount: messages.length,
 		});
 
-		// User cancellation must abort the in-flight request, not just stop the
-		// read loop, so the token is bridged onto an AbortController combined
-		// with the request timeout. The per-request timeout keeps the SDK's own
-		// 600 s time-to-headers default from cutting in before ours; the
-		// AbortSignal.timeout is what bounds the whole call, including a stream
-		// that stalls after headers (the SDK disarms its timer once headers
-		// arrive, and the transport has no idle clock of its own).
+		// User cancellation must abort the in-flight request, not just stop the read loop, so the token is bridged onto
+		// an AbortController combined with the request timeout. The per-request timeout keeps the SDK's own 600 s
+		// time-to-headers default from cutting in before ours; the AbortSignal.timeout is what bounds the whole call,
+		// including a stream that stalls after headers (the SDK disarms its timer once headers arrive, and the
+		// transport has no idle clock of its own).
 		const cancelController = new AbortController();
 		const cancelListener = token.onCancellationRequested(() => cancelController.abort());
 		const timeoutSignal = AbortSignal.timeout(requestTimeout);
@@ -481,9 +413,8 @@ export class ChatClient {
 				throw bodylessResponseError("chat", response.status, connection.baseUrl);
 			}
 
-			// The user-set audio.format parameter (when a modality-audio request
-			// declares one) is the only statement of the clip encoding; the
-			// stream processor stamps the matching mime on emitted audio parts.
+			// The user-set audio.format parameter (when a modality-audio request declares one) is the only statement of
+			// the clip encoding.
 			const audio = requestBody.audio;
 			const requestAudioFormat = isRecord(audio) && typeof audio.format === "string" ? audio.format : undefined;
 			const streamProcessor = new StreamProcessor(

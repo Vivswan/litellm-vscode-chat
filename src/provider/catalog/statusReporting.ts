@@ -4,7 +4,6 @@ import type { AggregatedStatus, ServerStatus, ServerWithKey } from "../../shared
 import type { GroupServer } from "./groupModels";
 import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./statusWindow";
 
-/** One group serve's outcome as recorded into the status window. */
 export type GroupServeOutcome =
 	| {
 			state: "ok";
@@ -29,11 +28,8 @@ export type GroupServeOutcome =
 	  };
 
 /**
- * Status bookkeeping around the StatusWindow: every group serve records its
- * outcome here, and every record triggers one merged report to the status
- * callback. Owns the per-group report counter refreshViaHost's settle-wait
- * arms on - per-group reports only, since the groupless report says nothing
- * about whether the host is re-resolving groups.
+ * Owns the per-group report counter refreshViaHost's settle-wait arms on: per-group reports only, since the groupless
+ * report says nothing about whether the host is re-resolving groups.
  */
 export class GroupStatusReporter {
 	private readonly _window: StatusWindow;
@@ -49,7 +45,6 @@ export class GroupStatusReporter {
 		this._callback = callback;
 	}
 
-	/** How many per-group status reports have landed; see refreshViaHost's settle-wait. */
 	get groupReportCount(): number {
 		return this._groupReportCount;
 	}
@@ -60,9 +55,6 @@ export class GroupStatusReporter {
 			return;
 		}
 		const serverStatuses = this._window.snapshots().map((snapshot) => snapshot.status);
-		// servedModelCount is the one field answering "how many models does this
-		// server serve right now" on every state: stale-window and declared models
-		// keep counting through failures, matching what the picker lists.
 		const totalModels = serverStatuses.reduce((sum, s) => sum + s.servedModelCount, 0);
 		this._callback({ serverStatuses, totalModels, silent });
 	}
@@ -73,9 +65,7 @@ export class GroupStatusReporter {
 		groupServer: GroupServer,
 		silent: boolean,
 		outcome: Extract<GroupServeOutcome, { state: "ok" }>,
-		/** The full sets this serve handed the host; the window snapshots both while stale serving anchors to discovered only. */
 		served: ServedModelSets,
-		/** What this discovery observed (raw IDs, model_info keys); see DiscoveryObservations. */
 		observations?: DiscoveryObservations
 	): void;
 	reportGroupStatus(
@@ -100,11 +90,11 @@ export class GroupStatusReporter {
 			...(groupServer.label !== undefined ? { entryLabel: groupServer.label } : {}),
 			baseUrl: server.baseUrl,
 			lastChecked: new Date().toISOString(),
-			// Diagnostics reads this as "authentication configured", so OAuth
-			// client credentials count the same as a static key.
+			// Diagnostics reads this as "authentication configured", so OAuth client credentials count the same as a
+			// static key.
 			hasApiKey: groupServer.apiKey.length > 0 || groupServer.oauth !== undefined,
-			// The credential KIND, for the dashboard's external rows: their group
-			// configuration is the only place it is knowable.
+			// The credential KIND, for the dashboard's external rows: their group configuration is the only place it is
+			// knowable.
 			hasOAuth: groupServer.oauth !== undefined,
 			...outcome,
 		};

@@ -4,11 +4,10 @@ import { consumedFieldsOfKind } from "../../shared/config/capabilityResolution";
 import { recordFromKeys } from "../../shared/util/json";
 
 /**
- * Discovery payload schemas and the normalized model shapes they produce.
- * The schemas are deliberately lenient so a server sending extra or oddly
- * typed fields never loses a model: model-info entries parse per declared
- * field (a malformed value degrades to undefined), provider entries validate
- * only their name, and unknown keys pass through everywhere.
+ * Discovery payload schemas and the normalized model shapes they produce. The schemas are deliberately lenient.
+ *   model-info entries -> parse per declared field
+ *   provider entries   -> validate only their name
+ *   unknown keys       -> pass through everywhere
  */
 
 /** Server-declared (safe to send as-is) or filled from the defaults (a guess, so requests stay under the cap). */
@@ -29,7 +28,6 @@ export function isLongContextCostField(field: CostCapabilityField): field is Lon
 	return field.startsWith(LONG_CONTEXT_COST_PREFIX);
 }
 
-/** The cost vocabulary split by origin, each list in the vocabulary's declaration order. */
 export const LONG_CONTEXT_COST_FIELDS: readonly LongContextCostField[] =
 	consumedFieldsOfKind("cost").filter(isLongContextCostField);
 export const WIRE_COST_FIELDS: readonly WireCostField[] = consumedFieldsOfKind("cost").filter(
@@ -43,20 +41,14 @@ export const WIRE_COST_FIELDS: readonly WireCostField[] = consumedFieldsOfKind("
  */
 export type PerTokenCosts = { [K in CostCapabilityField]?: number | null | undefined };
 
-/**
- * PerTokenCosts narrowed to the costs a model declares: a number per present field, so neither the absent-reading null
- * nor undefined can ride into a server level or a pricing block.
- */
 export type DeclaredPerTokenCosts = { [K in keyof PerTokenCosts]: number };
 
 /**
- * A single underlying provider (e.g. together, groq) for a model: capability
- * metadata read from the LiteLLM API - what the model CAN do, not what we ask
- * it to do. Only `provider` is validated on the wire; discovery authors the
- * internal markers and narrows the four token-limit fields (positive numbers
- * or undefined, by construction) and the cost fields (under the zero-pair
- * no-pricing rule; the long-context tiers never pass through raw), and the
- * remaining fields are typed reads of the passed-through entry.
+ * A single underlying provider (e.g. together, groq) for a model: capability metadata read from the LiteLLM API - what
+ * the model CAN do, not what we ask it to do. Only `provider` is validated on the wire; discovery authors the internal
+ * markers and narrows the four token-limit fields (positive numbers or undefined, by construction) and the cost fields
+ * (under the zero-pair no-pricing rule; the long-context tiers never pass through raw), and the remaining fields are
+ * typed reads of the passed-through entry.
  */
 export interface LiteLLMProvider extends PerTokenCosts {
 	provider: string;
@@ -64,20 +56,18 @@ export interface LiteLLMProvider extends PerTokenCosts {
 	/** Wire pass-throughs may carry null; supportsTools treats only an explicit false as a veto. */
 	supports_tools?: boolean | null | undefined;
 	/**
-	 * The four token-limit fields are narrowed at the discovery mapping sites
-	 * (normalizePositiveNumber: numeric strings parse, null and junk degrade to
-	 * undefined), so every constructed provider carries positive numbers or
-	 * undefined and downstream reads take them as-is.
+	 * The four token-limit fields are narrowed at the discovery mapping sites (normalizePositiveNumber: numeric strings
+	 * parse, null and junk degrade to undefined), so every constructed provider carries positive numbers or undefined
+	 * and downstream reads take them as-is.
 	 */
 	context_length?: number | undefined;
 	max_tokens?: number | undefined;
 	max_input_tokens?: number | undefined;
 	max_output_tokens?: number | undefined;
 	/**
-	 * Set by deployment merging, which stores effective (possibly
-	 * defaults-derived) limits back into max_tokens/max_output_tokens; they
-	 * count as server-declared only when every merged deployment declared its
-	 * own. Absent on unmerged providers, whose limit fields are the server's.
+	 * Set by deployment merging, which stores effective (possibly defaults-derived) limits back into
+	 * max_tokens/max_output_tokens; they count as server-declared only when every merged deployment declared its own.
+	 * Absent on unmerged providers, whose limit fields are the server's.
 	 */
 	output_limit_source?: OutputLimitSource | undefined;
 	supports_prompt_caching?: boolean | null | undefined;
@@ -86,9 +76,8 @@ export interface LiteLLMProvider extends PerTokenCosts {
 	supports_pdf_input?: boolean | null | undefined;
 	supported_openai_params?: string[] | null | undefined;
 	/**
-	 * Synthesized by discovery from the report's per-level
-	 * `supports_<level>_reasoning_effort` flags. Never passes through raw, so a
-	 * wire entry cannot forge the list past the flags.
+	 * Synthesized by discovery from the report's per-level `supports_<level>_reasoning_effort` flags. Never passes
+	 * through raw, so a wire entry cannot forge the list past the flags.
 	 */
 	reasoning_effort_levels?: string[] | null | undefined;
 }
@@ -103,7 +92,6 @@ export type ModelShape =
 	| { readonly kind: "bare" }
 	| { readonly kind: "group"; readonly providers: readonly [LiteLLMProvider, ...LiteLLMProvider[]] };
 
-/** Normalized model entry after discovery; `shape` carries the registration-relevant provider data. */
 export interface LiteLLMModelItem {
 	id: string;
 	shape: ModelShape;
@@ -111,18 +99,16 @@ export interface LiteLLMModelItem {
 }
 
 /**
- * Missing or null counts as supported - only an explicit false is a veto -
- * because pass-through entries rarely declare the flag and silently losing
- * tool calling is the worse failure. The one home of that convention.
+ * Missing or null counts as supported - only an explicit false is a veto - because pass-through entries rarely declare
+ * the flag and silently losing tool calling is the worse failure. The one home of that convention.
  */
 export function supportsTools(provider: LiteLLMProvider): boolean {
 	return provider.supports_tools !== false;
 }
 
 /**
- * Raw models-listing entry from either endpoint: `id` must be a string and
- * `providers`, when present, an array. Element contents stay unvalidated here;
- * provider entries are narrowed individually so one malformed entry drops alone.
+ * Element contents stay unvalidated here; provider entries are narrowed individually so one malformed entry drops
+ * alone.
  */
 export const rawModelItemSchema = z.looseObject({
 	id: z.string(),
@@ -132,7 +118,6 @@ export const rawModelItemSchema = z.looseObject({
 
 export type RawModelItem = z.infer<typeof rawModelItemSchema>;
 
-/** Raw provider entry: `provider` must be a string, everything else passes through. */
 export const providerEntrySchema = z.looseObject({
 	provider: z.string(),
 });
@@ -154,9 +139,8 @@ const lenientFlag = lenient(z.boolean().nullable());
 /** Token limits arrive as numbers or numeric strings; normalizePositiveNumber narrows them at mapping. */
 const lenientLimit = lenient(z.union([z.number(), z.string()]).nullable());
 /**
- * Per-token costs are JSON numbers; normalizeCostPerToken re-narrows sign and
- * finiteness at mapping. Long-context tiers are read dynamically from the
- * loose pass-through, so they carry no declarations here.
+ * Per-token costs are JSON numbers; normalizeCostPerToken re-narrows sign and finiteness at mapping. Long-context tiers
+ * are read dynamically from the loose pass-through, so they carry no declarations here.
  */
 const lenientCost = lenient(z.number().nullable());
 
@@ -166,8 +150,8 @@ const modelInfoFieldsSchema = z.looseObject({
 	/** True when the proxy has paused this deployment; blocked deployments must not register. */
 	blocked: lenientFlag,
 	/**
-	 * LiteLLM's endpoint discriminator. Discovery skips the provably non-chat
-	 * values; absent or unrecognized modes register as always.
+	 * LiteLLM's endpoint discriminator.
+	 *   Absent or unrecognized modes -> register as always
 	 */
 	mode: lenient(z.string()),
 	max_tokens: lenientLimit,
@@ -183,8 +167,7 @@ const modelInfoFieldsSchema = z.looseObject({
 	supports_pdf_input: lenientFlag,
 	supports_audio_input: lenientFlag,
 	supports_audio_output: lenientFlag,
-	// Per-element leniency: a non-string member drops alone instead of
-	// degrading the whole list to unknown.
+	// Per-element leniency: a non-string member drops alone instead of degrading the whole list to unknown.
 	supported_openai_params: lenient(
 		z
 			.array(z.unknown())
@@ -194,13 +177,7 @@ const modelInfoFieldsSchema = z.looseObject({
 	...recordFromKeys(WIRE_COST_FIELDS, () => lenientCost),
 });
 
-/**
- * Raw /v1/model/info entry: any object carrying a usable identifier among
- * model_name, litellm_params.model, model_info.key, model_info.id, in that
- * priority order. The transform resolves it once as `modelId` so mapping is
- * total; every other declared field degrades to undefined when malformed
- * rather than dropping the entry.
- */
+/** The transform resolves it once as `modelId` so mapping is total. */
 export const rawModelInfoItemSchema = z
 	.looseObject({
 		model_name: lenient(z.string()),
@@ -221,13 +198,11 @@ export const rawModelInfoItemSchema = z
 		return { ...item, modelId };
 	});
 
-/** LiteLLM model metadata entry from /v1/model/info, parsed and carrying its resolved model id. */
 export type LiteLLMModelInfoItem = z.infer<typeof rawModelInfoItemSchema>;
 
 /**
- * The declared model_info fields without looseObject's index signature. Test
- * builders type against this so a renamed field fails the build instead of
- * silently becoming an unexercised pass-through key.
+ * The declared model_info fields without looseObject's index signature. Test builders type against this so a renamed
+ * field fails the build instead of silently becoming an unexercised pass-through key.
  */
 export type ModelInfoFields = Pick<
 	z.infer<typeof modelInfoFieldsSchema>,

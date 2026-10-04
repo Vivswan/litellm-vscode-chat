@@ -1,14 +1,6 @@
 import { isSafeMimeType } from "../../../shared/conversion/mime";
 
-/**
- * Canonical base64 to bytes. ASCII whitespace is stripped first (MIME-style
- * wrapping is the one legitimate variation); the payload must then be full
- * 4-character groups over the standard alphabet with padding only as a
- * correct-length suffix, and must re-encode byte for byte, because
- * Buffer.from(_, "base64") silently truncates short groups and zeroes
- * noncanonical pad bits ("AB=="). Corrupt media must surface as a logged skip,
- * never as garbage bytes.
- */
+/** Corrupt media must surface as a logged skip, never as garbage bytes. */
 export function decodeBase64Strict(data: string): Uint8Array | undefined {
 	const compact = data.replace(/[ \t\r\n]/g, "");
 	if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(compact)) {
@@ -27,9 +19,8 @@ export interface DecodedDataUrl {
 }
 
 /**
- * Decode a base64 data URL (the shape image-generating models emit); anything
- * else is undefined, for log-and-skip. The mime is model-controlled and later
- * reaches the host, so it is validated here at the source.
+ * Decode a base64 data URL (the shape image-generating models emit); anything else is undefined, for log-and-skip. The
+ * mime is model-controlled and later reaches the host, so it is validated here at the source.
  */
 export function decodeBase64DataUrl(url: string): DecodedDataUrl | undefined {
 	const match = /^data:([^;,]+);base64,(.*)$/s.exec(url);
@@ -51,9 +42,8 @@ export interface AudioBuffer {
 }
 
 /**
- * The request's audio.format values mapped to the mime stamped on the emitted
- * DataPart: the wire delta carries no format field, so the request parameter
- * is the only place the encoding is stated.
+ * The request's audio.format values mapped to the mime stamped on the emitted DataPart: the wire delta carries no
+ * format field, so the request parameter is the only place the encoding is stated.
  */
 const AUDIO_FORMAT_MIMES: Readonly<Record<string, string>> = {
 	wav: "audio/wav",

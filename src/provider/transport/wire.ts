@@ -1,21 +1,18 @@
 import { isRecord } from "../../shared/util/json";
 
 /**
- * Streaming wire format for /v1/chat/completions SSE chunks, and the lenient
- * per-line narrowing the stream processor runs on the hot path. The rules are
- * deliberate: unknown or malformed fields are ignored rather than rejected,
- * numeric-string tool-call indexes are accepted, and only a non-object payload
- * yields undefined - never drop a chunk for fields we don't know.
+ * Streaming wire format for /v1/chat/completions SSE chunks, and the lenient per-line narrowing the stream processor
+ * runs on the hot path. Never drop a chunk for fields we don't know.
+ *   numeric-string tool-call indexes -> are accepted
  */
 
-/** Buffer used to accumulate streamed tool call parts until arguments are valid JSON. */
 export interface ToolCallBuffer {
 	id?: string | undefined;
 	name?: string | undefined;
 	args: string;
 }
 
-/** Finish reason on a streaming choice. Providers may send values beyond the OpenAI set. */
+/** Providers may send values beyond the OpenAI set. */
 export type FinishReason =
 	| "stop"
 	| "length"
@@ -25,10 +22,8 @@ export type FinishReason =
 	| (string & Record<never, never>);
 
 /**
- * The finish reasons that flush buffered state without waiting for the [DONE]
- * sentinel. Deliberately not every FinishReason: length, content_filter, and
- * function_call flush only at [DONE] or EOF. Typed as a FinishReason list (not
- * a literal tuple) so any parsed finish_reason can be membership-tested.
+ * Deliberately not every FinishReason: length, content_filter, and function_call flush only at [DONE] or EOF. Typed
+ * as a FinishReason list, not a literal tuple, so any parsed finish_reason can be membership-tested.
  */
 export const TERMINAL_FINISH_REASONS: readonly FinishReason[] = ["stop", "tool_calls"];
 
@@ -39,12 +34,7 @@ export interface ThinkingBlock {
 	metadata?: unknown;
 }
 
-/**
- * One entry of a thinking_blocks array, LiteLLM's mapping of Anthropic
- * extended thinking: "thinking" entries carry text plus the signature needed
- * to replay the block in a later turn, "redacted_thinking" entries only opaque
- * data.
- */
+/** One entry of a thinking_blocks array, LiteLLM's mapping of Anthropic extended thinking. */
 export interface ThinkingBlockDelta {
 	type?: string | undefined;
 	thinking?: string | undefined;
@@ -59,23 +49,21 @@ export interface ChunkAnnotation {
 }
 
 /**
- * One search-backed source, at the chunk root as `search_results` or on the
- * delta under `provider_specific_fields.search_results`. Only url and title
- * narrow; entries keep flowing without either (the collector skips URL-less
- * ones).
+ * One search-backed source, at the chunk root as `search_results` or on the delta under
+ * `provider_specific_fields.search_results`. Only url and title narrow; entries keep flowing without either (the
+ * collector skips URL-less ones).
  */
 export interface ChunkSearchResult {
 	url?: string | undefined;
 	title?: string | undefined;
 }
 
-/** Content block inside a structured streaming delta; only text blocks are rendered. */
 interface ChunkContentBlock {
 	type?: string | undefined;
 	text?: string | undefined;
 }
 
-/** One generated image in a delta.images list; image-generating chat models carry a base64 data URL here. */
+/** Image-generating chat models carry a base64 data URL here. */
 export interface ChunkImage {
 	type?: string | undefined;
 	image_url?: { url?: string | undefined } | undefined;
@@ -88,7 +76,7 @@ export interface ChunkAudio {
 	transcript?: string | undefined;
 }
 
-/** Fragment of a streamed tool call. OpenAI-compatible proxies may send the index as a numeric string. */
+/** OpenAI-compatible proxies may send the index as a numeric string. */
 export interface StreamedToolCall {
 	index?: number | string | undefined;
 	id?: string | undefined;
@@ -96,7 +84,7 @@ export interface StreamedToolCall {
 	function?: { name?: string | undefined; arguments?: string | undefined } | undefined;
 }
 
-/** Streaming message delta. Providers surface reasoning under several different keys. */
+/** Providers surface reasoning under several different keys. */
 export interface ChunkDelta {
 	role?: string | undefined;
 	content?: string | ChunkContentBlock[] | null | undefined;
@@ -108,15 +96,15 @@ export interface ChunkDelta {
 	refusal?: string | undefined;
 	annotations?: ChunkAnnotation[] | undefined;
 	/**
-	 * Narrowed from the delta's provider_specific_fields.search_results,
-	 * LiteLLM's escape hatch for provider fields with no OpenAI slot.
+	 * Narrowed from the delta's provider_specific_fields.search_results, LiteLLM's escape hatch for provider fields
+	 * with no OpenAI slot.
 	 */
 	search_results?: ChunkSearchResult[] | undefined;
 	images?: ChunkImage[] | undefined;
 	audio?: ChunkAudio | undefined;
 }
 
-/** A single choice in a streaming chunk. Some providers put thinking on the choice instead of the delta. */
+/** Some providers put thinking on the choice instead of the delta. */
 export interface ChunkChoice {
 	index?: number | undefined;
 	delta?: ChunkDelta | undefined;
@@ -125,7 +113,6 @@ export interface ChunkChoice {
 	finish_reason?: FinishReason | undefined;
 }
 
-/** One SSE chunk of a streaming chat completion. */
 export interface ChatCompletionChunk {
 	id?: string | undefined;
 	object?: string | undefined;
@@ -133,23 +120,20 @@ export interface ChatCompletionChunk {
 	model?: string | undefined;
 	choices?: ChunkChoice[] | undefined;
 	/**
-	 * Chunk-root citation URLs, Perplexity's legacy sources shape forwarded by
-	 * LiteLLM's streaming pass-through; typically repeated on every chunk.
+	 * Chunk-root citation URLs, Perplexity's legacy sources shape forwarded by LiteLLM's streaming pass-through;
+	 * typically repeated on every chunk.
 	 */
 	citations?: string[] | undefined;
 	/** Chunk-root search results, the richer successor to `citations`. */
 	search_results?: ChunkSearchResult[] | undefined;
 	/**
-	 * Token usage trailer. The parser proves only that it is a record; the
-	 * stream processor reads the known numeric counts out of it and ignores the
-	 * rest, so arbitrary server keys stay out of logs and the emitted payload.
+	 * The parser proves only that it is a record; the stream processor reads the known numeric counts out of it and
+	 * ignores the rest, so arbitrary server keys stay out of logs and the emitted payload.
 	 */
 	usage?: Record<string, unknown> | undefined;
 	/**
-	 * In-band error envelope: a streamed `data: {"error": {...}}` payload, which
-	 * LiteLLM emits when an upstream fails after the 200 went out. Only a record
-	 * narrows; a non-record error value stays unknown junk under the leniency
-	 * rules.
+	 * In-band error envelope: a streamed `data: {"error": {...}}` payload, which LiteLLM emits when an upstream fails
+	 * after the 200 went out. Only a record narrows.
 	 */
 	error?: Record<string, unknown> | undefined;
 }
@@ -198,7 +182,6 @@ function narrowAnnotations(raw: unknown): ChunkAnnotation[] | undefined {
 	});
 }
 
-/** A malformed list is undefined and a malformed entry keeps only its usable fields, per the leniency rules. */
 function narrowSearchResults(raw: unknown): ChunkSearchResult[] | undefined {
 	if (!Array.isArray(raw)) {
 		return undefined;
@@ -209,7 +192,6 @@ function narrowSearchResults(raw: unknown): ChunkSearchResult[] | undefined {
 	}));
 }
 
-/** Chunk-root citations: string URLs only; non-string members drop alone. */
 function narrowCitations(raw: unknown): string[] | undefined {
 	if (!Array.isArray(raw)) {
 		return undefined;
@@ -255,9 +237,8 @@ function narrowContent(raw: unknown): string | ChunkContentBlock[] | null | unde
 		}));
 	}
 	if (typeof raw === "object") {
-		// A non-array object carries no usable text, and String() on one can
-		// itself throw (a non-callable toString property), breaking parseChunk's
-		// never-throws contract.
+		// A non-array object carries no usable text, and String() on one can itself throw (a non-callable toString
+		// property), breaking parseChunk's never-throws contract.
 		return undefined;
 	}
 	return typeof raw === "string" ? raw : String(raw);
@@ -310,10 +291,7 @@ function narrowChoice(raw: Record<string, unknown>): ChunkChoice {
 }
 
 /**
- * Leniently narrow a parsed SSE payload to the chunk contract: malformed
- * fields are ignored rather than rejected, and only a non-object payload
- * yields undefined. Hand-rolled rather than schema-driven - this runs once per
- * SSE line, and its leniency rules are the contract.
+ *   its leniency rules are the contract -> Hand-rolled rather than schema-driven
  */
 export function parseChunk(raw: unknown): ChatCompletionChunk | undefined {
 	if (!isRecord(raw)) {

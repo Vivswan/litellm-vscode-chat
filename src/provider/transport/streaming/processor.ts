@@ -35,19 +35,13 @@ import {
 import { knownUsageCounts, usageDataPartPayload } from "./usage";
 
 /**
- * Hands out tool-call ID numbers. Shared across concurrent requests, so next()
- * must advance state synchronously: two overlapping streams may interleave
- * calls but can never receive the same ID.
+ * Shared across concurrent requests, so next() must advance state synchronously: two overlapping streams may
+ * interleave calls but can never receive the same ID.
  */
 export interface ToolCallIdSource {
 	next(): number;
 }
 
-/**
- * Where the processor's emitted parts go. Structurally what vscode.Progress<LanguageModelResponsePart> already is, so
- * the provider's host-supplied progress satisfies it unchanged, and a collecting array in a test satisfies it with a
- * plain object.
- */
 export interface ResponsePartSink {
 	report(part: vscode.LanguageModelResponsePart): void;
 }
@@ -71,30 +65,15 @@ interface RequestState {
 	hasEmittedAssistantText: boolean;
 	emittedBeginToolCallsHint: boolean;
 	textParser: TextToolCallParser;
-	/** The tool-call dedup ledger: inline-replay tracking plus the cross-channel max(N, M) rule (see ToolCallLedger). */
 	ledger: ToolCallLedger;
 	loggedRefusal: boolean;
 	/** One log per request, so a burst of bad entries cannot flood the issue-report buffer. */
 	loggedImageSkip: boolean;
-	/**
-	 * Citation URL to title, emitted once at end of stream. Every source shape
-	 * (annotation deltas, chunk-root citations/search_results, the delta's
-	 * provider_specific_fields.search_results) feeds it through recordSource.
-	 */
 	citations: Map<string, string>;
-	/** The latest usage trailer observed on any chunk (the last one wins), emitted at end of stream. */
 	usage: Record<string, unknown> | undefined;
-	/** Accumulating generated audio; cleared on every flush. */
 	audioBuffer: AudioBuffer | undefined;
-	/** Set by _emit on every part; the end-of-stream empty-response check reads it. */
 	reportedAnyPart: boolean;
-	/** Reasoning lost to a missing or throwing thinking-part class; see DroppedReasoning. */
 	droppedReasoning: DroppedReasoning;
-	/**
-	 * The last finish_reason any choice carried, terminal or not: "length"
-	 * classifies the invalid-tool-call throw (an output limit that cut a call
-	 * mid-arguments is not fixed by retrying, so the message must not say so).
-	 */
 	lastFinishReason: string | undefined;
 }
 
@@ -167,11 +146,6 @@ export class StreamProcessor {
 		this._req.droppedReasoning.length += thinking.text.length;
 	}
 
-	/**
-	 * Log the per-request drop aggregate once. Called from finishStream and
-	 * from the transport loop's cleanup, so a request that failed mid-stream
-	 * still ties its lost reasoning to the turn a user reports.
-	 */
 	private logDroppedReasoningAggregate(): void {
 		const dropped = this._req.droppedReasoning;
 		if (dropped.parts === 0 || dropped.logged) {
@@ -201,8 +175,8 @@ export class StreamProcessor {
 				try {
 					chunk = parseChunk(JSON.parse(data));
 				} catch (e) {
-					// Classifications only: neither the raw line nor the JSON error
-					// message (V8 embeds an input excerpt) may reach the logs.
+					// Classifications only: neither the raw line nor the JSON error message (V8 embeds an input
+					// excerpt) may reach the logs.
 					this._log("Skipping malformed SSE line", {
 						length: data.length,
 						errorClass: errorLabel(e),
@@ -213,13 +187,8 @@ export class StreamProcessor {
 					this._log("Skipping malformed SSE line", { length: data.length });
 					continue;
 				}
-				// An in-band error frame with no usable choices terminates the
-				// request: LiteLLM streams `data: {"error": {...}}` when an
-				// upstream dies after the 200, and swallowing it would end the
-				// request as a silent truncation. This is NOT the log-and-skip
-				// path, which covers unparseable junk only. After [DONE] the
-				// response already completed, so a late frame must not turn
-				// success into failure.
+				// LiteLLM streams `data: {"error": {...}}` when an upstream dies after the 200, and swallowing it would
+				// end the request as a silent truncation. This is NOT the log-and-skip path.
 				if (!sawDone && chunk.error && !(chunk.choices && chunk.choices.length > 0)) {
 					throw streamErrorFrame(chunk.error);
 				}
@@ -227,8 +196,6 @@ export class StreamProcessor {
 			}
 			this.endOfStream(!token.isCancellationRequested);
 		} finally {
-			// A request that fails mid-stream never reaches finishStream; its drop
-			// aggregate still logs here before the state resets.
 			this.logDroppedReasoningAggregate();
 			this._req = freshRequestState();
 		}
@@ -251,11 +218,8 @@ export class StreamProcessor {
 	}
 
 	/**
-	 * Record one source URL for the end-of-stream Sources trailer. One rule for
-	 * every source shape: the first REAL title wins, a URL without one titles
-	 * itself as a placeholder, and a later real title may upgrade that
-	 * placeholder. Truthiness, not presence: an empty-string title is no title,
-	 * so it can neither label a source nor block a later upgrade.
+	 * Truthiness, not presence: an empty-string title is no title, so it can neither label a source nor block a later
+	 * upgrade.
 	 */
 	private recordSource(url: string | undefined, title: string | undefined): void {
 		if (!url) {
@@ -287,15 +251,13 @@ export class StreamProcessor {
 
 		if (chunk.usage) {
 			this._log("Token usage", knownUsageCounts(chunk.usage));
-			// Retained for the end-of-stream usage DataPart; runs before the
-			// empty-choices early return below, so the standard trailer chunk
-			// (choices: []) is captured. The last trailer wins.
+			// Retained for the end-of-stream usage DataPart; runs before the empty-choices early return below, so the
+			// standard trailer chunk (choices: []) is captured. The last trailer wins.
 			this._req.usage = chunk.usage;
 		}
 
-		// Chunk-root sources (Perplexity via LiteLLM repeats them on every chunk,
-		// including choice-less ones) collect before the choice gate so none are
-		// lost.
+		// Chunk-root sources (Perplexity via LiteLLM repeats them on every chunk, including choice-less ones) collect
+		// before the choice gate so none are lost.
 		this.collectSources(chunk.citations, chunk.search_results);
 
 		const choice = chunk.choices?.[0];
@@ -305,10 +267,8 @@ export class StreamProcessor {
 		const delta = choice.delta;
 		this.collectSources(undefined, delta?.search_results);
 
-		// Thinking parts pass through as-is: the host merges adjacent thinking
-		// parts itself and mints an id when a part has none, so minting ids here
-		// would only risk colliding with wire ids or the host's thinking-title
-		// cache.
+		// Thinking parts pass through as-is: the host merges adjacent thinking parts itself and mints an id when a part
+		// has none, so minting ids here would only risk colliding with wire ids or the host's thinking-title cache.
 		const thinkingContents = extractThinking(choice, delta);
 		if (this._thinkingPartCtor) {
 			for (const thinking of thinkingContents) {
@@ -322,8 +282,6 @@ export class StreamProcessor {
 					this._emit(part);
 					emitted = true;
 				} else {
-					// A host class that throws loses the reasoning exactly like a
-					// missing one; both routes feed the same per-request aggregate.
 					this.recordDroppedReasoning(thinking);
 				}
 			}
@@ -376,9 +334,8 @@ export class StreamProcessor {
 		}
 
 		if (delta?.audio) {
-			// The transcript is the model's textual output (a gpt-4o-audio turn
-			// has no delta.content), so it streams as ordinary text, independently
-			// of DataPart support, which only gates the binary clip.
+			// The transcript is the model's textual output (a gpt-4o-audio turn has no delta.content), so it streams as
+			// ordinary text, independently of DataPart support, which only gates the binary clip.
 			if (delta.audio.transcript) {
 				const res = this.processTextContent(delta.audio.transcript);
 				if (res.emittedText) {
@@ -430,11 +387,6 @@ export class StreamProcessor {
 		return emitted;
 	}
 
-	/**
-	 * Emit one DataPart per decodable entry of a delta.images list, in stream
-	 * order relative to the surrounding text. A malformed entry is skipped and
-	 * logged as a classification; the stream continues either way.
-	 */
 	private processImagesDelta(images: NonNullable<ChunkDelta["images"]>): boolean {
 		if (!this._dataPartCtor) {
 			logMissingDataPartSupportOnce(this._log);
@@ -444,9 +396,8 @@ export class StreamProcessor {
 		for (const image of images) {
 			const url = image.image_url?.url;
 			const decoded = url === undefined ? undefined : decodeBase64DataUrl(url);
-			// The image/* gate kills both a mislabeled DataPart and the
-			// second-order round-trip where a text-mime part's bytes would
-			// re-enter assistant text on the next turn.
+			// The image/* gate kills both a mislabeled DataPart and the second-order round-trip where a text-mime
+			// part's bytes would re-enter assistant text on the next turn.
 			if (!decoded || decoded.bytes.length === 0 || !isImageMimeType(decoded.mime)) {
 				if (!this._req.loggedImageSkip) {
 					this._req.loggedImageSkip = true;
@@ -465,12 +416,11 @@ export class StreamProcessor {
 	}
 
 	/**
-	 * Generated audio accumulates instead of streaming out per delta: real
-	 * deployments fragment delta.audio.data into base64 pieces that need not
-	 * align to 4-character groups, so only the concatenation is decodable. One
-	 * DataPart per audio id - when a delta carrying a different id starts, or
-	 * at end of stream. The mime derives from the request's audio.format (the
-	 * wire delta carries no format field); see audioMimeForFormat.
+	 * Generated audio accumulates instead of streaming out per delta: real deployments fragment delta.audio.data into
+	 * base64 pieces that need not align to 4-character groups, so only the concatenation is decodable.
+	 *
+	 * The mime derives from the request's audio.format (the wire delta carries no format field); see
+	 * audioMimeForFormat.
 	 */
 	private processAudioDelta(audio: ChunkAudio): boolean {
 		if (!this._dataPartCtor) {
@@ -490,7 +440,6 @@ export class StreamProcessor {
 		return emitted;
 	}
 
-	/** Emit the accumulated audio as one DataPart; an undecodable or empty payload is logged as a classification and dropped. */
 	private flushAudioBuffer(): boolean {
 		const buffer = this._req.audioBuffer;
 		this._req.audioBuffer = undefined;
@@ -510,7 +459,6 @@ export class StreamProcessor {
 		return true;
 	}
 
-	/** Guarded construction, mirroring the thinking-part path: a throwing host class is logged, never propagated. */
 	private constructDataPart(bytes: Uint8Array, mime: string): vscode.LanguageModelResponsePart | undefined {
 		if (!this._dataPartCtor) {
 			return undefined;
@@ -523,7 +471,6 @@ export class StreamProcessor {
 		}
 	}
 
-	/** Push one text fragment through the inline tool-call parser and emit what it releases. */
 	processTextContent(input: string): { emittedText: boolean; emittedAny: boolean } {
 		const result: TextParseResult = this._req.textParser.push(input);
 		let emittedText = false;
@@ -540,10 +487,9 @@ export class StreamProcessor {
 			if (this._req.ledger.alreadyHandled(call.seq)) {
 				continue;
 			}
-			// A COMPLETE call's end token arrived, so its argument section is
-			// final: an explicit-but-empty section reads as the no-argument call
-			// (the parser only synthesizes "{}" when the argument-begin token
-			// itself is absent).
+			// A COMPLETE call's end token arrived, so its argument section is final: an explicit-but-empty section
+			// reads as the no-argument call (the parser only synthesizes "{}" when the argument-begin token itself is
+			// absent).
 			const parsed = tryParseJSONObject(StreamProcessor.flushArgsText(call.args));
 			if (!parsed.ok) {
 				// Classification only: the name and arguments are response text.
@@ -576,8 +522,8 @@ export class StreamProcessor {
 			return false;
 		}
 		const emitted = this.emitToolCall({ name, parsedArgs });
-		// Registered even when suppressed as a cross-channel duplicate: either way
-		// this inline call is accounted for, and a replay of it must not emit.
+		// Registered even when suppressed as a cross-channel duplicate: either way this inline call is accounted for,
+		// and a replay of it must not emit.
 		this._req.ledger.recordInlineEmission(name, call.index, contentKey);
 		return emitted;
 	}
@@ -623,23 +569,18 @@ export class StreamProcessor {
 	}
 
 	/**
-	 * An empty accumulation reads as the empty object, the same rule textToolCallParser.ts applies to a call
-	 * with no argument-begin token and shared/conversion/messages.ts applies to a missing input. Callers gate
-	 * WHEN finality holds; mid-stream sites must never use this, since empty arguments may still be accumulating.
+	 * An empty accumulation reads as the empty object, the same rule textToolCallParser.ts applies to a call with no
+	 * argument-begin token and shared/conversion/messages.ts applies to a missing input.
 	 */
 	private static flushArgsText(args: string): string {
 		return args.trim() === "" ? "{}" : args;
 	}
 
 	/**
-	 * How an end-of-stream flush treats a delta buffer whose accumulated
-	 * arguments are empty. "hold": leave it pending - the finish_reason and
-	 * [DONE] runs can still be followed by chunks carrying the arguments, and
-	 * emitting now would retire the index and drop them. "emit": the final EOF
-	 * run's no-argument reading (flushArgsText). "invalid": the final run after
-	 * finish_reason "length" - the limit cut the call off before its arguments,
-	 * so it counts toward the classified failure instead of emitting a call
-	 * the model never finished.
+	 * How an end-of-stream flush treats a delta buffer whose accumulated arguments are empty.
+	 *   "hold"    -> leave it pending - the finish_reason and [DONE] runs can still be followed by chunks carrying the
+	 *                arguments, and emitting now would retire the index and drop them
+	 *   "emit"    -> the final EOF run's no-argument reading (flushArgsText)
 	 */
 	private flushToolCallBuffers(emptyArgs: "hold" | "emit" | "invalid"): number {
 		let invalidCount = 0;
@@ -672,18 +613,12 @@ export class StreamProcessor {
 	}
 
 	/**
-	 * Single end-of-stream path shared by finish_reason, [DONE], and EOF. finishedNormally is false only when the
-	 * request was cancelled; a cancelled stream downgrades unparseable leftovers to logged drops and discards
-	 * accumulated media instead of emitting it. `isFinal` is true only for the post-loop EOF run (endOfStream), which
-	 * alone may finalize empty delta buffers and emit the trailers; the finish_reason and [DONE] runs can still be
-	 * followed by more chunks.
+	 * finishedNormally is false only when the request was cancelled; a cancelled stream downgrades unparseable
+	 * leftovers to logged drops and discards accumulated media instead of emitting it. `isFinal` is true only for the
+	 * post-loop EOF run (endOfStream), which alone may finalize empty delta buffers and emit the trailers; the
+	 * finish_reason and [DONE] runs can still be followed by more chunks.
 	 */
 	private finishStream(finishedNormally: boolean, isFinal = false): void {
-		// Empty delta buffers finalize only at the true EOF run of a
-		// normally-finished stream; a cancelled stream downgrades them to the
-		// same logged drops its unparseable leftovers get (the "invalid" count
-		// never throws without finishedNormally). See flushToolCallBuffers for
-		// the three modes.
 		const emptyArgs = !isFinal
 			? "hold"
 			: !finishedNormally || this._req.lastFinishReason === "length"
@@ -694,11 +629,10 @@ export class StreamProcessor {
 		const rest = this._req.textParser.flush();
 		const call = rest.provisionalCall;
 		if (call && !this._req.ledger.alreadyHandled(call.seq)) {
-			// The parser's held state is gone after flush(), so an unterminated
-			// call cannot resume on a later run: finality is a given here, and
-			// only two gates apply - cancellation (a cancelled partial call must
-			// drop, not run) and the length gate (an output limit that cut the
-			// call off must classify, not emit a call the model never finished).
+			// The parser's held state is gone after flush(), so an unterminated call cannot resume on a later run:
+			// finality is a given here, and only two gates apply - cancellation (a cancelled partial call must drop,
+			// not run) and the length gate (an output limit that cut the call off must classify, not emit a call the
+			// model never finished).
 			const inlineArgs =
 				finishedNormally && this._req.lastFinishReason !== "length"
 					? StreamProcessor.flushArgsText(call.args)
@@ -720,8 +654,6 @@ export class StreamProcessor {
 			.map((e) => e.text)
 			.join("");
 		if (trailingText) {
-			// Held-back text that turned out to be a truncated tool-call token is
-			// dropped; anything else is legitimate output the hold-back delayed.
 			if (isTruncatedToolCallText(trailingText)) {
 				// Classification only: the held-back text is response content.
 				this._log("Dropping trailing partial control token text at end of stream", {
@@ -732,10 +664,7 @@ export class StreamProcessor {
 			}
 		}
 
-		// Audio flushes only from a normally-finished stream: a cancelled
-		// request drops its partial accumulation rather than emit a truncated
-		// clip. Flushing clears the buffer, so the repeated finishStream runs
-		// cannot emit the audio twice.
+		// Flushing clears the buffer, so the repeated finishStream runs cannot emit the audio twice.
 		if (finishedNormally) {
 			this.flushAudioBuffer();
 		} else {
@@ -745,12 +674,10 @@ export class StreamProcessor {
 		this.logDroppedReasoningAggregate();
 
 		if (invalidCount > 0 && finishedNormally) {
-			// The English mirror is what the output channel and issue-report
-			// buffer record: count only - tool names and argument snippets are
-			// response text and must never join it.
+			// The English mirror is what the output channel and issue-report buffer record: count only - tool names and
+			// argument snippets are response text and must never join it.
 			if (this._req.lastFinishReason === "length") {
-				// The output limit cut the call mid-arguments: retrying cannot fix
-				// a limit, so the advice points at the limit instead.
+				//   The output limit cut the call mid-arguments -> the advice points at the limit instead
 				const lengthDetail =
 					invalidCount === 1
 						? l10n.t("the output limit cut 1 tool call off mid-arguments")
@@ -780,9 +707,8 @@ export class StreamProcessor {
 			);
 		}
 
-		// A normally-finished stream that emitted nothing but did drop reasoning
-		// must fail loudly instead of resolving empty. The flag keeps the
-		// repeated finishStream runs from double-throwing.
+		// A normally-finished stream that emitted nothing but did drop reasoning must fail loudly instead of resolving
+		// empty. The flag keeps the repeated finishStream runs from double-throwing.
 		if (
 			finishedNormally &&
 			!this._req.reportedAnyPart &&
@@ -795,17 +721,16 @@ export class StreamProcessor {
 	}
 
 	/**
-	 * The end-of-stream trailers (Sources, usage). They decorate a response, so they must not satisfy finishStream's
-	 * reasoning-only check: only endOfStream calls this, after that check has run and before it resets the request
-	 * state, so the count they add reaches no check. Earlier runs are premature - more chunks may still deliver
-	 * sources, title upgrades, or a later usage trailer, and last-wins must hold - and a cancelled or failed stream has
-	 * no successful response to trail.
+	 * They decorate a response, so they must not satisfy finishStream's reasoning-only check: only endOfStream calls
+	 * this, after that check has run and before it resets the request state, so the count they add reaches no check.
+	 * Earlier runs are premature - more chunks may still deliver sources, title upgrades, or a later usage trailer, and
+	 * last-wins must hold - and a cancelled or failed stream has no successful response to trail.
 	 */
 	private emitTrailers(): void {
 		if (this._req.citations.size > 0) {
 			const escapeTitle = (title: string) => title.replace(/[\r\n]+/g, " ").replace(/[[\]\\]/g, "\\$&");
-			// encodeURIComponent leaves "(" and ")" alone, and those break
-			// markdown link targets; everything else needs UTF-8-safe encoding.
+			// encodeURIComponent leaves "(" and ")" alone, and those break markdown link targets; everything else needs
+			// UTF-8-safe encoding.
 			const escapeUrl = (url: string) =>
 				url.replace(/[\s()]/g, (c) => (c === "(" ? "%28" : c === ")" ? "%29" : encodeURIComponent(c)));
 			const lines = Array.from(this._req.citations.entries()).map(

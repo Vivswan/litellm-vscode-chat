@@ -8,9 +8,8 @@ import type { PreAttachModelInfo } from "./groupModels";
 import type { ServedModelSets } from "./statusWindow";
 
 /**
- * The label+URL identity entry configuration resolves against for one served
- * server; undefined when no entry can match (an unlabeled group, or a server
- * no longer in the status window).
+ * The label+URL identity entry configuration resolves against for one served server.
+ *   an unlabeled group, or a server no longer in the status window -> undefined
  */
 export interface EntryIdentity {
 	readonly label: string;
@@ -26,18 +25,15 @@ export interface ServedModelDecoratorOptions {
 	getCatalogLookup: () => CapabilityCatalogLookup;
 	/** The shared flat resolution table; the same cache requests and the dashboard read. */
 	resolution: ModelResolutionTable;
-	// Facade-bound: this module never touches a logger directly, since the
-	// provider facade is the single logging boundary.
+	// Facade-bound: this module never touches a logger directly, since the provider facade is the single logging
+	// boundary.
 	log: (message: string, data?: unknown) => void;
 	logAdvisory: (message: string, data?: unknown) => void;
 }
 
 /**
- * Model-info preparation for one serve pass: capability overrides and
- * declared-model synthesis over a discovery result and the CURRENT
- * configuration. Applied outside the discovery cache on purpose, so a
- * configuration edit reaches the next serve without a cache clear and a
- * removed declared ID disappears immediately.
+ * Applied outside the discovery cache on purpose, so a configuration edit reaches the next serve without a cache clear
+ * and a removed declared ID disappears immediately.
  */
 export class ServedModelDecorator {
 	private readonly _options: ServedModelDecoratorOptions;
@@ -47,9 +43,8 @@ export class ServedModelDecorator {
 	}
 
 	/**
-	 * The capability configuration one serve pass resolves against. The injected
-	 * resolver answers only when `entryLabel` and the base URL identify the same
-	 * declared entry, mirroring the request path's entry-parameters match.
+	 * The injected resolver answers only when `entryLabel` and the base URL identify the same declared entry, mirroring
+	 * the request path's entry-parameters match.
 	 */
 	private capabilityOptions(server: ServerConfig, entryLabel: string | undefined): CapabilityOverrideOptions {
 		return {
@@ -67,13 +62,10 @@ export class ServedModelDecorator {
 	}
 
 	/**
-	 * Everything a serve pass hands out from one discovery result and the
-	 * CURRENT configuration: the discovered infos with capability overrides
-	 * applied, plus the declared models discovery did not list (inert against
-	 * the discovered raw-ID set, suppressed on collision with a registered ID,
-	 * so the two sets are disjoint by construction). The one producer of the
-	 * pair the status window records; only the discovered set anchors stale
-	 * serving.
+	 * Everything a serve pass hands out from one discovery result and the CURRENT configuration: the discovered infos
+	 * with capability overrides applied, plus the declared models discovery did not list (inert against the discovered
+	 * raw-ID set, suppressed on collision with a registered ID, so the two sets are disjoint by construction). Only the
+	 * discovered set anchors stale serving.
 	 */
 	decorate(
 		discovered: { readonly infos: readonly PreAttachModelInfo[]; readonly discoveredRawIds: readonly string[] },

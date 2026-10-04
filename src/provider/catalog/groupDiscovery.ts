@@ -21,7 +21,6 @@ type FailureServeShape = Omit<
 	"servedModelCount" | "declaredModelCount"
 >;
 
-/** What recordAndServe hands back: the served union plus the two origin sets, all group-attached. */
 type AttachedServe = {
 	served: AttachedModelInfo[];
 	discovered: AttachedModelInfo[];
@@ -47,19 +46,18 @@ export interface DiscoveredGroupModels {
 	/** See FetchModelsResult.skippedModeCounts; rides the cache so cached serves re-report it. */
 	readonly skippedModeCounts?: SkippedModeCounts;
 	/**
-	 * See FetchModelsResult.modelInfoUnsupported; rides the cache so cached
-	 * serves re-report it. The serve gates it against the entry's CURRENT
-	 * expectedFailures, so declaring the failure retires the hint immediately
-	 * instead of waiting out the cache TTL.
+	 * See FetchModelsResult.modelInfoUnsupported; rides the cache so cached serves re-report it. The serve gates it
+	 * against the entry's CURRENT expectedFailures, so declaring the failure retires the hint immediately instead of
+	 * waiting out the cache TTL.
 	 */
 	readonly modelInfoUnsupported?: UnservedEndpointEvidence;
 }
 
 /**
- * The apiVersion and includeModes live outside the group configuration yet change what a fetch yields, so
- * both join the group client ID, and every cache touch composes through here so a rotated root's or an
- * edited mode list's entry is unreachable and pruned alike. JSON-encoded, not delimiter-joined, or shifted
- * free-form content could collide (the oauthCredentialFingerprint rule).
+ * The apiVersion and includeModes live outside the group configuration yet change what a fetch yields, so both join
+ * the group client ID, and every cache touch composes through here so a rotated root's or an edited mode list's entry
+ * is unreachable and pruned alike. JSON-encoded, not delimiter-joined, or shifted free-form content could collide (the
+ * oauthCredentialFingerprint rule).
  */
 function discoveryCacheKey(groupClientId: string, apiRoot: string, includeModes: readonly NonChatMode[]): string {
 	return JSON.stringify([groupClientId, apiRoot, [...includeModes].sort()]);
@@ -74,10 +72,9 @@ export interface GroupDiscoveryOptions {
 	window: Pick<StatusWindow, "staleServableModels">;
 	decorator: ServedModelDecorator;
 	/**
-	 * The same apiVersion resolver ChatClient consumes, kept here so the
-	 * discovery cache key can compose the effective API root a serve would
-	 * fetch from: a serve resolving to a different root lands on a different
-	 * key and misses by construction.
+	 * The same apiVersion resolver ChatClient consumes, kept here so the discovery cache key can compose the effective
+	 * API root a serve would fetch from: a serve resolving to a different root lands on a different key and misses by
+	 * construction.
 	 */
 	getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
 	/** Per-entry expectedFailures resolver, matched by label and normalized base URL. */
@@ -86,24 +83,17 @@ export interface GroupDiscoveryOptions {
 	getEntryIncludeModes: (label: string, baseUrl: string) => readonly NonChatMode[] | undefined;
 	/** The extension layer's tombstone predicate; see LiteLLMChatModelProviderOptions.isGroupSuppressed. */
 	isGroupSuppressed: (label: string, baseUrl: string, entryLabel: string | undefined) => boolean;
-	// Facade-bound log callbacks: this module logs only through them, so the
-	// provider facade stays the single logging boundary.
+	// Facade-bound log callbacks: this module logs only through them, so the provider facade stays the single logging
+	// boundary.
 	log: (message: string, data?: unknown) => void;
 	logError: (message: string, error: unknown) => void;
 }
 
-/**
- * The per-group discovery pass: cache-preferred model resolution for one
- * VS Code-managed provider group, including the silent-refresh stale-window
- * fallback. Every outcome (served, suppressed, failed) records through the
- * reporter, so the merged status stays live across cached sweeps.
- */
 export class GroupDiscovery {
 	private readonly _options: GroupDiscoveryOptions;
 	/**
-	 * index.ts claims the generation before its first await, so arrival order at the facade decides which
-	 * serve's record stands, not resolver or fetch completion order.
-	 * Unlabeled groups stay out (two on one host is a documented, deliberate collision).
+	 * index.ts claims the generation before its first await, so arrival order at the facade decides which serve's
+	 * record stands, not resolver or fetch completion order. Unlabeled groups stay out.
 	 */
 	private readonly _serveGenerations = new Map<string, number>();
 
@@ -117,11 +107,9 @@ export class GroupDiscovery {
 	}
 
 	/**
-	 * Claim the next serve generation for a logical group, SYNCHRONOUSLY and
-	 * before any await in the caller: the overlay never changes label or base
-	 * URL, so the pre-overlay parse is a valid claim ticket. A serve carrying a
-	 * superseded generation yields its record (see recordAndServe). Undefined
-	 * for unlabeled groups, which keep plain last-write-wins recording.
+	 * Claim the next serve generation for a logical group, SYNCHRONOUSLY and before any await in the caller: the
+	 * overlay never changes label or base URL, so the pre-overlay parse is a valid claim ticket.
+	 *   Undefined for unlabeled groups -> keep plain last-write-wins recording
 	 */
 	beginServe(groupServer: Pick<GroupServer, "label" | "baseUrl">): number | undefined {
 		const logicalId = this.logicalGroupId(groupServer);
@@ -133,30 +121,22 @@ export class GroupDiscovery {
 		return generation;
 	}
 
-	/** The declared entry's expectedFailures for this server, or none for unlabeled and unmatched servers. */
 	private expectedFailuresFor(entryLabel: string | undefined, baseUrl: string): readonly ExpectedFailureCategory[] {
 		return (entryLabel !== undefined ? this._options.getExpectedFailures(entryLabel, baseUrl) : undefined) ?? [];
 	}
 
-	/** See expectedFailuresFor; the same label-gated read for includeModes. */
 	private includeModesFor(entryLabel: string | undefined, baseUrl: string): readonly NonChatMode[] {
 		return (entryLabel !== undefined ? this._options.getEntryIncludeModes(entryLabel, baseUrl) : undefined) ?? [];
 	}
 
-	/** The entry's categories in discovery's per-endpoint shape; see ExpectedDiscoveryFailures. */
 	private expectedDiscoveryFailures(entryLabel: string | undefined, baseUrl: string): ExpectedDiscoveryFailures {
 		const categories = this.expectedFailuresFor(entryLabel, baseUrl);
 		return { modelInfo: categories.includes("modelInfo"), modelListing: categories.includes("modelListing") };
 	}
 
 	/**
-	 * The cache key this group's discovery results live under right now: the
-	 * group client ID composed with the effective API root, resolved exactly
-	 * the way the transport resolves it (only a labeled group can match an
-	 * entry). The facade builds its prune keep-set through this same method,
-	 * so an entry keyed under a rotated root - unreachable to every serve -
-	 * ages out at the next prune instead of lingering with the old root's
-	 * models.
+	 * The facade builds its prune keep-set through this same method, so an entry keyed under a rotated root -
+	 * unreachable to every serve - ages out at the next prune instead of lingering with the old root's models.
 	 */
 	cacheKeyFor(groupServer: GroupServer): string {
 		const apiRoot = apiRootOf(
@@ -189,31 +169,21 @@ export class GroupDiscovery {
 			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
 			baseUrl: groupServer.baseUrl,
 			apiKey: groupServer.apiKey,
-			// The configured label only: an unlabeled group's display fallback
-			// (the URL host) must not accidentally match a declared entry.
+			// The configured label only: an unlabeled group's display fallback (the URL host) must not accidentally
+			// match a declared entry.
 			entryLabel: groupServer.label,
 			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
 			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
 		};
 		const attach = (infos: readonly PreAttachModelInfo[]): AttachedModelInfo[] =>
 			infos.map((info) => attachGroupServer(info, groupServer));
-		// The composed cache key covers the effective API root alongside the
-		// group identity, so an apiVersion edit lands on a fresh key: a stored
-		// result from a rotated root is unreachable rather than checked for, and
-		// a serve can never join an in-flight load fetching a different root.
-		// Computed before recordAndServe because it doubles as this serve's
-		// configuration stamp there.
+		// Computed before recordAndServe because it doubles as this serve's configuration stamp there.
 		const cacheKey = this.cacheKeyFor(groupServer);
-		// A caller that could not claim before its own awaits (none today beyond
-		// the unlabeled case) still participates: an unclaimed labeled serve
-		// claims here, so it can at least be superseded by later serves.
+		// An unclaimed labeled serve claims here, so it can at least be superseded by later serves.
 		const logicalId = this.logicalGroupId(groupServer);
 		const serveGeneration = generation ?? this.beginServe(groupServer);
-		// Every path records and serves through here: the reporter gets exactly
-		// the served pair the return value carries, and both outcome counts derive
-		// from the same pair, so no branch can record one set and serve another.
-		// The one outcome that serves WITHOUT recording is the rotated-
-		// configuration yield below.
+		// The one outcome that serves WITHOUT recording is the rotated-configuration yield below.
+		//   both outcome counts -> derive from the same pair
 		const recordAndServe: RecordAndServe = (
 			served: ServedModelSets,
 			outcome: OkServeShape | FailureServeShape,
@@ -241,9 +211,7 @@ export class GroupDiscovery {
 				);
 				return { served: [...discovered, ...declared], discovered, declared };
 			}
-			// The one served-count derivation: both states record exactly what this
-			// serve hands out, so a failure still serving stale or declared models
-			// stays visible to the merged count and every verdict.
+			// The one served-count derivation.
 			const servedModelCount = served.discovered.length + served.declared.length;
 			if (outcome.state === "ok") {
 				this._options.reporter.reportGroupStatus(
@@ -270,11 +238,10 @@ export class GroupDiscovery {
 			return { served: [...discovered, ...declared], discovered, declared };
 		};
 
-		// A group the user hid - removed its entry, or re-pointed the entry at
-		// another URL - answers empty and never touches the network or the
-		// cache. Its status still reports (healthy with zero models, flagged
-		// hiddenByRemoval) so the status window ages it like any live group and
-		// the dashboard's hidden-groups view stays coherent.
+		// A group the user hid - removed its entry, or re-pointed the entry at another URL - answers empty and never
+		// touches the network or the cache. Its status still reports (healthy with zero models, flagged
+		// hiddenByRemoval) so the status window ages it like any live group and the dashboard's hidden-groups view
+		// stays coherent.
 		if (this._options.isGroupSuppressed(server.label, groupServer.baseUrl, groupServer.label)) {
 			this._options.log("Provider group is hidden by the user's configuration; serving no models", {
 				baseUrl: server.baseUrl,
@@ -282,8 +249,8 @@ export class GroupDiscovery {
 			return recordAndServe({ discovered: [], declared: [] }, { state: "ok", hiddenByRemoval: true }).served;
 		}
 
-		// Resolved before the cache read: the ok-path hint below gates on the
-		// entry's CURRENT declarations, cached serve or fresh.
+		// Resolved before the cache read: the ok-path hint below gates on the entry's CURRENT declarations, cached
+		// serve or fresh.
 		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
 		const includeModes = this.includeModesFor(groupServer.label, server.baseUrl);
 		// The unserved-probe hint one ok serve carries; see DiscoveredGroupModels.modelInfoUnsupported.
@@ -330,11 +297,9 @@ export class GroupDiscovery {
 				};
 			};
 			const discovered = await this._options.cache.fetch(cacheKey, load);
-			// Overrides and declared models are applied to what is SERVED: the
-			// discovery cache stays configuration-free, so an edit reaches the
-			// very next serve. The status window records both served sets, keeping
-			// declared models out of its stale-serve anchor; they are config-rebuilt
-			// every serve.
+			// Overrides and declared models are applied to what is SERVED: the discovery cache stays
+			// configuration-free, so an edit reaches the very next serve. The status window records both served sets,
+			// keeping declared models out of its stale-serve anchor; they are config-rebuilt every serve.
 			const freshServe = this._options.decorator.decorate(discovered, server, groupServer.label);
 			this._options.log(`Provider group at ${server.baseUrl} returned ${discovered.infos.length} models`);
 			return recordAndServe(
@@ -349,26 +314,21 @@ export class GroupDiscovery {
 		} catch (error) {
 			const expected = expectedFailures.modelListing;
 			if (expected) {
-				// The one boundary log for an expected terminal failure: an info
-				// classification instead of an error, keeping the issue-report
-				// buffer clean of failures the user declared normal.
+				// The one boundary log for an expected terminal failure: an info classification instead of an error.
 				this._options.log(`Model discovery failed (expected: modelListing) for provider group`, {
 					baseUrl: server.baseUrl,
 				});
 			} else {
 				this._options.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
 			}
-			// Both status renderings are constructed at this boundary.
 			const texts = statusErrorTexts(error);
 			// The window is this session's live state, never the extension layer's persisted status. Only a SILENT
 			// refresh serves the stale set, and only while staleServableModels finds an anchor inside the window;
 			// non-silent failures throw, except an expected one with declared models, which serves the declared set.
 			const stale = this._options.window.staleServableModels(server.id, groupServer);
-			// A non-silent expected failure serves the declared set ALONE (the
-			// return below), so its record must not count the stale set the silent
-			// path would serve - and the declared synthesis must run against the
-			// empty discovered set, or a pre-outage discovery could inert-suppress
-			// a declared ID out of the only set this serve hands back.
+			// Its record must not count the stale set the silent path would serve - and the declared synthesis must run
+			// against the empty discovered set, or a pre-outage discovery could inert-suppress a declared ID out of the
+			// only set this serve hands back.
 			const servesDeclaredOnly = !silent && expected;
 			const failureSets = this._options.decorator.decorate(
 				!servesDeclaredOnly && stale !== undefined
@@ -377,17 +337,15 @@ export class GroupDiscovery {
 				server,
 				groupServer.label
 			);
-			// Recorded is what stays visible under the error: the declared-only serve
-			// returns exactly this set, and the throwing unexpected branch still names
-			// the stale set every silent pass keeps serving, never flashing zero.
+			// Recorded is what stays visible under the error: the declared-only serve returns exactly this set, and
+			// the throwing unexpected branch still names the stale set every silent pass keeps serving.
 			const failureServe = recordAndServe(failureSets, {
 				state: "error",
 				...texts,
 				...(expected ? { expected: true } : {}),
 			});
 			if (silent) {
-				// No success anchor means nothing servable: an empty literal, not the
-				// attached set, so a decorator surprise cannot serve unmarked models.
+				// An empty literal, not the attached set, so a decorator surprise cannot serve unmarked models.
 				const staleServed =
 					stale !== undefined ? markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString()) : [];
 				return [...staleServed, ...failureServe.declared];
@@ -395,9 +353,8 @@ export class GroupDiscovery {
 			if (expected && failureSets.declared.length > 0) {
 				return failureServe.declared;
 			}
-			// A non-Error throw is rebuilt with the status's log-safe rendering as
-			// its mirror: the display text can embed response body and must never
-			// reach the log path.
+			// A non-Error throw is rebuilt with the status's log-safe rendering as its mirror: the display text can
+			// embed response body and must never reach the log path.
 			throw error instanceof Error ? error : new MirroredError(texts.error, { englishMessage: texts.logSafeError });
 		}
 	}

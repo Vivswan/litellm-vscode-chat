@@ -4,7 +4,7 @@ import type { Duplex, Readable } from "node:stream";
 import * as zlib from "node:zlib";
 
 /**
- * Node's http client, not fetch. It has no idle clock, so the caller's AbortSignal is the only bound. Undici's fetch
+ * Node's http client, not fetch: it has no idle clock, so the caller's AbortSignal is the only bound. Undici's fetch
  * has default 300 s clocks (headersTimeout, bodyTimeout), and the host's @vscode/proxy-agent patch keeps them that way:
  *   proxies or system certs on (default)  -> rebuilds the fetch dispatcher, so no Agent lifts the clocks
  *   http.request and https.request        -> swapped for proxy- and cert-aware ones, so request is read per call
@@ -79,10 +79,7 @@ interface Exchange {
 	readonly fail: (err: unknown) => void;
 }
 
-/**
- * The decoder chain for the response's content codings, applied in reverse order of the header, or the response
- * itself when there is nothing to decode. An unknown coding leaves the whole body untouched, as fetch does.
- */
+/** An unknown coding leaves the whole body untouched, as fetch does. */
 function decodedSource(res: http.IncomingMessage): { source: Readable; stages: Duplex[] } {
 	const codings = (res.headers["content-encoding"] ?? "")
 		.split(",")
@@ -104,11 +101,13 @@ function decodedSource(res: http.IncomingMessage): { source: Readable; stages: D
 }
 
 /**
- * Backpressure rides pause/resume on the last stage (pipe() manages the earlier ones): a slow consumer stops the
- * socket read instead of buffering the whole reply. Every ending tears down the response and every decoder
- * stage, so nothing outlives the stream: a stage can end before the response or an earlier stage does (a gzip
- * member followed by trailing bytes), and a body that already arrived but is still decoding must not outlive
- * the caller's abort. Response headers stay as received, content-encoding included, as fetch leaves them.
+ * Every ending tears down the response and every decoder stage, so nothing outlives the stream: a stage can end before
+ * the response or an earlier stage does (a gzip member followed by trailing bytes), and a body that already arrived
+ * but is still decoding must not outlive the caller's abort. Response headers stay as received, content-encoding
+ * included, as fetch leaves them.
+ *
+ *   Backpressure rides pause/resume on the last stage (pipe() manages the earlier ones) -> a slow consumer stops the
+ *     socket read instead of buffering the whole reply
  */
 function ownResponse(res: http.IncomingMessage, signal: AbortSignal | undefined): Omit<Exchange, "res"> {
 	const { source, stages } = decodedSource(res);
@@ -148,7 +147,8 @@ function ownResponse(res: http.IncomingMessage, signal: AbortSignal | undefined)
 				}
 			});
 			source.on("end", () => settle());
-			// pipe() forwards data, never errors: the socket's and every decoder's failure must reach the stream itself.
+			// pipe() forwards data, never errors: the socket's and every decoder's failure must reach the stream
+			// itself.
 			res.on("error", settle);
 			for (const stage of stages) {
 				stage.on("error", settle);

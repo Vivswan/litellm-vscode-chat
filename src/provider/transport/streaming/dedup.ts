@@ -17,7 +17,6 @@ export class ToolCallLedger {
 	private readonly _deltaEmittedCounts = new Map<string, number>();
 	private readonly _inlineEmittedCounts = new Map<string, number>();
 
-	/** Whether this inline parser seq was already decided (emitted or deduped). */
 	alreadyHandled(seq: number): boolean {
 		return this._handledTextCallSeqs.has(seq);
 	}
@@ -26,7 +25,6 @@ export class ToolCallLedger {
 		this._handledTextCallSeqs.add(seq);
 	}
 
-	/** Whether this inline call is a replay: by name:index when the header carried an index, by name:args otherwise. */
 	inlineAlreadyEmitted(name: string, index: number | undefined, contentKey: string): boolean {
 		if (typeof index === "number") {
 			return this._inlineEmittedIndexIds.has(`${name}:${index}`);
@@ -41,11 +39,7 @@ export class ToolCallLedger {
 		this._inlineEmittedContentKeys.add(contentKey);
 	}
 
-	/**
-	 * Whether this arrival is the other channel's duplicate. Consuming: a true
-	 * result spends one pending count, so the caller must suppress the call it
-	 * asked about.
-	 */
+	/** Consuming: a true result spends one pending count, so the caller must suppress the call it asked about. */
 	shouldSuppress(channel: ToolCallChannel, key: string): boolean {
 		const otherCounts = channel === "inline" ? this._deltaEmittedCounts : this._inlineEmittedCounts;
 		const pending = otherCounts.get(key) ?? 0;
@@ -60,7 +54,6 @@ export class ToolCallLedger {
 		return true;
 	}
 
-	/** Count an emission on its own channel, arming suppression of the same key arriving on the other one. */
 	recordEmission(channel: ToolCallChannel, key: string): void {
 		const ownCounts = channel === "inline" ? this._inlineEmittedCounts : this._deltaEmittedCounts;
 		ownCounts.set(key, (ownCounts.get(key) ?? 0) + 1);

@@ -1,16 +1,10 @@
 import type * as vscode from "vscode";
 
-/** One framed SSE event: a data payload still in wire form, or the [DONE] sentinel. */
 export type SseFrame = { kind: "data"; payload: string } | { kind: "done" };
 
 /**
- * Frame a raw SSE response body into data payloads: TextDecoder buffering
- * across chunk boundaries, CRLF stripping, the "data: " prefix, and [DONE]
- * recognition. Framing only - what a payload means (JSON parsing, the
- * malformed-line log-and-skip leniency, the in-band error-frame rule) is the
- * processor loop's decision. Reading stops at the first check after
- * cancellation is requested; the reader's lock is released however the
- * generator exits.
+ * Framing only: what a payload means (JSON parsing, the malformed-line log-and-skip leniency, the in-band error-frame
+ * rule) is the processor loop's decision.
  */
 export async function* sseFrames(
 	responseBody: ReadableStream<Uint8Array>,
@@ -29,9 +23,8 @@ export async function* sseFrames(
 			const lines = buffer.split("\n");
 			buffer = lines.pop() || "";
 			for (const rawLine of lines) {
-				// SSE over CRLF frames every line with a trailing \r; JSON payloads never
-				// end in a raw \r, so stripping keeps "data: [DONE]\r\n" recognized
-				// instead of logged as malformed.
+				//   SSE over CRLF frames every line with a trailing \r -> stripping keeps "data: [DONE]\r\n" recognized
+				//                                                        instead of logged as malformed
 				const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
 				if (!line.startsWith("data: ")) {
 					continue;

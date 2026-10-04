@@ -20,10 +20,8 @@ export interface RegistrationResult {
 }
 
 /**
- * The family a single-provider entry registers under. Real provider names
- * (LiteLLM's litellm_provider, or a providers-array entry's name) make
- * `vscode.lm.selectChatModels({ family })` useful to other extensions; a
- * blank name falls back to the generic "litellm".
+ * Real provider names (LiteLLM's litellm_provider, or a providers-array entry's name) make
+ * `vscode.lm.selectChatModels({ family })` useful to other extensions.
  */
 function familyFromProvider(provider: LiteLLMProvider): string {
 	return provider.provider.length > 0 ? provider.provider : "litellm";
@@ -31,15 +29,9 @@ function familyFromProvider(provider: LiteLLMProvider): string {
 
 /** VS Code's pricing unit is cost per million tokens; LiteLLM reports cost per token. */
 const TOKENS_PER_MILLION = 1_000_000;
-/**
- * Rounding precision for the per-million conversion. Per-token costs are tiny
- * binary fractions, so the bare multiplication yields noise like
- * 2.9999999999999996 for a 0.000003 per-token cost; six decimal places keep
- * every realistic price exact while flattening it.
- */
+/** Per-token costs are tiny binary fractions, so the bare multiplication yields noise. */
 const COST_DECIMALS = 1_000_000;
 
-/** The numeric pricing fields of the host's model metadata, base tier and long-context tier. */
 type BasePricingKey = "inputCost" | "outputCost" | "cacheCost" | "cacheWriteCost";
 type LongContextPricingKey =
 	| "longContextInputCost"
@@ -52,10 +44,8 @@ export type ModelPricing = Pick<
 >;
 
 /**
- * The picker's relative cost badge, derived from the converted base
- * per-million costs. The blend weights input over output 3:1, a typical
- * input-heavy chat workload. Only these four literals ever go out: the host
- * renders any other string through a capitalized "<Foo> cost" fallback.
+ * The blend weights input over output 3:1, a typical input-heavy chat workload. Only these four literals ever go out:
+ * the host renders any other string through a capitalized "<Foo> cost" fallback.
  */
 function priceCategoryFor(inputCost: number, outputCost: number): "low" | "medium" | "high" | "very_high" {
 	const blended = (3 * inputCost + outputCost) / 4;
@@ -69,14 +59,11 @@ function priceCategoryFor(inputCost: number, outputCost: number): "low" | "mediu
 }
 
 /**
- * The Reasoning Effort picker control for an entry backed by the given
- * provider data, or nothing. Capability data decides whether the control
- * exists: entries whose every backing provider advertises reasoning support
- * get the schema, so an aggregate over mixed providers stays without it, as
- * does a merged deployment group whose intersection already demoted the flag.
- * Bare /v1/models entries have no provider data and never advertise it. The
- * menu's levels are the server's flag-derived list when every backing provider
- * carries one, else the built-in default list.
+ * Capability data decides whether the control exists: entries whose every backing provider advertises reasoning
+ * support get the schema.
+ *   a merged deployment group whose intersection already demoted the flag -> stays without it
+ *   Bare /v1/models entries                                                -> have no provider data and never
+ *                                                                             advertise it
  */
 function configurationSchemaFor(
 	providers: readonly LiteLLMProvider[]
@@ -101,9 +88,8 @@ function configurationSchemaFor(
  *                        this label is the only cost line the hover can show
  */
 export function pricingFromCosts(costs: Readonly<PerTokenCosts>, currencySymbol: string): ModelPricing {
-	// The raw zero pair, before the per-million rounding: pairs that merely
-	// ROUND to 0/0 must not borrow its genuinely-free display (see the badge
-	// gate below).
+	// The raw zero pair, before the per-million rounding: pairs that merely ROUND to 0/0 must not borrow its
+	// genuinely-free display (see the badge gate below).
 	const zeroPair =
 		normalizeCostPerToken(costs.input_cost_per_token) === 0 && normalizeCostPerToken(costs.output_cost_per_token) === 0;
 	const fields: { -readonly [K in keyof ModelPricing]?: ModelPricing[K] } = {};
@@ -141,36 +127,32 @@ export function pricingFromCosts(costs: Readonly<PerTokenCosts>, currencySymbol:
 		costs.cache_creation_input_token_cost,
 		costs.long_context_cache_creation_input_token_cost
 	);
-	// The relative-cost badge and the display label need both sides of the
-	// price (one-sided pricing is an incomplete signal) and derive from the
-	// base tier only: the longContext* costs describe an opt-in regime, not the
-	// headline cost. A pair that BOTH rounded to 0 gets neither label nor badge:
-	// on sub-unit dust, "$0 in / $0 out" plus a "low" badge would present it as
-	// free. The `zeroPair` disjunct is what keeps a RAW zero pair - which can
-	// only be user-written "this model is genuinely free" (the server's stamp
-	// died at ingest) - carrying both on purpose; deleting it would strip the
-	// free label exactly from the models priced free deliberately.
+	// The relative-cost badge and the display label need both sides of the price (one-sided pricing is an
+	// incomplete signal) and derive from the base tier only: the longContext* costs describe an opt-in regime, not the
+	// headline cost.
+	//   on sub-unit dust, "$0 in / $0 out" plus a "low" badge would present it as free -> A pair that BOTH rounded to 0
+	//                                                                                      gets neither label nor badge
+	// The `zeroPair` disjunct is what keeps a RAW zero pair - which can only be user-written "this model is genuinely
+	// free" (the server's stamp died at ingest) - carrying both on purpose; deleting it would strip the free label
+	// exactly from the models priced free deliberately.
 	if (
 		fields.inputCost !== undefined &&
 		fields.outputCost !== undefined &&
 		(fields.inputCost > 0 || fields.outputCost > 0 || zeroPair)
 	) {
 		fields.priceCategory = priceCategoryFor(fields.inputCost, fields.outputCost);
-		// The label takes the configured usage.currencySymbol verbatim (display
-		// only, never a conversion), like every other cost surface.
+		// The label takes the configured usage.currencySymbol verbatim (display only, never a conversion), like every
+		// other cost surface.
 		fields.pricing = `${currencySymbol}${fields.inputCost} in / ${currencySymbol}${fields.outputCost} out per 1M tokens`;
 	}
 	return fields;
 }
 
 /**
- * Fields every registered model carries. isBYOK marks the model as served
- * with user-supplied credentials; the explicit flag pins the value against a
- * future host default change. isUserSelectable must be an explicit true: the
- * host's MCP sampling-model picker and local chat sessions use plain truthy
- * checks, so an absent flag excluded these models there. Shared with
- * capabilityOverrides.ts, whose synthesized declared models must carry the
- * same registration-wide fields.
+ * isBYOK marks the model as served with user-supplied credentials; the explicit flag pins the value against a future
+ * host default change. Shared with capabilityOverrides.ts, whose synthesized declared models must carry the same
+ * registration-wide fields.
+ *   isUserSelectable -> must be an explicit true
  */
 export const COMMON_MODEL_FIELDS = {
 	version: "1.0.0",
@@ -178,7 +160,6 @@ export const COMMON_MODEL_FIELDS = {
 	isUserSelectable: true,
 } as const;
 
-/** The display identity a server's registrations share; see serverDisplayContext. */
 export interface ServerDisplayContext {
 	readonly detail: string;
 	readonly namePrefix: string;
@@ -186,12 +167,7 @@ export interface ServerDisplayContext {
 	readonly tooltip: string;
 }
 
-/**
- * How a server's models identify themselves in the picker: multi-server
- * registrations carry the server label (detail, a name prefix, the tooltip);
- * a sole server stays plain "LiteLLM". Shared with capabilityOverrides.ts so
- * synthesized declared models render like their discovered neighbors.
- */
+/** Shared with capabilityOverrides.ts, so synthesized declared models render like their discovered neighbors. */
 export function serverDisplayContext(server: Pick<ServerWithKey, "label">, serverCount: number): ServerDisplayContext {
 	return {
 		detail: serverCount > 1 ? server.label : "LiteLLM",
@@ -207,31 +183,28 @@ export function buildModelInfos(
 	log: (message: string) => void
 ): RegistrationResult {
 	const { detail, namePrefix, tooltip } = serverDisplayContext(server, serverCount);
-	// Read once per build, not per model: every pricing label in one pass
-	// carries the same symbol. A change between passes heals at attach time.
+	// Read once per build, not per model: every pricing label in one pass carries the same symbol. A change between
+	// passes heals at attach time.
 	const currencySymbol = getCurrencySymbol();
 	const common = {
 		detail,
 		...COMMON_MODEL_FIELDS,
 	} as const;
 
-	/** The registered entries for one model, switched on its discovery-decided shape. */
 	function entriesForModel(m: LiteLLMModelItem): PreAttachModelInfo[] {
 		const shape = m.shape;
 		const rawModalities = m.architecture?.input_modalities;
-		// The server reported modalities only when the array is present, which
-		// is what the baseline keys its vision/audio presence on; the gates
-		// below read the empty stand-in, so an unreported modality is exactly a
+		// The server reported modalities only when the array is present, which is what the baseline keys its
+		// vision/audio presence on; the gates below read the empty stand-in, so an unreported modality is exactly a
 		// missing one and both flags stay strictly boolean.
 		const modalities = Array.isArray(rawModalities) ? rawModalities : undefined;
 		const reportedModalities = modalities ?? [];
 		const vision = reportedModalities.includes("image");
-		// LiteLLM capability data only; VS Code has no audio capability flag, so
-		// this rides the litellm metadata and gates message conversion.
+		// LiteLLM capability data only; VS Code has no audio capability flag, so this rides the litellm metadata and
+		// gates message conversion.
 		const audioInput = reportedModalities.includes("audio");
-		// Costs join the baseline only at the shapes this registration prices:
-		// the walk's server level must never offer a price the picker refused to
-		// advertise.
+		// Costs join the baseline only at the shapes this registration prices: the walk's server level must never offer
+		// a price the picker refused to advertise.
 		const baselineFor = (
 			providers: readonly LiteLLMProvider[],
 			toolCalling: boolean,
@@ -309,14 +282,11 @@ export function buildModelInfos(
 				const entries: PreAttachModelInfo[] = [];
 
 				if (firstTool !== undefined) {
-					// The aggregates stand for whichever tool-capable provider the
-					// proxy routes to, so they advertise the conservative collapse
-					// (the same rule deployment merging applies): never more than the
+					// The aggregates stand for whichever tool-capable provider the proxy routes to, so they advertise
+					// the conservative collapse (the same rule deployment merging applies): never more than the
 					// strictest provider's standalone constraints.
 					const constraints = collapseTokenConstraints([firstTool, ...restTools]);
 					const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
-					// Everything the two aggregates share; each one stamps its own
-					// routed raw ID beside it.
 					const aggregateMetadata = {
 						supportsPromptCaching: aggregatePromptCaching,
 						outputLimitSource: constraints.outputLimitSource,
@@ -391,11 +361,9 @@ export function buildModelInfos(
 
 				if (firstTool === undefined) {
 					const base = providers[0];
-					// The untooled base entry stands for the whole provider group (the
-					// proxy routes it to any of them), so its constraints collapse
-					// across every provider, prompt caching and reasoning support need
-					// every provider, and only its display identity (name, family)
-					// follows the first.
+					// The untooled base entry stands for the whole provider group (the proxy routes it to any of them),
+					// so its constraints collapse across every provider, prompt caching and reasoning support need
+					// every provider.
 					const constraints = collapseTokenConstraints(providers);
 					const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 					entries.push({

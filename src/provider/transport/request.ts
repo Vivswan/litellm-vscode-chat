@@ -23,12 +23,9 @@ export interface RequestBodyParams {
 }
 
 /**
- * Builds the request body as a pure pass-through: only parameters the user
- * set are forwarded, never injected defaults. User-set sources apply in
- * ascending precedence: modelParameters config, then the model-picker
- * configuration, then runtime modelOptions, then the config records' `_force`d
- * fields (which is what "forced" means: not even runtime options override
- * them).
+ * User-set sources apply in ascending precedence: modelParameters config, then the model-picker configuration, then
+ * runtime modelOptions, then the config records' `_force`d fields (which is what "forced" means: not even runtime
+ * options override them).
  */
 export function buildRequestBody(params: RequestBodyParams): Record<string, unknown> {
 	const {
@@ -50,9 +47,8 @@ export function buildRequestBody(params: RequestBodyParams): Record<string, unkn
 		max_tokens: maxTokens,
 	};
 
-	// parameterSkipReason owns the drop rules: provider-owned keys (max_tokens
-	// included; the chain above already decided its value) and
-	// underscore-prefixed internal keys never pass through, on any source.
+	// parameterSkipReason owns the drop rules: provider-owned keys (max_tokens included; the chain above already
+	// decided its value) and underscore-prefixed internal keys never pass through, on any source.
 	const passThrough = (source: Readonly<Record<string, unknown>>) => {
 		for (const [key, value] of Object.entries(source)) {
 			if (parameterSkipReason(key) !== undefined) {
