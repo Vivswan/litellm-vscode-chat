@@ -18,6 +18,7 @@ import type {
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
+	UsageStatusBarMode,
 } from "../shared/config/settingSpec";
 import {
 	FEATURE_MODEL_SETTING_KEYS,
@@ -44,7 +45,6 @@ import type {
 	ResolvedModelsView,
 	RevealableSettingId,
 	SettingRowId,
-	UsageStatusBarModeSetting,
 } from "./viewModels";
 
 /** Actions the webview can trigger; the extension maps each ID to a command it already registers.
@@ -308,7 +308,7 @@ interface DashboardEndpointIO {
 	revealSetting: { request: { readonly setting: RevealableSettingId } };
 	setModelParameters: { request: { readonly value: Record<string, Record<string, unknown>> } };
 	setModelCapabilities: { request: { readonly value: Record<string, Record<string, unknown>> } };
-	setUsageStatusBar: { request: { readonly value: UsageStatusBarModeSetting } };
+	setUsageStatusBar: { request: { readonly value: UsageStatusBarMode } };
 	setTokenEstimation: { request: { readonly value: TokenEstimationMode } };
 	/** Any short string, the empty string included (bare numbers); the extension bounds the length at the schema. */
 	setCurrencySymbol: { request: { readonly value: string } };

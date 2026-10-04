@@ -41,6 +41,7 @@ import {
 	CAPABILITY_FLOOR,
 	CONSUMED_CAPABILITY_FIELDS,
 	capabilityField,
+	consumedFieldKind,
 	EMPTY_CATALOG_LOOKUP,
 	resolveCapabilityLayer,
 	resolveModelCapabilities,
@@ -301,7 +302,7 @@ const serverDeclaredArb: fc.Arbitrary<ServerDeclaredCapabilities> = fc.oneof(
 
 /** A kind-valid value for one consumed field name; open extras take any field value. */
 function valueForField(name: string): fc.Arbitrary<unknown> {
-	const kind = Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, name) ? CONSUMED_CAPABILITY_FIELDS[name] : undefined;
+	const kind = consumedFieldKind(name);
 	switch (kind) {
 		case "number":
 			return validNumber;

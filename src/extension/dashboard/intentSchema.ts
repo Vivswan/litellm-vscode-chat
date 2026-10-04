@@ -29,6 +29,7 @@ import {
 	TOKEN_ESTIMATION_MODES,
 	UI_ACCENTS,
 	UI_THEMES,
+	USAGE_STATUS_BAR_MODES,
 } from "../../shared/config/settingSpec";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
@@ -167,9 +168,7 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	revealSetting: z.strictObject({ setting: asEnum(REVEALABLE_SETTING_IDS) }),
 	setModelParameters: z.strictObject({ value: recordMapSchema }),
 	setModelCapabilities: z.strictObject({ value: recordMapSchema }),
-	setUsageStatusBar: z.strictObject({
-		value: z.union([z.literal("always"), z.literal("alerts-only"), z.literal("off")]),
-	}),
+	setUsageStatusBar: z.strictObject({ value: asEnum(USAGE_STATUS_BAR_MODES) }),
 	setTokenEstimation: z.strictObject({ value: asEnum(TOKEN_ESTIMATION_MODES) }),
 	// Free text, but webview-minted and display-only: bounded so a hostile
 	// page cannot balloon the setting.

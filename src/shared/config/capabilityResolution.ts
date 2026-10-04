@@ -76,7 +76,7 @@ export type CapabilityValueKind = "number" | "boolean" | "cost" | "string-array"
  * extension consumes somewhere. An invalid value is diagnosed and the field
  * stays unset so a lower level can win. Keys outside this set pass through.
  */
-export const CONSUMED_CAPABILITY_FIELDS: Readonly<Record<string, CapabilityValueKind>> = {
+export const CONSUMED_CAPABILITY_FIELDS = {
 	...CAPABILITY_FIELDS,
 	input_cost_per_token: "cost",
 	output_cost_per_token: "cost",
@@ -91,7 +91,28 @@ export const CONSUMED_CAPABILITY_FIELDS: Readonly<Record<string, CapabilityValue
 	supports_response_schema: "boolean",
 	supported_openai_params: "string-array",
 	reasoning_effort_levels: "string-array",
-};
+} as const satisfies Record<string, CapabilityValueKind>;
+
+export type ConsumedCapabilityField = keyof typeof CONSUMED_CAPABILITY_FIELDS;
+
+/** The consumed fields of one value kind, as a literal union. */
+export type ConsumedFieldOfKind<Kind extends CapabilityValueKind> = {
+	[K in ConsumedCapabilityField]: (typeof CONSUMED_CAPABILITY_FIELDS)[K] extends Kind ? K : never;
+}[ConsumedCapabilityField];
+
+/** The consumed field names of one value kind, in the vocabulary's declaration order. */
+export function consumedFieldsOfKind<Kind extends CapabilityValueKind>(kind: Kind): ConsumedFieldOfKind<Kind>[] {
+	return (Object.keys(CONSUMED_CAPABILITY_FIELDS) as ConsumedCapabilityField[]).filter(
+		(name): name is ConsumedFieldOfKind<Kind> => CONSUMED_CAPABILITY_FIELDS[name] === kind
+	);
+}
+
+/** The consumed vocabulary's kind for a key, own-property guarded ("toString" is a legal open field name). */
+export function consumedFieldKind(key: string): CapabilityValueKind | undefined {
+	return Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key)
+		? CONSUMED_CAPABILITY_FIELDS[key as ConsumedCapabilityField]
+		: undefined;
+}
 
 function isCapabilityFieldName(key: string): key is CapabilityFieldName {
 	return Object.hasOwn(CAPABILITY_FIELDS, key);
@@ -189,7 +210,7 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 		if (key.startsWith("_")) {
 			continue;
 		}
-		const kind = Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key) ? CONSUMED_CAPABILITY_FIELDS[key] : undefined;
+		const kind = consumedFieldKind(key);
 		if (kind !== undefined) {
 			if (isValidConsumedCapabilityValue(kind, value)) {
 				// A cost of -0 would ride a negative sign into arithmetic; "free" is +0.
@@ -256,7 +277,7 @@ export function observedEvidenceSet(observedKeys: readonly string[] | undefined)
  * extension reads.
  */
 function unrecognizedKeyHintSurvives(key: string, observed: ReadonlySet<string> | undefined): boolean {
-	return observed !== undefined && !observed.has(key) && !Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key);
+	return observed !== undefined && !observed.has(key) && consumedFieldKind(key) === undefined;
 }
 
 /**

@@ -9,7 +9,7 @@ import * as l10n from "@vscode/l10n";
 import type { CapabilityFieldName, CapabilityValueKind } from "../shared/config/capabilityResolution";
 import {
 	CAPABILITY_FIELDS,
-	CONSUMED_CAPABILITY_FIELDS,
+	consumedFieldKind,
 	isValidConsumedCapabilityValue,
 } from "../shared/config/capabilityResolution";
 import { compareSpecificity, parseMatcherKey } from "../shared/config/modelMatcher";
@@ -632,11 +632,6 @@ export type CapabilityGroupsParse =
 
 function isCapabilityFieldName(key: string): key is CapabilityFieldName {
 	return Object.hasOwn(CAPABILITY_FIELDS, key);
-}
-
-/** The consumed vocabulary's kind for a key, own-property guarded ("toString" is a legal open field name). */
-function consumedFieldKind(key: string): CapabilityValueKind | undefined {
-	return Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key) ? CONSUMED_CAPABILITY_FIELDS[key] : undefined;
 }
 
 /**

@@ -17,7 +17,6 @@ import type {
 } from "../../dashboard/endpoints";
 import { unitBehavior, zeroModelExplanation } from "../../dashboard/presenters";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
-import { usableThresholds } from "../../dashboard/spendFormat";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import type { FeatureModelId, FeatureModelRef, NumberSettingId } from "../../shared/config/settingSpec";
 import {
@@ -33,6 +32,7 @@ import {
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
 	UI_THEME_SETTING_KEY,
+	usableThresholds,
 } from "../../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,

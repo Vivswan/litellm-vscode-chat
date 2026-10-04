@@ -15,6 +15,7 @@ import {
 	BOOLEAN_SETTING_SPECS,
 	NUMBER_SETTING_SPECS,
 	SERVERS_SETTING_KEY,
+	USAGE_STATUS_BAR_MODES,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settingSpec";
 import type { SecretFieldId } from "../../shared/serverEntry";
@@ -31,13 +32,6 @@ import {
 	serverSettingReports,
 } from "../servers/serverSync/setting";
 import { stripEntrySecrets } from "./secretSurgery";
-
-/**
- * The usage.statusBar vocabulary, re-declared like the webview's copies: its
- * home (shared/config/settings.ts) would add a direct vscode-plus-zod module
- * dependency this table does not need; importPlan.test.ts pins the mirror.
- */
-export const USAGE_STATUS_BAR_MODE_VALUES: readonly string[] = ["always", "alerts-only", "off"];
 
 /** One non-servers key the plan writes to the user scope. */
 export interface SettingWrite {
@@ -119,7 +113,7 @@ function passesTypeGate(key: string, value: unknown): boolean {
 		return typeof value === "boolean";
 	}
 	if (key === USAGE_STATUS_BAR_SETTING_KEY) {
-		return typeof value === "string" && USAGE_STATUS_BAR_MODE_VALUES.includes(value);
+		return typeof value === "string" && (USAGE_STATUS_BAR_MODES as readonly string[]).includes(value);
 	}
 	return true;
 }

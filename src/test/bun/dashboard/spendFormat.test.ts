@@ -12,9 +12,9 @@ import {
 	formatPercent,
 	formatPercentExact,
 	spendTone,
-	usableThresholds,
 	worstSpendTone,
 } from "../../../dashboard/spendFormat";
+import { usableThresholds } from "../../../shared/config/settingSpec";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;

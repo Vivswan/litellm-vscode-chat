@@ -26,6 +26,7 @@ import type {
 	CapabilityLevel,
 	CapabilityOverrideLevel,
 	CatalogLookupResult,
+	ConsumedCapabilityField,
 	EffectiveCapabilityField,
 	EffectiveCapabilityFields,
 	EffectiveOutputLimitSource,
@@ -291,7 +292,7 @@ function sanitizeRecord(record: Readonly<Record<string, unknown>>): Record<strin
 				sanitized[key] = value;
 			}
 		} else if (Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key)) {
-			const kind = CONSUMED_CAPABILITY_FIELDS[key];
+			const kind = CONSUMED_CAPABILITY_FIELDS[key as ConsumedCapabilityField];
 			const valid =
 				kind === "number"
 					? typeof value === "number" && Number.isInteger(value) && value > 0

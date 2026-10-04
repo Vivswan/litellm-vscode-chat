@@ -16,6 +16,7 @@ import type {
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
+	UsageStatusBarMode,
 } from "../shared/config/settingSpec";
 import {
 	BOOLEAN_SETTING_SPECS,
@@ -466,9 +467,6 @@ export interface ScopedRecordSetting<V> {
 	readonly effective: Readonly<Record<string, V>>;
 }
 
-/** The usage.statusBar enum, re-declared here so the webview bundle needs no settings-module import. */
-export type UsageStatusBarModeSetting = "always" | "alerts-only" | "off";
-
 /** The settings snapshot the dashboard renders. Scalars are the effective values; records are per-scope. */
 export interface DashboardSettings {
 	readonly numbers: Readonly<Record<NumberSettingId, number | null>>;
@@ -508,7 +506,7 @@ export interface DashboardSettings {
 	};
 	/** The non-scalar usage settings' rows (the enum, the fraction list, and the currency symbol). */
 	readonly usage: {
-		readonly statusBarMode: UsageStatusBarModeSetting;
+		readonly statusBarMode: UsageStatusBarMode;
 		readonly statusBarScope: SettingScope | null;
 		/** The configured thresholds as normalization reads them (valid fractions, deduplicated, ascending). */
 		readonly alertThresholds: readonly number[];

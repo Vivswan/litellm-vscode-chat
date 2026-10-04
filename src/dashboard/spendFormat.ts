@@ -8,7 +8,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import { isUsableThreshold } from "../shared/config/settingSpec";
+import { usableThresholds } from "../shared/config/settingSpec";
 import type { UsageEndpointStandingView } from "./viewModels";
 
 export type SpendTone = "ok" | "warn" | "error";
@@ -78,11 +78,6 @@ export function formatPercent(fraction: number): string {
  */
 export function formatPercentExact(fraction: number): string {
 	return `${Number((fraction * 100).toPrecision(12))}%`;
-}
-
-/** The thresholds that participate in the scale: usable per the shared (0, 1] rule, deduplicated and ascending. */
-export function usableThresholds(thresholds: readonly number[]): number[] {
-	return [...new Set(thresholds.filter(isUsableThreshold))].sort((a, b) => a - b);
 }
 
 /**
