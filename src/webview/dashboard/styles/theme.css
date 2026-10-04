@@ -627,6 +627,10 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
    theme class there), so without this a light host mixes light --state-mix with a
    dark-strength tint. */
 :root,
+/* biome-ignore lint/style/noDescendingSpecificity: this is the BASE the light body twin above overrides, and the twin
+   wins by specificity, not order, so it stays with everything else a light surface changes and the base stays after
+   the inputs it derives from; the lint keys on the shared `body` compound and so misses the same arrangement against
+   `html[data-theme="auto"] body.vscode-light`. */
 body {
 	--accent-soft: color-mix(in srgb, var(--accent-hue) var(--state-mix), transparent);
 	/* The accent AS A PERMANENT LABEL and AS THE PRIMARY ACTION at rest. Leaned
