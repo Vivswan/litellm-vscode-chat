@@ -8,6 +8,8 @@ jsxImportSource = "react"
 # `root` is load-bearing: without it a bare `bun test` discovers the
 # extension-host *.test.ts files, whose suite()/test() globals crash under
 # bun's runner. src/test/bun is the only bun-test surface in this repository.
+# Every run starts through scripts/bun-test.ts (`bun run test:bun`), which
+# builds the hermetic git environment; the preload refuses a bare `bun test`.
 [test]
 root = "src/test/bun"
 preload = ["./src/test/bun/preload.ts"]

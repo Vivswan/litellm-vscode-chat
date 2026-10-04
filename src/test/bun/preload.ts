@@ -3,19 +3,30 @@
  * module. Tree rule: a suite belongs here only when its transitive runtime
  * imports reach neither vscode nor msw (msw stays host-side in the Mocha
  * suites). The process-global concerns live here so no suite can forget them:
- * happy-dom registration, the fixed fingerprint salt (suites here compute
- * fingerprints without activation's salt load), the <details> fidelity patches
- * below, the acquireVsCodeApi stub (vscodeApi.ts calls it at module top level,
- * so a component import without it crashes at import time), the build-time
- * defines the bundler would have substituted (links.ts reads one at module top
- * level), and the console.error gate. The harness import is dynamic so DOM
- * registration runs first; a static import would hoist past it.
+ * the launcher gate, happy-dom registration, the fixed fingerprint salt
+ * (suites here compute fingerprints without activation's salt load), the
+ * <details> fidelity patches below, the acquireVsCodeApi stub (vscodeApi.ts
+ * calls it at module top level, so a component import without it crashes at
+ * import time), the build-time defines the bundler would have substituted
+ * (links.ts reads one at module top level), and the console.error gate. The
+ * harness import is dynamic so DOM registration runs first; a static import
+ * would hoist past it.
  */
 import "../util/buildDefines";
 import { afterEach, beforeEach } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { initFingerprintSalt } from "../../shared/util/fingerprint";
 import { FIXED_TEST_SALT } from "../util/testSalt";
+import { BUN_TEST_LAUNCHER } from "./launcherEnv";
+
+// The hermetic git environment is built by scripts/bun-test.ts before bun starts, because Bun's own spawns inherit the
+// process's birth environment and nothing done here could reach them. A run that skipped the launcher carries the
+// hook's GIT_DIR wherever its fixtures spawn git, so it stops before any suite loads.
+if (process.env[BUN_TEST_LAUNCHER] === undefined) {
+	throw new Error(
+		"bun test must start through `bun run test:bun` (scripts/bun-test.ts), which owns the git environment"
+	);
+}
 
 // Synchronous script loading runs each fetch in a node child (happy-dom's SyncFetch over execFileSync), a spawn no test
 // deadline covers, so it is off from the first window and the three script settings are then pinned non-writable:

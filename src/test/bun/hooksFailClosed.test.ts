@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { REPO_ROOT } from "../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
+import { HOOK_GIT_INDEX_FILE } from "./launcherEnv";
 
 /**
  * Pins the hook layer's fail-closed floor. core.hooksPath points at .husky/_,
@@ -31,55 +32,48 @@ const HUSKY_RUNTIME = ".husky/_/h";
 const REQUIRED_HOOKS = [".husky/pre-commit", ".husky/commit-msg"];
 
 /**
- * process.env minus the hook environment (GIT_DIR, GIT_INDEX_FILE, ...) that
- * git exports while this suite itself runs inside a pre-commit hook - leaked,
- * those redirect every spawned git at whatever repository the hook ran in -
- * and minus HUSKY, whose =0 escape would turn the probes into no-ops.
+ * process.env (already hermetic for git: scripts/bun-test.ts dropped the hook's exports before bun started) minus
+ * HUSKY, whose =0 escape would turn the probes into no-ops.
  */
 function hostEnv(): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = {};
-	for (const [key, value] of Object.entries(process.env)) {
-		if (!key.startsWith("GIT_") && key !== "HUSKY") {
-			env[key] = value;
-		}
-	}
+	const { HUSKY: _husky, ...env } = process.env;
 	return env;
 }
 
-/** hostEnv further isolated from the user's git config and ~/.huskyrc. */
+/** hostEnv with a per-fixture HOME, so the user's ~/.config/husky/init.sh (which husky's runtime sources) stays out. */
 function isolatedEnv(home: string): NodeJS.ProcessEnv {
 	const env = hostEnv();
 	env.HOME = home;
 	env.USERPROFILE = home;
 	env.XDG_CONFIG_HOME = path.join(home, "xdg");
-	env.GIT_CONFIG_NOSYSTEM = "1";
-	// A scratch git must never discover a real repository by walking up.
-	env.GIT_CEILING_DIRECTORIES = home;
 	return env;
 }
 
 /**
- * hostEnv plus the one inherited pointer this repository's own reads must
- * keep: `git commit -a` and `git commit <pathspec>` build the commit in a
- * temporary index (index.lock, next-index-*.lock) and point the hook at it,
- * so .git/index is the stale state under those invocations while GIT_INDEX_FILE
- * names the tree actually being committed. Only the REPO_ROOT reads take this;
- * every temp-repo spawn keeps hostEnv's strip, or it would read this
- * repository's index instead of its own.
+ * hostEnv plus the one hook export this repository's own reads must keep: `git commit -a` and `git commit <pathspec>`
+ * build the commit in a temporary index (index.lock, next-index-*.lock) and point the hook at it through
+ * GIT_INDEX_FILE, so .git/index is the stale state under those invocations while GIT_INDEX_FILE names the tree
+ * actually being committed. The launcher stashes it before dropping GIT_*. Only the REPO_ROOT reads take this; a
+ * temp-repo spawn given it would read this repository's index instead of its own.
  */
 function repoIndexEnv(): NodeJS.ProcessEnv {
 	const env = hostEnv();
-	const inherited = process.env.GIT_INDEX_FILE;
+	const inherited = process.env[HOOK_GIT_INDEX_FILE];
 	if (inherited) {
-		// git hands it over relative to the worktree top level.
+		// Relative to the worktree top level in a plain checkout (.git/index), absolute in a linked worktree.
 		env.GIT_INDEX_FILE = path.resolve(REPO_ROOT, inherited);
 	}
+	// The launcher emptied the global config, and with it the safe.directory trust a differently owned checkout is
+	// committed through; it is re-granted for this repository alone. git honors safe.directory from the command line
+	// and the environment, never from the repository's own config.
+	env.GIT_CONFIG_COUNT = "1";
+	env.GIT_CONFIG_KEY_0 = "safe.directory";
+	env.GIT_CONFIG_VALUE_0 = REPO_ROOT;
 	return env;
 }
 
 function git(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
-	const identity = ["-c", "user.name=hooks-test", "-c", "user.email=hooks-test@invalid", "-c", "commit.gpgsign=false"];
-	return spawnSync("git", [...identity, ...args], { cwd, env, encoding: "utf8" });
+	return spawnSync("git", args, { cwd, env, encoding: "utf8" });
 }
 
 function assertOk(result: ReturnType<typeof git>, what: string): void {
@@ -139,7 +133,7 @@ function requiredBootstrap(tracked: ReadonlyMap<string, string>): readonly strin
 describe("hook layer fails closed", () => {
 	// Every write this suite performs must land in a scratch repo under the tmpdir. Linked worktrees share one
 	// config file, so a git init that inherited GIT_DIR rewrites what every sibling checkout reads (a leaked
-	// GIT_DIR once flipped core.bare there), and this snapshot proves hostEnv's strip and the scratch repos hold.
+	// GIT_DIR once flipped core.bare there), and this snapshot proves the launcher's scrub and the scratch repos hold.
 	//
 	//   entries, not inode or timestamp -> every guarded leak adds, drops, changes, or reorders one, and every
 	//                                      concurrent git client rewrites the file through config.lock
@@ -218,20 +212,7 @@ describe("hook layer fails closed", () => {
 
 				// The documented escape hatch still works, which also proves the
 				// failure above came from husky's runtime, not from a broken chain.
-				const skipped = spawnSync(
-					"git",
-					[
-						"-c",
-						"user.name=hooks-test",
-						"-c",
-						"user.email=hooks-test@invalid",
-						"commit",
-						"--allow-empty",
-						"-m",
-						"skip",
-					],
-					{ cwd: worktree, env: { ...env, HUSKY: "0" }, encoding: "utf8" }
-				);
+				const skipped = git(worktree, { ...env, HUSKY: "0" }, "commit", "--allow-empty", "-m", "skip");
 				assert.strictEqual(skipped.status, 0, `HUSKY=0 must still bypass: ${skipped.stdout}${skipped.stderr}`);
 			} finally {
 				fs.rmSync(tmp, { recursive: true, force: true });
