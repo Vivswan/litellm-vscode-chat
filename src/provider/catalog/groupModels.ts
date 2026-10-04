@@ -114,10 +114,11 @@ function overlayGroupCredentials(server: GroupServer, credentials: GroupCredenti
 type CredentialsUnavailableReason = "secretsUnreadable" | "secretsMismatched" | "unusable";
 
 /**
- * What the entry-credentials resolver answers for a labeled group. "external" (no declared entry matches on label and
- * normalized base URL) is the only answer that keeps the baked credentials: a leftover group whose entry moved hosts
- * keeps what the host stored. A declared entry whose credentials cannot be resolved is a failure, never the baked
- * fallback, or a rotated-away key would keep authenticating silently.
+ * The entry-credentials resolver's answer for a labeled group. The baked credentials are the copy the host stored at
+ * group creation, which a rotation retires.
+ *   external (no declared entry at this label and normalized base URL) -> the baked set stays; a leftover group
+ *   resolved                                                           -> the entry's current set overlays it
+ *   unavailable(reason)                                                -> a classified failure, never the baked key
  */
 export type GroupCredentialsResolution =
 	| { readonly kind: "external" }
@@ -139,10 +140,9 @@ function credentialsUnavailableError(reason: CredentialsUnavailableReason): Mirr
 export type EntryCredentialsResolver = (label: string, baseUrl: string) => Promise<GroupCredentialsResolution>;
 
 /**
- * The one overlay for the serve and the request path: a labeled group's baked credentials replaced by its declared
- * entry's current ones. A resolver that throws has answered unavailable. The failure comes back beside the baked
- * server instead of being thrown, because the serve records it under that server's identity before deciding what
- * it still hands out, and the request path simply throws it.
+ * The one overlay for both consumers of a labeled group's credentials.
+ *   serve path (provider/index.ts)      -> the failure rides beside the baked server as the discovery preflight failure
+ *   request path (transport/chatClient) -> the failure is thrown before anything is sent
  */
 export async function overlayEntryCredentials(
 	server: GroupServer,
