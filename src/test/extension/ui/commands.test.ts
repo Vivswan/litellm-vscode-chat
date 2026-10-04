@@ -10,7 +10,7 @@ import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/t
 import { HAS_SHOWN_WELCOME_KEY, LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
 import { SETUP_HINT_KINDS, type SetupHintKind } from "../../../shared/errorClassification";
 import { Logger, markLogSafe } from "../../../shared/logger";
-import { GITHUB_REPO_URL, SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
+import { DOCS_GETTING_STARTED_URL, GITHUB_REPO_URL, SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
 import { expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
 
@@ -99,7 +99,7 @@ suite("extension/ui/commands", () => {
 		try {
 			await vscode.commands.executeCommand("litellm.helpAndFeedback");
 			assert.ok(openedUri, "Should open a URL");
-			assert.ok(expectDefined(openedUri).includes("docs/getting-started"), "Should open docs URL");
+			assert.strictEqual(openedUri, DOCS_GETTING_STARTED_URL);
 		} finally {
 			mock.restore();
 		}

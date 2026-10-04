@@ -72,9 +72,13 @@ function carrierDocsUrls(): [name: string, url: string][] {
 				fs.readFileSync(path.join(walkthroughDir, name), "utf8"),
 			]),
 	];
-	const pattern = new RegExp(`${DOCS_BASE.replace(/[.\\/]/g, "\\$&")}[^\\s"'<>)]*`, "g");
+	// Each occurrence of the origin plus its slash, extended to the end of its URL: whitespace, a quote, a markdown
+	// link's `)`, or an autolink's `>`.
 	return texts.flatMap(([name, text]) =>
-		Array.from(text.matchAll(pattern), (match): [string, string] => [name, match[0]])
+		text
+			.split(DOCS_BASE)
+			.slice(1)
+			.map((rest): [string, string] => [name, `${DOCS_BASE}${/^[^\s"'<>)]*/.exec(rest)?.[0] ?? ""}`])
 	);
 }
 
