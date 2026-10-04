@@ -197,8 +197,8 @@ export function refusalText(reason: RefusalReason, detail: Readonly<Record<strin
 			return `The entry "${detail.label}" has not finished loading its secret locations; call again in a moment.`;
 		case "secret-value-refused":
 			return `Tool input carried a secret value for ${detail.fields}, which agentTools.secretValues.enabled does not allow. Omit "value": the user is asked to type it.`;
-		case "kept-secret-host-change":
-			return `The change moves "${detail.label}" to another host while keeping ${detail.fields}. A stored secret never follows a changed host: set ${detail.fields} again (omit "value" and the user is asked to type it), or clear it.`;
+		case "kept-secret-destination-change":
+			return `The change moves "${detail.label}" to another destination while keeping ${detail.fields}. A stored secret never follows a changed destination (the base URL; for an OAuth client secret, the token URL and client id): set ${detail.fields} again (omit "value" and the user is asked to type it), or clear it.`;
 		case "base-url-required":
 			return `"${detail.label}" needs a baseUrl.`;
 		case "feature-model-not-set":

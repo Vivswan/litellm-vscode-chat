@@ -10,6 +10,7 @@ import type {
 	ServerSyncEnv,
 	StoredServerSecrets,
 } from "../../../extension/servers/serverSync";
+import type { StoredSecretOwners } from "../../../extension/servers/serverSync/secrets";
 
 export function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { values: Map<string, string> } {
 	const values = new Map(Object.entries(initial));
@@ -38,7 +39,7 @@ export interface Recorded {
 	setting: unknown;
 	secrets: Record<string, StoredServerSecrets>;
 	/** Ownership stamps the fake blob read reports beside the values, by label. */
-	secretOwners: Record<string, Partial<Record<"apiKey" | "oauthClientSecret" | "virtualKeyValue", string>>>;
+	secretOwners: Record<string, StoredSecretOwners>;
 	/** When set, addProviderGroup rejects for these labels. */
 	failLabels: Set<string>;
 	/** When set, addProviderGroup rejects these labels the way an add-only host refuses an existing name. */

@@ -171,7 +171,7 @@ test("a client secret stored before the entry had a token URL falls back to the 
 	expect(dialog).not.toBeNull();
 	// The old entry declared no token URL, so there is no address to name -
 	// never an empty "{0}" hole in the sentence.
-	expect(dialog?.textContent ?? "").toContain("The stored key was saved for a different address.");
+	expect(dialog?.textContent ?? "").toContain("The stored key was saved for a different destination.");
 	fireClick(buttonByText(root, "Use same key"));
 	expect(savedSecrets().oauthClientSecret).toEqual({ action: "keep" });
 });

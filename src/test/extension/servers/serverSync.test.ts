@@ -191,16 +191,16 @@ suite("extension/servers/serverSync", () => {
 				oauthClientId: "client",
 			};
 			assert.strictEqual(secretDestination(entry, "apiKey"), "http://a.test");
-			assert.strictEqual(
-				secretDestination(entry, "oauthClientSecret"),
-				JSON.stringify(["https://idp.test/token", "client"])
-			);
+			assert.deepStrictEqual(secretDestination(entry, "oauthClientSecret"), {
+				tokenUrl: "https://idp.test/token",
+				clientId: "client",
+			});
 			// The token URL compares VERBATIM: the token exchange fetches it
 			// exactly as configured, so /token/ is a different wire request and a
 			// trailing-slash edit refuses (fail closed) rather than resolving.
-			assert.strictEqual(
+			assert.deepStrictEqual(
 				secretDestination({ ...entry, oauthTokenUrl: "https://idp.test/token/" }, "oauthClientSecret"),
-				JSON.stringify(["https://idp.test/token/", "client"])
+				{ tokenUrl: "https://idp.test/token/", clientId: "client" }
 			);
 
 			const record = {

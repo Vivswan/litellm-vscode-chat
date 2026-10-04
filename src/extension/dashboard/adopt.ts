@@ -10,7 +10,7 @@ import type { RequestPayload } from "../../dashboard/endpoints";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import type { GroupServer } from "../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
-import type { OptionalEntryFieldId, OptionalEntryFields, SecretFieldId } from "../../shared/serverEntry";
+import type { OptionalEntryFieldId, OptionalEntryFields, SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
@@ -181,10 +181,10 @@ export async function applyAdoptServer(
 	// The ownership stamp for each secure copy: the adopted entry's own
 	// destinations, derived from the entry as the parser reads it back.
 	const adoptedEntry = acceptedEntry([newEntry], label)?.entry;
-	const destinationOf = (field: SecretFieldId): string => secretDestination(adoptedEntry ?? { baseUrl }, field);
+	const destinationOf = (field: SecretFieldId): SecretOwner => secretDestination(adoptedEntry ?? { baseUrl }, field);
 
 	const storedBefore = await env.readServerSecrets(label);
-	const overwritten = new Map<SecretFieldId, { value: string | undefined; owner: string | undefined }>();
+	const overwritten = new Map<SecretFieldId, { value: string | undefined; owner: SecretOwner | undefined }>();
 	try {
 		for (const field of SECRET_FIELD_IDS) {
 			const copied = secureCopies.get(field);

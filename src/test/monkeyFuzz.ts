@@ -53,7 +53,7 @@ import {
 	SKIPPED_MIGRATION_SERVERS_KEY,
 	SYNCED_ENTRY_BASE_URLS_KEY,
 } from "../shared/config/storageKeys";
-import type { SecretFieldId, SecretLocation } from "../shared/serverEntry";
+import type { SecretFieldId, SecretLocation, SecretOwner } from "../shared/serverEntry";
 import { entryUsesSecretField } from "../shared/serverEntry";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { FAKE_MODELS, PLAYBACK_MODEL } from "./fakeStack/models";
@@ -482,7 +482,7 @@ const UNSET = Symbol("unset");
 /** A mutable mirror of one label's SecretStorage blob: the values AND ownership stamps updateServerSecret has written. */
 interface StoredBlobMirror {
 	values: Partial<Record<SecretFieldId, string>>;
-	owners: Partial<Record<SecretFieldId, string>>;
+	owners: Partial<Record<SecretFieldId, SecretOwner>>;
 }
 
 /**

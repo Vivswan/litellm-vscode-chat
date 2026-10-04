@@ -440,14 +440,11 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.deepStrictEqual(application.serversValue, [
 				{ ...server("Old"), auth: { oauth: { tokenUrl: "http://idp.test/token", clientId: "cid" } } },
 			]);
-			// The ownership stamp pairs the moved client secret with the token URL
-			// and client the restructured entry actually sends it for; pre-restructure
-			// the entry parsed credential-less and the stamp would have refused it.
 			assert.deepStrictEqual(application.secretWrites, [
 				{
 					label: "Old",
 					secrets: { oauthClientSecret: "cs-test-1" },
-					owners: { oauthClientSecret: JSON.stringify(["http://idp.test/token", "cid"]) },
+					owners: { oauthClientSecret: { tokenUrl: "http://idp.test/token", clientId: "cid" } },
 				},
 			]);
 			assert.ok(!JSON.stringify(application.serversValue).includes("cs-test-1"));

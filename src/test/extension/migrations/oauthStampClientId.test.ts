@@ -3,6 +3,7 @@ import { stampOauthClientIdsFor } from "../../../extension/migrations/oauthStamp
 import type { SecretStore } from "../../../extension/servers/serverSync/secrets";
 import { readServerSecretsRecord, updateServerSecret } from "../../../extension/servers/serverSync/secrets";
 import { Logger } from "../../../shared/logger";
+import type { SecretOwner } from "../../../shared/serverEntry";
 
 function makeStore(): SecretStore {
 	const values = new Map<string, string>();
@@ -20,21 +21,33 @@ function makeStore(): SecretStore {
 const quietLogger = () => new Logger({ info: () => {}, error: () => {} });
 
 const TOKEN_URL = "https://idp.test/token";
-const CURRENT_STAMP = JSON.stringify([TOKEN_URL, "cid"]);
+const CURRENT_STAMP = { tokenUrl: TOKEN_URL, clientId: "cid" };
 
 suite("extension/migrations/oauthStampClientId", () => {
-	test("only the token-URL-only stamp of a declared OAuth entry moves; values and every other state stay", async () => {
-		const rows = [
+	test("every string stamp on a declared entry's client secret becomes structured; values and structured stamps stay", async () => {
+		const rows: {
+			label: string;
+			owner: SecretOwner | undefined;
+			declaresOauth: boolean;
+			expected: SecretOwner | undefined;
+		}[] = [
 			{ label: "legacy", owner: TOKEN_URL, declaresOauth: true, expected: CURRENT_STAMP },
 			{ label: "current", owner: CURRENT_STAMP, declaresOauth: true, expected: CURRENT_STAMP },
 			{
 				label: "foreign",
 				owner: "https://other-idp.test/token",
 				declaresOauth: true,
-				expected: "https://other-idp.test/token",
+				expected: { tokenUrl: "https://other-idp.test/token" },
 			},
+			{
+				label: "collision",
+				owner: JSON.stringify([TOKEN_URL, "cid"]),
+				declaresOauth: true,
+				expected: { tokenUrl: JSON.stringify([TOKEN_URL, "cid"]) },
+			},
+			{ label: "empty", owner: "", declaresOauth: true, expected: {} },
 			{ label: "unstamped", owner: undefined, declaresOauth: true, expected: undefined },
-			{ label: "no-oauth", owner: TOKEN_URL, declaresOauth: false, expected: TOKEN_URL },
+			{ label: "no-oauth", owner: TOKEN_URL, declaresOauth: false, expected: { tokenUrl: TOKEN_URL } },
 		];
 		const store = makeStore();
 		for (const row of rows) {

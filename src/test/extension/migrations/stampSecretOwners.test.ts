@@ -41,7 +41,7 @@ suite("extension/migrations/stampSecretOwners", () => {
 		assert.strictEqual(await stampSecretOwnersFor(() => setting, store, quietLogger()), "migrated");
 		assert.deepStrictEqual((await readServerSecretsRecord(store, "A")).owners, { apiKey: "http://a.test" });
 		assert.deepStrictEqual((await readServerSecretsRecord(store, "OAuth")).owners, {
-			oauthClientSecret: JSON.stringify(["https://idp.test/token", "cid"]),
+			oauthClientSecret: { tokenUrl: "https://idp.test/token", clientId: "cid" },
 			virtualKeyValue: "http://oauth.test",
 		});
 
@@ -74,7 +74,7 @@ suite("extension/migrations/stampSecretOwners", () => {
 		];
 		assert.strictEqual(await stampSecretOwnersFor(() => withOAuth, store, quietLogger()), "migrated");
 		assert.deepStrictEqual((await readServerSecretsRecord(store, "A")).owners, {
-			oauthClientSecret: JSON.stringify(["https://idp.test/token", "c"]),
+			oauthClientSecret: { tokenUrl: "https://idp.test/token", clientId: "c" },
 		});
 	});
 

@@ -16,8 +16,8 @@ import { CMD } from "../../shared/config/commandIds";
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { PRE_IMPORT_SNAPSHOT_SECRET } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
-import type { SecretFieldId } from "../../shared/serverEntry";
-import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
+import { parseSecretOwner, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { upgradedStamp } from "../migrations/oauthStampClientId";
@@ -107,7 +107,7 @@ export interface SettingsTransferEnv {
 		label: string,
 		field: SecretFieldId,
 		value: string | undefined,
-		owner: string | undefined
+		owner: SecretOwner | undefined
 	): Promise<void>;
 	deleteServerSecrets(label: string): Promise<void>;
 	/** The one pre-import snapshot slot (SecretStorage; the snapshot is secret-capable whole). */
@@ -449,7 +449,7 @@ async function applyServersUnit(
 		label: string;
 		field: SecretFieldId;
 		previous: string | undefined;
-		previousOwner: string | undefined;
+		previousOwner: SecretOwner | undefined;
 	}[] = [];
 	try {
 		for (const write of secretWrites) {
@@ -496,7 +496,6 @@ async function applyServersUnit(
 			const clearFailures = await clearMismatchedBlobs(
 				env,
 				unrestoredLabels,
-				serversValue,
 				"Settings import: clearing an unrestored secret under an entry that is not its own failed"
 			);
 			if (clearFailures === 0) {
@@ -902,24 +901,24 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 			}
 			blob[field as SecretFieldId] = value;
 		}
-		// Ownership stamps are optional (snapshots predating them carry none)
-		// but when present must be the builder's shape: stamp strings ("" is a
-		// real stamp) on fields the value record holds.
-		let owners: { -readonly [K in SecretFieldId]?: string } | undefined;
+		// Ownership stamps are optional (snapshots predating them carry none) but when present must be the builder's
+		// shape: a stamp (shared/serverEntry.ts SecretOwner) on a field the value record holds.
+		let owners: { -readonly [K in SecretFieldId]?: SecretOwner } | undefined;
 		if ("owners" in entry && entry.owners !== undefined) {
 			if (!isRecord(entry.owners)) {
 				return undefined;
 			}
 			owners = {};
 			for (const [field, owner] of Object.entries(entry.owners)) {
+				const stamp = parseSecretOwner(owner);
 				if (
 					!(SECRET_FIELD_IDS as readonly string[]).includes(field) ||
-					typeof owner !== "string" ||
+					stamp === undefined ||
 					blob[field as SecretFieldId] === undefined
 				) {
 					return undefined;
 				}
-				owners[field as SecretFieldId] = owner;
+				owners[field as SecretFieldId] = stamp;
 			}
 		}
 		blobs[label] = { present: true, value: blob, ...(owners !== undefined ? { owners } : {}) };
@@ -957,7 +956,7 @@ const UNDO_CLEAR_FAILURE_LOG = "Undo import: re-clearing a restored secret under
  * The stamps a restore writes for one recorded blob, and what the reconnect count resolves the recorded values
  * through, so the two never disagree about which values the restored entry can use.
  *
- *   recorded unstamped, under an entry -> that entry's destination, "" included (a real stamp: no token URL yet)
+ *   recorded unstamped, under an entry -> that entry's destination, an empty one included (a real stamp: no token URL)
  *   recorded under the earlier rule    -> upgradedStamp, or the restored entry could not use its own secret
  *   no recorded entry                  -> as recorded
  */
@@ -968,7 +967,7 @@ function restoredOwners(
 	if (recordedUnder === undefined) {
 		return blob.owners;
 	}
-	const owners: { -readonly [K in SecretFieldId]?: string } = {};
+	const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
 	for (const field of SECRET_FIELD_IDS) {
 		const recorded = blob.owners[field];
 		if (recorded !== undefined) {
@@ -981,35 +980,34 @@ function restoredOwners(
 }
 
 /**
- * A stored credential belongs only under the entry it was recorded for, so while the live entry is some OTHER
- * configuration (an undo's still-imported entry, a rollback's still-pre-import one) it is cleared. Withholding the
- * flow's explicit sync alone would not do: SecretStorage changes schedule their own sync (wiring/servers.ts),
- * activation force-syncs, and any servers edit syncs too.
+ * A stored field stays only while the live entry under its label owns it: a stamp for another destination (an undo's
+ * still-imported entry, a rollback's still-pre-import one) is cleared, and a label no live entry claims loses the whole
+ * blob. Withholding the flow's explicit sync alone would not do: SecretStorage changes schedule their own sync
+ * (wiring/servers.ts), activation force-syncs, and any servers edit syncs too.
  *
  *   pre-import value -> in the snapshot slot; the kept snapshot restores whatever this removes once a retry lands the
  *                       entries too
  *   imported value   -> in the user's import file
- *   failed write     -> can leave a label half-restored, so success is not tracked and every label is re-checked on
- *                       retry
+ *   failed write     -> can leave a label half-cleared, so success is not tracked and every label is re-checked later
  */
 async function clearMismatchedBlobs(
 	env: SettingsTransferEnv,
 	labels: Iterable<string>,
-	referenceServersRaw: unknown,
 	failureLog: string
 ): Promise<number> {
 	let failures = 0;
 	const liveServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
 	for (const label of new Set(labels)) {
-		// Byte-identical entries, because a base URL compare alone would miss the other routing fields (an OAuth
-		// token URL among them), and a needless clear is recoverable while a served retired credential is not.
-		if (
-			JSON.stringify(rawEntriesOf(liveServersRaw, label)) === JSON.stringify(rawEntriesOf(referenceServersRaw, label))
-		) {
-			continue;
-		}
 		try {
-			await env.deleteServerSecrets(label);
+			const live = acceptedEntry(liveServersRaw, label)?.entry;
+			if (live === undefined) {
+				await env.deleteServerSecrets(label);
+				continue;
+			}
+			const record = await env.readServerSecrets(label);
+			for (const field of resolveOwnedSecrets(live, record).mismatched) {
+				await env.updateServerSecret(label, field, undefined, undefined);
+			}
 		} catch (error) {
 			failures += 1;
 			env.log(failureLog, { error: errorLabel(error) });
@@ -1085,7 +1083,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		// pair meets the engine's own guards:
 		//   credential-only difference -> the identity print excludes credentials, so the group fingerprint is unchanged
 		//   restored field refused     -> resolveOwnedSecrets (stamps from restoredOwners); that entry makes no host call
-		//   no recorded entry          -> restored after the setting, once no live entry claims the label
+		//   no recorded entry, removal -> after the setting, once the live entry for the label is the recorded one
 		const blobWrites = restore.blobWrites.map((write) => ({
 			write,
 			recordedUnder: acceptedEntry(targetServersRaw, write.label)?.entry,
@@ -1105,20 +1103,12 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 				failures += 1;
 			}
 		}
-		for (const label of restore.blobRemovals) {
-			try {
-				await env.deleteServerSecrets(label);
-			} catch {
-				failures += 1;
-			}
-		}
 		if (failures > 0) {
 			// Stop before the settings phase: the current entries stay live, so the clear below judges each restored blob
 			// against them. The slot is kept, so a retry redoes the whole restore.
 			failures += await clearMismatchedBlobs(
 				env,
 				restore.blobWrites.map((write) => write.label),
-				targetServersRaw,
 				UNDO_CLEAR_FAILURE_LOG
 			);
 			env.log("Undo import: some blob restores failed; the settings phase was not started", { failures });
@@ -1139,14 +1129,16 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 				failures += 1;
 			}
 		}
-		// A failed servers write leaves the imported entry live, so an orphan under a claimed label is held for the retry
-		// (counted as a failure, which keeps the slot).
+		// A blob with no recorded entry, and a removal, land only while the live entry for the label is the recorded one
+		// (a failed servers write leaves the imported entry live); a held one counts as a failure, which keeps the slot.
 		const liveServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
+		const liveIsRecorded = (label: string): boolean =>
+			JSON.stringify(rawEntriesOf(liveServersRaw, label)) === JSON.stringify(rawEntriesOf(targetServersRaw, label));
 		for (const { write, recordedUnder } of blobWrites) {
 			if (recordedUnder !== undefined) {
 				continue;
 			}
-			if (acceptedEntry(liveServersRaw, write.label) !== undefined) {
+			if (!liveIsRecorded(write.label)) {
 				failures += 1;
 				continue;
 			}
@@ -1158,11 +1150,21 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 				failures += 1;
 			}
 		}
+		for (const label of restore.blobRemovals) {
+			if (!liveIsRecorded(label)) {
+				failures += 1;
+				continue;
+			}
+			try {
+				await env.deleteServerSecrets(label);
+			} catch {
+				failures += 1;
+			}
+		}
 		if (failures > 0) {
 			const clearFailures = await clearMismatchedBlobs(
 				env,
 				restore.blobWrites.map((write) => write.label),
-				targetServersRaw,
 				UNDO_CLEAR_FAILURE_LOG
 			);
 			failures += clearFailures;

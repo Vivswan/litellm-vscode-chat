@@ -311,7 +311,7 @@ Stored secrets belong to the entry's label alone - the base URL plays no part. T
 
 A stored secret remembers the address it was saved for. When an entry's `baseUrl` moves away from that address, the extension flags the mismatch instead of silently adopting the new pairing:
 
-- **Editing in the dashboard**: Save asks before anything is written. "Use same key" re-pairs the stored key with the new URL, "Clear key" removes the stored value, and "Keep editing" cancels the save.
+- **Editing in the dashboard**: Save asks before anything is written. "Use same key" re-pairs the stored key with the new destination (the same question covers an OAuth client secret whose token URL or client id changed), "Clear key" removes the stored value, and "Keep editing" cancels the save.
 - **Editing settings.json by hand**: sync skips the entry and its dashboard row explains why, until you set the secret again (the dashboard's edit form or "LiteLLM: Set Server Secret") or remove the stored value. Feature requests that resolve the entry directly (commit generation, inline completions, and the other one-shot features) keep sending the stored key meanwhile, so the server's own 401 is the other signal.
 - **A settings import** never asks: overwriting an entry replaces its stored secrets outright, so a file that carries no replacement value for a stored secret field clears the stored value instead of pairing it with the imported configuration. Re-enter the key after the import - or run "LiteLLM: Undo Last Settings Import" - if you want it back.
 

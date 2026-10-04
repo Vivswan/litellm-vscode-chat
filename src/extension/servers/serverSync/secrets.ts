@@ -10,15 +10,21 @@
  */
 
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
-import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
-import { entryUsesSecretField, SECRET_FIELD_IDS, secretDestination } from "../../../shared/serverEntry";
+import type { SecretFieldId, SecretLocation, SecretOwner } from "../../../shared/serverEntry";
+import {
+	entryUsesSecretField,
+	parseSecretOwner,
+	SECRET_FIELD_IDS,
+	sameSecretDestination,
+	secretDestination,
+} from "../../../shared/serverEntry";
 import type { DeclaredServer } from "./setting";
 
 /** The secure-side secrets of one label, as the SecretStorage blob holds them. */
 export type StoredServerSecrets = Partial<Readonly<Record<SecretFieldId, string>>>;
 
-/** Per-field ownership stamps: the destination each stored value was stored for ("" = stored with none). */
-export type StoredSecretOwners = Partial<Readonly<Record<SecretFieldId, string>>>;
+/** Per-field ownership stamps: the destination each stored value was stored for (shared/serverEntry.ts SecretOwner). */
+export type StoredSecretOwners = Partial<Readonly<Record<SecretFieldId, SecretOwner>>>;
 
 /** One label's whole blob: the values and their ownership stamps. */
 export interface StoredSecretsRecord {
@@ -56,14 +62,13 @@ function parseRecord(raw: string | undefined): StoredSecretsRecord {
 			values[field] = value;
 		}
 	}
-	const owners: { -readonly [K in SecretFieldId]?: string } = {};
+	const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
 	const rawOwners = (parsed as Record<string, unknown>)[OWNER_KEY];
 	if (typeof rawOwners === "object" && rawOwners !== null) {
 		for (const field of SECRET_FIELD_IDS) {
-			const owner = (rawOwners as Record<string, unknown>)[field];
-			// A stamp is meaningful only beside its value; "" is a real stamp
-			// (stored with no destination), so only non-strings drop.
-			if (typeof owner === "string" && values[field] !== undefined) {
+			const owner = parseSecretOwner((rawOwners as Record<string, unknown>)[field]);
+			// A stamp is meaningful only beside its value.
+			if (owner !== undefined && values[field] !== undefined) {
 				owners[field] = owner;
 			}
 		}
@@ -79,7 +84,7 @@ function serializeRecord(record: StoredSecretsRecord): string {
 			blob[field] = value;
 		}
 	}
-	const owners: Record<string, string> = {};
+	const owners: Record<string, SecretOwner> = {};
 	for (const field of SECRET_FIELD_IDS) {
 		const owner = record.owners[field];
 		if (owner !== undefined && blob[field] !== undefined) {
@@ -144,12 +149,12 @@ export async function updateServerSecret(
 	label: string,
 	field: SecretFieldId,
 	value: string | undefined,
-	owner: string | undefined
+	owner: SecretOwner | undefined
 ): Promise<void> {
 	await serializedWrite(label, async () => {
 		const record = await readServerSecretsRecord(secrets, label);
 		const values = { ...record.values };
-		const owners = { ...record.owners };
+		const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = { ...record.owners };
 		if (value === undefined) {
 			delete values[field];
 			delete owners[field];
@@ -175,7 +180,7 @@ export async function stampServerSecretOwner(
 	secrets: SecretStore,
 	label: string,
 	field: SecretFieldId,
-	owner: string
+	owner: SecretOwner
 ): Promise<void> {
 	await serializedWrite(label, async () => {
 		const record = await readServerSecretsRecord(secrets, label);
@@ -199,12 +204,13 @@ export async function restampServerSecretOwner(
 	secrets: SecretStore,
 	label: string,
 	field: SecretFieldId,
-	from: string,
-	to: string
+	from: SecretOwner,
+	to: SecretOwner
 ): Promise<void> {
 	await serializedWrite(label, async () => {
 		const record = await readServerSecretsRecord(secrets, label);
-		if (record.values[field] === undefined || record.owners[field] !== from) {
+		const current = record.owners[field];
+		if (record.values[field] === undefined || current === undefined || !sameSecretDestination(current, from)) {
 			return;
 		}
 		await writeRecord(secrets, label, { values: record.values, owners: { ...record.owners, [field]: to } });
@@ -261,7 +267,7 @@ export function resolveOwnedSecrets(entry: DeclaredServer, record: StoredSecrets
 			continue;
 		}
 		const owner = record.owners[field];
-		if (owner === undefined || owner === secretDestination(entry, field)) {
+		if (owner === undefined || sameSecretDestination(owner, secretDestination(entry, field))) {
 			values[field] = value;
 		} else if (inline[field] === undefined) {
 			mismatched.push(field);

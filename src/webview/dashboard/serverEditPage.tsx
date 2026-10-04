@@ -748,7 +748,9 @@ function ServerForm({
 					"The stored key was saved for {0}. Clearing the key removes it from secret storage.",
 					destinations.join(", ")
 				)
-			: l10n.t("The stored key was saved for a different address. Clearing the key removes it from secret storage.");
+			: l10n.t(
+					"The stored key was saved for a different destination. Clearing the key removes it from secret storage."
+				);
 	};
 
 	const save = () => {
@@ -761,10 +763,8 @@ function ServerForm({
 			setTouched(new Set(SERVER_FORM_FIELD_ORDER));
 			return;
 		}
-		// A save that re-points the URL while keeping a stored key asks first:
-		// the stored value was saved for the old URL, and posting "keep" would
-		// re-pair it with the new one host-side. Both answers post the same
-		// intent shape - keep as parsed, or with those fields cleared.
+		// The stored value was saved for the old destination, and posting "keep" would re-pair it with the new one
+		// host-side, so the save asks first.
 		const stale = staleKeyFieldsOnSave(parse.intent);
 		if (stale.length > 0) {
 			setStaleKeyFields(stale);
@@ -1490,7 +1490,7 @@ function ServerForm({
 			    Esc/"Keep editing" posts nothing; the two verbs answer the ONE question. */}
 			{staleKeyFields !== undefined ? (
 				<ConfirmDialog
-					question={l10n.t("Keep using the stored key with the new URL?")}
+					question={l10n.t("Keep using the stored key for the new destination?")}
 					detail={staleKeyDetail()}
 					confirmLabel={l10n.t("Clear key")}
 					alternateLabel={l10n.t("Use same key")}

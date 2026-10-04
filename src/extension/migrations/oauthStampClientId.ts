@@ -1,24 +1,32 @@
 /**
- * Moves OAuth client secret stamps from the token URL alone to secretDestination's current form
- * (shared/serverEntry.ts). The one place that knows the earlier form: the undo of a settings import restores recorded
- * stamps through upgradedStamp too, so a snapshot taken before this release restores a secret its entry can still use.
+ * Moves every string stamp on an OAuth client secret (the earlier form: the token URL alone) to secretDestination's
+ * structured form (shared/serverEntry.ts), so no raw string remains on that field and no token URL text can match a
+ * structured stamp. The one place that knows the earlier form: the undo of a settings import restores recorded stamps
+ * through upgradedStamp too, so a snapshot taken before this release restores a secret its entry can still use.
  *
- *   stamp equals the entry's token URL      -> re-stamped (a token URL never starts with "[", so this never re-fires)
- *   stamp names another token URL, or none  -> a mismatch or the unstamped state under both rules; untouched
+ *   string equal to the entry's token URL -> the entry's destination
+ *   any other string                       -> { tokenUrl: <the string> } ("" -> {}), a mismatch under both rules
+ *   already structured, or no stamp        -> untouched
  */
 
 import * as vscode from "vscode";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { Logger } from "../../shared/logger";
-import type { SecretDestinationEntry, SecretFieldId } from "../../shared/serverEntry";
+import type { SecretDestinationEntry, SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
 import type { SecretStore } from "../servers/serverSync/secrets";
 import { readServerSecretsRecord, restampServerSecretOwner, secretDestination } from "../servers/serverSync/secrets";
 import { parseServersSetting } from "../servers/serverSync/setting";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
-export function upgradedStamp(entry: SecretDestinationEntry, field: SecretFieldId, owner: string): string {
-	return field === "oauthClientSecret" && owner === entry.oauthTokenUrl ? secretDestination(entry, field) : owner;
+export function upgradedStamp(entry: SecretDestinationEntry, field: SecretFieldId, owner: SecretOwner): SecretOwner {
+	if (field !== "oauthClientSecret" || typeof owner !== "string") {
+		return owner;
+	}
+	if (owner === (entry.oauthTokenUrl ?? "")) {
+		return secretDestination(entry, field);
+	}
+	return owner === "" ? {} : { tokenUrl: owner };
 }
 
 export async function stampOauthClientIdsFor(
@@ -41,15 +49,17 @@ export async function stampOauthClientIdsFor(
 			continue;
 		}
 		const owner = record.owners.oauthClientSecret;
-		if (owner === undefined) {
-			continue;
-		}
-		const upgraded = upgradedStamp(entry, "oauthClientSecret", owner);
-		if (upgraded === owner) {
+		if (typeof owner !== "string") {
 			continue;
 		}
 		try {
-			await restampServerSecretOwner(secrets, entry.label, "oauthClientSecret", owner, upgraded);
+			await restampServerSecretOwner(
+				secrets,
+				entry.label,
+				"oauthClientSecret",
+				owner,
+				upgradedStamp(entry, "oauthClientSecret", owner)
+			);
 			restamped += 1;
 		} catch (error) {
 			failures += 1;
@@ -64,7 +74,6 @@ export async function stampOauthClientIdsFor(
 	return restamped > 0 ? "migrated" : "nothing-to-do";
 }
 
-/** Migrates away from: OAuth client secret stamps of v0.6.7 and earlier, which named the token URL alone. */
 export const oauthStampClientIdMigration: ExtensionMigration<"token-url-only-oauth-stamps"> = {
 	state: "token-url-only-oauth-stamps",
 	description: "Re-stamped stored OAuth client secrets with the client id beside the token URL",

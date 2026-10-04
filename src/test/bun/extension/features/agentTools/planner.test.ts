@@ -398,7 +398,7 @@ describe("agentTools planner save_server", () => {
 			savePayload(plan);
 			return;
 		}
-		expect(plan).toEqual({ kind: "refused", reason: "kept-secret-host-change", detail: expected });
+		expect(plan).toEqual({ kind: "refused", reason: "kept-secret-destination-change", detail: expected });
 	});
 
 	// Drifts silently: two external groups can share a base URL; a URL-only

@@ -52,13 +52,10 @@ suite("extension/servers/serverSync/entryCredentials", () => {
 
 	test("narrows OAuth and virtual-key units exactly like the group-configuration parse", async () => {
 		const secrets = makeSecretStore();
-		await updateServerSecret(
-			secrets,
-			"OAuth",
-			"oauthClientSecret",
-			"cs-1",
-			JSON.stringify(["https://idp.test/token", "cid"])
-		);
+		await updateServerSecret(secrets, "OAuth", "oauthClientSecret", "cs-1", {
+			tokenUrl: "https://idp.test/token",
+			clientId: "cid",
+		});
 		const setting = [
 			{
 				label: "OAuth",

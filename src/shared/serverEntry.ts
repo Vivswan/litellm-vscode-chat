@@ -78,26 +78,66 @@ export type SecretLocation = "settings" | "secure" | "none";
  * renders it for people.
  *
  *   key                 -> base URL, normalized (the transport treats a trailing slash there as insignificant)
- *   OAuth client secret -> JSON [token URL VERBATIM, client id]: the exchange fetches the URL exactly, so /token and
- *                          /token/ differ, and a client's secret must not follow another client id; the token URL
- *                          alone is the earlier stamp migrations/oauthStampClientId.ts upgrades
- *   no token URL        -> "", a real stamp, so gaining a token URL later still needs a deliberate re-pairing
+ *   OAuth client secret -> { tokenUrl, clientId }: the token URL VERBATIM (the exchange fetches it exactly, so /token
+ *                          and /token/ differ) and the client whose secret it is; a plain string on this field is the
+ *                          earlier stamp, which migrations/oauthStampClientId.ts wraps and sameSecretDestination
+ *                          never matches, so no token URL text can collide with a structured stamp
+ *   no token URL        -> {}, a real stamp, so gaining a token URL later still needs a deliberate re-pairing
  */
-export function secretDestination(entry: SecretDestinationEntry, field: SecretFieldId): string {
+export function secretDestination(entry: SecretDestinationEntry, field: SecretFieldId): SecretOwner {
 	if (field !== "oauthClientSecret") {
 		return normalizeBaseUrl(entry.baseUrl);
 	}
-	if (entry.oauthTokenUrl === undefined) {
-		return "";
-	}
-	return JSON.stringify([entry.oauthTokenUrl, entry.oauthClientId ?? ""]);
+	return {
+		...(entry.oauthTokenUrl !== undefined ? { tokenUrl: entry.oauthTokenUrl } : {}),
+		...(entry.oauthClientId !== undefined ? { clientId: entry.oauthClientId } : {}),
+	};
 }
 
-/** The fields secretDestination reads; a partial object (a form draft, a base-URL-only fallback) is a legal input. */
 export interface SecretDestinationEntry {
 	readonly baseUrl: string;
 	readonly oauthTokenUrl?: string | undefined;
 	readonly oauthClientId?: string | undefined;
+}
+
+/** An OAuth client secret's destination; an absent part matches only an absent part. */
+interface OAuthSecretDestination {
+	readonly tokenUrl?: string;
+	readonly clientId?: string;
+}
+
+/** A stored field's ownership stamp as secretDestination renders it; see its rows. */
+export type SecretOwner = string | OAuthSecretDestination;
+
+export function sameSecretDestination(a: SecretOwner, b: SecretOwner): boolean {
+	if (typeof a === "string" || typeof b === "string") {
+		return a === b;
+	}
+	return a.tokenUrl === b.tokenUrl && a.clientId === b.clientId;
+}
+
+/**
+ * The one decoder of a persisted stamp (a SecretStorage blob's `_owner` value, a snapshot's `owners` value): a string
+ * ("" included: stored with no destination) or the structured OAuth form with no other key; anything else is no stamp.
+ */
+export function parseSecretOwner(raw: unknown): SecretOwner | undefined {
+	if (typeof raw === "string") {
+		return raw;
+	}
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+		return undefined;
+	}
+	const { tokenUrl, clientId, ...rest } = raw as Record<string, unknown>;
+	if (Object.keys(rest).length > 0) {
+		return undefined;
+	}
+	if (
+		(tokenUrl !== undefined && typeof tokenUrl !== "string") ||
+		(clientId !== undefined && typeof clientId !== "string")
+	) {
+		return undefined;
+	}
+	return { ...(tokenUrl !== undefined ? { tokenUrl } : {}), ...(clientId !== undefined ? { clientId } : {}) };
 }
 
 /** The destination as the dashboard names it to the user; the stamp itself is an opaque equality key. */

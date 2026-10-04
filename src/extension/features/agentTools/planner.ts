@@ -40,7 +40,12 @@ import {
 	SERVERS_SETTING_KEY,
 } from "../../../shared/config/settingSpec";
 import type { SecretFieldId } from "../../../shared/serverEntry";
-import { pickNonSecretOptionalFields, SECRET_FIELD_IDS, secretDestination } from "../../../shared/serverEntry";
+import {
+	pickNonSecretOptionalFields,
+	SECRET_FIELD_IDS,
+	sameSecretDestination,
+	secretDestination,
+} from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import { isRecord, recordFromKeys } from "../../../shared/util/json";
@@ -73,7 +78,7 @@ export type RefusalReason =
 	| "hidden-group-not-found"
 	| "secret-locations-unproven"
 	| "secret-value-refused"
-	| "kept-secret-host-change"
+	| "kept-secret-destination-change"
 	| "base-url-required"
 	| "feature-model-not-set"
 	| "model-not-found"
@@ -358,7 +363,7 @@ function edited(current: string | undefined, next: string | null | undefined): s
 
 /**
  * The secret fields a save would send to a NEW destination while keeping the
- * stored value: a kept key must never follow a changed host, so these refuse
+ * stored value: a kept key must never follow a changed destination, so these refuse
  * (the agent sets the secret again, which prompts the user).
  */
 function keptSecretsChangingDestination(
@@ -371,14 +376,17 @@ function keptSecretsChangingDestination(
 		(field) =>
 			directives[field].action === "keep" &&
 			locations[field] !== "none" &&
-			secretDestination(
-				{
-					baseUrl: before.baseUrl,
-					oauthTokenUrl: before.config.oauthTokenUrl,
-					oauthClientId: before.config.oauthClientId,
-				},
-				field
-			) !== secretDestination(after, field)
+			!sameSecretDestination(
+				secretDestination(
+					{
+						baseUrl: before.baseUrl,
+						oauthTokenUrl: before.config.oauthTokenUrl,
+						oauthClientId: before.config.oauthClientId,
+					},
+					field
+				),
+				secretDestination(after, field)
+			)
 	);
 }
 
@@ -461,7 +469,7 @@ export function planSaveServer(
 	if (existing !== undefined) {
 		const moving = keptSecretsChangingDestination(existing, server, secrets.directives);
 		if (moving.length > 0) {
-			return refused("kept-secret-host-change", { label: existing.label, fields: moving.join(", ") });
+			return refused("kept-secret-destination-change", { label: existing.label, fields: moving.join(", ") });
 		}
 	}
 	const replace = existing === undefined ? undefined : replaceIdentityOf(existing);
