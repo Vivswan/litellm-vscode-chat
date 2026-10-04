@@ -10,7 +10,7 @@ import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/t
 import { HAS_SHOWN_WELCOME_KEY, LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
 import { SETUP_HINT_KINDS, type SetupHintKind } from "../../../shared/errorClassification";
 import { Logger, markLogSafe } from "../../../shared/logger";
-import { SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
+import { GITHUB_REPO_URL, SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
 import { expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
 
@@ -1234,7 +1234,7 @@ suite("extension/ui/commands", () => {
 				const opened = mocks.executed.filter((call) => call[0] === "vscode.open");
 				assert.strictEqual(opened.length, 1);
 				const url = String(expectDefined(opened[0])[1]);
-				assert.ok(url.startsWith("https://github.com/Vivswan/litellm-vscode-chat/issues?"), url);
+				assert.ok(url.startsWith(`${GITHUB_REPO_URL}/issues?`), url);
 				assert.ok(url.includes(encodeURIComponent("is:issue is:open label:bug")), url);
 				assert.strictEqual(openedIssueUrls.length, 1, "the issues-list action must not open a new issue");
 				assert.deepStrictEqual(

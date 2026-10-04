@@ -247,5 +247,11 @@ export default defineConfig({
 			launchArgs: launchArgsFor("host-fidelity"),
 		},
 		...dockerLabels.map((label) => dockerLabel(label, dockerSuites[label])),
-	].map((test) => ({ ...test, version: codeVersion })),
+	].map((test) => ({
+		...test,
+		version: codeVersion,
+		// Every label loads out/ source the bundler never saw, so the build-time
+		// defines it would have substituted are set before the first test file.
+		mocha: { ...test.mocha, require: [...(test.mocha.require ?? []), "./out/test/util/buildDefines.js"] },
+	})),
 });

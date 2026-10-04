@@ -1,9 +1,10 @@
 /**
  * Every docs page the dashboard links out to. Literal string constants only - no interpolation, even of other
  * constants - so a read of this file proves link targets never carry server data. The one outside source DocsUrl
- * admits is the host's setup-hint record in shared/util/links.ts, whose values are literals in a module that
- * imports nothing but a type. docsLinks.test.tsx resolves every path and anchor against docs/, so a renamed page
- * fails CI instead of serving 404s.
+ * admits is the host's setup-hint record in shared/util/links.ts, whose values are branded anchors built from
+ * literals on the manifest's repository URL (a build-time constant) in a module that imports nothing but a type.
+ * docsLinks.test.tsx resolves every path and anchor against docs/, so a renamed page fails CI instead of serving
+ * 404s.
  */
 
 import type { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";

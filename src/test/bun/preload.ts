@@ -6,10 +6,12 @@
  * happy-dom registration, the fixed fingerprint salt (suites here compute
  * fingerprints without activation's salt load), the <details> fidelity patches
  * below, the acquireVsCodeApi stub (vscodeApi.ts calls it at module top level,
- * so a component import without it crashes at import time), and the
- * console.error gate. The harness import is dynamic so DOM registration runs
- * first; a static import would hoist past it.
+ * so a component import without it crashes at import time), the build-time
+ * defines the bundler would have substituted (links.ts reads one at module top
+ * level), and the console.error gate. The harness import is dynamic so DOM
+ * registration runs first; a static import would hoist past it.
  */
+import "../util/buildDefines";
 import { afterEach, beforeEach } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { initFingerprintSalt } from "../../shared/util/fingerprint";
