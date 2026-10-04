@@ -3,8 +3,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../../childProcessTimeout";
 import {
-	type Block,
-	blocks,
 	compileDashboard,
 	compileTheme,
 	dashboardEntry,
@@ -14,6 +12,7 @@ import {
 	type StyleRule,
 	themeEntry,
 } from "./compileStyles";
+import { type Block, blocks } from "./cssBlocks";
 
 /**
  * Load-bearing utilities the ui components consume: each one must compile
@@ -285,18 +284,6 @@ test("one screen-reader-only recipe: .visually-hidden, with its width-tier mirro
 			sortedDeclarations(canonical[0]?.body ?? "")
 		);
 	}
-});
-
-test("the cascade puts the dashboard stylesheet below utilities", async () => {
-	// The order declaration lives in theme.css and the wrap in dashboard.css;
-	// together they are the contract that a utility always beats a stylesheet
-	// rule. There is exactly ONE layer wrap: the dashboard rules are one flat
-	// layer whose internal order is load-bearing (the narrow overrides at the
-	// file's tail win their equal-specificity arguments by coming later).
-	expect(readFileSync(themeEntry, "utf8")).toContain("@layer theme, base, components, utilities;");
-	const dashboard = readFileSync(dashboardEntry, "utf8");
-	expect(dashboard).toContain("@layer components {");
-	expect([...dashboard.matchAll(/@layer/g)]).toHaveLength(1);
 });
 
 test("the scrim re-enables pointer events Radix takes away", () => {

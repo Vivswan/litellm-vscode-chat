@@ -32,6 +32,7 @@ import { SettingsSection } from "./settingsPage";
 import { relativeTime, useNow } from "./time";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/dialog";
+import { sectionId } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
 /** The section tabs; the ID list lives in the view-model module because focusSection deep-links name them. */
@@ -473,7 +474,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	useEffect(() => {
 		if (pendingModelsFocus.current && section === "models") {
 			pendingModelsFocus.current = false;
-			document.getElementById("models-section")?.focus({ preventScroll: true });
+			document.getElementById(sectionId("models"))?.focus({ preventScroll: true });
 		}
 	}, [section]);
 
@@ -540,7 +541,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			// delivers a pending focus would never run and the flag would latch,
 			// stealing focus the next time the reader arrived here by any route.
 			// The panel is visible, so focus now and leave no flag behind.
-			document.getElementById("models-section")?.focus({ preventScroll: true });
+			document.getElementById(sectionId("models"))?.focus({ preventScroll: true });
 			return;
 		}
 		setSection("models");

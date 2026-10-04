@@ -62,6 +62,14 @@ export function SectionHeader({
 	);
 }
 
+/**
+ * The DOM id of the section named `id`: the one grammar an in-page jump's `getElementById` and the rendered
+ * `<section>` share, so a jump cannot aim at a spelling the element does not carry.
+ */
+export function sectionId<Id extends string>(id: Id): `${Id}-section` {
+	return `${id}-section`;
+}
+
 export function Section({
 	id,
 	children,
@@ -69,7 +77,7 @@ export function Section({
 	headerClassName,
 	...header
 }: Omit<SectionHeaderProps, "titleId" | "className"> & {
-	/** Names the section: the element becomes `${id}-section` and its heading `${id}-title`. */
+	/** Names the section: the element becomes `sectionId(id)` and its heading `${id}-title`. */
 	id: string;
 	children: ReactNode;
 	className?: string | undefined;
@@ -79,7 +87,7 @@ export function Section({
 	const titleId = `${id}-title`;
 	return (
 		// tabIndex -1 so an in-page jump can move focus here; never in the tab order.
-		<section id={`${id}-section`} tabIndex={-1} aria-labelledby={titleId} className={cn("page-section", className)}>
+		<section id={sectionId(id)} tabIndex={-1} aria-labelledby={titleId} className={cn("page-section", className)}>
 			<SectionHeader titleId={titleId} className={headerClassName} {...header} />
 			{children}
 		</section>

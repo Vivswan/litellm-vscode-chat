@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { type Block, blocks, compileDashboard } from "./compileStyles";
+import { compileDashboard } from "./compileStyles";
+import { type Block, blocks } from "./cssBlocks";
 
 /**
  * An absolutely positioned grid child inherits the resting cluster's self-alignment into its sizing, banding the

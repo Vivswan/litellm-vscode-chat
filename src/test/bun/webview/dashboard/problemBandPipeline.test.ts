@@ -13,7 +13,8 @@
  */
 import { expect, test } from "bun:test";
 import { shippedSources } from "../../../sourceScan";
-import { blocks, compileDashboard, rulesFor } from "./styles/compileStyles";
+import { compileDashboard, rulesFor } from "./styles/compileStyles";
+import { blocks } from "./styles/cssBlocks";
 
 const PIPELINE = "src/webview/dashboard/problemBand.tsx";
 
