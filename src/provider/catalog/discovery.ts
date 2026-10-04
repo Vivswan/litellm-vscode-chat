@@ -1,6 +1,5 @@
 import * as l10n from "@vscode/l10n";
 import type OpenAI from "openai";
-import type { CostCapabilityField } from "../../shared/config/capabilityResolution";
 import { consumedFieldsOfKind } from "../../shared/config/capabilityResolution";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
@@ -21,6 +20,7 @@ import type {
 	LiteLLMModelItem,
 	LiteLLMProvider,
 	LongContextCostField,
+	PerTokenCosts,
 	RawModelItem,
 } from "./schemas";
 import {
@@ -71,7 +71,7 @@ const TIERED_COST_KEY = new RegExp(`^(${LONG_CONTEXT_COST_FIELDS.map(tieredBaseK
  * The cost fields discovery authors onto every provider entry, each explicitly present so spreading the result
  * overrides look-alike pass-through keys.
  */
-type ServerCosts = { readonly [K in CostCapabilityField]: number | null | undefined };
+type ServerCosts = Readonly<Required<PerTokenCosts>>;
 
 const NO_SERVER_COSTS: ServerCosts = recordFromKeys(COST_FIELDS, () => undefined);
 
