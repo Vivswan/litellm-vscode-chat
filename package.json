@@ -624,7 +624,7 @@
 									]
 								},
 								"headers": {
-									"description": "Custom HTTP headers as an object of header name to value (plain text, not secrets).",
+									"description": "Custom HTTP headers as an object of header name to value, replacing the stored object whole. A credential-bearing header (Authorization, Proxy-Authorization, X-API-Key, the entry's virtualKeyHeader) reads back from litellm_configuration as [credential header: value kept in settings, not shown]; send that placeholder to keep its stored value.",
 									"type": [
 										"string",
 										"number",

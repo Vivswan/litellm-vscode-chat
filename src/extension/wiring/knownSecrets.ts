@@ -4,9 +4,8 @@ import { SERVERS_SETTING_KEY } from "../../shared/config/settings";
 import { isServerSecretsKey } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import { type CollectableEntry, collectKnownSecretValues } from "../../shared/util/knownSecrets";
-import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
-import { onServerSecretWritten, readServerSecretsRecord } from "../servers/serverSync/secrets";
-import { collectableEntries, declaredEntryLabel } from "../servers/serverSync/setting";
+import { onServerSecretWritten, readDeclaredSecretValues } from "../servers/serverSync/secrets";
+import { collectableEntries, rawDeclaredLabels } from "../servers/serverSync/setting";
 
 /**
  * Keep the Logger's known-secret list current from every raw record read by the parser's own readers (accepted or
@@ -33,26 +32,18 @@ export async function wireKnownSecrets(
 	let entries: readonly CollectableEntry[] = [];
 	const knownNow = (): readonly string[] =>
 		collectKnownSecretValues(entries, [...stored, ...written.map((w) => w.value)]);
-	const readBlob = async (label: string): Promise<StoredSecretsRecord | undefined> => {
-		try {
-			return await readServerSecretsRecord(context.secrets, label);
-		} catch (error) {
-			logger.error("Known-secret blob read failed", error);
-			return undefined;
-		}
-	};
 	const refresh = async (): Promise<void> => {
 		const ordinal = ++latest;
 		const raw = vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
 		entries = collectableEntries(raw);
 		publish(knownNow());
-		const rawRecords: readonly unknown[] = Array.isArray(raw) ? raw : [];
-		const declared = rawRecords.map(declaredEntryLabel).filter((label): label is string => label !== undefined);
-		const labels = [...new Set(declared)];
-		const records = await Promise.all(labels.map(readBlob));
+		let failed = false;
+		const read = await readDeclaredSecretValues(context.secrets, [...rawDeclaredLabels(raw)], (_label, error) => {
+			failed = true;
+			logger.error("Known-secret blob read failed", error);
+		});
 		if (ordinal === latest) {
-			const read = records.flatMap((record) => (record === undefined ? [] : Object.values(record.values)));
-			if (records.includes(undefined)) {
+			if (failed) {
 				stored = [...new Set([...stored, ...read])];
 			} else {
 				stored = read;

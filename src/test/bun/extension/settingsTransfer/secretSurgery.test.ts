@@ -2,7 +2,11 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import type { StoredServerSecrets } from "../../../../extension/servers/serverSync/secrets";
 import type { MaterializedEntry, StrippedEntry } from "../../../../extension/settingsTransfer/secretSurgery";
-import { materializeEntrySecrets, stripEntrySecrets } from "../../../../extension/settingsTransfer/secretSurgery";
+import {
+	materializeEntrySecrets,
+	stripCredentialHeaders,
+	stripEntrySecrets,
+} from "../../../../extension/settingsTransfer/secretSurgery";
 
 function entryWith(auth: unknown): Record<string, unknown> {
 	return { label: "A", baseUrl: "http://a.test", ...(auth === undefined ? {} : { auth }) };
@@ -141,6 +145,10 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 				entryWith({ virtualKey: { header: "x-key", name: "sk-ish" } }),
 				// A container at a known text position could hold text too.
 				entryWith({ oauth: { tokenUrl: ["sk"], clientId: "c" } }),
+				// Keys that name inherited members or the prototype: a walk that read the recursion table through the
+				// prototype certified the first (Object.prototype.toString returned truthy text) and threw on the second.
+				entryWith({ toString: "sk-at-an-inherited-name" }),
+				entryWith(JSON.parse('{"__proto__": "sk-at-a-prototype-key"}')),
 			]) {
 				assert.strictEqual(stripEntrySecrets(raw).unsanitizable, true, JSON.stringify(raw.auth));
 			}
@@ -227,6 +235,86 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 			for (const flat of [{ apiKey: "   " }, { apiKey: 42 }, { oauthClientSecret: null }]) {
 				const raw = { label: "A", baseUrl: "http://a.test", ...flat };
 				assert.strictEqual(stripEntrySecrets(raw).unsanitizable, false, JSON.stringify(flat));
+			}
+		});
+	});
+
+	describe("stripCredentialHeaders", () => {
+		// Drifts silently: the header names come from the shared predicate, so a no-secrets export that kept an
+		// Authorization value would fail only in a file the user hands to someone else. Names are matched as the
+		// settings parser accepts them (trimmed, any case), and a headers shape the strip cannot walk is presumed to
+		// hide a credential, like an uncertifiable auth shape.
+		test.each<[string, Record<string, unknown>, Record<string, unknown> | undefined, string[], boolean]>([
+			[
+				"the fixed auth names go, in any case and padding; other headers stay",
+				{
+					headers: {
+						" Authorization ": "Bearer sk",
+						"proxy-authorization": "Basic x",
+						"X-API-KEY": "k",
+						"X-Team": "t",
+					},
+				},
+				{ headers: { "X-Team": "t" } },
+				[" Authorization ", "proxy-authorization", "X-API-KEY"],
+				false,
+			],
+			[
+				"the entry's virtualKey header names a credential header at each raw position",
+				{
+					auth: {
+						oauth: { tokenUrl: "http://idp.test", virtualKey: { header: " x-inner " } },
+						virtualKey: { header: "x-outer" },
+					},
+					virtualKeyHeader: "x-flat",
+					headers: { "X-Inner": "1", "X-Outer": "2", "X-Flat": "3", "X-Team": "t" },
+				},
+				{
+					auth: {
+						oauth: { tokenUrl: "http://idp.test", virtualKey: { header: " x-inner " } },
+						virtualKey: { header: "x-outer" },
+					},
+					virtualKeyHeader: "x-flat",
+					headers: { "X-Team": "t" },
+				},
+				["X-Inner", "X-Outer", "X-Flat"],
+				false,
+			],
+			[
+				"a textless headers field is misconfiguration, not a credential",
+				{ headers: null },
+				{ headers: null },
+				[],
+				false,
+			],
+			[
+				"headers as text is unwalkable, so the entry is unsanitizable",
+				{ headers: "Authorization: sk" },
+				undefined,
+				[],
+				true,
+			],
+			[
+				"headers as an array is unwalkable, so the entry is unsanitizable",
+				{ headers: [{ Authorization: "sk" }] },
+				undefined,
+				[],
+				true,
+			],
+			[
+				"a container at a header value could hide text, so the entry is unsanitizable",
+				{ headers: { Authorization: "sk", "X-Team": { nested: "sk" } } },
+				undefined,
+				["Authorization"],
+				true,
+			],
+		])("%s", (_name, fields, stripped, removed, unsanitizable) => {
+			const raw = { label: "A", baseUrl: "http://a.test", ...fields };
+			const result = stripCredentialHeaders(raw);
+			assert.strictEqual(result.unsanitizable, unsanitizable);
+			assert.deepStrictEqual(result.removed, removed);
+			if (!result.unsanitizable) {
+				assert.deepStrictEqual(result.entry, { label: "A", baseUrl: "http://a.test", ...stripped });
 			}
 		});
 	});

@@ -7,12 +7,18 @@
  *
  *   the inline settings grammar trims, so the trimmed text IS the value the file carries -> Strip trims what it takes
  *   buildGroupArgs sends stored strings untouched -> materialize places stored values verbatim
+ *
+ * Two credential positions have no blob slot, so the surgery treats them by position alone.
+ *   credential-bearing custom header (isCredentialHeader)  -> no-secrets export drops it; the import lands it in
+ *                                                             settings
+ *   user:password@ in a URL field                           -> no-secrets export rebuilds the URL; the import keeps it
  */
 
 import type { SecretFieldId } from "../../shared/serverEntry";
-import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { isCredentialHeader, SECRET_FIELD_IDS, virtualKeyHeaderNames } from "../../shared/serverEntry";
+import { displayUrl } from "../../shared/util/displayUrl";
 import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
-import { isRecord } from "../../shared/util/json";
+import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { StoredServerSecrets } from "../servers/serverSync/secrets";
 
 type MutableSecrets = { -readonly [K in SecretFieldId]?: string };
@@ -69,6 +75,14 @@ function textless(value: unknown): boolean {
 	);
 }
 
+/**
+ * Certify one already-stripped auth container against a key whitelist: `text`
+ * keys may hold strings, `walk` keys recurse, and every other occupant must be
+ * textless. Anything else could be a credential the strip did not reach.
+ *
+ *   auth: { toString: "sk" }     -> a plain index into the table reaches Object.prototype.toString and certifies
+ *   auth: { "__proto__": "sk" }  -> the same read throws
+ */
 function certifyContainer(
 	value: unknown,
 	text: readonly string[],
@@ -78,10 +92,13 @@ function certifyContainer(
 		return textless(value);
 	}
 	return Object.entries(value).every(([key, occupant]) => {
+		if (isUnsafeRecordKey(key)) {
+			return false;
+		}
 		if (text.includes(key)) {
 			return typeof occupant === "string" || textless(occupant);
 		}
-		const into = walk[key];
+		const into = Object.hasOwn(walk, key) ? walk[key] : undefined;
 		return into !== undefined ? into(occupant) : textless(occupant);
 	});
 }
@@ -137,6 +154,96 @@ export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): 
 	return { entry, secrets, unsanitizable: !certifyStrippedAuth(entry.auth) || flatResidue };
 }
 
+/**
+ * stripCredentialHeaders' outcome. A headers field the strip cannot walk (text or a container where the grammar
+ * wants a record of scalars) has no sanitized entry at all: like an uncertifiable auth shape, its text is presumed
+ * to be a misplaced credential, and a no-secrets export omits the entry.
+ */
+export type StrippedHeaders =
+	| {
+			readonly unsanitizable: false;
+			/** The entry without its credential-bearing custom header values. */
+			readonly entry: Readonly<Record<string, unknown>>;
+			/** The names removed; a with-secrets export counts them as inline secret values. */
+			readonly removed: readonly string[];
+	  }
+	| { readonly unsanitizable: true; readonly removed: readonly string[] };
+
+export function stripCredentialHeaders(rawEntry: Readonly<Record<string, unknown>>): StrippedHeaders {
+	const raw = rawEntry.headers;
+	if (!isRecord(raw)) {
+		return textless(raw)
+			? { unsanitizable: false, entry: rawEntry, removed: [] }
+			: { unsanitizable: true, removed: [] };
+	}
+	const carriers = virtualKeyHeaderNames(rawEntry);
+	const removed = Object.keys(raw).filter((name) => isCredentialHeader(name, carriers));
+	const kept = Object.entries(raw).filter(([name]) => !removed.includes(name));
+	if (kept.some(([, value]) => typeof value === "object" && value !== null)) {
+		return { unsanitizable: true, removed };
+	}
+	const entry = removed.length === 0 ? rawEntry : { ...rawEntry, headers: Object.fromEntries(kept) };
+	return { unsanitizable: false, entry, removed };
+}
+
+/**
+ * stripUrlUserinfo's outcome. A container at a URL position (an array where a string belongs) could hold a
+ * credentialed URL the walk cannot see, so like an unwalkable headers shape it has no sanitized entry and a
+ * no-secrets export omits the entry.
+ */
+export type StrippedUrls =
+	| {
+			readonly unsanitizable: false;
+			/** The entry with each URL field rebuilt without userinfo. */
+			readonly entry: Readonly<Record<string, unknown>>;
+			/** How many URL fields carried userinfo; a with-secrets export counts them as inline secret values. */
+			readonly removed: number;
+	  }
+	| { readonly unsanitizable: true; readonly removed: number };
+
+/**
+ * The raw entry's URL positions, each rebuilt through displayUrl: a `user:password@` written into a base URL or a
+ * token URL is a credential the no-secrets export must not carry, and one the with-secrets export counts.
+ *
+ *   baseUrl, oauthTokenUrl (flat)  -> top level
+ *   auth.oauth.tokenUrl            -> the nested auth grammar
+ *   mcp.url                        -> the MCP opt-in's object form
+ */
+export function stripUrlUserinfo(rawEntry: Readonly<Record<string, unknown>>): StrippedUrls {
+	let removed = 0;
+	let unsanitizable = false;
+	const rebuilt = (value: unknown): unknown => {
+		if (typeof value !== "string") {
+			unsanitizable ||= typeof value === "object" && value !== null;
+			return value;
+		}
+		const shown = displayUrl(value);
+		if (shown !== value) {
+			removed += 1;
+		}
+		return shown;
+	};
+	const entry: Record<string, unknown> = {
+		...rawEntry,
+		...("baseUrl" in rawEntry ? { baseUrl: rebuilt(rawEntry.baseUrl) } : {}),
+		...("oauthTokenUrl" in rawEntry ? { oauthTokenUrl: rebuilt(rawEntry.oauthTokenUrl) } : {}),
+	};
+	if (isRecord(rawEntry.auth) && isRecord(rawEntry.auth.oauth) && "tokenUrl" in rawEntry.auth.oauth) {
+		entry.auth = {
+			...rawEntry.auth,
+			oauth: { ...rawEntry.auth.oauth, tokenUrl: rebuilt(rawEntry.auth.oauth.tokenUrl) },
+		};
+	}
+	if (isRecord(rawEntry.mcp) && "url" in rawEntry.mcp) {
+		entry.mcp = { ...rawEntry.mcp, url: rebuilt(rawEntry.mcp.url) };
+	}
+	if (unsanitizable) {
+		return { unsanitizable, removed };
+	}
+	return { unsanitizable, entry: removed === 0 ? rawEntry : entry, removed };
+}
+
+/** materializeEntrySecrets' outcome: the entry with blob values inlined where legal. */
 export interface MaterializedEntry {
 	/**
 	 *   The entry with each blob value placed at its inline position -> only where the entry's auth shape already

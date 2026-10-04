@@ -109,6 +109,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// The agent tools are a client of the dashboard controller, so they wire after it; every write they make joins the
 	// controller's serialized chain.
 	wireDashboardClientFeatures(context, logger, {
+		knownSecrets,
 		dashboard,
 		getConnectionStatus: () => statusBar.connectionStatus,
 		issueReporter,

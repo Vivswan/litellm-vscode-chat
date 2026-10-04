@@ -2,7 +2,7 @@ import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { AgentToolContribution, AgentToolId } from "../../../shared/config/commandIds";
 import { AGENT_TOOL_IDS, AGENT_TOOLS } from "../../../shared/config/commandIds";
-import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
+import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 import {
 	agentToolsAcceptSecretValues,
 	getMaskSecretInputs,
@@ -10,17 +10,21 @@ import {
 	isFeatureEnabled,
 } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
-import { localizedError } from "../../../shared/mirroredError";
+import { localizedError, MirroredError } from "../../../shared/mirroredError";
 import type { SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import { isRecord } from "../../../shared/util/json";
+import type { KnownSecrets } from "../../../shared/util/knownSecrets";
+import { collectKnownSecretValues } from "../../../shared/util/knownSecrets";
 import type { DashboardController } from "../../dashboard/panel";
+import type { SecretStore } from "../../servers/serverSync/secrets";
+import { readDeclaredSecretValues } from "../../servers/serverSync/secrets";
+import { collectableEntries, rawDeclaredLabels } from "../../servers/serverSync/setting";
 import type { SettingsAccess } from "../../settingsAccess";
 import { resolveConfiguredScope } from "../../settingsAccess";
 import { buildDiagnosticsSnapshot } from "../../ui/diagnostics";
 import type { IssueReporter } from "../../ui/issueReporter";
-import { redactSecrets } from "../../ui/issueReporter";
 import type { ConnectionStatus } from "../../ui/status";
 import { statusServerStatuses } from "../../ui/status";
 import { featureDisabledMessage, featureDisabledMessageEnglish } from "../featureGate";
@@ -46,6 +50,9 @@ import {
 	describeRecordChange,
 	describeServerChange,
 	describeSettingChange,
+	type ModelFacing,
+	modelFacing,
+	type Parts,
 	refusalText,
 	renderJson,
 	shapeConfiguration,
@@ -78,6 +85,13 @@ export interface AgentToolsDeps {
 	readonly dashboard: Pick<DashboardController, "submit" | "readState">;
 	/** The one settings reader the cards read current values through (the dashboard's own access). */
 	readonly settings: Pick<SettingsAccess, "readEffective" | "inspect">;
+	/** The host's SecretStorage: the stored blobs are part of what the exit boundary must know. */
+	readonly secretStore: SecretStore;
+	/**
+	 * The extension's shared known-value set (the Logger's); the exit unions it with a fresh read and the values the
+	 * user typed.
+	 */
+	readonly knownSecrets: Pick<KnownSecrets, "values">;
 	readonly getConnectionStatus: () => ConnectionStatus;
 	readonly issueReporter: IssueReporter;
 	readonly extVersion: string;
@@ -121,6 +135,114 @@ function refusalError(tool: AgentToolId, text: string, classification: string): 
 	return localizedError(text, `Agent tool refused the call: ${tag}`, tag);
 }
 
+/** A property read that cannot throw: a getter that throws reads as fixed text, never as its failure's message. */
+function readText(read: () => unknown): string {
+	try {
+		const value = read();
+		return typeof value === "string" ? value : String(value);
+	} catch {
+		return "(unreadable)";
+	}
+}
+
+/** An optional string read that cannot throw: anything but a string, or a getter that throws, reads as absent. */
+function readOptionalText(read: () => unknown): string | undefined {
+	try {
+		const value = read();
+		return typeof value === "string" ? value : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * What a thrown value is, judged without trusting it: `instanceof` on a Proxy whose prototype trap throws reads as
+ * "other".
+ */
+function thrownKind(error: unknown): "cancellation" | "mirrored" | "error" | "other" {
+	try {
+		if (error instanceof vscode.CancellationError) {
+			return "cancellation";
+		}
+		if (error instanceof MirroredError) {
+			return "mirrored";
+		}
+		return error instanceof Error ? "error" : "other";
+	} catch {
+		return "other";
+	}
+}
+
+/** A thrown non-Error as text: JSON where it serializes, String otherwise, fixed text where neither can render it. */
+function rendered(value: unknown): string {
+	if (typeof value === "string") {
+		return value;
+	}
+	try {
+		return JSON.stringify(value) ?? String(value);
+	} catch {
+		// A cyclic object, a BigInt, a toJSON that throws: String below renders what it can.
+	}
+	try {
+		return String(value);
+	} catch {
+		return "(unrenderable)";
+	}
+}
+
+/**
+ * A MirroredError's replacement: display, English mirror, and classification all pass the exit. Every throw site in
+ * this repository builds a classification from a closed set, never from a value; the pass covers one that does not.
+ */
+function mirroredReplacement(error: MirroredError, secrets: readonly string[]): MirroredError {
+	const classification = readOptionalText(() => error.logClassification);
+	return new MirroredError(
+		modelFacing(
+			readText(() => error.message),
+			secrets
+		),
+		{
+			englishMessage: modelFacing(readOptionalText(() => error.englishMessage) ?? "Agent tool failed", secrets),
+			...(classification !== undefined ? { logClassification: modelFacing(classification, secrets) } : {}),
+		}
+	);
+}
+
+/** A plain Error's replacement: its name and message pass the exit; its class, stack, and cause do not travel. */
+function plainReplacement(error: Error, secrets: readonly string[]): Error {
+	const replacement = new Error(
+		modelFacing(
+			readText(() => error.message),
+			secrets
+		)
+	);
+	replacement.name = modelFacing(
+		readText(() => error.name),
+		secrets
+	);
+	return replacement;
+}
+
+/**
+ * The tool's two answers to the host, a result and a prepared invocation, take ModelFacing only, so a string that
+ * skipped modelFacing() cannot be handed to the model; a thrown text is raw and converted at the exit (leave).
+ */
+function toolResult(text: ModelFacing): vscode.LanguageModelToolResult {
+	return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(text)]);
+}
+
+function preparedInvocation(
+	invocationMessage: ModelFacing,
+	card: { readonly title: ModelFacing; readonly message: ModelFacing } | undefined
+): vscode.PreparedToolInvocation {
+	return card === undefined
+		? { invocationMessage }
+		: {
+				invocationMessage,
+				confirmationMessages: { title: card.title, message: new vscode.MarkdownString(card.message) },
+			};
+}
+
 /** The card's secret lines: location and action only, never a value. */
 function secretSummary(payload: unknown): string[] {
 	if (!isRecord(payload) || !isRecord(payload.secrets)) {
@@ -157,23 +279,122 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	};
 
 	/**
-	 * Writes get the confirmation card with the change spelled out from the CURRENT state; a plan that would refuse
-	 * gets no card, so invoke can hand the refusal straight back to the agent.
+	 * The values the exit must withhold: the shared set plus a fresh collection (a save may have stored the value a
+	 * reply then quotes before the shared set refreshes). A store that cannot be read fails the call closed with fixed
+	 * text: without the values no model-facing text can be certified, so none leaves (the read error itself could
+	 * quote a URL).
 	 */
-	prepareInvocation(options: vscode.LanguageModelToolInvocationPrepareOptions<unknown>): vscode.PreparedToolInvocation {
-		if (this.contribution.toggle === undefined) {
-			return { invocationMessage: l10n.t("Reading LiteLLM {0}...", this.id) };
+	private async knownSecrets(): Promise<readonly string[]> {
+		try {
+			const raw = this.deps.settings.readEffective(SERVERS_SETTING_KEY);
+			const stored = await readDeclaredSecretValues(this.deps.secretStore, [...rawDeclaredLabels(raw)]);
+			const fresh = collectKnownSecretValues(collectableEntries(raw), stored);
+			return [...new Set([...this.deps.knownSecrets.values(), ...fresh])];
+		} catch {
+			throw refusalError(
+				this.id,
+				"The secret store could not be read, so the tool cannot answer safely; call again.",
+				"secret store unreadable"
+			);
 		}
-		const card = this.confirmationCard(options.input);
-		return card === undefined
-			? { invocationMessage: l10n.t("LiteLLM: {0}", this.id) }
-			: {
-					invocationMessage: l10n.t("LiteLLM: {0}", this.id),
-					confirmationMessages: { title: card.title, message: new vscode.MarkdownString(card.message) },
-				};
 	}
 
-	private confirmationCard(raw: unknown): { readonly title: string; readonly message: string } | undefined {
+	/**
+	 * The exit's values: those known before the call, those the user typed into the masked prompts during it, and
+	 * those known now (a save may have stored the value a reply then quotes).
+	 */
+	private async exitSecrets(known: readonly string[], typed: readonly string[]): Promise<readonly string[]> {
+		return [...new Set([...known, ...typed, ...(await this.knownSecrets())])];
+	}
+
+	/**
+	 * The one conversion for everything a tool throws; total, so no value it is handed can leave as itself.
+	 *   cancellation                 -> a new vscode.CancellationError with no text, never logged
+	 *   a MirroredError              -> a new one: display and English mirror both scrubbed, classification kept
+	 *   any other Error              -> a plain Error with the scrubbed name and message
+	 *   a string or object           -> a classified Error (non-error-throw) with its scrubbed rendering
+	 *   the conversion or the log sink throwing -> fixed text, classified; the sink's failure goes nowhere
+	 */
+	private converted(error: unknown, secrets: readonly string[]): Error {
+		const kind = thrownKind(error);
+		if (kind === "cancellation") {
+			return new vscode.CancellationError();
+		}
+		const tag = `AgentTools(${this.id}: non-error-throw)`;
+		let replacement: Error;
+		try {
+			replacement =
+				kind === "mirrored"
+					? mirroredReplacement(error as MirroredError, secrets)
+					: kind === "error"
+						? plainReplacement(error as Error, secrets)
+						: localizedError(
+								modelFacing(rendered(error), secrets),
+								"Agent tool failed with a value that is not an Error",
+								tag
+							);
+		} catch {
+			replacement = localizedError(
+				modelFacing("The agent tool failed with a value that could not be rendered.", secrets),
+				"Agent tool failed with a value that could not be rendered",
+				tag
+			);
+		}
+		try {
+			// A plain Error's message is the dashboard's or a response's text: the log gets its name alone.
+			this.logger.error(`Agent tool ${this.id} failed`, kind === "error" ? new Error(replacement.name) : replacement);
+		} catch {
+			// A failing sink is not an exit: the replacement still leaves, the sink's own text never does.
+		}
+		return replacement;
+	}
+
+	/**
+	 * The exception exit: the exit set is read (a store that cannot be read is itself converted, with the values
+	 * already in hand), then the thrown value is converted and the conversion thrown.
+	 */
+	private async leave(error: unknown, known: readonly string[], typed: readonly string[]): Promise<never> {
+		let secrets: readonly string[];
+		try {
+			secrets = await this.exitSecrets(known, typed);
+		} catch (unreadable) {
+			throw this.converted(unreadable, [...known, ...typed]);
+		}
+		throw this.converted(error, secrets);
+	}
+
+	/**
+	 * Reads get a progress line. Writes get the confirmation card with the change spelled out from the CURRENT
+	 * state; a plan that would refuse gets no card, so invoke can hand the refusal straight back to the agent. Every
+	 * text leaves through modelFacing, the progress line and a failure while preparing the card included.
+	 */
+	async prepareInvocation(
+		options: vscode.LanguageModelToolInvocationPrepareOptions<unknown>
+	): Promise<vscode.PreparedToolInvocation> {
+		const known = await this.knownSecrets().catch((unreadable: unknown) => {
+			throw this.converted(unreadable, []);
+		});
+		try {
+			const read = this.contribution.toggle === undefined;
+			const card = read ? undefined : this.confirmationCard(options.input, known);
+			// Read again before anything leaves, for every tool: a value stored meanwhile (a setting read landing a
+			// blob) is known to the text that leaves, and an unreadable store refuses here as it does in invoke.
+			const secrets = await this.exitSecrets(known, []);
+			return preparedInvocation(
+				modelFacing(read ? l10n.t("Reading LiteLLM {0}...", this.id) : l10n.t("LiteLLM: {0}", this.id), secrets),
+				card === undefined
+					? undefined
+					: { title: modelFacing(card.title, secrets), message: modelFacing(card.message, secrets) }
+			);
+		} catch (error) {
+			return this.leave(error, known, []);
+		}
+	}
+
+	private confirmationCard(
+		raw: unknown,
+		known: readonly string[]
+	): { readonly title: string; readonly message: Parts } | undefined {
 		const state = this.deps.dashboard.readState();
 		switch (this.id) {
 			case "setSetting": {
@@ -223,7 +444,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 						: `servers entry "${input.server}"`;
 				return {
 					title: l10n.t("Edit the LiteLLM model record {0}?", input.key),
-					message: describeRecordChange(input.kind, input.key, current[input.key], patched[input.key], target),
+					message: describeRecordChange(input.kind, input.key, current[input.key], patched[input.key], target, known),
 				};
 			}
 			case "saveServer": {
@@ -260,7 +481,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 						existing === undefined ? undefined : { ...savePayloadFromRow(existing) },
 						after,
 						secretSummary(payload),
-						prompts
+						prompts,
+						known
 					),
 				};
 			}
@@ -313,38 +535,40 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 		options: vscode.LanguageModelToolInvocationOptions<unknown>,
 		token: vscode.CancellationToken
 	): Promise<vscode.LanguageModelToolResult> {
-		// Registration already gates on the switches, but a configuration change races an in-flight agent turn: the
-		// tool answers the live settings.
-		if (!isFeatureEnabled("agentTools")) {
-			throw localizedError(
-				featureDisabledMessage("agentTools"),
-				featureDisabledMessageEnglish("agentTools"),
-				`AgentTools(${this.id}: disabled)`
-			);
-		}
-		const toggle = this.contribution.toggle;
-		if (toggle !== undefined && !isAgentWriteToolEnabled(toggle)) {
-			throw refusalError(
-				this.id,
-				`The ${this.contribution.name} tool is switched off; the user enables it with "${CONFIG_SECTION}.agentTools.${toggle}.enabled".`,
-				"tool switched off"
-			);
-		}
+		// The one exit for everything the model reads back: the result and every thrown value pass modelFacing with
+		// the exit's values (exitSecrets, leave); a credential placeholder is a part modelFacing inserts after the pass.
+		const known = await this.knownSecrets().catch((unreadable: unknown) => {
+			throw this.converted(unreadable, []);
+		});
+		const typed: string[] = [];
 		try {
-			const payload = await this.run(options.input, token);
-			return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(renderJson(payload))]);
-		} catch (error) {
-			if (error instanceof vscode.CancellationError) {
-				throw error;
+			// Registration already gates on the switches, but a configuration change races an in-flight agent turn: the
+			// tool answers the live settings.
+			if (!isFeatureEnabled("agentTools")) {
+				throw localizedError(
+					featureDisabledMessage("agentTools"),
+					featureDisabledMessageEnglish("agentTools"),
+					`AgentTools(${this.id}: disabled)`
+				);
 			}
-			// The logger records the classification the thrown error carries; the agent's input and the dashboard's
-			// messages never reach the buffer.
-			this.logger.error(`Agent tool ${this.id} failed`, error);
-			throw error;
+			const toggle = this.contribution.toggle;
+			if (toggle !== undefined && !isAgentWriteToolEnabled(toggle)) {
+				throw refusalError(
+					this.id,
+					`The ${this.contribution.name} tool is switched off; the user enables it with "${CONFIG_SECTION}.agentTools.${toggle}.enabled".`,
+					"tool switched off"
+				);
+			}
+			const payload = await this.run(options.input, token, typed);
+			// Rendered with the exit's values, so two keys that redact alike are numbered rather than merged.
+			const secrets = await this.exitSecrets(known, typed);
+			return toolResult(renderJson(payload, secrets));
+		} catch (error) {
+			return this.leave(error, known, typed);
 		}
 	}
 
-	private async run(raw: unknown, token: vscode.CancellationToken): Promise<unknown> {
+	private async run(raw: unknown, token: vscode.CancellationToken, typed: string[]): Promise<unknown> {
 		const state = this.deps.dashboard.readState();
 		switch (this.id) {
 			case "diagnostics": {
@@ -354,14 +578,13 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					buildDiagnosticsSnapshot(status, this.deps.extVersion, this.deps.vscodeVersion, this.deps.issueReporter),
 					statusServerStatuses(status),
 					state.diagnostics,
-					redactSecrets,
 					input.includeLogs === true
 				);
 			}
 			case "configuration":
-				return shapeConfiguration(state, this.parse("configuration", raw).sections, redactSecrets);
+				return shapeConfiguration(state, this.parse("configuration", raw).sections);
 			case "inspectModel":
-				return this.execute(planInspectModel(this.parse("inspectModel", raw), state), token);
+				return this.execute(planInspectModel(this.parse("inspectModel", raw), state), token, typed);
 			case "searchCatalog":
 				return this.execute(
 					{
@@ -369,23 +592,25 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 						requests: [{ method: "searchCatalog", payload: this.parse("searchCatalog", raw) }],
 						prompts: [],
 					},
-					token
+					token,
+					typed
 				);
 			case "setSetting":
-				return this.execute(planSetSetting(this.parse("setSetting", raw)), token);
+				return this.execute(planSetSetting(this.parse("setSetting", raw)), token, typed);
 			case "editModelRecords":
-				return this.execute(planEditModelRecords(this.parse("editModelRecords", raw), state), token);
+				return this.execute(planEditModelRecords(this.parse("editModelRecords", raw), state), token, typed);
 			case "saveServer": {
 				const input = this.parse("saveServer", raw);
-				return this.execute(planSaveServer(input, state, agentToolsAcceptSecretValues()), token, input.label);
+				return this.execute(planSaveServer(input, state, agentToolsAcceptSecretValues()), token, typed, input.label);
 			}
 			case "removeServer":
-				return this.execute(planRemoveServer(this.parse("removeServer", raw), state), token);
+				return this.execute(planRemoveServer(this.parse("removeServer", raw), state), token, typed);
 			case "runAction":
-				return this.execute(planRunAction(this.parse("runAction", raw), state), token);
+				return this.execute(planRunAction(this.parse("runAction", raw), state), token, typed);
 		}
 	}
 
+	/** The contributed schema documents; this parse binds. A refusal names the offending paths for the agent. */
 	private parse<K extends AgentToolId>(tool: K, raw: unknown): AgentToolInput<K> {
 		const parsed = parseAgentToolInput(tool, raw);
 		if (!parsed.ok) {
@@ -399,11 +624,17 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	 * The dashboard's own failure message rides the result (it may quote an entered key, so it is for the agent, never
 	 * for the log).
 	 */
-	private async execute(plan: ToolPlan, token: vscode.CancellationToken, label = ""): Promise<unknown> {
+	private async execute(
+		plan: ToolPlan,
+		token: vscode.CancellationToken,
+		typed: string[],
+		label = ""
+	): Promise<unknown> {
 		if (plan.kind === "refused") {
 			throw refusalError(this.id, refusalText(plan.reason, plan.detail), plan.reason);
 		}
-		const values = await this.promptSecrets(plan.prompts, label, token);
+		// Each answer joins the exit set the moment it is typed: a later prompt or submit that fails may quote it.
+		const values = await this.promptSecrets(plan.prompts, label, token, typed);
 		const results: unknown[] = [];
 		for (const planned of plan.requests) {
 			// A cancel stops the plan before its next submit; what already landed stays, since a dashboard write is not
@@ -413,7 +644,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 			}
 			const request = values === undefined ? planned : withSecretValues(planned, values);
 			const submission = await this.deps.dashboard.submit(frame(request));
-			results.push(shapeSubmission(request, submission, redactSecrets));
+			results.push(shapeSubmission(request, submission));
 			if (submission.outcome !== "ok") {
 				// Classification only: the method and the verdict.
 				this.log("Agent tool request refused by the dashboard", {
@@ -431,7 +662,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	private async promptSecrets(
 		prompts: readonly SecretPrompt[],
 		label: string,
-		token: vscode.CancellationToken
+		token: vscode.CancellationToken,
+		typed: string[]
 	): Promise<Partial<Record<SecretFieldId, string>> | undefined> {
 		if (prompts.length === 0) {
 			return undefined;
@@ -446,6 +678,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 			if (value === undefined || value.length === 0 || token.isCancellationRequested) {
 				throw new vscode.CancellationError();
 			}
+			typed.push(value);
 			values[prompt.field] = value;
 		}
 		return values;

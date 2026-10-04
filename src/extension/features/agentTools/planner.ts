@@ -36,8 +36,10 @@ import {
 } from "../../../shared/config/settingSpec";
 import type { SecretFieldId } from "../../../shared/serverEntry";
 import {
+	isCredentialHeader,
 	pickNonSecretOptionalFields,
 	SECRET_FIELD_IDS,
+	sameHeaderName,
 	sameSecretDestination,
 	secretDestination,
 } from "../../../shared/serverEntry";
@@ -45,7 +47,7 @@ import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import { usableHttpText } from "../../../shared/util/headers";
 import { isRecord, recordFromKeys } from "../../../shared/util/json";
-import type { AgentSecretDirective, AgentToolInput } from "./inputSchema";
+import { type AgentSecretDirective, type AgentToolInput, CREDENTIAL_HEADER_PLACEHOLDER } from "./inputSchema";
 
 /** The dashboard methods an agent tool may address; the excluded four are unrepresentable, not refused. */
 type AgentReachableMethod = Exclude<
@@ -70,6 +72,7 @@ export type RefusalReason =
 	| "server-not-found"
 	| "server-not-declared"
 	| "external-group-not-found"
+	| "external-group-ambiguous"
 	| "hidden-group-not-found"
 	| "secret-locations-unproven"
 	| "secret-value-refused"
@@ -79,7 +82,9 @@ export type RefusalReason =
 	| "model-not-found"
 	| "model-ambiguous"
 	| "nothing-to-change"
-	| "language-filter-one-half";
+	| "language-filter-one-half"
+	| "credential-header-placeholder"
+	| "carrier-header-kept";
 
 /** A secret the user must type: the planner leaves the directive valueless and the wiring prompts. */
 export interface SecretPrompt {
@@ -242,14 +247,28 @@ function sameHost(a: string, b: string): boolean {
 }
 
 /**
- * The external group at exactly this label and base URL; two groups can share a URL, so the label is part of the
- * identity.
+ * The external groups at this label and base URL as the agent sees it. Two groups can share a URL (the label is part
+ * of the identity), and two can differ only in credentials the agent never sees, so a lookup may find several.
  */
-export function externalRow(state: DashboardState, label: string, baseUrl: string): ExternalRow | undefined {
-	return state.servers.find(
+function externalRows(state: DashboardState, label: string, baseUrl: string): ExternalRow[] {
+	return state.servers.filter(
 		(server): server is ExternalRow =>
 			server.origin === "external" && server.label === label && sameHost(server.baseUrl, baseUrl)
 	);
+}
+
+/** The one external group at this label and base URL, or undefined when none or several match. */
+export function externalRow(state: DashboardState, label: string, baseUrl: string): ExternalRow | undefined {
+	const rows = externalRows(state, label, baseUrl);
+	return rows.length === 1 ? rows[0] : undefined;
+}
+
+/**
+ * The refusal for an external-group lookup that did not resolve to one group: none, or several that differ only in
+ * credentials (the catalog's identity, GroupDiscovery.logicalGroupId, keeps them apart; the agent cannot).
+ */
+function externalGroupRefusal(rows: readonly ExternalRow[], label: string, baseUrl: string): ToolPlan {
+	return refused(rows.length > 1 ? "external-group-ambiguous" : "external-group-not-found", { label, baseUrl });
 }
 
 /** The stored entry as the edit form would submit it unchanged; every field the save rebuilds is present. */
@@ -410,15 +429,44 @@ function fieldOf(name: string, given: unknown, stored: unknown, empty?: unknown)
 	return value === undefined ? {} : { [name]: value };
 }
 
+/**
+ * litellm_configuration shows CREDENTIAL_HEADER_PLACEHOLDER in place of a credential header's value, so an echoed
+ * read keeps the stored header (matched by HTTP name, own entries only) instead of storing the placeholder text.
+ */
+function restoreCredentialHeaders(
+	given: unknown,
+	stored: unknown
+): { readonly headers: unknown } | { readonly unstored: readonly string[] } {
+	if (!isRecord(given)) {
+		return { headers: given };
+	}
+	const storedEntries = isRecord(stored) ? Object.entries(stored) : [];
+	const unstored: string[] = [];
+	const headers = Object.fromEntries(
+		Object.entries(given).map(([name, value]) => {
+			if (value !== CREDENTIAL_HEADER_PLACEHOLDER) {
+				return [name, value];
+			}
+			const kept = storedEntries.find(([storedName]) => sameHeaderName(storedName, name))?.[1];
+			if (kept === undefined) {
+				unstored.push(name);
+			}
+			return [name, kept];
+		})
+	);
+	return unstored.length > 0 ? { unstored } : { headers };
+}
+
 export function planSaveServer(
 	input: AgentToolInput<"saveServer">,
 	state: DashboardState,
 	acceptSecretValues: boolean
 ): ToolPlan {
 	if ("adoptFrom" in input) {
-		const source = externalRow(state, input.adoptFrom.label, input.adoptFrom.baseUrl);
+		const sources = externalRows(state, input.adoptFrom.label, input.adoptFrom.baseUrl);
+		const source = sources.length === 1 ? sources[0] : undefined;
 		if (source === undefined) {
-			return refused("external-group-not-found", { label: input.adoptFrom.label, baseUrl: input.adoptFrom.baseUrl });
+			return externalGroupRefusal(sources, input.adoptFrom.label, input.adoptFrom.baseUrl);
 		}
 		const secrets = recordFromKeys(SECRET_FIELD_IDS, (field) => input.secretLocations?.[field] ?? "secure");
 		return requests({
@@ -452,6 +500,10 @@ export function planSaveServer(
 	if (secrets.refusedValues.length > 0) {
 		return refused("secret-value-refused", { fields: secrets.refusedValues.join(", ") });
 	}
+	const headers = restoreCredentialHeaders(input.headers, base?.headers);
+	if ("unstored" in headers) {
+		return refused("credential-header-placeholder", { label: input.label, headers: headers.unstored.join(", ") });
+	}
 	const apiVersion = edited(base?.apiVersion, input.apiVersion);
 	const server: ComposedServer = {
 		label: input.label,
@@ -466,7 +518,7 @@ export function planSaveServer(
 		...fieldOf("modelParameters", input.modelParameters, base?.modelParameters),
 		...fieldOf("modelCapabilities", input.modelCapabilities, base?.modelCapabilities, {}),
 		...fieldOf("expectedFailures", input.expectedFailures, base?.expectedFailures, []),
-		...fieldOf("headers", input.headers, base?.headers, {}),
+		...fieldOf("headers", headers.headers, base?.headers, {}),
 		...fieldOf("declaredModels", input.declaredModels, base?.declaredModels, []),
 		...fieldOf("includeModes", input.includeModes, base?.includeModes, []),
 		...fieldOf("budget", input.budget, base?.budget, null),
@@ -476,6 +528,18 @@ export function planSaveServer(
 		const moving = keptSecretsChangingDestination(existing, server, secrets.directives);
 		if (moving.length > 0) {
 			return refused("kept-secret-destination-change", { label: existing.label, fields: moving.join(", ") });
+		}
+		// A header only the stored carrier makes a credential (isCredentialHeader) turns into plain settings text on the
+		// next read if the carrier is dropped while the header stays; the fixed auth names stay credentials either way.
+		const carrier = base?.virtualKeyHeader;
+		const next = typeof server.virtualKeyHeader === "string" ? server.virtualKeyHeader : undefined;
+		if (
+			carrier !== undefined &&
+			(next === undefined || !sameHeaderName(carrier, next)) &&
+			isRecord(server.headers) &&
+			Object.keys(server.headers).some((header) => sameHeaderName(header, carrier) && !isCredentialHeader(header, []))
+		) {
+			return refused("carrier-header-kept", { label: existing.label, carriers: carrier });
 		}
 	}
 	const replace = existing === undefined ? undefined : replaceIdentityOf(existing);
@@ -494,19 +558,25 @@ export function planSaveServer(
 export function planRemoveServer(input: AgentToolInput<"removeServer">, state: DashboardState): ToolPlan {
 	switch (input.action) {
 		case "unhide": {
-			// Only a removal tombstone can be cleared -> refused here instead of failing at the dashboard
-			const hidden = state.hiddenGroups.find(
+			// Only a removal tombstone can be cleared, and only one: two at one credential-free URL differ in what this
+			// tool never shows, so the refusal is the one hide and adoptFrom give.
+			const hidden = state.hiddenGroups.filter(
 				(group) => group.reason === "removed" && group.label === input.label && sameHost(group.baseUrl, input.baseUrl)
 			);
-			if (hidden === undefined) {
-				return refused("hidden-group-not-found", { label: input.label, baseUrl: input.baseUrl });
+			const tombstone = hidden.length === 1 ? hidden[0] : undefined;
+			if (tombstone === undefined) {
+				return refused(hidden.length > 1 ? "external-group-ambiguous" : "hidden-group-not-found", {
+					label: input.label,
+					baseUrl: input.baseUrl,
+				});
 			}
-			return requests({ method: "unhideServer", payload: { label: hidden.label, baseUrl: hidden.baseUrl } });
+			return requests({ method: "unhideServer", payload: { label: tombstone.label, baseUrl: tombstone.baseUrl } });
 		}
 		case "hide": {
-			const row = externalRow(state, input.label, input.baseUrl);
+			const rows = externalRows(state, input.label, input.baseUrl);
+			const row = rows.length === 1 ? rows[0] : undefined;
 			if (row === undefined) {
-				return refused("external-group-not-found", { label: input.label, baseUrl: input.baseUrl });
+				return externalGroupRefusal(rows, input.label, input.baseUrl);
 			}
 			return requests({
 				method: "hideExternalServer",

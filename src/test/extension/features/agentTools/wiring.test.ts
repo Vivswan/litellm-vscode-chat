@@ -4,10 +4,12 @@
  */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import type { DashboardState } from "../../../../dashboard/viewModels";
 import type { DashboardSubmission } from "../../../../extension/dashboard/panel";
 import type { SecretPrompt } from "../../../../extension/features/agentTools/planner";
 import type { AgentToolsDeps } from "../../../../extension/features/agentTools/wiring";
 import { wireAgentTools } from "../../../../extension/features/agentTools/wiring";
+import type { SecretStore } from "../../../../extension/servers/serverSync/secrets";
 import { IssueReporter } from "../../../../extension/ui/issueReporter";
 import type { AgentToolId } from "../../../../shared/config/commandIds";
 import { AGENT_TOOL_IDS, AGENT_TOOLS } from "../../../../shared/config/commandIds";
@@ -16,8 +18,11 @@ import {
 	AGENT_TOOL_TOGGLE_KEYS,
 	AGENT_TOOLS_SECRET_VALUES_KEY,
 	CONFIG_SECTION,
+	SERVERS_SETTING_KEY,
 } from "../../../../shared/config/settingSpec";
-import { MirroredError } from "../../../../shared/mirroredError";
+import { serverSecretsKey } from "../../../../shared/config/storageKeys";
+import { localizedError, MirroredError } from "../../../../shared/mirroredError";
+import { KnownSecrets } from "../../../../shared/util/knownSecrets";
 import {
 	agentToolsState,
 	COPILOT_BASE_URL,
@@ -35,6 +40,10 @@ const WRITE_TOGGLES = Object.keys(AGENT_TOOL_TOGGLE_KEYS) as AgentWriteToolId[];
 
 const FEATURE_ON = { "agentTools.enabled": true };
 
+/** The classification a thrown value that is no Error leaves with. */
+const NON_ERROR = "AgentTools(setSetting: non-error-throw)";
+
+/** The given write toggles on; every other agentTools key stays at its (off) default. */
 function toggles(...ids: readonly AgentWriteToolId[]): Record<string, boolean> {
 	return Object.fromEntries(ids.map((id) => [AGENT_TOOL_TOGGLE_KEYS[id], true]));
 }
@@ -72,9 +81,23 @@ interface Harness {
 
 interface HarnessOptions {
 	readonly respond?: (request: FramedRequest) => DashboardSubmission;
+	/** A value the dashboard fake throws from submit instead of answering (a function is called per submit); undefined throws nothing. */
+	readonly submitThrows?: unknown;
+	/** When true the logger's error sink throws, standing for a broken output channel. */
+	readonly loggerThrows?: boolean;
+	/** An error the settings reader's inspect throws, so card preparation fails. */
+	readonly inspectThrows?: Error;
+	/** Runs when the settings reader's inspect is called during card preparation (a store landing mid-way). */
+	readonly onInspect?: () => void;
 	/** What the user types into the masked box; undefined is a cancel. */
 	readonly answerSecret?: () => string | undefined;
 	readonly settings?: Record<string, unknown>;
+	/** The secret values the shared set holds; none by default. */
+	readonly knownSecrets?: readonly string[];
+	/** The host's SecretStorage; an empty, quiet store by default (a rejecting one stands for an unreadable store). */
+	readonly secretStore?: SecretStore;
+	/** The dashboard state the tools read; the bun fixture every agent-tools suite plans against by default. */
+	readonly state?: DashboardState;
 }
 
 /**
@@ -85,20 +108,49 @@ async function wireUnderTest(config: Record<string, unknown>, options: HarnessOp
 	const context = fakeContext();
 	const submitted: FramedRequest[] = [];
 	const prompts: Harness["prompts"] = [];
-	const { logger, lines } = makeLogger();
+	const { logger: plainLogger, lines } = makeLogger();
+	const logger = options.loggerThrows
+		? new Proxy(plainLogger, {
+				get: (target, property, receiver) =>
+					property === "error"
+						? () => {
+								throw new Error("Sink failed probe-secret-Q7");
+							}
+						: Reflect.get(target, property, receiver),
+			})
+		: plainLogger;
 	const settings = options.settings ?? {};
+	const known = new KnownSecrets();
+	known.set(options.knownSecrets ?? []);
 	const deps: AgentToolsDeps = {
 		dashboard: {
-			readState: () => agentToolsState(),
+			readState: () => options.state ?? agentToolsState(),
 			submit: async (raw) => {
 				const framed = asFramed(raw);
 				submitted.push(framed);
+				if (options.submitThrows !== undefined) {
+					throw typeof options.submitThrows === "function"
+						? (options.submitThrows as () => unknown)()
+						: options.submitThrows;
+				}
 				return (options.respond ?? (() => ({ outcome: "ok" })))(framed);
 			},
 		},
 		settings: {
 			readEffective: (key) => settings[key],
-			inspect: (key) => (Object.hasOwn(settings, key) ? { globalValue: settings[key] } : undefined),
+			inspect: (key) => {
+				if (options.inspectThrows !== undefined) {
+					throw options.inspectThrows;
+				}
+				options.onInspect?.();
+				return Object.hasOwn(settings, key) ? { globalValue: settings[key] } : undefined;
+			},
+		},
+		knownSecrets: known,
+		secretStore: options.secretStore ?? {
+			get: async () => undefined,
+			store: async () => undefined,
+			delete: async () => undefined,
 		},
 		getConnectionStatus: () => ({ state: "not-configured" }),
 		issueReporter: new IssueReporter(),
@@ -141,11 +193,15 @@ function invokeLive(
 	});
 }
 
-function prepareLive(spies: WiringSpies, id: AgentToolId, input: unknown): vscode.PreparedToolInvocation {
+async function prepareLive(
+	spies: WiringSpies,
+	id: AgentToolId,
+	input: unknown
+): Promise<vscode.PreparedToolInvocation> {
 	const tool = liveTool(spies, id);
 	assert.ok(tool.prepareInvocation !== undefined, `${name(id)} customizes its invocation`);
-	const prepared = tool.prepareInvocation({ input }, new vscode.CancellationTokenSource().token);
-	assert.ok(prepared != null && !("then" in prepared), "the card is prepared synchronously");
+	const prepared = await tool.prepareInvocation({ input }, new vscode.CancellationTokenSource().token);
+	assert.ok(prepared != null, "the card is prepared");
 	return prepared;
 }
 
@@ -343,22 +399,22 @@ suite("extension/features/agentTools wiring", () => {
 					settings: { "chat.timeout": 300000 },
 				}
 			);
-			await withConfig({ ...ALL_WRITES, [AGENT_TOOLS_SECRET_VALUES_KEY]: true }, () => {
+			await withConfig({ ...ALL_WRITES, [AGENT_TOOLS_SECRET_VALUES_KEY]: true }, async () => {
 				for (const id of READ_IDS) {
-					const prepared = prepareLive(spies, id, {});
+					const prepared = await prepareLive(spies, id, {});
 					assert.ok(prepared.invocationMessage !== undefined, `${name(id)} shows progress`);
 					// A read-only tool: a confirmation would interrupt every agent turn for nothing.
 					assert.strictEqual(prepared.confirmationMessages, undefined, `${name(id)} asks no confirmation`);
 				}
 
-				const setting = prepareLive(spies, "setSetting", { setting: "chat.timeout", value: 60000 });
+				const setting = await prepareLive(spies, "setSetting", { setting: "chat.timeout", value: 60000 });
 				assert.match(String(setting.confirmationMessages?.title), /chat\.timeout/);
 				const settingCard = cardText(setting);
 				assert.match(settingCard, /litellm-vscode-chat\.chat\.timeout {2}\(configured in: global\)/);
 				assert.match(settingCard, /before: 300000/);
 				assert.match(settingCard, /after: {2}60000/);
 
-				const inline = prepareLive(spies, "saveServer", {
+				const inline = await prepareLive(spies, "saveServer", {
 					...NEW_SERVER,
 					secrets: { apiKey: { action: "set", location: "secure", value: "sk-inline" } },
 				});
@@ -367,15 +423,15 @@ suite("extension/features/agentTools wiring", () => {
 				assert.match(inlineCard, /apiKey: set \(secure\)/);
 				assertOmits(inlineCard, "sk-inline", "the card names the secret's location, never its value");
 
-				const prompted = prepareLive(spies, "saveServer", {
+				const prompted = await prepareLive(spies, "saveServer", {
 					...NEW_SERVER,
 					secrets: { apiKey: { action: "set", location: "secure" } },
 				});
 				assert.match(cardText(prompted), /apiKey: you will be asked to type it \(stored in secure\)/);
 			});
 			// A plan that would refuse gets no card: the refusal is the invoke's to hand back.
-			await withConfig(ALL_WRITES, () => {
-				const refused = prepareLive(spies, "saveServer", {
+			await withConfig(ALL_WRITES, async () => {
+				const refused = await prepareLive(spies, "saveServer", {
 					...NEW_SERVER,
 					secrets: { apiKey: { action: "set", location: "secure", value: "sk-inline" } },
 				});
@@ -537,6 +593,504 @@ suite("extension/features/agentTools wiring", () => {
 		});
 	});
 
+	// The one exit for text the model reads: a thrown refusal that names a URL label, a card title built from one,
+	// and a result carrying a dashboard failure body that quotes a configured key all leave credential-free.
+	test("every model-facing text leaves through the exit boundary: refusal, title, and result alike", async () => {
+		const urlLabel = "http://u:refusal-password@host.test";
+		await withWiringSpies(async (spies) => {
+			await wireUnderTest(ALL_WRITES, {
+				knownSecrets: ["plain-key-Q7"],
+				respond: () => ({
+					outcome: "validation-error",
+					reply: {
+						kind: "fail",
+						id: "x",
+						method: "setNumberSetting",
+						message: "Denied plain-key-Q7",
+						failureKind: "operation",
+					},
+				}),
+			});
+			await withConfig(ALL_WRITES, async () => {
+				await assertRefused(
+					invokeLive(spies, "inspectModel", { server: urlLabel, model: "missing" }),
+					"inspectModel",
+					"model-not-found",
+					(message) =>
+						assert.strictEqual(
+							message,
+							'Server "http://host.test" serves no model "missing". Read the configuration tool\'s "models" section.'
+						)
+				);
+				const prepared = await prepareLive(spies, "saveServer", { label: urlLabel, baseUrl: "http://new.test" });
+				assert.deepStrictEqual(
+					{
+						invocationMessage: prepared.invocationMessage,
+						title: prepared.confirmationMessages?.title,
+						card: cardText(prepared),
+					},
+					{
+						invocationMessage: "LiteLLM: saveServer",
+						title: "Save the LiteLLM server http://host.test?",
+						card: [
+							"```",
+							'new servers entry "http://host.test"',
+							'baseUrl: (absent) -> "http://new.test"',
+							"budget: (absent) -> null",
+							"declaredModels: (absent) -> []",
+							"expectedFailures: (absent) -> []",
+							"headers: (absent) -> {}",
+							"includeModes: (absent) -> []",
+							'label: (absent) -> "http://host.test" (carries text the card does not show, such as URL credentials)',
+							"mcp: (absent) -> null",
+							"modelCapabilities: (absent) -> {}",
+							"apiKey: cleared",
+							"oauthClientSecret: cleared",
+							"virtualKeyValue: cleared",
+							"```",
+						].join("\n"),
+					}
+				);
+				const result = resultJson(await invokeLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }));
+				assert.deepStrictEqual(result, {
+					method: "setNumberSetting",
+					ok: false,
+					failureKind: "operation",
+					message: "Denied [redacted]",
+				});
+			});
+		});
+	});
+
+	// The exits a round of probes found open: the progress line of a read, the refusal thrown before a tool runs, a
+	// malformed-input refusal quoting an unrecognized URL key, and a record KEY equal to a known value.
+	test("the progress line, the early refusals, a schema refusal, and a record key leave through the exit too", async () => {
+		const fixture = agentToolsState();
+		const state: DashboardState = {
+			...fixture,
+			settings: {
+				...fixture.settings,
+				modelParameters: { ...fixture.settings.modelParameters, value: { "plain-key-Q7": { temperature: 0 } } },
+			},
+		};
+		await withWiringSpies(async (spies) => {
+			await wireUnderTest(ALL_WRITES, { knownSecrets: ["configuration", "enables", "plain-key-Q7"], state });
+			await withConfig(ALL_WRITES, async () => {
+				assert.strictEqual(
+					(await prepareLive(spies, "configuration", {})).invocationMessage,
+					"Reading LiteLLM [redacted]..."
+				);
+				await assertRefused(
+					invokeLive(spies, "setSetting", {
+						setting: "chat.timeout",
+						value: 1,
+						"http://u:parse-password@host": true,
+					}),
+					"setSetting",
+					"malformed input",
+					(message) =>
+						assert.strictEqual(
+							message,
+							`The ${name("setSetting")} tool input is malformed: (input): Unrecognized key: "http://host"`
+						)
+				);
+				const result = resultJson(await invokeLive(spies, "configuration", { sections: ["settings"] }));
+				assert.deepStrictEqual(result, {
+					settings: JSON.parse(
+						JSON.stringify({
+							...state.settings,
+							modelParameters: { ...state.settings.modelParameters, value: { "[redacted]": { temperature: 0 } } },
+						})
+					),
+				});
+			});
+			await withConfig({ ...ALL_WRITES, [AGENT_TOOL_TOGGLE_KEYS.setSetting]: false }, () =>
+				assertRefused(
+					invokeLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }),
+					"setSetting",
+					"tool switched off",
+					(message) =>
+						assert.strictEqual(
+							message,
+							`The ${name("setSetting")} tool is switched off; the user [redacted] it with "${CONFIG_SECTION}.agentTools.setSetting.enabled".`
+						)
+				)
+			);
+		});
+	});
+
+	// A value THROWN instead of returned is an exit too: a dashboard that rejects with a string or a shape no renderer
+	// can read, a settings reader that throws while the card is prepared. Each leaves as a freshly built Error whose
+	// text passed the exit. A credential that enters the store DURING the call (a save landing it) is withheld by the
+	// fresh read, the exit's third source.
+	test("thrown values and a credential stored during the call leave through the exit too", async () => {
+		const frozen = Object.freeze(new Error("Denied plain-key-Q7"));
+		const cyclic: Record<string, unknown> = {};
+		cyclic["plain-key-Q7"] = cyclic;
+		const getterStack = new Error("Denied plain-key-Q7");
+		Object.defineProperty(getterStack, "stack", { get: () => "Error: Denied plain-key-Q7", set: () => undefined });
+		// A hostile Proxy: `instanceof` itself throws the secret, before any field is read.
+		const hostile = new Proxy(
+			{},
+			{
+				getPrototypeOf: () => {
+					throw new Error("Denied plain-key-Q7");
+				},
+			}
+		);
+		// A mirrored error whose mirror getter throws the secret while its classification stays readable.
+		const mirrored = localizedError("Denied plain-key-Q7", "fixed mirror", "AgentTools(setSetting: probe)");
+		Object.defineProperty(mirrored, "englishMessage", {
+			get: () => {
+				throw new Error("Mirror getter plain-key-Q7");
+			},
+		});
+		const thrown: readonly {
+			readonly title: string;
+			readonly value: unknown;
+			readonly message: string;
+			readonly classification: string | undefined;
+		}[] = [
+			{ title: "a string", value: "Denied plain-key-Q7", message: "Denied [redacted]", classification: NON_ERROR },
+			{ title: "a frozen Error", value: frozen, message: "Denied [redacted]", classification: undefined },
+			{
+				title: "an Error whose stack is a getter",
+				value: getterStack,
+				message: "Denied [redacted]",
+				classification: undefined,
+			},
+			{
+				title: "a cyclic object keyed by the secret",
+				value: cyclic,
+				message: "[object Object]",
+				classification: NON_ERROR,
+			},
+			{
+				title: "an object whose toJSON throws the secret",
+				value: {
+					toJSON: () => {
+						throw new Error("Denied plain-key-Q7");
+					},
+				},
+				message: "[object Object]",
+				classification: NON_ERROR,
+			},
+			{ title: "a BigInt", value: 10n, message: "10", classification: NON_ERROR },
+			{
+				title: "a Proxy whose prototype trap throws the secret",
+				value: hostile,
+				message: "{}",
+				classification: NON_ERROR,
+			},
+			{
+				title: "a mirrored error whose mirror getter throws the secret",
+				value: mirrored,
+				message: "Denied [redacted]",
+				classification: "AgentTools(setSetting: probe)",
+			},
+		];
+		for (const { title, value, message, classification } of thrown) {
+			await withWiringSpies(async (spies) => {
+				const harness = await wireUnderTest(ALL_WRITES, { knownSecrets: ["plain-key-Q7"], submitThrows: value });
+				await withConfig(ALL_WRITES, async () => {
+					await assert.rejects(invokeLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }), (error) => {
+						assert.ok(error instanceof Error, `${title}: leaves as an Error`);
+						assert.strictEqual(error.message, message, title);
+						assert.ok(!String(error.stack).includes("plain-key-Q7"), `${title}: the stack is the exit's own`);
+						if (classification === undefined) {
+							assert.ok(!(error instanceof MirroredError), `${title}: a plain Error stays plain`);
+						} else {
+							assert.ok(error instanceof MirroredError, `${title}: classified`);
+							assert.strictEqual(error.logClassification, classification, title);
+						}
+						return true;
+					});
+				});
+				assertOmits(harness.lines.join("\n"), "plain-key-Q7", `${title}: the log never quotes the thrown text`);
+			});
+		}
+		await withWiringSpies(async (spies) => {
+			await wireUnderTest(ALL_WRITES, {
+				knownSecrets: ["plain-key-Q7"],
+				inspectThrows: new Error("Denied plain-key-Q7"),
+			});
+			await withConfig(ALL_WRITES, async () => {
+				await assert.rejects(prepareLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }), (error) => {
+					assert.ok(error instanceof Error && !(error instanceof MirroredError), "a plain Error stays plain");
+					assert.strictEqual(error.message, "Denied [redacted]");
+					return true;
+				});
+			});
+		});
+		await withWiringSpies(async (spies) => {
+			let landed = false;
+			await wireUnderTest(ALL_WRITES, {
+				settings: { [SERVERS_SETTING_KEY]: [{ label: "Prod", baseUrl: "http://prod.test" }] },
+				secretStore: {
+					get: async (key) =>
+						landed && key === serverSecretsKey("Prod") ? JSON.stringify({ apiKey: "late-secret-Q7" }) : undefined,
+					store: async () => undefined,
+					delete: async () => undefined,
+				},
+				respond: () => {
+					landed = true;
+					return {
+						outcome: "validation-error",
+						reply: {
+							kind: "fail",
+							id: "x",
+							method: "setNumberSetting",
+							message: "Denied late-secret-Q7",
+							failureKind: "operation",
+						},
+					};
+				},
+			});
+			await withConfig(ALL_WRITES, async () => {
+				const result = resultJson(await invokeLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }));
+				assert.deepStrictEqual(result, {
+					method: "setNumberSetting",
+					ok: false,
+					failureKind: "operation",
+					message: "Denied [redacted]",
+				});
+			});
+		});
+	});
+
+	// The exits a fourth round of probes found open, closed by one conversion for every thrown value: a cancellation
+	// leaves as a fresh one with no text and no log line; a log sink that throws stays inside; a mirrored error's
+	// English mirror passes the fresh-read set like its display text; a prompt answer joins the exit set the moment
+	// it is typed, so a later prompt that throws cannot quote it.
+	test("a thrown cancellation, a failing log sink, a mirror, and a mid-prompt failure all leave converted", async () => {
+		const cancellation = new vscode.CancellationError();
+		cancellation.message = "Denied probe-secret-Q7";
+		await withWiringSpies(async (spies) => {
+			const harness = await wireUnderTest(ALL_WRITES, {
+				knownSecrets: ["probe-secret-Q7"],
+				submitThrows: cancellation,
+			});
+			await withConfig(ALL_WRITES, async () => {
+				await assert.rejects(invokeLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }), (error) => {
+					assert.ok(error instanceof vscode.CancellationError, "cancellation stays a cancellation");
+					assert.notStrictEqual(error, cancellation, "a fresh one, never the thrown object");
+					assertOmits(String((error as Error).message), "probe-secret-Q7", "its text is dropped");
+					return true;
+				});
+			});
+			assert.deepStrictEqual(harness.lines, [], "cancellation is never logged");
+		});
+		await withWiringSpies(async (spies) => {
+			const harness = await wireUnderTest(ALL_WRITES, {
+				knownSecrets: ["probe-secret-Q7"],
+				submitThrows: "Denied probe-secret-Q7",
+				loggerThrows: true,
+			});
+			await withConfig(ALL_WRITES, async () => {
+				await assertRefused(
+					invokeLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }),
+					"setSetting",
+					"non-error-throw",
+					(message) => assert.strictEqual(message, "Denied [redacted]")
+				);
+			});
+			assert.deepStrictEqual(harness.lines, [], "the sink's own failure went nowhere");
+		});
+		await withWiringSpies(async (spies) => {
+			let landed = false;
+			const harness = await wireUnderTest(ALL_WRITES, {
+				settings: { [SERVERS_SETTING_KEY]: [{ label: "Prod", baseUrl: "http://prod.test" }] },
+				secretStore: {
+					get: async (key) =>
+						landed && key === serverSecretsKey("Prod") ? JSON.stringify({ apiKey: "late-secret-Q7" }) : undefined,
+					store: async () => undefined,
+					delete: async () => undefined,
+				},
+				submitThrows: () => {
+					landed = true;
+					return new MirroredError("Display late-secret-Q7", { englishMessage: "English late-secret-Q7" });
+				},
+			});
+			await withConfig(ALL_WRITES, async () => {
+				await assert.rejects(invokeLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }), (error) => {
+					assert.ok(error instanceof MirroredError);
+					assert.strictEqual(error.message, "Display [redacted]");
+					assert.strictEqual(error.englishMessage, "English [redacted]");
+					return true;
+				});
+			});
+			assertOmits(harness.lines.join("\n"), "late-secret-Q7", "the mirror reached the channel redacted");
+		});
+		await withWiringSpies(async (spies) => {
+			let asked = 0;
+			await wireUnderTest(ALL_WRITES, {
+				answerSecret: () => {
+					asked += 1;
+					if (asked === 1) {
+						return "first-prompt-secret-Q7";
+					}
+					throw new Error("Rejected first-prompt-secret-Q7");
+				},
+			});
+			await withConfig(ALL_WRITES, async () => {
+				await assert.rejects(
+					invokeLive(spies, "saveServer", {
+						label: "Prod",
+						virtualKeyHeader: "X-Private",
+						secrets: {
+							apiKey: { action: "set", location: "secure" },
+							virtualKeyValue: { action: "set", location: "secure" },
+						},
+					}),
+					(error) => {
+						assert.ok(error instanceof Error);
+						assert.strictEqual(error.message, "Rejected [redacted]");
+						return true;
+					}
+				);
+			});
+			assert.strictEqual(asked, 2, "the second prompt is the one that threw");
+		});
+	});
+
+	// A plain Error's message is the dashboard's or a response's text: the model gets it scrubbed, the log gets the
+	// error's name alone (CLAUDE.md: logs carry classifications, never response-derived text).
+	test("a plain Error's message reaches the model scrubbed and the log by name only", async () => {
+		await withWiringSpies(async (spies) => {
+			const harness = await wireUnderTest(ALL_WRITES, {
+				submitThrows: new RangeError("Denied tenant alice@example.test"),
+			});
+			await withConfig(ALL_WRITES, async () => {
+				await assert.rejects(invokeLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }), (error) => {
+					assert.ok(error instanceof Error && !(error instanceof MirroredError));
+					assert.strictEqual(error.name, "RangeError");
+					assert.strictEqual(error.message, "Denied tenant alice@example.test");
+					return true;
+				});
+			});
+			assertOmits(harness.lines.join("\n"), "alice@example.test", "the log carries the name, never the text");
+			assert.ok(
+				harness.lines.some((line) => line.includes("RangeError")),
+				"the error's name is what the log records"
+			);
+		});
+	});
+
+	// The card's exit reads the store again after the card is built (a value landing while a setting is inspected is
+	// in the card's "before"), and a mirrored error's classification passes the exit like its two messages.
+	test("a value stored during card preparation and a classification carrying a value both leave redacted", async () => {
+		await withWiringSpies(async (spies) => {
+			let landed = false;
+			await wireUnderTest(ALL_WRITES, {
+				settings: {
+					[SERVERS_SETTING_KEY]: [{ label: "Prod", baseUrl: "http://prod.test" }],
+					"usage.currencySymbol": "card-late-secret-Q7",
+				},
+				secretStore: {
+					get: async (key) =>
+						landed && key === serverSecretsKey("Prod") ? JSON.stringify({ apiKey: "card-late-secret-Q7" }) : undefined,
+					store: async () => undefined,
+					delete: async () => undefined,
+				},
+				onInspect: () => {
+					landed = true;
+				},
+			});
+			await withConfig(ALL_WRITES, async () => {
+				const prepared = await prepareLive(spies, "setSetting", { setting: "usage.currencySymbol", value: "$" });
+				assert.strictEqual(
+					cardText(prepared),
+					[
+						"```",
+						"litellm-vscode-chat.usage.currencySymbol  (configured in: global)",
+						'before: "[redacted]"',
+						'after:  "$"',
+						"```",
+					].join("\n")
+				);
+			});
+		});
+		await withWiringSpies(async (spies) => {
+			const harness = await wireUnderTest(ALL_WRITES, {
+				knownSecrets: ["class-secret-Q7"],
+				submitThrows: new MirroredError("Denied", {
+					englishMessage: "fixed mirror",
+					logClassification: "class-secret-Q7",
+				}),
+			});
+			await withConfig(ALL_WRITES, async () => {
+				await assert.rejects(invokeLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }), (error) => {
+					assert.ok(error instanceof MirroredError);
+					assert.strictEqual(error.logClassification, "[redacted]");
+					return true;
+				});
+			});
+			assertOmits(harness.lines.join("\n"), "class-secret-Q7", "the classification reached the log redacted");
+		});
+	});
+
+	// A value the user types into the masked prompt is a value the exit withholds from then on, before any store
+	// holds it: a submit that fails may quote it back. A store that cannot be read fails the call closed with fixed
+	// text, since the read error itself could carry a URL.
+	test("a prompted value is withheld from a failing reply, and an unreadable store refuses with fixed text", async () => {
+		await withWiringSpies(async (spies) => {
+			await wireUnderTest(ALL_WRITES, {
+				answerSecret: () => "fresh-secret-Q7",
+				respond: () => ({
+					outcome: "validation-error",
+					reply: {
+						kind: "fail",
+						id: "x",
+						method: "saveServerSetting",
+						message: "Rejected credential fresh-secret-Q7",
+						failureKind: "operation",
+					},
+				}),
+			});
+			await withConfig(ALL_WRITES, async () => {
+				const result = resultJson(
+					await invokeLive(spies, "saveServer", {
+						label: "Prod",
+						secrets: { apiKey: { action: "set", location: "secure" } },
+					})
+				);
+				assert.deepStrictEqual(result, {
+					method: "saveServerSetting",
+					ok: false,
+					failureKind: "operation",
+					message: "Rejected credential [redacted]",
+				});
+			});
+		});
+		await withWiringSpies(async (spies) => {
+			await wireUnderTest(ALL_WRITES, {
+				settings: { [SERVERS_SETTING_KEY]: [{ label: "Prod", baseUrl: "http://prod.test" }] },
+				secretStore: {
+					get: () => Promise.reject(new Error("Storage failed at http://u:read-secret-Q7@host")),
+					store: async () => undefined,
+					delete: async () => undefined,
+				},
+			});
+			await withConfig(ALL_WRITES, async () => {
+				const fixed = "The secret store could not be read, so the tool cannot answer safely; call again.";
+				await assertRefused(
+					invokeLive(spies, "configuration", {}),
+					"configuration",
+					"secret store unreadable",
+					(message) => assert.strictEqual(message, fixed)
+				);
+				await assert.rejects(
+					prepareLive(spies, "saveServer", { label: "Prod", baseUrl: "http://new.test" }),
+					(error) => {
+						assert.ok(error instanceof MirroredError);
+						assert.strictEqual(error.message, fixed);
+						return true;
+					}
+				);
+			});
+		});
+	});
+
 	test("a refusal names the agent's identifier to the agent and only the classification to the log", async () => {
 		// The setting key is agent-controlled text: the agent needs it back to fix the call, but the log feeds the
 		// public issue report.
@@ -567,10 +1121,143 @@ suite("extension/features/agentTools wiring", () => {
 			await wireUnderTest(ALL_WRITES, {
 				settings: { servers: [{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: inlineKey } }] },
 			});
-			await withConfig(ALL_WRITES, () => {
-				const prepared = prepareLive(spies, "setSetting", { setting: "servers", value: null });
+			await withConfig(ALL_WRITES, async () => {
+				const prepared = await prepareLive(spies, "setSetting", { setting: "servers", value: null });
 				assert.strictEqual(prepared.confirmationMessages, undefined, "a refused plan shows no card");
 				assertOmits(JSON.stringify(prepared), inlineKey, "the current value is not read into anything returned");
+			});
+		});
+	});
+
+	// The exit's one pass sees the ORIGINAL text with the fresh set: a value the fresh read adds ("tok-1234-tail")
+	// whose head an older value matched ("tok-1234") leaves whole, never as "[redacted]-tail" from an earlier pass.
+	test("a refusal and a card are redacted once, at the exit, with the fresh set", async () => {
+		const settings = { [SERVERS_SETTING_KEY]: [{ label: "Prod", baseUrl: "http://prod.test" }] };
+		const lateStore = (): SecretStore => {
+			let reads = 0;
+			return {
+				get: async (key) =>
+					++reads > 1 && key === serverSecretsKey("Prod") ? JSON.stringify({ apiKey: "tok-1234-tail" }) : undefined,
+				store: async () => undefined,
+				delete: async () => undefined,
+			};
+		};
+		await withWiringSpies(async (spies) => {
+			await wireUnderTest(ALL_WRITES, { knownSecrets: ["tok-1234"], settings, secretStore: lateStore() });
+			await withConfig(ALL_WRITES, async () => {
+				await assertRefused(
+					invokeLive(spies, "inspectModel", { server: "tok-1234-tail", model: "missing" }),
+					"inspectModel",
+					"model-not-found",
+					(message) =>
+						assert.strictEqual(
+							message,
+							'Server "[redacted]" serves no model "missing". Read the configuration tool\'s "models" section.'
+						)
+				);
+			});
+		});
+		await withWiringSpies(async (spies) => {
+			await wireUnderTest(ALL_WRITES, { knownSecrets: ["tok-1234"], settings, secretStore: lateStore() });
+			await withConfig(ALL_WRITES, async () => {
+				const card = cardText(
+					await prepareLive(spies, "saveServer", { label: "tok-1234-tail", baseUrl: "http://new.test" })
+				);
+				assert.ok(card.includes('new servers entry "[redacted]"'), card);
+				assertOmits(card, "-tail", "the value leaves whole, not as its older head");
+			});
+		});
+	});
+
+	// Every prepareInvocation leaves through the one exit: a read tool's progress line passes the fresh read like a
+	// card does, and an unreadable store refuses the read tool with the fixed text.
+	test("a read tool's progress line takes the fresh read, and an unreadable store refuses it", async () => {
+		const prod = [{ label: "Prod", baseUrl: "http://prod.test" }];
+		await withWiringSpies(async (spies) => {
+			let reads = 0;
+			await wireUnderTest(ALL_WRITES, {
+				settings: { [SERVERS_SETTING_KEY]: prod },
+				secretStore: {
+					// The first read is the initial one; the blob lands before the fresh read that the text leaves with.
+					get: async (key) =>
+						++reads > 1 && key === serverSecretsKey("Prod") ? JSON.stringify({ apiKey: "configuration" }) : undefined,
+					store: async () => undefined,
+					delete: async () => undefined,
+				},
+			});
+			await withConfig(ALL_WRITES, async () => {
+				assert.strictEqual(
+					(await prepareLive(spies, "configuration", {})).invocationMessage,
+					"Reading LiteLLM [redacted]..."
+				);
+			});
+		});
+		await withWiringSpies(async (spies) => {
+			await wireUnderTest(ALL_WRITES, {
+				settings: { [SERVERS_SETTING_KEY]: prod },
+				secretStore: {
+					get: async () => {
+						throw new Error("store exploded at http://u:store-pass@host.test");
+					},
+					store: async () => undefined,
+					delete: async () => undefined,
+				},
+			});
+			await withConfig(ALL_WRITES, async () => {
+				await assertRefused(
+					prepareLive(spies, "configuration", {}),
+					"configuration",
+					"secret store unreadable",
+					(message) =>
+						assert.strictEqual(
+							message,
+							"The secret store could not be read, so the tool cannot answer safely; call again."
+						)
+				);
+			});
+		});
+	});
+
+	// A rejected entry (two auth forms at once) still holds a secret, and its raw label and baseUrl reach the
+	// misconfigured row the configuration result shows; the exit set holds its values like an accepted entry's.
+	test("a rejected entry's inline key never reaches the model, even duplicated into the misconfigured row's URL", async () => {
+		const fixture = agentToolsState();
+		const state: DashboardState = {
+			...fixture,
+			servers: [
+				...fixture.servers,
+				{
+					label: "Broken",
+					baseUrl: "plain-key-Q7",
+					servedModelCount: 0,
+					credentials: "absent",
+					hasOAuth: false,
+					origin: "misconfigured",
+					problems: ["has auth.apiKey beside auth.oauth; move it to auth.oauth.apiKey"],
+					state: "error",
+					error: "misconfigured entry; not used until its configuration is fixed",
+					errorEnglish: "misconfigured entry; not used until its configuration is fixed",
+				},
+			],
+		};
+		await withWiringSpies(async (spies) => {
+			await wireUnderTest(ALL_WRITES, {
+				state,
+				settings: {
+					[SERVERS_SETTING_KEY]: [
+						{ label: "Broken", baseUrl: "plain-key-Q7", auth: { apiKey: "plain-key-Q7", oauth: {} } },
+					],
+				},
+			});
+			await withConfig(ALL_WRITES, async () => {
+				const result = resultJson(await invokeLive(spies, "configuration", { sections: ["servers"] }));
+				assertOmits(JSON.stringify(result), "plain-key-Q7", "a rejected entry's key is in the exit set");
+				const rows = (result as { servers: { label: string; baseUrl: string }[] }).servers;
+				assert.strictEqual(
+					rows.find((row) => row.label === "Broken")?.baseUrl,
+					"[redacted]",
+					"the misconfigured row keeps its place, its URL text redacted"
+				);
 			});
 		});
 	});
@@ -578,8 +1265,8 @@ suite("extension/features/agentTools wiring", () => {
 	test("an adoption card names the source group, the new label, and where each copied secret lands", async () => {
 		await withWiringSpies(async (spies) => {
 			await wireUnderTest(ALL_WRITES);
-			await withConfig(ALL_WRITES, () => {
-				const prepared = prepareLive(spies, "saveServer", {
+			await withConfig(ALL_WRITES, async () => {
+				const prepared = await prepareLive(spies, "saveServer", {
 					label: "Imported",
 					adoptFrom: { label: "Copilot", baseUrl: COPILOT_BASE_URL },
 					secretLocations: { apiKey: "settings" },
@@ -593,7 +1280,7 @@ suite("extension/features/agentTools wiring", () => {
 				// A stored URL with credentials: the agent only saw the credential-free form, so the card resolves the
 				// stored group and says what it carries.
 				const credentialed = cardText(
-					prepareLive(spies, "saveServer", {
+					await prepareLive(spies, "saveServer", {
 						label: "Imported2",
 						adoptFrom: { label: "Cred", baseUrl: CRED_DISPLAY_URL },
 					})
@@ -602,7 +1289,7 @@ suite("extension/features/agentTools wiring", () => {
 				assert.doesNotMatch(credentialed, /old-pass/);
 				// A source the planner cannot find gets no card: the refusal reaches the agent without asking the user
 				// to approve nothing.
-				const missing = prepareLive(spies, "saveServer", {
+				const missing = await prepareLive(spies, "saveServer", {
 					label: "Imported",
 					adoptFrom: { label: "Missing", baseUrl: "http://missing.test" },
 				});

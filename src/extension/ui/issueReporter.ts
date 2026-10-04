@@ -5,6 +5,7 @@ import { FEATURE_IDS } from "../../shared/config/settingSpec";
 import { LAST_ISSUE_REPORT_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { RecordedError } from "../../shared/logger";
+import { isCredentialHeader } from "../../shared/serverEntry";
 import { redactUrlCredentials } from "../../shared/util/displayUrl";
 import { GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
@@ -57,6 +58,11 @@ export interface DiagnosticsSnapshot {
 	 *   the MCP opt-in is a per-entry field rather than a FeatureId -> it cannot ride featureFlags
 	 */
 	mcpEntryCount: number;
+	/**
+	 * The declared entries' virtual key header NAMES, never values, so redactSecrets judges a header by the one
+	 * predicate.
+	 */
+	virtualKeyHeaders: readonly string[];
 	latestError?: ErrorContext | undefined;
 	recentLogs: string[];
 }
@@ -272,8 +278,11 @@ export class IssueReporter {
 
 	buildTitle(snapshot: DiagnosticsSnapshot): string {
 		if (snapshot.latestError) {
-			const firstLine = redactSecrets(snapshot.latestError.message.split("\n")[0] ?? "").slice(0, 80);
-			return `[Bug] ${redactSecrets(snapshot.latestError.source)}: ${firstLine}`;
+			const firstLine = redactSecrets(
+				snapshot.latestError.message.split("\n")[0] ?? "",
+				snapshot.virtualKeyHeaders
+			).slice(0, 80);
+			return `[Bug] ${redactSecrets(snapshot.latestError.source, snapshot.virtualKeyHeaders)}: ${firstLine}`;
 		}
 		return "[Bug] Issue report from diagnostics";
 	}
@@ -310,14 +319,16 @@ export class IssueReporter {
 		].filter((l): l is string => l !== null);
 
 		if (snapshot.latestError) {
-			diagLines.push(...latestErrorLines(snapshot.latestError));
-			diagLines.push(`- Message: ${bulletContinuation(redactSecrets(snapshot.latestError.message))}`);
+			diagLines.push(...latestErrorLines(snapshot.latestError, snapshot.virtualKeyHeaders));
+			diagLines.push(
+				`- Message: ${bulletContinuation(redactSecrets(snapshot.latestError.message, snapshot.virtualKeyHeaders))}`
+			);
 		}
 		diagLines.push("");
 		sections.push(diagLines.join("\n"));
 
 		if (recentLogs.length > 0 || variant.kind === "compact-logs") {
-			const logLines = recentLogs.map((l) => redactSecrets(l));
+			const logLines = recentLogs.map((l) => redactSecrets(l, snapshot.virtualKeyHeaders));
 			if (variant.kind === "compact-logs") {
 				const omitted = variant.omittedLogCount;
 				logLines.unshift(`... (${omitted} older log line${omitted === 1 ? "" : "s"} omitted; ${variant.hint})`);
@@ -346,7 +357,7 @@ export class IssueReporter {
 					`<details><summary>${variant.kind === "full" ? "Stack trace" : "Stack trace (trimmed)"}</summary>`,
 					"",
 					"```",
-					redactSecrets(stack),
+					redactSecrets(stack, snapshot.virtualKeyHeaders),
 					"```",
 					"",
 					"</details>",
@@ -421,12 +432,12 @@ function classificationLine(classification: TransportErrorClassification): strin
  * The source is the log message the Logger recorded the error under, which may name a configured URL, so it is
  * redacted like the message beneath it.
  */
-function latestErrorLines(error: ErrorContext): string[] {
+function latestErrorLines(error: ErrorContext, virtualKeyHeaders: readonly string[]): string[] {
 	return [
 		"",
 		"### Latest error",
 		"",
-		`- Source: ${redactSecrets(error.source)}`,
+		`- Source: ${redactSecrets(error.source, virtualKeyHeaders)}`,
 		`- Time: ${error.timestamp}`,
 		...(error.classification !== undefined ? [classificationLine(error.classification)] : []),
 	];
@@ -484,8 +495,13 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, sink: Compact
 	];
 
 	if (snapshot.latestError) {
-		lines.push(...latestErrorLines(snapshot.latestError));
-		lines.push(`- Message: ${shortenLine(redactSecrets(snapshot.latestError.message.split(/\r?\n/)[0] ?? ""), 500)}`);
+		lines.push(...latestErrorLines(snapshot.latestError, snapshot.virtualKeyHeaders));
+		lines.push(
+			`- Message: ${shortenLine(
+				redactSecrets(snapshot.latestError.message.split(/\r?\n/)[0] ?? "", snapshot.virtualKeyHeaders),
+				500
+			)}`
+		);
 	}
 
 	lines.push("", `Full redacted diagnostics were too large to prefill in GitHub. ${capitalizeFirst(hint)}. ${action}`);
@@ -505,22 +521,54 @@ function shortenLine(text: string, maxLength: number): string {
 	return `${text.slice(0, maxLength)}...`;
 }
 
-export function redactSecrets(text: string): string {
+/**
+ * A JSON pair whose name is any string: the predicate judges the name, so a padded or carrier name is its concern.
+ * The value pattern consumes escaped sequences so an escaped quote inside the secret cannot end the match early.
+ */
+const JSON_PAIR = /("((?:[^"\\]|\\.)+)"\s*:\s*")((?:Bearer\s+)?)(?:\\.|[^"\\])*(")/gi;
+/**
+ * A bare `name:` at a token start (whitespace, a bracket, a brace, a parenthesis, a double quote, or a separator
+ * before it); the name token admits every header-name character, apostrophe and backtick included. The value is cut
+ * separately so a non-credential name consumes nothing after it.
+ */
+const BARE_NAME = /(?<=^|[\s,;{}()[\]"])([^\s:"{}()[\],;]+)[ \t]*:[ \t]*/gm;
+
+/**
+ * Every header value whose name isCredentialHeader (the fixed names plus the configured carriers), bare and
+ * JSON-encoded. The bare form takes the rest of the line: a Basic value is "scheme token" and a Cookie value is
+ * several pairs, so one token would leave the credential standing.
+ */
+function redactHeaderValues(text: string, virtualKeyHeaders: readonly string[]): string {
+	const json = text.replace(JSON_PAIR, (match, prefix: string, name: string, bearer: string, quote: string) =>
+		isCredentialHeader(name, virtualKeyHeaders) ? `${prefix}${bearer}[REDACTED]${quote}` : match
+	);
+	let out = "";
+	let cursor = 0;
+	for (let match = BARE_NAME.exec(json); match !== null; match = BARE_NAME.exec(json)) {
+		if (!isCredentialHeader(match[1] ?? "", virtualKeyHeaders)) {
+			continue;
+		}
+		const valueStart = match.index + match[0].length;
+		const lineEnd = json.slice(valueStart).search(/\r?\n/);
+		const valueEnd = lineEnd === -1 ? json.length : valueStart + lineEnd;
+		out += `${json.slice(cursor, valueStart)}[REDACTED]`;
+		cursor = valueEnd;
+		BARE_NAME.lastIndex = valueEnd;
+	}
+	return out + json.slice(cursor);
+}
+
+export function redactSecrets(text: string, virtualKeyHeaders: readonly string[] = []): string {
 	return (
 		// URL-embedded credentials go first, through the one shared scrub (scheme-agnostic, greedy to the run's last
 		// "@"): the host rule below reparses each URL, and userinfo left in place - or a bracketed marker put in its
 		// place - would split that match and leak the host past [REDACTED_HOST]. Its localhost carve-out is also why
 		// the credential must already be gone.
-		redactUrlCredentials(text)
-			// JSON-encoded auth headers. The value pattern consumes escaped sequences so an escaped quote inside the
-			// secret cannot end the match early.
-			.replace(/("(?:Authorization|X-API-Key)":\s*")((?:Bearer\s+)?)(?:\\.|[^"\\])*(")/gi, "$1$2[REDACTED]$3")
+		redactHeaderValues(redactUrlCredentials(text), virtualKeyHeaders)
 			// JSON-encoded OAuth material: "client_secret": "xxx" or "access_token": "xxx"
 			.replace(/("(?:client[_-]?secret|access[_-]?token)":\s*")(?:\\.|[^"\\])*(")/gi, "$1[REDACTED]$2")
-			// Bare auth header values
-			.replace(/(Bearer\s+)\S+/gi, "$1[REDACTED]")
-			.replace(/(X-API-Key:\s*)\S+/gi, "$1[REDACTED]")
-			.replace(/(Authorization:\s*)\S+/gi, "$1[REDACTED]")
+			// Bare auth header values; a quote ends the token, so a JSON-encoded "Bearer x" keeps its closing quote
+			.replace(/(Bearer\s+)[^\s"]+/gi, "$1[REDACTED]")
 			.replace(/(api[_-]?key[=:\s]+)\S+/gi, "$1[REDACTED]")
 			// Bare OAuth material: client_secret=xxx, access_token: xxx
 			.replace(/(client[_-]?secret[=:\s]+)\S+/gi, "$1[REDACTED]")

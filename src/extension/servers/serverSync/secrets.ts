@@ -41,6 +41,33 @@ export interface SecretStore {
 	delete(key: string): Thenable<void>;
 }
 
+/**
+ * Every stored secret value under the given labels (the parsed servers setting's), for the known-value collections
+ * (the Logger's refresh and the agent tools' exit). A read that fails is the caller's decision: `onReadError` keeps
+ * going with that label contributing nothing; without it the failure propagates, so a caller that must fail closed
+ * can.
+ */
+export async function readDeclaredSecretValues(
+	store: SecretStore,
+	labels: readonly string[],
+	onReadError?: (label: string, error: unknown) => void
+): Promise<readonly (string | undefined)[]> {
+	const records = await Promise.all(
+		[...new Set(labels)].map(async (label) => {
+			try {
+				return await readServerSecretsRecord(store, label);
+			} catch (error) {
+				if (onReadError === undefined) {
+					throw error;
+				}
+				onReadError(label, error);
+				return { values: {}, owners: {} };
+			}
+		})
+	);
+	return records.flatMap((record) => Object.values(record.values));
+}
+
 /** The blob key the `_owner` map rides under; never a secret field id, so old readers ignore it. */
 const OWNER_KEY = "_owner";
 

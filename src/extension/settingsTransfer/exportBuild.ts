@@ -12,7 +12,7 @@ import { resolveOwnedSecrets } from "../servers/serverSync/secrets";
 import { acceptedEntry, declaredEntryLabel } from "../servers/serverSync/setting";
 import type { SettingsExportEnvelope } from "./envelope";
 import { buildEnvelope } from "./envelope";
-import { materializeEntrySecrets, stripEntrySecrets } from "./secretSurgery";
+import { materializeEntrySecrets, stripCredentialHeaders, stripEntrySecrets, stripUrlUserinfo } from "./secretSurgery";
 
 export interface SettingsExportEnv {
 	readonly readGlobalSetting: (key: string) => unknown;
@@ -48,6 +48,15 @@ export interface SettingsExportResult {
 	readonly omittedUnsanitizableCount: number;
 }
 
+function inlineSecretCount(entry: Readonly<Record<string, unknown>>): number {
+	return (
+		Object.keys(stripEntrySecrets(entry).secrets).length +
+		stripCredentialHeaders(entry).removed.length +
+		stripUrlUserinfo(entry).removed
+	);
+}
+
+/** Build the export envelope; see the module comment for the walk and the secret handling. */
 export async function buildSettingsExport(env: SettingsExportEnv): Promise<SettingsExportResult> {
 	const settings: Record<string, unknown> = {};
 	let settingCount = 0;
@@ -94,17 +103,19 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 				// Every object entry is stripped, labeled or not: an unlabeled entry can still carry inline secret
 				// text.
 				const stripped = stripEntrySecrets(rawEntry);
-				if (stripped.unsanitizable) {
+				const headers = stripCredentialHeaders(stripped.entry);
+				const urls = headers.unsanitizable ? headers : stripUrlUserinfo(headers.entry);
+				if (stripped.unsanitizable || urls.unsanitizable) {
 					omittedUnsanitizableCount += 1;
 					continue;
 				}
-				exported.push(stripped.entry);
+				exported.push(urls.entry);
 				continue;
 			}
 			const label = declaredEntryLabel(rawEntry);
 			if (label === undefined) {
 				// No label means no SecretStorage key: the entry rides as-is, its inline values counted as kept.
-				secretFieldCount += Object.keys(stripEntrySecrets(rawEntry).secrets).length;
+				secretFieldCount += inlineSecretCount(rawEntry);
 				exported.push(rawEntry);
 				continue;
 			}
@@ -137,7 +148,7 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 			}
 			const materialized = materializeEntrySecrets(rawEntry, usable);
 			unmaterializedSecretCount += materialized.unmaterialized;
-			secretFieldCount += Object.keys(stripEntrySecrets(materialized.entry).secrets).length;
+			secretFieldCount += inlineSecretCount(materialized.entry);
 			exported.push(materialized.entry);
 		}
 		serverCount = exported.length;

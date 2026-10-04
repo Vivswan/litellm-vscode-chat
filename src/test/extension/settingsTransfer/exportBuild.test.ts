@@ -74,6 +74,121 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		}
 	});
 
+	// A custom Authorization header is settings text to the dashboard and has no SecretStorage slot, so the strip
+	// drops it from a no-secrets file; the entry's own virtualKey header names a second credential-bearing header.
+	// A headers shape the strip cannot walk is omitted whole, like an uncertifiable auth shape.
+	test("excluding secrets strips credential-bearing custom header values; including them counts them", async () => {
+		const servers = [
+			{
+				label: "A",
+				baseUrl: "http://a.test",
+				auth: { virtualKey: { header: "x-litellm-key", value: "vk-inline" } },
+				headers: { Authorization: "Bearer sk-header", "X-LiteLLM-Key": "vk-header", "X-Team": "platform" },
+			},
+			{ label: "B", baseUrl: "http://b.test", headers: [{ Authorization: "sk-in-an-array" }] },
+		];
+		const readGlobalSetting = readerFor({ [SERVERS_SETTING_KEY]: servers });
+		const excluded = await buildSettingsExport(env({ readGlobalSetting }));
+		assert.deepStrictEqual(excluded, {
+			envelope: {
+				[CONFIG_SECTION]: 1,
+				exportedBy: "0.4.5",
+				settings: {
+					[SERVERS_SETTING_KEY]: [
+						{
+							label: "A",
+							baseUrl: "http://a.test",
+							auth: { virtualKey: { header: "x-litellm-key" } },
+							headers: { "X-Team": "platform" },
+						},
+					],
+				},
+			},
+			settingCount: 1,
+			serverCount: 1,
+			secretFieldCount: 0,
+			unmaterializedSecretCount: 0,
+			mismatchedSecretCount: 0,
+			omittedUnsanitizableCount: 1,
+		});
+		const included = await buildSettingsExport(env({ includeSecrets: true, readGlobalSetting }));
+		assert.deepStrictEqual(included, {
+			envelope: { [CONFIG_SECTION]: 1, exportedBy: "0.4.5", settings: { [SERVERS_SETTING_KEY]: servers } },
+			settingCount: 1,
+			serverCount: 2,
+			secretFieldCount: 3,
+			unmaterializedSecretCount: 0,
+			mismatchedSecretCount: 0,
+			omittedUnsanitizableCount: 0,
+		});
+	});
+
+	// A base URL or token URL written with user:password@ is a credential in a URL field: the no-secrets file
+	// carries the URL without it, and the with-secrets file counts it among the values riding out.
+	test("excluding secrets strips URL userinfo from every URL field; including them counts each", async () => {
+		const servers = [
+			{
+				label: "A",
+				baseUrl: "http://u:export-password@a.test",
+				auth: { oauth: { tokenUrl: "http://u:oauth-password@idp.test", clientId: "c" } },
+				mcp: { url: "http://u:mcp-password@a.test/mcp" },
+			},
+		];
+		const readGlobalSetting = readerFor({ [SERVERS_SETTING_KEY]: servers });
+		const excluded = await buildSettingsExport(env({ readGlobalSetting }));
+		assert.deepStrictEqual(excluded, {
+			envelope: {
+				[CONFIG_SECTION]: 1,
+				exportedBy: "0.4.5",
+				settings: {
+					[SERVERS_SETTING_KEY]: [
+						{
+							label: "A",
+							baseUrl: "http://a.test",
+							auth: { oauth: { tokenUrl: "http://idp.test", clientId: "c" } },
+							mcp: { url: "http://a.test/mcp" },
+						},
+					],
+				},
+			},
+			settingCount: 1,
+			serverCount: 1,
+			secretFieldCount: 0,
+			unmaterializedSecretCount: 0,
+			mismatchedSecretCount: 0,
+			omittedUnsanitizableCount: 0,
+		});
+		const included = await buildSettingsExport(env({ includeSecrets: true, readGlobalSetting }));
+		assert.deepStrictEqual(included, {
+			envelope: { [CONFIG_SECTION]: 1, exportedBy: "0.4.5", settings: { [SERVERS_SETTING_KEY]: servers } },
+			settingCount: 1,
+			serverCount: 1,
+			secretFieldCount: 3,
+			unmaterializedSecretCount: 0,
+			mismatchedSecretCount: 0,
+			omittedUnsanitizableCount: 0,
+		});
+		// A container where a URL string belongs could hold a credentialed URL the walk cannot see: omitted, counted.
+		const container = await buildSettingsExport(
+			env({
+				readGlobalSetting: readerFor({
+					[SERVERS_SETTING_KEY]: [
+						{ label: "B", baseUrl: "http://b.test", mcp: { url: ["http://u:container-password@b.test/mcp"] } },
+					],
+				}),
+			})
+		);
+		assert.deepStrictEqual(container, {
+			envelope: { [CONFIG_SECTION]: 1, exportedBy: "0.4.5", settings: { [SERVERS_SETTING_KEY]: [] } },
+			settingCount: 1,
+			serverCount: 0,
+			secretFieldCount: 0,
+			unmaterializedSecretCount: 0,
+			mismatchedSecretCount: 0,
+			omittedUnsanitizableCount: 1,
+		});
+	});
+
 	test("including secrets materializes each labeled entry's blob and counts every value in the file", async () => {
 		const servers = [
 			{ label: "A", baseUrl: "http://a.test" },

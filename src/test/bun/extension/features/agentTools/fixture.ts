@@ -25,10 +25,12 @@ export const TWIN_HANDLE = "handle-twin456";
 export const CRED_BASE_URL = "http://alice:old-pass@cred.example:4000";
 export const CRED_DISPLAY_URL = "http://cred.example:4000";
 export const CRED_HANDLE = "handle-cred789";
+/** A marker, not a key shape: the value of Prod's Authorization header, which no rendering may carry. */
+export const PROD_HEADER_SECRET = "header-marker-4c5d6e";
 
 export const PROD_CONFIG = {
 	apiVersion: "v2",
-	headers: { "X-Team": "platform" },
+	headers: { "X-Team": "platform", Authorization: `Bearer ${PROD_HEADER_SECRET}` },
 	budget: 25,
 	declaredModels: ["decl-1"],
 	expectedFailures: ["modelInfo"],

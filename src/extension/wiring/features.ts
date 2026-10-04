@@ -78,7 +78,7 @@ export function wireFeatures(
 export function wireDashboardClientFeatures(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	deps: Omit<AgentToolsDeps, "settings" | "dashboard"> & { readonly dashboard: DashboardController }
+	deps: Omit<AgentToolsDeps, "settings" | "dashboard" | "secretStore"> & { readonly dashboard: DashboardController }
 ): void {
-	wireAgentTools(context, logger, { ...deps, settings: createSettingsAccess() });
+	wireAgentTools(context, logger, { ...deps, settings: createSettingsAccess(), secretStore: context.secrets });
 }

@@ -38,6 +38,7 @@ suite("IssueReporter", () => {
 				agentTools: { enabled: false },
 			},
 			mcpEntryCount: 0,
+			virtualKeyHeaders: [],
 			recentLogs: [],
 			...overrides,
 		};
@@ -652,6 +653,36 @@ suite("IssueReporter", () => {
 
 	test("redactSecrets removes X-API-Key values", () => {
 		assert.equal(redactSecrets("X-API-Key: my-secret-key"), "X-API-Key: [REDACTED]");
+	});
+
+	// The header names are judged by the repository's one predicate (shared/serverEntry.ts: the fixed names plus the
+	// configured carriers), so a name the transport strips on redirect is a name the report redacts too. The bare form
+	// takes the whole value: a Basic credential is "scheme token" and a Cookie line holds several pairs.
+	test("redactSecrets removes every credential header's value, bare and JSON-encoded", () => {
+		assert.equal(
+			redactSecrets("Proxy-Authorization: Basic proxy-marker\nCookie: first=one-marker; second=two-marker\nnext line"),
+			"Proxy-Authorization: [REDACTED]\nCookie: [REDACTED]\nnext line"
+		);
+		assert.equal(
+			redactSecrets('{"Proxy-Authorization": "Basic proxy-marker", "Cookie": "session=cookie-marker"}'),
+			'{"Proxy-Authorization": "[REDACTED]", "Cookie": "[REDACTED]"}'
+		);
+		// A configured carrier is a credential header for the report that knows it, a custom header for one that does
+		// not; a padded name is the same header either way, and a bracket or brace starts a name like whitespace does.
+		const padded =
+			"X-Private: private-marker\n Authorization : padded-marker\nnote: Authorization: inner-marker\n{Authorization: Basic brace-marker}\n[Cookie: a=bracket-marker]\nX'Tick: tick-marker";
+		assert.equal(
+			redactSecrets(padded, ["X-Private", "X'Tick"]),
+			"X-Private: [REDACTED]\n Authorization : [REDACTED]\nnote: Authorization: [REDACTED]\n{Authorization: [REDACTED]\n[Cookie: [REDACTED]\nX'Tick: [REDACTED]"
+		);
+		assert.equal(
+			redactSecrets(padded),
+			"X-Private: private-marker\n Authorization : [REDACTED]\nnote: Authorization: [REDACTED]\n{Authorization: [REDACTED]\n[Cookie: [REDACTED]\nX'Tick: tick-marker"
+		);
+		assert.equal(
+			redactSecrets('{" authorization ": "Bearer tok-marker", "X-Private": "pm", "model": "gpt"}', ["x-private"]),
+			'{" authorization ": "Bearer [REDACTED]", "X-Private": "[REDACTED]", "model": "gpt"}'
+		);
 	});
 
 	test("redactSecrets removes sk- prefixed keys", () => {

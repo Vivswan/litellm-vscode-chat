@@ -67,6 +67,9 @@ export function buildDiagnosticsSnapshot(
 		// A count of opted-in entries, never their labels or endpoints: the MCP opt-in is a per-entry field, so it has
 		// no FeatureId row to ride.
 		mcpEntryCount: mcpEnabledEntryCount(),
+		virtualKeyHeaders: declared.flatMap((entry) =>
+			entry.virtualKeyHeader === undefined ? [] : [entry.virtualKeyHeader]
+		),
 		latestError: issueReporter.getLatestError(),
 		recentLogs: issueReporter.getRecentLogs(),
 	};

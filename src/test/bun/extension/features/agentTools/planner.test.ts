@@ -10,7 +10,10 @@ import * as fc from "fast-check";
 import type { SaveServerPayload, SecretDirective } from "../../../../../dashboard/endpoints";
 import { parseDashboardRequest } from "../../../../../extension/dashboard/intentSchema";
 import type { AgentToolInput } from "../../../../../extension/features/agentTools/inputSchema";
-import { parseAgentToolInput } from "../../../../../extension/features/agentTools/inputSchema";
+import {
+	CREDENTIAL_HEADER_PLACEHOLDER,
+	parseAgentToolInput,
+} from "../../../../../extension/features/agentTools/inputSchema";
 import type { AgentRequest, RefusalReason, ToolPlan } from "../../../../../extension/features/agentTools/planner";
 import {
 	planEditModelRecords,
@@ -22,11 +25,18 @@ import {
 	withSecretValues,
 } from "../../../../../extension/features/agentTools/planner";
 import {
-	describeServerChange,
+	modelFacing,
 	refusalText,
 	renderJson,
+	describeServerChange as serverChangeParts,
 	shapeSubmission,
 } from "../../../../../extension/features/agentTools/render";
+
+/** A card as the user reads it: the builder returns parts, the exit's one function renders them with no values. */
+const describeServerChange = (...args: Parameters<typeof serverChangeParts>): string =>
+	modelFacing(serverChangeParts(...args), []);
+
+import type { AgentToolId } from "../../../../../shared/config/commandIds";
 import {
 	AGENT_TOOLS_SETTING_KEYS,
 	ALL_SETTING_KEYS,
@@ -39,6 +49,7 @@ import {
 } from "../../../../../shared/config/settingSpec";
 import type { SecretFieldId } from "../../../../../shared/serverEntry";
 import { resolveFuzzSeed } from "../../../../fuzzStream";
+import { declaredWithSecrets, makeExternalServer, makeState } from "../../../webview/fixtures";
 import {
 	agentToolsState,
 	COPILOT_BASE_URL,
@@ -320,6 +331,112 @@ describe("agentTools planner save_server", () => {
 		}
 	});
 
+	// Drifts silently: the configuration read shows a credential header as the placeholder, so an agent that edits
+	// the headers object echoes it back; stored as text, the placeholder would replace the real bearer value and the
+	// server would answer 401 with nothing naming the save.
+	test.each<[string, Record<string, string>, Record<string, string> | string]>([
+		[
+			"an echoed placeholder keeps the stored header beside a new one",
+			{ Authorization: CREDENTIAL_HEADER_PLACEHOLDER, "X-New": "1" },
+			{ Authorization: PROD_CONFIG.headers.Authorization, "X-New": "1" },
+		],
+		[
+			"a placeholder finds the stored header by HTTP name, whatever its case or padding",
+			{ " authorization ": CREDENTIAL_HEADER_PLACEHOLDER },
+			{ " authorization ": PROD_CONFIG.headers.Authorization },
+		],
+		[
+			"a placeholder with nothing stored under its name is refused, inherited names included",
+			{ "X-API-Key": CREDENTIAL_HEADER_PLACEHOLDER, toString: CREDENTIAL_HEADER_PLACEHOLDER, "X-Team": "platform" },
+			"X-API-Key, toString",
+		],
+	])("save_server headers: %s", (_name, headers, expected) => {
+		const plan = planSaveServer({ label: "Prod", headers }, state, false);
+		if (typeof expected === "string") {
+			expect(plan).toEqual({
+				kind: "refused",
+				reason: "credential-header-placeholder",
+				detail: { label: "Prod", headers: expected },
+			});
+		} else {
+			expect(savePayload(plan).server.headers).toEqual(expected);
+		}
+	});
+
+	// Drifts silently: a header is a credential only while a carrier names it, so clearing or renaming the
+	// virtualKeyHeader with the header still stored would show its value on the next read and in a no-secrets export.
+	// The fixed auth names stay credentials without any carrier, so dropping that carrier is a plain save.
+	const keyedState = (virtualKeyHeader: string, headers: Record<string, string>) =>
+		makeState({
+			servers: [
+				declaredWithSecrets(PROD_LOCATIONS, {
+					label: "Keyed",
+					baseUrl: "http://keyed.test",
+					config: { secrets: { kind: "proven", locations: PROD_LOCATIONS }, virtualKeyHeader, headers },
+				}),
+			],
+		});
+	const keyedServer = (fields: Record<string, unknown>): SavePayload["server"] => ({
+		label: "Keyed",
+		baseUrl: "http://keyed.test",
+		modelCapabilities: {},
+		expectedFailures: [],
+		headers: {},
+		declaredModels: [],
+		includeModes: [],
+		budget: null,
+		mcp: null,
+		...fields,
+	});
+	type CarrierOutcome = { readonly refused: ToolPlan } | { readonly server: SavePayload["server"] };
+	const CARRIER_REFUSAL: CarrierOutcome = {
+		refused: { kind: "refused", reason: "carrier-header-kept", detail: { label: "Keyed", carriers: "X-Private" } },
+	};
+	test.each<[string, string, Record<string, string>, Input, CarrierOutcome]>([
+		[
+			"clearing the carrier keeps its header",
+			"X-Private",
+			{ "x-private": "vk-text" },
+			{ label: "Keyed", virtualKeyHeader: null },
+			CARRIER_REFUSAL,
+		],
+		[
+			"renaming the carrier keeps its header",
+			"X-Private",
+			{ "x-private": "vk-text" },
+			{ label: "Keyed", virtualKeyHeader: "X-Next" },
+			CARRIER_REFUSAL,
+		],
+		[
+			"dropping carrier and header together",
+			"X-Private",
+			{ "x-private": "vk-text" },
+			{ label: "Keyed", virtualKeyHeader: null, headers: {} },
+			{ server: keyedServer({ headers: {} }) },
+		],
+		[
+			"an unrelated edit keeps both",
+			"X-Private",
+			{ "x-private": "vk-text" },
+			{ label: "Keyed", budget: 1 },
+			{ server: keyedServer({ virtualKeyHeader: "X-Private", headers: { "x-private": "vk-text" }, budget: 1 }) },
+		],
+		[
+			"a fixed auth name needs no carrier",
+			"Authorization",
+			{ Authorization: "Bearer vk-text" },
+			{ label: "Keyed", virtualKeyHeader: null },
+			{ server: keyedServer({ headers: { Authorization: "Bearer vk-text" } }) },
+		],
+	])("save_server carrier: %s", (_name, virtualKeyHeader, headers, input, outcome) => {
+		const plan = planSaveServer(input, keyedState(virtualKeyHeader, headers), false);
+		if ("refused" in outcome) {
+			expect(plan).toEqual(outcome.refused);
+		} else {
+			expect(savePayload(plan).server).toEqual(outcome.server);
+		}
+	});
+
 	test("a valueless set becomes one prompt and a placeholder the typed value later fills", () => {
 		const plan = planSaveServer(
 			{ label: "Prod", secrets: { apiKey: { action: "set", location: "secure" } } },
@@ -466,6 +583,73 @@ describe("agentTools planner empty patches", () => {
 });
 
 describe("agentTools planner external groups by the URL the agent sees", () => {
+	// Two groups can differ only in credentials the agent never sees: the catalog's identity keeps them apart, the
+	// URL the agent hands back cannot, so a hide or an adoption refuses rather than picking one.
+	test("hide and adoptFrom refuse two groups the agent's URL cannot tell apart", () => {
+		const twins = makeState({
+			servers: [
+				makeExternalServer({ label: "Same", baseUrl: "https://alice:first@host.test/v1", adoptHandle: "handle-a" }),
+				makeExternalServer({ label: "Same", baseUrl: "https://bob:second@host.test/v1", adoptHandle: "handle-b" }),
+			],
+		});
+		const detail = { label: "Same", baseUrl: "https://host.test/v1" };
+		expect(planRemoveServer({ action: "hide", ...detail }, twins)).toEqual({
+			kind: "refused",
+			reason: "external-group-ambiguous",
+			detail,
+		});
+		expect(planSaveServer({ label: "Mine", adoptFrom: detail }, twins, false)).toEqual({
+			kind: "refused",
+			reason: "external-group-ambiguous",
+			detail,
+		});
+		const tombstones = makeState({
+			hiddenGroups: [
+				{ label: "Same", baseUrl: "https://alice:first@host.test/v1", reason: "removed" },
+				{ label: "Same", baseUrl: "https://bob:second@host.test/v1", reason: "removed" },
+			],
+		});
+		expect(planRemoveServer({ action: "unhide", ...detail }, tombstones)).toEqual({
+			kind: "refused",
+			reason: "external-group-ambiguous",
+			detail,
+		});
+		expect<string>(refusalText("external-group-ambiguous", detail)).toBe(
+			'More than one provider group is labeled "Same" at "https://host.test/v1"; they differ only in credentials this tool does not show. Act on it from the dashboard.'
+		);
+	});
+
+	// Drifts silently: an identity URL is copied from litellm_configuration, which never shows userinfo, so one that
+	// carries it came from elsewhere; the plan would still resolve the group and nothing would say the agent holds a
+	// credential nobody handed it. The saveServer row also pins that a union member's issue reaches the model with
+	// its path: the union itself reports only "Invalid input" at the root.
+	const USERINFO_ISSUE = "carries user:password@; give the base URL as litellm_configuration shows it";
+	test.each<[string, AgentToolId, unknown, readonly { path: string; code: string; message: string }[]]>([
+		[
+			"adoptFrom",
+			"saveServer",
+			{ label: "Imported", adoptFrom: { label: "Cred", baseUrl: CRED_BASE_URL } },
+			[
+				{ path: "adoptFrom.baseUrl", code: "custom", message: USERINFO_ISSUE },
+				{ path: "", code: "unrecognized_keys", message: 'Unrecognized key: "adoptFrom"' },
+			],
+		],
+		[
+			"hide",
+			"removeServer",
+			{ action: "hide", label: "Cred", baseUrl: CRED_BASE_URL },
+			[{ path: "baseUrl", code: "custom", message: USERINFO_ISSUE }],
+		],
+		[
+			"unhide",
+			"removeServer",
+			{ action: "unhide", label: "Old", baseUrl: "http://bob@old.test" },
+			[{ path: "baseUrl", code: "custom", message: USERINFO_ISSUE }],
+		],
+	])("%s: an identity base URL with userinfo is refused at the envelope", (_name, tool, raw, issues) => {
+		expect(parseAgentToolInput(tool, raw)).toEqual({ ok: false, issues });
+	});
+
 	// Drifts silently: results render a URL without its userinfo, so an agent that hands that URL back must still find
 	// the group whose stored URL has it.
 	test("adopting and hiding a credentialed external group works with the displayed URL and keeps the stored one", () => {
@@ -583,7 +767,6 @@ describe("agentTools planner secrets never reach rendered text", () => {
 		maxLength: 64,
 	});
 	const fieldArb = fc.constantFrom<SecretFieldId>("apiKey", "oauthClientSecret", "virtualKeyValue");
-	const identity = (text: string): string => text;
 
 	// Drifts silently: a card, a refusal detail, or a submission echo that spreads the payload's `secrets` instead of
 	// the location summary.
@@ -636,31 +819,24 @@ describe("agentTools planner secrets never reach rendered text", () => {
 				];
 				for (const plan of refusals) {
 					const { reason, detail } = refusalOf(plan);
+					expect(refusalText(reason, detail).length).toBeGreaterThan(0);
 					expect(refusalText(reason, detail)).not.toContain(secret);
 				}
 
 				const submissions = [
-					shapeSubmission(
-						typed,
-						{ outcome: "ok", reply: { kind: "ack", id: "x", method: "saveServerSetting" } },
-						identity
-					),
-					shapeSubmission(
-						typed,
-						{
-							outcome: "validation-error",
-							reply: {
-								kind: "fail",
-								id: "x",
-								method: "saveServerSetting",
-								message: "The change was not applied.",
-								failureKind: "validation",
-							},
-							issues: [{ path: "server.label", code: "too_big", message: "too long" }],
+					shapeSubmission(typed, { outcome: "ok", reply: { kind: "ack", id: "x", method: "saveServerSetting" } }),
+					shapeSubmission(typed, {
+						outcome: "validation-error",
+						reply: {
+							kind: "fail",
+							id: "x",
+							method: "saveServerSetting",
+							message: "The change was not applied.",
+							failureKind: "validation",
 						},
-						identity
-					),
-					shapeSubmission(typed, { outcome: "ignored-malformed", issues: [] }, identity),
+						issues: [{ path: "server.label", code: "too_big", message: "too long" }],
+					}),
+					shapeSubmission(typed, { outcome: "ignored-malformed", issues: [] }),
 				];
 				for (const shaped of submissions) {
 					expect(renderJson(shaped)).not.toContain(secret);

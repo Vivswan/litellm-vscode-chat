@@ -8,6 +8,7 @@
 
 import type { ModelRecordMap } from "./config/modelMatcher";
 import { normalizeBaseUrl } from "./util/baseUrl";
+import { isRecord } from "./util/json";
 
 /**
  * THE ORDER IS LOAD-BEARING while migrations/fingerprintProjection.ts lives: buildGroupArgs emits the provider-group
@@ -241,6 +242,25 @@ export function entryUsesSecretField(
 	field: SecretFieldId
 ): boolean {
 	return normalizeBaseUrl(entry.baseUrl).length > 0 && presentCarriers(field, entry) !== undefined;
+}
+
+/** Header names compare case-insensitively, trimmed the way the settings parser (serverSync/setting.ts) trims them. */
+export function sameHeaderName(a: string, b: string): boolean {
+	return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * The header names a RAW entry's virtualKey carrier can sit at (flat, under auth, under auth.oauth): each names a
+ * header whose value is virtualKeyValue, so a custom header of the same name is a credential too.
+ */
+export function virtualKeyHeaderNames(entry: Readonly<Record<string, unknown>>): string[] {
+	const auth = isRecord(entry.auth) ? entry.auth : {};
+	const oauth = isRecord(auth.oauth) ? auth.oauth : {};
+	return [
+		entry.virtualKeyHeader,
+		isRecord(auth.virtualKey) ? auth.virtualKey.header : undefined,
+		isRecord(oauth.virtualKey) ? oauth.virtualKey.header : undefined,
+	].filter((name): name is string => typeof name === "string");
 }
 
 /**

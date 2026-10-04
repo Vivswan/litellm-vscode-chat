@@ -8,11 +8,19 @@ import { WIRE_LIMITS } from "../../../dashboard/endpoints";
 import type { AgentToolId } from "../../../shared/config/commandIds";
 import { FEATURE_MODEL_IDS } from "../../../shared/config/settingSpec";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { displayUrl } from "../../../shared/util/displayUrl";
 import { trimHttpWhitespace } from "../../../shared/util/headers";
 import { recordFromKeys } from "../../../shared/util/json";
 
 /** The catalog search's own bound; every other string takes the dashboard's wire limit for its kind. */
 const QUERY_MAX = 200;
+
+/**
+ * What litellm_configuration shows in place of a credential-bearing custom header's value (render.ts), and what an
+ * agent hands back to keep that stored value: the one word both sides share, so an echoed read never overwrites
+ * the real header with the placeholder text.
+ */
+export const CREDENTIAL_HEADER_PLACEHOLDER = "[credential header: value kept in settings, not shown]";
 
 /**
  * Labels lose edge HTTP whitespace here, the dashboard save's one trim rule, as an in-order check before the length
@@ -62,10 +70,22 @@ const clearable = z
 const removableLabel = label.describe(
 	"The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
 );
-const groupBaseUrl = z
+
+/**
+ * A URL the agent copies back from litellm_configuration to name a group. The read never shows userinfo, so a URL
+ * carrying it came from somewhere else; refusing it here keeps the planner's URL match from quietly resolving a
+ * group with a credential nobody handed the agent.
+ */
+const identityBaseUrl = z
 	.string()
 	.min(1)
-	.describe("The group's base URL as litellm_configuration shows it; with the label it identifies the group.");
+	.refine((url) => displayUrl(url) === url, {
+		message: "carries user:password@; give the base URL as litellm_configuration shows it",
+	});
+
+const groupBaseUrl = identityBaseUrl.describe(
+	"The group's base URL as litellm_configuration shows it; with the label it identifies the group."
+);
 
 const serverLabel = label.describe("The entry's label (its identity; the model picker groups models under it).");
 
@@ -136,7 +156,7 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 				adoptFrom: z
 					.strictObject({
 						label: label.describe("The external group's label, from litellm_configuration."),
-						baseUrl: z.string().min(1).describe("The external group's base URL, from litellm_configuration."),
+						baseUrl: identityBaseUrl.describe("The external group's base URL, from litellm_configuration."),
 					})
 					.describe("The external provider group to copy, from litellm_configuration."),
 				secretLocations: z
@@ -167,7 +187,14 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 				headers: z
 					.unknown()
 					.optional()
-					.describe("Custom HTTP headers as an object of header name to value (plain text, not secrets)."),
+					.describe(
+						[
+							"Custom HTTP headers as an object of header name to value, replacing the stored object whole.",
+							"A credential-bearing header (Authorization, Proxy-Authorization, X-API-Key, the entry's",
+							`virtualKeyHeader) reads back from litellm_configuration as ${CREDENTIAL_HEADER_PLACEHOLDER};`,
+							"send that placeholder to keep its stored value.",
+						].join(" ")
+					),
 				declaredModels: z
 					.unknown()
 					.optional()
@@ -319,18 +346,40 @@ type AgentInputParse<K extends AgentToolId> =
 	| { readonly ok: true; readonly input: AgentToolInput<K> }
 	| { readonly ok: false; readonly issues: readonly AgentInputIssue[] };
 
+/**
+ * A parse's issues flat, with a union's per-member issues unfolded: the union itself says only "Invalid input" at
+ * the root, which gives the model nothing to correct (the adopt branch's URL rule, a misspelled field).
+ */
+function flattenIssues(issues: readonly z.core.$ZodIssue[]): AgentInputIssue[] {
+	const flat: AgentInputIssue[] = [];
+	const seen = new Set<string>();
+	const visit = (issue: z.core.$ZodIssue): void => {
+		if (issue.code === "invalid_union" && issue.errors.length > 0) {
+			for (const member of issue.errors) {
+				for (const nested of member) {
+					visit(nested);
+				}
+			}
+			return;
+		}
+		const row = { path: issue.path.map(String).join("."), code: issue.code, message: issue.message };
+		const key = JSON.stringify(row);
+		if (!seen.has(key)) {
+			seen.add(key);
+			flat.push(row);
+		}
+	};
+	for (const issue of issues) {
+		visit(issue);
+	}
+	return flat;
+}
+
 /** Parse one tool's raw input against its envelope. */
 export function parseAgentToolInput<K extends AgentToolId>(tool: K, raw: unknown): AgentInputParse<K> {
 	const parsed = AGENT_TOOL_INPUT_SCHEMAS[tool].safeParse(raw);
 	if (!parsed.success) {
-		return {
-			ok: false,
-			issues: parsed.error.issues.map((issue) => ({
-				path: issue.path.map(String).join("."),
-				code: issue.code,
-				message: issue.message,
-			})),
-		};
+		return { ok: false, issues: flattenIssues(parsed.error.issues) };
 	}
 	return { ok: true, input: parsed.data as AgentToolInput<K> };
 }

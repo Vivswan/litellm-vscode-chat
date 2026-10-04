@@ -235,7 +235,7 @@ describe("agentTools core fuzz", () => {
 						} else {
 							expect(parsed.frame?.method).toBe(planned.method);
 						}
-						expect(() => renderJson(shapeSubmission(filled, { outcome: "ok" }, (text) => text))).not.toThrow();
+						expect(() => renderJson(shapeSubmission(filled, { outcome: "ok" }))).not.toThrow();
 					}
 				}),
 				{ seed: SEED, numRuns: NUM_RUNS }
@@ -261,7 +261,7 @@ describe("agentTools core fuzz", () => {
 							? (value as Record<string, unknown>)
 							: { value };
 					expect(() => describeServerChange(key, record(before), record(after), [], [])).not.toThrow();
-					expect(renderJson(shapeConfiguration(state, undefined, (text) => text)).length).toBeLessThanOrEqual(60_000);
+					expect(renderJson(shapeConfiguration(state, undefined)).length).toBeLessThanOrEqual(60_000);
 					expect(renderJson(after).length).toBeLessThanOrEqual(60_000);
 				}
 			),

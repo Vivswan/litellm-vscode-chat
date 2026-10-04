@@ -71,6 +71,7 @@ suite("extension/ui/diagnostics", () => {
 				},
 				// The opted-in entry counts; the plain one does not.
 				mcpEntryCount: 1,
+				virtualKeyHeaders: [],
 				latestError: {
 					source: "discovery",
 					message: "fetch exploded",
