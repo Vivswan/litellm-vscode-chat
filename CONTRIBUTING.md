@@ -54,16 +54,21 @@ From the project directory:
 
 ```bash
 bun run lint:actions # lint GitHub Actions workflows
-bun run lint         # run Biome lint
+bun run lint         # Biome formatting, lint, and import-order check (bun run format applies the fixes)
 bun run compile      # compile TypeScript
 bun run typecheck    # type-check all four tsconfig projects (compile builds only the root one)
 bun run test         # run the VS Code extension tests
-bun run format       # format files with Biome
+bun run format       # apply Biome formatting, import order, and safe lint fixes
 ```
 
-The Husky pre-commit hook (`.husky/pre-commit`) runs before every commit: staged-file formatting, the staging run that regenerates the generated files (`bun scripts/dev/stageGenerated.ts`), the static gates (`bun run check:static`: workflow lint, the `@types/vscode` versus `engines.vscode` guard, lint, typecheck, the localization gate, `manifest:check`, `docs:settings:check`), and the bun test tree.
+The Husky pre-commit hook (`.husky/pre-commit`) only checks and never writes: the `node_modules` guard, `bun run check:static`, and the bun test tree. A refused check names its fix command when one exists; stage the result and commit again.
 
-The VS Code host suite is CI's on every push; `bun run check` runs everything locally. The hook refuses the commit when dependencies are not installed.
+- formatting, lint, import order: `bun run format`
+- generated manifest blocks: `bun run manifest:generate`
+- settings docs: `bun run docs:settings`
+- l10n bundle: `bun run l10n:extract`
+
+The VS Code host suite is CI's on every push; `bun run check` runs everything locally.
 
 ## Code style
 

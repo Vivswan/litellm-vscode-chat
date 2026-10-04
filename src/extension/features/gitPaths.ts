@@ -1,8 +1,7 @@
 /**
- * Pure path arithmetic for the git-backed features, split out of gitAccess.ts (a vscode value import) so a module that
- * must stay extension-host-free - commitGen/commitMessage.ts, whose suite runs in the bun tree (`bun run test:bun`) -
- * can share it instead of carrying a copy. No imports at all; the structural parameter accepts vscode.Uri and the git
- * API's Uri without naming either.
+ * Pure path arithmetic for the git-backed features, kept free of vscode imports so commitGen/commitMessage.ts, whose
+ * suite runs in the bun tree, can import it. The structural parameter accepts vscode.Uri and the git API's Uri without
+ * naming either.
  */
 
 /**

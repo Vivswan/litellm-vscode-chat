@@ -1,219 +1,58 @@
-import { afterEach, beforeEach, describe, test } from "bun:test";
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { REPO_ROOT } from "../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
-import { HOOK_GIT_INDEX_FILE } from "./launcherEnv";
 
 /**
- * Pins the hook layer's fail-closed floor. core.hooksPath points at .husky/_,
- * which husky's prepare script generates only when bun install runs in that
- * checkout - so a fresh `git worktree add` used to run ZERO hooks, silently.
- * The fix tracks byte-identical copies of husky's generated bootstrap files,
- * so every checkout has a working hook chain whose first act is the
- * node_modules guard. The required set is derived from the tracked hook
- * scripts rather than listed here: a hook added without its shim is the same
- * silent fail-open this suite exists to close.
+ * Nothing here spawns git: a scratch git under a leaked GIT_DIR once rewrote the real repository. The bootstrap files
+ * under .husky/_ are tracked because husky generates them only on install.
+ *
+ *   fresh worktree, no bun install  -> the hook refuses and names the fix (7a757c06: it ran no hooks at all)
+ *   a hook script's shim            -> exists and is executable (git skips a non-executable hook silently)
  */
 
-/** husky's runtime, sourced by every shim. */
-const HUSKY_RUNTIME = ".husky/_/h";
+/** A deleted hook script leaves nothing to derive a requirement from, so the relied-on hooks are listed here. */
+const REQUIRED_HOOKS = ["pre-commit", "commit-msg"];
+const HUSKY_DIR = path.join(REPO_ROOT, ".husky");
+const shimOf = (hook: string): string => path.join(HUSKY_DIR, "_", hook);
 
 /**
- * The hooks this repository relies on. Derivation cannot supply these: a
- * deleted hook script leaves nothing behind to derive a requirement from, so
- * dropping one - and with it, say, the commit-msg credit check - would read as
- * green. Removing a hook is deliberate and edits this list.
+ * Every file in .husky/ needs a shim, a helper parked there included: intersecting with husky's hook-name list instead
+ * would silently drop a real git hook husky generates no shim for.
  */
-const REQUIRED_HOOKS = [".husky/pre-commit", ".husky/commit-msg"];
-
-/**
- * process.env (already hermetic for git: scripts/bun-test.ts dropped the hook's exports before bun started) minus
- * HUSKY, whose =0 escape would turn the probes into no-ops.
- */
-function hostEnv(): NodeJS.ProcessEnv {
-	const { HUSKY: _husky, ...env } = process.env;
-	return env;
-}
-
-/** hostEnv with a per-fixture HOME, so the user's ~/.config/husky/init.sh (which husky's runtime sources) stays out. */
-function isolatedEnv(home: string): NodeJS.ProcessEnv {
-	const env = hostEnv();
-	env.HOME = home;
-	env.USERPROFILE = home;
-	env.XDG_CONFIG_HOME = path.join(home, "xdg");
-	return env;
-}
-
-/**
- * hostEnv plus the one hook export this repository's own reads must keep: `git commit -a` and `git commit <pathspec>`
- * build the commit in a temporary index (index.lock, next-index-*.lock) and point the hook at it through
- * GIT_INDEX_FILE, so .git/index is the stale state under those invocations while GIT_INDEX_FILE names the tree
- * actually being committed. The launcher stashes it before dropping GIT_*. Only the REPO_ROOT reads take this; a
- * temp-repo spawn given it would read this repository's index instead of its own.
- */
-function repoIndexEnv(): NodeJS.ProcessEnv {
-	const env = hostEnv();
-	const inherited = process.env[HOOK_GIT_INDEX_FILE];
-	if (inherited) {
-		// Relative to the worktree top level in a plain checkout (.git/index), absolute in a linked worktree.
-		env.GIT_INDEX_FILE = path.resolve(REPO_ROOT, inherited);
-	}
-	// The launcher emptied the global config, and with it the safe.directory trust a differently owned checkout is
-	// committed through; it is re-granted for this repository alone. git honors safe.directory from the command line
-	// and the environment, never from the repository's own config.
-	env.GIT_CONFIG_COUNT = "1";
-	env.GIT_CONFIG_KEY_0 = "safe.directory";
-	env.GIT_CONFIG_VALUE_0 = REPO_ROOT;
-	return env;
-}
-
-function git(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
-	return spawnSync("git", args, { cwd, env, encoding: "utf8" });
-}
-
-function assertOk(result: ReturnType<typeof git>, what: string): void {
-	assert.strictEqual(result.status, 0, `${what}: ${result.stdout}${result.stderr}`);
-}
-
-/**
- * Every path git tracks under .husky with its index mode, as a fresh checkout
- * would receive it. The index rather than the working tree is the subject
- * throughout this suite: a bad shim can sit staged while bun install restores
- * a good copy on disk, and it is the staged blob that every future worktree
- * checks out. `-z` also spares us git's C-quoting of exotic names.
- */
-function trackedHuskyEntries(): ReadonlyMap<string, string> {
-	const listed = spawnSync("git", ["-C", REPO_ROOT, "ls-files", "-sz", "--", ".husky"], {
-		env: repoIndexEnv(),
-		encoding: "utf8",
-	});
-	assert.strictEqual(listed.status, 0, listed.stderr);
-	const entries = new Map<string, string>();
-	for (const record of listed.stdout.split("\0").filter(Boolean)) {
-		const [meta = "", file = ""] = record.split("\t");
-		entries.set(file, meta.split(" ")[0] ?? "");
-	}
-	return entries;
-}
-
-/** A tracked file's staged bytes - what a commit records and a checkout gets. */
-function indexBytes(file: string): Buffer {
-	const shown = spawnSync("git", ["-C", REPO_ROOT, "show", `:${file}`], { env: repoIndexEnv() });
-	assert.strictEqual(shown.status, 0, `git show :${file}: ${shown.stderr}`);
-	return shown.stdout;
-}
-
-/**
- * The shims a fresh checkout must carry: one per tracked hook script, since
- * git invokes .husky/_/<name> and nothing else. Derived, so adding a hook
- * script without committing its shim fails here instead of silently skipping
- * that hook in every worktree. Deliberately over-strict - a shared helper
- * parked in .husky/ would be demanded a shim it has no use for - because the
- * alternative, intersecting with husky's hook-name list, would silently drop
- * real git hooks husky does not generate a shim for.
- */
-function requiredShims(tracked: ReadonlyMap<string, string>): readonly string[] {
+function hookScripts(): readonly string[] {
+	const hooks = fs
+		.readdirSync(HUSKY_DIR, { withFileTypes: true })
+		.filter((entry) => entry.isFile())
+		.map((entry) => entry.name);
 	for (const hook of REQUIRED_HOOKS) {
-		assert.ok(tracked.has(hook), `${hook} is no longer staged; dropping a hook is deliberate and edits REQUIRED_HOOKS`);
+		assert.ok(hooks.includes(hook), `.husky/${hook} is gone; dropping a hook is deliberate and edits REQUIRED_HOOKS`);
 	}
-	const hooks = [...tracked.keys()].filter((file) => /^\.husky\/[^/]+$/.test(file));
-	return hooks.map((hook) => `.husky/_/${path.basename(hook)}`);
-}
-
-/** The shims plus the runtime they source - everything that must be tracked. */
-function requiredBootstrap(tracked: ReadonlyMap<string, string>): readonly string[] {
-	return [...requiredShims(tracked), HUSKY_RUNTIME];
+	return hooks;
 }
 
 describe("hook layer fails closed", () => {
-	// Every write this suite performs must land in a scratch repo under the tmpdir. Linked worktrees share one
-	// config file, so a git init that inherited GIT_DIR rewrites what every sibling checkout reads (a leaked
-	// GIT_DIR once flipped core.bare there), and this snapshot proves the launcher's scrub and the scratch repos hold.
-	//
-	//   entries, not inode or timestamp -> every guarded leak adds, drops, changes, or reorders one, and every
-	//                                      concurrent git client rewrites the file through config.lock
-	//   values digested, not embedded   -> a failing deepStrictEqual prints both operands, and a CI checkout's
-	//                                      config carries the job token as an auth extraheader
-	//   branch.<name>.vscode-merge-base -> VS Code's Git extension appends it, and nothing under test can, since
-	//                                      the suite's only worktree add is --detach
-	const sharedConfigSnapshot = (): readonly string[] => {
-		const listed = spawnSync("git", ["-C", REPO_ROOT, "config", "--list", "--local", "-z"], {
-			env: repoIndexEnv(),
-			encoding: "utf8",
-		});
-		assert.strictEqual(listed.status, 0, listed.stderr);
-		return listed.stdout
-			.split("\0")
-			.filter(Boolean)
-			.filter((record) => !/^branch\..+\.vscode-merge-base(?:\n|$)/.test(record))
-			.map((record) => {
-				const newline = record.indexOf("\n");
-				const key = newline === -1 ? record : record.slice(0, newline);
-				return `${key} ${createHash("sha256").update(record).digest("hex")}`;
-			});
-	};
-	let configBefore: readonly string[];
-
-	beforeEach(() => {
-		configBefore = sharedConfigSnapshot();
-	}, CHILD_PROCESS_TIMEOUT_MS);
-
-	afterEach(() => {
-		assert.deepStrictEqual(
-			sharedConfigSnapshot(),
-			configBefore,
-			"the shared git config's entries changed; this suite must mutate only the scratch repos it creates under the tmpdir"
-		);
-	}, CHILD_PROCESS_TIMEOUT_MS);
-
 	test(
-		"a fresh worktree that never ran bun install rejects the commit with an actionable message",
+		"a checkout that never ran bun install refuses the commit with an actionable message",
 		() => {
+			// The shim sources husky's runtime, which runs the hook script with sh -e from the cwd, a scratch directory
+			// without node_modules. Scratch HOME keeps ~/.config/husky/init.sh out; unset HUSKY keeps its =0 escape out.
 			const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lvt-hooks-"));
 			try {
-				const env = isolatedEnv(tmp);
-
-				// Reproduce what `git worktree add` checks out: the tracked .husky
-				// files, taken from this repository's index at their index modes.
-				const tracked = trackedHuskyEntries();
-				for (const file of requiredBootstrap(tracked)) {
-					assert.ok(
-						tracked.has(file),
-						`${file} must be tracked, or a fresh worktree silently skips the hook it belongs to`
-					);
-				}
-
-				const origin = path.join(tmp, "origin");
-				fs.mkdirSync(origin);
-				for (const [file, mode] of tracked) {
-					const dest = path.join(origin, file);
-					fs.mkdirSync(path.dirname(dest), { recursive: true });
-					fs.writeFileSync(dest, indexBytes(file), { mode: mode === "100755" ? 0o755 : 0o644 });
-				}
-				assertOk(git(origin, env, "init", "-q", "-b", "main"), "git init");
-				assertOk(git(origin, env, "add", "-A"), "git add");
-				assertOk(git(origin, env, "commit", "-q", "-m", "seed"), "seed commit");
-				// What husky's prepare set in the checkout the worktree was created from.
-				assertOk(git(origin, env, "config", "core.hooksPath", ".husky/_"), "git config");
-
-				const worktree = path.join(tmp, "wt");
-				assertOk(git(origin, env, "worktree", "add", "-q", "--detach", worktree), "git worktree add");
-
-				const commit = git(worktree, env, "commit", "--allow-empty", "-m", "no-install probe");
-				const output = commit.stdout + commit.stderr;
-				assert.notStrictEqual(commit.status, 0, `the commit must fail without bun install, got: ${output}`);
+				const { HUSKY: _husky, ...env } = process.env;
+				const run = spawnSync("sh", [shimOf("pre-commit")], {
+					cwd: tmp,
+					env: { ...env, HOME: tmp, USERPROFILE: tmp, XDG_CONFIG_HOME: path.join(tmp, "xdg") },
+					encoding: "utf8",
+				});
+				const output = run.stdout + run.stderr;
+				assert.strictEqual(run.status, 1, `the hook must refuse without node_modules, got ${run.status}: ${output}`);
 				assert.ok(output.includes("Dependencies are missing"), `expected the guard message, got: ${output}`);
 				assert.ok(output.includes("bun install"), `the message must name the fix, got: ${output}`);
-
-				// The documented escape hatch still works, which also proves the
-				// failure above came from husky's runtime, not from a broken chain.
-				const skipped = git(worktree, { ...env, HUSKY: "0" }, "commit", "--allow-empty", "-m", "skip");
-				assert.strictEqual(skipped.status, 0, `HUSKY=0 must still bypass: ${skipped.stdout}${skipped.stderr}`);
 			} finally {
 				fs.rmSync(tmp, { recursive: true, force: true });
 			}
@@ -221,69 +60,16 @@ describe("hook layer fails closed", () => {
 		CHILD_PROCESS_TIMEOUT_MS
 	);
 
-	test(
-		"the staged bootstrap files are byte-identical to what the installed husky generates",
-		() => {
-			const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lvt-hooks-gen-"));
-			try {
-				const env = isolatedEnv(tmp);
-				assertOk(git(tmp, env, "init", "-q"), "git init");
-				const bin = path.join(REPO_ROOT, "node_modules", "husky", "bin.js");
-				const install = spawnSync(process.execPath, [bin], { cwd: tmp, env, encoding: "utf8" });
-				assert.strictEqual(install.status, 0, install.stderr);
-				// husky reports failures as stdout text with exit 0; success is empty.
-				assert.strictEqual(install.stdout, "", `husky install failed: ${install.stdout}`);
-
-				for (const file of requiredBootstrap(trackedHuskyEntries())) {
-					const generatedPath = path.join(tmp, file);
-					const drift = `${file} drifted from husky's generated bytes; after a husky upgrade, re-run bun install and commit the rewritten bootstrap files`;
-					assert.ok(fs.existsSync(generatedPath), `${drift} (this husky version generates no ${file})`);
-					assert.ok(fs.readFileSync(generatedPath).equals(indexBytes(file)), drift);
-				}
-			} finally {
-				fs.rmSync(tmp, { recursive: true, force: true });
+	test("every hook script has an executable shim, so git actually invokes it", () => {
+		// git skips a shim it cannot execute, and husky's runtime runs the script behind it through `sh -e`, so only the
+		// shim's mode matters. Mode bits are a POSIX fact the Windows leg cannot read.
+		assert.ok(fs.existsSync(shimOf("h")), "the husky runtime the shims source is missing");
+		for (const hook of hookScripts()) {
+			assert.ok(fs.existsSync(shimOf(hook)), `.husky/_/${hook} is missing, so git never invokes .husky/${hook}`);
+			if (process.platform !== "win32") {
+				const mode = fs.statSync(shimOf(hook)).mode & 0o111;
+				assert.notStrictEqual(mode, 0, `.husky/_/${hook} must be executable, or git skips .husky/${hook} silently`);
 			}
-		},
-		CHILD_PROCESS_TIMEOUT_MS
-	);
-
-	test(
-		"every hook script's shim is staged executable, so git actually invokes them",
-		() => {
-			// git silently skips a non-executable hook file; the index mode is what
-			// every future checkout receives.
-			const tracked = trackedHuskyEntries();
-			for (const shim of requiredShims(tracked)) {
-				assert.strictEqual(
-					tracked.get(shim),
-					"100755",
-					`${shim} must be staged executable, or the hook it fronts never runs in a fresh checkout`
-				);
-			}
-			assert.ok(tracked.has(HUSKY_RUNTIME), "the husky runtime the shims source must be tracked");
-
-			// Tracked-yet-ignored files are a trap: the initial add needs -f and a
-			// future bootstrap file would silently skip adds. Pin the repository's
-			// own .gitignore as scoped around the tracked files - checked in a temp
-			// repo because the installed checkout also carries husky's generated
-			// .husky/_/.gitignore (*), which rightly covers the generated content.
-			const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lvt-hooks-ign-"));
-			try {
-				const env = isolatedEnv(tmp);
-				assertOk(git(tmp, env, "init", "-q"), "git init");
-				fs.writeFileSync(path.join(tmp, ".gitignore"), indexBytes(".gitignore"));
-				const bootstrap = git(tmp, env, "check-ignore", "--no-index", ...requiredBootstrap(tracked));
-				assert.strictEqual(
-					bootstrap.status,
-					1,
-					`ignore rules cover: ${bootstrap.stdout}- keep .gitignore's .husky/_ patterns scoped around the tracked files`
-				);
-				const generated = git(tmp, env, "check-ignore", "--no-index", ".husky/_/husky.sh");
-				assert.strictEqual(generated.status, 0, "husky's generated, untracked runtime files must stay ignored");
-			} finally {
-				fs.rmSync(tmp, { recursive: true, force: true });
-			}
-		},
-		CHILD_PROCESS_TIMEOUT_MS
-	);
+		}
+	});
 });

@@ -7,7 +7,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { CONFIG_SECTION } from "../../src/shared/config/settingSpec";
 import { renderConfiguration } from "../dev/manifest/configuration";
-import type { GeneratedFile, Generator } from "../dev/staging";
 import { SETTING_PROSE, type SettingProse } from "./settingsReferenceProse";
 
 export const DOC_LOCALES = ["en", "zhCn", "zhTw"] as const;
@@ -231,7 +230,7 @@ function markerCount(content: string, marker: string): number {
  * Every locale's doc under `root` with its table regenerated. All three render before any is returned, so one
  * locale's refusal (a malformed marker region, a setting without prose) leaves the caller nothing to write.
  */
-export function renderSettingsReference(root: string): GeneratedFile[] {
+export function renderSettingsReference(root: string): { readonly relativePath: string; readonly next: string }[] {
 	const settings = readSpecSettings();
 	return DOC_LOCALES.map((locale) => {
 		const relativePath = SETTINGS_DOC_PATHS[locale];
@@ -239,9 +238,3 @@ export function renderSettingsReference(root: string): GeneratedFile[] {
 		return { relativePath, next: applyReferenceTable(content, locale, buildReferenceTable(locale, settings)) };
 	});
 }
-
-export const SETTINGS_REFERENCE_GENERATOR = {
-	label: "settings-reference",
-	outputs: DOC_LOCALES.map((locale) => SETTINGS_DOC_PATHS[locale]),
-	render: renderSettingsReference,
-} satisfies Generator;

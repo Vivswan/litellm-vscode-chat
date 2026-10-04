@@ -1,7 +1,6 @@
 /**
- * Regenerates each locale's settings reference table. `--check` verifies instead of writing and exits 1 on drift;
- * `--root <dir>` points the output docs at another directory (tests use it). The pre-commit hook does not run this:
- * scripts/dev/stageGenerated.ts regenerates and stages its registered generators' outputs in one run.
+ * Regenerates each locale's settings reference table (generatorArgs.ts names the flags). Nothing regenerates on the
+ * developer's behalf: the pre-commit hook and CI run `--check`.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -15,7 +14,7 @@ function main(): void {
 	for (const { relativePath, next } of stale) {
 		if (mode === "check") {
 			console.error(
-				`settings-reference: ${relativePath} is stale; run: bun scripts/docs/generate-settings-reference.ts`
+				`settings-reference: ${relativePath} is stale; run: bun run docs:settings, then stage the docs and commit again`
 			);
 		} else {
 			fs.writeFileSync(path.join(root, relativePath), next);

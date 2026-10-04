@@ -2129,8 +2129,8 @@
 		"lint:actions": "bun scripts/ci/lint-actions.ts",
 		"lint:knip": "knip",
 		"lint:types": "eslint src scripts",
-		"lint": "biome lint --max-diagnostics=none .",
-		"format": "biome format --write --max-diagnostics=none .",
+		"lint": "biome check --max-diagnostics=none .",
+		"format": "biome check --write --max-diagnostics=none .",
 		"watch": "tsc -watch -p ./",
 		"docker:up": "bun scripts/stack/compose.ts up -d --wait",
 		"docker:down": "bun scripts/stack/compose.ts down -v",
@@ -2144,7 +2144,7 @@
 		"test:host": "bun run test:bun && bun run test:vscode",
 		"test:vscode": "bun run compile && bun run bundle:dev && vscode-test --label unit --label activation-production --label host-fidelity --label host-fidelity-groups",
 		"test:coverage": "bun run test:bun --coverage --coverage-reporter=lcov --coverage-dir=coverage/bun && bun run test:vscode --coverage && bun scripts/ci/check-coverage.ts",
-		"test:bun": "bun scripts/bun-test.ts",
+		"test:bun": "bun test",
 		"test:docker": "bun scripts/docker-test.ts"
 	},
 	"dependencies": {
@@ -2181,15 +2181,11 @@
 		"jiti": "^2.7.0",
 		"knip": "^6.34.0",
 		"lightningcss": "^1.32.0",
-		"lint-staged": "^17.4.1",
 		"msw": "^2.15.0",
 		"rolldown": "^1.2.6",
 		"tailwindcss": "^4.3.3",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "8.69.0"
-	},
-	"lint-staged": {
-		"*.{js,mjs,cjs,ts,mts,cts,jsx,tsx,css}": "biome check --write --no-errors-on-unmatched --max-diagnostics=none"
 	},
 	"packageManager": "bun@1.4.2"
 }
