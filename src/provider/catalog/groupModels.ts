@@ -3,11 +3,17 @@ import { ThemeIcon } from "vscode";
 import type { EffectiveOutputLimitSource, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
 import type {
 	NonSecretOptionalFieldId,
+	NonSecretOptionalFields,
 	OptionalEntryFieldId,
 	SecretFieldCarrier,
 	SecretFieldId,
 } from "../../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_CARRIERS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import {
+	NON_SECRET_OPTIONAL_FIELD_IDS,
+	OPTIONAL_ENTRY_FIELDS,
+	presentCarriers,
+	SECRET_FIELD_IDS,
+} from "../../shared/serverEntry";
 import type { NormalizedBaseUrl } from "../../shared/util/baseUrl";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
@@ -160,25 +166,19 @@ function usableString(value: unknown): string | undefined {
 type RawOptionalFields = { readonly [K in OptionalEntryFieldId]?: unknown };
 
 /**
- * A secret field's carriers (SECRET_FIELD_CARRIERS), every one a usable string, or undefined when any is not: the
- * parser-side reading of the unit rule whose entry-side reading is entryUsesSecretField. The unit builders below read
- * the carriers off the result, so they cannot require fewer than the table lists, and usable implies present, so a
- * unit this narrows onto the wire is one the rule attributes to the entry.
+ * The raw non-secret fields in the shape the settings parser gives an entry (present only with usable text), so the
+ * unit builders below read their carriers through presentCarriers, the one owner of the carrier reading, and a unit
+ * this parser narrows onto the wire is one entryUsesSecretField attributes to the entry.
  */
-function usableCarriers<F extends SecretFieldId>(
-	field: F,
-	raw: RawOptionalFields
-): { readonly [K in SecretFieldCarrier<F>]: string } | undefined {
-	const values: { -readonly [K in OptionalEntryFieldId]?: string } = {};
-	for (const carrier of SECRET_FIELD_CARRIERS[field]) {
-		const value = usableString(raw[carrier]);
-		if (value === undefined) {
-			return undefined;
+function usableNonSecretFields(raw: RawOptionalFields): NonSecretOptionalFields {
+	const fields: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
+	for (const id of NON_SECRET_OPTIONAL_FIELD_IDS) {
+		const value = usableString(raw[id]);
+		if (value !== undefined) {
+			fields[id] = value;
 		}
-		values[carrier] = value;
 	}
-	// Every carrier of `field` was assigned above; the loop's partial record type cannot say so.
-	return values as { readonly [K in SecretFieldCarrier<F>]: string };
+	return fields;
 }
 
 /**
@@ -187,16 +187,16 @@ function usableCarriers<F extends SecretFieldId>(
  * taken verbatim (an empty one means a public client) and scopes are optional.
  */
 function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
-	const carriers = usableCarriers("oauthClientSecret", raw);
+	const fields = usableNonSecretFields(raw);
+	const carriers = presentCarriers("oauthClientSecret", fields);
 	if (carriers === undefined) {
 		return undefined;
 	}
-	const usableScopes = usableString(raw.oauthScopes);
 	return {
 		tokenUrl: carriers.oauthTokenUrl,
 		clientId: carriers.oauthClientId,
 		clientSecret: typeof raw.oauthClientSecret === "string" ? raw.oauthClientSecret : "",
-		...(usableScopes !== undefined ? { scopes: usableScopes } : {}),
+		...(fields.oauthScopes !== undefined ? { scopes: fields.oauthScopes } : {}),
 	};
 }
 
@@ -218,7 +218,7 @@ function narrowVirtualKey(raw: RawOptionalFields, log?: NarrowLog): VirtualKeyCo
 	if (raw.virtualKeyHeader === undefined && raw.virtualKeyValue === undefined) {
 		return undefined;
 	}
-	const carriers = usableCarriers("virtualKeyValue", raw);
+	const carriers = presentCarriers("virtualKeyValue", usableNonSecretFields(raw));
 	const usableValue = usableString(raw.virtualKeyValue);
 	if (
 		carriers !== undefined &&
