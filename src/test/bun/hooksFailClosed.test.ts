@@ -12,9 +12,10 @@ import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
  * when bun install runs in that checkout, so a fresh `git worktree add` once ran ZERO hooks, silently (7a757c06). The
  * fix tracks husky's generated bootstrap files, so every checkout has a working hook chain whose first act is the
  * node_modules guard. Two facts hold that up and drift silently: the chain refuses a commit in a checkout that never
- * installed, and every shim is tracked and executable (git skips a non-executable hook without a word). The working
- * tree is the subject: nothing in this tree spawns git (noGitSpawn.test.ts says why), and husky rewrites .husky/_ on
- * every install, so the tracked bytes are judged by the developer's `git status`, not here.
+ * installed, and every shim is executable (git skips a non-executable hook without a word). The working tree is the
+ * subject: nothing in this tree spawns git (the hook runs it with git's hook environment exported, and a scratch git
+ * under a leaked GIT_DIR once rewrote the real repository), and husky rewrites .husky/_ on every install, so whether
+ * the bootstrap files are tracked, and with which bytes, is judged by the developer's `git status`, not here.
  */
 
 /**
@@ -69,17 +70,11 @@ describe("hook layer fails closed", () => {
 		CHILD_PROCESS_TIMEOUT_MS
 	);
 
-	test("every hook script has a tracked, executable shim, so git actually invokes it", () => {
-		// .gitignore excludes husky's generated directory and re-includes the tracked files one by one; a shim without
-		// its re-inclusion is untracked, so a fresh worktree never receives it. git skips a shim it cannot execute; the
-		// hook script behind it is run through `sh -e` by husky's runtime, so only the shim's mode matters, and mode
-		// bits are a POSIX fact the Windows leg cannot read.
-		const ignore = fs.readFileSync(path.join(REPO_ROOT, ".gitignore"), "utf8").split("\n");
-		const tracked = (file: string): boolean => ignore.includes(`!.husky/_/${file}`);
-		assert.ok(tracked("h"), "the husky runtime the shims source must be re-included in .gitignore");
+	test("every hook script has an executable shim, so git actually invokes it", () => {
+		// git skips a shim it cannot execute; the hook script behind it is run through `sh -e` by husky's runtime, so
+		// only the shim's mode matters, and mode bits are a POSIX fact the Windows leg cannot read.
 		assert.ok(fs.existsSync(shimOf("h")), "the husky runtime the shims source is missing");
 		for (const hook of hookScripts()) {
-			assert.ok(tracked(hook), `.husky/_/${hook} is ignored, so a fresh worktree never receives the shim for ${hook}`);
 			assert.ok(fs.existsSync(shimOf(hook)), `.husky/_/${hook} is missing, so git never invokes .husky/${hook}`);
 			if (process.platform !== "win32") {
 				const mode = fs.statSync(shimOf(hook)).mode & 0o111;
