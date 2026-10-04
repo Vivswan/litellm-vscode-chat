@@ -10,9 +10,9 @@ import {
 	DOC_LOCALES,
 	type DocLocale,
 	END_MARKER,
-	type ManifestSettings,
-	readManifestSettings,
+	readSpecSettings,
 	SETTINGS_DOC_PATHS,
+	type SpecSettings,
 	TABLE_HEADERS,
 } from "../../../../../scripts/docs/lib";
 import { SETTING_PROSE, type SettingProse } from "../../../../../scripts/docs/settingsReferenceProse";
@@ -26,7 +26,7 @@ import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
  * asked by check:static and CI's lint job, not here.
  */
 
-const manifest = readManifestSettings(REPO_ROOT);
+const settings = readSpecSettings();
 
 function readDoc(locale: DocLocale): string {
 	return fs.readFileSync(path.join(REPO_ROOT, SETTINGS_DOC_PATHS[locale]), "utf8");
@@ -46,7 +46,7 @@ describe("settings reference generation", () => {
 			// A doc from before the markers existed: prose, a hand-kept table under
 			// the locale's header, prose. Hand-authored, so the case holds whether
 			// or not the shipped doc is current.
-			const table = buildReferenceTable(locale, manifest);
+			const table = buildReferenceTable(locale, settings);
 			const [header, separator] = table.split("\n");
 			const before = `# Settings\n\nIntro.\n\n${header}\n${separator}\n| \`old.setting\` | gone | gone |\n\nOutro.\n`;
 			assert.strictEqual(
@@ -56,19 +56,32 @@ describe("settings reference generation", () => {
 		});
 
 		test(`stamping ${locale} is idempotent, and a stale region body regenerates`, () => {
-			const table = buildReferenceTable(locale, manifest);
+			const table = buildReferenceTable(locale, settings);
 			const once = applyReferenceTable(readDoc(locale), locale, table);
 			assert.strictEqual(applyReferenceTable(once, locale, table), once);
 			const corrupted = once.replace("`300000`", "`299`");
 			assert.notStrictEqual(corrupted, once, "the corruption hit a row");
 			assert.strictEqual(applyReferenceTable(corrupted, locale, table), once);
 		});
+
+		test(`a ${locale} doc stamped with an older begin-marker wording regenerates to the current one`, () => {
+			// The provenance text inside the begin marker changes when the generator's inputs change; a doc carrying
+			// the previous wording is still one marked region, not an orphaned end marker.
+			const table = buildReferenceTable(locale, settings);
+			const current = applyReferenceTable(readDoc(locale), locale, table);
+			const older = current.replace(
+				BEGIN_MARKER,
+				"<!-- settings-reference:begin (generated from an older input list; run the generator) -->"
+			);
+			assert.notStrictEqual(older, current, "the older wording replaced the marker");
+			assert.strictEqual(applyReferenceTable(older, locale, table), current);
+		});
 	}
 
 	test("a contributed setting without a prose entry fails generation", () => {
 		const mutant: Record<string, SettingProse> = { ...SETTING_PROSE };
 		delete mutant["chat.timeout"];
-		assert.throws(() => buildReferenceTable("en", manifest, mutant), /chat\.timeout/);
+		assert.throws(() => buildReferenceTable("en", settings, mutant), /chat\.timeout/);
 	});
 
 	test("every undocumented setting is named in one failure, not rediscovered one run at a time", () => {
@@ -80,7 +93,7 @@ describe("settings reference generation", () => {
 			delete mutant[id];
 		}
 		assert.throws(
-			() => buildReferenceTable("en", manifest, mutant),
+			() => buildReferenceTable("en", settings, mutant),
 			(error: Error) =>
 				["chat.timeout", "usage.statusBar", "reviewComments.model"].every((id) => error.message.includes(id))
 		);
@@ -91,7 +104,7 @@ describe("settings reference generation", () => {
 			...SETTING_PROSE,
 			"chat.timout": { en: "typo", zhCn: "typo", zhTw: "typo" },
 		};
-		assert.throws(() => buildReferenceTable("en", manifest, mutant), /chat\.timout/);
+		assert.throws(() => buildReferenceTable("en", settings, mutant), /chat\.timout/);
 	});
 
 	test("a renamed setting reports the obsolete entry and the undocumented key together", () => {
@@ -104,7 +117,7 @@ describe("settings reference generation", () => {
 		delete mutant["chat.timeout"];
 		mutant["chat.timeoutMs"] = orphaned;
 		assert.throws(
-			() => buildReferenceTable("en", manifest, mutant),
+			() => buildReferenceTable("en", settings, mutant),
 			(error: Error) => error.message.includes("chat.timeout;") && error.message.includes("chat.timeoutMs")
 		);
 	});
@@ -116,18 +129,18 @@ describe("settings reference generation", () => {
 		// the escaped form would read it as escaped and let the column through.
 		for (const bad of ["", " padded ", "two\nlines", "two\rlines", "a | b", "a \\\\| b", `see ${END_MARKER}`]) {
 			const mutant: Record<string, SettingProse> = { ...SETTING_PROSE, "chat.timeout": { ...base, zhTw: bad } };
-			assert.throws(() => buildReferenceTable("zhTw", manifest, mutant), /chat\.timeout/);
+			assert.throws(() => buildReferenceTable("zhTw", settings, mutant), /chat\.timeout/);
 			// The escaped form is the sanctioned way to put a pipe in a cell.
 			const escaped: Record<string, SettingProse> = { ...SETTING_PROSE, "chat.timeout": { ...base, zhTw: "a \\| b" } };
-			buildReferenceTable("zhTw", manifest, escaped);
+			buildReferenceTable("zhTw", settings, escaped);
 		}
 	});
 
 	test("a setting named after an Object.prototype member reports missing prose, not a TypeError", () => {
 		// Without the hasOwn check the row inherits Object.prototype.toString and
 		// dies later on a TypeError naming nothing useful.
-		const order = [...manifest.order, "toString"];
-		const defaults = new Map(manifest.defaults);
+		const order = [...settings.order, "toString"];
+		const defaults = new Map(settings.defaults);
 		defaults.set("toString", null);
 		assert.throws(
 			() => buildReferenceTable("en", { order, defaults }, SETTING_PROSE),
@@ -135,26 +148,26 @@ describe("settings reference generation", () => {
 		);
 	});
 
-	test("a structured setting without a manifest default fails generation", () => {
-		const defaults = new Map(manifest.defaults);
+	test("a setting without a default fails generation", () => {
+		const defaults = new Map(settings.defaults);
 		defaults.delete("servers");
-		const gutted: ManifestSettings = { order: manifest.order, defaults };
+		const gutted: SpecSettings = { order: settings.order, defaults };
 		assert.throws(() => buildReferenceTable("en", gutted, SETTING_PROSE), /servers/);
 	});
 
-	test("a manifest default that would break the table's code span fails generation", () => {
+	test("a default that would break the table's code span fails generation", () => {
 		// No newline case: JSON.stringify escapes newlines inside string
 		// defaults, so a raw newline cannot reach a structured default's cell.
 		for (const bad of ["a`b", "a|b"]) {
-			const defaults = new Map(manifest.defaults);
+			const defaults = new Map(settings.defaults);
 			defaults.set("usage.currencySymbol", bad);
-			const poisoned: ManifestSettings = { order: manifest.order, defaults };
+			const poisoned: SpecSettings = { order: settings.order, defaults };
 			assert.throws(() => buildReferenceTable("en", poisoned, SETTING_PROSE), /usage\.currencySymbol/);
 		}
 	});
 
 	test("malformed marker layouts fail instead of regenerating around them", () => {
-		const table = buildReferenceTable("en", manifest);
+		const table = buildReferenceTable("en", settings);
 		const stamped = applyReferenceTable(unstamped("en"), "en", table);
 		for (const malformed of [
 			`${END_MARKER}\n${stamped}`, // an orphan end marker before the region
@@ -168,7 +181,7 @@ describe("settings reference generation", () => {
 	});
 
 	test("an ambiguous or separator-less table header fails the first stamping", () => {
-		const table = buildReferenceTable("en", manifest);
+		const table = buildReferenceTable("en", settings);
 		const original = unstamped("en");
 		const quoted = original.replace("## Reference", `## Reference\n\n${TABLE_HEADERS.en}`);
 		assert.throws(() => applyReferenceTable(quoted, "en", table), /repeats the reference table header/);
@@ -176,26 +189,6 @@ describe("settings reference generation", () => {
 		const headerAt = lines.indexOf(TABLE_HEADERS.en);
 		const gutted = [...lines.slice(0, headerAt + 1), ...lines.slice(headerAt + 2)].join("\n");
 		assert.throws(() => applyReferenceTable(gutted, "en", table), /separator row/);
-	});
-
-	test("a setting contributed outside the config section is refused", () => {
-		const root = makeTempDir("settings-reference-prefix-");
-		fs.writeFileSync(
-			path.join(root, "package.json"),
-			JSON.stringify({ contributes: { configuration: [{ properties: { "x.servers": { default: [] } } }] } })
-		);
-		assert.throws(() => readManifestSettings(root), /outside the litellm-vscode-chat section/);
-	});
-
-	test("a manifest whose vocabulary drifts from ALL_SETTING_KEYS is refused", () => {
-		const root = makeTempDir("settings-reference-drift-");
-		fs.writeFileSync(
-			path.join(root, "package.json"),
-			JSON.stringify({
-				contributes: { configuration: [{ properties: { "litellm-vscode-chat.bogus": { default: 1 } } }] },
-			})
-		);
-		assert.throws(() => readManifestSettings(root), /ALL_SETTING_KEYS/);
 	});
 });
 
@@ -213,10 +206,9 @@ function makeTempDir(prefix: string): string {
 	return dir;
 }
 
-/** A disposable checkout shape: the real package.json plus the three docs in their pre-stamping form. */
+/** A disposable checkout shape: the three docs in their pre-stamping form. */
 function makeFixture(): string {
 	const root = makeTempDir("settings-reference-cli-");
-	fs.copyFileSync(path.join(REPO_ROOT, "package.json"), path.join(root, "package.json"));
 	for (const locale of DOC_LOCALES) {
 		const rel = SETTINGS_DOC_PATHS[locale];
 		fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
@@ -244,7 +236,7 @@ describe("generate-settings-reference CLI", () => {
 			const before = fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8");
 			const typo = runCli(root, "--chekc"); // typos: ignore
 			assert.strictEqual(typo.exitCode, 1);
-			assert.match(typo.stderr, /unknown argument/);
+			assert.match(typo.stderr, /Unknown option/);
 			assert.strictEqual(fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8"), before);
 		},
 		CHILD_PROCESS_TIMEOUT_MS

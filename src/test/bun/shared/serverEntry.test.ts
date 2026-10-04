@@ -2,7 +2,6 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
 	entryUsesSecretField,
@@ -11,24 +10,13 @@ import {
 } from "../../../shared/serverEntry";
 import { REPO_ROOT } from "../../util/repoRoot";
 
-/**
- * Drift guards against package.json: the servers setting's items schema stays
- * closed to unknown fields, and the languageModelChatProviders configuration
- * mirrors the server-entry field descriptor.
- */
-interface ItemsSchema {
-	readonly additionalProperties: boolean;
-}
-
+/** Drift guard against package.json: the languageModelChatProviders configuration mirrors the server-entry field descriptor. */
 interface FieldSchema {
 	readonly secret?: boolean;
 }
 
 interface PackageJson {
 	readonly contributes: {
-		readonly configuration: readonly {
-			readonly properties: Record<string, { readonly items?: ItemsSchema }>;
-		}[];
 		readonly languageModelChatProviders: readonly [
 			{
 				readonly configuration: {
@@ -46,17 +34,6 @@ function readPackageJson(): PackageJson {
 
 describe("shared/serverEntry: package.json drift guard", () => {
 	const optionalIds = OPTIONAL_ENTRY_FIELDS.map((field) => field.id);
-
-	test("the servers setting's items schema rejects unknown entry fields", () => {
-		const sections = readPackageJson().contributes.configuration;
-		const properties = Object.assign({}, ...sections.map((section) => section.properties)) as Record<
-			string,
-			{ readonly items?: ItemsSchema }
-		>;
-		const items = properties[`${CONFIG_SECTION}.servers`]?.items;
-		assert.ok(items, "the servers setting declares an items schema");
-		assert.strictEqual(items.additionalProperties, false, "unknown entry fields must be rejected");
-	});
 
 	test("the provider-group configuration declares the descriptor's fields with its secret flags", () => {
 		const [provider] = readPackageJson().contributes.languageModelChatProviders;

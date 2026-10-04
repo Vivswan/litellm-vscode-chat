@@ -27,6 +27,8 @@ import {
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
+	DEFAULT_USAGE_ALERT_THRESHOLDS,
+	DEFAULT_USAGE_STATUS_BAR_MODE,
 	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_MODEL_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
@@ -55,8 +57,8 @@ import {
 
 type LogFn = (message: string, data?: unknown) => void;
 
-// The object settings' keys live in settingSpec.ts beside the scalar specs
-// (vscode-free, so non-host consumers can load them).
+// The object settings' keys live in settingSpec.ts beside the scalar specs (vscode-free, so non-host consumers can
+// load them).
 export {
 	CURRENCY_SYMBOL_SETTING_KEY,
 	MIN_TIMEOUT_MS,
@@ -248,9 +250,6 @@ export function getUsagePollingOffFreshnessWindowMs(log?: LogFn): number {
 	return getClampedNumberSetting("usage.pollingOffFreshnessWindow", log);
 }
 
-/** The budget fractions the usage poller alerts at when nothing valid is configured. */
-export const DEFAULT_USAGE_ALERT_THRESHOLDS: readonly number[] = [0.8, 0.95];
-
 /**
  * Narrow a raw usage.alertThresholds value to usable alert fractions: finite
  * numbers in (0, 1], deduplicated and sorted ascending. A non-array falls back
@@ -275,8 +274,6 @@ export function getUsageAlertThresholds(log?: LogFn): readonly number[] {
 		log
 	);
 }
-
-const DEFAULT_USAGE_STATUS_BAR_MODE: UsageStatusBarMode = "always";
 
 /** Narrow a raw usage.statusBar value to the closed mode vocabulary; anything else reads as the default. */
 export function normalizeUsageStatusBarMode(raw: unknown): UsageStatusBarMode {

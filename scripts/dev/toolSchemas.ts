@@ -11,6 +11,7 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { AGENT_TOOL_INPUT_SCHEMAS } from "../../src/extension/features/agentTools/inputSchema";
 import { AGENT_TOOL_IDS, AGENT_TOOLS, type AgentToolId } from "../../src/shared/config/commandIds";
+import { serializeManifest } from "./manifest/write";
 
 /** Every JSON type: what an unknown-valued field admits. */
 const ANY_JSON_TYPE = [
@@ -56,11 +57,6 @@ interface Manifest {
 	readonly contributes: {
 		readonly languageModelTools: ManifestTool[];
 	};
-}
-
-/** Tab-indented with a trailing newline: the formatting the repository's package.json uses. */
-function serializeManifest(manifest: Manifest): string {
-	return `${JSON.stringify(manifest, null, "\t")}\n`;
 }
 
 export interface ToolSchemaRegeneration {

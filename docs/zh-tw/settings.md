@@ -42,7 +42,7 @@
 
 ## 參考
 
-<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts, package.json, and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->
+<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->
 | 設定 | 預設值 | 行為 |
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | 宣告的 LiteLLM 伺服器; [項目屬性見下](#伺服器項目屬性), 完整故事在[伺服器](servers.md) |

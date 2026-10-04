@@ -42,7 +42,7 @@ The file is a versioned envelope (setting keys inside it drop the `litellm-vscod
 
 ## Reference
 
-<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts, package.json, and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->
+<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->
 | Setting | Default | Behavior |
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | The declared LiteLLM servers; [entry properties below](#server-entry-properties), full story in [Servers](servers.md) |

@@ -1,11 +1,10 @@
 /**
- * Builds and stamps each locale's settings-reference table. Three inputs, each
- * owning one thing: the setting spec the vocabulary, package.json the row order
- * and defaults, settingsReferenceProse.ts the per-locale behavior column.
+ * Builds and stamps each locale's settings-reference table. Two inputs, each owning one thing: the setting spec
+ * (through the manifest renderer, so the row order and defaults are exactly what package.json contributes) and
+ * settingsReferenceProse.ts the per-locale behavior column.
  */
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { ALL_SETTING_KEYS, CONFIG_SECTION } from "../../src/shared/config/settingSpec";
+import { CONFIG_SECTION } from "../../src/shared/config/settingSpec";
+import { renderConfiguration } from "../dev/manifest/configuration";
 import { SETTING_PROSE, type SettingProse } from "./settingsReferenceProse";
 
 export const DOC_LOCALES = ["en", "zhCn", "zhTw"] as const;
@@ -29,66 +28,46 @@ export const TABLE_HEADERS: Record<DocLocale, string> = {
 const TABLE_SEPARATOR = "|---------|---------|-------------|";
 
 export const BEGIN_MARKER =
-	"<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts, package.json, and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->";
+	"<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->";
 export const END_MARKER = "<!-- settings-reference:end -->";
 
-interface ManifestSettingSchema {
-	readonly default?: unknown;
+/**
+ * Any begin marker, whatever provenance text it carries: an older BEGIN_MARKER wording still delimits the region, so
+ * changing the wording regenerates the marker line instead of orphaning the doc.
+ */
+const BEGIN_MARKER_PATTERN = /<!-- settings-reference:begin\b[^\n]*?-->/;
+
+function beginMarkerCount(content: string): number {
+	return content.match(new RegExp(BEGIN_MARKER_PATTERN.source, "g"))?.length ?? 0;
 }
 
-interface ManifestConfigurationSection {
-	readonly properties: Record<string, ManifestSettingSchema>;
-}
-
-interface ManifestShape {
-	readonly contributes: {
-		readonly configuration: readonly ManifestConfigurationSection[];
-	};
-}
-
-/** The contributed settings in manifest order (the settings UI's order, which the docs tables follow) with their manifest defaults. */
-export interface ManifestSettings {
+/** The settings in manifest order (the settings UI's order, which the docs tables follow) with their defaults. */
+export interface SpecSettings {
 	readonly order: readonly string[];
 	readonly defaults: ReadonlyMap<string, unknown>;
 }
 
-/** Refuses a manifest the spec no longer describes: the docs must not regenerate from a drifted vocabulary. */
-export function readManifestSettings(repoRoot: string): ManifestSettings {
-	const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")) as ManifestShape;
+/**
+ * The same rows the manifest generator renders, read from the spec: the docs and package.json then agree by
+ * construction instead of by a check, and the two generators can run in either order.
+ */
+export function readSpecSettings(): SpecSettings {
 	const order: string[] = [];
 	const defaults = new Map<string, unknown>();
-	for (const section of manifest.contributes.configuration) {
-		for (const [key, schema] of Object.entries(section.properties)) {
-			if (!key.startsWith(`${CONFIG_SECTION}.`)) {
-				throw new Error(`setting ${key} is contributed outside the ${CONFIG_SECTION} section`);
-			}
+	for (const section of renderConfiguration()) {
+		for (const [key, schema] of Object.entries(section.properties as Record<string, { readonly default?: unknown }>)) {
 			const id = key.slice(`${CONFIG_SECTION}.`.length);
-			if (defaults.has(id)) {
-				throw new Error(`setting ${key} is contributed twice`);
-			}
 			order.push(id);
 			defaults.set(id, schema.default);
 		}
 	}
-	const contributed = [...order].sort().join("\n");
-	const declared = [...ALL_SETTING_KEYS].sort().join("\n");
-	if (contributed !== declared) {
-		throw new Error(
-			"package.json's contributed settings and ALL_SETTING_KEYS disagree; align the manifest and the spec before generating the settings reference"
-		);
-	}
 	return { order, defaults };
 }
 
-/**
- * The manifest is the only default pipeline: it is what the settings UI shows,
- * and settingSpec.test.ts already pins every scalar contribution against its
- * spec default, so reading the spec here would render the same number twice.
- */
-function renderDefault(id: string, manifest: ManifestSettings): string {
-	const value = manifest.defaults.get(id);
+function renderDefault(id: string, settings: SpecSettings): string {
+	const value = settings.defaults.get(id);
 	if (value === undefined) {
-		throw new Error(`setting ${id} has no manifest default to render`);
+		throw new Error(`setting ${id} has no default to render`);
 	}
 	return renderJsonDefault(value);
 }
@@ -133,14 +112,14 @@ function assertProseCell(id: string, locale: DocLocale, text: string): void {
  * pairs keeps the caller's loop total.
  */
 function validatedRows(
-	manifest: ManifestSettings,
+	settings: SpecSettings,
 	prose: Readonly<Record<string, SettingProse>>
 ): readonly (readonly [string, SettingProse])[] {
-	const contributed = new Set(manifest.order);
+	const contributed = new Set(settings.order);
 	const unknown = Object.keys(prose).filter((id) => !contributed.has(id));
 	const rows: (readonly [string, SettingProse])[] = [];
 	const missing: string[] = [];
-	for (const id of manifest.order) {
+	for (const id of settings.order) {
 		// hasOwn, not a truthiness check: a setting named for an Object.prototype
 		// member would otherwise inherit a value here and fail later on a
 		// nonsense TypeError instead of this actionable message.
@@ -159,7 +138,7 @@ function validatedRows(
 	}
 	if (unknown.length > 0) {
 		faults.push(
-			`settingsReferenceProse.ts names ${unknown.join(", ")}, which package.json does not contribute; delete those entries`
+			`settingsReferenceProse.ts names ${unknown.join(", ")}, which the setting spec does not declare; delete those entries`
 		);
 	}
 	if (faults.length > 0) {
@@ -171,19 +150,19 @@ function validatedRows(
 /** One locale's table: header, separator, and one row per contributed setting in manifest order. */
 export function buildReferenceTable(
 	locale: DocLocale,
-	manifest: ManifestSettings,
+	settings: SpecSettings,
 	prose: Readonly<Record<string, SettingProse>> = SETTING_PROSE
 ): string {
 	const lines = [TABLE_HEADERS[locale], TABLE_SEPARATOR];
-	for (const [id, entry] of validatedRows(manifest, prose)) {
+	for (const [id, entry] of validatedRows(settings, prose)) {
 		const text = entry[locale];
 		assertProseCell(id, locale, text);
-		const rendered = renderDefault(id, manifest);
+		const rendered = renderDefault(id, settings);
 		assertDefaultCell(id, rendered);
 		const row = `| \`${CONFIG_SECTION}.${id}\` | \`${rendered}\` | ${text} |`;
 		// A cell carrying marker text would corrupt the next run's region scan
 		// there; refuse it here, where the blame is the poisoned entry.
-		if (row.includes(BEGIN_MARKER) || row.includes(END_MARKER)) {
+		if (BEGIN_MARKER_PATTERN.test(row) || row.includes(END_MARKER)) {
 			throw new Error(`setting ${id}'s ${locale} row contains the region marker text`);
 		}
 		lines.push(row);
@@ -198,7 +177,7 @@ export function buildReferenceTable(
  */
 export function applyReferenceTable(content: string, locale: DocLocale, table: string): string {
 	const region = `${BEGIN_MARKER}\n${table}\n${END_MARKER}`;
-	const begins = markerCount(content, BEGIN_MARKER);
+	const begins = beginMarkerCount(content);
 	const ends = markerCount(content, END_MARKER);
 	if (begins > 1 || ends > 1 || begins !== ends) {
 		throw new Error(
@@ -206,7 +185,7 @@ export function applyReferenceTable(content: string, locale: DocLocale, table: s
 		);
 	}
 	if (begins === 1) {
-		const beginAt = content.indexOf(BEGIN_MARKER);
+		const beginAt = content.search(BEGIN_MARKER_PATTERN);
 		const endAt = content.indexOf(END_MARKER);
 		if (endAt < beginAt) {
 			throw new Error(`${SETTINGS_DOC_PATHS[locale]} has its end marker before its begin marker`);

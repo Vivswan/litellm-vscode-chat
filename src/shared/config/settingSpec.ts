@@ -1,20 +1,17 @@
 /**
- * The single source of truth for the extension's configuration section, the
- * value side of its scalar settings (key names, defaults, and minimums), and
- * the object settings' key names. package.json's contributed configuration
- * mirrors this table (settingSpec.test.ts pins the mirror), the settings
- * readers clamp against it, and the dashboard protocol layers its presentation
- * metadata on top. Pure constants: no vscode, no Node, no zod (this module
- * rides into the webview bundle and loads outside the host).
+ * The single source of truth for the extension's configuration section, the value side of its scalar settings (key
+ * names, defaults, and minimums), the object settings' key names, the section each setting lives in, and each setting's
+ * manifest presentation. package.json's contributed configuration is generated from this table (scripts/dev/manifest),
+ * the settings readers clamp against it, and the dashboard protocol layers its own presentation metadata on top. Pure
+ * constants: no vscode, no Node, no zod (this module rides into the webview bundle and loads outside the host).
  */
 
 /** The configuration section every litellm-vscode-chat.* setting lives under. */
 export const CONFIG_SECTION = "litellm-vscode-chat";
 
 /**
- * The object settings' keys under the config section. They have no scalar
- * spec; their readers share the key names through these constants, and
- * settingSpec.test.ts pins the package.json contributions against them.
+ * The object settings' keys under the config section. They have no scalar spec; their readers share the key names
+ * through these constants.
  */
 export const ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY = "chat.additionalToolSchemaKeywords";
 export const TOKEN_ESTIMATION_SETTING_KEY = "chat.tokenEstimation";
@@ -265,7 +262,10 @@ const AGENT_WRITE_TOOL_IDS = ["setSetting", "editModelRecords", "saveServer", "r
 
 export type AgentWriteToolId = (typeof AGENT_WRITE_TOOL_IDS)[number];
 
-/** Each write tool's toggle key; the one map the settings getter, the registration, and the manifest pin address it through. */
+/**
+ * Each write tool's toggle key; the one map the settings getter, the registration, and the generated manifest address
+ * it through.
+ */
 export const AGENT_TOOL_TOGGLE_KEYS = {
 	setSetting: "agentTools.setSetting.enabled",
 	editModelRecords: "agentTools.editModelRecords.enabled",
@@ -284,15 +284,20 @@ export type AgentToolsSettingId =
 	| typeof AGENT_TOOLS_SECRET_VALUES_KEY;
 
 /**
- * The whole agentTools family, in manifest order. User settings only (machine
- * scope, like `servers`): a workspace file must not be able to grant an agent
- * write access to the user's servers and keys. settingSpec.test.ts pins the tier.
+ * The whole agentTools family, in manifest order. User settings only (machine scope, like `servers`): a workspace file
+ * must not be able to grant an agent write access to the user's servers and keys; SETTING_PRESENTATION carries the
+ * tier. A literal tuple, not a mapped array, so CONFIGURATION_SECTIONS sees its members and a key missing here fails
+ * that table's compile-time totality check.
  */
-export const AGENT_TOOLS_SETTING_KEYS: readonly AgentToolsSettingId[] = [
-	"agentTools.enabled",
-	...AGENT_WRITE_TOOL_IDS.map((tool) => AGENT_TOOL_TOGGLE_KEYS[tool]),
+export const AGENT_TOOLS_SETTING_KEYS = [
+	FEATURE_ENABLE_SETTING_KEYS.agentTools,
+	AGENT_TOOL_TOGGLE_KEYS.setSetting,
+	AGENT_TOOL_TOGGLE_KEYS.editModelRecords,
+	AGENT_TOOL_TOGGLE_KEYS.saveServer,
+	AGENT_TOOL_TOGGLE_KEYS.removeServer,
+	AGENT_TOOL_TOGGLE_KEYS.runAction,
 	AGENT_TOOLS_SECRET_VALUES_KEY,
-];
+] as const satisfies readonly AgentToolsSettingId[];
 
 /**
  * Whether one number is a usable usage.alertThresholds value: finite, in
@@ -303,6 +308,9 @@ export const AGENT_TOOLS_SETTING_KEYS: readonly AgentToolsSettingId[] = [
 export function isUsableThreshold(value: number): boolean {
 	return Number.isFinite(value) && value > 0 && value <= 1;
 }
+
+/** The budget fractions the usage poller alerts at when nothing valid is configured. */
+export const DEFAULT_USAGE_ALERT_THRESHOLDS: readonly number[] = [0.8, 0.95];
 
 /**
  * The thresholds that participate in a scale: the usable ones, deduplicated and ascending. The one list normalizer
@@ -317,12 +325,14 @@ export const USAGE_STATUS_BAR_MODES = ["always", "alerts-only", "off"] as const;
 
 export type UsageStatusBarMode = (typeof USAGE_STATUS_BAR_MODES)[number];
 
+export const DEFAULT_USAGE_STATUS_BAR_MODE: UsageStatusBarMode = "always";
+
 /**
  * The settings under the config section with no scalar spec: the object and
  * array settings plus the free and enum strings. Their value grammars live
  * with their readers; this list only names the keys.
  */
-export const STRUCTURED_SETTING_KEYS = [
+const STRUCTURED_SETTING_KEYS = [
 	SERVERS_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	MODEL_CAPABILITIES_SETTING_KEY,
@@ -339,19 +349,173 @@ export const STRUCTURED_SETTING_KEYS = [
 ] as const;
 
 /**
- * Every setting key as a literal union, for the surfaces that must be TOTAL
- * over the vocabulary: ALL_SETTING_KEYS is the same set widened to strings for
- * the ones that merely iterate it.
+ * Every setting key as a literal union, for the surfaces that must be TOTAL over the vocabulary: ALL_SETTING_KEYS is
+ * the same set widened to strings for the ones that merely iterate it.
  */
 export type SettingId = (typeof STRUCTURED_SETTING_KEYS)[number] | NumberSettingId | BooleanSettingId;
 
+/** One titled group of the contributed configuration; the id doubles as the nls key suffix `litellm.config.section.<id>`. */
+interface ConfigurationSection {
+	readonly id: string;
+	readonly settings: readonly SettingId[];
+}
+
+const SECTIONS = [
+	{ id: "servers", settings: [SERVERS_SETTING_KEY] },
+	{
+		id: "models",
+		settings: [MODEL_PARAMETERS_SETTING_KEY, MODEL_CAPABILITIES_SETTING_KEY, "models.openRouterCatalog"],
+	},
+	{
+		id: "chat",
+		settings: [
+			"chat.timeout",
+			"chat.maxToolsPerRequest",
+			ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
+			"chat.promptCaching",
+			TOKEN_ESTIMATION_SETTING_KEY,
+		],
+	},
+	{ id: "discovery", settings: ["discovery.timeout", "discovery.cacheTtl", "discovery.staleServeWindow"] },
+	{
+		id: "usage",
+		settings: [
+			"usage.pollInterval",
+			"usage.initialRefreshDelay",
+			"usage.serversChangeRefreshDelay",
+			"usage.pollingOffFreshnessWindow",
+			USAGE_ALERT_THRESHOLDS_SETTING_KEY,
+			USAGE_STATUS_BAR_SETTING_KEY,
+			CURRENCY_SYMBOL_SETTING_KEY,
+		],
+	},
+	{ id: "ui", settings: ["ui.maskSecretInputs", UI_THEME_SETTING_KEY, UI_ACCENT_SETTING_KEY] },
+	{
+		id: "inlineCompletions",
+		settings: [
+			FEATURE_ENABLE_SETTING_KEYS.inlineCompletions,
+			FEATURE_MODEL_SETTING_KEYS.inlineCompletions,
+			INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
+		],
+	},
+	{
+		id: "commitGeneration",
+		settings: [
+			FEATURE_ENABLE_SETTING_KEYS.commitGeneration,
+			FEATURE_MODEL_SETTING_KEYS.commitGeneration,
+			COMMIT_GENERATION_PROMPT_SETTING_KEY,
+		],
+	},
+	{ id: "prGeneration", settings: [FEATURE_ENABLE_SETTING_KEYS.prGeneration, FEATURE_MODEL_SETTING_KEYS.prGeneration] },
+	{ id: "consultTool", settings: [FEATURE_ENABLE_SETTING_KEYS.consultTool, FEATURE_MODEL_SETTING_KEYS.consultTool] },
+	{ id: "quickFix", settings: [FEATURE_ENABLE_SETTING_KEYS.quickFix, FEATURE_MODEL_SETTING_KEYS.quickFix] },
+	{
+		id: "reviewComments",
+		settings: [FEATURE_ENABLE_SETTING_KEYS.reviewComments, FEATURE_MODEL_SETTING_KEYS.reviewComments],
+	},
+	{ id: "chatParticipant", settings: [FEATURE_ENABLE_SETTING_KEYS.chatParticipant] },
+	{ id: "agentTools", settings: AGENT_TOOLS_SETTING_KEYS },
+] as const satisfies readonly ConfigurationSection[];
+
+/** A SettingId no section lists; `never` when the table is total. */
+type UnsectionedSettingId = Exclude<SettingId, (typeof SECTIONS)[number]["settings"][number]>;
+
 /**
- * Every litellm-vscode-chat.* setting key. settingSpec.test.ts pins this list
- * against package.json's contributed configuration, so a future setting cannot
- * silently escape the surfaces that walk the whole vocabulary.
+ * The contributed configuration's sections in manifest order (the settings UI's order, which the docs tables follow).
+ * Total over SettingId by construction: a setting listed in no section makes this declaration fail to compile with the
+ * missing key named in the error. A setting listed twice is refused when the manifest is generated.
  */
-export const ALL_SETTING_KEYS: readonly string[] = [
-	...STRUCTURED_SETTING_KEYS,
-	...Object.keys(NUMBER_SETTING_SPECS),
-	...Object.keys(BOOLEAN_SETTING_SPECS),
-];
+export const CONFIGURATION_SECTIONS: [UnsectionedSettingId] extends [never]
+	? typeof SECTIONS
+	: { readonly "every SettingId needs a section; missing": UnsectionedSettingId } = SECTIONS;
+
+/**
+ * Every litellm-vscode-chat.* setting key, in manifest order: the sections table flattened. The settings transfer
+ * surfaces (export, import plan, pre-import snapshot) iterate this list, and the generators render the sections table
+ * itself, so a setting cannot escape any of them: it is in a section or it does not compile.
+ */
+export const ALL_SETTING_KEYS: readonly string[] = CONFIGURATION_SECTIONS.flatMap(
+	(section): readonly SettingId[] => section.settings
+);
+
+/**
+ * Where a setting may be set: "window" is the default user/workspace setting; "machine" is user settings only, never a
+ * workspace file and never Settings Sync; "machine-overridable" is per-machine (Settings Sync skips it) but a workspace
+ * may still override it with its own explicit entry.
+ */
+type SettingScope = "window" | "machine" | "machine-overridable";
+
+/**
+ * How package.json presents one setting, beside the value spec: the manifest keys that are neither the value contract
+ * nor prose. The prose itself stays in package.nls.json under `litellm.config.<id>.description` (and
+ * `litellm.config.<id>.<value>` per enum member when `enumDescriptions` is set).
+ */
+export interface SettingPresentation {
+	readonly scope: SettingScope;
+	/** Restricted Mode (an untrusted workspace) may not supply the setting. */
+	readonly restricted?: true;
+	/** Whether the description renders markdown (`markdownDescription`) or plain text (`description`). */
+	readonly description: "plain" | "markdown";
+	readonly editPresentation?: "multilineText";
+	/** The setting's enum members each carry a labelled description. */
+	readonly enumDescriptions?: true;
+}
+
+const MACHINE_OVERRIDABLE_MARKDOWN: SettingPresentation = { scope: "machine-overridable", description: "markdown" };
+const MACHINE_MARKDOWN: SettingPresentation = { scope: "machine", description: "markdown" };
+const WINDOW_PLAIN: SettingPresentation = { scope: "window", description: "plain" };
+
+/**
+ * Each setting's presentation. Load-bearing tiers: the enable booleans and model refs decide whether requests happen
+ * and where they go, and the catalog toggle causes OpenRouter fetches, so they are machine-overridable; `servers` and
+ * the agentTools family are machine scope, user settings only, because an agent's write access to servers and keys is
+ * granted by the user alone, never by a checked-in workspace file; the two model record settings are restricted because
+ * they shape what goes to the user's server and compile user regex matchers. Total over SettingId, so a new setting
+ * without a ruled presentation does not compile.
+ */
+export const SETTING_PRESENTATION: Readonly<Record<SettingId, SettingPresentation>> = {
+	servers: MACHINE_MARKDOWN,
+	"models.parameters": { scope: "window", restricted: true, description: "markdown" },
+	"models.capabilities": { scope: "window", restricted: true, description: "markdown" },
+	"models.openRouterCatalog": { scope: "machine-overridable", description: "plain" },
+	"chat.timeout": WINDOW_PLAIN,
+	"chat.maxToolsPerRequest": WINDOW_PLAIN,
+	"chat.additionalToolSchemaKeywords": WINDOW_PLAIN,
+	"chat.promptCaching": WINDOW_PLAIN,
+	"chat.tokenEstimation": { scope: "window", description: "plain", enumDescriptions: true },
+	"discovery.timeout": WINDOW_PLAIN,
+	"discovery.cacheTtl": WINDOW_PLAIN,
+	"discovery.staleServeWindow": WINDOW_PLAIN,
+	"usage.pollInterval": WINDOW_PLAIN,
+	"usage.initialRefreshDelay": WINDOW_PLAIN,
+	"usage.serversChangeRefreshDelay": WINDOW_PLAIN,
+	"usage.pollingOffFreshnessWindow": WINDOW_PLAIN,
+	"usage.alertThresholds": WINDOW_PLAIN,
+	"usage.statusBar": WINDOW_PLAIN,
+	"usage.currencySymbol": WINDOW_PLAIN,
+	"ui.maskSecretInputs": WINDOW_PLAIN,
+	"ui.theme": { scope: "window", description: "plain", enumDescriptions: true },
+	"ui.accent": WINDOW_PLAIN,
+	"inlineCompletions.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
+	"inlineCompletions.model": MACHINE_OVERRIDABLE_MARKDOWN,
+	"inlineCompletions.languageFilter": { scope: "window", description: "markdown" },
+	"commitGeneration.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
+	"commitGeneration.model": MACHINE_OVERRIDABLE_MARKDOWN,
+	"commitGeneration.prompt": { scope: "window", description: "markdown", editPresentation: "multilineText" },
+	"prGeneration.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
+	"prGeneration.model": MACHINE_OVERRIDABLE_MARKDOWN,
+	"consultTool.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
+	"consultTool.model": MACHINE_OVERRIDABLE_MARKDOWN,
+	"quickFix.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
+	"quickFix.model": MACHINE_OVERRIDABLE_MARKDOWN,
+	"reviewComments.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
+	"reviewComments.model": MACHINE_OVERRIDABLE_MARKDOWN,
+	"chatParticipant.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
+	"agentTools.enabled": MACHINE_MARKDOWN,
+	"agentTools.setSetting.enabled": MACHINE_MARKDOWN,
+	"agentTools.editModelRecords.enabled": MACHINE_MARKDOWN,
+	"agentTools.saveServer.enabled": MACHINE_MARKDOWN,
+	"agentTools.removeServer.enabled": MACHINE_MARKDOWN,
+	"agentTools.runAction.enabled": MACHINE_MARKDOWN,
+	"agentTools.secretValues.enabled": MACHINE_MARKDOWN,
+};

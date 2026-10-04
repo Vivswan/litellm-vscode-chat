@@ -8,10 +8,9 @@
 export type HeaderScalar = string | number | boolean;
 
 /**
- * The JSON schema types the headers contribution admits for a value, one per
- * HeaderScalar member; settingSpec.test.ts pins package.json against this
- * list. The code is deliberately stricter: isHeaderScalar refuses non-finite
- * numbers, which JSON cannot carry anyway.
+ * The JSON schema types the headers contribution admits for a value, one per HeaderScalar member; the generated
+ * manifest splices this list in. The code is deliberately stricter: isHeaderScalar refuses non-finite numbers, which
+ * JSON cannot carry anyway.
  */
 export const HEADER_SCALAR_TYPES = ["string", "number", "boolean"] as const;
 

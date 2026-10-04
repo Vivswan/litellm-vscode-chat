@@ -52,14 +52,16 @@ jobs:
       - name: Check the localization catalogs
         run: bun run l10n:check
 
-      # The two generators' --check modes: each shipped output must be what
-      # its generator writes today, so a setting or zod envelope edited without
-      # a regeneration fails here instead of shipping a stale twin.
+      # The generators' --check modes: each shipped output must be what its generator writes today, so a setting spec,
+      # a zod envelope, or a prose table edited without a regeneration fails here instead of shipping a stale twin.
       - name: The generated settings reference must not have drifted
         run: bun run docs:settings:check
 
       - name: The generated tool schemas must not have drifted
         run: bun run tools:schemas:check
+
+      - name: The generated manifest blocks must not have drifted
+        run: bun run manifest:check
 
       - name: Verify @types/vscode does not exceed engines.vscode
         # The same script .husky/pre-commit runs, so a local green predicts this gate.
