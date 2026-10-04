@@ -84,7 +84,7 @@ describe("generate-manifest CLI", () => {
 	);
 
 	test(
-		"an unknown argument or an excluded flag pair aborts without writing",
+		"an unknown argument aborts without writing",
 		() => {
 			// A typo'd --check must not fall through to generate mode and rewrite the manifest.
 			const root = makeFixture();
@@ -93,14 +93,6 @@ describe("generate-manifest CLI", () => {
 			const typo = runCli(root, "--chekc"); // typos: ignore
 			assert.strictEqual(typo.exitCode, 1);
 			assert.match(typo.stderr, /Unknown option/);
-			const both = runCli(root, "--check", "--stage");
-			assert.strictEqual(both.exitCode, 1);
-			assert.match(both.stderr, /exclude each other/);
-			// --root points only the outputs elsewhere; the sources stay this checkout's, so staging there would
-			// skip the dirty-input refusal.
-			const rooted = runCli(root, "--stage");
-			assert.strictEqual(rooted.exitCode, 1);
-			assert.match(rooted.stderr, /takes no --root/);
 			assert.strictEqual(readManifest(root), mutant);
 		},
 		CHILD_PROCESS_TIMEOUT_MS

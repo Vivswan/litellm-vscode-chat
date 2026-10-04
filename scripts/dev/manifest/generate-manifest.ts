@@ -1,30 +1,18 @@
 /**
  * Regenerates the generated contributes blocks of package.json from the setting spec. `--check` verifies instead of
- * writing and exits 1 on drift; `--stage` writes and stages the changed output for the pre-commit hook, refusing dirty
- * inputs or outputs; `--root <dir>` points the output at another directory (tests use it).
+ * writing and exits 1 on drift; `--root <dir>` points the output at another directory (tests use it). The pre-commit
+ * hook does not run this: scripts/dev/stageGenerated.ts regenerates and stages its registered generators' outputs in
+ * one run.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseGeneratorArgs } from "../generatorArgs";
-import { assertStageable, writeAndStage } from "../stageGenerated";
-import { renderConfiguration } from "./configuration";
-import { applyContributes } from "./write";
-
-const MANIFEST_PATH = "package.json";
+import { MANIFEST_PATH, regenerateManifest } from "./generator";
 
 function main(): void {
 	const { mode, root } = parseGeneratorArgs(process.argv.slice(2));
-	if (mode === "stage") {
-		assertStageable(root, [MANIFEST_PATH]);
-	}
-	const file = path.join(root, MANIFEST_PATH);
-	const content = fs.readFileSync(file, "utf8");
-	const { next, drifted } = applyContributes(content, { configuration: renderConfiguration() });
-	if (mode === "stage") {
-		writeAndStage(root, "manifest", [{ relativePath: MANIFEST_PATH, next }]);
-		return;
-	}
-	if (next === content) {
+	const { current, next, drifted } = regenerateManifest(root);
+	if (next === current) {
 		console.log(mode === "check" ? "manifest check passed." : "manifest: package.json already up to date.");
 		return;
 	}
@@ -40,7 +28,7 @@ function main(): void {
 		process.exitCode = 1;
 		return;
 	}
-	fs.writeFileSync(file, next);
+	fs.writeFileSync(path.join(root, MANIFEST_PATH), next);
 	console.log(`manifest: wrote package.json (${stale.join(", ")})`);
 }
 

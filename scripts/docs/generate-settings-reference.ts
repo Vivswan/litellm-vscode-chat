@@ -1,32 +1,16 @@
 /**
  * Regenerates each locale's settings reference table. `--check` verifies instead of writing and exits 1 on drift;
- * `--stage` writes and stages the changed docs for the pre-commit hook, refusing dirty inputs or outputs; `--root
- * <dir>` points the output docs at another directory (tests use it).
+ * `--root <dir>` points the output docs at another directory (tests use it). The pre-commit hook does not run this:
+ * scripts/dev/stageGenerated.ts regenerates and stages its registered generators' outputs in one run.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseGeneratorArgs } from "../dev/generatorArgs";
-import { assertStageable, type GeneratedFile, writeAndStage } from "../dev/stageGenerated";
-import { applyReferenceTable, buildReferenceTable, DOC_LOCALES, readSpecSettings, SETTINGS_DOC_PATHS } from "./lib";
+import { renderSettingsReference } from "./lib";
 
 function main(): void {
 	const { mode, root } = parseGeneratorArgs(process.argv.slice(2));
-	const outputs = DOC_LOCALES.map((locale) => SETTINGS_DOC_PATHS[locale]);
-	if (mode === "stage") {
-		assertStageable(root, outputs);
-	}
-	const settings = readSpecSettings();
-	// Two phases so one locale's failure cannot leave another already rewritten.
-	const rendered: GeneratedFile[] = [];
-	for (const locale of DOC_LOCALES) {
-		const relativePath = SETTINGS_DOC_PATHS[locale];
-		const content = fs.readFileSync(path.join(root, relativePath), "utf8");
-		rendered.push({ relativePath, next: applyReferenceTable(content, locale, buildReferenceTable(locale, settings)) });
-	}
-	if (mode === "stage") {
-		writeAndStage(root, "settings-reference", rendered);
-		return;
-	}
+	const rendered = renderSettingsReference(root);
 	const stale = rendered.filter((file) => fs.readFileSync(path.join(root, file.relativePath), "utf8") !== file.next);
 	for (const { relativePath, next } of stale) {
 		if (mode === "check") {

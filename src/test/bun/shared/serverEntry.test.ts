@@ -10,7 +10,10 @@ import {
 } from "../../../shared/serverEntry";
 import { REPO_ROOT } from "../../util/repoRoot";
 
-/** Drift guard against package.json: the languageModelChatProviders configuration mirrors the server-entry field descriptor. */
+/**
+ * Drift guard against package.json: the languageModelChatProviders configuration mirrors the server-entry field
+ * descriptor.
+ */
 interface FieldSchema {
 	readonly secret?: boolean;
 }

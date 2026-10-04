@@ -354,7 +354,10 @@ const STRUCTURED_SETTING_KEYS = [
  */
 export type SettingId = (typeof STRUCTURED_SETTING_KEYS)[number] | NumberSettingId | BooleanSettingId;
 
-/** One titled group of the contributed configuration; the id doubles as the nls key suffix `litellm.config.section.<id>`. */
+/**
+ * One titled group of the contributed configuration; the id doubles as the nls key suffix
+ * `litellm.config.section.<id>`.
+ */
 interface ConfigurationSection {
 	readonly id: string;
 	readonly settings: readonly SettingId[];
