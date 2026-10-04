@@ -161,9 +161,15 @@ function stylesheetPlugin(): Plugin {
 					visit(id);
 				}
 			}
-			const pieces = await Promise.all(order.map(bundleCssFile));
-			assertLayersOrdered(pieces);
-			this.emitFile({ type: "asset", fileName: DASHBOARD_STYLESHEET_FILENAME, source: pieces.join("") });
+			const sheets = await Promise.all(
+				order.map(async (id) => ({ id: path.relative(process.cwd(), id), css: await bundleCssFile(id) }))
+			);
+			assertLayersOrdered(sheets);
+			this.emitFile({
+				type: "asset",
+				fileName: DASHBOARD_STYLESHEET_FILENAME,
+				source: sheets.map((sheet) => sheet.css).join(""),
+			});
 		},
 	};
 }
