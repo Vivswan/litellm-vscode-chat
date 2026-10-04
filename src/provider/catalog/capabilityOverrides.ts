@@ -12,7 +12,6 @@ import type {
 	CapabilityCatalogLookup,
 	CapabilityDiagnostic,
 	CapabilityLevel,
-	CostCapabilityField,
 	EffectiveCapabilities,
 	EffectiveCapabilityFields,
 	ModelCapabilitiesRecord,
@@ -31,6 +30,7 @@ import { buildExposedModelId } from "./modelCatalog";
 import { effectiveReasoningLevels, reasoningEffortPickerValues, reasoningEffortSchema } from "./modelConfiguration";
 import type { ModelPricing } from "./registration";
 import { COMMON_MODEL_FIELDS, pricingFromCosts, serverDisplayContext } from "./registration";
+import type { PerTokenCosts } from "./schemas";
 
 /** The configuration one serve pass resolves against; the provider assembles it from its injected seams. */
 export interface CapabilityOverrideOptions {
@@ -102,7 +102,7 @@ const REGISTRATION_CONSUMED_FIELDS: readonly string[] = [
  * pricingFromCosts prices it as genuinely free on purpose.
  */
 export function pricingFieldsFromEffective(fields: EffectiveCapabilityFields, currencySymbol: string): ModelPricing {
-	const costs: { -readonly [K in CostCapabilityField]?: number } = {};
+	const costs: PerTokenCosts = {};
 	for (const name of COST_FIELDS) {
 		const value = capabilityField(fields, name)?.value;
 		if (typeof value === "number") {
