@@ -9,7 +9,7 @@ import {
 	FLOOR_MAX_OUTPUT_TOKENS,
 } from "../../shared/config/capabilityResolution";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
-import type { LiteLLMProvider, OutputLimitSource } from "./schemas";
+import type { LiteLLMProvider, OutputLimitSource, PerTokenCosts } from "./schemas";
 
 export function buildExposedModelId(rawModelId: string, serverId: string, serverCount: number): string {
 	if (serverCount <= 1) {
@@ -107,12 +107,6 @@ export function reportedLimits(providers: readonly LiteLLMProvider[]): ReportedL
 	const output = providers.some((p) => reportedOutputTokens(p) !== undefined);
 	return { context, input, output, any: context || input || output };
 }
-
-/**
- * The per-token cost fields pricingFromCosts converts, nullable as the wire carries them (a merged entry's null
- * is a disagreeing cost, which reads as absent); a LiteLLMProvider satisfies it as-is.
- */
-export type PerTokenCosts = { readonly [K in CostCapabilityField]?: number | null | undefined };
 
 const COST_FIELDS = consumedFieldsOfKind("cost");
 
