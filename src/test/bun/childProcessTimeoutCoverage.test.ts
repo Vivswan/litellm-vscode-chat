@@ -70,6 +70,10 @@ const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["github-slugger", "string arithmetic over a heading"],
 	["gpt-tokenizer/encoding/cl100k_base", "in-process tokenizer tables"],
 	["gpt-tokenizer/encoding/o200k_base", "in-process tokenizer tables"],
+	[
+		"lightningcss",
+		"in-process native CSS parser; on Linux its loader picks the glibc or musl binary through detect-libc, which shells out only when /usr/bin/ldd and process.report both fail to name the libc, at module load where no deadline applies",
+	],
 	["node:assert", "assertions"],
 	["node:crypto", "hashing"],
 	["node:fs", "file system calls"],
