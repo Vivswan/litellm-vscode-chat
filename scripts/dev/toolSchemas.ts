@@ -22,10 +22,8 @@ const ANY_JSON_TYPE = [
 	"null",
 ] as const satisfies readonly z.core.JSONSchema.SchemaType[];
 
-export type ToolInputSchema = Record<string, unknown>;
-
 /** One tool's inputSchema exactly as the manifest carries it. */
-export function manifestInputSchema(id: AgentToolId): ToolInputSchema {
+function manifestInputSchema(id: AgentToolId): Record<string, unknown> {
 	const { $schema: _draft, ...schema } = z.toJSONSchema(AGENT_TOOL_INPUT_SCHEMAS[id], {
 		io: "input",
 		override: ({ zodSchema, jsonSchema, path }) => {

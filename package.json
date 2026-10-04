@@ -2110,7 +2110,7 @@
 	"scripts": {
 		"prepare": "husky",
 		"check": "bun run check:static && bun run test",
-		"check:static": "bun run lint:actions && bun scripts/ci/check-vscode-types.ts && bun run lint && bun run typecheck && bun run l10n:check",
+		"check:static": "bun run lint:actions && bun scripts/ci/check-vscode-types.ts && bun run lint && bun run typecheck && bun run l10n:check && bun run docs:settings:check && bun run tools:schemas:check",
 		"vscode:prepublish": "tsc -p tsconfig.prod.json && bun scripts/dev/fetch-openrouter-catalog.ts && bun run bundle",
 		"compile": "bun -e \"require('node:fs').rmSync('out',{recursive:true,force:true,maxRetries:5,retryDelay:100})\" && tsc -p ./",
 		"bundle": "bun scripts/dev/bundle.mts --production && bun scripts/dev/generate-third-party-notices.ts",
