@@ -92,8 +92,9 @@ describe("renderMigrationExpiryTable", () => {
 				const stdout = result.stdout.toString();
 				// The real registry decides which rendering the workflow must see: a
 				// drained registry renders nothing (the delete path), a live one the
-				// table.
-				if (MIGRATION_EXPIRIES.length === 0) {
+				// table. Widened because the registry's tuple type knows its length.
+				const live: readonly MigrationExpiry[] = MIGRATION_EXPIRIES;
+				if (live.length === 0) {
 					expect(stdout).toBe("");
 				} else {
 					expect(stdout).toContain("| Migration | Introduced | Expires | Days remaining |");

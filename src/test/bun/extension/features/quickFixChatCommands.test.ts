@@ -47,7 +47,7 @@ function commandNamed(name: string): SlashCommand {
 describe("extension/features quickFixChatCommands", () => {
 	test("a fresh array per call, so no caller can mutate another's view", () => {
 		const first = quickFixSlashCommands();
-		first.length = 0;
+		first.pop();
 		expect(quickFixSlashCommands()).toHaveLength(2);
 	});
 

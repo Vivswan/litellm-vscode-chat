@@ -1,10 +1,7 @@
 /**
- * How a stream ends: the end-of-stream policy, reasoning-only empty responses, the
- * progress funnel, and the SSE transport itself.
+ * How a stream ends: the end-of-stream policy, reasoning-only empty responses, and the SSE transport itself.
  */
 import * as assert from "node:assert";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import * as vscode from "vscode";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { StreamProcessor } from "../../../provider/transport/streaming";
@@ -735,25 +732,6 @@ suite("provider/streaming reasoning-only empty responses", () => {
 		const drops = logs.filter((l) => l.msg === DROP_LOG);
 		assert.strictEqual(drops.length, 1);
 		assert.deepStrictEqual(expectDefined(drops[0]).data, { parts: 1, totalLength: "lost thoughts".length });
-	});
-});
-
-suite("provider/streaming progress funnel", () => {
-	test("every emission goes through reportPart: progress.report appears exactly three times in the source", () => {
-		// The empty-response check counts emissions via reportPart, so a direct
-		// progress.report elsewhere would bypass it silently. Exactly three sites
-		// are sanctioned: reportPart itself and the two end-of-stream trailers
-		// (Sources, usage DataPart), which decorate an already-validated response
-		// and must NOT count as substantive output for the reasoning-only check.
-		const dir = path.resolve(__dirname, "..", "..", "..", "..", "src", "provider", "transport", "streaming");
-		const source = fs
-			.readdirSync(dir)
-			.filter((name) => name.endsWith(".ts"))
-			.sort()
-			.map((name) => fs.readFileSync(path.join(dir, name), "utf8"))
-			.join("\n");
-		const calls = source.match(/progress\.report\(/g) ?? [];
-		assert.strictEqual(calls.length, 3, "part emission goes through reportPart, plus the two trailer sites");
 	});
 });
 

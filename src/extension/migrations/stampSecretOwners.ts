@@ -90,7 +90,7 @@ export async function stampSecretOwnersFor(
  * staying erased. Runs after the settings redesign, so the entries it derives
  * destinations from are already in the redesigned shape.
  */
-export const stampSecretOwnersMigration: ExtensionMigration = {
+export const stampSecretOwnersMigration: ExtensionMigration<"unstamped-server-secrets"> = {
 	state: "unstamped-server-secrets",
 	description: "Stamped stored server secrets with the destinations their entries pair them with",
 	sourceRelease: "0.4.7",

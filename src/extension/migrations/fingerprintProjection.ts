@@ -136,7 +136,7 @@ export async function projectSyncFingerprintsFor(
  * registration and wireServers), so a healthy entry's record reads as in-sync
  * on the very first pass instead of degrading to a doomed re-add.
  */
-export const fingerprintProjectionMigration: ExtensionMigration = {
+export const fingerprintProjectionMigration: ExtensionMigration<"full-args-sync-fingerprints"> = {
 	state: "full-args-sync-fingerprints",
 	description: "Projected server-sync fingerprints onto the group-identity rendering",
 	sourceRelease: "0.6.0",

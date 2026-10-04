@@ -1,4 +1,5 @@
 import * as l10n from "@vscode/l10n";
+import type { QuickFixSlashCommandName } from "../quickFixChatCommands";
 import type { ChatMessage } from "./historyConversion";
 import { modelsMarkdown, type ProviderSnapshot } from "./modelsMarkdown";
 import { type ResolvedReference, withReferences } from "./references";
@@ -42,9 +43,13 @@ export interface SlashCommandTurn {
 	send(messages: readonly ChatMessage[]): Promise<void>;
 }
 
-export interface SlashCommand {
+/**
+ * `Name` is the literal a table declares, so the registry's vocabulary (SlashCommandName) can be read off the tables;
+ * the registry itself and synthetic commands in tests use the string default.
+ */
+export interface SlashCommand<Name extends string = string> {
 	/** The name the host routes on: the contribution's command name, without the slash. */
-	readonly name: string;
+	readonly name: Name;
 	/**
 	 * Shown in the participant's help listing, resolved through the RUNTIME
 	 * l10n bundle. The manifest carries its own package.nls copy of the same
@@ -81,7 +86,11 @@ function instructed(instruction: string, prompt: string): string {
  * attachments. Exported because the quick-fix /fix and /explain in quickFixChatCommands.ts are the same shape,
  * and a second copy would be a second answer to what a prompt-shaping command does with attachments.
  */
-export function promptCommand(name: string, description: string, instruction: string): SlashCommand {
+export function promptCommand<Name extends string>(
+	name: Name,
+	description: string,
+	instruction: string
+): SlashCommand<Name> {
 	return {
 		name,
 		description,
@@ -93,7 +102,7 @@ export function promptCommand(name: string, description: string, instruction: st
 }
 
 /** The built-in table; a fresh array per call so no caller can mutate another's view. */
-export function builtinSlashCommands(): SlashCommand[] {
+export function builtinSlashCommands(): [SlashCommand<"tests">, SlashCommand<"docs">, SlashCommand<"models">] {
 	return [
 		promptCommand("tests", l10n.t("Write tests for the code or behavior you describe"), TESTS_INSTRUCTION),
 		promptCommand("docs", l10n.t("Write documentation for the code or behavior you describe"), DOCS_INSTRUCTION),
@@ -107,6 +116,13 @@ export function builtinSlashCommands(): SlashCommand[] {
 		},
 	];
 }
+
+/**
+ * Every name the participant answers: the built-in table's and the quick-fix bridge's (quickFixChatCommands.ts), read
+ * off the tables rather than listed, so a routing site - a followup, for one - naming a command no table registers
+ * does not compile. The manifest's command list is the other copy of this vocabulary, pinned by the contribution test.
+ */
+export type SlashCommandName = ReturnType<typeof builtinSlashCommands>[number]["name"] | QuickFixSlashCommandName;
 
 /** The registration seam: lookup for the handler, register for the features that extend the table. */
 export interface SlashCommandRegistry {

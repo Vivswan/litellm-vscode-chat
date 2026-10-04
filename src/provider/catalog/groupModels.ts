@@ -1,8 +1,8 @@
 import type { LanguageModelChatInformation } from "vscode";
 import { ThemeIcon } from "vscode";
 import type { EffectiveOutputLimitSource, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
-import type { OptionalEntryFieldId } from "../../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS } from "../../shared/serverEntry";
+import type { OptionalEntryFieldId, SecretFieldCarrier, SecretFieldId } from "../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_CARRIERS } from "../../shared/serverEntry";
 import type { NormalizedBaseUrl } from "../../shared/util/baseUrl";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
@@ -151,27 +151,46 @@ function usableString(value: unknown): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/** The optional entry fields as a host configuration (or a round-tripped sub-object) carried them, unnarrowed. */
+type RawOptionalFields = { readonly [K in OptionalEntryFieldId]?: unknown };
+
+/**
+ * A secret field's carriers (SECRET_FIELD_CARRIERS), every one a usable string, or undefined when any is not: the
+ * parser-side reading of the unit rule whose entry-side reading is entryUsesSecretField. The unit builders below read
+ * the carriers off the result, so they cannot require fewer than the table lists, and usable implies present, so a
+ * unit this narrows onto the wire is one the rule attributes to the entry.
+ */
+function usableCarriers<F extends SecretFieldId>(
+	field: F,
+	raw: RawOptionalFields
+): { readonly [K in SecretFieldCarrier<F>]: string } | undefined {
+	const values: { -readonly [K in OptionalEntryFieldId]?: string } = {};
+	for (const carrier of SECRET_FIELD_CARRIERS[field]) {
+		const value = usableString(raw[carrier]);
+		if (value === undefined) {
+			return undefined;
+		}
+		values[carrier] = value;
+	}
+	// Every carrier of `field` was assigned above; the loop's partial record type cannot say so.
+	return values as { readonly [K in SecretFieldCarrier<F>]: string };
+}
+
 /**
  * OAuth is present as one typed unit or not at all: a usable token URL and
  * client ID make the unit, anything less degrades to absent. The secret is
  * taken verbatim (an empty one means a public client) and scopes are optional.
  */
-function narrowOAuth(
-	tokenUrl: unknown,
-	clientId: unknown,
-	clientSecret: unknown,
-	scopes: unknown
-): OAuthConfig | undefined {
-	const usableTokenUrl = usableString(tokenUrl);
-	const usableClientId = usableString(clientId);
-	if (usableTokenUrl === undefined || usableClientId === undefined) {
+function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
+	const carriers = usableCarriers("oauthClientSecret", raw);
+	if (carriers === undefined) {
 		return undefined;
 	}
-	const usableScopes = usableString(scopes);
+	const usableScopes = usableString(raw.oauthScopes);
 	return {
-		tokenUrl: usableTokenUrl,
-		clientId: usableClientId,
-		clientSecret: typeof clientSecret === "string" ? clientSecret : "",
+		tokenUrl: carriers.oauthTokenUrl,
+		clientId: carriers.oauthClientId,
+		clientSecret: typeof raw.oauthClientSecret === "string" ? raw.oauthClientSecret : "",
 		...(usableScopes !== undefined ? { scopes: usableScopes } : {}),
 	};
 }
@@ -190,21 +209,21 @@ const reportedInvalidVirtualKeys = new Set<string>();
  * that embeds the full plaintext value. A rejection is logged once per
  * header name so typos are diagnosable; the value never reaches the log.
  */
-function narrowVirtualKey(header: unknown, value: unknown, log?: NarrowLog): VirtualKeyConfig | undefined {
-	if (header === undefined && value === undefined) {
+function narrowVirtualKey(raw: RawOptionalFields, log?: NarrowLog): VirtualKeyConfig | undefined {
+	if (raw.virtualKeyHeader === undefined && raw.virtualKeyValue === undefined) {
 		return undefined;
 	}
-	const usableHeader = usableString(header);
-	const usableValue = usableString(value);
+	const carriers = usableCarriers("virtualKeyValue", raw);
+	const usableValue = usableString(raw.virtualKeyValue);
 	if (
-		usableHeader !== undefined &&
+		carriers !== undefined &&
 		usableValue !== undefined &&
-		HEADER_NAME_PATTERN.test(usableHeader) &&
+		HEADER_NAME_PATTERN.test(carriers.virtualKeyHeader) &&
 		isValidHeaderValue(usableValue)
 	) {
-		return { header: usableHeader, value: usableValue };
+		return { header: carriers.virtualKeyHeader, value: usableValue };
 	}
-	const name = usableHeader ?? "(not set)";
+	const name = carriers?.virtualKeyHeader ?? "(not set)";
 	if (log !== undefined && !reportedInvalidVirtualKeys.has(name)) {
 		reportedInvalidVirtualKeys.add(name);
 		log("Ignoring the configured virtual key: the header name or value cannot be sent as an HTTP header", {
@@ -248,8 +267,8 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
 	} = fields;
 	// A new descriptor field lands in `unconsumed` and fails this assignment.
 	void (unconsumed satisfies Record<string, never>);
-	const oauth = narrowOAuth(oauthTokenUrl, oauthClientId, oauthClientSecret, oauthScopes);
-	const virtualKey = narrowVirtualKey(virtualKeyHeader, virtualKeyValue, log);
+	const oauth = narrowOAuth({ oauthTokenUrl, oauthClientId, oauthClientSecret, oauthScopes });
+	const virtualKey = narrowVirtualKey({ virtualKeyHeader, virtualKeyValue }, log);
 	return {
 		baseUrl,
 		apiKey: typeof apiKey === "string" ? apiKey : "",
@@ -359,10 +378,15 @@ function parseAttachedServer(candidate: unknown, log?: NarrowLog): GroupServer |
 	const rawOAuth: unknown = candidate.oauth;
 	const rawVirtualKey: unknown = candidate.virtualKey;
 	const oauth = isRecord(rawOAuth)
-		? narrowOAuth(rawOAuth.tokenUrl, rawOAuth.clientId, rawOAuth.clientSecret, rawOAuth.scopes)
+		? narrowOAuth({
+				oauthTokenUrl: rawOAuth.tokenUrl,
+				oauthClientId: rawOAuth.clientId,
+				oauthClientSecret: rawOAuth.clientSecret,
+				oauthScopes: rawOAuth.scopes,
+			})
 		: undefined;
 	const virtualKey = isRecord(rawVirtualKey)
-		? narrowVirtualKey(rawVirtualKey.header, rawVirtualKey.value, log)
+		? narrowVirtualKey({ virtualKeyHeader: rawVirtualKey.header, virtualKeyValue: rawVirtualKey.value }, log)
 		: undefined;
 	return {
 		baseUrl,

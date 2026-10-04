@@ -1,8 +1,10 @@
 /**
- * The shared probe harness behind the two wire-rule superset pins (extension/servers/usage/spendClient.wireRule.test.ts
- * and provider/catalog/groupModels.wireRule.test.ts). Each suite supplies its own composition and probe-value table,
- * while this module owns the probe space both walk and the record shape both assert over, so the two pins cannot
- * drift apart in WHAT they enumerate and the safety argument each rests on stays in its own header.
+ * The probe harness behind the wire-rule superset pin (extension/servers/usage/spendClient.wireRule.test.ts): the
+ * suite supplies its composition and probe-value table, this module owns the probe space it walks and the record
+ * shape it asserts over, so the safety argument stays in the suite's header and the enumeration here. The chat
+ * path's composition (provider/catalog/groupModels.ts) has no probe: its unit narrowing reads the carrier names off
+ * SECRET_FIELD_CARRIERS, the table entryUsesSecretField judges by, and its no-server refusal is a focused case in
+ * groupModels.test.ts.
  */
 
 import * as assert from "node:assert";

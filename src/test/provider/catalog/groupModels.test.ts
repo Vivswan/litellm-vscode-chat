@@ -185,6 +185,9 @@ suite("provider/catalog/groupModels", () => {
 				apiKey: "",
 			});
 			assert.strictEqual(parseGroupConfiguration({ apiKey: "k" }), undefined);
+			// A URL that normalizes to nothing is no server: the same refusal entryUsesSecretField's no-server arm makes,
+			// so a stored credential can never ride a configuration the wire rule attributes to no entry.
+			assert.strictEqual(parseGroupConfiguration({ baseUrl: "/", apiKey: "k" }), undefined);
 			assert.strictEqual(parseGroupConfiguration("http://litellm.test"), undefined);
 			assert.strictEqual(parseGroupConfiguration(null), undefined);
 		});

@@ -87,6 +87,22 @@ export function secretDestination(
 }
 
 /**
+ * The non-secret fields a secret field rides with: the unit rule, owned once for its two readers. entryUsesSecretField
+ * below judges an ENTRY by the carriers' presence; parseGroupConfiguration (provider/catalog/groupModels.ts) narrows a
+ * host configuration by their usability, reading the carrier names through this table, so the chat path can never
+ * send a secret the rule denies. Total over SecretFieldId: a new secret field declares its carriers here before
+ * either reader compiles.
+ */
+export const SECRET_FIELD_CARRIERS = {
+	apiKey: [],
+	oauthClientSecret: ["oauthTokenUrl", "oauthClientId"],
+	virtualKeyValue: ["virtualKeyHeader"],
+} as const satisfies Record<SecretFieldId, readonly NonSecretOptionalFieldId[]>;
+
+/** The carriers of one secret field, as a name union. */
+export type SecretFieldCarrier<F extends SecretFieldId> = (typeof SECRET_FIELD_CARRIERS)[F][number];
+
+/**
  * The ONE "entry uses this credential field" judgment; it judges the ENTRY alone, so it errs toward "uses it".
  * Wire narrowing still drops what cannot ride, so consumers gate refusals, never the send.
  *
@@ -95,25 +111,13 @@ export function secretDestination(
  * declared header, value unknown       -> lowers no other field's judgment
  */
 export function entryUsesSecretField(
-	entry: {
-		readonly baseUrl: string;
-		readonly oauthTokenUrl?: string | undefined;
-		readonly oauthClientId?: string | undefined;
-		readonly virtualKeyHeader?: string | undefined;
-	},
+	entry: { readonly baseUrl: string } & NonSecretOptionalFields,
 	field: SecretFieldId
 ): boolean {
 	if (normalizeBaseUrl(entry.baseUrl).length === 0) {
 		return false;
 	}
-	switch (field) {
-		case "apiKey":
-			return true;
-		case "oauthClientSecret":
-			return entry.oauthTokenUrl !== undefined && entry.oauthClientId !== undefined;
-		case "virtualKeyValue":
-			return entry.virtualKeyHeader !== undefined;
-	}
+	return SECRET_FIELD_CARRIERS[field].every((carrier) => entry[carrier] !== undefined);
 }
 
 /**

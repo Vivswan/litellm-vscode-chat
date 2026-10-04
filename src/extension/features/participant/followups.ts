@@ -3,14 +3,13 @@
  * the turn just ran, and none at all after a failure - a turn that could not
  * reach the model should not invite two more attempts at the same thing.
  *
- * Pure and vscode-free (the wiring maps these onto vscode.ChatFollowup), so
- * the table and its rules pin in the bun tree. Every `command` here must be
- * one the manifest contributes, or the host routes the click to nothing;
- * followups.test.ts pins that against the contribution rather than trusting
- * this comment.
+ * Pure and vscode-free (the wiring maps these onto vscode.ChatFollowup), so the table and its rules pin in the bun
+ * tree. Every `command` here is typed as SlashCommandName, so a followup naming a command no table registers does not
+ * compile; the contribution test pins the tables against the manifest.
  */
 
 import * as l10n from "@vscode/l10n";
+import type { SlashCommandName } from "./slashCommands";
 
 /** One suggestion, in vscode.ChatFollowup's shape minus the participant field (followups stay with @litellm). */
 export interface ParticipantFollowup {
@@ -18,8 +17,8 @@ export interface ParticipantFollowup {
 	readonly label: string;
 	/** What lands in the chat input when the user clicks it. */
 	readonly prompt: string;
-	/** The slash command the followup runs; always a contributed name. */
-	readonly command: string;
+	/** The slash command the followup runs. */
+	readonly command: SlashCommandName;
 }
 
 /** How many suggestions a turn may end with: two fit the chat view without crowding the answer. */
