@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 
-/** Constructor shape of the LanguageModelDataPart class. */
 export type DataPartCtor = new (data: Uint8Array, mimeType: string) => vscode.LanguageModelResponsePart;
 
 export interface DataPartProbe {
@@ -9,10 +8,9 @@ export interface DataPartProbe {
 }
 
 /**
- * LanguageModelDataPart is probed the same way as LanguageModelThinkingPart:
- * older hosts may lack the class, and hosts have been observed exposing part
- * classes behind throwing getters, so the property read itself is guarded and
- * its absence turns the media feature off instead of crashing the stream.
+ * LanguageModelDataPart is probed the same way as LanguageModelThinkingPart: older hosts may lack the class, and hosts
+ * have been observed exposing part classes behind throwing getters, so the property read itself is guarded and its
+ * absence turns the media feature off instead of crashing the stream.
  */
 export function probeDataPartCtor(host: object): DataPartProbe {
 	try {
@@ -26,20 +24,13 @@ export function probeDataPartCtor(host: object): DataPartProbe {
 // Probed once at module load; every StreamProcessor shares this result.
 const probe = probeDataPartCtor(vscode);
 
-/** The host's LanguageModelDataPart constructor, or undefined when the host does not expose one. */
 export const dataPartCtor: DataPartCtor | undefined = probe.ctor;
 
-/** Set when the probe threw instead of returning a constructor; surfaced through logDataPartProbeErrorOnce. */
 const dataPartProbeError: string | undefined = probe.error;
 
 let loggedMissingDataPartSupport = false;
 let loggedProbeError = false;
 
-/**
- * Log, once per session, that the host cannot display data parts. The media
- * payload itself is dropped, matching the pre-feature behavior of ignoring
- * media delta fields entirely.
- */
 export function logMissingDataPartSupportOnce(log: (message: string) => void): void {
 	if (loggedMissingDataPartSupport) {
 		return;
@@ -48,11 +39,6 @@ export function logMissingDataPartSupportOnce(log: (message: string) => void): v
 	log("Host does not support data parts; generated media will not be displayed");
 }
 
-/**
- * Log, once per session, that the constructor probe threw, so a host with a
- * throwing getter is not re-logged on each request. Tests inject the error;
- * production callers use the module probe result.
- */
 export function logDataPartProbeErrorOnce(
 	log: (message: string, data?: unknown) => void,
 	error: string | undefined = dataPartProbeError

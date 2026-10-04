@@ -1,19 +1,13 @@
 /**
- * The record-inheritance engine shared by both model-keyed records. The
- * matcher (modelMatcher.ts) orders every record matching a model into a
- * chain, broadest first; this module resolves that chain into one flat view
- * per model. Type-agnostic: callers hand in a per-record parser and get back
- * fields with provenance; nothing here knows a setting name.
- *
- * The semantics: by default the most specific matching record wins wholesale.
- * `_inheritable` (giver-side) marks fields that flow to more specific matches;
- * `_inherit_from` (receiver-side) decides what a record accepts - everything
- * that reaches it (`true`), nothing (`false`, which also makes the record a
- * barrier: broader fields can only travel through each record's resolved view,
- * so nothing flows past it), or exactly the named records' literal fields (a
- * list, which bypasses barriers). Fields travel with their source record's
- * markings; directives themselves never travel, and a receiver cannot re-mark
- * fields it did not write.
+ * The record-inheritance engine shared by both model-keyed records. Fields travel with their source record's
+ * markings; directives themselves never travel, and a receiver cannot re-mark fields it did not write.
+ *   The matcher (modelMatcher.ts) orders every record matching a model into a chain, broadest first -> this module
+ *     resolves that chain into one flat view per model
+ *   The semantics -> by default the most specific matching record wins wholesale
+ *   `_inheritable` (giver-side) -> marks fields that flow to more specific matches
+ *   `_inherit_from` (receiver-side) decides what a record accepts -> everything that reaches it (`true`), nothing
+ *     (`false`, which also makes the record a barrier: broader fields can only travel through each record's resolved
+ *     view, so nothing flows past it), or exactly the named records' literal fields (a list, which bypasses barriers)
  */
 
 import type { ModelRecordMap } from "./modelMatcher";
@@ -23,33 +17,31 @@ export const INHERITABLE_DIRECTIVE = "_inheritable";
 export const INHERIT_FROM_DIRECTIVE = "_inherit_from";
 
 /**
- * Marks all (`true`) or the listed parameter fields as FORCED: forced fields
- * beat runtime modelOptions and the picker configuration on the wire. Parsed
- * and enforced in parameterResolution.ts.
+ * Marks all (`true`) or the listed parameter fields as FORCED: forced fields beat runtime modelOptions and the picker
+ * configuration on the wire. Parsed and enforced in parameterResolution.ts.
  */
 export const FORCE_DIRECTIVE = "_force";
 
 /**
- * Demotes all (`true`) or the listed capability fields from override level to
- * fallback level: applied BELOW the server-reported value instead of above it.
- * Parsed and enforced in capabilityResolution.ts.
+ * Demotes all (`true`) or the listed capability fields from override level to fallback level: applied BELOW the
+ * server-reported value instead of above it. Parsed and enforced in capabilityResolution.ts.
  */
 export const FALLBACK_DIRECTIVE = "_fallback";
 
 /**
- * Names an OpenRouter catalog entry whose capabilities backfill fields the
- * record leaves unset. Parsed and enforced in capabilityResolution.ts.
+ * Names an OpenRouter catalog entry whose capabilities backfill fields the record leaves unset. Parsed and enforced in
+ * capabilityResolution.ts.
  */
 export const OPENROUTER_MODEL_DIRECTIVE = "_openrouter_model";
 
 /**
- * Names a FIM prompt template for raw backends without native
- * fill-in-the-middle support: a string carrying both `{prefix}` and
- * `{suffix}` placeholders. Parsed in parameterResolution.ts; the completions
- * transport applies it (provider/transport/fim.ts) and omits the wire
- * `suffix` field when it does. The ONE parameters-record directive the
- * /completions path reads - everything else in a parameters record stays
- * chat-only.
+ * Names a FIM prompt template for raw backends without native fill-in-the-middle support: a string carrying both
+ * `{prefix}` and `{suffix}` placeholders.
+ *
+ * The ONE parameters-record directive the /completions path reads - everything else in a parameters record
+ * stays chat-only.
+ *
+ *   the completions transport applies it (provider/transport/fim.ts) -> omits the wire `suffix` field when it does
  */
 export const FIM_TEMPLATE_DIRECTIVE = "_fim_template";
 
@@ -58,13 +50,7 @@ export function isFimTemplateValue(value: unknown): value is string {
 	return typeof value === "string" && value.includes("{prefix}") && value.includes("{suffix}");
 }
 
-/**
- * Every type-specific directive name, minted once, keyed by the owning record
- * type. This module treats it as data - the parsers attach the behavior: each
- * derives its own vocabulary from its row and diagnoses the other rows' names
- * as wrong-record-type (wrongTypeDirectives), so a directive added or renamed
- * here reaches both sides by construction.
- */
+/** Every type-specific directive name, minted once, keyed by the owning record type. */
 export const RECORD_TYPE_DIRECTIVES = {
 	parameters: [FORCE_DIRECTIVE, FIM_TEMPLATE_DIRECTIVE],
 	capabilities: [FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE],
@@ -72,7 +58,6 @@ export const RECORD_TYPE_DIRECTIVES = {
 
 export type RecordType = keyof typeof RECORD_TYPE_DIRECTIVES;
 
-/** The sibling record types' directive names: exactly what `own`'s parser flags as wrong-record-type. */
 export function wrongTypeDirectives(own: RecordType): readonly string[] {
 	return Object.entries(RECORD_TYPE_DIRECTIVES).flatMap(([type, names]) => (type === own ? [] : names));
 }
@@ -81,9 +66,8 @@ export function wrongTypeDirectives(own: RecordType): readonly string[] {
 export type RecordLayer = "entry" | "global";
 
 /**
- * One problem found in a record map. `recordKey` names the record that
- * carries the problem; `key` the offending directive, field, or matcher key
- * inside it (for "invalid-matcher" the two coincide).
+ * One problem found in a record map. `recordKey` names the record that carries the problem; `key` the offending
+ * directive, field, or matcher key inside it (for "invalid-matcher" the two coincide).
  */
 export type RecordDiagnosticKind =
 	/** A malformed matcher key: empty, mid-key `*`, invalid regex, or an unsupported regex flag. */
@@ -96,7 +80,10 @@ export type RecordDiagnosticKind =
 	| "unknown-inherit-key"
 	/** `_force` naming a provider-owned or underscore key (parameters records only). */
 	| "unforceable-key"
-	/** Informational: a capability field outside the consumed vocabulary; the field still applies as-is (capabilities records only). */
+	/**
+	 * Informational: a capability field outside the consumed vocabulary; the field still applies as-is (capabilities
+	 * records only).
+	 */
 	| "unrecognized-key"
 	/** A capability field with a value of the wrong type (capabilities records only). */
 	| "invalid-value";
@@ -114,11 +101,7 @@ export type InheritFromDirective =
 	| { readonly kind: "none" }
 	| { readonly kind: "keys"; readonly keys: readonly string[] };
 
-/**
- * One record parsed into the engine's terms. The marking sets are always
- * subsets of `fields`' keys, and `diagnostics` carries everything the parse
- * refused (attributed to the record by the caller).
- */
+/** The marking sets are always subsets of `fields`' keys. */
 export interface ParsedRecord {
 	readonly fields: Readonly<Record<string, unknown>>;
 	readonly inheritable: ReadonlySet<string>;
@@ -131,12 +114,10 @@ export interface ParsedRecord {
 }
 
 /**
- * The one parse of the marking-directive grammar, shared by `_inheritable`
- * (here), `_force` (parameters records), and `_fallback` (capabilities
- * records). `markable` narrows which keys may carry the mark (`_force`'s
- * forceability rule), and the two arms narrow differently by design: `true`
- * skips a refused field silently, while a refused list entry is diagnosed under
- * its own name with the caller's kind, ahead of the own-field check.
+ * The one parse of the marking-directive grammar, shared by `_inheritable` (here), `_force` (parameters records), and
+ * `_fallback` (capabilities records). `markable` narrows which keys may carry the mark (`_force`'s forceability rule),
+ * and the two arms narrow differently by design: `true` skips a refused field silently, while a refused list entry is
+ * diagnosed under its own name with the caller's kind, ahead of the own-field check.
  */
 export function parseMarkingDirective(
 	record: Readonly<Record<string, unknown>>,
@@ -178,10 +159,8 @@ export function parseMarkingDirective(
 }
 
 /**
- * Parse the two engine-owned directives out of one raw record: `_inheritable`
- * through parseMarkingDirective, `_inherit_from` here. Marking only the
- * record's OWN fields is that grammar's rule, and the reason a receiver cannot
- * re-mark what it inherited.
+ * Marking only the record's OWN fields is that grammar's rule, and the reason a receiver cannot re-mark what it
+ * inherited.
  */
 export function parseSharedDirectives(
 	record: Readonly<Record<string, unknown>>,
@@ -210,8 +189,7 @@ export function parseSharedDirectives(
 					diagnostics.push({ kind: "invalid-directive", key: INHERIT_FROM_DIRECTIVE });
 				}
 			}
-			// The empty list names no sources and behaves exactly like `false`,
-			// barrier included.
+			// The empty list names no sources and behaves exactly like `false`, barrier included.
 			inheritFrom = { kind: "keys", keys };
 		} else {
 			diagnostics.push({ kind: "invalid-directive", key: INHERIT_FROM_DIRECTIVE });
@@ -221,7 +199,6 @@ export function parseSharedDirectives(
 	return { inheritable: inheritable.marked, inheritFrom, diagnostics };
 }
 
-/** One resolved field: the value plus the markings that ride with it from its source record. */
 export interface ResolvedChainField {
 	readonly value: unknown;
 	/** The record key whose literal field this is - markings always come from here. */
@@ -233,9 +210,8 @@ export interface ResolvedChainField {
 
 export interface RecordChainResolution {
 	/**
-	 * The most specific matching record's resolved view: its own fields plus
-	 * everything it accepted, each field carrying its source record's key and
-	 * markings. Empty when nothing matches.
+	 * The most specific matching record's resolved view: its own fields plus everything it accepted, each field
+	 * carrying its source record's key and markings. Empty when nothing matches.
 	 */
 	readonly fields: ReadonlyMap<string, ResolvedChainField>;
 	/** The most specific matching record's key; undefined when nothing matches. */
@@ -246,13 +222,7 @@ export interface RecordChainResolution {
 	readonly diagnostics: readonly RecordDiagnostic[];
 }
 
-/**
- * Record-level lint of one record map, independent of any model.
- * resolveRecordChain reports the same problems, but only along one model's
- * matching chain - a record no current model matches would never be visited
- * there, and the Diagnostics tab must still flag it. Deduplicated like the
- * chain walk's diagnostics.
- */
+/** Record-level lint of one record map, independent of any model. */
 export function lintRecordMap(
 	records: ModelRecordMap,
 	parse: (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord
@@ -306,8 +276,8 @@ export function resolveRecordChain(
 		diagnose({ kind: "invalid-matcher", recordKey: diagnostic.key, key: diagnostic.key });
 	}
 
-	// Parses are shared between chain membership and `_inherit_from` lookups,
-	// so a record parsed for both reports its problems once.
+	// Parses are shared between chain membership and `_inherit_from` lookups, so a record parsed for both reports its
+	// problems once.
 	const parsedByKey = new Map<string, ParsedRecord>();
 	const parsedFor = (key: string): ParsedRecord | undefined => {
 		const record = records[key];
@@ -364,9 +334,8 @@ export function resolveRecordChain(
 			case "none":
 				break;
 			case "keys": {
-				// Named sources contribute their LITERAL fields only, merged
-				// broadest first so the most specific named record wins per field -
-				// specificity order, not list order.
+				// Named sources contribute their LITERAL fields only, merged broadest first so the most specific named
+				// record wins per field - specificity order, not list order.
 				const named: { key: string; parsed: ParsedRecord; position: number }[] = [];
 				const namedSeen = new Set<string>();
 				for (const nameKey of parsed.inheritFrom.keys) {
@@ -380,8 +349,8 @@ export function resolveRecordChain(
 					}
 					const namedParse = parseMatcherKey(nameKey);
 					if (!namedParse.ok || !matcherMatches(namedParse.matcher, id)) {
-						// A named record that does not match this model contributes
-						// nothing; an invalid key already carries its own diagnostic.
+						// A named record that does not match this model contributes nothing; an invalid key already
+						// carries its own diagnostic.
 						continue;
 					}
 					const namedParsed = parsedFor(nameKey);

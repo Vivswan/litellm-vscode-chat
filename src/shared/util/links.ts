@@ -1,36 +1,33 @@
 /**
- * The project's outbound links: the GitHub repository, which issue links derive from, and the published docs site,
- * which every docs deep-link derives from, so neither family can drift apart. The repository URL is package.json's
- * `repository.url`, read as the build-time constant `__LITELLM_REPOSITORY_URL__`: scripts/dev/bundle.mts defines it
- * for both bundles from the manifest, and the two test runners set the same global from the same field
- * (src/test/util/buildDefines.ts) because they load the source unbundled. Without the define the bare identifier
- * throws at module load, naming itself: there is deliberately no fallback spelling. Every other value is a literal
- * built on that constant or on the docs origin, and the module imports nothing but a type, so the dashboard may
- * read from here (feedbackLinks.ts, diagnostics.tsx, the setup-hint link in serverEditPage.tsx) and still prove from
- * a read of docsLinks.ts plus this file that no link target carries server data.
+ * The repository URL is package.json's `repository.url`, read as the build-time constant `__LITELLM_REPOSITORY_URL__`:
+ * scripts/dev/bundle.mts defines it for both bundles from the manifest, and the two test runners set the same global
+ * from the same field (src/test/util/buildDefines.ts) because they load the source unbundled.
+ *
+ * Every other value is a literal built on that constant or on the docs origin, and the module imports nothing but a
+ * type, so the dashboard may read from here (feedbackLinks.ts, diagnostics.tsx, the setup-hint link in
+ * serverEditPage.tsx) and still prove from a read of docsLinks.ts plus this file that no link target carries server
+ * data.
+ *
+ *   the GitHub repository, which issue links derive from, and the published docs site, which every docs deep-link
+ *   derives from                                             -> neither family can drift apart
+ *   Without the define the bare identifier throws at module load, naming itself -> there is deliberately no fallback
+ *                                                                                   spelling
  */
 
 import type { SetupHintKind } from "../errorClassification";
 
-/** Supplied by the bundler's define or the test bootstrap; never assigned in source. */
 declare const __LITELLM_REPOSITORY_URL__: string;
 
-/** The GitHub repository; issue links derive from it. */
 export const GITHUB_REPO_URL: string = __LITELLM_REPOSITORY_URL__;
 
-/**
- * The published docs site. The fleet's site-build action renders docs/ with VitePress and deploys it to GitHub Pages
- * under the repository's path, so docs/<page>.md is served at /<page>.html and the zh-cn and zh-tw twins under
- * /zh-cn/ and /zh-tw/. The value is the Pages URL as GitHub assigns it, a literal: nothing from a server ever
- * interpolates here.
- */
+/** The value is the Pages URL as GitHub assigns it, a literal: nothing from a server ever interpolates here. */
 export const DOCS_SITE_URL = "https://vivswan.github.io/litellm-vscode-chat";
 
 /**
- * The site URL of docs/<page>.md, with the heading anchor when one is given. Heading ids on the site are GitHub's
- * (the site build slugs with github-slugger), so an anchor that reaches a heading on the GitHub page reaches the
- * same heading on the site. The overloads carry literal arguments through to the return type, so a constant built
- * from literals stays a literal type and the webview's DocsUrl union keeps rejecting a string built at runtime.
+ * Heading ids on the site are GitHub's (the site build slugs with github-slugger), so an anchor that reaches a heading
+ * on the GitHub page reaches the same heading on the site. The overloads carry literal arguments through to the return
+ * type, so a constant built from literals stays a literal type and the webview's DocsUrl union keeps rejecting a
+ * string built at runtime.
  */
 export function docsUrl<P extends string>(page: P): `${typeof DOCS_SITE_URL}/${P}.html`;
 export function docsUrl<P extends string, A extends string>(
@@ -48,10 +45,9 @@ export const DOCS_GETTING_STARTED_URL = docsUrl("getting-started");
 export const GITHUB_FEATURE_REQUEST_URL = `${GITHUB_REPO_URL}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
 
 /**
- * Where each setup hint's "Troubleshooting Docs" action lands, in the host's toasts and gates and in the
- * dashboard's test footer and error banner alike. A Record over the full hint union, so a new hint id fails to
- * compile until it names its docs target; `as const` keeps each value a literal type so the webview's DocsUrl
- * union stays narrow.
+ * Where each setup hint's "Troubleshooting Docs" action lands, in the host's toasts and gates and in the dashboard's
+ * test footer and error banner alike. A Record over the full hint union, so a new hint id fails to compile until it
+ * names its docs target; `as const` keeps each value a literal type so the webview's DocsUrl union stays narrow.
  */
 export const SETUP_HINT_DOCS_URLS = {
 	// The doubled hyphens are github-slugger's rendering of the heading's stripped "/" (leaving a doubled space)

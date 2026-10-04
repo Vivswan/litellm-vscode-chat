@@ -1,24 +1,16 @@
 /**
- * The model-matcher grammar shared by every model-keyed record (parameters and
- * capabilities, global and per-entry alike). A key matches exactly unless it
- * says otherwise:
+ * The model-matcher grammar shared by every model-keyed record (parameters and capabilities, global and per-entry
+ * alike).
  *
- * - `"gpt-5"` matches only the ID `gpt-5`, character for character,
- *   case-sensitive, nothing trimmed.
- * - `"gpt-5*"` is a trailing glob; a `*` anywhere but last is invalid.
- * - `"/re/"` or `"/re/i"` matches the whole ID; `i` is the only supported
- *   flag. An invalid pattern or another flag is a diagnostic, key ignored.
- * - `"*"` is the catch-all; `""` is invalid (diagnostic, ignored).
+ * Specificity orders matching keys:
+ * exact > glob (longer literal prefix wins) > regex (later in the record wins) > `"*"`.
  *
- * Specificity orders matching keys: exact > glob (longer literal prefix wins)
- * > regex (later in the record wins) > `"*"`. The tiers are strict - any glob
- * outranks any regex, and a match-everything regex still outranks `"*"`.
+ *   The tiers are strict -> any glob outranks any regex, and a match-everything regex still outranks `"*"`
  */
 
 /** A model-keyed record map: matcher key to one record object. The shape both settings and entry fields share. */
 export type ModelRecordMap = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
-/** The catch-all key: matches every model at the lowest specificity tier. */
 export const CATCH_ALL_KEY = "*";
 
 export type MatcherInvalidReason = "empty-key" | "misplaced-star" | "invalid-regex" | "unsupported-regex-flag";
@@ -33,17 +25,9 @@ export type MatcherParse =
 	| { readonly ok: true; readonly matcher: ParsedMatcher }
 	| { readonly ok: false; readonly reason: MatcherInvalidReason };
 
-/**
- * A key is regex-shaped when it starts with `/` and ends with `/` followed by
- * nothing but ASCII letters (the flags position), so an exact ID with slashes
- * inside (`anthropic/claude-4`) still matches by plain equality.
- */
+/** An exact ID with slashes inside (`anthropic/claude-4`) still matches by plain equality. */
 const REGEX_SHAPED = /^\/(.+)\/([a-zA-Z]*)$/;
 
-/**
- * Parse one record key into its matcher. Total: every string answers either
- * a matcher or the reason it is invalid; invalid keys never match anything.
- */
 export function parseMatcherKey(key: string): MatcherParse {
 	if (key === "") {
 		return { ok: false, reason: "empty-key" };
@@ -58,9 +42,9 @@ export function parseMatcherKey(key: string): MatcherParse {
 			return { ok: false, reason: "unsupported-regex-flag" };
 		}
 		try {
-			// Anchored to the whole ID: a regex key matches the ID, never a substring.
 			// The key comes from the user's settings or a trusted workspace, so a slow regex costs only its author.
 			// The record settings are `restricted` (SETTING_PRESENTATION); an untrusted workspace cannot supply one.
+			//   Anchored to the whole ID -> a regex key matches the ID, never a substring
 			// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
 			return { ok: true, matcher: { kind: "regex", key, pattern: new RegExp(`^(?:${body})$`, flags) } };
 		} catch {
@@ -69,8 +53,6 @@ export function parseMatcherKey(key: string): MatcherParse {
 	}
 	const star = key.indexOf("*");
 	if (star !== -1) {
-		// A single trailing star is the glob form; a star anywhere earlier
-		// (which also covers multiple stars) invalidates the key.
 		if (star !== key.length - 1) {
 			return { ok: false, reason: "misplaced-star" };
 		}
@@ -92,15 +74,12 @@ export function matcherMatches(matcher: ParsedMatcher, id: string): boolean {
 	}
 }
 
-/** One malformed record key; the record under it never matches anything. */
 export interface MatcherDiagnostic {
 	readonly kind: "invalid-matcher";
-	/** The offending record key. */
 	readonly key: string;
 	readonly reason: MatcherInvalidReason;
 }
 
-/** One record whose key matches the model, with the key's position in the record (the regex tie-breaker). */
 export interface RecordMatch<T> {
 	readonly key: string;
 	readonly matcher: ParsedMatcher;
@@ -112,9 +91,8 @@ export interface RecordMatch<T> {
 const TIER = { "catch-all": 0, regex: 1, glob: 2, exact: 3 } as const;
 
 /**
- * The strict specificity order between two matchers that both match one
- * model: negative when `a` is broader than `b`. Two distinct keys can never
- * tie: equal-prefix globs are the same key, and record positions differ.
+ * The strict specificity order between two matchers that both match one model: negative when `a` is broader than `b`.
+ * Two distinct keys can never tie: equal-prefix globs are the same key, and record positions differ.
  */
 export function compareSpecificity(
 	a: Pick<RecordMatch<unknown>, "matcher" | "position">,
@@ -140,11 +118,6 @@ export interface MatchChain<T> {
 	readonly diagnostics: readonly MatcherDiagnostic[];
 }
 
-/**
- * All records matching one model ID, ordered broadest to most specific - the
- * resolution chain inheritance walks. Invalid keys are diagnosed and never
- * match; the most specific matching record is the chain's last element.
- */
 export function matchChain<T>(id: string, records: Readonly<Record<string, T>>): MatchChain<T> {
 	const chain: RecordMatch<T>[] = [];
 	const diagnostics: MatcherDiagnostic[] = [];
@@ -165,7 +138,6 @@ export function matchChain<T>(id: string, records: Readonly<Record<string, T>>):
 	return { chain, diagnostics };
 }
 
-/** The invalid keys of a record map, for record-level linting independent of any model. */
 export function lintMatcherKeys(records: Readonly<Record<string, unknown>>): readonly MatcherDiagnostic[] {
 	const diagnostics: MatcherDiagnostic[] = [];
 	for (const key of Object.keys(records)) {

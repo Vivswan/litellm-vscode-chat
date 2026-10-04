@@ -4,9 +4,8 @@ import { isToolResultPart, pairToolCallIds, wireIdKey } from "./conversion/toolC
 import { chatErrorMessage, englishChatErrorMessage, localizedError } from "./mirroredError";
 
 /**
- * English mirror of the tool-pairing headline. The call IDs in the detail are
- * response-derived, so the thrown error also carries a count-only
- * logClassification; the full mirror rides only as englishMessage.
+ * The call IDs in the detail are response-derived, so the thrown error also carries a count-only logClassification; the
+ * full mirror rides only as englishMessage.
  */
 const TOOL_PAIRING_HEADLINE_ENGLISH =
 	"This conversation is missing a tool result, so the request can't be sent. Start a new chat to continue; if it keeps happening, the extension driving this conversation is dropping tool results when it rebuilds history.";
@@ -18,11 +17,9 @@ function toolPairingHeadline(): string {
 	);
 }
 
-/** English mirror of the broader mismatch headline, for defects beyond a missing result. */
 const TOOL_MISMATCH_HEADLINE_ENGLISH =
 	"This conversation's tool calls and tool results don't pair up, so the request can't be sent. Start a new chat to continue; if it keeps happening, the extension driving this conversation is rebuilding tool history incorrectly.";
 
-/** Lazy so the display string resolves through the l10n bundle at throw time, not module load. */
 function toolMismatchHeadline(): string {
 	return l10n.t(
 		"This conversation's tool calls and tool results don't pair up, so the request can't be sent. Start a new chat to continue; if it keeps happening, the extension driving this conversation is rebuilding tool history incorrectly."
@@ -30,10 +27,8 @@ function toolMismatchHeadline(): string {
 }
 
 /**
- * Validate the request message sequence for correct tool call/result pairing.
- * Pairing verdicts come from the same pairToolCallIds analysis conversion
- * ships, so a passing request is wire-paired by construction. Diagnostic
- * detail travels in the thrown error, never logged here.
+ * Pairing verdicts come from the same pairToolCallIds analysis conversion ships, so a passing request is wire-paired by
+ * construction.
  */
 export function validateRequest(messages: readonly vscode.LanguageModelChatRequestMessage[]): void {
 	const lastMessage = messages[messages.length - 1];
@@ -85,8 +80,7 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 						const ctorName =
 							(Object.getPrototypeOf(part as object) as { constructor?: { name?: string } } | undefined)?.constructor
 								?.name ?? typeof part;
-						// The constructor name is caller-controlled text, so it stays out
-						// of the classification.
+						// The constructor name is caller-controlled text, so it stays out of the classification.
 						throw localizedError(
 							chatErrorMessage(
 								toolPairingHeadline(),
@@ -105,9 +99,7 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 		}
 	});
 
-	// The positional walk above gives the sharper errors; these catch what it
-	// cannot see (calls outside assistant messages, stray or double results,
-	// an id reused while still awaiting its result or within one message's calls).
+	// The positional walk above gives the sharper errors; these catch what it cannot see.
 	if (
 		pairing.unpairedCallIds.length > 0 ||
 		pairing.strayResultIds.length > 0 ||

@@ -6,10 +6,8 @@ export function normalizePositiveNumber(value: unknown): number | undefined {
 }
 
 /**
- * Narrow a per-token cost read from a lenient discovery payload. Costs are
- * fractional and zero means a free model, so unlike normalizePositiveNumber
- * this keeps non-integers and zero. Numbers only: LiteLLM emits costs as JSON
- * numbers, and anything else is a malformed entry that degrades to absent.
+ * Costs are fractional and zero means a free model, so unlike normalizePositiveNumber this keeps non-integers and zero.
+ * Numbers only: LiteLLM emits costs as JSON numbers, and anything else is a malformed entry that degrades to absent.
  */
 export function normalizeCostPerToken(value: unknown): number | undefined {
 	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {

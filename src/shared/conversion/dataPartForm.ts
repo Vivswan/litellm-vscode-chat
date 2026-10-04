@@ -4,11 +4,8 @@ import { audioInputFormatForMime, isImageMimeType, isPdfMimeType, isTextMimeType
 export type DataPartPosition = "user" | "assistant" | "toolResult";
 
 /**
- * What a DataPart becomes on the wire at its position: an image_url block, a
- * file block, an input_audio block (carrying its resolved wire format),
- * decoded text, or nothing at all. "none" covers payloads with no wire mapping
- * at that position and payloads the model's capability gates exclude; either
- * way the part is dropped before the request is built.
+ * "none" covers payloads with no wire mapping at that position and payloads the model's capability gates exclude;
+ * either way the part is dropped before the request is built.
  */
 export type DataPartWireForm =
 	| { form: "image" }
@@ -18,9 +15,8 @@ export type DataPartWireForm =
 	| { form: "none" };
 
 /**
- * Capability gates resolved from the model: the registered imageInput
- * capability and the LiteLLM audio-input modality. Capabilities decide what
- * ships, so a gated-off part takes the same "none" path as an unmappable one.
+ * Capability gates resolved from the model: the registered imageInput capability and the LiteLLM audio-input modality.
+ * Capabilities decide what ships, so a gated-off part takes the same "none" path as an unmappable one.
  */
 export interface DataPartWireGates {
 	imageInput: boolean;
@@ -28,8 +24,9 @@ export interface DataPartWireGates {
 }
 
 /**
- * The single wire-form decision for a DataPart; conversion switches on it at every position and token estimation prices that output.
- * Each position mirrors one conversion path exactly, ORDER included, so a text-decodable image mime (image/foo+json) lands differently:
+ * The single wire-form decision for a DataPart; conversion switches on it at every position and token estimation
+ * prices that output. Each position mirrors one conversion path exactly, ORDER included, so a text-decodable image
+ * mime (image/foo+json) lands differently:
  *
  *   user message, vision gate on  -> image
  *   user message, vision gate off -> text
