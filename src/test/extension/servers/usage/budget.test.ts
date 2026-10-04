@@ -1,12 +1,8 @@
 import * as assert from "node:assert";
 import type { BudgetStatus, ResolveBudgetInput } from "../../../../extension/servers/usage";
 import { crossedThresholds, newlyCrossedThresholds, resolveBudget } from "../../../../extension/servers/usage";
-import type { UsageStatusBarMode } from "../../../../shared/config/settingSpec";
-import {
-	DEFAULT_USAGE_ALERT_THRESHOLDS,
-	normalizeUsageAlertThresholds,
-	normalizeUsageStatusBarMode,
-} from "../../../../shared/config/settings";
+import { DEFAULT_USAGE_ALERT_THRESHOLDS, type UsageStatusBarMode } from "../../../../shared/config/settingSpec";
+import { normalizeUsageAlertThresholds, normalizeUsageStatusBarMode } from "../../../../shared/config/settings";
 
 const THRESHOLDS = [0.8, 0.95] as const;
 

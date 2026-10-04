@@ -98,15 +98,13 @@ export const WIRE_LIMITS = {
 	/** Language entries per inline-completions language filter write. */
 	languageList: 256,
 	/**
-	 * The usage.currencySymbol display prefix. Unlike the caps above, honest
-	 * input can meet this one, so the settings form pre-gates against it and
-	 * package.json's manifest maxLength mirrors it (pinned by test).
+	 * The usage.currencySymbol display prefix. Unlike the caps above, honest input can meet this one, so the settings
+	 * form pre-gates against it and the generated manifest's maxLength is this value.
 	 */
 	currencySymbol: 12,
 	/**
-	 * The commitGeneration.prompt instruction text. Honest prompts can be long,
-	 * so the settings row pre-gates against this bound like the currency symbol
-	 * does, and package.json's manifest maxLength mirrors it (pinned by test).
+	 * The commitGeneration.prompt instruction text. Honest prompts can be long, so the settings row pre-gates against
+	 * this bound like the currency symbol does, and the generated manifest's maxLength is this value.
 	 */
 	commitPrompt: 8192,
 } as const;

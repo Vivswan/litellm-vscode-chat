@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Refuse to mutate the repo during commits. Dependencies should already exist.
+# Refuse to install dependencies during a commit; they should already exist.
 # This guard is the fail-closed floor for fresh worktrees: the .husky/_
 # bootstrap files are tracked so git always finds a hook to run, and a
 # checkout that never ran bun install lands here instead of silently
@@ -14,12 +14,17 @@ fi
 # repo-wide formatting is CI's job (biome ci and the auto-format workflow).
 bunx lint-staged
 
-# The static gates: workflow lint, the @types/vscode versus engines.vscode
-# guard (the same script CI's format-check runs), lint, the typecheck of all
-# four tsconfig projects (`compile` builds the root one alone, and a webview
-# type error once reached main through that gap), the l10n gate, and the two
-# generator drift checks (the settings reference, the tool schemas). About
-# twenty seconds together.
+# Regenerate the committed generated files (the manifest blocks, the settings docs) and stage them, in one run: every
+# generator's refusal of an unstaged edit to its inputs or outputs, and every render, comes before any write, so a
+# refused commit leaves the tree as it was. CI's --check is the backstop for a --no-verify commit or a web edit, not
+# the reminder. After lint-staged, so the generators read the final tree; before check:static, so its manifest and docs
+# checks pass by construction here and stay the manual and CI gate.
+bun scripts/dev/stageGenerated.ts
+
+# The static gates: workflow lint, the @types/vscode versus engines.vscode guard (the same script CI's format-check
+# runs), lint, the typecheck of all four tsconfig projects (`compile` builds the root one alone, and a webview type
+# error once reached main through that gap), the l10n gate, and the three generator drift checks (the settings
+# reference, the tool schemas, the manifest's configuration block). About twenty seconds together.
 bun run check:static
 
 # The bun tree only. The VS Code host suite (compile, bundle, and the four
@@ -27,7 +32,8 @@ bun run check:static
 # it here too cost each commit minutes for a verdict the push repeats.
 bun run test:bun
 
-# Lints and tests above ran against the working tree, not the index.
+# The lints and tests above ran against the working tree, not the index; the staging run enforces index-consistency
+# for the generated files itself.
 if ! git diff --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
 	echo "note: unstaged or untracked changes present; lint and test results reflect the working tree, not the exact commit."
 fi

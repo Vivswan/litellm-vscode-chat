@@ -57,7 +57,7 @@ A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Lan
 - **One-shot features take nothing from the records except `_fim_template`** (`src/extension/features/`). Features never import each other; `features/quickFixChatCommands.ts` is the one declared bridge.
 - **Migrations are idempotent, state-detecting, and expire** (`src/extension/migrations/expiries.ts`). A passed expiry turns the build red until the migration is deleted.
 - **The two `models.*` record settings are `restricted`; every `.enabled`, `.model`, and `models.openRouterCatalog` is machine-overridable** (`src/shared/config/settingSpec.ts`).
-- **`docs/settings.md` and its zh-cn/zh-tw twins are generated** (`bun run docs:settings`); a new setting needs a prose entry in all three locales.
+- **`contributes.configuration` in `package.json` and `docs/settings.md` with its zh-cn/zh-tw twins are generated output** from `src/shared/config/settingSpec.ts` (`bun run manifest:generate`, `bun run docs:settings`); edit the spec and commit, the pre-commit hook regenerates and stages them, and CI's `--check` is the backstop. A new setting needs a prose entry in all three locales.
 - **The agent tools' manifest `inputSchema` blocks are generated** from the zod envelopes in `src/extension/features/agentTools/inputSchema.ts` (`bun run tools:schemas`); their model-facing descriptions live there as `.describe` texts.
 - **Fuzz findings are pinned, not fixed in place**: a fuzz-found failure gets a corpus entry in `src/test/fuzzCorpus.ts`.
 - **Dashboard appearance is reviewed, not gated**: `check-overflow` and `check-geometry` gate fit and geometry; looks are judged against `docs/dashboard-visual-language.md`.

@@ -42,7 +42,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 
 ## 参考
 
-<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts, package.json, and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->
+<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->
 | 设置 | 默认值 | 行为 |
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | 声明的 LiteLLM 服务器; [条目属性见下](#服务器条目属性), 完整故事在[服务器](servers.md) |

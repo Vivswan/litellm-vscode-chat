@@ -79,17 +79,18 @@ suite("extension/settingsTransfer/importPlan", () => {
 				},
 				undefined
 			);
+			// Both lists come out in ALL_SETTING_KEYS order, which is the manifest's section order.
 			assert.deepStrictEqual(plan.skippedKeys, [
-				{ key: "usage.statusBar", reason: "wrong-type" },
 				{ key: "chat.timeout", reason: "wrong-type" },
-				{ key: "discovery.cacheTtl", reason: "wrong-type" },
 				{ key: "chat.promptCaching", reason: "wrong-type" },
+				{ key: "discovery.cacheTtl", reason: "wrong-type" },
+				{ key: "usage.statusBar", reason: "wrong-type" },
 			]);
 			// Structured keys pass through to their readers' existing leniency.
 			assert.deepStrictEqual(plan.settingsWrites, [
 				{ key: "models.capabilities", value: 42 },
-				{ key: "usage.alertThresholds", value: "not-an-array" },
 				{ key: "models.openRouterCatalog", value: true },
+				{ key: "usage.alertThresholds", value: "not-an-array" },
 			]);
 		});
 
