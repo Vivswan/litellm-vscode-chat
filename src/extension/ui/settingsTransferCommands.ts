@@ -437,8 +437,8 @@ function parseFailureMessage(reason: "not-json" | "not-an-export" | "newer-versi
 
 /**
  * The apply step's servers unit: each imported label's blob, then the single servers write, with the blobs restored
- * when the setting fails. Blobs first because a pre-import blob may be unstamped (a label no entry declares, which the
- * stamp migration cannot reach), and an unstamped value is trusted by whatever entry is live.
+ * when the setting fails. Order pinned by one input: an unstamped leftover blob under a label the import re-adds, with
+ * the blob write failing after the setting landed.
  */
 async function applyServersUnit(
 	env: SettingsTransferEnv,
