@@ -442,6 +442,20 @@ suite("extension/servers/usage spendClient", () => {
 			);
 			assert.strictEqual(badName.virtualKey, undefined);
 		});
+
+		test("a base URL normalizing to nothing forms no absolute usage URL while the composer carries the secrets", () => {
+			// The composer still carries every resolved value (its units read the carriers, not the server), so this
+			// is the usage path's own no-server refusal: the GET cannot form. An active OAuth unit's token exchange
+			// targets its own absolute token URL first; the poller composes from resolveOwnedSecrets, which drops a
+			// stamp-mismatched value before it gets here.
+			const connection = usageConnectionFor(
+				{ label: "alpha", baseUrl: "/", virtualKeyHeader: "x-litellm-key" },
+				{ apiKey: "stored-key", virtualKeyValue: "vk-1" }
+			);
+			assert.strictEqual(connection.apiKey, "stored-key");
+			assert.deepStrictEqual(connection.virtualKey, { header: "x-litellm-key", value: "vk-1" });
+			assert.throws(() => new URL(keyInfoUrl(connection.baseUrl, connection.apiVersion)), TypeError);
+		});
 	});
 
 	suite("OAuth 401 invalidation", () => {
