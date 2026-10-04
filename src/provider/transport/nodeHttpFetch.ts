@@ -4,20 +4,13 @@ import type { Duplex, Readable } from "node:stream";
 import * as zlib from "node:zlib";
 
 /**
- * The transport for every request whose budget may outlive undici's fixed 300 s idle clocks (headersTimeout,
- * bodyTimeout): the chat stream and the one-shot features, both bounded by chat.timeout. Node's http client has
- * no idle clock of its own, so the caller's AbortSignal is the only bound. The 30 s surfaces (OAuth exchange,
- * spend, OpenRouter catalog) stay on globalThis.fetch.
- *
- * Why not fetch with an undici Agent: the extension host's fetch patch (@vscode/proxy-agent) rebuilds the
- * dispatcher without timeouts whenever proxy support or system certificates are on, which is the default. The
- * same patch covers http.request and https.request with proxies and certificates: the host assigns the patched
- * functions onto the node:http module itself, so they must be read off the module at call time (msw proxies
- * them the same way), never destructured into a constant.
- *
- * Failure shapes mirror undici's so errorMapping classifies both transports through one pipeline:
+ * Node's http client, not fetch. It has no idle clock, so the caller's AbortSignal is the only bound. Undici's fetch
+ * has default 300 s clocks (headersTimeout, bodyTimeout), and the host's @vscode/proxy-agent patch keeps them that way:
+ *   proxies or system certs on (default)  -> rebuilds the fetch dispatcher, so no Agent lifts the clocks
+ *   http.request and https.request        -> swapped for proxy- and cert-aware ones, so request is read per call
+ * Failure shapes mirror undici's, so errorMapping classifies both transports in one pipeline:
  *   before headers  -> rejects TypeError("fetch failed", { cause })
- *   mid-body        -> body stream errors with TypeError("terminated", { cause })
+ *   mid-body        -> the body errors with TypeError("terminated", { cause })
  *   caller's abort  -> rejects, or errors the body, with signal.reason itself
  */
 export type TransportFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
