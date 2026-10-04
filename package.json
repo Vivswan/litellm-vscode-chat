@@ -2145,8 +2145,8 @@
 		"test": "bun run test:host",
 		"test:host": "bun run test:bun && bun run test:vscode",
 		"test:vscode": "bun run compile && bun run bundle:dev && vscode-test --label unit --label activation-production --label host-fidelity --label host-fidelity-groups",
-		"test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage/bun && bun run test:vscode --coverage && bun scripts/ci/check-coverage.ts",
-		"test:bun": "bun test",
+		"test:coverage": "bun run test:bun --coverage --coverage-reporter=lcov --coverage-dir=coverage/bun && bun run test:vscode --coverage && bun scripts/ci/check-coverage.ts",
+		"test:bun": "bun scripts/bun-test.ts",
 		"test:docker": "bun scripts/docker-test.ts"
 	},
 	"dependencies": {
