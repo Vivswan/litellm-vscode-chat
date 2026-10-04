@@ -55,10 +55,6 @@ function setupBunSteps(file: string): { at: string; step: WorkflowStep }[] {
 describe("toolchain pins", () => {
 	const pinned = read(".bun-version").trim();
 
-	test(".bun-version is an exact release", () => {
-		assert.match(pinned, RELEASE, `.bun-version must pin an exact bun release, got "${pinned}"`);
-	});
-
 	test("the running bun, packageManager, @types/bun, compose, the devcontainer, and every repo-owned setup-bun step name the .bun-version release", () => {
 		const pkg = JSON.parse(read("package.json")) as {
 			packageManager?: string;

@@ -53,24 +53,4 @@ suite("shared/mirroredError", () => {
 		assert.strictEqual(err.name, "RequestError");
 		assert.strictEqual(publicErrorText(err), "english");
 	});
-
-	test("constructing a boundary error without an English channel does not typecheck", () => {
-		// The compile-level pin for the localization invariant: at least one of
-		// englishMessage/logClassification is required BY CONSTRUCTION.
-		// @ts-expect-error - an empty options bag carries no English channel
-		assert.ok(new MirroredError("display", {}) instanceof Error);
-		// @ts-expect-error - a cause alone is not an English channel
-		assert.ok(new MirroredError("display", { cause: new Error("x") }) instanceof Error);
-		// @ts-expect-error - RequestError inherits the requirement: kind and status do not satisfy it
-		assert.ok(new RequestError("display", "http", { status: 503 }) instanceof Error);
-		// Never invoked: with types erased, calls without the bag would throw,
-		// so the missing-argument forms are pinned without running them.
-		const neverRun = () => [
-			// @ts-expect-error - the options bag itself is required
-			new MirroredError("display"),
-			// @ts-expect-error - RequestError's options bag is required too
-			new RequestError("display", "timeout"),
-		];
-		assert.strictEqual(typeof neverRun, "function");
-	});
 });

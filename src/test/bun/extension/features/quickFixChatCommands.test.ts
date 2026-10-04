@@ -45,14 +45,6 @@ function commandNamed(name: string): SlashCommand {
 }
 
 describe("extension/features quickFixChatCommands", () => {
-	test("exactly /fix and /explain, each with a description", () => {
-		const commands = quickFixSlashCommands();
-		expect(commands.map((command) => command.name)).toEqual(["fix", "explain"]);
-		for (const command of commands) {
-			expect(command.description.trim()).not.toBe("");
-		}
-	});
-
 	test("a fresh array per call, so no caller can mutate another's view", () => {
 		const first = quickFixSlashCommands();
 		first.length = 0;

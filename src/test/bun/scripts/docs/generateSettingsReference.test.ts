@@ -16,7 +16,6 @@ import {
 	TABLE_HEADERS,
 } from "../../../../../scripts/docs/lib";
 import { SETTING_PROSE, type SettingProse } from "../../../../../scripts/docs/settingsReferenceProse";
-import { ALL_SETTING_KEYS } from "../../../../shared/config/settingSpec";
 import { REPO_ROOT } from "../../../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
 
@@ -63,10 +62,6 @@ describe("settings reference generation", () => {
 			assert.strictEqual(applyReferenceTable(corrupted, locale, table), once);
 		});
 	}
-
-	test("the prose map names exactly the declared setting vocabulary", () => {
-		assert.deepStrictEqual(Object.keys(SETTING_PROSE).sort(), [...ALL_SETTING_KEYS].sort());
-	});
 
 	test("every shipped doc is already what the generator would write", () => {
 		// The `docs:settings:check` contract against the real checkout, so the

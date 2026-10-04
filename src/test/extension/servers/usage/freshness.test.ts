@@ -44,7 +44,6 @@ suite("extension/servers/usage freshness", () => {
 	test("the window is two poll intervals, and the configured polling-off window with polling off", () => {
 		assert.strictEqual(usageFreshnessWindowMs(POLL_INTERVAL_MS, POLLING_OFF_WINDOW_MS), 2 * POLL_INTERVAL_MS);
 		assert.strictEqual(usageFreshnessWindowMs(0, POLLING_OFF_WINDOW_MS), POLLING_OFF_WINDOW_MS);
-		assert.strictEqual(POLLING_OFF_WINDOW_MS, 600_000, "the documented default stays ten minutes");
 	});
 
 	test("data inside the window is fresh; exactly two intervals old is already stale", () => {

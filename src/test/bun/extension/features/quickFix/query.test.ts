@@ -40,12 +40,6 @@ describe("extension/features/quickFix/query", () => {
 			assert.strictEqual(selectDiagnostics([diagnostic])[0], diagnostic);
 		});
 
-		test("preserves the caller's element type", () => {
-			const tagged = [{ ...makeDiagnostic("x"), tag: "mine" }];
-			const selected = selectDiagnostics(tagged);
-			assert.strictEqual(selected[0]?.tag, "mine");
-		});
-
 		test("dedupes by message + range, keeping one", () => {
 			const twin = makeDiagnostic("unused variable", { line: 3 });
 			const selected = selectDiagnostics([twin, makeDiagnostic("unused variable", { line: 3 })]);

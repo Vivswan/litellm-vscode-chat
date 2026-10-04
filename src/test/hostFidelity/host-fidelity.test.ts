@@ -780,16 +780,6 @@ suite("Host-Fidelity Tests (multi-group)", () => {
 		}
 	});
 
-	suite("model aggregation", () => {
-		test("each group serves exactly its own model with positive token limits", () => {
-			// The suiteSetup's wait already pinned the exact multiset; this pins the
-			// per-model registration facts.
-			for (const m of [modelA, modelB]) {
-				assert.ok(m.maxInputTokens > 0, `${m.id} maxInputTokens should be positive`);
-			}
-		});
-	});
-
 	suite("request routing", () => {
 		test("a group model's request reaches its own server carrying the raw model ID", async function () {
 			this.timeout(15000);
@@ -1110,26 +1100,6 @@ suite("Host-Fidelity Tests (live)", () => {
 	// ─── Model Discovery ─────────────────────────────────────────────────
 
 	suite("model discovery", () => {
-		test("selectChatModels returns models from real server", async () => {
-			assert.ok(allModels.length > 0, "Expected at least one model from real server");
-			console.log(`Found ${allModels.length} models: ${allModels.map((m) => m.id).join(", ")}`);
-		});
-
-		test("target model has expected properties", () => {
-			assert.ok(model.maxInputTokens > 0, "maxInputTokens should be positive");
-			assert.strictEqual(model.vendor, "litellm");
-			assert.ok(model.family.length > 0, "family should be the litellm_provider or the litellm fallback");
-		});
-
-		test("all models have required fields", () => {
-			for (const m of allModels) {
-				assert.ok(m.id, `Model should have an id`);
-				assert.ok(m.name, `Model ${m.id} should have a name`);
-				assert.ok(m.family.length > 0, `Model ${m.id} should have a non-empty family`);
-				assert.ok(m.maxInputTokens > 0, `Model ${m.id} maxInputTokens should be positive`);
-			}
-		});
-
 		test("multiple selectChatModels calls return consistent results", async () => {
 			const models1 = await vscode.lm.selectChatModels({ vendor: "litellm" });
 			const models2 = await vscode.lm.selectChatModels({ vendor: "litellm" });

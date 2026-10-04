@@ -7,7 +7,7 @@
  * The bordered modes refuse the quietness trade outright (every control's box draws at
  * rest, so a resting-invisible action is bare boxes flickering): those clauses live in
  * theme.css against the data-slot below, because opacity-0 is a utility and only an
- * unlayered rule reliably beats one; theme.test.ts pins them.
+ * unlayered rule reliably beats one.
  */
 
 import type { ReactNode } from "react";

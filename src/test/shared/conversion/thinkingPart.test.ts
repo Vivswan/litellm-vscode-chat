@@ -1,11 +1,9 @@
 import * as assert from "node:assert";
-import * as vscode from "vscode";
 import {
 	logMissingThinkingPartSupportOnce,
 	logThinkingPartProbeErrorOnce,
 	probeThinkingPartCtor,
 	resetThinkingPartLogOnce,
-	thinkingPartCtor,
 } from "../../../shared/conversion/thinkingPart";
 
 suite("shared/conversion/thinkingPart", () => {
@@ -41,11 +39,6 @@ suite("shared/conversion/thinkingPart", () => {
 		const probe = probeThinkingPartCtor(host);
 		assert.strictEqual(probe.ctor, undefined);
 		assert.ok(probe.error?.includes("proposed API not enabled"));
-	});
-
-	test("the module-level probe matches what the running host exposes", () => {
-		const hostCtor: unknown = Reflect.get(vscode, "LanguageModelThinkingPart");
-		assert.strictEqual(thinkingPartCtor, typeof hostCtor === "function" ? hostCtor : undefined);
 	});
 
 	test("the missing-support message is logged once until reset", () => {

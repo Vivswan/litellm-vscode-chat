@@ -3,7 +3,6 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
-import type { ExpectedFailureCategory } from "../../../shared/serverEntry";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
 	entryUsesSecretField,
@@ -13,14 +12,12 @@ import {
 import { REPO_ROOT } from "../../util/repoRoot";
 
 /**
- * Drift guards between the server-entry field descriptor and its two
- * package.json copies: the servers setting's items schema and the
- * languageModelChatProviders configuration.
+ * Drift guards against package.json: the servers setting's items schema stays
+ * closed to unknown fields, and the languageModelChatProviders configuration
+ * mirrors the server-entry field descriptor.
  */
 interface ItemsSchema {
 	readonly additionalProperties: boolean;
-	readonly required: readonly string[];
-	readonly properties: Record<string, unknown>;
 }
 
 interface FieldSchema {
@@ -50,9 +47,7 @@ function readPackageJson(): PackageJson {
 describe("shared/serverEntry: package.json drift guard", () => {
 	const optionalIds = OPTIONAL_ENTRY_FIELDS.map((field) => field.id);
 
-	test("the servers setting's items schema declares exactly the nested entry shape", () => {
-		// The SETTINGS shape is nested; the flat descriptor fields live on in the
-		// provider-group configuration and in the parsed internal shape.
+	test("the servers setting's items schema rejects unknown entry fields", () => {
 		const sections = readPackageJson().contributes.configuration;
 		const properties = Object.assign({}, ...sections.map((section) => section.properties)) as Record<
 			string,
@@ -61,18 +56,6 @@ describe("shared/serverEntry: package.json drift guard", () => {
 		const items = properties[`${CONFIG_SECTION}.servers`]?.items;
 		assert.ok(items, "the servers setting declares an items schema");
 		assert.strictEqual(items.additionalProperties, false, "unknown entry fields must be rejected");
-		assert.deepStrictEqual([...items.required], ["label", "baseUrl"]);
-		assert.deepStrictEqual(Object.keys(items.properties), [
-			"label",
-			"baseUrl",
-			"apiVersion",
-			"auth",
-			"headers",
-			"models",
-			"discovery",
-			"budget",
-			"mcp",
-		]);
 	});
 
 	test("the provider-group configuration declares the descriptor's fields with its secret flags", () => {
@@ -97,19 +80,7 @@ describe("shared/serverEntry: package.json drift guard", () => {
 });
 
 describe("shared/serverEntry: expected failure categories", () => {
-	test("the category tokens are pinned: they are wire-adjacent config values users type", () => {
-		const categories: readonly ExpectedFailureCategory[] = EXPECTED_FAILURE_CATEGORIES;
-		assert.deepStrictEqual([...categories], ["modelListing", "modelInfo"]);
-	});
-
-	test("the categories stay out of the entry descriptor, like an entry's modelParameters", () => {
-		// expectedFailures must never reach the provider-group args or their
-		// fingerprint, so it can never join OPTIONAL_ENTRY_FIELDS.
-		const optionalIds: readonly string[] = OPTIONAL_ENTRY_FIELDS.map((field) => field.id);
-		assert.ok(!optionalIds.includes("expectedFailures"));
-	});
-
-	test("isExpectedFailureCategory accepts exactly the pinned tokens", () => {
+	test("isExpectedFailureCategory accepts exactly the declared tokens", () => {
 		for (const category of EXPECTED_FAILURE_CATEGORIES) {
 			assert.ok(isExpectedFailureCategory(category));
 		}

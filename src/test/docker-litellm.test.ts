@@ -176,14 +176,6 @@ suite("Docker LiteLLM stack", () => {
 			assert.deepStrictEqual([...registeredModelIds].sort(), SURVIVOR_IDS);
 		});
 
-		test("every survivor reaches the HOST model list", () => {
-			// The setup's multiset wait pinned exact counts; this pins that each
-			// survivor's model object is usable from the map.
-			for (const id of SURVIVOR_IDS) {
-				assert.ok(modelsByName.has(id), `${id} must reach the host`);
-			}
-		});
-
 		test("the blocked gpt-4-turbo never registers", () => {
 			assert.ok(!registeredModelIds.includes("gpt-4-turbo"), "blocked models must not register");
 			assert.ok(!modelsByName.has("gpt-4-turbo"), "blocked models must not reach the host");

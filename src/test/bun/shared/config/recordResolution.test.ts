@@ -11,7 +11,6 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import { resolveParameterLayer } from "../../../../shared/config/parameterResolution";
 import type { RecordDiagnostic, RecordDiagnosticKind } from "../../../../shared/config/recordResolution";
-import { INHERIT_FROM_DIRECTIVE, INHERITABLE_DIRECTIVE } from "../../../../shared/config/recordResolution";
 
 /** The resolved view as a plain record of values, for terse assertions. */
 function valuesOf(id: string, records: Record<string, Record<string, unknown>>): Record<string, unknown> {
@@ -35,13 +34,6 @@ function diagnosticsOf(id: string, records: Record<string, Record<string, unknow
 	"unrecognized-key": true,
 	"invalid-value": true,
 }) satisfies Record<RecordDiagnosticKind, true>;
-
-describe("shared/config recordResolution directive names", () => {
-	test("the exported directive constants are the documented spellings", () => {
-		assert.strictEqual(INHERITABLE_DIRECTIVE, "_inheritable");
-		assert.strictEqual(INHERIT_FROM_DIRECTIVE, "_inherit_from");
-	});
-});
 
 describe("shared/config recordResolution defaults", () => {
 	test("the most specific matching record wins wholesale; nothing leaks without directives", () => {

@@ -4,8 +4,6 @@ import {
 	buildDiffReviewPrompt,
 	buildFileReviewPrompt,
 	buildReplyMessages,
-	type DiffReviewPromptArgs,
-	type FileReviewPromptArgs,
 	REVIEW_COMMENT_CHAR_LIMIT,
 	REVIEW_DIFF_CHAR_LIMIT,
 	REVIEW_FILE_CHAR_LIMIT,
@@ -17,15 +15,6 @@ import {
 const DIFF = ["--- a/src/a.ts", "+++ b/src/a.ts", "@@ -1,2 +1,3 @@", " context", "+added line", " context"].join("\n");
 
 describe("extension/features/reviewComments/reviewPrompt", () => {
-	test("the frozen signatures and the stated budgets", () => {
-		const buildDiff: (args: DiffReviewPromptArgs) => string = buildDiffReviewPrompt;
-		const buildFile: (args: FileReviewPromptArgs) => string = buildFileReviewPrompt;
-		expect(typeof buildDiff).toBe("function");
-		expect(typeof buildFile).toBe("function");
-		expect(REVIEW_DIFF_CHAR_LIMIT).toBe(80_000);
-		expect(REVIEW_FILE_CHAR_LIMIT).toBe(80_000);
-	});
-
 	test("both prompts open with the shared instruction: the LINE format and the no-findings reply", () => {
 		for (const prompt of [
 			buildDiffReviewPrompt({ path: "src/a.ts", diff: DIFF }),

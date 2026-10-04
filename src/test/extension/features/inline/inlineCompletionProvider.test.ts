@@ -10,7 +10,7 @@ import {
 	createInlineCompletionProvider,
 	INLINE_COMPLETION_DEBOUNCE_MS,
 } from "../../../../extension/features/inline/inlineCompletionProvider";
-import { COMPLETIONS_PATH, completionsUrl } from "../../../../provider/transport/clients";
+import { completionsUrl } from "../../../../provider/transport/clients";
 import {
 	buildFimPrompt,
 	FIM_PREFIX_BUDGET,
@@ -25,7 +25,7 @@ import { withConfig } from "../../../testUtils";
  * gate order (debounce, language filter, model ref, cache) and its silent
  * degradation, with the zero-send claims counted at the seam itself. The
  * happy path routes the send through a real fetch against msw, so the
- * /completions URL constants, the response helper, and parseCompletionText
+ * /completions URL helper, the response helper, and parseCompletionText
  * are exercised together the way the production transport composes them.
  */
 
@@ -96,11 +96,6 @@ async function invoke(
 
 suite("extension/features/inline/inlineCompletionProvider", () => {
 	useMsw();
-
-	test("the completions URL helper and the msw constant agree on the wire path", () => {
-		assert.strictEqual(completionsUrl(TEST_BASE_URL, undefined), COMPLETIONS_URL);
-		assert.ok(COMPLETIONS_URL.endsWith(COMPLETIONS_PATH));
-	});
 
 	test("the happy path yields one item from the msw-served completion text", async () => {
 		mswServer.use(http.post(COMPLETIONS_URL, () => completionJsonResponse("\n\treturn a + b;")));

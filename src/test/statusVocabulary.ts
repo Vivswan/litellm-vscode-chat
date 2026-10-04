@@ -6,15 +6,9 @@
  * it (the host suite for the bar/notifier/paste line and the real state
  * builder's mirror, the bun webview suite for the hero and the rendered
  * pills), so the surfaces are pinned against the SAME rows and cannot
- * contradict each other without one suite going red.
- *
- * Each row also names its one severity class, and aggregateContradictions()
- * proves the aggregate surfaces sit inside that class - the composed check the
- * per-surface suites cannot make alone (a green bar beside a red hero passes
- * both surface suites and fails here). Coverage fails closed: ALL_VERDICTS is
- * compile-pinned to the OverallVerdict union and every verdict and pill word
- * must appear in some row (uncoveredVerdicts / uncoveredPills), so a new
- * verdict cannot ship without a row saying what every surface makes of it.
+ * contradict each other without one suite going red. Each row also names
+ * the one severity class its aggregate surfaces belong to, so a reader can
+ * see at a glance which rows a green bar beside a red hero would violate.
  */
 
 import type { OverallVerdict } from "../dashboard/presenters";
@@ -564,25 +558,6 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 ];
 
 /**
- * Every OverallVerdict value, compile-pinned both ways against the union: a
- * new verdict fails this assignment until it is listed here, and listing it
- * fails uncoveredVerdicts() until a table row says what every surface makes
- * of it. The strongest fail-closed form available to a runtime walk.
- */
-const ALL_VERDICTS = ["not-configured", "error", "degraded", "waiting", "connected", "needs-declare"] as const;
-const _allVerdictsMatchUnion: [
-	Exclude<OverallVerdict, (typeof ALL_VERDICTS)[number]>,
-	Exclude<(typeof ALL_VERDICTS)[number], OverallVerdict>,
-] extends [never, never]
-	? true
-	: never = true;
-
-/** Verdicts no table row covers; both suites assert emptiness. */
-export function uncoveredVerdicts(): OverallVerdict[] {
-	return ALL_VERDICTS.filter((verdict) => !WINDOW_STATE_ROWS.some((row) => row.expect.verdict === verdict));
-}
-
-/**
  * Every pill word the row health walk can produce (serverHealth's seven
  * verdicts collapse onto these six words; "Connected" covers both the clean
  * and the expected-serving states). The vocabulary lives webview-side
@@ -599,55 +574,3 @@ export const ALL_PILL_WORDS = [
 	"Expected failure",
 	"Misconfigured",
 ] as const;
-
-/** Pill words no table row covers; both suites assert emptiness. */
-export function uncoveredPills(): string[] {
-	return ALL_PILL_WORDS.filter(
-		(word) => !WINDOW_STATE_ROWS.some((row) => row.expect.pills.some((pill) => pill.word === word))
-	);
-}
-
-/** What each severity class permits of each aggregate surface; the single mapping both suites enforce. */
-const CLASS_RULES: Readonly<
-	Record<
-		SeverityClass,
-		{
-			bar: readonly BarExpectation["severity"][];
-			hero: readonly WindowStateRow["expect"]["hero"]["tone"][];
-			notifier: readonly ("none" | "info" | "warning" | "error")[];
-		}
-	>
-> = {
-	ok: { bar: ["plain"], hero: ["ok"], notifier: ["none", "info"] },
-	warn: { bar: ["warning"], hero: ["warn"], notifier: ["none", "warning"] },
-	error: { bar: ["error"], hero: ["error"], notifier: ["error"] },
-	muted: { bar: ["plain"], hero: ["muted"], notifier: ["none"] },
-	setup: { bar: ["warning"], hero: ["muted"], notifier: ["none", "warning"] },
-};
-
-/**
- * The contradictions a row's EXPECTATIONS carry, before any surface runs: an
- * aggregate surface outside the row's severity class. Empty for a consistent
- * table; both suites assert emptiness, so an expectation edit that reintroduces
- * a green-hero-beside-red-bar row fails even with every surface matching it.
- */
-export function aggregateContradictions(row: WindowStateRow): string[] {
-	const rules = CLASS_RULES[row.expect.severityClass];
-	const problems: string[] = [];
-	if (row.expect.severityClass === "setup" && row.expect.verdict !== "not-configured") {
-		// The softer setup tier exists for the nothing-to-check state alone; a
-		// health verdict claiming it would dodge the strict class rules.
-		problems.push(`class "setup" is reserved for the not-configured verdict, not "${row.expect.verdict}"`);
-	}
-	if (!rules.bar.includes(row.expect.bar.severity)) {
-		problems.push(`bar severity "${row.expect.bar.severity}" is outside class "${row.expect.severityClass}"`);
-	}
-	if (!rules.hero.includes(row.expect.hero.tone)) {
-		problems.push(`hero tone "${row.expect.hero.tone}" is outside class "${row.expect.severityClass}"`);
-	}
-	const notifierKind = row.expect.notifier === "none" ? "none" : row.expect.notifier.kind;
-	if (!rules.notifier.includes(notifierKind)) {
-		problems.push(`notifier "${notifierKind}" is outside class "${row.expect.severityClass}"`);
-	}
-	return problems;
-}

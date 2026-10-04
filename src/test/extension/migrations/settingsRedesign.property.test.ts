@@ -18,7 +18,14 @@
 
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { isValidCapabilityField } from "../../../extension/migrations/settingsRedesign/legacyIds";
+import {
+	isValidCapabilityField,
+	LEGACY_SCALAR_RENAMES,
+	LEGACY_SETTING_IDS,
+	NEW_MODEL_CAPABILITIES_ID,
+	NEW_MODEL_PARAMETERS_ID,
+	SERVERS_ID,
+} from "../../../extension/migrations/settingsRedesign/legacyIds";
 import { mergeTokenDefaults } from "../../../extension/migrations/settingsRedesign/tokenDefaults";
 import { planSettingsRedesign } from "../../../extension/migrations/settingsRedesign/transform";
 import type { SettingsSnapshot } from "../../../extension/migrations/settingsRedesign/types";
@@ -40,31 +47,14 @@ import {
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 120;
 const SEED = resolveFuzzSeed();
 
-// The id families, re-declared as literals so the discipline invariant pins the
-// writes against the docs' rename table, not against the migration's own constants.
-const LEGACY_IDS = [
-	"requestTimeout",
-	"promptCaching.enabled",
-	"discoveryTimeout",
-	"discoveryCacheTtl",
-	"modelParameters",
-	"modelCapabilities",
-	"openRouterCatalog.enabled",
-	"maskApiKeyInput",
-	"headers",
-	"defaultContextLength",
-	"defaultMaxInputTokens",
-	"defaultMaxOutputTokens",
-];
-const NEW_IDS = [
-	"chat.timeout",
-	"chat.promptCaching",
-	"discovery.timeout",
-	"discovery.cacheTtl",
-	"models.parameters",
-	"models.capabilities",
-	"models.openRouterCatalog",
-	"ui.maskSecretInputs",
+// The id families the write-discipline invariant partitions the plan's
+// sections into: deletions may target legacy ids only, value writes new ids
+// (plus servers) only.
+const LEGACY_IDS: readonly string[] = LEGACY_SETTING_IDS;
+const NEW_IDS: readonly string[] = [
+	...LEGACY_SCALAR_RENAMES.map((rename) => rename.newId),
+	NEW_MODEL_PARAMETERS_ID,
+	NEW_MODEL_CAPABILITIES_ID,
 ];
 
 const maybe = <T>(arbitrary: fc.Arbitrary<T>): fc.Arbitrary<T | undefined> => fc.option(arbitrary, { nil: undefined });
@@ -246,7 +236,7 @@ function snapshotArb(minEntries: number): fc.Arbitrary<SettingsSnapshot> {
 
 /** Junk-heavy tier: arbitrary JSON at every id (new names and race states included), plus workspace layers. */
 const junkSnapshotArb: fc.Arbitrary<SettingsSnapshot> = fc.dictionary(
-	fc.constantFrom(...LEGACY_IDS, ...NEW_IDS, "servers"),
+	fc.constantFrom(...LEGACY_IDS, ...NEW_IDS, SERVERS_ID),
 	fc
 		.record(
 			{
@@ -274,7 +264,7 @@ function assertWriteDiscipline(snapshot: SettingsSnapshot): void {
 			assert.ok(LEGACY_IDS.includes(write.section), `deletions may target legacy ids only, got ${write.section}`);
 		} else {
 			assert.ok(
-				NEW_IDS.includes(write.section) || write.section === "servers",
+				NEW_IDS.includes(write.section) || write.section === SERVERS_ID,
 				`value writes may target new ids or servers only, got ${write.section}`
 			);
 		}

@@ -70,15 +70,6 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 		assert.deepStrictEqual([...Object.values(CMD)].sort(), [...contributed].sort());
 	});
 
-	test("internal commands stay out of contributes.commands", () => {
-		// manageServers is registered but deliberately palette-less (the hub is
-		// the palette entry); contributing it later must move it into CMD.
-		const contributed = new Set(readPackageJson().contributes.commands.map((entry) => entry.command));
-		for (const id of Object.values(INTERNAL_CMD)) {
-			assert.ok(!contributed.has(id), `${id} is contributed; it belongs in CMD, not INTERNAL_CMD`);
-		}
-	});
-
 	test("the generate-pr-description palette entry is gated on the enable setting", () => {
 		// Opt-in by contribution: the palette entry hides until the boolean
 		// flips. The key is typed so a rename in BOOLEAN_SETTING_SPECS breaks

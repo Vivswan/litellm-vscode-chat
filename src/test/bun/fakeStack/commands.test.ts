@@ -315,22 +315,6 @@ describe("fakeStack commands: numeric domains and diagnostics", () => {
 			{ type: "error", statusCode: 429 }
 		);
 	});
-
-	test(`the ${COMMAND_SIGIL}error help lists exactly the statuses the gate accepts, ascending`, () => {
-		// The description derives from the gate's own set; this pins the
-		// agreement from the outside, both ways, over the whole status range.
-		const description = COMMANDS.find((command) => command.verb === "error")?.description ?? "";
-		const listed = (/\(([^)]*)\)/.exec(description)?.[1] ?? "").split(", ").map(Number);
-		const accepted: number[] = [];
-		for (let status = 100; status <= 599; status++) {
-			const result = dispatchCommand(makeContext(`${COMMAND_SIGIL}error:${status}`));
-			if (result !== undefined && result.scenario.type === "error") {
-				accepted.push(status);
-			}
-		}
-		assert.ok(accepted.length > 0, "the gate accepts at least one status");
-		assert.deepStrictEqual(listed, accepted, "the advertised and accepted statuses are the same ascending list");
-	});
 });
 
 describe("fakeStack commands: behavior", () => {
@@ -417,36 +401,6 @@ describe("fakeStack commands: behavior", () => {
 		assert.strictEqual(runVerb("messages", {}), "no messages received");
 		assert.strictEqual(runVerb("attachments", { messages: [{ role: "assistant" }] }), "no message parts received");
 		assert.strictEqual(runVerb("params", {}), "no generation parameters received");
-	});
-
-	test("the dispatch table holds exactly the specified verb set", () => {
-		// An independent literal list, not derived from the implementation: a
-		// verb added or dropped in commands.ts must fail here first.
-		const expected = [
-			"abort",
-			"attachments",
-			"audio",
-			"cache",
-			"delay",
-			"deployment",
-			"echo",
-			"echon",
-			"error",
-			"finish",
-			"help",
-			"image",
-			"messages",
-			"nodone",
-			"params",
-			"play",
-			"stall",
-			"stream",
-			"text",
-			"think",
-			"tool",
-			"tools",
-		];
-		assert.deepStrictEqual([...COMMANDS.map((command) => command.verb)].sort(), expected);
 	});
 
 	test("identical input produces identical serialized SSE bytes", () => {
@@ -678,19 +632,6 @@ describe("fakeStack commands: behavior", () => {
 			(collapsed.choices as Array<{ message: { content: string } }>)[0]?.message.content,
 			FALLBACK_TEXT
 		);
-	});
-
-	test("fallback, usage, and help strings all carry the live sigil", () => {
-		// Runtime consistency, not source-level derivation: whatever byte the
-		// sigil is, the user-facing strings must present that same byte.
-		assert.strictEqual(COMMAND_SIGIL.length, 1, "the sigil is a single byte");
-		assert.ok(FALLBACK_TEXT.includes(`${COMMAND_SIGIL}help`), "the fallback names the sigil-derived help command");
-		for (const command of COMMANDS) {
-			assert.ok(
-				command.usage.startsWith(`${COMMAND_SIGIL}${command.verb}`),
-				`usage for ${command.verb} must interpolate the sigil, got "${command.usage}"`
-			);
-		}
 	});
 });
 

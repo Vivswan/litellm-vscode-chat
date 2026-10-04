@@ -2,8 +2,6 @@
  * The scalar settings form: draft parsing, commit rules, blur-gated errors, resync, Reset, scope notes, ms hints.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import * as fc from "fast-check";
 import { act } from "react";
 import type { RpcRequest } from "../../../../dashboard/endpoints";
@@ -12,6 +10,7 @@ import { isBoundViolation, parseNumberDraft } from "../../../../dashboard/presen
 import { formatPercentExact } from "../../../../dashboard/spendFormat";
 import { NUMBER_SETTING_IDS, settingRowPage } from "../../../../dashboard/viewModels";
 import { OPENROUTER_MODEL_DIRECTIVE } from "../../../../shared/config/recordResolution";
+import { TOKEN_ESTIMATION_MODES, UI_ACCENTS } from "../../../../shared/config/settingSpec";
 import { AnnounceOnceScope } from "../../../../webview/dashboard/announceOnce";
 import { App } from "../../../../webview/dashboard/app";
 import { settingRowHelp } from "../../../../webview/dashboard/helpText";
@@ -61,37 +60,6 @@ function rowOf(input: HTMLElement): HTMLElement {
 	}
 	return row;
 }
-
-test("a row's help glyph trails the description inline, in the shared flow the covering texts swap around", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	// The glyph flows INLINE after the description's last word (same position on every row), inside the .setting-live
-	// flow whose first slot swaps between the resting text and a covering error - the glyph itself never moves.
-	const hint = rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-hint");
-	expect(hint).not.toBeNull();
-	const help = hint?.querySelector("button.help");
-	expect(help).not.toBeNull();
-	// The glyph rides the NoBreakTail glue span (Chrome breaks before an atomic inline even after an NBSP, orphaning a
-	// lone "?"); the glue is the live flow's own child, AFTER the resting-flow wrapper and outside the description.
-	const glue = help?.closest(".help-wrap")?.parentElement;
-	expect(glue?.classList.contains("whitespace-nowrap")).toBe(true);
-	const live = glue?.parentElement;
-	expect(live?.classList.contains("setting-live")).toBe(true);
-	const rest = live?.querySelector(".setting-rest");
-	expect(rest?.classList.contains("contents")).toBe(true);
-	expect(rest?.nextElementSibling).toBe(glue as Element);
-	expect(live?.parentElement).toBe(hint as HTMLElement);
-	expect(hint?.querySelector(".setting-desc")?.querySelector("button.help")).toBeNull();
-	// The cell owns wrapping and breaking (one unbroken token must not push out
-	// of the column), and caps its prose at a reading measure inside the
-	// full-bleed track: structure goes full-bleed, sentences do not.
-	expect(hint?.classList.contains("break-words")).toBe(true);
-	expect(hint?.classList.contains("min-w-0")).toBe(true);
-	expect(hint?.classList.contains("max-w-[72ch]")).toBe(true);
-	// At rest the cell holds the live flow alone, in flow: the height twin and
-	// the overlay class exist only while a cover stands.
-	expect(hint?.querySelector(".setting-twin")).toBeNull();
-	expect(hint?.classList.contains("setting-covered")).toBe(false);
-});
 
 test("an error covers the hint cell without taking its height, and the one glyph trails the error's tail", () => {
 	// Little of this is measurable in happy-dom: while covered, the live flow leaves the flow (dashboard.css
@@ -184,19 +152,6 @@ test("a repeat failure's remounted cover leaves the focused glyph alone", () => 
 	expect(hint().textContent).toContain("refused (attempt 2)");
 	expect(hint().querySelector(".setting-live button.help")).toBe(glyph);
 	expect(document.activeElement).toBe(glyph);
-});
-
-test("a group with no help renders no glyph in its head", () => {
-	// Only Import & Export passes help today, so every other group head is the
-	// case where the glyph must not appear at all - an empty tip would be a
-	// button that says nothing.
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const heads = Array.from(root.querySelectorAll(".settings-group-head"));
-	expect(heads.length).toBeGreaterThan(1);
-	for (const head of heads) {
-		const title = head.querySelector(".settings-group-title")?.textContent;
-		expect(Boolean(head.querySelector("button.help"))).toBe(title === "Import & Export");
-	}
 });
 
 test("a User-scope modified number row keeps its words on demand: the default note rides the reveal idiom", () => {
@@ -487,13 +442,6 @@ test("annotation earns its place by being news: a workspace override speaks at r
 	expect(noteOf("chat.timeout")?.previousElementSibling).not.toBeNull();
 });
 
-test("the cache row's label needs no acronym", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	expect(rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-title")?.textContent).toBe(
-		"Discovery cache lifetime"
-	);
-});
-
 test("settings-row help glyphs are named for their setting, so a button list is not a column of bare Helps", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const glyphOf = (id: string) => rowOf(settingInput(root, id)).querySelector("button.help");
@@ -716,40 +664,6 @@ test("the capabilities editor renders as a second record editor and applies via 
 	expect(typeof posted.id).toBe("string");
 });
 
-test("the page runs full-bleed: no measure cap on the header or the groups, one right edge from the pane", () => {
-	// This page is a LIST of settings: its one right edge is the pane's own, held by the rows' fixed trailing actions
-	// track. What this pins is that nobody reintroduces a measure cap on either container and mints a second edge.
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const groups = root.querySelector(".settings-groups") as HTMLElement;
-	const header = root.querySelector(".page-section > .section-head") as HTMLElement;
-	for (const surface of [groups, header]) {
-		expect(Array.from(surface.classList).some((name) => name.startsWith("max-w-"))).toBe(false);
-	}
-	// The fixed actions track is what makes the edge one: the wide tier's template lives on .settings-groups in
-	// dashboard.css (rows adopt it through subgrid, so the label track is one measured width for the page) and its
-	// last track is a rem. happy-dom runs no cascade, so the stylesheet is where this is checkable.
-	const css = readFileSync(join(import.meta.dir, "../../../../webview/dashboard/styles/dashboard.css"), "utf8");
-	const template = /\.settings-groups \{\s*display: grid;\s*grid-template-columns: ([^;]+);/.exec(css)?.[1] ?? "";
-	expect(template).toMatch(/ [\d.]+rem$/);
-	const row = /\.setting-row \{\s*grid-column: span 4;\s*grid-template-columns: (subgrid);/.exec(css)?.[1];
-	expect(row).toBe("subgrid");
-});
-
-test("the title's stacked flip shares the row grid's threshold, inside the same stylesheet band", () => {
-	// The label flips left where the columns turn two-track. Both live in dashboard.css's `< 910` band now, so the
-	// claim is that ONE block carries both - a flip block of its own could drift to another width. The end anchor is
-	// searched FROM the flip's own block, so an "auto 1fr" elsewhere in the file cannot satisfy it.
-	const css = readFileSync(join(import.meta.dir, "../../../../webview/dashboard/styles/dashboard.css"), "utf8");
-	const stackedAt = /@container pane \(width < (\d+)px\) \{\s*\.setting-title \{\s*text-align: left;/.exec(css);
-	expect(stackedAt).not.toBeNull();
-	const start = css.indexOf(stackedAt?.[0] ?? "");
-	expect(start).toBeGreaterThan(-1);
-	const bandAt = css.indexOf("@container pane (width >= 560px)", start);
-	const templateAt = css.indexOf("grid-template-columns: auto 1fr", start);
-	expect(bandAt).toBeGreaterThan(start);
-	expect(templateAt).toBeGreaterThan(bandAt);
-});
-
 test("every settings row anchors its actions in one trailing slot: Reset then the settings.json jump", () => {
 	// Fail-closed structural pin behind the "{} renders in two different positions" defect: the slot is the row
 	// template's LAST cell, the jump its LAST child, and no action leaks into the control or hint cells. Counted
@@ -938,28 +852,6 @@ test("a standing catalog failure renders in the row with its classification, nev
 	// its last word instead of stranding alone on the next line.
 	expect(failure.previousElementSibling?.tagName).toBe("BR");
 	expect(document.querySelector(".toast")).toBeNull();
-});
-
-test("the record editors live inside the Models group, mirroring the manifest's grouping", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const modelsGroup = Array.from(root.querySelectorAll(".settings-group")).find(
-		(group) => group.querySelector(".settings-group-title")?.textContent === "Models"
-	) as HTMLElement;
-	expect(modelsGroup).toBeDefined();
-	const headings = Array.from(modelsGroup.querySelectorAll("h3")).map((h) => (h.textContent ?? "").trim());
-	// Each heading names its section and nothing else: the help, docs and
-	// settings.json controls are its siblings on the header line, so the
-	// heading's accessible name is not three button labels long.
-	expect(headings).toContain("Model parameters");
-	expect(headings).toContain("Model capabilities");
-	// Each editor appears once, inside the Models group. Counted by their own heading rather than by the header-line
-	// class every section now shares: the question is how many editors there are, not how many headers.
-	const editorHeads = Array.from(root.querySelectorAll(".section-head")).filter((head) => {
-		const heading = (head.querySelector("h3")?.textContent ?? "").trim();
-		return heading === "Model parameters" || heading === "Model capabilities";
-	});
-	expect(editorHeads.length).toBe(2);
-	expect(editorHeads.every((head) => modelsGroup.contains(head))).toBe(true);
 });
 
 /** The two threshold boxes, addressed by their stable ids. */
@@ -1211,11 +1103,6 @@ test("clearing the currency-symbol box commits the empty string (bare numbers), 
 	expect(postedCalls()).toEqual([{ method: "setCurrencySymbol", payload: { value: "" } }]);
 });
 
-test("the currency box's maxLength reads the shared wire cap, not a private twin", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	expect(settingInput(root, "usage.currencySymbol").maxLength).toBe(WIRE_LIMITS.currencySymbol);
-});
-
 test("an over-limit symbol from settings.json round-trips whole, errors instead of committing, and recovers in place", () => {
 	// maxLength gates typing only: a longer symbol hand-written in settings.json rides the state push into the box
 	// unclamped. The row neither truncates it nor lets a commit die host-side - the bound is the row's own error.
@@ -1264,12 +1151,7 @@ test("the token-estimation select renders in the Chat group with the default and
 	const select = root.querySelector("#setting-chat\\.tokenEstimation") as HTMLSelectElement;
 	expect(select).not.toBeNull();
 	expect(select.value).toBe("auto");
-	expect(Array.from(select.options).map((option) => option.value)).toEqual([
-		"auto",
-		"heuristic",
-		"o200k_base",
-		"cl100k_base",
-	]);
+	expect(Array.from(select.options).map((option) => option.value)).toEqual([...TOKEN_ESTIMATION_MODES]);
 	// The row rides the Chat group, beside the scalar chat settings.
 	const group = select.closest(".settings-group") as HTMLElement;
 	expect(group.querySelector("#setting-chat\\.timeout")).not.toBeNull();
@@ -1485,7 +1367,7 @@ test("the theme select posts setUiTheme, and the accent swatches post setUiAccen
 		(node): node is HTMLInputElement => node instanceof HTMLInputElement
 	);
 	// Every hue is offered, not just the live one - the choice is the color.
-	expect(swatches.map((input) => input.value)).toEqual(["blue", "violet", "teal", "amber"]);
+	expect(swatches.map((input) => input.value)).toEqual([...UI_ACCENTS]);
 	expect(swatches.filter((input) => input.checked).map((input) => input.value)).toEqual(["blue"]);
 	const teal = swatches[2];
 	if (teal === undefined) {

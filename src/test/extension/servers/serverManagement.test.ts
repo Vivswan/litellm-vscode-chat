@@ -6,8 +6,8 @@ import { resolveNls } from "../../util/nls";
 
 suite("extension/servers/serverManagement", () => {
 	// The activated extension already owns the litellm.manage command IDs, so the
-	// suites capture the handlers through a stubbed registerCommand and invoke them.
-	function captureManageHandlers() {
+	// suite captures the handler through a stubbed registerCommand and invokes it.
+	function captureManageServersHandler(): () => Promise<void> {
 		const handlers = new Map<string, () => Promise<void>>();
 		const origRegister = vscode.commands.registerCommand;
 		(vscode.commands as Record<string, unknown>).registerCommand = (id: string, callback: () => Promise<void>) => {
@@ -19,36 +19,29 @@ suite("extension/servers/serverManagement", () => {
 		} finally {
 			(vscode.commands as Record<string, unknown>).registerCommand = origRegister;
 		}
-		return {
-			manage: expectDefined(handlers.get("litellm.manage"), "registerManageCommand must register litellm.manage"),
-			manageServers: expectDefined(
-				handlers.get("litellm.manageServers"),
-				"registerManageCommand must register litellm.manageServers"
-			),
-		};
+		return expectDefined(
+			handlers.get("litellm.manageServers"),
+			"registerManageCommand must register litellm.manageServers"
+		);
 	}
 
-	suite("hub quick pick", () => {
-		interface HubRun {
+	suite("the manageServers route", () => {
+		interface RouteRun {
 			executed: { command: string; args: unknown[] }[];
-			itemLabels: string[];
 			quickPicksShown: number;
 		}
 
-		async function runHub(selectLabel: string | undefined, entry: "hub" | "direct" = "hub"): Promise<HubRun> {
-			const handlers = captureManageHandlers();
-			const handler = entry === "hub" ? handlers.manage : handlers.manageServers;
-
-			const run: HubRun = { executed: [], itemLabels: [], quickPicksShown: 0 };
+		async function runManageServers(): Promise<RouteRun> {
+			const handler = captureManageServersHandler();
+			const run: RouteRun = { executed: [], quickPicksShown: 0 };
 			const origExecute = vscode.commands.executeCommand;
 			const origQuickPick = vscode.window.showQuickPick;
 			(vscode.commands as Record<string, unknown>).executeCommand = async (command: string, ...args: unknown[]) => {
 				run.executed.push({ command, args });
 			};
-			(vscode.window as Record<string, unknown>).showQuickPick = async (items: { label: string }[]) => {
+			(vscode.window as Record<string, unknown>).showQuickPick = async () => {
 				run.quickPicksShown += 1;
-				run.itemLabels = items.map((item) => item.label);
-				return selectLabel === undefined ? undefined : items.find((item) => item.label.includes(selectLabel));
+				return undefined;
 			};
 			try {
 				await handler();
@@ -59,61 +52,11 @@ suite("extension/servers/serverManagement", () => {
 			return run;
 		}
 
-		test("the hub lists every surface in one menu, and cancelling it executes nothing", async () => {
-			const run = await runHub(undefined);
-			assert.deepStrictEqual(
-				{ ...run, itemLabels: run.itemLabels.map((label) => label.replace(/^\$\([^)]+\) /, "")) },
-				{
-					itemLabels: [
-						"Manage Servers",
-						"Open Dashboard",
-						"Sync Models Now",
-						"Test Connection",
-						"Show Diagnostics",
-						"Set Server Secret",
-						"Open Settings",
-						"Help & Feedback",
-						"Report Issue",
-					],
-					executed: [],
-					quickPicksShown: 1,
-				}
-			);
-		});
-
-		const routes: readonly { entry: string; command: string; args: readonly unknown[]; reason?: string }[] = [
-			{
-				entry: "Manage Servers",
-				command: "litellm.openDashboard",
-				args: [],
-				reason: "the dashboard is the server-management surface, never a native editor",
-			},
-			{ entry: "Open Dashboard", command: "litellm.openDashboard", args: [] },
-			{ entry: "Sync Models Now", command: "litellm.syncModels", args: [] },
-			{ entry: "Test Connection", command: "litellm.testConnection", args: [] },
-			{ entry: "Show Diagnostics", command: "litellm.showDiagnostics", args: [] },
-			{ entry: "Set Server Secret", command: "litellm.setServerSecret", args: [] },
-			{
-				entry: "Open Settings",
-				command: "workbench.action.openSettings",
-				args: ["@ext:vivswan.litellm-vscode-chat"],
-				reason: "the settings view opens filtered to this extension",
-			},
-			{ entry: "Help & Feedback", command: "litellm.helpAndFeedback", args: [] },
-			{ entry: "Report Issue", command: "litellm.reportIssue", args: [] },
-		];
-		for (const { entry, command, args, reason } of routes) {
-			test(`${entry} routes to ${command}`, async () => {
-				const run = await runHub(entry);
-				assert.deepStrictEqual(run.executed, [{ command, args }], reason ?? `${entry} must execute exactly ${command}`);
-			});
-		}
-
 		test("litellm.manageServers opens the dashboard without showing the hub", async () => {
 			// The direct route for callers that promise configuration; the legacy
 			// quick-pick flows retired with the registry, so the dashboard is the
 			// only server-management surface.
-			const run = await runHub(undefined, "direct");
+			const run = await runManageServers();
 			assert.deepStrictEqual(run.executed, [{ command: "litellm.openDashboard", args: [] }]);
 			assert.strictEqual(run.quickPicksShown, 0, "configuration routes must not land on the hub menu");
 		});

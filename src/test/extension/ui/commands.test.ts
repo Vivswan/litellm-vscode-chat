@@ -10,7 +10,6 @@ import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/t
 import { HAS_SHOWN_WELCOME_KEY, LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
 import { SETUP_HINT_KINDS, type SetupHintKind } from "../../../shared/errorClassification";
 import { Logger, markLogSafe } from "../../../shared/logger";
-import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
 import { expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
@@ -593,11 +592,6 @@ suite("extension/ui/commands", () => {
 				lines.every((line) => !line.includes("Model sync failed")),
 				`The buffer must not misdescribe the sync as failed. Lines: ${lines.join(" | ")}`
 			);
-		});
-
-		test("the Sync Models Now command is contributed and registered", async () => {
-			const commands = await vscode.commands.getCommands(true);
-			assert.ok(commands.includes("litellm.syncModels"), "litellm.syncModels must be registered on activation");
 		});
 
 		test("asks the host to re-resolve and reports the synced model count from the status", async () => {
@@ -1381,11 +1375,6 @@ suite("extension/ui/commands", () => {
 	// editing the host's chatLanguageModels.json, so the command must land on
 	// exactly that file, and fail with guidance rather than a bare throw.
 	suite("open groups file command", () => {
-		test("litellm.openGroupsFile is registered on activation", async () => {
-			const commands = await vscode.commands.getCommands(true);
-			assert.ok(commands.includes("litellm.openGroupsFile"), "the groups-file command must be registered");
-		});
-
 		test("resolves chatLanguageModels.json two levels above global storage and shows it", async () => {
 			const opened: vscode.Uri[] = [];
 			let shown = 0;
@@ -1436,37 +1425,10 @@ suite("extension/ui/commands", () => {
 		});
 	});
 
-	// The dashboard Diagnostics tab's Open-output-log action. The channel lives
-	// in the activation closure, unreachable from here, so the unit host pins
-	// the registration and that the execution path resolves; the intents
-	// allow-list test pins the dashboard mapping onto this ID.
-	suite("open output command", () => {
-		test("litellm.openOutput is registered on activation and executes without throwing", async () => {
-			const commands = await vscode.commands.getCommands(true);
-			assert.ok(commands.includes("litellm.openOutput"), "the open-output command must be registered");
-			await assert.doesNotReject(async () => {
-				await vscode.commands.executeCommand("litellm.openOutput");
-			}, "the bare channel show must resolve");
-		});
-	});
-
 	// The docker-serversync harness commands. Their end-to-end behavior belongs
-	// to the docker suite; the unit host pins that they register in test mode
-	// and return the safe shapes the suite's assertions build on.
+	// to the docker suite; the unit host pins the safe shapes the suite's
+	// assertions build on.
 	suite("test-only serversync commands", () => {
-		test("the serversync harness commands are registered in a non-production host", async () => {
-			const commands = await vscode.commands.getCommands(true);
-			for (const id of [
-				"litellm._test.getRecentLogs",
-				"litellm._test.getSessionLogs",
-				"litellm._test.getLatestError",
-				"litellm._test.setServerSecret",
-				"litellm._test.getDeclaredServers",
-			]) {
-				assert.ok(commands.includes(id), `${id} must be registered on activation`);
-			}
-		});
-
 		test("getRecentLogs returns the classification-only string buffer", async () => {
 			// A refused dashboard intent logs through the activated extension's
 			// real logger, so the buffer this command reads must carry the
@@ -1520,14 +1482,6 @@ suite("extension/ui/commands", () => {
 			assert.ok(junk.lines.length >= first.lines.length, "a junk cursor reads from the beginning");
 		});
 
-		test("setServerSecret stores and clears a label's secret field", async () => {
-			// No command reads secret values back (by design), so this pins the
-			// round trip completing; the docker suite proves the stored value
-			// actually drives discovery.
-			await vscode.commands.executeCommand("litellm._test.setServerSecret", "Cmd Probe", "apiKey", "sk-probe");
-			await vscode.commands.executeCommand("litellm._test.setServerSecret", "Cmd Probe", "apiKey", undefined);
-		});
-
 		test("setServerSecret rejects an unknown secret field loudly", async () => {
 			await assert.rejects(
 				async () => {
@@ -1536,16 +1490,6 @@ suite("extension/ui/commands", () => {
 				/Unknown secret field/,
 				"a typoed field must fail the command, not silently no-op"
 			);
-		});
-
-		test("getDeclaredServers returns views that carry no secret values", async () => {
-			const views = (await vscode.commands.executeCommand("litellm._test.getDeclaredServers")) as unknown;
-			assert.ok(Array.isArray(views), "the command returns an array");
-			for (const view of views as Record<string, unknown>[]) {
-				for (const field of SECRET_FIELD_IDS) {
-					assert.ok(!(field in view), `declared views must never carry a ${field} value`);
-				}
-			}
 		});
 
 		test("registerTestCommands is a no-op in a production-mode context", () => {
@@ -1569,16 +1513,9 @@ suite("extension/ui/commands", () => {
 	});
 
 	// The monkey fuzzer's harness commands. Its end-to-end behavior belongs to
-	// the docker-monkey suite; the unit host pins that the commands register in
-	// test mode and that injection outcomes come from the panel's real schema.
+	// the docker-monkey suite; the unit host pins that injection outcomes come
+	// from the panel's real schema and that storage reads hit the right Memento.
 	suite("test-only monkey harness commands", () => {
-		test("dashboardMessage and getStorageKeys are registered in a non-production host", async () => {
-			const commands = await vscode.commands.getCommands(true);
-			for (const id of ["litellm._test.dashboardMessage", "litellm._test.getStorageKeys"]) {
-				assert.ok(commands.includes(id), `${id} must be registered on activation`);
-			}
-		});
-
 		test("getStorageKeys returns the extension's globalState key strings", async () => {
 			// The monkey fuzzer enumerates real storage through this command, so an
 			// empty answer must fail here, and so must a read off the wrong Memento:

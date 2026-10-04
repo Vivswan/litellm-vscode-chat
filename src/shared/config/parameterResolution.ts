@@ -47,7 +47,7 @@ export type ModelParametersRecord = ModelRecordMap;
  * VALUE is special-cased: a numeric configured max_tokens feeds
  * resolveMaxTokens instead of passing through.
  */
-export const PROVIDER_OWNED_KEYS: ReadonlySet<string> = new Set([
+const PROVIDER_OWNED_KEYS: ReadonlySet<string> = new Set([
 	"model",
 	"messages",
 	"stream",

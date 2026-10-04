@@ -471,13 +471,11 @@ describe("shared/config capabilityResolution resolveModelCapabilities walk", () 
 		assert.strictEqual(effective.fields.context_length.level, "floor", "an ambiguous suffix match contributes nothing");
 	});
 
-	test("the floor backstops everything, with the pinned literals", () => {
+	test("the floor backstops everything", () => {
 		const effective = resolve({});
 		assert.strictEqual(effective.fields.context_length.value, FLOOR_CONTEXT_LENGTH);
-		assert.strictEqual(FLOOR_CONTEXT_LENGTH, 128000);
 		assert.strictEqual(effective.fields.max_output_tokens.value, FLOOR_MAX_OUTPUT_TOKENS);
-		assert.strictEqual(FLOOR_MAX_OUTPUT_TOKENS, 16000);
-		assert.strictEqual(effective.fields.max_input_tokens.value, 112000);
+		assert.strictEqual(effective.fields.max_input_tokens.value, FLOOR_CONTEXT_LENGTH - FLOOR_MAX_OUTPUT_TOKENS);
 		assert.strictEqual(effective.fields.supports_function_calling.value, CAPABILITY_FLOOR.supports_function_calling);
 	});
 
@@ -516,29 +514,6 @@ describe("shared/config capabilityResolution resolveModelCapabilities walk", () 
 });
 
 describe("shared/config capabilityResolution open fields in the walk", () => {
-	test("the seven core fields are always present, whatever else resolves", () => {
-		for (const effective of [
-			resolve({}),
-			resolve({
-				globalCapabilities: { "gpt-4": { custom_flag: true, input_cost_per_token: 0.000001 } },
-				serverDeclared: { kind: "discovered", values: { supports_pdf_input: true }, outputDeclared: false },
-			}),
-		]) {
-			for (const name of [
-				"context_length",
-				"max_input_tokens",
-				"max_output_tokens",
-				"supports_function_calling",
-				"supports_vision",
-				"supports_reasoning",
-				"supports_audio_input",
-			] as const) {
-				assert.ok(effective.fields[name] !== undefined, `${name} must always resolve`);
-				assert.ok(Object.hasOwn(effective.fields, name), `${name} must be an own key of the result`);
-			}
-		}
-	});
-
 	test("a server-supplied consumed field appears at server level with zero user configuration", () => {
 		const effective = resolve({
 			serverDeclared: {

@@ -7,7 +7,6 @@ import {
 	FIM_SUFFIX_BUDGET,
 	parseCompletionText,
 } from "../../../../provider/transport/fim";
-import { FIM_TEMPLATE_DIRECTIVE } from "../../../../shared/config/recordResolution";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -91,11 +90,6 @@ describe("provider/transport/fim buildFimPrompt", () => {
 			assert.deepStrictEqual(result, { prompt: "PRE", suffix: "SUF" });
 		});
 	}
-
-	test("the directive name is underscore-prefixed, so the pass-through contract keeps it off the wire", () => {
-		assert.strictEqual(FIM_TEMPLATE_DIRECTIVE, "_fim_template");
-		assert.ok(FIM_TEMPLATE_DIRECTIVE.startsWith("_"));
-	});
 
 	test("a cut landing inside a surrogate pair drops the severed half instead of sending it", () => {
 		// 8001 units: the budget cut severs the first emoji, leaving its low

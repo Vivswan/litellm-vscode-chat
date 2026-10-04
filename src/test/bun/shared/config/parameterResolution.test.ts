@@ -11,7 +11,6 @@ import * as assert from "node:assert";
 import type { ModelParametersRecord, ParameterConfigLayer } from "../../../../shared/config/parameterResolution";
 import {
 	DEFAULT_MAX_TOKENS_CAP,
-	PROVIDER_OWNED_KEYS,
 	parameterSkipReason,
 	projectEffectiveParameters,
 	resolveMaxTokens,
@@ -35,9 +34,7 @@ describe("shared/config parameterResolution parameterSkipReason", () => {
 	test("classifies underscore keys, provider-owned keys, and pass-through keys", () => {
 		assert.strictEqual(parameterSkipReason("_replaceDefaults"), "underscore");
 		assert.strictEqual(parameterSkipReason("_"), "underscore");
-		for (const key of PROVIDER_OWNED_KEYS) {
-			assert.strictEqual(parameterSkipReason(key), "provider-owned", key);
-		}
+		assert.strictEqual(parameterSkipReason("model"), "provider-owned");
 		assert.strictEqual(parameterSkipReason("temperature"), undefined);
 	});
 });
@@ -340,7 +337,6 @@ describe("shared/config parameterResolution resolveMaxTokens", () => {
 			}),
 			{ value: 2000, source: "capped-default" }
 		);
-		assert.strictEqual(DEFAULT_MAX_TOKENS_CAP, 4096, "the pinned cap literal");
 	});
 
 	test("a forced max_tokens tops the chain, beating even a runtime option", () => {

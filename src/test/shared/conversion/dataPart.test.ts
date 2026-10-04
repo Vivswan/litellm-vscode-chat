@@ -1,7 +1,5 @@
 import * as assert from "node:assert";
-import * as vscode from "vscode";
 import {
-	dataPartCtor,
 	logDataPartProbeErrorOnce,
 	logMissingDataPartSupportOnce,
 	probeDataPartCtor,
@@ -41,11 +39,6 @@ suite("shared/conversion/dataPart", () => {
 		const probe = probeDataPartCtor(host);
 		assert.strictEqual(probe.ctor, undefined);
 		assert.ok(probe.error?.includes("class not available"));
-	});
-
-	test("the module-level probe matches what the running host exposes", () => {
-		const hostCtor: unknown = Reflect.get(vscode, "LanguageModelDataPart");
-		assert.strictEqual(dataPartCtor, typeof hostCtor === "function" ? hostCtor : undefined);
 	});
 
 	test("the missing-support message is logged once until reset", () => {

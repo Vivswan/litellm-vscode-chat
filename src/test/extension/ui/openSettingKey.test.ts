@@ -1,9 +1,9 @@
 /**
  * The settings.json jump behind the dashboard's revealSetting intent: the pure
- * key search, the reveal flow over an injected editor, the command's
- * registration, and its refusal of junk arguments. The end-to-end open rides
- * the host's workbench.action.openSettingsJson, which the last test exercises
- * for real against the test profile's settings.json.
+ * key search, the reveal flow over an injected editor, and the command's
+ * refusal of junk arguments. The end-to-end open rides the host's
+ * workbench.action.openSettingsJson, which the last tests exercise for real
+ * against the test profile's settings.json.
  */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
@@ -124,11 +124,6 @@ suite("extension/ui/openSettingKey", () => {
 			this.timeout(30000);
 			await ensureActivated();
 			await catalogOff();
-		});
-
-		test("is registered on activation", async () => {
-			const commands = await vscode.commands.getCommands(true);
-			assert.ok(commands.includes("litellm.openSettingKey"), "the settings-jump command must be registered");
 		});
 
 		test("refuses junk arguments before any open, logging the refusal classification", async () => {

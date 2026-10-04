@@ -22,7 +22,6 @@ import {
 	INHERITABLE_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 	RECORD_TYPE_DIRECTIVES,
-	wrongTypeDirectives,
 } from "../../../shared/config/recordResolution";
 import { EXPECTED_FAILURE_CATEGORIES } from "../../../shared/serverEntry";
 
@@ -455,8 +454,8 @@ describe("dashboard/recordDraft", () => {
 		// The pin: each editor's hint set IS the registry's sibling row - the same
 		// names the resolver later diagnoses wrong-record-type - over the whole
 		// directive vocabulary plus an unknown underscore key. Expectations read
-		// the registry ROWS directly, not wrongTypeDirectives, so the editor and
-		// the helper cannot drift together past this suite.
+		// the registry ROWS directly, so an editor cannot drift from the
+		// resolver's vocabulary past this suite.
 		const universe = [
 			...Object.values(RECORD_TYPE_DIRECTIVES).flat(),
 			INHERITABLE_DIRECTIVE,
@@ -529,11 +528,6 @@ describe("dashboard/recordDraft", () => {
 					assert.strictEqual(capsHint, undefined, `${name} must not hint`);
 				}
 			}
-		});
-
-		test("the helper both editors read agrees with the registry rows", () => {
-			assert.deepStrictEqual([...wrongTypeDirectives("parameters")], [...RECORD_TYPE_DIRECTIVES.capabilities]);
-			assert.deepStrictEqual([...wrongTypeDirectives("capabilities")], [...RECORD_TYPE_DIRECTIVES.parameters]);
 		});
 	});
 

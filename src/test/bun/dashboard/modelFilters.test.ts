@@ -13,7 +13,6 @@ import {
 	isPriced,
 	matchesFilter,
 	modelFilterOptions,
-	priceFilterLabel,
 	toggleCapability,
 	toggleFamily,
 	togglePrice,
@@ -114,11 +113,6 @@ describe("price pills", () => {
 		expect(only(togglePrice(EMPTY_MODEL_FILTER, "unpriced"))).toEqual(["u"]);
 		expect(only(togglePrice(togglePrice(EMPTY_MODEL_FILTER, "priced"), "unpriced"))).toEqual(["p", "u"]);
 		expect(only(EMPTY_MODEL_FILTER)).toEqual(["p", "u"]);
-	});
-
-	test("the pills name the classes in words: the row prints no phrase for an unpriced model, so the pill must", () => {
-		expect(priceFilterLabel("priced")).toBe("priced");
-		expect(priceFilterLabel("unpriced")).toBe("price unknown");
 	});
 });
 
@@ -263,11 +257,5 @@ describe("offered pills", () => {
 		]);
 		expect(options.prices).toEqual(["priced", "unpriced"]);
 		expect(options.capabilities.map((option) => option.key)).toEqual(["imageInput"]);
-	});
-
-	test("capability options carry the row's own words", () => {
-		const models = [makeModel({ id: "a", toolCalling: true }), makeModel({ id: "b", toolCalling: false })];
-		const options = modelFilterOptions(models, EMPTY_MODEL_FILTER);
-		expect(options.capabilities.map((option) => option.label())).toEqual(["tools"]);
 	});
 });

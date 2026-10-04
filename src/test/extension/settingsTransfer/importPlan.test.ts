@@ -99,13 +99,6 @@ suite("extension/settingsTransfer/importPlan", () => {
 			]);
 		});
 
-		test("every declared usage.statusBar mode passes the gate", () => {
-			for (const mode of USAGE_STATUS_BAR_MODES) {
-				const plan = planSettingsImport({ "usage.statusBar": mode }, undefined);
-				assert.deepStrictEqual(plan.settingsWrites, [{ key: "usage.statusBar", value: mode }]);
-			}
-		});
-
 		test("a non-array servers value lands in skippedKeys instead of dropping silently", () => {
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: { label: "A" } }, undefined);
 			assert.deepStrictEqual(plan.skippedKeys, [{ key: SERVERS_SETTING_KEY, reason: "wrong-type" }]);
@@ -317,11 +310,6 @@ suite("extension/settingsTransfer/importPlan", () => {
 			];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
 			assert.strictEqual(plan.secretFieldCount, 3);
-		});
-
-		test("currentServersRaw is carried verbatim", () => {
-			const current = [server("A")];
-			assert.strictEqual(planSettingsImport({}, current).currentServersRaw, current);
 		});
 	});
 

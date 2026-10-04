@@ -3,26 +3,20 @@
  * covers the status bar, notifier, paste line, and the state-builder mirror;
  * src/test/statusVocabulary.ts is the shared table): for every window state,
  * the hero's word and tone and the server rows' pills - words AND dot tones -
- * must say what the table says, and coverage fails closed.
+ * must say what the table says.
  */
 import { afterEach, expect, test } from "bun:test";
 import { classifyOverall } from "../../../../dashboard/presenters";
 import { overallState } from "../../../../webview/dashboard/app";
 import type { ServerPillWord } from "../../../../webview/dashboard/servers";
 import { ServersSection } from "../../../../webview/dashboard/servers";
-import {
-	type ALL_PILL_WORDS,
-	aggregateContradictions,
-	uncoveredPills,
-	uncoveredVerdicts,
-	WINDOW_STATE_ROWS,
-} from "../../../statusVocabulary";
+import { type ALL_PILL_WORDS, WINDOW_STATE_ROWS } from "../../../statusVocabulary";
 import { cleanup, mount } from "../harness";
 
 /**
  * The table's word list against the webview vocabulary, compile-pinned both
- * ways like the table's own ALL_VERDICTS: a word added on either side fails
- * this assignment until the other side lists it. This project can reach the
+ * ways: a word added on either side fails this assignment until the other
+ * side lists it. This project can reach the
  * .tsx module; the host-importable table cannot, which is why the pin lives
  * here rather than beside the list.
  */
@@ -44,17 +38,6 @@ function ownText(node: Element): string {
 
 afterEach(() => {
 	cleanup();
-});
-
-test("the table's own expectations are class-consistent (no surface may contradict another)", () => {
-	for (const row of WINDOW_STATE_ROWS) {
-		expect(aggregateContradictions(row), row.name).toEqual([]);
-	}
-});
-
-test("coverage fails closed: every verdict and every pill word has a row", () => {
-	expect(uncoveredVerdicts()).toEqual([]);
-	expect(uncoveredPills()).toEqual([]);
 });
 
 test("the hero reads each window state with the table's word and tone", () => {

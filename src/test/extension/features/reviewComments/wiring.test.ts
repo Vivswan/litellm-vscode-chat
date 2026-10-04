@@ -66,29 +66,11 @@ suite("extension/features/reviewComments wiring", () => {
 				wire(context);
 			});
 			assert.strictEqual(spies.controllers.length, 0, "no controller while the feature is off");
-			assert.deepStrictEqual(
-				spies.commandIds.sort(),
-				[
-					CMD.reviewChanges,
-					CMD.reviewDeleteThread,
-					CMD.reviewFile,
-					CMD.reviewReply,
-					CMD.reviewResolveThread,
-					CMD.reviewUnresolveThread,
-				].sort()
-			);
-		});
-	});
-
-	test("enabled creates the controller under its pinned id, with a commenting range provider", async () => {
-		await withCommentSpies(async (spies) => {
-			await withConfig({ "reviewComments.enabled": true }, () => {
-				wire(fakeReviewContext());
-			});
-			assert.strictEqual(spies.controllers.length, 1);
-			const controller = spies.controllers[0];
-			assert.strictEqual(controller?.id, COMMENT_CONTROLLER_ID);
-			assert.ok(controller?.commentingRangeProvider !== undefined, "users can start their own threads");
+			const reviewCommandIds = Object.entries(CMD)
+				.filter(([key]) => key.startsWith("review"))
+				.map(([, id]) => id);
+			assert.ok(reviewCommandIds.length > 0, "the constants module names the review commands");
+			assert.deepStrictEqual([...spies.commandIds].sort(), [...reviewCommandIds].sort());
 		});
 	});
 

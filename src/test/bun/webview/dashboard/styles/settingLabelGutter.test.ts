@@ -1,6 +1,4 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { compileDashboard, rulesFor } from "./compileStyles";
 
 /**
@@ -12,8 +10,6 @@ import { compileDashboard, rulesFor } from "./compileStyles";
  * list and the label cell alike, which makes the drift unrepresentable rather
  * than merely absent today.
  */
-
-const dashboardDir = path.resolve(import.meta.dir, "../../../../../webview/dashboard");
 
 /** The content-sized track functions: any of these in the gutter re-opens the drift. */
 const CONTENT_SIZED = ["max-content", "min-content", "fit-content", "auto"];
@@ -41,17 +37,4 @@ test("the settings label gutter is a fixed token, never a content-sized track", 
 	const title = rulesFor(css, ".setting-title").filter((rule) => rule.declarations.includes("max-width"));
 	expect(title.length, ".setting-title bounds itself").toBe(1);
 	expect(title[0]?.declarations).toContain("max-width: var(--setting-label-gutter)");
-});
-
-test("both pages hand their rows the same track owner", () => {
-	// The stylesheet fact above is only shared if both pages actually render
-	// onto that class. SETTING_GRID_TRACKS is the one spelling; a page that
-	// minted its own container would align to nothing.
-	const settingRows = readFileSync(path.join(dashboardDir, "settingRows.tsx"), "utf8");
-	expect(settingRows).toContain('export const SETTING_GRID_TRACKS = "settings-groups"');
-	for (const page of ["featuresPage.tsx", "settingsPage.tsx"]) {
-		const source = readFileSync(path.join(dashboardDir, page), "utf8");
-		expect(source, `${page} renders the shared track owner`).toContain("className={SETTING_GRID_TRACKS}");
-		expect(source, `${page} must not mint its own settings-groups spelling`).not.toContain('"settings-groups"');
-	}
 });

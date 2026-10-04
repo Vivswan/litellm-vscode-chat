@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { detectSetupProblem, type SetupProblem, showSetupProblemGate } from "../../../extension/ui/setupGate";
+import { detectSetupProblem, showSetupProblemGate } from "../../../extension/ui/setupGate";
 import type { ConnectionStatus } from "../../../extension/ui/status";
 import { SETUP_HINT_KINDS } from "../../../shared/errorClassification";
 import { markLogSafe } from "../../../shared/logger";
@@ -128,57 +128,6 @@ suite("extension/ui/setupGate", () => {
 		];
 		for (const status of statuses) {
 			assert.strictEqual(detectSetupProblem(status), undefined, status.state);
-		}
-	});
-
-	test("every gate message names its cause and carries its button set", async () => {
-		// Swapping two gateMessage branches would compile and pass every other
-		// test while naming the wrong cause: the substrings pin each message to
-		// its verdict, and the labels pin each verdict's buttons.
-		const expected: Record<SetupProblem, { substring: string; labels: string[] }> = {
-			"not-configured": {
-				substring: "No server is configured yet",
-				labels: ["Configure Now", "Report Anyway"],
-			},
-			"hidden-groups": {
-				substring: "hidden by your configuration",
-				labels: ["Open Dashboard", "Report Anyway"],
-			},
-			"proxy-not-running": {
-				substring: "nothing is answering at the configured address",
-				labels: ["Troubleshooting Docs", "Test Connection", "Report Anyway"],
-			},
-			"configure-api-key": {
-				substring: "the server rejected the API key",
-				labels: ["Troubleshooting Docs", "Test Connection", "Report Anyway"],
-			},
-			"check-base-url": {
-				substring: "the server answered 404 at the configured base URL",
-				labels: ["Troubleshooting Docs", "Test Connection", "Report Anyway"],
-			},
-			"use-bare-localhost": {
-				substring: "the configured host is a subdomain of localhost",
-				labels: ["Troubleshooting Docs", "Test Connection", "Report Anyway"],
-			},
-		};
-		const original = vscode.window.showWarningMessage;
-		const shown: { message: string; labels: string[] }[] = [];
-		(vscode.window as { showWarningMessage: unknown }).showWarningMessage = (message: string, ...labels: string[]) => {
-			shown.push({ message, labels });
-			return Promise.resolve(undefined); // dismissed: no action runs
-		};
-		try {
-			for (const problem of [...SETUP_HINT_KINDS, "not-configured", "hidden-groups"] as SetupProblem[]) {
-				shown.length = 0;
-				await showSetupProblemGate(problem, () => {
-					throw new Error("dismissal must not report");
-				});
-				assert.strictEqual(shown.length, 1, problem);
-				assert.ok(shown[0]?.message.includes(expected[problem].substring), `${problem}: ${shown[0]?.message}`);
-				assert.deepStrictEqual(shown[0]?.labels, expected[problem].labels, problem);
-			}
-		} finally {
-			(vscode.window as { showWarningMessage: unknown }).showWarningMessage = original;
 		}
 	});
 

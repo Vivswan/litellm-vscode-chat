@@ -203,8 +203,7 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
    two PROBLEM registers take the forced-colors squiggle - ok is not a problem.
    Unlayered, because nothing may quietly outrank the one statement of the registers:
    as layered rules these lost to `p.hint` on specificity and to color utilities by
-   layer order. Every surface inherits this; a per-surface fork is a bug. theme.test.ts
-   pins the rules, their placement, and the squiggle. */
+   layer order. Every surface inherits this; a per-surface fork is a bug. */
 .error {
 	color: var(--err-text);
 	font-weight: 600;

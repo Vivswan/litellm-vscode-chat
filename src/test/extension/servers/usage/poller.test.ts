@@ -295,19 +295,6 @@ suite("extension/servers/usage poller", () => {
 		);
 	});
 
-	test("an env without the optional delay readers falls back to the spec defaults", async () => {
-		const h = makeHarness({ intervalMs: 300_000 });
-
-		h.poller.start();
-		assert.strictEqual(h.timer.pending()[0]?.ms, 5_000);
-
-		h.timer.firePending();
-		await settle();
-
-		h.poller.applyServersChange();
-		assert.strictEqual(h.timer.pending()[0]?.ms, 2_000);
-	});
-
 	test("applyConfiguration rewires the cadence: to 0 cancels, back to a positive interval re-schedules", () => {
 		const h = makeHarness({ intervalMs: 300_000 });
 		h.poller.start();

@@ -12,10 +12,9 @@
 
 /**
  * The docker stack's default connection settings, one per compose variable.
- * The compose file, .env.example, and docs/development.md restate them, and
- * stackDrift.test.ts pins all three mirrors; the scripts and docker suites take
- * their fallbacks from here, so a rotated default changes every consumer at
- * once.
+ * The compose file, .env.example, and docs/development.md restate them
+ * (stackDrift.test.ts pins the docs); the scripts and docker suites take their
+ * fallbacks from here, so a rotated default changes every consumer at once.
  */
 export const STACK_DEFAULTS = {
 	LITELLM_PORT: "4000",

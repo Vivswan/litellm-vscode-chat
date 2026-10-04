@@ -129,8 +129,8 @@ export function twoBandTextTokenEstimate(text: string): number {
  * data into memory; the fraction keeps a long English prompt quoting one
  * foreign line from doing the same.
  */
-export const NON_LATIN_DETECTION_MIN_CHARS = 8;
-export const NON_LATIN_DETECTION_MIN_FRACTION = 0.05;
+const NON_LATIN_DETECTION_MIN_CHARS = 8;
+const NON_LATIN_DETECTION_MIN_FRACTION = 0.05;
 
 function meetsDetectionThreshold(scan: TextScan): boolean {
 	return (

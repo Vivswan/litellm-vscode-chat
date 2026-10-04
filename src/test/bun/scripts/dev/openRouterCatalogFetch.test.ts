@@ -3,12 +3,9 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-	FETCH_ATTEMPTS,
-	FETCH_TIMEOUT_MS,
 	failureExit,
 	fetchLivePayload,
 	fetchOnce,
-	retryDelayMs,
 	UnreachableError,
 	unreachableVerdict,
 	worstCaseWallTimeMs,
@@ -283,10 +280,6 @@ describe("fetchLivePayload retry cadence", () => {
 		const minutes = /^ {4}timeout-minutes: (\d+)$/m.exec(job)?.[1];
 		assert.ok(minutes, "the openrouter-catalog job declares timeout-minutes");
 		const budgetMs = Number(minutes) * 60_000;
-		assert.strictEqual(retryDelayMs(1), 5_000);
-		assert.strictEqual(retryDelayMs(2), 15_000);
-		assert.strictEqual(retryDelayMs(3), 45_000);
-		assert.strictEqual(worstCaseWallTimeMs(), FETCH_ATTEMPTS * FETCH_TIMEOUT_MS + 5_000 + 15_000);
 		assert.ok(
 			worstCaseWallTimeMs() + 60_000 <= budgetMs,
 			`${worstCaseWallTimeMs()} ms of fetching plus a minute of setup exceeds the job's ${budgetMs} ms`

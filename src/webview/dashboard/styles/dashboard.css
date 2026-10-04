@@ -218,8 +218,9 @@
 	/* The width policy: STRUCTURE runs full-bleed to this cap; FORMS re-cap themselves at
 	   their own readable measure, and prose inside a full-bleed block keeps its reading cap
 	   (p.hint's 72ch). Full-bleed is a user ruling - a dead pane beside the resolution
-	   table read as a defect at ~2000px (measure.test.ts pins it). The bottom gutter is a
-	   custom property because anything sizing itself against the fold reads it too. */
+	   table read as a defect at ~2000px; the *-full-bleed geometry pairs measure the edge.
+	   The bottom gutter is a custom property because anything sizing itself against the
+	   fold reads it too. */
 	.pane {
 		--pane-gutter-bottom: 48px;
 		flex: 1 1 auto;

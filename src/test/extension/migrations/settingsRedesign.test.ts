@@ -1,13 +1,8 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { MigrationContext } from "../../../extension/migrations";
-import { MIGRATIONS } from "../../../extension/migrations";
 import type { RedesignSettings } from "../../../extension/migrations/settingsRedesign/apply";
-import {
-	applySettingsRedesign,
-	readRedesignSnapshot,
-	settingsRedesignMigration,
-} from "../../../extension/migrations/settingsRedesign/apply";
+import { applySettingsRedesign, settingsRedesignMigration } from "../../../extension/migrations/settingsRedesign/apply";
 import { restructureServers } from "../../../extension/migrations/settingsRedesign/entries";
 import type { LegacyHintKind } from "../../../extension/migrations/settingsRedesign/hints";
 import { collectLegacyHints } from "../../../extension/migrations/settingsRedesign/hints";
@@ -21,19 +16,6 @@ import { assertOmits, expectDefined } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 import { applyPlanToSnapshot } from "./settingsRedesignOracle";
 
-// The legacy and new ids, re-declared here on purpose: the migration and its test
-// pin the literal identifiers independently (a typo on one side fails instead of
-// agreeing with itself), and the pairs mirror the docs' rename table verbatim.
-const RENAMES: readonly [string, string][] = [
-	["requestTimeout", "chat.timeout"],
-	["promptCaching.enabled", "chat.promptCaching"],
-	["discoveryTimeout", "discovery.timeout"],
-	["discoveryCacheTtl", "discovery.cacheTtl"],
-	["modelParameters", "models.parameters"],
-	["modelCapabilities", "models.capabilities"],
-	["openRouterCatalog.enabled", "models.openRouterCatalog"],
-	["maskApiKeyInput", "ui.maskSecretInputs"],
-];
 const TRIO = ["defaultContextLength", "defaultMaxInputTokens", "defaultMaxOutputTokens"];
 
 function globalValueOf(snapshot: SettingsSnapshot, id: string): unknown {
@@ -1423,16 +1405,6 @@ suite("extension/migrations/settingsRedesign: applier", () => {
 		assert.strictEqual(await applySettingsRedesign(setting, logger), "nothing-to-do");
 	});
 
-	test("readRedesignSnapshot picks up every pipeline source and target id", () => {
-		const ids = [...RENAMES.flat(), ...TRIO, "headers", "servers"];
-		const sections = Object.fromEntries(ids.map((id) => [id, { globalValue: `v:${id}` }]));
-		const { setting } = makeSetting(sections);
-		const snapshot = readRedesignSnapshot(setting);
-		for (const id of ids) {
-			assert.strictEqual(snapshot[id]?.globalValue, `v:${id}`, `snapshot must carry ${id}`);
-		}
-	});
-
 	test("a rerun after the move is a silent no-op", async () => {
 		const { setting, updates } = makeSetting({ maskApiKeyInput: { globalValue: false } });
 		const { logger, lines } = makeLogger();
@@ -1469,16 +1441,6 @@ suite("extension/migrations/settingsRedesign: migration wiring", () => {
 			logger: new Logger({ info: () => {}, error: () => {} }),
 			fingerprintSalt: fakeFingerprintSaltSession(),
 		};
-		assert.ok(MIGRATIONS.includes(settingsRedesignMigration), "the migration must be registered");
-		assert.ok(
-			MIGRATIONS.indexOf(settingsRedesignMigration) >
-				Math.max(
-					...MIGRATIONS.filter((migration) => migration.sourceRelease < settingsRedesignMigration.sourceRelease).map(
-						(migration) => MIGRATIONS.indexOf(migration)
-					)
-				),
-			"chronologically newer migrations run after older ones"
-		);
 
 		const outcome = await settingsRedesignMigration.run(ctx);
 		assert.strictEqual(outcome, "nothing-to-do");

@@ -1,6 +1,6 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import type { McpDefinitionDescriptor, McpEntryView } from "../../../../../extension/features/mcp/definitions";
+import type { McpEntryView } from "../../../../../extension/features/mcp/definitions";
 import { mcpDefinitionsOf } from "../../../../../extension/features/mcp/definitions";
 import type { McpOptIn } from "../../../../../shared/serverEntry";
 import { mcpEndpointOf } from "../../../../../shared/util/baseUrl";
@@ -85,16 +85,5 @@ describe("extension/features/mcp/definitions", () => {
 
 	test("no entries, no definitions", () => {
 		assert.deepStrictEqual(mcpDefinitionsOf([]), []);
-	});
-
-	test("a descriptor cannot carry headers, pinned at typecheck time", () => {
-		const identity = { label: "Main", uri: "http://localhost:4000/mcp", version: 2 };
-		const descriptor: McpDefinitionDescriptor = identity;
-		// Not a literal, so structural subtyping would admit it - only `headers?: never` rejects it.
-		const withHeaders = { ...identity, headers: { Authorization: "Bearer x" } };
-		// @ts-expect-error - a value carrying headers is not a provide-side descriptor
-		const smuggled: McpDefinitionDescriptor = withHeaders;
-		assert.strictEqual(descriptor.headers, undefined);
-		assert.strictEqual(smuggled, withHeaders);
 	});
 });

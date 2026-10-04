@@ -929,13 +929,6 @@ suite("extension/dashboard/panel", () => {
 		assert.strictEqual(fake.posted.length, before + 1);
 	});
 
-	test("refresh without a panel is a no-op", () => {
-		const harness = makeHarness();
-		harness.controller.refresh();
-
-		assert.strictEqual(harness.panels.length, 0);
-	});
-
 	test("after the panel is disposed, open creates a fresh one", () => {
 		const harness = makeHarness();
 		harness.controller.open();

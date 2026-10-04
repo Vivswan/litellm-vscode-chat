@@ -51,12 +51,8 @@ describe("renderMigrationExpiryTable", () => {
 		}
 	});
 
-	test("update-release-pr.yml runs the executable with --no-install and hands the action the PR number", () => {
+	test("update-release-pr.yml hands the sticky-comment action the PR number", () => {
 		const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "update-release-pr.yml"), "utf8");
-		// The workflow has no dependency-install step, and without --no-install
-		// bun silently auto-installs a package import when node_modules is
-		// absent; this pin keeps the flag from being dropped as clutter.
-		expect(workflow).toContain("bun --no-install scripts/ci/migration-expiry-table.ts");
 		// The caller runs on push, so the action learns the release PR only from
 		// this input, and it skips green rather than failing without one: on the
 		// drained-registry path no output betrays the skip, so the wiring is

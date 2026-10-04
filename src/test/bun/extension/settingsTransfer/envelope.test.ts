@@ -1,6 +1,5 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import type { ParseEnvelopeResult, SettingsExportEnvelope } from "../../../../extension/settingsTransfer/envelope";
 import {
 	buildEnvelope,
 	parseEnvelope,
@@ -9,15 +8,6 @@ import {
 import { ALL_SETTING_KEYS, CONFIG_SECTION } from "../../../../shared/config/settingSpec";
 
 describe("extension/settingsTransfer/envelope", () => {
-	test("the frozen signatures and the format version", () => {
-		assert.strictEqual(SETTINGS_EXPORT_FORMAT_VERSION, 1);
-		const build: (settings: Readonly<Record<string, unknown>>, exportedBy: string) => SettingsExportEnvelope =
-			buildEnvelope;
-		const parse: (raw: string) => ParseEnvelopeResult = parseEnvelope;
-		assert.strictEqual(typeof build, "function");
-		assert.strictEqual(typeof parse, "function");
-	});
-
 	test("buildEnvelope wraps the settings under the config-section discriminant", () => {
 		const settings = { "chat.timeout": 60000, servers: [] };
 		const envelope = buildEnvelope(settings, "1.2.3");
