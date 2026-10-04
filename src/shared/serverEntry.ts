@@ -90,12 +90,12 @@ export function secretDestination(
  * The non-secret fields a secret field rides with: the unit rule, owned once for every reader. entryUsesSecretField
  * below judges an ENTRY by the carriers' presence; usageConnectionFor (extension/servers/usage/spendClient.ts) builds
  * an entry's auth units from the carriers presentCarriers hands it; parseGroupConfiguration
- * (provider/catalog/groupModels.ts) narrows a host configuration by their usability, reading the carrier names
- * through this table. So neither the chat path nor the usage path can send a secret whose carriers the rule denies;
+ * (provider/catalog/groupModels.ts) narrows a host configuration to the entry shape and asks presentCarriers the
+ * same way. So neither the chat path nor the usage path can send a secret whose carriers the rule denies;
  * the no-server arm is each path's own refusal (the parser yields no configuration, the usage GET has no absolute
  * URL to form). Total over SecretFieldId: a new secret field declares its carriers here before any reader compiles.
  */
-export const SECRET_FIELD_CARRIERS = {
+const SECRET_FIELD_CARRIERS = {
 	apiKey: [],
 	oauthClientSecret: ["oauthTokenUrl", "oauthClientId"],
 	virtualKeyValue: ["virtualKeyHeader"],
