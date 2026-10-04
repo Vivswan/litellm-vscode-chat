@@ -21,7 +21,7 @@ import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import type { NonChatMode, SecretFieldId } from "../../shared/serverEntry";
-import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { pickNonSecretOptionalFields, presentCarriers, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { recordFromKeys } from "../../shared/util/json";
 import { buildGroupArgs } from "../servers/serverSync/engine";
 import { acceptedEntry } from "../servers/serverSync/setting";
@@ -94,6 +94,7 @@ const PARSE_BACK_LABEL = "draft";
  * because a partial OAuth unit would otherwise probe unauthenticated and lie.
  *
  *   the save path's secret plans -> the shared auth assembler -> serverSync's parser -> buildGroupArgs
+ *   -> presentCarriers for the OAuth and virtual-key units
  */
 export async function applyTestServerDraft(
 	intent: RequestPayload<"testServerDraft">,
@@ -168,6 +169,10 @@ export async function applyTestServerDraft(
 		Object.entries(intent.server.headers).map(([name, value]) => [name, String(value)])
 	);
 
+	// presentCarriers decides whether each unit exists (its required non-secret fields all present), the same rule the
+	// group parser applies to a host configuration; the secret value and the optional scopes come from the same args.
+	const oauthCarriers = presentCarriers("oauthClientSecret", resolved);
+	const virtualKeyCarriers = presentCarriers("virtualKeyValue", resolved);
 	const connection: DraftConnection = {
 		baseUrl: intent.server.baseUrl.trim(),
 		// The label rides only so discovery's declaration hints can name the
@@ -177,18 +182,18 @@ export async function applyTestServerDraft(
 		...(intent.server.apiVersion !== undefined ? { apiVersion: intent.server.apiVersion.trim() } : {}),
 		apiKey: resolved.apiKey ?? "",
 		...(Object.keys(draftHeaders).length > 0 ? { headers: draftHeaders } : {}),
-		...(resolved.oauthTokenUrl !== undefined && resolved.oauthClientId !== undefined
+		...(oauthCarriers !== undefined
 			? {
 					oauth: {
-						tokenUrl: resolved.oauthTokenUrl,
-						clientId: resolved.oauthClientId,
+						tokenUrl: oauthCarriers.oauthTokenUrl,
+						clientId: oauthCarriers.oauthClientId,
 						clientSecret: resolved.oauthClientSecret ?? "",
 						...(resolved.oauthScopes !== undefined ? { scopes: resolved.oauthScopes } : {}),
 					},
 				}
 			: {}),
-		...(resolved.virtualKeyHeader !== undefined && resolved.virtualKeyValue !== undefined
-			? { virtualKey: { header: resolved.virtualKeyHeader, value: resolved.virtualKeyValue } }
+		...(virtualKeyCarriers !== undefined && resolved.virtualKeyValue !== undefined
+			? { virtualKey: { header: virtualKeyCarriers.virtualKeyHeader, value: resolved.virtualKeyValue } }
 			: {}),
 		expected: {
 			modelInfo: intent.server.expectedFailures.includes("modelInfo"),
