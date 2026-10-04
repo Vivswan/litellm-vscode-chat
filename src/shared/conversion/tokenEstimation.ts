@@ -12,18 +12,15 @@ import type {
 export const IMAGE_TOKEN_ESTIMATE = 765;
 export const PDF_TOKEN_ESTIMATE = 500;
 /**
- * Providers meter audio by duration, not bytes, and the duration is not
- * recoverable here without decoding the container. A fixed minute-scale figure
- * keeps a typical voice clip from counting as zero, which is the dangerous
- * direction: an undercounted prompt is never trimmed by the host's budget and
- * overflows server-side instead.
+ * Providers meter audio by duration, not bytes, and the duration is not recoverable here without decoding the
+ * container. A fixed minute-scale figure keeps a typical voice clip from counting as zero, which is the dangerous
+ * direction.
  */
 export const AUDIO_TOKEN_ESTIMATE = 1000;
 
 /**
- * The same capability gates the message conversion runs under, so the estimate
- * prices the request this model would actually receive: a part the gates
- * exclude never ships and never counts.
+ * The same capability gates the message conversion runs under, so the estimate prices the request this model would
+ * actually receive: a part the gates exclude never ships and never counts.
  */
 export interface TokenEstimationOptions {
 	imageInput: boolean;
@@ -65,7 +62,6 @@ function toolCallTokens(call: OpenAIToolCall): number {
 	return countTextTokens(call.function.name + call.function.arguments);
 }
 
-/** A replayed thinking block carries signed text or a redacted payload; both ship verbatim. */
 function thinkingBlockTokens(block: OpenAIThinkingBlock): number {
 	return countTextTokens(block.type === "thinking" ? block.thinking + block.signature : block.data);
 }
@@ -84,11 +80,8 @@ function wireMessageTokens(message: OpenAIChatMessage): number {
 }
 
 /**
- * Price an already-converted request: transmitted text through the installed
- * counter, binary blocks at their fixed estimates. Callers that hold the
- * array they send price that very array, so conversion runs once per request.
- * Wire scaffolding (roles, ids, JSON punctuation) and `cache_control` markers
- * are deliberately unpriced.
+ * Callers that hold the array they send price that very array, so conversion runs once per request. Wire scaffolding
+ * (roles, ids, JSON punctuation) and `cache_control` markers are deliberately unpriced.
  */
 export function estimateWireMessagesTokens(messages: readonly OpenAIChatMessage[]): number {
 	let total = 0;
@@ -98,13 +91,6 @@ export function estimateWireMessagesTokens(messages: readonly OpenAIChatMessage[
 	return total;
 }
 
-/**
- * Price the request by converting the messages and pricing what conversion
- * emits. The one walk over message parts is conversion's own, so the estimate
- * cannot disagree with the transmitted text; when a second walk drifted, the
- * budget undercounted, the host skipped trimming, and the request overflowed
- * server-side.
- */
 export function estimateMessagesTokens(
 	msgs: readonly vscode.LanguageModelChatRequestMessage[],
 	options: TokenEstimationOptions

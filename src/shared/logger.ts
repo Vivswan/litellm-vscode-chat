@@ -1,6 +1,6 @@
 /**
- * Leveled sink, structurally satisfied by vscode.LogOutputChannel. The host
- * adds timestamps and level tags to channel lines, so callers pass bare text.
+ * Leveled sink, structurally satisfied by vscode.LogOutputChannel. The host adds timestamps and level tags to channel
+ * lines, so callers pass bare text.
  */
 export interface LogSink {
 	info(message: string): void;
@@ -13,12 +13,6 @@ export interface ErrorRecorder {
 	recordError(source: string, error: unknown): void;
 }
 
-/**
- * The message text of an unknown thrown value, total by construction: the
- * instanceof check, the message read, and String() can all throw on a hostile
- * value, so every step degrades to the next fallback. Every boundary that
- * renders a caught unknown goes through here.
- */
 export function errorMessageText(error: unknown): string {
 	try {
 		if (error instanceof Error) {
@@ -30,7 +24,7 @@ export function errorMessageText(error: unknown): string {
 	}
 }
 
-/** The Object.prototype.toString tag, itself guarded: a proxy's Symbol.toStringTag read can throw too. */
+/** A proxy's Symbol.toStringTag read can throw too. */
 function objectTag(value: unknown): string {
 	try {
 		return Object.prototype.toString.call(value);
@@ -39,10 +33,7 @@ function objectTag(value: unknown): string {
 	}
 }
 
-/**
- * A duck-typed optional string field of an unknown thrown value, total: a
- * hostile getter must not break logging, so a throwing read is no value.
- */
+/** A hostile getter must not break logging, so a throwing read is no value. */
 function stringFieldOf(error: unknown, field: "logClassification" | "englishMessage"): string | undefined {
 	try {
 		const value = (error as Record<string, unknown> | null | undefined)?.[field];
@@ -53,9 +44,8 @@ function stringFieldOf(error: unknown, field: "logClassification" | "englishMess
 }
 
 /**
- * The classification-only rendering offered by errors whose message embeds
- * response-derived text. The canonical producer is MirroredError, but the read
- * stays duck-typed and total, because anything can be thrown at a logging
+ * The classification-only rendering offered by errors whose message embeds response-derived text. The canonical
+ * producer is MirroredError, but the read stays duck-typed and total, because anything can be thrown at a logging
  * boundary.
  */
 export function classificationOf(error: unknown): string | undefined {
@@ -63,49 +53,36 @@ export function classificationOf(error: unknown): string | undefined {
 }
 
 /**
- * The full English mirror of a localized display message. English-by-policy
- * surfaces - the output channel and, absent a classification, the issue-report
- * buffer - render it instead of the message, so translated text never lands in
- * logs or public issues. Duck-typed and total, like classificationOf.
+ * The full English mirror of a localized display message. English-by-policy surfaces - the output channel and, absent
+ * a classification, the issue-report buffer - render it instead of the message.
  */
 function englishMessageOf(error: unknown): string | undefined {
 	return stringFieldOf(error, "englishMessage");
 }
 
-/**
- * A string proven to have gone through the public-rendering gate, so it may
- * sit in a field that log lines interpolate. Exactly two producers:
- * publicErrorText (the gate) and markLogSafe. A display string does not
- * compile into a branded slot, so "never log `.error`" is type-checked rather
- * than a convention.
- */
+/** Exactly two producers: publicErrorText (the gate) and markLogSafe. */
 export type LogSafeErrorText = string & { readonly __brand: "logSafe" };
 
-/**
- * Brand a string as log-safe WITHOUT the gate. Only for compile-time template
- * constants and values read back from this extension's own persistence, which
- * only ever stored branded values. Response-derived or display text belongs in
- * publicErrorText.
- */
+/** Response-derived or display text belongs in publicErrorText. */
 export function markLogSafe(text: string): LogSafeErrorText {
 	return text as LogSafeErrorText;
 }
 
 /**
- * The rendering of a thrown value for public surfaces (the issue-report buffer
- * and the latest-error snapshot, both of which prefill public GitHub issues):
- * its classification when it offers one, its English mirror when the display
- * message is localized, its message text otherwise.
+ * The rendering of a thrown value for public surfaces (the issue-report buffer and the latest-error snapshot, both of
+ * which prefill public GitHub issues).
  */
 export function publicErrorText(error: unknown): LogSafeErrorText {
 	return (classificationOf(error) ?? englishMessageOf(error) ?? errorMessageText(error)) as LogSafeErrorText;
 }
 
 /**
- * The error may be attacker-shaped (a response body in the message, hostile getters), so each hazard has a fixed handling.
+ * The error may be attacker-shaped (a response body in the message, hostile getters), so each hazard has a fixed
+ * handling.
  *
  *   frame-shaped lines inside an http body in the message -> the message line goes BY LENGTH, never by shape
- *   a hostile stack getter                                -> the stack arrives pre-narrowed, so nothing swaps it between check and strip
+ *   a hostile stack getter                                -> the stack arrives pre-narrowed, so nothing swaps it
+ *                                                            between check and strip
  *   a name or message getter that throws                  -> each caller wraps this in its own catch
  */
 function sanitizeStack(error: Error, stack: string, firstLine: string): string {
@@ -120,12 +97,7 @@ function sanitizeStack(error: Error, stack: string, firstLine: string): string {
 	return [firstLine, ...frames].join("\n");
 }
 
-/**
- * The public rendering of a thrown value's stack (the issue-report buffer and
- * the latest-error snapshot). When the value classifies or mirrors its
- * message, sanitizeStack swaps the message line for the classification or the
- * English mirror.
- */
+/** The public rendering of a thrown value's stack. */
 export function publicErrorStack(error: unknown): string | undefined {
 	try {
 		if (!(error instanceof Error)) {
@@ -142,16 +114,15 @@ export function publicErrorStack(error: unknown): string | undefined {
 		}
 		return sanitizeStack(error, stack, classification ?? `${error.name}: ${english}`);
 	} catch {
-		// classificationOf and englishMessageOf are total; a hostile
-		// stack/name/message getter loses its frames, never breaks logging.
+		// classificationOf and englishMessageOf are total; a hostile stack/name/message getter loses its frames, never
+		// breaks logging.
 		return classificationOf(error) ?? englishMessageOf(error);
 	}
 }
 
 /**
- * The stack for the output channel, total against hostile proxies. The channel
- * stays English, so sanitizeStack swaps a mirrored error's message line for
- * the English mirror rather than printing a possibly-localized first line.
+ * The stack for the output channel, total against hostile proxies. The channel stays English, so sanitizeStack swaps a
+ * mirrored error's message line for the English mirror rather than printing a possibly-localized first line.
  */
 function channelErrorStack(error: unknown): string | undefined {
 	try {
@@ -172,7 +143,7 @@ function channelErrorStack(error: unknown): string | undefined {
 	}
 }
 
-/** JSON for log data, total: circular or otherwise unserializable data degrades to its object tag instead of throwing inside logging. */
+/** Circular or otherwise unserializable data degrades to its object tag instead of throwing inside logging. */
 function logDataText(data: unknown): string {
 	try {
 		return JSON.stringify(data, null, 2) ?? objectTag(data);
@@ -182,10 +153,8 @@ function logDataText(data: unknown): string {
 }
 
 /**
- * The single logging implementation for the extension. Every line goes to the
- * output channel and, when a recorder is attached, to the issue-report buffer,
- * except advisory(), the one deliberate channel-only path. Channel output is
- * not readable back, so the buffer keeps its own [ISO] lines.
+ * The single logging implementation for the extension.
+ * Channel output is not readable back, so the buffer keeps its own [ISO] lines.
  */
 export class Logger {
 	constructor(
@@ -200,20 +169,17 @@ export class Logger {
 	}
 
 	/**
-	 * An advisory note: the output channel only, never the issue-report buffer.
-	 * The buffer is a small ring, and informational lines that recur on every
-	 * serve pass would evict the real errors an issue report exists to carry.
-	 * The channel is still user-pasteable, so the classification-only rule is
-	 * unchanged: keys and classifications, never response-derived text.
+	 * The buffer is a small ring, and informational lines that recur on every serve pass would evict the real errors an
+	 * issue report exists to carry. The channel is still user-pasteable, so the classification-only rule is unchanged:
+	 * keys and classifications, never response-derived text.
 	 */
 	advisory(message: string, data?: unknown): void {
 		this.output.info(data !== undefined ? `${message}: ${logDataText(data)}` : message);
 	}
 
 	error(message: string, error: unknown): void {
-		// The channel stays English by policy and keeps the full message; the
-		// buffer opens public issues, so it takes the classification when there
-		// is one.
+		// The channel stays English by policy and keeps the full message; the buffer opens public issues, so it takes
+		// the classification when there is one.
 		const text = `${message}: ${englishMessageOf(error) ?? errorMessageText(error)}`;
 		this.output.error(text);
 		this.recorder?.appendLog(`[${new Date().toISOString()}] ERROR: ${message}: ${publicErrorText(error)}`);

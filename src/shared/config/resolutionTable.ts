@@ -1,19 +1,13 @@
 /**
- * The precomputed flat resolution table: per (server, model), the resolved
- * models.parameters merge and the effective capabilities, memoized so the
- * matcher-and-inheritance walk never runs per request. One instance is owned
- * by the provider and shared by the chat request path, the registration
- * decorator, and the dashboard's inspectors, so they cannot disagree.
- *
- * Invalidation is by input fingerprint, not by listener wiring: every lookup
- * passes the current inputs, and a changed fingerprint recomputes the entry.
- * The record maps and the server baseline fingerprint by serialization; the
- * catalog is a lookup interface whose backing data can swap behind a stable
- * facade, so a capability entry instead records exactly the catalog queries
- * its resolution made and replays them against the current lookup on every
- * hit - identical answers mean the cached resolution is still exact. A
- * settings edit, an entry edit, a discovery change, or a catalog refresh
- * therefore reaches the very next lookup with no event plumbing to forget.
+ * One instance is owned by the provider and shared by the chat request path, the registration decorator, and the
+ * dashboard's inspectors, so they cannot disagree. Invalidation is by input fingerprint, not by listener wiring: every
+ * lookup passes the current inputs, and a changed fingerprint recomputes the entry.
+ *   The record maps and the server baseline -> fingerprint by serialization
+ *   the catalog is a lookup interface whose backing data can swap behind a stable facade -> a capability entry instead
+ *     records exactly the catalog queries its resolution made and replays them against the current lookup on every
+ *     hit - identical answers mean the cached resolution is still exact
+ *   A settings edit, an entry edit, a discovery change, or a catalog refresh -> reaches the very next lookup with no
+ *     event plumbing to forget
  */
 
 import type {
@@ -60,17 +54,11 @@ interface CapabilityEntry {
 	readonly resolved: EffectiveCapabilities;
 }
 
-/**
- * The record maps arrive as plain JSON-shaped configuration, so JSON.stringify
- * is a faithful fingerprint. Key order rides along, which is load-bearing:
- * record order is part of the matcher's regex tie rule. A spurious mismatch
- * merely recomputes - stale reads are impossible by construction.
- */
+/** Key order rides along, which is load-bearing: record order is part of the matcher's regex tie rule. */
 function fingerprintOf(parts: readonly unknown[]): string {
 	return JSON.stringify(parts);
 }
 
-/** A catalog wrapper that records every query and its serialized answer. */
 function recordingCatalog(catalog: CapabilityCatalogLookup): {
 	lookup: CapabilityCatalogLookup;
 	probes: CatalogProbe[];
@@ -87,15 +75,13 @@ function recordingCatalog(catalog: CapabilityCatalogLookup): {
 	};
 }
 
-/** Whether the current catalog still answers every recorded query the same way. */
 function probesStillHold(probes: readonly CatalogProbe[], catalog: CapabilityCatalogLookup): boolean {
 	return probes.every((probe) => JSON.stringify(catalog[probe.method](probe.id)) === probe.answer);
 }
 
 /**
- * Per-server model-entry bound: a server can rotate model IDs indefinitely, so
- * the per-server map evicts its oldest entry past this bound (an evicted entry
- * merely recomputes on its next lookup).
+ * Per-server model-entry bound: a server can rotate model IDs indefinitely, so the per-server map evicts its oldest
+ * entry past this bound (an evicted entry merely recomputes on its next lookup).
  */
 const MAX_MODELS_PER_SERVER = 512;
 
@@ -103,7 +89,6 @@ export class ModelResolutionTable {
 	private readonly parameters = new Map<string, Map<string, ParameterEntry>>();
 	private readonly capabilities = new Map<string, Map<string, CapabilityEntry>>();
 
-	/** The resolved configured parameters for one model on one server; recomputed only when the inputs changed. */
 	resolveParameters(serverKey: string, rawModelId: string, inputs: ParameterResolutionInputs): ResolvedModelParameters {
 		const fingerprint = fingerprintOf([inputs.globalParameters, inputs.entryParameters ?? null]);
 		const byModel = mapFor(this.parameters, serverKey);
@@ -120,7 +105,6 @@ export class ModelResolutionTable {
 		return resolved;
 	}
 
-	/** The effective capabilities for one model on one server; recomputed only when the inputs changed. */
 	resolveCapabilities(
 		serverKey: string,
 		rawModelId: string,

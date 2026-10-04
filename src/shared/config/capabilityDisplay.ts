@@ -1,18 +1,12 @@
 /**
- * Presentation helpers for capability fields, shared by the capability
- * inspector and the Diagnostics tab. Display only: the value vocabulary itself
- * (which keys are consumed, how their values validate) stays in
- * capabilityResolution.ts.
+ * Presentation helpers for capability fields, shared by the capability inspector and the Diagnostics tab. Display only:
+ * the value vocabulary itself (which keys are consumed, how their values validate) stays in capabilityResolution.ts.
  */
 
 import * as l10n from "@vscode/l10n";
 import type { ConsumedCapabilityField, CostCapabilityField } from "./capabilityResolution";
 import { consumedFieldsOfKind } from "./capabilityResolution";
 
-/**
- * Display rank of every cost field: the base tier, then the long-context tier, input before output and cache read
- * before cache write within each. Total over the union, so a newly consumed cost field cannot ship without a seat.
- */
 const COST_FIELD_DISPLAY_RANK = {
 	input_cost_per_token: 0,
 	output_cost_per_token: 1,
@@ -31,15 +25,13 @@ export const COST_CAPABILITY_FIELDS: readonly CostCapabilityField[] = consumedFi
 
 const COST_FIELD_SET: ReadonlySet<string> = new Set(COST_CAPABILITY_FIELDS);
 
-/** Whether a capability key is one of the eight per-token cost fields. */
 export function isCostCapabilityField(name: string): name is CostCapabilityField {
 	return COST_FIELD_SET.has(name);
 }
 
 /**
- * The token-count fields, derived from the consumed vocabulary's "number" kind
- * (the same derivation the record editors' inputs use), so a new number-kind
- * field renders as a token count the day it is consumed.
+ * The token-count fields, derived from the consumed vocabulary's "number" kind (the same derivation the record
+ * editors' inputs use), so a new number-kind field renders as a token count the day it is consumed.
  */
 const TOKEN_FIELD_SET: ReadonlySet<string> = new Set(consumedFieldsOfKind("number"));
 
@@ -50,7 +42,7 @@ export function isTokenCapabilityField(name: string): boolean {
 
 /**
  * Every consumed field's display label as a thunk, so the text resolves at call time (no module-level localized
- * constants). Total over the consumed vocabulary: a newly consumed field fails typecheck until it has a label.
+ * constants).
  */
 const CAPABILITY_DISPLAY_LABELS: Readonly<Record<ConsumedCapabilityField, () => string>> = {
 	context_length: () => l10n.t("Context length"),
@@ -82,8 +74,8 @@ const CAPABILITY_DISPLAY_LABELS: Readonly<Record<ConsumedCapabilityField, () => 
 };
 
 /**
- * A capability field's human display label. Undefined for every key outside the consumed vocabulary - an open
- * field's wire key IS its name, and callers render it raw, never localized.
+ * Undefined for every key outside the consumed vocabulary - an open field's wire key IS its name, and callers render
+ * it raw, never localized.
  */
 export function capabilityDisplayLabel(name: string): string | undefined {
 	return Object.hasOwn(CAPABILITY_DISPLAY_LABELS, name)
@@ -91,21 +83,10 @@ export function capabilityDisplayLabel(name: string): string | undefined {
 		: undefined;
 }
 
-/** The localized "N parameters" reading of a supported_openai_params list. */
 export function parameterCountText(count: number): string {
 	return count === 1 ? l10n.t("1 parameter") : l10n.t("{0} parameters", count);
 }
 
-/**
- * A per-token cost per million tokens. Zero is "$0". The symbol is the
- * configured usage.currencySymbol, prefixed verbatim after the sign.
- *
- * Rounding rules, pinned by tests: values of a unit and up round to cents
- * (exactly two decimals); sub-unit values keep three significant digits, then
- * trim trailing zeros but never below two decimals, so sub-cent prices like
- * $0.0004 survive. Everything goes through toFixed-family math - wire values
- * arrive in scientific notation (5e-7) and String() would echo it.
- */
 export function formatCostPerMillion(perTokenCost: number, currencySymbol: string): string {
 	const perMillion = perTokenCost * 1e6;
 	if (perMillion === 0) {
@@ -113,18 +94,16 @@ export function formatCostPerMillion(perTokenCost: number, currencySymbol: strin
 	}
 	const sign = perMillion < 0 ? "-" : "";
 	const abs = Math.abs(perMillion);
-	// The scaling can overflow for astronomically priced nonsense (finite * 1e6
-	// need not be finite); format the per-token magnitude in plain digits
-	// rather than echoing an Infinity glyph.
+	// The scaling can overflow for astronomically priced nonsense (finite * 1e6 need not be finite); format the
+	// per-token magnitude in plain digits rather than echoing an Infinity glyph.
 	if (!Number.isFinite(abs)) {
 		return `${sign}${currencySymbol}${Math.abs(perTokenCost).toLocaleString("en-US", {
 			useGrouping: false,
 			maximumFractionDigits: 0,
 		})}000000`;
 	}
-	// Beyond toFixed's plain-notation range (1e21) it goes exponential too;
-	// Intl always writes digits. Costs this size are configuration nonsense,
-	// but the formatter must never emit scientific notation for them.
+	// Beyond toFixed's plain-notation range (1e21) it goes exponential too; Intl always writes digits. Costs this size
+	// are configuration nonsense, but the formatter must never emit scientific notation for them.
 	if (abs >= 1e15) {
 		return `${sign}${currencySymbol}${abs.toLocaleString("en-US", {
 			useGrouping: false,
@@ -132,15 +111,12 @@ export function formatCostPerMillion(perTokenCost: number, currencySymbol: strin
 			maximumFractionDigits: 2,
 		})}`;
 	}
-	// Decimals for three significant digits, floored at cents: $1+ rounds to
-	// exactly two decimals, sub-unit values extend ($0.0004 needs six). The cap
-	// is toFixed's own limit; anything smaller renders as a plain $0.00.
+	// Decimals for three significant digits, floored at cents: $1+ rounds to exactly two decimals, sub-unit values
+	// extend ($0.0004 needs six). The cap is toFixed's own limit.
 	const magnitude = Math.floor(Math.log10(abs));
 	const decimals = Math.min(100, Math.max(2, 2 - magnitude));
 	let text = abs.toFixed(decimals);
 	if (decimals > 2) {
-		// Trim trailing zeros beyond the cents, then restore to at least two
-		// decimals ("0.500" -> "0.5" -> "0.50").
 		text = text.replace(/0+$/, "");
 		const fraction = text.length - text.indexOf(".") - 1;
 		if (fraction < 2) {
@@ -151,9 +127,8 @@ export function formatCostPerMillion(perTokenCost: number, currencySymbol: strin
 }
 
 /**
- * The unit label beside a block of per-million prices, shared by the models
- * table's pricing tip and the inspector's pricing section so the two never
- * name the unit differently. The symbol is trimmed - "EUR " reads as "EUR per
+ * The unit label beside a block of per-million prices, shared by the models table's pricing tip and the inspector's
+ * pricing section so the two never name the unit differently. The symbol is trimmed - "EUR " reads as "EUR per
  * million tokens" - and the empty symbol drops the currency claim entirely.
  */
 export function costUnitLabel(currencySymbol: string): string {

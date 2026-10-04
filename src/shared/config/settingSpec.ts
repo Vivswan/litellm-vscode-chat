@@ -1,12 +1,12 @@
 /**
- * The single source of truth for the extension's configuration section, the value side of its scalar settings (key
- * names, defaults, and minimums), the object settings' key names, the section each setting lives in, and each setting's
- * manifest presentation. package.json's contributed configuration is generated from this table (scripts/dev/manifest),
- * the settings readers clamp against it, and the dashboard protocol layers its own presentation metadata on top. Pure
- * constants: no vscode, no Node, no zod (this module rides into the webview bundle and loads outside the host).
+ * The single source of truth for the extension's configuration section.
+ *
+ * package.json's contributed configuration is generated from this table (scripts/dev/manifest), the settings readers
+ * clamp against it, and the dashboard protocol layers its own presentation metadata on top.
+ *
+ * Pure constants: no vscode, no Node, no zod (this module rides into the webview bundle and loads outside the host).
  */
 
-/** The configuration section every litellm-vscode-chat.* setting lives under. */
 export const CONFIG_SECTION = "litellm-vscode-chat";
 
 /**
@@ -27,12 +27,10 @@ export const INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY = "inlineCompletions
 export const COMMIT_GENERATION_PROMPT_SETTING_KEY = "commitGeneration.prompt";
 
 /**
- * The features that pick their model through an explicit `<feature>.model`
- * setting. Every one is opt-in, and for all but one the enabled boolean without
- * a model ref keeps the feature inert. The exception is quickFix, whose model
- * backs only its FALLBACK path: enabled with no model still works, because the
- * primary path routes through the @litellm participant on whichever model the
- * chat picker names.
+ * The features that pick their model through an explicit `<feature>.model` setting.
+ *
+ * The exception is quickFix, whose model backs only its FALLBACK path: enabled with no model still works, because the
+ * primary path routes through the @litellm participant on whichever model the chat picker names.
  */
 export const FEATURE_MODEL_IDS = [
 	"inlineCompletions",
@@ -46,25 +44,21 @@ export const FEATURE_MODEL_IDS = [
 export type FeatureModelId = (typeof FEATURE_MODEL_IDS)[number];
 
 /**
- * Every feature with an enable setting: the model-picking features plus the
- * two that run on the chat request's own model and so have no model key - the
- * chat participant and the agent tools. The one FeatureId vocabulary the per-layer tables (settings keys,
- * dashboard descriptors, diagnostics flags, contribution pins) key on.
+ * Every feature with an enable setting: the model-picking features plus the two that run on the chat request's own
+ * model and so have no model key - the chat participant and the agent tools. The one FeatureId vocabulary the
+ * per-layer tables (settings keys, dashboard descriptors, diagnostics flags, contribution pins) key on.
  */
 export const FEATURE_IDS = [...FEATURE_MODEL_IDS, "chatParticipant", "agentTools"] as const;
 
 export type FeatureId = (typeof FEATURE_IDS)[number];
 
-/** Whether a feature picks its model through a `<feature>.model` setting (vs the participant's request model). */
 export function isFeatureModelId(feature: FeatureId): feature is FeatureModelId {
 	return (FEATURE_MODEL_IDS as readonly FeatureId[]).includes(feature);
 }
 
 /**
- * A feature's explicit model choice: a `servers` entry's label (the same
- * identity the sync engine and usage resolution address entries by) plus the
- * raw model ID that server serves. Never auto-picked; null/unset means the
- * feature stays idle.
+ * A feature's explicit model choice: a `servers` entry's label (the same identity the sync engine and usage
+ * resolution address entries by) plus the raw model ID that server serves. Never auto-picked.
  */
 export interface FeatureModelRef {
 	readonly server: string;
@@ -84,37 +78,32 @@ export const FEATURE_MODEL_SETTING_KEYS = {
 /** One feature's model setting key as a literal type; the view-model unions derive their members from it. */
 export type FeatureModelSettingKey = (typeof FEATURE_MODEL_SETTING_KEYS)[FeatureModelId];
 
-/** The model setting keys as a list, in FEATURE_MODEL_IDS order, for the surfaces that spread the whole family. */
 export const FEATURE_MODEL_SETTING_KEY_LIST: readonly FeatureModelSettingKey[] = FEATURE_MODEL_IDS.map(
 	(feature) => FEATURE_MODEL_SETTING_KEYS[feature]
 );
 
 /**
- * The inline-completions language filter's mode vocabulary: "block" runs
- * completions everywhere except the listed languages, "allow" runs them only
- * there.
+ * The inline-completions language filter's mode vocabulary: "block" runs completions everywhere except the listed
+ * languages, "allow" runs them only there.
  */
 export const LANGUAGE_FILTER_MODES = ["block", "allow"] as const;
 
 export type LanguageFilterMode = (typeof LANGUAGE_FILTER_MODES)[number];
 
 /**
- * The inlineCompletions.languageFilter value: one mode plus exact VS Code
- * language IDs (no globs). Block mode with the empty list filters nothing;
- * allow mode with the empty list runs completions nowhere.
+ * The inlineCompletions.languageFilter value: one mode plus exact VS Code language IDs (no globs). Block mode with the
+ * empty list filters nothing; allow mode with the empty list runs completions nowhere.
  */
 export interface InlineLanguageFilter {
 	readonly mode: LanguageFilterMode;
 	readonly languages: readonly string[];
 }
 
-/** The default filter: block nothing, so completions run everywhere. */
 export const DEFAULT_INLINE_LANGUAGE_FILTER: InlineLanguageFilter = { mode: "block", languages: [] };
 
 /**
- * "auto" keeps every semantic token on the host's --vscode-* variables, so unseen themes and high contrast follow the editor.
- * The vocabulary lives here because src/extension/dashboard/html.ts stamps it on the root element and can reach only this
- * settings module, being pure string building so the render harness can import it outside the extension host.
+ * The vocabulary lives here because src/extension/dashboard/html.ts stamps it on the root element and can reach only
+ * this settings module, being pure string building so the render harness can import it outside the extension host.
  */
 export const UI_THEMES = ["auto", "light", "dark"] as const;
 
@@ -123,8 +112,8 @@ export type UiTheme = (typeof UI_THEMES)[number];
 export const DEFAULT_UI_THEME: UiTheme = "auto";
 
 /**
- * The accent hue, deployed on primary actions, selection, focus and links -
- * never on status, where it would compete with the severity colors.
+ * The accent hue, deployed on primary actions, selection, focus and links - never on status, where it would compete
+ * with the severity colors.
  */
 export const UI_ACCENTS = ["blue", "violet", "teal", "amber"] as const;
 
@@ -133,11 +122,10 @@ export type UiAccent = (typeof UI_ACCENTS)[number];
 export const DEFAULT_UI_ACCENT: UiAccent = "blue";
 
 /**
- * How the local token budget prices text (chat.tokenEstimation). "auto" starts
- * from a script-aware heuristic and loads the o200k_base tokenizer once the UI
- * language or the counted text is CJK; "heuristic" is the plain
- * 4-characters-per-token rule and never loads tokenizer data; the explicit
- * encodings always load theirs.
+ * How the local token budget prices text (chat.tokenEstimation).
+ *   "auto"                 -> starts from a script-aware heuristic
+ *   "heuristic"            -> is the plain 4-characters-per-token rule and never loads tokenizer data
+ *   the explicit encodings -> always load theirs
  */
 export const TOKEN_ESTIMATION_MODES = ["auto", "heuristic", "o200k_base", "cl100k_base"] as const;
 
@@ -146,10 +134,9 @@ export type TokenEstimationMode = (typeof TOKEN_ESTIMATION_MODES)[number];
 export const DEFAULT_TOKEN_ESTIMATION_MODE: TokenEstimationMode = "auto";
 
 /**
- * The prefix every spend and cost figure renders with (usage.currencySymbol).
- * Display only, never a conversion: a proxy accounting in another currency
- * still reports plain numbers, and this symbol is how the display stops
- * claiming dollars. The empty string renders the bare number.
+ * Display only, never a conversion: a proxy accounting in another currency still reports plain numbers, and this
+ * symbol is how the display stops claiming dollars. The empty string renders the bare number.
+ *   usage.currencySymbol -> The prefix every spend and cost figure renders with
  */
 export const DEFAULT_CURRENCY_SYMBOL = "$";
 
@@ -157,23 +144,21 @@ export const DEFAULT_CURRENCY_SYMBOL = "$";
 export const MIN_TIMEOUT_MS = 1000;
 
 /**
- * The value contract of one number setting, exactly what package.json declares
- * for it. Nullable settings may default to null ("unset, derive it").
- * `integer` is the one source of the integer-only fact: the manifest declares
- * `"type": "integer"`, the settings reader floors fractions, and the
- * dashboard's count grammar refuses them.
+ * The value contract of one number setting, exactly what package.json declares for it.
+ *
+ * `integer` is the one source of the integer-only fact: the manifest declares `"type": "integer"`, the settings reader
+ * floors fractions, and the dashboard's count grammar refuses them.
+ *   Nullable settings may default to null -> "unset, derive it"
  */
 export type NumberSettingValueSpec = { readonly integer?: true } & (
 	| { readonly default: number; readonly minimum: number; readonly nullable: false }
 	| { readonly default: number | null; readonly minimum: number; readonly nullable: true }
 );
 
-/** The value contract of one boolean setting. */
 export interface BooleanSettingValueSpec {
 	readonly default: boolean;
 }
 
-/** The number-valued litellm-vscode-chat.* settings, keyed by their setting names. */
 export const NUMBER_SETTING_SPECS = {
 	"chat.timeout": { default: 300000, minimum: MIN_TIMEOUT_MS, nullable: false },
 	// A tool count, not milliseconds.
@@ -181,54 +166,41 @@ export const NUMBER_SETTING_SPECS = {
 	"discovery.timeout": { default: 30000, minimum: MIN_TIMEOUT_MS, nullable: false },
 	// A zero TTL is legal: it disables serving from the discovery cache.
 	"discovery.cacheTtl": { default: 3600000, minimum: 0, nullable: false },
-	// Zero is legal: it disables stale serving, so a failed silent refresh
-	// serves the empty list immediately.
+	// Zero is legal: it disables stale serving.
 	"discovery.staleServeWindow": { default: 600000, minimum: 0, nullable: false },
-	// Milliseconds like the other cadence settings. Zero is legal and disables
-	// usage polling entirely (explicit refresh still works); negatives clamp
-	// to it.
+	// Milliseconds like the other cadence settings. Zero is legal and disables usage polling entirely (explicit refresh
+	// still works); negatives clamp to it.
 	"usage.pollInterval": { default: 300000, minimum: 0, nullable: false },
 	// The first poll after activation: soon, but never on the activation path.
 	"usage.initialRefreshDelay": { default: 5000, minimum: 0, nullable: false },
 	// Long enough to coalesce settings.json keystroke bursts.
 	"usage.serversChangeRefreshDelay": { default: 2000, minimum: 0, nullable: false },
-	// Zero is legal: on-demand data then never counts as fresh, so the status
-	// bar aggregates nothing.
+	// Zero is legal.
 	"usage.pollingOffFreshnessWindow": { default: 600000, minimum: 0, nullable: false },
 } as const satisfies Record<string, NumberSettingValueSpec>;
 
 export type NumberSettingId = keyof typeof NUMBER_SETTING_SPECS;
 
-/**
- * Whether one number setting is integer-only. The single reader of the spec's
- * `integer` flag, so the settings getter's floor, the intent boundary's
- * refusal, and the drift guards all ask the same predicate.
- */
 export function isIntegerSetting(id: NumberSettingId): boolean {
 	const spec = NUMBER_SETTING_SPECS[id];
 	return "integer" in spec && spec.integer === true;
 }
 
-/** The boolean litellm-vscode-chat.* settings, keyed by their setting names. */
 export const BOOLEAN_SETTING_SPECS = {
 	"chat.promptCaching": { default: true },
 	"models.openRouterCatalog": { default: true },
 	"ui.maskSecretInputs": { default: true },
-	// The model-picking features are opt-in by contract: disabled means no
-	// working surface and zero traffic, and enabling without a model ref stays
-	// inert - with the one carve-out FEATURE_MODEL_IDS documents, quickFix,
-	// whose model backs only its fallback path.
 	"inlineCompletions.enabled": { default: false },
 	"commitGeneration.enabled": { default: false },
 	"prGeneration.enabled": { default: false },
 	"consultTool.enabled": { default: false },
 	"quickFix.enabled": { default: false },
 	"reviewComments.enabled": { default: false },
-	// The participant is on by default: it costs nothing until invoked and uses
-	// the chat request's own model, so it has no model key.
+	// The participant is on by default: it costs nothing until invoked and uses the chat request's own model, so it has
+	// no model key.
 	"chatParticipant.enabled": { default: true },
-	// The agent tools are opt-in twice over: the feature switch registers the
-	// read tools, and each write tool registers only under its own switch.
+	// The agent tools are opt-in twice over: the feature switch registers the read tools, and each write tool registers
+	// only under its own switch.
 	"agentTools.enabled": { default: false },
 	"agentTools.setSetting.enabled": { default: false },
 	"agentTools.editModelRecords.enabled": { default: false },
@@ -241,10 +213,8 @@ export const BOOLEAN_SETTING_SPECS = {
 export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;
 
 /**
- * Each feature's enable setting key: the one map the settings getter, the
- * diagnostics flags, and the dashboard's feature rows address the boolean
- * through. Typed against BooleanSettingId, so a feature cannot name an enable
- * key the manifest and specs do not carry.
+ * Each feature's enable setting key: the one map the settings getter, the diagnostics flags, and the dashboard's
+ * feature rows address the boolean through.
  */
 export const FEATURE_ENABLE_SETTING_KEYS = {
 	inlineCompletions: "inlineCompletions.enabled",
@@ -257,7 +227,6 @@ export const FEATURE_ENABLE_SETTING_KEYS = {
 	agentTools: "agentTools.enabled",
 } as const satisfies Record<FeatureId, BooleanSettingId>;
 
-/** The agent-tools feature's write tools; each registers only under its own toggle below. */
 const AGENT_WRITE_TOOL_IDS = ["setSetting", "editModelRecords", "saveServer", "removeServer", "runAction"] as const;
 
 export type AgentWriteToolId = (typeof AGENT_WRITE_TOOL_IDS)[number];
@@ -277,17 +246,20 @@ export const AGENT_TOOL_TOGGLE_KEYS = {
 /** Whether agent tool input may carry a secret's value; off, the user types it into a masked input box instead. */
 export const AGENT_TOOLS_SECRET_VALUES_KEY = "agentTools.secretValues.enabled" satisfies BooleanSettingId;
 
-/** Any key of the agentTools family; the set_setting tool refuses these at the type level, so an agent cannot flip its own switches. */
+/**
+ * Any key of the agentTools family; the set_setting tool refuses these at the type level, so an agent cannot flip its
+ * own switches.
+ */
 export type AgentToolsSettingId =
 	| "agentTools.enabled"
 	| (typeof AGENT_TOOL_TOGGLE_KEYS)[AgentWriteToolId]
 	| typeof AGENT_TOOLS_SECRET_VALUES_KEY;
 
 /**
- * The whole agentTools family, in manifest order. User settings only (machine scope, like `servers`): a workspace file
- * must not be able to grant an agent write access to the user's servers and keys; SETTING_PRESENTATION carries the
- * tier. A literal tuple, not a mapped array, so CONFIGURATION_SECTIONS sees its members and a key missing here fails
- * that table's compile-time totality check.
+ * The whole agentTools family, in manifest order.
+ *
+ * A literal tuple, not a mapped array, so CONFIGURATION_SECTIONS sees its members and a key missing here fails that
+ * table's compile-time totality check.
  */
 export const AGENT_TOOLS_SETTING_KEYS = [
 	FEATURE_ENABLE_SETTING_KEYS.agentTools,
@@ -299,12 +271,7 @@ export const AGENT_TOOLS_SETTING_KEYS = [
 	AGENT_TOOLS_SECRET_VALUES_KEY,
 ] as const satisfies readonly AgentToolsSettingId[];
 
-/**
- * Whether one number is a usable usage.alertThresholds value: finite, in
- * (0, 1]. The single statement of the bound - the dashboard's list normalizer,
- * the settings reader, the intent boundary's refusal, and the editor's parser
- * all ask this predicate.
- */
+/** Whether one number is a usable usage.alertThresholds value: finite, in (0, 1]. */
 export function isUsableThreshold(value: number): boolean {
 	return Number.isFinite(value) && value > 0 && value <= 1;
 }
@@ -328,9 +295,8 @@ export type UsageStatusBarMode = (typeof USAGE_STATUS_BAR_MODES)[number];
 export const DEFAULT_USAGE_STATUS_BAR_MODE: UsageStatusBarMode = "always";
 
 /**
- * The settings under the config section with no scalar spec: the object and
- * array settings plus the free and enum strings. Their value grammars live
- * with their readers; this list only names the keys.
+ * The settings under the config section with no scalar spec: the object and array settings plus the free and enum
+ * strings. Their value grammars live with their readers; this list only names the keys.
  */
 const STRUCTURED_SETTING_KEYS = [
 	SERVERS_SETTING_KEY,
@@ -354,10 +320,7 @@ const STRUCTURED_SETTING_KEYS = [
  */
 export type SettingId = (typeof STRUCTURED_SETTING_KEYS)[number] | NumberSettingId | BooleanSettingId;
 
-/**
- * One titled group of the contributed configuration; the id doubles as the nls key suffix
- * `litellm.config.section.<id>`.
- */
+/** The id doubles as the nls key suffix `litellm.config.section.<id>`. */
 interface ConfigurationSection {
 	readonly id: string;
 	readonly settings: readonly SettingId[];
@@ -420,13 +383,11 @@ const SECTIONS = [
 	{ id: "agentTools", settings: AGENT_TOOLS_SETTING_KEYS },
 ] as const satisfies readonly ConfigurationSection[];
 
-/** A SettingId no section lists; `never` when the table is total. */
 type UnsectionedSettingId = Exclude<SettingId, (typeof SECTIONS)[number]["settings"][number]>;
 
 /**
  * The contributed configuration's sections in manifest order (the settings UI's order, which the docs tables follow).
- * Total over SettingId by construction: a setting listed in no section makes this declaration fail to compile with the
- * missing key named in the error. A setting listed twice is refused when the manifest is generated.
+ * A setting listed twice is refused when the manifest is generated.
  */
 export const CONFIGURATION_SECTIONS: [UnsectionedSettingId] extends [never]
 	? typeof SECTIONS
@@ -460,7 +421,6 @@ export interface SettingPresentation {
 	/** Whether the description renders markdown (`markdownDescription`) or plain text (`description`). */
 	readonly description: "plain" | "markdown";
 	readonly editPresentation?: "multilineText";
-	/** The setting's enum members each carry a labelled description. */
 	readonly enumDescriptions?: true;
 }
 
@@ -469,12 +429,11 @@ const MACHINE_MARKDOWN: SettingPresentation = { scope: "machine", description: "
 const WINDOW_PLAIN: SettingPresentation = { scope: "window", description: "plain" };
 
 /**
- * Each setting's presentation. Load-bearing tiers: the enable booleans and model refs decide whether requests happen
- * and where they go, and the catalog toggle causes OpenRouter fetches, so they are machine-overridable; `servers` and
- * the agentTools family are machine scope, user settings only, because an agent's write access to servers and keys is
- * granted by the user alone, never by a checked-in workspace file; the two model record settings are restricted because
- * they shape what goes to the user's server and compile user regex matchers. Total over SettingId, so a new setting
- * without a ruled presentation does not compile.
+ * Load-bearing tiers: the enable booleans and model refs decide whether requests happen and where they go, and the
+ * catalog toggle causes OpenRouter fetches, so they are machine-overridable; `servers` and the agentTools family are
+ * machine scope, user settings only, because an agent's write access to servers and keys is granted by the user alone,
+ * never by a checked-in workspace file; the two model record settings are restricted because they shape what goes to
+ * the user's server and compile user regex matchers.
  */
 export const SETTING_PRESENTATION: Readonly<Record<SettingId, SettingPresentation>> = {
 	servers: MACHINE_MARKDOWN,

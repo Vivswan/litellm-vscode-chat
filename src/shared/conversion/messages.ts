@@ -17,21 +17,12 @@ import type {
 type LogFn = (message: string, data?: unknown) => void;
 
 /**
- * Capability-derived conversion gates, resolved by the caller from the model's
- * registered capabilities. Parts a gate excludes take the same drop-and-log
- * paths as if no wire mapping existed. Capabilities decide what goes on the
- * wire; nothing here injects a request parameter.
+ * Parts a gate excludes take the same drop-and-log paths as if no wire mapping existed. Capabilities decide what goes
+ * on the wire; nothing here injects a request parameter.
  */
 export interface ConvertMessagesOptions {
 	log?: LogFn | undefined;
-	/**
-	 * Convert image DataParts to image_url blocks: user-message images in
-	 * place, tool-result images gathered into one synthesized user message per
-	 * turn. Without it they drop with a log, so a replayed image-bearing
-	 * history never sends image blocks to a non-vision model.
-	 */
 	imageInput?: boolean | undefined;
-	/** Convert audio DataParts on user messages to input_audio blocks; without it they drop with a log. */
 	audioInput?: boolean | undefined;
 }
 
@@ -40,7 +31,6 @@ function imageDataPartToBlock(part: vscode.LanguageModelDataPart): OpenAIChatIma
 	return { type: "image_url", image_url: { url: `data:${part.mimeType.toLowerCase()};base64,${base64}` } };
 }
 
-/** Build the content block for a resolved binary wire form; null for the forms ("text", "none") that carry no block. */
 function convertDataPartToContentBlock(
 	part: vscode.LanguageModelDataPart,
 	wire: DataPartWireForm
@@ -73,12 +63,7 @@ function decodeDataPartText(part: vscode.LanguageModelDataPart): string | null {
 	return null;
 }
 
-/**
- * What conversion transmits for a prompt-tsx part: its string value, the JSON
- * serialization of an object value, or nothing. JSON.stringify returns
- * undefined for values with no JSON rendering, so callers must treat undefined
- * as dropped.
- */
+/** JSON.stringify returns undefined for values with no JSON rendering, so callers must treat undefined as dropped. */
 function extractPromptTsxText(part: vscode.LanguageModelPromptTsxPart): string | undefined {
 	if (typeof part.value === "string") {
 		return part.value;
@@ -108,12 +93,8 @@ function mapRole(message: vscode.LanguageModelChatRequestMessage, log?: LogFn): 
 }
 
 /**
- * The parts of one tool result the wire can carry: its flattened text and, for
- * vision models, the image blocks the caller gathers into the turn's
- * synthesized image message. Tool messages themselves never carry image
- * blocks: LiteLLM forwards tool-message content verbatim and OpenAI-family
- * models reject image blocks there, so the images ride a user message after
- * the turn instead. Without imageInput the image is dropped with a log.
+ * Tool messages themselves never carry image blocks: LiteLLM forwards tool-message content verbatim and OpenAI-family
+ * models reject image blocks there, so the images ride a user message after the turn instead.
  */
 interface ToolResultContent {
 	text: string;
@@ -139,10 +120,9 @@ function collectToolResultContent(
 			} else if (isImageMimeType(c.mimeType)) {
 				log?.("Tool returned image data which cannot be forwarded as tool result text");
 			} else {
-				// PDF and audio blocks exist only on user messages, so the drop must
-				// stay observable like the non-vision image case above. The mime is
-				// tool-controlled and this log feeds the issue-report buffer, so it
-				// is allowlisted by shape.
+				// PDF and audio blocks exist only on user messages, so the drop must stay observable like the
+				// non-vision image case above. The mime is tool-controlled and this log feeds the issue-report buffer,
+				// so it is allowlisted by shape.
 				log?.("Tool returned media with no tool-result wire mapping", {
 					mimeType: isSafeMimeType(c.mimeType) ? c.mimeType : "unparseable",
 				});
@@ -166,28 +146,15 @@ function collectToolResultContent(
 }
 
 /**
- * The fixed lead-in of the synthesized image message. A constant, never
- * response-derived text: it tells the model these blocks are tool output, not
- * a new user question.
+ * A constant, never response-derived text: it tells the model these blocks are tool output, not a new user question.
  */
 const TOOL_IMAGES_LEAD_IN = "Images returned by the tool calls above:";
 
-/**
- * One thinking part read back from assistant history: signed text
- * (replayable), a redacted payload (replayable), or unsigned text (replayable
- * only if a later signature closes over it).
- */
 type ThinkingHistoryEntry =
 	| { kind: "unsigned"; text: string }
 	| { kind: "signed"; text: string; signature: string }
 	| { kind: "redacted"; data: string };
 
-/**
- * Read a thinking part from assistant history. Recognized via the proposed
- * LanguageModelThinkingPart class when the host exposes it, otherwise by the
- * replay metadata this extension itself attaches while streaming (a signature
- * or redacted data).
- */
 function extractThinkingHistoryEntry(part: unknown): ThinkingHistoryEntry | undefined {
 	if (!part || typeof part !== "object" || part instanceof vscode.LanguageModelToolCallPart) {
 		return undefined;
@@ -211,11 +178,9 @@ function extractThinkingHistoryEntry(part: unknown): ThinkingHistoryEntry | unde
 }
 
 /**
- * Fold the thinking parts of one assistant message back into Anthropic replay
- * blocks. Signatures may stream in a separate, empty-text part after the text
- * they sign, so unsigned text accumulates until a signature closes the block.
- * Trailing unsigned text has no replay value and is dropped, as is plain
- * thinking on providers that never sign.
+ * Signatures may stream in a separate, empty-text part after the text they sign, so unsigned text accumulates until a
+ * signature closes the block. Trailing unsigned text has no replay value and is dropped, as is plain thinking on
+ * providers that never sign.
  */
 function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): OpenAIThinkingBlock[] {
 	const blocks: OpenAIThinkingBlock[] = [];
@@ -238,11 +203,7 @@ function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): OpenAIThi
 	return blocks;
 }
 
-/**
- * Convert VS Code chat request messages into OpenAI-compatible message
- * objects. Prompt-cache markers are not placed here; promptCache.ts owns them
- * as a pass over the converted request.
- */
+/** Prompt-cache markers are not placed here; promptCache.ts owns them as a pass over the converted request. */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
 	options?: ConvertMessagesOptions
@@ -253,15 +214,13 @@ export function convertMessages(
 		audioInput: options?.audioInput === true,
 	};
 	const out: OpenAIChatMessage[] = [];
-	// Tool-result images pending their synthesized user message. OpenAI requires
-	// every tool message of a tool_calls turn to directly follow its assistant
-	// message, so the flush waits for the first non-tool message: exactly one
-	// image message per turn, after its last tool message, never interleaved.
+	// OpenAI requires every tool message of a tool_calls turn to directly follow its assistant message, so the flush
+	// waits for the first non-tool message: exactly one image message per turn, after its last tool message, never
+	// interleaved.
 	let pendingToolImages: OpenAIChatImageUrlContentBlock[] = [];
-	// Open-answer count per wire id of the emitted tool_calls turns. Tool calls
-	// may ride non-assistant messages with their answers arriving messages later,
-	// so the backend adjacency rule above needs a wire-level guarantee: while any
-	// call is open, everything but its answers defers until the turns close.
+	// Tool calls may ride non-assistant messages with their answers arriving messages later, so the backend adjacency
+	// rule above needs a wire-level guarantee: while any call is open, everything but its answers defers until the
+	// turns close.
 	const openCalls = new Map<string, number>();
 	let openTotal = 0;
 	const deferred: { message: OpenAIChatMessage; toolImages?: OpenAIChatImageUrlContentBlock[] | undefined }[] = [];
@@ -284,8 +243,8 @@ export function convertMessages(
 		}
 		out.push(message);
 		if (toolImages) {
-			// Attached only now, so a deferred tool message's images cannot flush
-			// ahead of the tool message they came from.
+			// Attached only now, so a deferred tool message's images cannot flush ahead of the tool message they came
+			// from.
 			pendingToolImages.push(...toolImages);
 		}
 	};
@@ -297,9 +256,8 @@ export function convertMessages(
 			return;
 		}
 		emit(message, toolImages);
-		// Drain by first-emittable, not head-only: emitting a deferred tool_calls
-		// message reopens a turn, and its answers may sit behind other deferrals.
-		// Terminates because every iteration removes one entry.
+		// Drain by first-emittable, not head-only: emitting a deferred tool_calls message reopens a turn, and its
+		// answers may sit behind other deferrals. Terminates because every iteration removes one entry.
 		for (;;) {
 			const index = deferred.findIndex((entry) => !mustDefer(entry.message));
 			if (index < 0) {
@@ -311,11 +269,10 @@ export function convertMessages(
 			}
 		}
 	};
-	// One dropped-DataPart log per conversion: a media-heavy history would
-	// otherwise evict the whole issue-report buffer on every turn.
+	// A media-heavy history would otherwise evict the whole issue-report buffer on every turn.
 	let loggedDroppedDataPart = false;
-	// One pairing decides every wire id; validation rejects on the same
-	// analysis, so both halves of a pair always ship the same id.
+	// One pairing decides every wire id; validation rejects on the same analysis, so both halves of a pair always ship
+	// the same id.
 	const pairing = pairToolCallIds(messages);
 	for (const [messageIndex, m] of messages.entries()) {
 		const role = mapRole(m, log);
@@ -333,8 +290,8 @@ export function convertMessages(
 				const id = pairing.wireIds.get(wireIdKey(messageIndex, partIndex)) ?? part.callId;
 				let args: string;
 				try {
-					// `?? "{}"`: stringify returns undefined for an input whose toJSON
-					// yields no rendering, and the wire requires an arguments string.
+					// `?? "{}"`: stringify returns undefined for an input whose toJSON yields no rendering, and the
+					// wire requires an arguments string.
 					args = JSON.stringify(part.input ?? {}) ?? "{}";
 				} catch {
 					args = "{}";
@@ -346,10 +303,9 @@ export function convertMessages(
 					content: collectToolResultContent(part, gates, log),
 				});
 			} else if (part instanceof vscode.LanguageModelDataPart) {
-				// Only user messages carry binary content blocks on the wire, so
-				// assistant-side media resolves to "text" or "none" and the turn's
-				// TEXT is always kept - moving it into contentBlocks would hand it to
-				// a branch only user messages drain.
+				// Only user messages carry binary content blocks on the wire, so assistant-side media resolves to
+				// "text" or "none" and the turn's TEXT is always kept - moving it into contentBlocks would hand it to a
+				// branch only user messages drain.
 				const wire = dataPartWireForm(part.mimeType, role === "user" ? "user" : "assistant", gates);
 				const block = convertDataPartToContentBlock(part, wire);
 				if (block) {
@@ -363,8 +319,8 @@ export function convertMessages(
 					if (decoded !== null) {
 						textParts.push(decoded);
 					} else {
-						// The mime is model-controlled on assistant turns and this log
-						// feeds the issue-report buffer, so it is allowlisted by shape.
+						// The mime is model-controlled on assistant turns and this log feeds the issue-report buffer,
+						// so it is allowlisted by shape.
 						if (!loggedDroppedDataPart) {
 							loggedDroppedDataPart = true;
 							log?.("Skipping LanguageModelDataPart with no wire mapping", {
@@ -404,23 +360,19 @@ export function convertMessages(
 			push({ role: "tool", tool_call_id: tr.callId, content: tr.content.text }, tr.content.images);
 		}
 
-		// contentBlocks is non-empty exactly when a binary block converted above,
-		// so its emptiness is the "multimodal user message" test.
 		if (role === "user" && contentBlocks.length > 0) {
 			if (textParts.length > 0) {
 				contentBlocks.push({ type: "text", text: textParts.join("") });
 			}
 			push({ role, content: contentBlocks });
 		} else if (role === "assistant") {
-			// The turn's text rides on the tool-call message when there is one.
 			const text = toolCalls.length === 0 ? textParts.join("") : "";
 			if (text) {
 				push(
 					thinkingBlocks.length > 0 ? { role, content: text, thinking_blocks: thinkingBlocks } : { role, content: text }
 				);
 			} else if (toolCalls.length === 0 && thinkingBlocks.length > 0) {
-				// A signed thinking block must replay even when its assistant turn
-				// carried no text or tool calls.
+				// A signed thinking block must replay even when its assistant turn carried no text or tool calls.
 				push({ role, content: "", thinking_blocks: thinkingBlocks });
 			}
 		} else {
@@ -430,12 +382,11 @@ export function convertMessages(
 			}
 		}
 	}
-	// Only a call that never got its answer leaves a deferral behind; validation
-	// rejects such histories before send, but conversion stays total.
+	// Only a call that never got its answer leaves a deferral behind; validation rejects such histories before send,
+	// but conversion stays total.
 	for (const entry of deferred) {
 		emit(entry.message, entry.toolImages);
 	}
-	// Images from a trailing tool turn still need their message.
 	if (pendingToolImages.length > 0) {
 		out.push({ role: "user", content: [{ type: "text", text: TOOL_IMAGES_LEAD_IN }, ...pendingToolImages] });
 	}

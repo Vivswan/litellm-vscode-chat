@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 
-/** Constructor shape of the proposed LanguageModelThinkingPart class. */
 export type ThinkingPartCtor = new (text: string, id?: string, metadata?: unknown) => vscode.LanguageModelResponsePart;
 
 export interface ThinkingPartProbe {
@@ -9,10 +8,8 @@ export interface ThinkingPartProbe {
 }
 
 /**
- * LanguageModelThinkingPart is a proposed API class: present at runtime on
- * current hosts but absent from the stable typings, and hosts may expose
- * proposed classes behind throwing getters, so the property read itself is
- * guarded.
+ * LanguageModelThinkingPart is a proposed API class: present at runtime on current hosts but absent from the stable
+ * typings, and hosts may expose proposed classes behind throwing getters, so the property read itself is guarded.
  */
 export function probeThinkingPartCtor(host: object): ThinkingPartProbe {
 	try {
@@ -23,23 +20,19 @@ export function probeThinkingPartCtor(host: object): ThinkingPartProbe {
 	}
 }
 
-// Probed once at module load; the streaming path and the history-replay path
-// share this result.
+// Probed once at module load; the streaming path and the history-replay path share this result.
 const probe = probeThinkingPartCtor(vscode);
 
-/** The host's LanguageModelThinkingPart constructor, or undefined when the host does not expose one. */
 export const thinkingPartCtor: ThinkingPartCtor | undefined = probe.ctor;
 
-/** Set when the probe threw instead of returning a constructor; surfaced through logThinkingPartProbeErrorOnce. */
 const thinkingPartProbeError: string | undefined = probe.error;
 
 let loggedMissingThinkingSupport = false;
 let loggedProbeError = false;
 
 /**
- * Log, once per session, that the host cannot display thinking parts. The
- * reasoning output itself is dropped rather than emitted as text: text parts
- * round-trip into chat history and would pollute the replayed conversation.
+ * The reasoning output itself is dropped rather than emitted as text: text parts round-trip into chat history and
+ * would pollute the replayed conversation.
  */
 export function logMissingThinkingPartSupportOnce(log: (message: string) => void): void {
 	if (loggedMissingThinkingSupport) {
@@ -49,11 +42,6 @@ export function logMissingThinkingPartSupportOnce(log: (message: string) => void
 	log("Host does not support thinking parts; reasoning output will not be displayed");
 }
 
-/**
- * Log, once per session, that the constructor probe threw, so a host with a
- * throwing getter is not re-logged on each request. Tests inject the error;
- * production callers use the module probe result.
- */
 export function logThinkingPartProbeErrorOnce(
 	log: (message: string, data?: unknown) => void,
 	error: string | undefined = thinkingPartProbeError

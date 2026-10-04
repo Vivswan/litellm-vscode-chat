@@ -1,15 +1,12 @@
 /**
- * The OpenRouter capability catalog: the mapping from OpenRouter's /models
- * payload to the core capability vocabulary, the slimming that produces the
- * packaged artifact, and the lookup the resolver consumes. The catalog maps
- * capabilities only; pricing deliberately never rides it - LiteLLM's
- * /model/info is the only pricing source. Lenient by contract: the catalog is
- * best-effort backfill data, so every parser here degrades malformed input to
- * absence instead of throwing - a broken snapshot yields an empty catalog,
- * never a broken activation. That leniency also covers legacy artifacts:
- * slim files that still carry OpenRouter's pricing block parse unchanged, and
- * re-slimming them sheds the pricing keys. Never imported anywhere reachable
- * from src/webview/.
+ * Lenient by contract: the catalog is best-effort backfill data, so every parser here degrades malformed input to
+ * absence instead of throwing.
+ *
+ * Never imported anywhere reachable from src/webview/.
+ *
+ *   The catalog maps capabilities only -> pricing deliberately never rides it
+ *   That leniency also covers legacy artifacts -> slim files that still carry OpenRouter's pricing block parse
+ *                                                  unchanged, and re-slimming them sheds the pricing keys
  */
 
 import { isRecord } from "../util/json";
@@ -20,10 +17,9 @@ import type { CapabilityCatalogLookup, CapabilityFieldValues, CatalogLookupResul
 export const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
 /**
- * Why one GET of OPENROUTER_MODELS_URL failed, as both fetchers classify it:
- * the build script renders each kind with its evidence, the runtime refresh
- * with a fixed log-safe word, and the retry verdict is the one judgement the
- * two must share - isRetryableOpenRouterFailure below is its only home.
+ * Why one GET of OPENROUTER_MODELS_URL failed, as both fetchers classify it: the build script renders each kind with
+ * its evidence, the runtime refresh with a fixed log-safe word, and the retry verdict is the one judgement the two
+ * must share - isRetryableOpenRouterFailure below is its only home.
  */
 export type OpenRouterFetchFailure =
 	| { readonly kind: "timeout"; readonly phase: "headers" | "body" }
@@ -32,11 +28,7 @@ export type OpenRouterFetchFailure =
 	| { readonly kind: "unparseable" };
 
 /**
- * Discovery's rule, inherited from the SDK's retry predicate: a timeout, a
- * connection failure, or a 408/409/429/5xx may clear on the next attempt; any
- * other 4xx and a 200 whose body is not JSON (a CDN interstitial, a schema
- * change) are the server's settled answer - discovery's body parse sits
- * outside the SDK's retry loop - so a repeat attempt only spends the budget.
+ * A timeout, a connection failure, or a 408/409/429/5xx may clear on the next attempt.
  */
 export function isRetryableOpenRouterFailure(failure: OpenRouterFetchFailure): boolean {
 	switch (failure.kind) {
@@ -55,14 +47,9 @@ export function isRetryableOpenRouterFailure(failure: OpenRouterFetchFailure): b
 	}
 }
 
-/**
- * The smallest model count a live payload may carry before the fetch script
- * calls it schema drift. The packaged-file-list CI check asserts the same
- * floor on the shipped artifact with jq; keep the two numbers in sync.
- */
+/** The smallest model count a live payload may carry before the fetch script calls it schema drift. */
 export const CATALOG_MODEL_COUNT_FLOOR = 200;
 
-/** One catalog entry after mapping: the capability fields its OpenRouter record declares. */
 export interface CatalogModel {
 	readonly id: string;
 	readonly name?: string | undefined;
@@ -77,9 +64,8 @@ export interface OpenRouterCatalogSnapshot {
 export const EMPTY_CATALOG_SNAPSHOT: OpenRouterCatalogSnapshot = { models: [] };
 
 /**
- * One slimmed OpenRouter entry, in the wire shape: exactly the fields the
- * mapping consumes plus id and name, so raw payloads and slimmed artifacts
- * parse through the same code path.
+ * One slimmed OpenRouter entry, in the wire shape: exactly the fields the mapping consumes plus id and name, so raw
+ * payloads and slimmed artifacts parse through the same code path.
  */
 export interface SlimOpenRouterModel {
 	readonly id: string;
@@ -101,7 +87,6 @@ const MAPPED_INPUT_MODALITIES = ["image"] as const;
 /** The supported_parameters tokens the mapping reads; slimming drops the rest. */
 const MAPPED_SUPPORTED_PARAMETERS = ["tools", "reasoning"] as const;
 
-/** The entry array of a payload: the endpoint's `{ data: [...] }` envelope or a bare array. */
 function entriesOf(payload: unknown): readonly unknown[] {
 	if (Array.isArray(payload)) {
 		return payload;
@@ -116,18 +101,11 @@ function nonBlankString(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
-/** String tokens of a value that should be an array; undefined when it is not one. */
 function stringTokens(value: unknown): readonly string[] | undefined {
 	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined;
 }
 
-/**
- * Map one OpenRouter entry to the capability vocabulary. A present modality or
- * parameter list is authoritative both ways (its booleans are set true or
- * false); an absent or malformed one leaves the fields unset so lower
- * precedence levels keep them. Entries without a usable id map to undefined;
- * nothing here throws.
- */
+/** A present modality or parameter list is authoritative both ways (its booleans are set true or false). */
 export function mapOpenRouterEntry(entry: unknown): CatalogModel | undefined {
 	if (!isRecord(entry)) {
 		return undefined;
@@ -173,10 +151,8 @@ export function mapOpenRouterEntry(entry: unknown): CatalogModel | undefined {
 }
 
 /**
- * Parse a whole catalog payload - the live endpoint's, the slimmed artifact's,
- * or garbage - into a snapshot. Unusable entries are dropped, duplicate ids
- * keep their first occurrence, and any non-catalog value yields the empty
- * snapshot. Never throws.
+ * Parse a whole catalog payload - the live endpoint's, the slimmed artifact's, or garbage - into a snapshot.
+ * Never throws.
  */
 export function parseCatalogSnapshot(payload: unknown): OpenRouterCatalogSnapshot {
 	const models: CatalogModel[] = [];
@@ -192,11 +168,9 @@ export function parseCatalogSnapshot(payload: unknown): OpenRouterCatalogSnapsho
 }
 
 /**
- * Slim one entry to the wire subset the mapping consumes, normalizing as it
- * goes so the artifact is deterministic and mapping-equivalent to its source:
- * parsing the slimmed entry yields exactly what parsing the raw entry did.
- * Unmapped source keys - OpenRouter's pricing block among them - never
- * survive slimming.
+ * Slim one entry to the wire subset the mapping consumes, normalizing as it goes so the artifact is deterministic and
+ * mapping-equivalent to its source: parsing the slimmed entry yields exactly what parsing the raw entry did. Unmapped
+ * source keys - OpenRouter's pricing block among them - never survive slimming.
  */
 function slimEntry(entry: unknown): SlimOpenRouterModel | undefined {
 	const model = mapOpenRouterEntry(entry);
@@ -223,10 +197,9 @@ function slimEntry(entry: unknown): SlimOpenRouterModel | undefined {
 }
 
 /**
- * Slim a whole payload into the artifact shape: duplicate ids keep their first
- * occurrence and entries sort by id, so the artifact is byte-deterministic for
- * a given payload and diffs cleanly between fetches. Idempotent: slimming a
- * slimmed file changes nothing. Never throws.
+ * Slim a whole payload into the artifact shape: duplicate ids keep their first occurrence and entries sort by id, so
+ * the artifact is byte-deterministic for a given payload and diffs cleanly between fetches. Idempotent: slimming a
+ * slimmed file changes nothing.
  */
 export function slimCatalogPayload(payload: unknown): SlimCatalogFile {
 	const slimmed = new Map<string, SlimOpenRouterModel>();
@@ -252,13 +225,10 @@ const NOT_FOUND: CatalogLookupResult = { kind: "not-found" };
 const AMBIGUOUS: CatalogLookupResult = { kind: "ambiguous" };
 
 /**
- * Build the resolver's catalog view over a snapshot. byRawModelId is the
- * implicit lookup by a model's own raw ID: an exact catalog-ID match wins;
- * otherwise the post-"vendor/" suffix must match exactly one catalog entry -
- * two or more answer ambiguous rather than guessing a vendor. With
- * implicitLookup false (the opt-out setting), byRawModelId answers not-found
- * while byExactId keeps serving: explicit directives are user intent and
- * involve no network, so the opt-out never breaks them.
+ * byRawModelId is the implicit lookup by a model's own raw ID: an exact catalog-ID match wins; otherwise the
+ * post-"vendor/" suffix must match exactly one catalog entry - two or more answer ambiguous rather than guessing a
+ * vendor. With implicitLookup false (the opt-out setting), byRawModelId answers not-found while byExactId keeps
+ * serving: explicit directives are user intent and involve no network, so the opt-out never breaks them.
  */
 export function createCatalogLookup(
 	snapshot: OpenRouterCatalogSnapshot,
@@ -306,12 +276,7 @@ export function createCatalogLookup(
 	};
 }
 
-/**
- * Case-insensitive substring search over the snapshot's IDs and names, for
- * the dashboard's catalog picker. Returns matches in the snapshot's own
- * (id-sorted) order; the caller bounds the result count. A blank query
- * matches nothing rather than everything - the picker only opens on input.
- */
+/** A blank query matches nothing rather than everything. */
 export function searchCatalogModels(
 	snapshot: OpenRouterCatalogSnapshot,
 	query: string

@@ -67,12 +67,12 @@ const ALLOWED_SCHEMA_KEYWORDS = new Set([
 ]);
 
 /**
- * The keyword set one conversion works against: the built-in allowlist,
- * extended (never replaced) by the chat.additionalToolSchemaKeywords setting.
- * Extension-only on purpose: the sanitizer's structural rewrites below assume
- * the built-ins are present. Prototype-polluting names are refused here too -
- * admitting "__proto__" would make pruneUnknownSchemaKeywords assign a
- * prototype instead of copying an own keyword.
+ * Extension-only on purpose: the sanitizer's structural rewrites below assume the built-ins are present.
+ * Prototype-polluting names are refused here too - admitting "__proto__" would make pruneUnknownSchemaKeywords assign
+ * a prototype instead of copying an own keyword.
+ *
+ *   The keyword set one conversion works against -> the built-in allowlist, extended (never replaced) by the
+ *                                                   chat.additionalToolSchemaKeywords setting
  */
 function allowedKeywords(additionalKeywords: readonly string[] | undefined): ReadonlySet<string> {
 	const extras = additionalKeywords?.filter((keyword) => !isUnsafeRecordKey(keyword)) ?? [];
@@ -108,9 +108,8 @@ function sanitizeSchema(input: unknown, allowed: ReadonlySet<string>, propName?:
 	for (const composite of COMPOSITE_KEYWORDS) {
 		const branch = schema[composite];
 		if (Array.isArray(branch) && branch.length > 0) {
-			// Arrays pass this object guard deliberately: an array branch member
-			// falls through to sanitizeSchema's non-record default schema instead
-			// of being dropped, keeping the composite's branch count stable.
+			// Arrays pass this object guard deliberately: an array branch member falls through to sanitizeSchema's
+			// non-record default schema instead of being dropped, keeping the composite's branch count stable.
 			schema[composite] = branch
 				.filter((b) => typeof b === "object" && b !== null)
 				.map((b) => sanitizeSchema(b, allowed, propName));
@@ -150,8 +149,8 @@ function sanitizeSchema(input: unknown, allowed: ReadonlySet<string>, propName?:
 	if (t === "object") {
 		const props = schema.properties ?? {};
 		const newProps: Record<string, unknown> = {};
-		// Arrays pass this object guard deliberately: an array `properties` value
-		// sanitizes into an index-keyed property map rather than being emptied.
+		// Arrays pass this object guard deliberately: an array `properties` value sanitizes into an index-keyed
+		// property map rather than being emptied.
 		if (typeof props === "object" && props !== null) {
 			for (const [k, v] of Object.entries(props)) {
 				newProps[k] = sanitizeSchema(v, allowed, k);
@@ -184,13 +183,11 @@ function sanitizeSchema(input: unknown, allowed: ReadonlySet<string>, propName?:
 	return schema;
 }
 
-/** Which tool the model must call: OpenAI's tool_choice values as this extension sends them. */
 type OpenAIToolChoice = "auto" | "required" | { type: "function"; function: { name: string } };
 
 /**
- * Tools and their choice directive travel as one unit: a request either
- * carries both or neither, so a tool_choice can never ship without the tools
- * it refers to.
+ * Tools and their choice directive travel as one unit: a request either carries both or neither, so a tool_choice can
+ * never ship without the tools it refers to.
  */
 export interface ToolConfig {
 	tools: OpenAIFunctionToolDef[];
@@ -198,10 +195,8 @@ export interface ToolConfig {
 }
 
 /**
- * Convert VS Code tool definitions to OpenAI function tool definitions, or
- * undefined when the request carries no tools.
- * @param additionalSchemaKeywords Extra JSON-Schema keywords the sanitizer
- * keeps beyond its built-in allowlist; their values pass through verbatim.
+ * @param additionalSchemaKeywords Extra JSON-Schema keywords the sanitizer keeps beyond its built-in allowlist; their
+ * values pass through verbatim.
  */
 export function convertTools(
 	options: vscode.ProvideLanguageModelChatResponseOptions,

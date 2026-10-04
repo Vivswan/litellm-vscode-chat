@@ -1,16 +1,8 @@
-/**
- * The shared one-shot timing seams every scheduler injects, so cadences test
- * against fake time instead of hand-rolling identical Timer/Clock types and
- * setTimeout wrappers.
- */
-
-/** One-shot timer effects, injectable so cadences are testable without real time. */
 export interface Timer {
 	/** Schedule `callback` after `ms`; the returned closure cancels the pending call. */
 	set(callback: () => void, ms: number): () => void;
 }
 
-/** The production timer: plain setTimeout/clearTimeout. */
 export const REAL_TIMER: Timer = {
 	set: (callback, ms) => {
 		const handle = setTimeout(callback, ms);
@@ -22,13 +14,11 @@ export interface Clock {
 	now(): number;
 }
 
-/** The production clock. */
 export const SYSTEM_CLOCK: Clock = { now: () => Date.now() };
 
 /**
- * One re-armable pending call on a Timer: arming replaces any pending call and
- * firing clears the pending flag before the callback runs. Deliberately free of
- * enabled/disposed policy, which stays with each owner.
+ * One re-armable pending call on a Timer: arming replaces any pending call and firing clears the pending flag before
+ * the callback runs. Deliberately free of enabled/disposed policy, which stays with each owner.
  */
 export class PendingCall {
 	private cancelPending: (() => void) | undefined;
@@ -39,12 +29,10 @@ export class PendingCall {
 		return this.cancelPending !== undefined;
 	}
 
-	/** Schedule `callback` after `ms`, replacing any pending call. */
 	arm(callback: () => void, ms: number): void {
 		this.cancel();
-		// A Timer may fire synchronously inside set() (fake timers in tests); the
-		// fired flag keeps the spent cancel closure from overwriting whatever the
-		// callback armed.
+		// A Timer may fire synchronously inside set() (fake timers in tests); the fired flag keeps the spent cancel
+		// closure from overwriting whatever the callback armed.
 		let fired = false;
 		const cancel = this.timer.set(() => {
 			fired = true;
@@ -62,7 +50,6 @@ export class PendingCall {
 	}
 }
 
-/** Resolves after `ms` or as soon as the signal aborts, whichever comes first. */
 export function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
 	return new Promise((resolve) => {
 		if (signal.aborted) {

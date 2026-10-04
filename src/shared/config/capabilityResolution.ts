@@ -1,15 +1,9 @@
 /**
- * The single owner of the models.capabilities vocabulary and its precedence
- * walk. Pure, and everything out is serializable data (no Maps), so
- * registration and the dashboard's capability inspector share one
- * implementation and results ride the dashboard message protocol unchanged.
+ * The single owner of the models.capabilities vocabulary and its precedence walk.
  *
- * The vocabulary is OPEN - the user is always right, it is their server.
- * CAPABILITY_FIELDS is the registration-typed core; CONSUMED_CAPABILITY_FIELDS
- * the kind-validated set the extension reads somewhere; every other
- * non-underscore key applies as-is through the same walk. Records are
- * matcher-keyed and combine through recordResolution.ts, entry result over
- * global field by field, and a `_fallback` field drops below the server level.
+ *   The vocabulary is OPEN                                            -> the user is always right, it is their server
+ *   Records are matcher-keyed and combine through recordResolution.ts -> entry result over global field by field
+ *   a `_fallback` field                                                -> drops below the server level
  */
 
 import type { ModelRecordMap } from "./modelMatcher";
@@ -26,9 +20,8 @@ import {
 } from "./recordResolution";
 
 /**
- * The registration-typed core, keyed by wire name (aligned with /model/info),
- * each with its value kind. These seven are total in every resolution result;
- * every other field resolves only where some level carries a value.
+ * The registration-typed core, keyed by wire name (aligned with /model/info), each with its value kind.
+ * These seven are total in every resolution result; every other field resolves only where some level carries a value.
  */
 export const CAPABILITY_FIELDS = {
 	context_length: "number",
@@ -49,13 +42,11 @@ export type NumberCapabilityField = {
 export type BooleanCapabilityField = Exclude<CapabilityFieldName, NumberCapabilityField>;
 
 /**
- * The value kinds the consumed vocabulary validates: "number" is a positive
- * integer, "cost" a finite non-negative number (zero is how "free" is
- * written), "string-array" an array of non-empty strings (empty is valid).
+ * The value kinds the consumed vocabulary validates: "number" is a positive integer, "cost" a finite non-negative
+ * number (zero is how "free" is written), "string-array" an array of non-empty strings (empty is valid).
  */
 export type CapabilityValueKind = "number" | "boolean" | "cost" | "string-array";
 
-/** The TypeScript type a validated value of one kind carries. */
 type ValueOfKind<Kind extends CapabilityValueKind> = Kind extends "number" | "cost"
 	? number
 	: Kind extends "boolean"
@@ -64,10 +55,12 @@ type ValueOfKind<Kind extends CapabilityValueKind> = Kind extends "number" | "co
 
 type CapabilityFieldValue<K extends CapabilityFieldName> = ValueOfKind<(typeof CAPABILITY_FIELDS)[K]>;
 
-/** A total capability assignment; Partial<CapabilityFieldValues> is the parsed shape of one record. */
 export type CapabilityFieldValues = { readonly [K in CapabilityFieldName]: CapabilityFieldValue<K> };
 
-/** A capability value as configuration carries it: JSON-serializable (null included), so it rides the dashboard protocol. */
+/**
+ * A capability value as configuration carries it: JSON-serializable (null included), so it rides the dashboard
+ * protocol.
+ */
 export type CapabilityJsonValue =
 	| null
 	| boolean
@@ -76,11 +69,7 @@ export type CapabilityJsonValue =
 	| readonly CapabilityJsonValue[]
 	| { readonly [key: string]: CapabilityJsonValue };
 
-/**
- * The kind-validated vocabulary: the core plus every capability key the
- * extension consumes somewhere. An invalid value is diagnosed and the field
- * stays unset so a lower level can win. Keys outside this set pass through.
- */
+/** An invalid value is diagnosed and the field stays unset so a lower level can win. */
 export const CONSUMED_CAPABILITY_FIELDS = {
 	...CAPABILITY_FIELDS,
 	input_cost_per_token: "cost",
@@ -100,7 +89,6 @@ export const CONSUMED_CAPABILITY_FIELDS = {
 
 export type ConsumedCapabilityField = keyof typeof CONSUMED_CAPABILITY_FIELDS;
 
-/** The consumed fields of one value kind, as a literal union. */
 export type ConsumedFieldOfKind<Kind extends CapabilityValueKind> = {
 	[K in ConsumedCapabilityField]: (typeof CONSUMED_CAPABILITY_FIELDS)[K] extends Kind ? K : never;
 }[ConsumedCapabilityField];
@@ -111,7 +99,6 @@ export type ConsumedFieldOfKind<Kind extends CapabilityValueKind> = {
  */
 export type CostCapabilityField = ConsumedFieldOfKind<"cost">;
 
-/** The consumed field names of one value kind, in the vocabulary's declaration order. */
 export function consumedFieldsOfKind<Kind extends CapabilityValueKind>(kind: Kind): ConsumedFieldOfKind<Kind>[] {
 	return (Object.keys(CONSUMED_CAPABILITY_FIELDS) as ConsumedCapabilityField[]).filter(
 		(name): name is ConsumedFieldOfKind<Kind> => CONSUMED_CAPABILITY_FIELDS[name] === kind
@@ -130,8 +117,8 @@ function isCapabilityFieldName(key: string): key is CapabilityFieldName {
 }
 
 /**
- * The ONE typing verdict for the consumed vocabulary, shared by the resolver's
- * parse and the dashboard editors' live drafts so the two cannot drift.
+ * The ONE typing verdict for the consumed vocabulary, shared by the resolver's parse and the dashboard editors' live
+ * drafts so the two cannot drift.
  */
 export function isValidConsumedCapabilityValue(kind: CapabilityValueKind, value: unknown): boolean {
 	switch (kind) {
@@ -147,52 +134,46 @@ export function isValidConsumedCapabilityValue(kind: CapabilityValueKind, value:
 }
 
 /**
- * The own-property read for the open field bags. They are plain objects, so a
- * field named "toString" or "constructor" must read as absent from a bag that
- * does not carry it, never as the inherited Object.prototype member.
+ * The own-property read for the open field bags. They are plain objects, so a field named "toString" or "constructor"
+ * must read as absent from a bag that does not carry it, never as the inherited Object.prototype member.
  */
 export function capabilityField<T>(bag: Readonly<Record<string, T | undefined>>, name: string): T | undefined {
 	return Object.hasOwn(bag, name) ? bag[name] : undefined;
 }
 
-/** The parameter side's directives, derived from the shared registry, diagnosed as the wrong record type. */
 const WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("capabilities"));
 
-/** A models.capabilities record map: matcher key to capability fields and directives. */
 export type ModelCapabilitiesRecord = ModelRecordMap;
 
-/** "entry" is the declared server entry's own record map; "global" the models.capabilities setting. */
 type CapabilityConfigLayer = RecordLayer;
 
-/** A record diagnostic attributed to its configuration layer; see RecordDiagnostic for kinds and keys. */
 export interface CapabilityDiagnostic extends RecordDiagnostic {
 	readonly layer: CapabilityConfigLayer;
 }
 export interface ParsedCapabilityRecord extends ParsedRecord {
-	/** Every kept field: validly-typed consumed fields plus verbatim extras; invalid consumed values are diagnosed away. */
 	readonly fields: Readonly<Record<string, CapabilityJsonValue>>;
 	/** The `_openrouter_model` directive's catalog ID, when validly set. */
 	readonly openrouterModel?: string | undefined;
 }
 
 /**
- * The one typing boundary of the capability vocabulary; validation is advisory, never gating.
+ * The one typing boundary of the capability vocabulary.
  * Every dynamic read downstream is hasOwn-guarded, so prototype names like "toString" are legal open fields.
  *
- *   consumed field, invalid value -> diagnosed and left unset, so a lower-precedence source's valid value can still win
- *   unknown underscore key        -> silently ignored for forward compatibility, which also keeps a hostile own "__proto__" out
+ *   consumed field, invalid value -> diagnosed and left unset, so a lower-precedence source's valid value can still
+ *                                    win
+ *   unknown underscore key        -> silently ignored for forward compatibility, which also keeps a hostile own
+ *                                    "__proto__" out
  */
 export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>): ParsedCapabilityRecord {
-	// Field keys are TRIMMED at this parse boundary, matching the editor, which
-	// judges and saves keys trimmed: a hand-padded key in settings.json means
-	// the same field on every surface instead of a padded open field the editor
-	// would silently rewrite on the next Apply. A trim collision resolves by
-	// the record's object key order, the later spelling winning. The rule is
-	// whole: the field-naming directives' list entries (`_fallback`,
-	// `_inheritable`) trim too, so a padded entry still names its trimmed
-	// field - `_inherit_from` entries stay raw, because they name MATCHER keys
-	// and the matcher grammar trims nothing. Null-prototyped so a trimmed
-	// "__proto__" defines an own key instead of walking the chain.
+	// Field keys are TRIMMED at this parse boundary, matching the editor, which judges and saves keys trimmed: a
+	// hand-padded key in settings.json means the same field on every surface instead of a padded open field the editor
+	// would silently rewrite on the next Apply.
+	//
+	// Null-prototyped so a trimmed "__proto__" defines an own key instead of walking the chain.
+	//   the field-naming directives' list entries (`_fallback`, `_inheritable`) trim too
+	//     -> a padded entry still names its trimmed field
+	//   they name MATCHER keys and the matcher grammar trims nothing -> `_inherit_from` entries stay raw
 	const normalized: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
 	for (const [rawKey, rawValue] of Object.entries(record)) {
 		const key = rawKey.trim();
@@ -256,47 +237,28 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 	};
 }
 
-/** Resolve one layer's capability record map for a model through the shared chain walk. */
 export function resolveCapabilityLayer(rawModelId: string, records: ModelCapabilitiesRecord): RecordChainResolution {
 	return resolveRecordChain(rawModelId, records, (record) => parseCapabilityRecord(record));
 }
 
-/**
- * Record-level lint of a capability record map, independent of any model: it
- * reaches records no current model matches, which the per-model chain
- * resolution never visits. The caller attributes the layer.
- */
 export function lintCapabilityRecords(records: ModelCapabilitiesRecord): readonly RecordDiagnostic[] {
 	return lintRecordMap(records, (record) => parseCapabilityRecord(record));
 }
 
 /**
- * The evidence set as the advisory filter reads it: undefined when there is
- * none - no set at all, or an EMPTY one (a listing carrying no model_info says
- * nothing about the server's key vocabulary, and hinting against it would flag
- * every open field at once). Set-built because "__proto__" is a legal member a
- * raw object key would misread.
+ * The evidence set as the advisory filter reads it: undefined when there is none - no set at all, or an EMPTY one (a
+ * listing carrying no model_info says nothing about the server's key vocabulary, and hinting against it would flag
+ * every open field at once). Set-built because "__proto__" is a legal member a raw object key would misread.
  */
 export function observedEvidenceSet(observedKeys: readonly string[] | undefined): ReadonlySet<string> | undefined {
 	return observedKeys === undefined || observedKeys.length === 0 ? undefined : new Set(observedKeys);
 }
 
-/**
- * Whether one unrecognized-key hint survives its evidence: the set is known
- * and names neither the key nor a consumed field. The consumed check is a
- * backstop, so a vocabulary drift cannot resurrect hints for keys the
- * extension reads.
- */
+/** The consumed check is a backstop, so a vocabulary drift cannot resurrect hints for keys the extension reads. */
 function unrecognizedKeyHintSurvives(key: string, observed: ReadonlySet<string> | undefined): boolean {
 	return observed !== undefined && !observed.has(key) && consumedFieldKind(key) === undefined;
 }
 
-/**
- * The kind-aware core of the advisory filter: unrecognized-key hints are
- * judged against the evidence the selector picks per diagnostic; every other
- * kind passes through untouched. Returns the input array itself when there is
- * nothing to judge, so callers can cheaply detect "unchanged".
- */
 export function filterUnrecognizedKeys<T extends RecordDiagnostic>(
 	diagnostics: readonly T[],
 	evidenceFor: (diagnostic: T) => ReadonlySet<string> | undefined
@@ -311,11 +273,9 @@ export function filterUnrecognizedKeys<T extends RecordDiagnostic>(
 }
 
 /**
- * The advisory filter over capability-record unrecognized-key diagnostics: the
- * field APPLIES as-is, and the hint only says the key may be a typo. A hint
- * survives exactly when the observed /model/info key set is KNOWN, NON-EMPTY,
- * and names neither the key nor a consumed field; with no evidence there is
- * nothing to hint from, so every hint drops rather than crying wolf.
+ * The advisory filter over capability-record unrecognized-key diagnostics: the field APPLIES as-is, and the hint only
+ * says the key may be a typo. With no evidence there is nothing to hint from, so every hint drops rather than crying
+ * wolf.
  */
 export function filterUnrecognizedKeyDiagnostics<T extends RecordDiagnostic>(
 	diagnostics: readonly T[],
@@ -325,7 +285,6 @@ export function filterUnrecognizedKeyDiagnostics<T extends RecordDiagnostic>(
 	return filterUnrecognizedKeys(diagnostics, () => observed);
 }
 
-/** A catalog answer: capability fields for the matched entry, or why there is none. */
 export type CatalogLookupResult =
 	| {
 			readonly kind: "found";
@@ -336,17 +295,15 @@ export type CatalogLookupResult =
 	| { readonly kind: "not-found" };
 
 /**
- * The OpenRouter catalog as the resolver sees it: injected in-memory data,
- * never a file or the network. byExactId answers `_openrouter_model`
- * directives; byRawModelId the implicit lookup by the model's own ID (exact,
- * else unambiguous post-vendor suffix; ambiguity skips the level).
+ * The OpenRouter catalog as the resolver sees it: injected in-memory data, never a file or the network.
+ * byExactId answers `_openrouter_model` directives; byRawModelId the implicit lookup by the model's own ID (exact, else
+ * unambiguous post-vendor suffix; ambiguity skips the level).
  */
 export interface CapabilityCatalogLookup {
 	byExactId(id: string): CatalogLookupResult;
 	byRawModelId(rawId: string): CatalogLookupResult;
 }
 
-/** The missing-catalog default: answers not-found so every catalog level skips. */
 export const EMPTY_CATALOG_LOOKUP: CapabilityCatalogLookup = {
 	byExactId: () => ({ kind: "not-found" }),
 	byRawModelId: () => ({ kind: "not-found" }),
@@ -358,9 +315,6 @@ export type CapabilityOverrideLevel = "entry" | "global" | "directive";
 /** The `_fallback`-demoted levels: user-set values that apply only where the server reports nothing. */
 export type CapabilityFallbackLevel = "entry-fallback" | "global-fallback";
 
-/**
- * Where one effective capability value came from, precedence-ordered.
- */
 export type CapabilityLevel =
 	| CapabilityOverrideLevel
 	| "server"
@@ -370,10 +324,9 @@ export type CapabilityLevel =
 	| "floor";
 
 /**
- * The walk's levels in precedence order, highest first - the ONE declaration
- * of that order, which resolveModelCapabilities' code must layer candidates
- * in. Consumers that rank levels derive from this list; the satisfies check
- * keeps it total, so adding a level fails compilation here too.
+ * The walk's levels in precedence order, highest first - the ONE declaration of that order, which
+ * resolveModelCapabilities' code must layer candidates in. Consumers that rank levels derive from this list; the
+ * satisfies check keeps it total, so adding a level fails compilation here too.
  */
 export const CAPABILITY_LEVEL_ORDER: readonly CapabilityLevel[] = Object.keys({
 	entry: true,
@@ -406,7 +359,6 @@ export interface ResolvedCapabilityOverrideField<V extends CapabilityJsonValue =
 	readonly shadowed: readonly ShadowedCapabilityValue[];
 }
 
-/** Every field some override level set, by wire name; absent fields set no override. */
 export type ResolvedCapabilityOverrideFields = {
 	readonly [key: string]: ResolvedCapabilityOverrideField | undefined;
 };
@@ -482,8 +434,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 			return undefined;
 		}
 		return {
-			// The chain carries only parseCapabilityRecord output, so the value is
-			// already a kept capability value.
+			// The chain carries only parseCapabilityRecord output, so the value is already a kept capability value.
 			value: field.value as CapabilityJsonValue,
 			key: field.sourceKey,
 			...(resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
@@ -565,12 +516,10 @@ export type ServerCapabilityValues = {
 };
 
 /**
- * Registration's post-aggregation baseline for one model: the conservative
- * merged values exactly as the deployment merge produced them, plus
- * output-limit declaredness (the every-contributor rule), which controls only
- * whether the output limit counts as "provider". Declared models have no
- * server side at all, so the discriminant makes a missing baseline
- * unrepresentable rather than silently empty.
+ * Registration's post-aggregation baseline for one model: the conservative merged values exactly as the deployment
+ * merge produced them, plus output-limit declaredness (the every-contributor rule), which controls only whether the
+ * output limit counts as "provider". Declared models have no server side at all, so the discriminant makes a missing
+ * baseline unrepresentable rather than silently empty.
  */
 export type ServerDeclaredCapabilities =
 	| {
@@ -584,10 +533,8 @@ export const FLOOR_CONTEXT_LENGTH = 128000;
 export const FLOOR_MAX_OUTPUT_TOKENS = 16000;
 
 /**
- * The built-in backstop of the walk. max_input_tokens has no floor - the
- * context-minus-output derivation is its backstop, and it is total because
- * both inputs are. Only the core fields have floors; every other field
- * resolves open (absent when no level carries it).
+ * max_input_tokens has no floor - the context-minus-output derivation is its backstop, and it is total because both
+ * inputs are. Only the core fields have floors; every other field resolves open (absent when no level carries it).
  */
 export const CAPABILITY_FLOOR: Readonly<Omit<CapabilityFieldValues, "max_input_tokens">> = {
 	context_length: FLOOR_CONTEXT_LENGTH,
@@ -599,10 +546,9 @@ export const CAPABILITY_FLOOR: Readonly<Omit<CapabilityFieldValues, "max_input_t
 };
 
 /**
- * Provenance of the effective max output tokens. "user" (an override or a
- * `_fallback` fill) and "provider" (server-declared by every contributor) are
- * sent uncapped; "defaults" keeps the request path's min(4096, limit) clamp,
- * because a guessed limit must not escape it.
+ * Provenance of the effective max output tokens. "user" (an override or a `_fallback` fill) and "provider"
+ * (server-declared by every contributor) are sent uncapped; "defaults" keeps the request path's min(4096, limit)
+ * clamp, because a guessed limit must not escape it.
  */
 export type EffectiveOutputLimitSource = "user" | "provider" | "defaults";
 
@@ -618,9 +564,8 @@ export interface EffectiveCapabilityField<V extends CapabilityJsonValue = Capabi
 }
 
 /**
- * The core fields, total by construction, plus every non-core field some level
- * carried. A plain object, so a dynamic read by an arbitrary open name must be
- * own-property guarded: a bare index read of an unset prototype name like
+ * The core fields, total by construction, plus every non-core field some level carried. A plain object, so a dynamic
+ * read by an arbitrary open name must be own-property guarded: a bare index read of an unset prototype name like
  * "valueOf" would surface the inherited Object.prototype member.
  */
 export type EffectiveCapabilityFields = {
@@ -646,7 +591,6 @@ interface LevelCandidate {
 	readonly value: CapabilityJsonValue;
 }
 
-/** The walk's per-field core: override wins, else the highest lower candidate; undefined when nothing carries a value. */
 function resolveField(
 	override: ResolvedCapabilityOverrideField | undefined,
 	lower: readonly LevelCandidate[]
@@ -674,12 +618,9 @@ function resolveField(
 }
 
 /**
- * Whether a level's value counts as user-set for output-limit provenance.
- * Total over CapabilityLevel on purpose: a level added to the walk fails
- * compilation here instead of silently resolving to "defaults" and regaining
- * the wire clamp. The directive level is deliberately NOT user-set - an
- * `_openrouter_model` output limit is still the catalog's guess, so both
- * catalog paths keep the clamp.
+ * Total over CapabilityLevel on purpose: a level added to the walk fails compilation here instead of silently
+ * resolving to "defaults" and regaining the wire clamp. The directive level is deliberately NOT user-set - an
+ * `_openrouter_model` output limit is still the catalog's guess, so both catalog paths keep the clamp.
  */
 const LEVEL_IS_USER_SET: Readonly<Record<CapabilityLevel, boolean>> = {
 	entry: true,
@@ -713,8 +654,8 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 		...fromFallback(name),
 		...fromCatalog(name),
 	];
-	// Every level that feeds a core field is kind-validated at its source, so
-	// narrowing the open walk's result to the field's declared kind is safe.
+	// Every level that feeds a core field is kind-validated at its source, so narrowing the open walk's result to the
+	// field's declared kind is safe.
 	const coreField = <K extends CapabilityFieldName>(
 		name: K,
 		backstop: { readonly level: "derived" | "floor"; readonly value: CapabilityFieldValue<K> }
@@ -750,8 +691,8 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 		supports_reasoning: booleanField("supports_reasoning"),
 		supports_audio_input: booleanField("supports_audio_input"),
 	};
-	// Underscore names are skipped like the parse skips them, which keeps a
-	// hostile own "__proto__" key in a server baseline out of the result object.
+	// Underscore names are skipped like the parse skips them, which keeps a hostile own "__proto__" key in a server
+	// baseline out of the result object.
 	const openNames = new Set<string>([
 		...Object.keys(overrides.fields),
 		...Object.keys(overrides.fallbackFields),

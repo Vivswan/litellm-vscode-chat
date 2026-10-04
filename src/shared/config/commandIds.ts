@@ -22,10 +22,8 @@ export const PARTICIPANT_NAME = "litellm";
 /** The languageModelTools contribution's name (the consult tool). */
 export const TOOL_NAME = "litellm_consult";
 /**
- * The context key the consult tool's contribution gates on. The wiring sets it
- * to whether the tool is REGISTERED - both the enable boolean and a model ref -
- * so the agent's tool picker never advertises the half-configured state, where
- * every call could only fail. A setting-only when-clause could not express that.
+ * The wiring sets it to whether the tool is REGISTERED - both the enable boolean and a model ref - so the agent's tool
+ * picker never advertises the half-configured state, where every call could only fail.
  */
 export const CONSULT_TOOL_READY_CONTEXT_KEY = "litellm.consultToolReady";
 /** The agent tools, in manifest order: the four reads first, then the five writes. */
@@ -43,7 +41,6 @@ export const AGENT_TOOL_IDS = [
 
 export type AgentToolId = (typeof AGENT_TOOL_IDS)[number];
 
-/** One agent tool's contribution identity plus the write toggle that gates it (none for a read). */
 export interface AgentToolContribution {
 	/** The languageModelTools contribution's name: snake_case, namespaced like TOOL_NAME. */
 	readonly name: string;
@@ -53,8 +50,8 @@ export interface AgentToolContribution {
 }
 
 /**
- * The agent tools' contribution identities. Each read registers under the feature switch alone; each write also
- * under its own toggle, and the generated manifest's `when` clauses read the same two switches.
+ * Each read registers under the feature switch alone; each write also under its own toggle, and the generated
+ * manifest's `when` clauses read the same two switches.
  */
 export const AGENT_TOOLS = {
 	diagnostics: { name: "litellm_diagnostics", referenceName: "litellmDiagnostics", toggle: undefined },
@@ -76,10 +73,8 @@ export const AGENT_TOOLS = {
 export const MCP_PROVIDER_ID = "litellm.mcpServers";
 
 /**
- * The review feature's comment controller id. Not a manifest contribution -
- * the controller is created at runtime - but the comment menus' when-clauses
- * name it, so it drifts exactly like a contributed identity would and lives
- * beside the others.
+ * Not a manifest contribution - the controller is created at runtime - but the comment menus' when-clauses name it, so
+ * it drifts exactly like a contributed identity would and lives beside the others.
  */
 export const COMMENT_CONTROLLER_ID = "litellm.review";
 
@@ -102,9 +97,8 @@ export const CMD = {
 	generatePrDescription: "litellm.generatePrDescription",
 	reviewChanges: "litellm.reviewChanges",
 	reviewFile: "litellm.reviewFile",
-	// The review threads' own actions. Contributed because a menus entry may
-	// only name a contributed command, and hidden from the palette by an
-	// explicit `when: false` - they are meaningless without a thread to act on.
+	// The review threads' own actions. Contributed because a menus entry may only name a contributed command, and
+	// hidden from the palette by an explicit `when: false` - they are meaningless without a thread to act on.
 	reviewReply: "litellm.reviewReply",
 	reviewResolveThread: "litellm.reviewResolveThread",
 	reviewUnresolveThread: "litellm.reviewUnresolveThread",
@@ -141,62 +135,52 @@ export const COMMAND_FEATURES = {
 } as const satisfies Record<keyof typeof CMD, FeatureId | undefined>;
 
 /**
- * CMD.manage's palette title, exactly as package.json contributes it. A
- * function, not a constant: it must resolve through the l10n bundle at call
- * time, after l10n.config has run.
+ * CMD.manage's palette title, exactly as package.json contributes it. A function, not a constant: it must resolve
+ * through the l10n bundle at call time, after l10n.config has run.
  */
 export function manageCommandTitle(): string {
 	return l10n.t("Manage LiteLLM Provider");
 }
 
-/** CMD.syncModels' palette title; same call-time-resolution contract. */
 export function syncModelsCommandTitle(): string {
 	return l10n.t("LiteLLM: Sync Models Now");
 }
 
-/** CMD.refreshUsage's palette title; same call-time-resolution contract. */
 export function refreshUsageCommandTitle(): string {
 	return l10n.t("LiteLLM: Refresh Usage Now");
 }
 
-/** CMD.generateCommitMessage's palette title; same call-time-resolution contract. */
 export function generateCommitMessageCommandTitle(): string {
 	return l10n.t("LiteLLM: Generate Commit Message");
 }
 
-/** CMD.generatePrDescription's palette title; same call-time-resolution contract. */
 export function generatePrDescriptionCommandTitle(): string {
 	return l10n.t("LiteLLM: Generate Pull Request Description");
 }
 
 /**
- * The title the GitHub Pull Requests extension lists this generator under in
- * its create-PR view. It must never contain "Copilot": that extension selects
- * a provider by case-insensitive substring, and "Copilot" is the search term
- * its own Copilot slot uses, so a title carrying it would hijack a slot this
- * extension has no business answering (commandIds.test.ts pins the
- * rule across every translation). Same call-time-resolution contract as the
- * palette titles.
+ * The title the GitHub Pull Requests extension lists this generator under in its create-PR view. It must never
+ * contain "Copilot": that extension selects a provider by case-insensitive substring, and "Copilot" is the search term
+ * its own Copilot slot uses, so a title carrying it would hijack a slot this extension has no business answering
+ * (commandIds.test.ts pins the rule across every translation).
  */
 export function prGenerationProviderTitle(): string {
 	return l10n.t("Generate with LiteLLM");
 }
 
-/** CMD.reviewChanges' palette title; same call-time-resolution contract. */
 export function reviewChangesCommandTitle(): string {
 	return l10n.t("LiteLLM: Review Changes");
 }
 
-/** CMD.reviewFile's palette title; same call-time-resolution contract. */
 export function reviewFileCommandTitle(): string {
 	return l10n.t("LiteLLM: Review This File");
 }
 
 /**
  * Registered at runtime but kept out of contributes.commands on purpose, so the palette never offers them.
- * The litellm._test.* harness commands are deliberately not mapped here; they are test-mode-only and their ids double as oracle strings.
  *
- *   openGroupsFile -> the host's provider-groups JSON, the fallback for deleting a group the Manage Language Models editor cannot reach
+ *   openGroupsFile -> the host's provider-groups JSON, the fallback for deleting a group the Manage Language Models
+ *                     editor cannot reach
  *   quickFixChat   -> takes a structured payload no user could type, so a palette entry would fail on every invocation
  */
 export const INTERNAL_CMD = {
@@ -210,15 +194,13 @@ export const INTERNAL_CMD = {
 } as const;
 
 /**
- * The host's own commands this extension drives: the provider-group add
- * serverSync talks to (the family is add-only; hostGroupCommand.test.ts pins
- * it) and the Manage Language Models editor the removal notices open, whose
- * group menu carries the Delete action.
+ * The host's own commands this extension drives: the provider-group add serverSync talks to (the family is add-only;
+ * hostGroupCommand.test.ts pins it) and the Manage Language Models editor the removal notices open, whose group menu
+ * carries the Delete action.
  */
 export const HOST_CMD = {
 	addProviderGroup: "lm.addLanguageModelsProviderGroup",
 	manageLanguageModels: "workbench.action.chat.manage",
 } as const;
 
-/** Any command ID this extension registers, contributed or internal. */
 export type CommandId = (typeof CMD)[keyof typeof CMD] | (typeof INTERNAL_CMD)[keyof typeof INTERNAL_CMD];

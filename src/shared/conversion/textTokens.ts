@@ -1,11 +1,11 @@
 /**
- * Text-token counting for the local budget estimates: one module-level mode
- * that every text estimate reads. The extension host installs the configured
- * mode; tokenEstimation.ts prices all transmitted text through here.
+ * Text-token counting for the local budget estimates: one module-level mode that every text estimate reads. The
+ * extension host installs the configured mode; tokenEstimation.ts prices all transmitted text through here.
  *
- * Counting is always synchronous and total: a tokenizer arrives by a later
- * setTextTokenCounting call once its rank data has loaded, never awaited on the
- * request path, and a throwing tokenizer or detection trigger is contained.
+ *   Counting                                 -> is always synchronous and total
+ *   a tokenizer                              -> arrives by a later setTextTokenCounting call once its rank data has
+ *                                               loaded, never awaited on the request path
+ *   a throwing tokenizer or detection trigger -> is contained
  */
 
 export const CHARS_PER_TOKEN = 4;
@@ -21,7 +21,6 @@ export function setTextTokenCounting(next: TextTokenCounting): void {
 	counting = next;
 }
 
-/** The plain chars/4 estimate, the explicit "heuristic" setting's rule. */
 export function plainTextTokenEstimate(text: string): number {
 	return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
@@ -29,9 +28,9 @@ export function plainTextTokenEstimate(text: string): number {
 /**
  * Cheap range checks, not Unicode property lookups, because this runs per character on the request path.
  *
- *   common CJK (main Han, kana, Hangul syllables, CJK punctuation)    -> 1 token; a bytes bound would triple-price real Chinese
- *   fullwidth and halfwidth forms (U+FF00-FFEF)                       -> 2 tokens, measured; a bytes bound would triple-price Japanese
- *   rare CJK (radicals, jamo, bopomofo, compatibility, ext A, astral) -> the UTF-8 byte count; BPE merges only shorten, so no undercount
+ *   common CJK                                  -> 1 token; a bytes bound would triple-price real Chinese
+ *   fullwidth and halfwidth forms (U+FF00-FFEF) -> 2 tokens, measured; a bytes bound would triple-price Japanese
+ *   rare CJK                                    -> the UTF-8 byte count; BPE merges only shorten, so no undercount
  */
 function cjkTokenPrice(codePoint: number): number {
 	if (
@@ -64,10 +63,10 @@ function cjkTokenPrice(codePoint: number): number {
 }
 
 /**
- * Whether a code point counts toward detection: text the plain chars/4 rule
- * badly underprices. Deliberately broader than the two-band's CJK pricing. The
- * 0x2000-0x2E7F punctuation and symbol blocks stay out so curly-quote-and-dash
- * English prose cannot trip it.
+ * Whether a code point counts toward detection: text the plain chars/4 rule badly underprices. Deliberately broader
+ * than the two-band's CJK pricing.
+ *
+ *   The 0x2000-0x2E7F punctuation and symbol blocks stay out -> curly-quote-and-dash English prose cannot trip it
  */
 function isNonLatinScript(codePoint: number): boolean {
 	return (codePoint >= 0x0370 && codePoint <= 0x1fff) || codePoint >= 0x2e80;
@@ -76,13 +75,10 @@ function isNonLatinScript(codePoint: number): boolean {
 interface TextScan {
 	readonly codePoints: number;
 	readonly nonLatin: number;
-	/** The summed two-band price of the CJK code points. */
 	readonly cjkTokens: number;
-	/** The UTF-16 units those CJK code points occupy (excluded from the chars/4 remainder). */
 	readonly cjkUnits: number;
 }
 
-/** One pass over the text: detection and pricing counts together. */
 function scanText(text: string): TextScan {
 	let codePoints = 0;
 	let nonLatin = 0;
@@ -106,28 +102,23 @@ function scanText(text: string): TextScan {
 	return { codePoints, nonLatin, cjkTokens, cjkUnits };
 }
 
-/** The two-band formula over a completed scan; see twoBandTextTokenEstimate. */
 function twoBandFromScan(text: string, scan: TextScan): number {
 	return scan.cjkTokens + Math.ceil((text.length - scan.cjkUnits) / CHARS_PER_TOKEN);
 }
 
 /**
- * The script-aware two-band estimate: CJK code points at their band price,
- * everything else at chars/4. It errs toward overcounting CJK, the safer
- * direction for a budget - an undercounted prompt is never trimmed by the host
- * and overflows server-side. Non-CJK non-Latin scripts stay on the chars/4
- * band, still an undercount, but they fire the detection below. An interim,
- * not a bound: other tokenizers can price above it.
+ * It errs toward overcounting CJK, the safer direction for a budget.
+ *
+ *   An interim, not a bound -> other tokenizers can price above it
  */
 export function twoBandTextTokenEstimate(text: string): number {
 	return twoBandFromScan(text, scanText(text));
 }
 
 /**
- * When adaptive counting reports a text as significantly non-Latin. The count
- * floor keeps a stray glyph inside English text from pulling megabytes of rank
- * data into memory; the fraction keeps a long English prompt quoting one
- * foreign line from doing the same.
+ * When adaptive counting reports a text as significantly non-Latin. The count floor keeps a stray glyph inside English
+ * text from pulling megabytes of rank data into memory; the fraction keeps a long English prompt quoting one foreign
+ * line from doing the same.
  */
 const NON_LATIN_DETECTION_MIN_CHARS = 8;
 const NON_LATIN_DETECTION_MIN_FRACTION = 0.05;
@@ -139,18 +130,13 @@ function meetsDetectionThreshold(scan: TextScan): boolean {
 	);
 }
 
-/**
- * Count one transmitted text through the installed mode. Total by
- * construction: the adaptive trigger and the tokenizer call are both
- * contained, so nothing here can throw into the request path.
- */
 export function countTextTokens(text: string): number {
 	if (counting.kind === "tokenizer") {
 		try {
 			return counting.countTokens(text);
 		} catch {
-			// gpt-tokenizer throws on disallowed special-token text; the loader
-			// permits them all, so this is a backstop, priced by the safe band.
+			// gpt-tokenizer throws on disallowed special-token text; the loader permits them all, so this is a
+			// backstop, priced by the safe band.
 		}
 		return twoBandTextTokenEstimate(text);
 	}
@@ -162,11 +148,10 @@ export function countTextTokens(text: string): number {
 		try {
 			counting.onNonLatinDetected();
 		} catch {
-			// The trigger only kicks off a background load; a throwing trigger
-			// must not break counting.
+			// A throwing trigger must not break counting.
 		}
 	}
-	// Deliberately the two-band figure even if the trigger just installed a
-	// cached tokenizer: the call that fired the trigger keeps its metric.
+	// Deliberately the two-band figure even if the trigger just installed a cached tokenizer: the call that fired the
+	// trigger keeps its metric.
 	return twoBandFromScan(text, scan);
 }

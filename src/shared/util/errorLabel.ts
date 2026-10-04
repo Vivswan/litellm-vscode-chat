@@ -1,21 +1,9 @@
-/**
- * The shared log-safe error classifier. Pure string logic in src/shared/util,
- * the one tree every layer may import: each log boundary that names a failed
- * action - the feature boundaries, the servers and usage subsystems, the
- * dashboard's host side, the migrations - names it through this ONE classifier
- * instead of carrying unpinnable copies.
- */
-
 /** Terse label shape: one short printable-ASCII line, so multi-line or binary junk never reaches a log. */
 const TERSE_LABEL = /^[\x20-\x7e]{1,120}$/;
 
 /**
- * A log-safe name for a failed feature action: the error's own terse
- * logClassification when it carries one (MirroredError's
- * English-by-construction field), else the Error class name, else the value's
- * type. Total over hostile values - throwing getters included - and
- * shape-gated, so response-derived text has no path into the issue-report
- * buffer through this line.
+ * A log-safe name for a failed feature action: the error's own terse logClassification when it carries one. Total
+ * over hostile values - throwing getters included.
  */
 export function errorLabel(error: unknown): string {
 	try {

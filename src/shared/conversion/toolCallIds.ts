@@ -5,10 +5,12 @@ export function isToolResultPart(value: unknown): value is vscode.LanguageModelT
 }
 
 /**
- * The one answer to which id pairs a tool call with its result, decided once for validation and conversion alike.
- * An empty callId is a real backend artifact, and rejecting it would strand the whole conversation, so it is minted instead.
+ * The one answer to which id pairs a tool call with its result, decided once for validation and conversion alike. An
+ * empty callId is a real backend artifact, and rejecting it would strand the whole conversation, so it is minted
+ * instead.
  *
- *   empty-id call and its result                             -> the same deterministic, pair-stable minted id on both halves
+ *   empty-id call and its result                             -> the same deterministic, pair-stable minted id on both
+ *                                                               halves
  *   stray result, live id reuse, or a call no result answers -> reported for validation to reject
  */
 export interface ToolCallPairing {
@@ -30,7 +32,8 @@ export function wireIdKey(messageIndex: number, partIndex: number): string {
  * Pairing is role-agnostic and in part order because conversion ships these parts wherever they sit.
  *
  *   an id reused after its earlier call was answered -> allowed; some backends mint the same id every turn
- *   an id shared by two calls of one message         -> duplicate; they ship in one tool_calls array, live even with a result part between
+ *   an id shared by two calls of one message         -> duplicate; they ship in one tool_calls array, live even with a
+ *                                                       result part between
  */
 export function pairToolCallIds(messages: readonly vscode.LanguageModelChatRequestMessage[]): ToolCallPairing {
 	const rawIds = new Set<string>();
@@ -55,7 +58,6 @@ export function pairToolCallIds(messages: readonly vscode.LanguageModelChatReque
 	const duplicateLiveCallIds: string[] = [];
 	/** Calls awaiting a result: wire id -> open count, insertion-ordered for the unpaired report. */
 	const pending = new Map<string, number>();
-	/** Minted ids of still-open empty-id calls, oldest first. */
 	const pendingMinted: string[] = [];
 
 	messages.forEach((message, messageIndex) => {

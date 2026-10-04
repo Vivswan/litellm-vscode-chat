@@ -1,16 +1,11 @@
 /**
- * The single owner of the models.parameters resolution: the matcher-and-
- * inheritance walk (via recordResolution.ts), the entry-over-global merge,
- * the `_force` directive, and the max_tokens fallback branch. Pure, so the
- * request path and the dashboard's effective-values inspector run the one
- * implementation; the equivalence property suite pins that against
- * buildRequestBody.
+ * The single owner of the models.parameters resolution.
+ * Pure, so the request path and the dashboard's effective-values inspector run the one implementation; the equivalence
+ * property suite pins that against buildRequestBody.
  *
- * Precedence: the entry record's resolution beats the global setting's field
- * by field (each level resolves its own matching chain first). Runtime
- * options and the picker configuration override later, on the request path
- * only - except for `_force`d fields, which beat both (forced entry over
- * forced global, key by key).
+ *   Runtime options and the picker configuration -> override later, on the request path only - except for `_force`d
+ *                                                   fields, which beat both (forced entry over forced global, key by
+ *                                                   key)
  */
 
 import type { ModelRecordMap } from "./modelMatcher";
@@ -26,26 +21,20 @@ import {
 	wrongTypeDirectives,
 } from "./recordResolution";
 
-// The record grammar is shared machinery; the parameters-side consumers
-// import it through this module (the capability side re-exports its own).
 export type { ModelRecordMap } from "./modelMatcher";
 
 /**
- * Cap on the fallback max_tokens when neither runtime options nor configured
- * model parameters set one and the model's output limit is a defaults-derived
- * guess rather than server-declared.
+ * Cap on the fallback max_tokens when neither runtime options nor configured model parameters set one and the model's
+ * output limit is a defaults-derived guess rather than server-declared.
  */
 export const DEFAULT_MAX_TOKENS_CAP = 4096;
 
-/** A models.parameters record map: matcher key to request parameters. */
 export type ModelParametersRecord = ModelRecordMap;
 
 /**
- * The request fields the extension owns: buildRequestBody skips these keys on
- * every pass-through source, and the inspector renders them as not-sent.
- * max_tokens belongs here too - it is provider-owned on the wire - but its
- * VALUE is special-cased: a numeric configured max_tokens feeds
- * resolveMaxTokens instead of passing through.
+ * The request fields the extension owns: buildRequestBody skips these keys on every pass-through source, and the
+ * inspector renders them as not-sent. max_tokens belongs here too - it is provider-owned on the wire - but its VALUE
+ * is special-cased: a numeric configured max_tokens feeds resolveMaxTokens instead of passing through.
  */
 const PROVIDER_OWNED_KEYS: ReadonlySet<string> = new Set([
 	"model",
@@ -60,10 +49,8 @@ const PROVIDER_OWNED_KEYS: ReadonlySet<string> = new Set([
 export type ParameterSkipReason = "underscore" | "provider-owned";
 
 /**
- * Why buildRequestBody would drop a configured key, or undefined when the key
- * passes through. Underscore-prefixed keys are internal on every source (VS
- * Code injects them into modelOptions; extension directives live there in
- * user configuration); provider-owned keys cannot be overridden.
+ * Underscore-prefixed keys are internal on every source (VS Code injects them into modelOptions; extension directives
+ * live there in user configuration); provider-owned keys cannot be overridden.
  */
 export function parameterSkipReason(key: string): ParameterSkipReason | undefined {
 	if (key.startsWith("_")) {
@@ -76,33 +63,25 @@ export function parameterSkipReason(key: string): ParameterSkipReason | undefine
 }
 
 /**
- * Whether `_force` may mark this key. Everything settable is forceable: of the
- * provider-owned keys only max_tokens is settable, so it alone escapes the
- * refusal. The record editors' force checkboxes consult it too, so the editor
- * and the wire cannot disagree about forceability.
+ * Everything settable is forceable: of the provider-owned keys only max_tokens is settable, so it alone escapes the
+ * refusal. The record editors' force checkboxes consult it too, so the editor and the wire cannot disagree about
+ * forceability.
  */
 export function isForceableParameter(key: string): boolean {
 	return key === "max_tokens" || parameterSkipReason(key) === undefined;
 }
 
-/** The capability side's directives, derived from the shared registry, diagnosed as the wrong record type. */
 const WRONG_TYPE_DIRECTIVES = wrongTypeDirectives("parameters");
 
-/** "entry" is the declared server entry's own record; "global" the models.parameters setting. */
 export type ParameterConfigLayer = RecordLayer;
 
-/** A record problem attributed to its configuration layer; see RecordDiagnostic for kinds and keys. */
 export interface ParameterDiagnostic extends RecordDiagnostic {
 	readonly layer: ParameterConfigLayer;
 }
 
 /**
- * One parameters record parsed into the engine's terms, plus the parameters
- * side's type-specific directive (the capability side's ParsedCapabilityRecord
- * pattern): a valid `_fim_template`, when the record carries one.
- * `fimTemplateDeclared` marks that the record SPELLED the directive at all,
- * valid or not: an invalid spelling must suppress a broader layer's template
- * (falling back to the native prompt+suffix body, as documented) rather than
+ * `fimTemplateDeclared` marks that the record SPELLED the directive at all, valid or not: an invalid spelling must
+ * suppress a broader layer's template (falling back to the native prompt+suffix body, as documented) rather than
  * silently reaching past to it.
  */
 export interface ParsedParameterRecord extends ParsedRecord {
@@ -110,13 +89,15 @@ export interface ParsedParameterRecord extends ParsedRecord {
 	readonly fimTemplateDeclared?: true;
 }
 
-/** The vocabulary stays open, so every non-underscore key passes through; unknown underscore keys are silently ignored for forward compatibility. */
+/**
+ * The vocabulary stays open, so every non-underscore key passes through; unknown underscore keys are silently ignored
+ * for forward compatibility.
+ */
 export function parseParameterRecord(record: Readonly<Record<string, unknown>>): ParsedParameterRecord {
 	const fields: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(record)) {
-		// Underscore keys are directives or reserved, never fields - which also
-		// keeps a hostile own "__proto__" key (JSON.parse can produce one) out
-		// of every merge below.
+		// Underscore keys are directives or reserved, never fields - which also keeps a hostile own "__proto__" key
+		// (JSON.parse can produce one) out of every merge below.
 		if (!key.startsWith("_")) {
 			fields[key] = value;
 		}
@@ -161,26 +142,17 @@ export function parseParameterRecord(record: Readonly<Record<string, unknown>>):
 	};
 }
 
-/** Resolve one layer's record map for a model through the shared chain walk. */
 export function resolveParameterLayer(rawModelId: string, records: ModelRecordMap): RecordChainResolution {
 	return resolveRecordChain(rawModelId, records, parseParameterRecord);
 }
 
-/**
- * Record-level lint of a parameters record map, independent of any model: it
- * reaches records no current model matches, which the per-model chain
- * resolution never visits and the Diagnostics tab must still flag. The caller
- * attributes the layer.
- */
 export function lintParameterRecords(records: ModelRecordMap): readonly RecordDiagnostic[] {
 	return lintRecordMap(records, parseParameterRecord);
 }
 
 /**
- * Which configuration layer set a value, and under which record key. An
- * entry-layer ref always names the declared entry that owns the record
- * (stamped by the projection), so a consumer can never pair an entry value
- * with the wrong label.
+ * An entry-layer ref always names the declared entry that owns the record (stamped by the projection), so a consumer
+ * can never pair an entry value with the wrong label.
  */
 export type ParameterSourceRef =
 	| { readonly layer: "global"; readonly key: string }
@@ -189,23 +161,19 @@ export type ParameterSourceRef =
 /** A lower-precedence layer's value for a key some higher layer won. */
 export type ShadowedParameterValue = ParameterSourceRef & { readonly value: unknown };
 
-/** The resolver's label-free attribution ref; the projection stamps the entry label onto ParameterSourceRef. */
 interface ResolvedSourceRef {
 	readonly layer: ParameterConfigLayer;
 	/** The record key whose literal field carries the value (the place to edit it). */
 	readonly key: string;
 }
 
-/** One merged parameter with its attribution. */
 interface ResolvedParameterSource {
 	readonly source: ResolvedSourceRef;
 	/**
-	 * Present exactly when the winning layer's record did not write the field
-	 * itself: it inherited it from source.key, and this names that winning
-	 * record (never equal to source.key by construction).
+	 * Present exactly when the winning layer's record did not write the field itself: it inherited it from source.key,
+	 * and this names that winning record (never equal to source.key by construction).
 	 */
 	readonly inheritedBy?: string;
-	/** Lower-precedence layers that also set this key; present only when one really did. */
 	readonly shadowed: readonly (ResolvedSourceRef & { readonly value: unknown })[];
 	/** Present exactly when the value's source record `_force`-marks this key. */
 	readonly forced?: true;
@@ -221,39 +189,29 @@ export interface ResolveModelParametersInput {
 
 export interface ResolvedModelParameters {
 	/**
-	 * The effective configured merge: each layer's resolved chain view, entry
-	 * over global key by key, then the forced winners on top (a globally
-	 * forced key beats an unforced entry value). Underscore keys never appear.
+	 * The effective configured merge: each layer's resolved chain view, entry over global key by key, then the forced
+	 * winners on top (a globally forced key beats an unforced entry value). Underscore keys never appear.
 	 */
 	readonly params: Record<string, unknown>;
 	/**
-	 * The forced values, entry over global key by key; always a subset of
-	 * `params` (same values). buildRequestBody re-applies them ABOVE runtime
-	 * options and the picker configuration.
+	 * The forced values, entry over global key by key; always a subset of `params` (same values). buildRequestBody
+	 * re-applies them ABOVE runtime options and the picker configuration.
 	 */
 	readonly forcedParams: Readonly<Record<string, unknown>>;
 	/** Attribution per merged key; every own key of `params` has an entry. */
 	readonly sources: ReadonlyMap<string, ResolvedParameterSource>;
 	/**
-	 * The winning `_fim_template`, entry layer over global (a directive belongs
-	 * to a layer's WINNING record only, never inherited - the capability side's
-	 * `_openrouter_model` rule). Valid by construction: the parse captures only
-	 * usable templates. The ONE parameters-record value the /completions path
-	 * reads; the chat request path ignores it.
+	 * The winning `_fim_template`, entry layer over global (a directive belongs to a layer's WINNING record only, never
+	 * inherited - the capability side's `_openrouter_model` rule).
+	 *
+	 * The ONE parameters-record value the /completions path reads; the chat request path ignores it.
+	 *   the parse captures only usable templates -> Valid by construction
 	 */
 	readonly fimTemplate?: string | undefined;
 	/** Matcher, directive, and `_force` problems in the matching records, attributed to their layer. */
 	readonly diagnostics: readonly ParameterDiagnostic[];
 }
 
-/**
- * Resolve the configured models.parameters for one model, with attribution.
- * Each layer resolves its own matching chain, the entry result overrides the
- * global result key by key, and forced fields win above both: a key the global
- * chain FORCES outranks an unforced entry value, and a forced entry value
- * outranks everything. getModelParameters and the resolution table delegate
- * here, so `params` plus `forcedParams` IS what requests carry.
- */
 export function resolveModelParameters(input: ResolveModelParametersInput): ResolvedModelParameters {
 	const { rawModelId, globalParameters, entryParameters } = input;
 	const global = resolveParameterLayer(rawModelId, globalParameters);
@@ -289,8 +247,8 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 
 	for (const [name, field] of entry.fields) {
 		const globalField = global.fields.get(name);
-		// A key only the global layer forces keeps the global attribution: its
-		// forced value beats the unforced entry value on the wire.
+		// A key only the global layer forces keeps the global attribution: its forced value beats the unforced entry
+		// value on the wire.
 		if (globalField?.forced && !field.forced) {
 			const existing = sources.get(name);
 			if (existing !== undefined) {
@@ -332,10 +290,8 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 
 	const entryWinner = entry.winner as ParsedParameterRecord | undefined;
 	const globalWinner = global.winner as ParsedParameterRecord | undefined;
-	// An entry winner that SPELLED the directive owns the outcome outright: a
-	// valid template applies, an invalid one suppresses the global layer's (the
-	// documented invalid-means-native rule). Only an entry silent on the
-	// directive lets the global winner's valid template through.
+	// An entry winner that SPELLED the directive owns the outcome outright: a valid template applies, an invalid one
+	// suppresses the global layer's (the documented invalid-means-native rule).
 	const fimTemplate = entryWinner?.fimTemplateDeclared === true ? entryWinner.fimTemplate : globalWinner?.fimTemplate;
 
 	return {
@@ -362,12 +318,7 @@ export interface ResolveMaxTokensInput {
 	readonly outputLimitDeclared: boolean;
 }
 
-/**
- * The one home of the max_tokens fallback chain: forced configured value,
- * runtime option, configured parameter, the server-declared limit as-is, else
- * min(cap, model max output) because a defaults-derived guess must not escape
- * the cap.
- */
+/** The one home of the max_tokens fallback chain. */
 export function resolveMaxTokens(input: ResolveMaxTokensInput): { value: number; source: MaxTokensSource } {
 	if (typeof input.forcedMaxTokens === "number") {
 		return { value: input.forcedMaxTokens, source: "forced" };
@@ -384,7 +335,6 @@ export function resolveMaxTokens(input: ResolveMaxTokensInput): { value: number;
 	return { value: Math.min(DEFAULT_MAX_TOKENS_CAP, input.maxOutputTokens), source: "capped-default" };
 }
 
-/** One row of the effective-values inspector. */
 export interface EffectiveParameterRow {
 	readonly name: string;
 	readonly value: unknown;
@@ -410,7 +360,9 @@ export interface ProjectedMaxTokens {
 export interface EffectiveParametersInput {
 	readonly rawModelId: string;
 	readonly globalParameters: ModelParametersRecord;
-	/** The declared entry's record together with its label: entry-layer refs carry the label, so the two travel as one. */
+	/**
+	 * The declared entry's record together with its label: entry-layer refs carry the label, so the two travel as one.
+	 */
 	readonly entry?: { readonly label: string; readonly parameters: ModelParametersRecord } | undefined;
 	readonly maxOutputTokens: number;
 	readonly outputLimitDeclared: boolean;
@@ -420,11 +372,13 @@ export interface EffectiveParametersProjection {
 	/** Configured parameters matching the model, sent and not-sent alike, sorted by name. */
 	readonly rows: readonly EffectiveParameterRow[];
 	readonly maxTokens: ProjectedMaxTokens;
-	/** See ResolvedModelParameters.diagnostics. */
 	readonly diagnostics: readonly ParameterDiagnostic[];
 }
 
-/** The NAIVE side of the seed-pinned equivalence property (src/test/shared/config/parameterResolution.property.test.ts), not dead code. */
+/**
+ * The NAIVE side of the seed-pinned equivalence property (src/test/shared/config/parameterResolution.property.test.ts),
+ * not dead code.
+ */
 export function projectEffectiveParameters(input: EffectiveParametersInput): EffectiveParametersProjection {
 	return projectResolvedParameters(
 		resolveModelParameters({
@@ -441,11 +395,11 @@ export function projectEffectiveParameters(input: EffectiveParametersInput): Eff
 }
 
 /**
- * The projection over an already-resolved merge: what the params inspector
- * renders when the resolution comes from the shared flat table (the SAME cache
- * requests read). projectEffectiveParameters delegates here, so the two paths
- * cannot diverge. `entryLabel` must be present whenever the resolution used
- * entry parameters; it is stamped onto every entry-layer ref.
+ * The projection over an already-resolved merge: what the params inspector renders when the resolution comes from the
+ * shared flat table (the SAME cache requests read).
+ *
+ * `entryLabel` must be present whenever the resolution used entry parameters; it is stamped onto every entry-layer ref.
+ *   projectEffectiveParameters delegates here -> the two paths cannot diverge
  */
 export function projectResolvedParameters(
 	resolved: ResolvedModelParameters,
@@ -457,8 +411,8 @@ export function projectResolvedParameters(
 			return { layer: "global", key: ref.key };
 		}
 		if (entryLabel === undefined) {
-			// Unreachable through the sanctioned callers: entry parameters and
-			// their entry's label travel together (EntryParametersResolution).
+			// Unreachable through the sanctioned callers: entry parameters and their entry's label travel together
+			// (EntryParametersResolution).
 			throw new Error("entry-layer parameter resolved without an entry label");
 		}
 		return { layer: "entry", key: ref.key, entryLabel };

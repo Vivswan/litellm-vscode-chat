@@ -2,27 +2,20 @@ import { pbkdf2Sync } from "node:crypto";
 import { z } from "zod";
 
 /**
- * The branded output of fingerprint(). A compile-time guard only: it keeps raw
- * secret material out of fingerprint-typed fields, while persisted strings
- * re-enter shape-checked exactly as loosely as before. The brand asserts
- * provenance in the type system, not a runtime format.
+ * A compile-time guard only: it keeps raw secret material out of fingerprint-typed fields, while persisted strings
+ * re-enter shape-checked exactly as loosely as before.
  */
 const fingerprintSchema = z.string().brand<"Fingerprint">();
 
 export type Fingerprint = z.infer<typeof fingerprintSchema>;
 
-/**
- * The salt every fingerprint() call is keyed by. Set exactly once per process:
- * activation loads it from SecretStorage before anything computes a
- * fingerprint. Never logged and never readable back out of this module.
- */
+/** Set exactly once per process. Never logged and never readable back out of this module. */
 let activeSalt: string | undefined;
 
 /**
- * Install the process-wide fingerprint salt. Set-once: a second call with the
- * same value is a no-op, a different value throws, because re-keying mid
- * process would churn every credential identity at once (cached clients,
- * group client IDs, the sync engine's fingerprint map) with no path back.
+ * Set-once: a second call with the same value is a no-op, a different value throws, because re-keying mid process
+ * would churn every credential identity at once (cached clients, group client IDs, the sync engine's fingerprint map)
+ * with no path back.
  */
 export function initFingerprintSalt(salt: string): void {
 	if (salt.length === 0) {
@@ -45,9 +38,7 @@ function requireSalt(): string {
 }
 
 /**
- * A colliding pair of keys would share a cached client and put the wrong credentials on the wire. The secret random salt is the
- * entire defense, since without the keychain nothing verifies a guess at any work factor, so a low-entropy key (LiteLLM's docs
- * use "sk-1234") reveals nothing through a fingerprint read from globalState.
+ * A colliding pair of keys would share a cached client and put the wrong credentials on the wire.
  *
  *   iterations 1 -> a keyed identity on hot paths (client cache lookups, group resolution), not password verification
  *   PBKDF2       -> the right keyed construction here, and a recognized password-hashing algorithm

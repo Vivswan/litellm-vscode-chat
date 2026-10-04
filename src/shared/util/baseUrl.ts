@@ -1,39 +1,24 @@
 declare const normalizedBaseUrlBrand: unique symbol;
 
-/**
- * A base URL that went through normalizeBaseUrl. Identity-bearing surfaces
- * require this type, so an unnormalized URL cannot enter a comparison and
- * split one server into two.
- */
 export type NormalizedBaseUrl = string & { readonly [normalizedBaseUrlBrand]: true };
 
 /**
- * The one base URL identity every surface shares when matching servers:
- * trailing slashes are insignificant, nothing else is. Byte-identical to
- * `.replace(/\/+$/, "")` on purpose - no lowercasing, no trimming, no URL
- * parsing - because groupClientId embeds the output in group identities, so any
- * semantic change here would silently re-mint every group ID.
+ * The one base URL identity every surface shares when matching servers: trailing slashes are insignificant, nothing
+ * else is. Byte-identical to `.replace(/\/+$/, "")` on purpose - no lowercasing, no trimming, no URL parsing - because
+ * groupClientId embeds the output in group identities.
  */
 export function normalizeBaseUrl(baseUrl: string): NormalizedBaseUrl {
 	return baseUrl.replace(/\/+$/, "") as NormalizedBaseUrl;
 }
 
-/** Appended to the API root when neither the entry's apiVersion nor the base URL supplies a version segment. */
 export const DEFAULT_API_VERSION = "v1";
 
 /**
- * A trailing version segment: v + digits, optionally staged Google-style
- * (v1beta, v1alpha2). Lowercase only, so a /V1 that meant something else is
- * not swallowed.
+ * A trailing version segment: v + digits, optionally staged Google-style (v1beta, v1alpha2). Lowercase only, so a /V1
+ * that meant something else is not swallowed.
  */
 const VERSION_SEGMENT_PATTERN = /\/v\d+(?:(?:alpha|beta)\d*)?$/;
 
-/**
- * Where the trailing version segment starts, or undefined when the URL does
- * not end in one. The preceding-character guard keeps the match inside a real
- * path: a bare host that merely looks like a version (http://v1) or a scheme
- * separator hit (http://host//v1) is not a version segment.
- */
 function trailingVersionSegmentIndex(normalized: string): number | undefined {
 	const match = VERSION_SEGMENT_PATTERN.exec(normalized);
 	if (match === null || match.index === 0) {
@@ -44,11 +29,9 @@ function trailingVersionSegmentIndex(normalized: string): number | undefined {
 }
 
 /**
- * The OpenAI-compatible API root for a server: the entry's apiVersion wins when
- * set ("" means the base URL already IS the root, anything else is appended
- * verbatim); otherwise a version segment already in the URL is kept and only a
- * URL without one gets /v1. Plain string, not NormalizedBaseUrl - a transport
- * root, never a server identity.
+ * The OpenAI-compatible API root for a server: the entry's apiVersion wins when set ("" means the base URL already IS
+ * the root, anything else is appended verbatim); otherwise a version segment already in the URL is kept and only a URL
+ * without one gets /v1. Plain string, not NormalizedBaseUrl - a transport root, never a server identity.
  */
 export function apiRootOf(baseUrl: string, apiVersion?: string): string {
 	const normalized = normalizeBaseUrl(baseUrl);
@@ -59,11 +42,9 @@ export function apiRootOf(baseUrl: string, apiVersion?: string): string {
 }
 
 /**
- * The server root for root-relative endpoints (/key/info and friends): the
- * inverse of apiRootOf. A non-empty apiVersion means the base URL is already
- * the server root; with "" or no override, a version segment the user wrote
- * into the URL is stripped so root endpoints do not land under it - "" changes
- * what the API root is, not where the server root sits.
+ * A non-empty apiVersion means the base URL is already the server root; with "" or no override, a version segment the
+ * user wrote into the URL is stripped so root endpoints do not land under it - "" changes what the API root is, not
+ * where the server root sits.
  */
 export function serverRootOf(baseUrl: string, apiVersion?: string): string {
 	const normalized = normalizeBaseUrl(baseUrl);
@@ -75,8 +56,9 @@ export function serverRootOf(baseUrl: string, apiVersion?: string): string {
 }
 
 /**
- * Appending to the base URL as written is deliberate (a base ending in /v1 derives .../v1/mcp); an entry served elsewhere names it.
- * The MCP publisher and the server form's empty-field preview must give the SAME address, so one rule lives in the module both trees share.
+ * Appending to the base URL as written is deliberate (a base ending in /v1 derives .../v1/mcp); an entry served
+ * elsewhere names it. The MCP publisher and the server form's empty-field preview must give the SAME address, so one
+ * rule lives in the module both trees share.
  */
 export function mcpEndpointOf(baseUrl: string): string {
 	return `${normalizeBaseUrl(baseUrl)}/mcp`;
