@@ -1417,6 +1417,7 @@ suite("settingsTransferCommands undo flow", () => {
 		assert.strictEqual(world.secretValues.get(serverSecretsKey("retired")), undefined, "the import wiped the orphan");
 		world.notifications = [];
 		world.ops = [];
+		const syncsAfterImport = world.syncRequests;
 
 		world.failWrites.add(SERVERS_SETTING_KEY);
 		await runUndoLastImportFlow(world.env);
@@ -1434,7 +1435,11 @@ suite("settingsTransferCommands undo flow", () => {
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "warning");
 		assert.match(note.message, /snapshot was kept/);
-		assert.ok(world.syncRequests >= 1, "nothing mismatched is left, so the flow requests the sync");
+		assert.strictEqual(
+			world.syncRequests,
+			syncsAfterImport + 1,
+			"nothing mismatched is left, so the flow requests the sync"
+		);
 
 		// The retry restores the orphan blob and removes the imported entry together.
 		world.failWrites.clear();

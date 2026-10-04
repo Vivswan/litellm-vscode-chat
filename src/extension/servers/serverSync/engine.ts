@@ -397,11 +397,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
-	 * A multi-write flow (settings import, its undo) is one unit to the engine: no pass starts while held, whichever
-	 * path asks (the SecretStorage and configuration listeners through requestSync, the queued follow-up of a finished
-	 * pass, an explicit syncNow, which then resolves after the post-release pass), and release runs exactly one pass if
-	 * anything asked. A pass already in flight finishes before the hold is granted, so none straddles the flow's first
-	 * write.
+	 * A multi-write flow (settings import, its undo) is one unit to the engine: no pass starts while held, and release
+	 * runs exactly one if anything asked. An in-flight pass finishes before the hold is granted.
+	 *
+	 *   requestSync (both listeners, a pending debounce) -> noted; the one pass after release
+	 *   a finished pass's queued follow-up               -> lands here too, since the relaunch routes through syncNow
+	 *   explicit syncNow(force)                          -> waits; resolves after the post-release pass, forced if asked
 	 */
 	async hold(): Promise<() => void> {
 		this.holds += 1;
@@ -483,10 +484,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 			clearTimeout(this.timer);
 			this.timer = undefined;
 		}
-		// A queued follow-up will never run; its waiters must still settle
-		// (the poller's dispose contract, mirrored). The in-flight pass is left
-		// to finish: its host call cannot be recalled anyway, and its finally
-		// finds the queue already empty. Explicit callers held for a pass settle the same way.
+		// Waiters settle even though their pass never runs (the poller's dispose contract, mirrored); the in-flight pass
+		// finishes on its own, its host call being unrecallable.
+		//   queued follow-up        -> resolved, and the queue is empty before that pass's finally looks
+		//   callers held for a pass -> resolved the same way
 		this.queued?.resolve();
 		this.queued = undefined;
 		for (const waiter of this.heldRequest?.waiters ?? []) {
