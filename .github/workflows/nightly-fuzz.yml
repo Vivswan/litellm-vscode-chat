@@ -146,6 +146,9 @@ jobs:
       - name: Set up development environment
         run: bash scripts/env/setup-env.sh
 
+      - name: Cache the VS Code build
+        uses: ./.github/actions/vscode-test-cache
+
       - name: Fuzz the unit property suites
         if: matrix.family == 'unit'
         shell: bash
