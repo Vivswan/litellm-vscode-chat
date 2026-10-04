@@ -71,7 +71,7 @@ Leaving - the trail back at the top, the rail, Esc, or Discard changes - is a re
 - Secrets in secret storage never render back into the dashboard; for them the form shows where the value lives, not what it is.
 - Inline values do prefill the edit form, masked behind a Show toggle: they already sit in plain text in your settings.json, so the form reveals nothing the Settings editor does not.
 - When editing, an emptied secret field keeps the stored value; deleting one is the form's explicit "Remove the stored ..." checkbox (see [Secrets and secret storage](servers.md#secrets-and-secret-storage)).
-- Saving an edit that moves the base URL away from a stored key's address asks first - use the same key with the new URL, or clear it ([Changing a server's URL](servers.md#changing-a-servers-url)).
+- Saving an edit that moves a stored key's destination (the base URL; for an OAuth client secret, the token URL or client id) asks first - use the same key for the new destination, or clear it ([Changing a server's URL](servers.md#changing-a-servers-url)).
 
 **Per-server model configuration** - the form carries the entry's [`models` object](servers.md#per-server-model-configuration) as two sections:
 

@@ -18,7 +18,7 @@ import {
 	USAGE_STATUS_BAR_MODES,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settingSpec";
-import type { SecretFieldId } from "../../shared/serverEntry";
+import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { restructureServers } from "../migrations/settingsRedesign/entries";
@@ -383,7 +383,7 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 		// see SecretWrite.owners for the fail-closed fallback.
 		const parsed = acceptedEntry([stripped.entry], label)?.entry;
 		const target = parsed ?? { baseUrl: typeof rawEntry.baseUrl === "string" ? rawEntry.baseUrl.trim() : "" };
-		const owners: { -readonly [K in SecretFieldId]?: string } = {};
+		const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
 		for (const field of SECRET_FIELD_IDS) {
 			if (stripped.secrets[field] !== undefined) {
 				owners[field] = secretDestination(target, field);

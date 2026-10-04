@@ -1,27 +1,13 @@
 /**
- * Back-fills ownership stamps onto SecretStorage blobs written before stamps
- * existed. State-detecting and idempotent: a declared entry whose blob holds
- * an unstamped value is the legacy state, and stamping it with the entry's
- * CURRENT destination (exactly the pairing every earlier version trusted
- * unconditionally) makes the rerun a no-op while putting the blob under the
- * ownership check from now on. stampServerSecretOwner never overwrites an
- * existing stamp, so racing a deliberate pairing action is harmless.
+ * Back-fills ownership stamps onto SecretStorage blobs written before stamps existed: a declared entry's unstamped
+ * value is stamped with the entry's CURRENT destination, the pairing every earlier version trusted unconditionally,
+ * so the rerun is a no-op. stampServerSecretOwner never overwrites an existing stamp, so racing a deliberate pairing
+ * action is harmless.
  *
- * Two states stay untouched on purpose. A leftover blob whose label no entry
- * declares has no derivable destination, so it stays unstamped (it resolves
- * for a future re-add exactly as before; only post-stamping writes are
- * protected against the re-add-at-another-host hazard). SecretStorage cannot
- * enumerate keys, so no migration can even find such a blob; refusing every
- * unstamped value instead would turn a failed stamping pass into a
- * whole-session credential outage while still trusting whatever pairing
- * stands when stamping eventually succeeds. The residual is narrow: the
- * dashboard's create and upsert paths wipe a label's leftover blob outright,
- * so only a hand-written settings.json re-declaration can pair a
- * pre-stamping leftover with a new host, once, until the blob is touched.
- * And a field whose destination is unknowable on this entry (an OAuth client
- * secret on an entry with no token URL) waits for an activation where the
- * entry declares one - stamping "" now would refuse the pairing the user is
- * about to complete.
+ *   blob whose label no entry declares          -> stays unstamped; SecretStorage cannot enumerate keys, and a future
+ *                                                  re-add resolves it exactly as before
+ *   OAuth client secret on an entry, no token URL -> waits for an activation where the entry declares one; an empty
+ *                                                  destination now would refuse the pairing the user is completing
  */
 
 import * as vscode from "vscode";
@@ -60,12 +46,11 @@ export async function stampSecretOwnersFor(
 			if (record.values[field] === undefined || record.owners[field] !== undefined) {
 				continue;
 			}
-			const destination = secretDestination(entry, field);
-			if (destination === "") {
+			if (field === "oauthClientSecret" && entry.oauthTokenUrl === undefined) {
 				continue;
 			}
 			try {
-				await stampServerSecretOwner(secrets, entry.label, field, destination);
+				await stampServerSecretOwner(secrets, entry.label, field, secretDestination(entry, field));
 				stamped += 1;
 			} catch (error) {
 				failures += 1;

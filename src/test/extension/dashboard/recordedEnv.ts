@@ -11,7 +11,7 @@ import type { DeclaredServer } from "../../../extension/servers/serverSync";
 import { acceptedEntry, inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync";
 import { resolveOwnedSecrets } from "../../../extension/servers/serverSync/secrets";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
-import type { NonSecretOptionalFields } from "../../../shared/serverEntry";
+import type { NonSecretOptionalFields, SecretOwner } from "../../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { recordFromKeys } from "../../../shared/util/json";
 
@@ -114,7 +114,7 @@ export interface RecordedEnv {
 	/** Every storeServerSecret call: label, field, value. */
 	secretOps: [string, string, string | undefined][];
 	/** Every storeServerSecret call's ownership stamp, aligned with secretOps by index. */
-	secretOwners: (string | undefined)[];
+	secretOwners: (SecretOwner | undefined)[];
 	/** Every deleteServerSecrets call. */
 	secretDeletes: string[];
 	/** Every mutation in call order, for atomicity-ordering assertions. */
@@ -122,7 +122,7 @@ export interface RecordedEnv {
 	/** The fake secure store's blobs by label; mutated by the secret operations like the real one. */
 	storedSecrets: Map<string, Record<string, string>>;
 	/** The fake store's ownership stamps by label, mutated alongside storedSecrets. */
-	storedOwners: Map<string, Record<string, string>>;
+	storedOwners: Map<string, Record<string, SecretOwner>>;
 	/** Every env.log call; classifications only. */
 	logs: [string, unknown][];
 	syncRequests: number;

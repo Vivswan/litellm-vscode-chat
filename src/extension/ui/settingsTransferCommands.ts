@@ -16,18 +16,21 @@ import { CMD } from "../../shared/config/commandIds";
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { PRE_IMPORT_SNAPSHOT_SECRET } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
-import type { SecretFieldId } from "../../shared/serverEntry";
-import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
+import { parseSecretOwner, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
+import { upgradedStamp } from "../migrations/oauthStampClientId";
 import type { ServerSyncEngine } from "../servers/serverSync/engine";
-import type { StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
+import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
 import {
 	deleteServerSecrets,
 	readServerSecretsRecord,
 	resolveOwnedSecrets,
+	secretDestination,
 	updateServerSecret,
 } from "../servers/serverSync/secrets";
+import type { DeclaredServer } from "../servers/serverSync/setting";
 import { acceptedEntry, rawDeclaredLabels } from "../servers/serverSync/setting";
 import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
@@ -104,7 +107,7 @@ export interface SettingsTransferEnv {
 		label: string,
 		field: SecretFieldId,
 		value: string | undefined,
-		owner: string | undefined
+		owner: SecretOwner | undefined
 	): Promise<void>;
 	deleteServerSecrets(label: string): Promise<void>;
 	/** The one pre-import snapshot slot (SecretStorage; the snapshot is secret-capable whole). */
@@ -120,6 +123,8 @@ export interface SettingsTransferEnv {
 	homeDir(): string;
 	readonly extensionVersion: string;
 	requestServerSync(): void;
+	/** Runs the flow's writes as one unit to the engine (ServerSyncEngine.withHold); the pass they earned follows. */
+	withServerSyncHold<T>(run: () => Promise<T>): Promise<T>;
 	/** English-only classification log; counts and classifications, never values, paths, or secret material. */
 	log(message: string, data?: Record<string, unknown>): void;
 }
@@ -283,7 +288,7 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 /** The real environment over the extension context, the sync engine, and the logger. */
 export function createSettingsTransferEnv(
 	context: vscode.ExtensionContext,
-	syncEngine: Pick<ServerSyncEngine, "requestSync">,
+	syncEngine: Pick<ServerSyncEngine, "requestSync" | "withHold">,
 	logger: Logger
 ): SettingsTransferEnv {
 	return {
@@ -314,6 +319,7 @@ export function createSettingsTransferEnv(
 		homeDir: () => os.homedir(),
 		extensionVersion: String(context.extension.packageJSON?.version ?? "unknown"),
 		requestServerSync: () => syncEngine.requestSync(),
+		withServerSyncHold: (run) => syncEngine.withHold(run),
 		log: (message, data) => logger.log(message, data),
 	};
 }
@@ -430,23 +436,20 @@ function parseFailureMessage(reason: "not-json" | "not-an-export" | "newer-versi
 }
 
 /**
- * The apply step's servers unit, adopt-ordered: secret writes and stale-blob
- * clears per label first, the single servers array write LAST; on failure every
- * recorded secret value is restored, and a restore failure escalates.
- * `settingsLanded` says whether the non-servers writes committed, so a clean
- * rollback that changed nothing at all can offer no Undo.
+ * The apply step's servers unit: each imported label's blob, then the single servers write, with the blobs restored
+ * when the setting fails. Order pinned by one input: an unstamped leftover blob under a label the import re-adds, with
+ * the blob write failing after the setting landed.
  */
 async function applyServersUnit(
 	env: SettingsTransferEnv,
 	serversValue: readonly unknown[],
-	secretWrites: readonly SecretWrite[],
-	settingsLanded: boolean
+	secretWrites: readonly SecretWrite[]
 ): Promise<"landed" | "rolled-back" | "rollback-failed"> {
 	const overwritten: {
 		label: string;
 		field: SecretFieldId;
 		previous: string | undefined;
-		previousOwner: string | undefined;
+		previousOwner: SecretOwner | undefined;
 	}[] = [];
 	try {
 		for (const write of secretWrites) {
@@ -473,61 +476,25 @@ async function applyServersUnit(
 		await env.settings.writeGlobal(SERVERS_SETTING_KEY, serversValue);
 		return "landed";
 	} catch (error) {
-		const unrestoredLabels = new Set<string>();
+		let unrestored = 0;
 		for (const { label, field, previous, previousOwner } of [...overwritten].reverse()) {
 			try {
 				await env.updateServerSecret(label, field, previous, previousOwner);
 			} catch {
-				unrestoredLabels.add(label);
+				unrestored += 1;
 				env.log("Restoring a stored secret after a failed settings import also failed", { field });
 			}
 		}
-		if (unrestoredLabels.size > 0) {
+		if (unrestored > 0) {
 			env.log("Settings import failed and left a stored secret unrestored", { error: errorLabel(error) });
-			// An unrestored secret is the IMPORTED credential, which belongs to
-			// its entry in serversValue, while the live entries are still
-			// pre-import (the servers write lands last). Withholding the wake
-			// would only defer the hazard - activation force-syncs, and any
-			// servers edit syncs too - so a credential whose live entry is not
-			// its own is CLEARED, the same rule the abandoned undo applies. Both
-			// values survive: the pre-import one in the snapshot slot this run
-			// wrote, the imported one in the file the user chose.
-			const clearFailures = await clearMismatchedBlobs(
-				env,
-				unrestoredLabels,
-				serversValue,
-				"Settings import: clearing an unrestored secret under an entry that is not its own failed"
-			);
-			if (clearFailures === 0) {
-				env.requestServerSync();
-			} else {
-				env.log("Settings import: the sync request was withheld; an unrestored secret could not be cleared");
-			}
-			await env.prompts.notify(
-				"error",
-				`${l10n.t("LiteLLM: The settings import failed, and some stored server secrets could not be restored.")}\n${l10n.t(
-					"Undo Import restores the pre-import state; alternatively, edit each affected server in the dashboard or use the Set Server Secret command."
-				)}`,
-				[undoImportAction(env)]
-			);
 			return "rollback-failed";
 		}
 		env.log("Settings import: the servers write failed; secret changes were rolled back", {
 			error: errorLabel(error),
 		});
-		env.requestServerSync();
-		const message = l10n.t(
-			"LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back."
-		);
-		await env.prompts.notify(
-			"error",
-			settingsLanded
-				? `${message} ${l10n.t("Other settings from the file were already written; Undo Import restores the pre-import state.")}`
-				: message,
-			// With nothing landed there is nothing this run left to undo.
-			settingsLanded ? [undoImportAction(env)] : []
-		);
 		return "rolled-back";
+	} finally {
+		env.requestServerSync();
 	}
 }
 
@@ -728,24 +695,40 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		}
 		const writtenSettings = application.settingsWrites.length - failedKeys.length;
 
-		if (application.serversValue !== undefined) {
-			const outcome = await applyServersUnit(
-				env,
-				application.serversValue,
-				application.secretWrites,
-				writtenSettings > 0
-			);
-			if (outcome !== "landed") {
-				// A clean rollback with no landed settings changed nothing, so the
-				// previous import's recovery path comes back. A failed rollback left
-				// secrets changed, so the fresh snapshot stays.
-				if (outcome === "rolled-back" && writtenSettings === 0) {
+		if (application.serversValue === undefined) {
+			env.requestServerSync();
+		} else {
+			const { serversValue, secretWrites } = application;
+			// The unit is one write to the engine; its toasts wait outside the hold, so the engine runs while they show.
+			const outcome = await env.withServerSyncHold(() => applyServersUnit(env, serversValue, secretWrites));
+			if (outcome === "rollback-failed") {
+				await env.prompts.notify(
+					"error",
+					`${l10n.t("LiteLLM: The settings import failed, and some stored server secrets could not be restored.")}\n${l10n.t(
+						"Undo Import restores the pre-import state; alternatively, edit each affected server in the dashboard or use the Set Server Secret command."
+					)}`,
+					[undoImportAction(env)]
+				);
+				return;
+			}
+			if (outcome === "rolled-back") {
+				// A rollback with no landed settings changed nothing, so the previous import's recovery path comes back.
+				if (writtenSettings === 0) {
 					await restorePreviousSlot();
 				}
+				const message = l10n.t(
+					"LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back."
+				);
+				await env.prompts.notify(
+					"error",
+					writtenSettings > 0
+						? `${message} ${l10n.t("Other settings from the file were already written; Undo Import restores the pre-import state.")}`
+						: message,
+					writtenSettings > 0 ? [undoImportAction(env)] : []
+				);
 				return;
 			}
 		}
-		env.requestServerSync();
 
 		// Nothing survived: same as a no-op run, the previous snapshot comes
 		// back and there is nothing to undo.
@@ -901,24 +884,24 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 			}
 			blob[field as SecretFieldId] = value;
 		}
-		// Ownership stamps are optional (snapshots predating them carry none)
-		// but when present must be the builder's shape: stamp strings ("" is a
-		// real stamp) on fields the value record holds.
-		let owners: { -readonly [K in SecretFieldId]?: string } | undefined;
+		// Ownership stamps are optional (a snapshot may record a blob without them) but when present must be the builder's
+		// shape: a stamp (shared/serverEntry.ts SecretOwner) on a field the value record holds.
+		let owners: { -readonly [K in SecretFieldId]?: SecretOwner } | undefined;
 		if ("owners" in entry && entry.owners !== undefined) {
 			if (!isRecord(entry.owners)) {
 				return undefined;
 			}
 			owners = {};
 			for (const [field, owner] of Object.entries(entry.owners)) {
+				const stamp = parseSecretOwner(owner);
 				if (
 					!(SECRET_FIELD_IDS as readonly string[]).includes(field) ||
-					typeof owner !== "string" ||
+					stamp === undefined ||
 					blob[field as SecretFieldId] === undefined
 				) {
 					return undefined;
 				}
-				owners[field as SecretFieldId] = owner;
+				owners[field as SecretFieldId] = stamp;
 			}
 		}
 		blobs[label] = { present: true, value: blob, ...(owners !== undefined ? { owners } : {}) };
@@ -941,50 +924,31 @@ async function notifyKeptSnapshot(env: SettingsTransferEnv, failures: number): P
 	);
 }
 
-/** The raw servers-array items carrying `label`, trimmed as the setting's own label grammar trims. */
-function rawEntriesOf(raw: unknown, label: string): unknown[] {
-	if (!Array.isArray(raw)) {
-		return [];
-	}
-	return raw.filter((item) => isRecord(item) && typeof item.label === "string" && item.label.trim() === label);
-}
-
-/** The undo path's clearMismatchedBlobs failure line; both of its call sites report the same classification. */
-const UNDO_CLEAR_FAILURE_LOG = "Undo import: re-clearing a restored secret under an unrestored entry failed";
-
 /**
- * A stored credential belongs only under the entry it was recorded for, so while the live entry is some OTHER
- * configuration (an undo's still-imported entry, a rollback's still-pre-import one) it is cleared. Withholding
- * the sync alone would not do, since activation force-syncs and any servers edit syncs too.
+ * The stamps a restore writes for one recorded blob, and what the reconnect count resolves the recorded values
+ * through, so the two never disagree about which values the restored entry can use.
  *
- *   pre-import value -> in the snapshot slot; the kept snapshot restores whatever this removes once a retry lands the entries too
- *   imported value   -> in the user's import file
- *   failed write     -> can leave a label half-restored, so success is not tracked and every label is re-checked on retry
+ *   recorded unstamped, under an entry -> that entry's destination, an empty one included (a real stamp: no token URL)
+ *   recorded as a token URL string     -> upgradedStamp, or the restored entry could not use its own secret
+ *   no recorded entry                  -> as recorded
  */
-async function clearMismatchedBlobs(
-	env: SettingsTransferEnv,
-	labels: Iterable<string>,
-	referenceServersRaw: unknown,
-	failureLog: string
-): Promise<number> {
-	let failures = 0;
-	const liveServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
-	for (const label of new Set(labels)) {
-		// Byte-identical entries, because a base URL compare alone would miss the other routing fields (an OAuth
-		// token URL among them), and a needless clear is recoverable while a served retired credential is not.
-		if (
-			JSON.stringify(rawEntriesOf(liveServersRaw, label)) === JSON.stringify(rawEntriesOf(referenceServersRaw, label))
-		) {
-			continue;
-		}
-		try {
-			await env.deleteServerSecrets(label);
-		} catch (error) {
-			failures += 1;
-			env.log(failureLog, { error: errorLabel(error) });
+function restoredOwners(
+	blob: { readonly secrets: StoredServerSecrets; readonly owners: StoredSecretOwners },
+	recordedUnder: DeclaredServer | undefined
+): StoredSecretOwners {
+	if (recordedUnder === undefined) {
+		return blob.owners;
+	}
+	const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
+	for (const field of SECRET_FIELD_IDS) {
+		const recorded = blob.owners[field];
+		if (recorded !== undefined) {
+			owners[field] = upgradedStamp(recordedUnder, field, recorded);
+		} else if (blob.secrets[field] !== undefined) {
+			owners[field] = secretDestination(recordedUnder, field);
 		}
 	}
-	return failures;
+	return owners;
 }
 
 /** LiteLLM: Undo Last Settings Import - the wholesale pre-import snapshot restore. */
@@ -1015,8 +979,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		// group API is add-only, so a reverted connection change cannot be
 		// reconciled by the trailing sync - the affected row shows the steps.
 		const currentServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
-		const serversEntry = snapshot.settings[SERVERS_SETTING_KEY];
-		const targetServersRaw = serversEntry?.present === true ? serversEntry.value : undefined;
+		const targetServersRaw = restore.serversValue;
 		// Both sides read through the same ownership resolution the import
 		// preview's collision pass uses: no accepted entry resolves nothing, and
 		// a stored field stamped for a different destination compares as the
@@ -1026,15 +989,18 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		const targetBlobs: Record<string, StoredServerSecrets> = {};
 		for (const label of new Set([...rawDeclaredLabels(currentServersRaw), ...rawDeclaredLabels(targetServersRaw)])) {
 			const record = await env.readServerSecrets(label);
+			const standing = acceptedEntry(currentServersRaw, label)?.entry;
+			const target = acceptedEntry(targetServersRaw, label)?.entry;
 			const snapshotBlob = Object.hasOwn(snapshot.blobs, label) ? snapshot.blobs[label] : undefined;
 			const targetRecord =
 				snapshotBlob === undefined
 					? record
 					: snapshotBlob.present
-						? { values: snapshotBlob.value, owners: snapshotBlob.owners ?? {} }
+						? {
+								values: snapshotBlob.value,
+								owners: restoredOwners({ secrets: snapshotBlob.value, owners: snapshotBlob.owners ?? {} }, target),
+							}
 						: { values: {}, owners: {} };
-			const standing = acceptedEntry(currentServersRaw, label)?.entry;
-			const target = acceptedEntry(targetServersRaw, label)?.entry;
 			currentBlobs[label] = standing !== undefined ? resolveOwnedSecrets(standing, record).values : {};
 			targetBlobs[label] = target !== undefined ? resolveOwnedSecrets(target, targetRecord).values : {};
 		}
@@ -1045,83 +1011,70 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			targetBlobs
 		).length;
 
-		let failures = 0;
-		// Restore order mirrors the import's adopt ordering: SecretStorage writes
-		// never wake the sync engine, the servers settings write does, so blobs
-		// restore first and the engine wakes to a consistent pre-import state.
-		for (const write of restore.blobWrites) {
-			try {
-				// Field by field, absent fields cleared, so the blob is restored
-				// WHOLE - values and ownership stamps alike.
-				for (const field of SECRET_FIELD_IDS) {
-					await env.updateServerSecret(write.label, field, write.secrets[field], write.owners[field]);
+		// The restore is one write to the engine; the toasts wait outside the hold, so the engine runs while they show.
+		const outcome = await env.withServerSyncHold(
+			async (): Promise<{ kind: "nothing-restored" } | { kind: "restored"; failures: number }> => {
+				try {
+					try {
+						await env.settings.writeGlobal(SERVERS_SETTING_KEY, targetServersRaw);
+					} catch (error) {
+						env.log("Undo import: the servers write failed; nothing was restored", { error: errorLabel(error) });
+						return { kind: "nothing-restored" };
+					}
+					let failures = 0;
+					for (const write of restore.settingWrites) {
+						try {
+							await env.settings.writeGlobal(write.key, write.value);
+						} catch {
+							failures += 1;
+						}
+					}
+					for (const key of restore.settingRemovals) {
+						try {
+							await env.settings.writeGlobal(key, undefined);
+						} catch {
+							failures += 1;
+						}
+					}
+					for (const write of restore.blobWrites) {
+						const owners = restoredOwners(write, acceptedEntry(targetServersRaw, write.label)?.entry);
+						try {
+							// Field by field, absent fields cleared, so the blob is restored
+							// WHOLE - values and ownership stamps alike.
+							for (const field of SECRET_FIELD_IDS) {
+								await env.updateServerSecret(write.label, field, write.secrets[field], owners[field]);
+							}
+						} catch {
+							failures += 1;
+						}
+					}
+					for (const label of restore.blobRemovals) {
+						try {
+							await env.deleteServerSecrets(label);
+						} catch {
+							failures += 1;
+						}
+					}
+					return { kind: "restored", failures };
+				} finally {
+					env.requestServerSync();
 				}
-			} catch {
-				failures += 1;
 			}
-		}
-		for (const label of restore.blobRemovals) {
-			try {
-				await env.deleteServerSecrets(label);
-			} catch {
-				failures += 1;
-			}
-		}
-		if (failures > 0) {
-			// Stop before the settings phase: writing the servers setting now would
-			// wake the sync engine against partially restored credentials. The slot
-			// is kept, so a retry finishes the job.
-			failures += await clearMismatchedBlobs(
-				env,
-				restore.blobWrites.map((write) => write.label),
-				targetServersRaw,
-				UNDO_CLEAR_FAILURE_LOG
-			);
-			env.log("Undo import: some blob restores failed; the settings phase was not started", { failures });
-			await notifyKeptSnapshot(env, failures);
+		);
+		if (outcome.kind === "nothing-restored") {
+			await notifyKeptSnapshot(env, 1);
 			return;
 		}
-		for (const write of restore.settingWrites) {
-			try {
-				await env.settings.writeGlobal(write.key, write.value);
-			} catch {
-				failures += 1;
-			}
-		}
-		for (const key of restore.settingRemovals) {
-			try {
-				await env.settings.writeGlobal(key, undefined);
-			} catch {
-				failures += 1;
-			}
-		}
-		if (failures > 0) {
-			const clearFailures = await clearMismatchedBlobs(
-				env,
-				restore.blobWrites.map((write) => write.label),
-				targetServersRaw,
-				UNDO_CLEAR_FAILURE_LOG
-			);
-			failures += clearFailures;
-			// Every credential whose live entry is not its own is gone by now, so
-			// the only thing that still blocks the wake is a clear that failed and
-			// left one in place. The kept slot lets a retry finish the job and
-			// sync then.
-			if (clearFailures === 0) {
-				env.requestServerSync();
-			} else {
-				env.log("Undo import: the sync request was withheld; a mismatched credential could not be cleared");
-			}
+		if (outcome.failures > 0) {
 			// The slot is kept: what failed this time may succeed on a retry,
 			// and clearing it would strand the un-restored remainder.
-			env.log("Undo import: some restore steps failed; the snapshot was kept", { failures });
-			await notifyKeptSnapshot(env, failures);
+			env.log("Undo import: some restore steps failed; the snapshot was kept", { failures: outcome.failures });
+			await notifyKeptSnapshot(env, outcome.failures);
 			return;
 		}
-		env.requestServerSync();
 		await env.clearSnapshotSlot();
 		env.log("Settings import undone", {
-			settings: restore.settingWrites.length,
+			settings: restore.settingWrites.length + 1,
 			removals: restore.settingRemovals.length,
 			blobs: restore.blobWrites.length,
 			blobRemovals: restore.blobRemovals.length,

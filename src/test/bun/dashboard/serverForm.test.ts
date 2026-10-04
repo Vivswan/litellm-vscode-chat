@@ -540,9 +540,6 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("each field compares its OWN destination: a base-URL move takes the keys, not the client secret", () => {
-			// The stamp rule is per field (shared secretDestination): the keys pair
-			// with the base URL, the client secret with the token URL, so a base
-			// URL move with the token URL standing still leaves it out.
 			const original = storedIdentity("http://old.test", {
 				oauthTokenUrl: "https://idp.test/token",
 				oauthClientId: "client",

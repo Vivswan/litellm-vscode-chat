@@ -427,7 +427,7 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-test-flat"));
 		});
 
-		test("a pre-redesign flat OAuth export lands new-shaped with its client secret paired to the token URL", () => {
+		test("a pre-redesign flat OAuth export lands new-shaped, its client secret stamped for URL and client", () => {
 			const incoming = [
 				server("Old", {
 					oauthTokenUrl: "http://idp.test/token",
@@ -440,14 +440,11 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.deepStrictEqual(application.serversValue, [
 				{ ...server("Old"), auth: { oauth: { tokenUrl: "http://idp.test/token", clientId: "cid" } } },
 			]);
-			// The ownership stamp pairs the moved client secret with the token URL
-			// the restructured entry actually sends it to; pre-restructure the
-			// entry parsed credential-less and the stamp would have refused it.
 			assert.deepStrictEqual(application.secretWrites, [
 				{
 					label: "Old",
 					secrets: { oauthClientSecret: "cs-test-1" },
-					owners: { oauthClientSecret: "http://idp.test/token" },
+					owners: { oauthClientSecret: { tokenUrl: "http://idp.test/token", clientId: "cid" } },
 				},
 			]);
 			assert.ok(!JSON.stringify(application.serversValue).includes("cs-test-1"));

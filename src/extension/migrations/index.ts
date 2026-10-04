@@ -4,6 +4,7 @@ import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { MigrationStateId } from "./expiries";
 import { fingerprintProjectionMigration } from "./fingerprintProjection";
 import { legacyRegistryCleanupMigration } from "./legacyRegistryCleanup";
+import { oauthStampClientIdMigration } from "./oauthStampClientId";
 import { settingsRedesignMigration } from "./settingsRedesign/apply";
 import { stampSecretOwnersMigration } from "./stampSecretOwners";
 
@@ -64,6 +65,7 @@ export const MIGRATIONS = [
 	settingsRedesignMigration,
 	stampSecretOwnersMigration,
 	fingerprintProjectionMigration,
+	oauthStampClientIdMigration,
 ] as const satisfies readonly ExtensionMigration[];
 
 type RegisteredMigrationState = (typeof MIGRATIONS)[number]["state"];

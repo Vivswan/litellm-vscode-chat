@@ -45,30 +45,6 @@ describe("extension/settingsTransfer/snapshot", () => {
 		assert.deepStrictEqual(JSON.parse(JSON.stringify(snapshot.settings)), snapshot.settings);
 	});
 
-	test("planSnapshotRestore partitions present entries into writes and absent ones into removals", () => {
-		const snapshot: PreImportSnapshot = {
-			settings: {
-				"chat.timeout": { present: true, value: 60000 },
-				"usage.statusBar": { present: false },
-				servers: { present: true, value: [] },
-			},
-			blobs: {
-				A: { present: true, value: { apiKey: "sk-a" } },
-				B: { present: false },
-			},
-			at: new Date(0).toISOString(),
-		};
-		assert.deepStrictEqual(planSnapshotRestore(snapshot), {
-			settingWrites: [
-				{ key: "chat.timeout", value: 60000 },
-				{ key: "servers", value: [] },
-			],
-			settingRemovals: ["usage.statusBar"],
-			blobWrites: [{ label: "A", secrets: { apiKey: "sk-a" }, owners: {} }],
-			blobRemovals: ["B"],
-		});
-	});
-
 	test("snapshot then restore round-trips present and absent states exactly", async () => {
 		const values: Record<string, unknown> = {
 			"chat.timeout": 12345,
@@ -83,7 +59,12 @@ describe("extension/settingsTransfer/snapshot", () => {
 		const restore = planSnapshotRestore(snapshot);
 
 		// Apply the restore lists to a divergent post-import state.
-		const settingsAfter: Record<string, unknown> = { "chat.timeout": 1, "usage.statusBar": "off" };
+		const settingsAfter: Record<string, unknown> = { "chat.timeout": 1, "usage.statusBar": "off", servers: [{}] };
+		if (restore.serversValue === undefined) {
+			delete settingsAfter.servers;
+		} else {
+			settingsAfter.servers = restore.serversValue;
+		}
 		for (const write of restore.settingWrites) {
 			settingsAfter[write.key] = write.value;
 		}

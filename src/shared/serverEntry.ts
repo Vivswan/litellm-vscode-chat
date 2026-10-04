@@ -65,18 +65,69 @@ export function pickNonSecretOptionalFields(source: NonSecretOptionalFields): No
 export type SecretLocation = "settings" | "secure" | "none";
 
 /**
- * The ownership stamp serverSync/secrets.ts records at store time and resolveOwnedSecrets compares at use time.
- * src/dashboard/serverForm.ts's stale-key detection reads this same rule instead of re-deriving it webview-side.
+ * The ownership stamp serverSync/secrets.ts records at store time and resolveOwnedSecrets compares at use time; the
+ * dashboard's stale-key detection (src/dashboard/serverForm.ts) reads this same rule, and the edit page renders it
+ * through l10n.
  *
  *   key                 -> base URL, normalized (the transport treats a trailing slash there as insignificant)
- *   OAuth client secret -> token URL VERBATIM (the exchange fetches it exactly, so /token and /token/ differ)
- *   no token URL        -> "", a real stamp, so gaining a token URL later still needs a deliberate re-pairing
+ *   OAuth client secret -> { tokenUrl, clientId }: the token URL VERBATIM (the exchange fetches it exactly, so /token
+ *                          and /token/ differ) and the client whose secret it is
+ *   no token URL        -> {}, a real stamp, so gaining a token URL later still needs a deliberate re-pairing
  */
-export function secretDestination(
-	entry: { readonly baseUrl: string; readonly oauthTokenUrl?: string | undefined },
-	field: SecretFieldId
-): string {
-	return field === "oauthClientSecret" ? (entry.oauthTokenUrl ?? "") : normalizeBaseUrl(entry.baseUrl);
+export function secretDestination(entry: SecretDestinationEntry, field: SecretFieldId): SecretOwner {
+	if (field !== "oauthClientSecret") {
+		return normalizeBaseUrl(entry.baseUrl);
+	}
+	return {
+		...(entry.oauthTokenUrl !== undefined ? { tokenUrl: entry.oauthTokenUrl } : {}),
+		...(entry.oauthClientId !== undefined ? { clientId: entry.oauthClientId } : {}),
+	};
+}
+
+export interface SecretDestinationEntry {
+	readonly baseUrl: string;
+	readonly oauthTokenUrl?: string | undefined;
+	readonly oauthClientId?: string | undefined;
+}
+
+/** An OAuth client secret's destination; an absent part matches only an absent part. */
+interface OAuthSecretDestination {
+	readonly tokenUrl?: string;
+	readonly clientId?: string;
+}
+
+/** A stored field's ownership stamp as secretDestination renders it; see its rows. */
+export type SecretOwner = string | OAuthSecretDestination;
+
+export function sameSecretDestination(a: SecretOwner, b: SecretOwner): boolean {
+	if (typeof a === "string" || typeof b === "string") {
+		return a === b;
+	}
+	return a.tokenUrl === b.tokenUrl && a.clientId === b.clientId;
+}
+
+/**
+ * The one decoder of a persisted stamp (a SecretStorage blob's `_owner` value, a snapshot's `owners` value): a string
+ * ("" included) or an OAuth destination object with no other key; anything else is no stamp.
+ */
+export function parseSecretOwner(raw: unknown): SecretOwner | undefined {
+	if (typeof raw === "string") {
+		return raw;
+	}
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+		return undefined;
+	}
+	const { tokenUrl, clientId, ...rest } = raw as Record<string, unknown>;
+	if (Object.keys(rest).length > 0) {
+		return undefined;
+	}
+	if (
+		(tokenUrl !== undefined && typeof tokenUrl !== "string") ||
+		(clientId !== undefined && typeof clientId !== "string")
+	) {
+		return undefined;
+	}
+	return { ...(tokenUrl !== undefined ? { tokenUrl } : {}), ...(clientId !== undefined ? { clientId } : {}) };
 }
 
 /**

@@ -44,7 +44,7 @@ import {
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import { MirroredError } from "../../shared/mirroredError";
-import type { SecretFieldId } from "../../shared/serverEntry";
+import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
@@ -128,7 +128,7 @@ export interface IntentEnvironment {
 		label: string,
 		field: SecretFieldId,
 		value: string | undefined,
-		owner: string | undefined
+		owner: SecretOwner | undefined
 	): Promise<void>;
 	/** A label's secure-side blob with its ownership stamps; read for pairing validation and write rollback, never logged. */
 	readServerSecrets(label: string): Promise<StoredSecretsRecord>;

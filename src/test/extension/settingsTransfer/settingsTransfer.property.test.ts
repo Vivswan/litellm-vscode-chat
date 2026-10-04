@@ -392,6 +392,11 @@ suite("extension/settingsTransfer property: snapshot restore", () => {
 					const restore = planSnapshotRestore(snapshot);
 
 					const settingsState: Record<string, unknown> = { ...settingsAfter };
+					if (restore.serversValue === undefined) {
+						delete settingsState[SERVERS_SETTING_KEY];
+					} else {
+						settingsState[SERVERS_SETTING_KEY] = restore.serversValue;
+					}
 					for (const write of restore.settingWrites) {
 						settingsState[write.key] = write.value;
 					}

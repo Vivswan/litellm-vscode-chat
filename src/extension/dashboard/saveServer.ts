@@ -7,8 +7,8 @@
 import { isDeepStrictEqual } from "node:util";
 import * as l10n from "@vscode/l10n";
 import type { ReplacedEntryIdentity, RequestPayload, SecretDirective } from "../../dashboard/endpoints";
-import type { SecretFieldId } from "../../shared/serverEntry";
-import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
+import { pickNonSecretOptionalFields, SECRET_FIELD_IDS, sameSecretDestination } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServer } from "../servers/serverSync";
@@ -332,14 +332,14 @@ export async function applySaveServerSetting(
 	// fallback covers the unreachable parse failure without ever stamping a
 	// wrong destination.
 	const intendedEntry = acceptedEntry([newEntry], label)?.entry;
-	const destinationOf = (field: SecretFieldId): string =>
+	const destinationOf = (field: SecretFieldId): SecretOwner =>
 		secretDestination(intendedEntry ?? { baseUrl: intent.server.baseUrl.trim() }, field);
 
 	// A leftover blob field under the saved label is wiped when no plan can reference it (wiping after a rename's
 	// copy would delete the copied fields, so the two are exclusive). The wipe precedes the settings write and a
 	// throw restores every wiped field, so the gap's failure direction is a briefly missing credential, never a leaked one.
 	const wipesLeftovers = showing === undefined || (mode.kind === "rename" && !mode.willCopy);
-	const overwritten = new Map<SecretFieldId, { value: string | undefined; owner: string | undefined }>();
+	const overwritten = new Map<SecretFieldId, { value: string | undefined; owner: SecretOwner | undefined }>();
 	try {
 		if (mode.kind === "rename" && mode.willCopy) {
 			// The rename's copy writes the SNAPSHOT the plans resolved from, field
@@ -364,13 +364,14 @@ export async function applySaveServerSetting(
 		}
 		for (const field of SECRET_FIELD_IDS) {
 			const plan = plans[field];
+			const keptOwner = storedOldRecord.owners[field];
 			if (plan.kind === "set-secure") {
 				overwritten.set(field, { value: storedNewRecord.values[field], owner: storedNewRecord.owners[field] });
 				await env.storeServerSecret(label, field, plan.value, destinationOf(field));
 			} else if (
 				plan.kind === "stored" &&
 				mode.kind === "edit" &&
-				storedOldRecord.owners[field] !== destinationOf(field)
+				(keptOwner === undefined || !sameSecretDestination(keptOwner, destinationOf(field)))
 			) {
 				// A kept stored value under an edit that changed its destination (or
 				// one that predates stamping) is re-stamped: the user saw the field
@@ -422,12 +423,12 @@ export async function applySaveServerSetting(
 		// otherwise only the overwritten fields are touched, values and stamps
 		// alike. Fields no side ever held are skipped: "restoring" one is a
 		// no-op delete whose failure must not report a secret as changed.
-		const restores: [SecretFieldId, { value: string | undefined; owner: string | undefined }][] =
+		const restores: [SecretFieldId, { value: string | undefined; owner: SecretOwner | undefined }][] =
 			mode.kind === "rename" && mode.willCopy
 				? SECRET_FIELD_IDS.filter(
 						(field) =>
 							overwritten.has(field) || storedOld[field] !== undefined || storedNewRecord.values[field] !== undefined
-					).map((field): [SecretFieldId, { value: string | undefined; owner: string | undefined }] => [
+					).map((field): [SecretFieldId, { value: string | undefined; owner: SecretOwner | undefined }] => [
 						field,
 						{ value: storedNewRecord.values[field], owner: storedNewRecord.owners[field] },
 					])

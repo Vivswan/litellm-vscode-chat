@@ -14,7 +14,12 @@ import type {
 	SecretFieldId,
 	SecretLocation,
 } from "../shared/serverEntry";
-import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS, secretDestination } from "../shared/serverEntry";
+import {
+	NON_SECRET_OPTIONAL_FIELD_IDS,
+	SECRET_FIELD_IDS,
+	sameSecretDestination,
+	secretDestination,
+} from "../shared/serverEntry";
 import type { HeaderScalar } from "../shared/util/headers";
 import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
 import { isUnsafeRecordKey } from "../shared/util/json";
@@ -860,7 +865,7 @@ export function staleKeyFieldsOnSave(intent: ServerFormIntent): readonly SecretF
 		(field) =>
 			intent.secrets[field].action === "keep" &&
 			original.secrets[field] === "secure" &&
-			secretDestination(intent.server, field) !== secretDestination(original, field)
+			!sameSecretDestination(secretDestination(intent.server, field), secretDestination(original, field))
 	);
 }
 
