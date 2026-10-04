@@ -23,8 +23,8 @@ bun scripts/dev/stageGenerated.ts
 
 # The static gates: workflow lint, the @types/vscode versus engines.vscode guard (the same script CI's format-check
 # runs), lint, the typecheck of all four tsconfig projects (`compile` builds the root one alone, and a webview type
-# error once reached main through that gap), the l10n gate, and the three generator drift checks (the settings
-# reference, the tool schemas, the manifest's configuration block). About twenty seconds together.
+# error once reached main through that gap), the l10n gate, and the two generator drift checks (the generated manifest
+# blocks, the settings reference). About twenty seconds together.
 bun run check:static
 
 # The bun tree only, through its launcher (scripts/bun-test.ts), which drops the GIT_DIR and GIT_INDEX_FILE git
