@@ -1,4 +1,7 @@
 import { z } from "zod";
+import type { CostCapabilityField } from "../../shared/config/capabilityResolution";
+import { consumedFieldsOfKind } from "../../shared/config/capabilityResolution";
+import { recordFromKeys } from "../../shared/util/json";
 
 /**
  * Discovery payload schemas and the normalized model shapes they produce.
@@ -12,15 +15,43 @@ import { z } from "zod";
 export type OutputLimitSource = "provider" | "defaults";
 
 /**
+ * A cost field under this prefix is discovery's long-context tier of the wire cost field it prefixes: LiteLLM
+ * reports tiers as `<wire field>_above_<N>k_tokens` keys, never under the tier's own name.
+ */
+export const LONG_CONTEXT_COST_PREFIX = "long_context_";
+
+export type LongContextCostField = Extract<CostCapabilityField, `${typeof LONG_CONTEXT_COST_PREFIX}${string}`>;
+
+/** A cost field LiteLLM reports directly under its own name. */
+type WireCostField = Exclude<CostCapabilityField, LongContextCostField>;
+
+export function isLongContextCostField(field: CostCapabilityField): field is LongContextCostField {
+	return field.startsWith(LONG_CONTEXT_COST_PREFIX);
+}
+
+/** The cost vocabulary split by origin, each list in the vocabulary's declaration order. */
+export const LONG_CONTEXT_COST_FIELDS: readonly LongContextCostField[] =
+	consumedFieldsOfKind("cost").filter(isLongContextCostField);
+export const WIRE_COST_FIELDS: readonly WireCostField[] = consumedFieldsOfKind("cost").filter(
+	(field): field is WireCostField => !isLongContextCostField(field)
+);
+
+/**
+ * The cost fields as a provider entry carries them: per-token costs as LiteLLM reports them (registration converts
+ * them to a per-million display cost), null where a merged entry's deployments disagree.
+ */
+type ProviderCosts = { [K in CostCapabilityField]?: number | null | undefined };
+
+/**
  * A single underlying provider (e.g. together, groq) for a model: capability
  * metadata read from the LiteLLM API - what the model CAN do, not what we ask
  * it to do. Only `provider` is validated on the wire; discovery authors the
  * internal markers and narrows the four token-limit fields (positive numbers
- * or undefined, by construction) and the 8 cost fields (under the zero-pair
- * no-pricing rule), and the remaining fields are typed reads of the
- * passed-through entry.
+ * or undefined, by construction) and the cost fields (under the zero-pair
+ * no-pricing rule; the long-context tiers never pass through raw), and the
+ * remaining fields are typed reads of the passed-through entry.
  */
-export interface LiteLLMProvider {
+export interface LiteLLMProvider extends ProviderCosts {
 	provider: string;
 	status: string;
 	/** Wire pass-throughs may carry null; supportsTools treats only an explicit false as a veto. */
@@ -53,19 +84,6 @@ export interface LiteLLMProvider {
 	 * wire entry cannot forge the list past the flags.
 	 */
 	reasoning_effort_levels?: string[] | null | undefined;
-	/** Cost per input token as LiteLLM reports it; registration converts it to a per-million display cost. */
-	input_cost_per_token?: number | null | undefined;
-	output_cost_per_token?: number | null | undefined;
-	cache_read_input_token_cost?: number | null | undefined;
-	cache_creation_input_token_cost?: number | null | undefined;
-	/**
-	 * Long-context tier costs, synthesized by discovery from LiteLLM's
-	 * threshold-suffixed cost keys; never pass through raw.
-	 */
-	long_context_input_cost_per_token?: number | null | undefined;
-	long_context_output_cost_per_token?: number | null | undefined;
-	long_context_cache_read_input_token_cost?: number | null | undefined;
-	long_context_cache_creation_input_token_cost?: number | null | undefined;
 }
 
 export interface LiteLLMArchitecture {
@@ -166,10 +184,7 @@ const modelInfoFieldsSchema = z.looseObject({
 			.transform((params) => params.filter((param): param is string => typeof param === "string"))
 			.nullable()
 	),
-	input_cost_per_token: lenientCost,
-	output_cost_per_token: lenientCost,
-	cache_read_input_token_cost: lenientCost,
-	cache_creation_input_token_cost: lenientCost,
+	...recordFromKeys(WIRE_COST_FIELDS, () => lenientCost),
 });
 
 /**

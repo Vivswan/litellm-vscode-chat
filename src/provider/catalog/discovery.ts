@@ -1,5 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import type OpenAI from "openai";
+import type { CostCapabilityField } from "../../shared/config/capabilityResolution";
+import { consumedFieldsOfKind } from "../../shared/config/capabilityResolution";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
 import { classificationOf, errorMessageText } from "../../shared/logger";
@@ -7,7 +9,7 @@ import type { NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { isNonChatMode } from "../../shared/serverEntry";
 import { displayUrl } from "../../shared/util/displayUrl";
 import { collapseWhitespace } from "../../shared/util/errorText";
-import { isRecord } from "../../shared/util/json";
+import { isRecord, recordFromKeys } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
 import { mapSdkError, RequestError, timeoutRequestError } from "../transport/errorMapping";
@@ -18,9 +20,18 @@ import type {
 	LiteLLMModelInfoItem,
 	LiteLLMModelItem,
 	LiteLLMProvider,
+	LongContextCostField,
 	RawModelItem,
 } from "./schemas";
-import { providerEntrySchema, rawModelInfoItemSchema, rawModelItemSchema, supportsTools } from "./schemas";
+import {
+	isLongContextCostField,
+	LONG_CONTEXT_COST_FIELDS,
+	LONG_CONTEXT_COST_PREFIX,
+	providerEntrySchema,
+	rawModelInfoItemSchema,
+	rawModelItemSchema,
+	supportsTools,
+} from "./schemas";
 
 /**
  * The retry budget for discovery GETs: idempotent, so retrying is safe; chat
@@ -47,46 +58,22 @@ function isProviderEntry(value: unknown): value is LiteLLMProvider {
 	return providerEntrySchema.safeParse(value).success;
 }
 
-/** The four long-context cost fields discovery synthesizes onto a provider. */
-type LongContextCosts = Pick<
-	LiteLLMProvider,
-	| "long_context_input_cost_per_token"
-	| "long_context_output_cost_per_token"
-	| "long_context_cache_read_input_token_cost"
-	| "long_context_cache_creation_input_token_cost"
->;
+const COST_FIELDS = consumedFieldsOfKind("cost");
 
-/** The LiteLLM base cost key behind each synthesized field; tiered wire keys suffix these with _above_<N>k_tokens. */
-const LONG_CONTEXT_FIELDS = {
-	long_context_input_cost_per_token: "input_cost_per_token",
-	long_context_output_cost_per_token: "output_cost_per_token",
-	long_context_cache_read_input_token_cost: "cache_read_input_token_cost",
-	long_context_cache_creation_input_token_cost: "cache_creation_input_token_cost",
-} as const satisfies Record<keyof LongContextCosts, string>;
+/** The wire key a long-context field tiers; LiteLLM suffixes it with _above_<N>k_tokens per threshold. */
+function tieredBaseKey(field: LongContextCostField): string {
+	return field.slice(LONG_CONTEXT_COST_PREFIX.length);
+}
 
-const TIERED_COST_KEY = new RegExp(`^(${Object.values(LONG_CONTEXT_FIELDS).join("|")})_above_(\\d+)k_tokens$`);
+const TIERED_COST_KEY = new RegExp(`^(${LONG_CONTEXT_COST_FIELDS.map(tieredBaseKey).join("|")})_above_(\\d+)k_tokens$`);
 
-/** The 8 per-token cost fields discovery authors onto every provider entry. */
-type ServerCosts = Pick<
-	LiteLLMProvider,
-	| "input_cost_per_token"
-	| "output_cost_per_token"
-	| "cache_read_input_token_cost"
-	| "cache_creation_input_token_cost"
-	| keyof LongContextCosts
->;
+/**
+ * The cost fields discovery authors onto every provider entry, each explicitly present so spreading the result
+ * overrides look-alike pass-through keys.
+ */
+type ServerCosts = { readonly [K in CostCapabilityField]: number | null | undefined };
 
-/** Every ServerCosts field explicitly absent, so spreading it still overrides look-alike pass-through keys. */
-const NO_SERVER_COSTS: ServerCosts = {
-	input_cost_per_token: undefined,
-	output_cost_per_token: undefined,
-	cache_read_input_token_cost: undefined,
-	cache_creation_input_token_cost: undefined,
-	long_context_input_cost_per_token: undefined,
-	long_context_output_cost_per_token: undefined,
-	long_context_cache_read_input_token_cost: undefined,
-	long_context_cache_creation_input_token_cost: undefined,
-};
+const NO_SERVER_COSTS: ServerCosts = recordFromKeys(COST_FIELDS, () => undefined);
 
 /**
  * LiteLLM stamps input/output_cost_per_token: 0 onto entries that declare no pricing, so this ingest
@@ -103,13 +90,10 @@ function serverCostsOf(entry: unknown): ServerCosts {
 	if (input === 0 && output === 0) {
 		return NO_SERVER_COSTS;
 	}
-	return {
-		input_cost_per_token: input,
-		output_cost_per_token: output,
-		cache_read_input_token_cost: normalizeCostPerToken(record.cache_read_input_token_cost),
-		cache_creation_input_token_cost: normalizeCostPerToken(record.cache_creation_input_token_cost),
-		...longContextCosts(entry),
-	};
+	const longContextCost = longContextCostsOf(record);
+	return recordFromKeys(COST_FIELDS, (field) =>
+		isLongContextCostField(field) ? longContextCost(field) : normalizeCostPerToken(record[field])
+	);
 }
 
 /**
@@ -117,26 +101,19 @@ function serverCostsOf(entry: unknown): ServerCosts {
  * boundary a growing prompt crosses). Only keys holding a usable cost enter the selection, so an
  * all-malformed tier cannot mask a well-formed higher one.
  */
-function longContextCosts(entry: unknown): LongContextCosts {
+function longContextCostsOf(record: Record<string, unknown>): (field: LongContextCostField) => number | undefined {
 	const tiered: { threshold: number; baseKey: string; cost: number }[] = [];
-	if (isRecord(entry)) {
-		for (const [key, value] of Object.entries(entry)) {
-			const match = TIERED_COST_KEY.exec(key);
-			const cost = match ? normalizeCostPerToken(value) : undefined;
-			if (match?.[1] !== undefined && match[2] !== undefined && cost !== undefined) {
-				tiered.push({ threshold: Number(match[2]), baseKey: match[1], cost });
-			}
+	for (const [key, value] of Object.entries(record)) {
+		const match = TIERED_COST_KEY.exec(key);
+		const cost = match ? normalizeCostPerToken(value) : undefined;
+		if (match?.[1] !== undefined && match[2] !== undefined && cost !== undefined) {
+			tiered.push({ threshold: Number(match[2]), baseKey: match[1], cost });
 		}
 	}
 	const lowest = tiered.reduce((min, t) => Math.min(min, t.threshold), Number.POSITIVE_INFINITY);
-	const costAt = (baseKey: string) => tiered.find((t) => t.threshold === lowest && t.baseKey === baseKey)?.cost;
-	return {
-		long_context_input_cost_per_token: costAt(LONG_CONTEXT_FIELDS.long_context_input_cost_per_token),
-		long_context_output_cost_per_token: costAt(LONG_CONTEXT_FIELDS.long_context_output_cost_per_token),
-		long_context_cache_read_input_token_cost: costAt(LONG_CONTEXT_FIELDS.long_context_cache_read_input_token_cost),
-		long_context_cache_creation_input_token_cost: costAt(
-			LONG_CONTEXT_FIELDS.long_context_cache_creation_input_token_cost
-		),
+	return (field) => {
+		const baseKey = tieredBaseKey(field);
+		return tiered.find((t) => t.threshold === lowest && t.baseKey === baseKey)?.cost;
 	};
 }
 
@@ -149,9 +126,9 @@ export function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["l
 			// stage trusts is authored after the spread: the internal
 			// `output_limit_source` marker is cleared so a wire entry cannot forge
 			// it, the four token limits are narrowed to positive numbers (numeric
-			// strings and null degrade to undefined, so downstream reads take the
-			// fields as-is), the 8 costs are authored under the zero-pair rule, and
-			// the long-context tier costs are synthesized.
+			// strings parse, null and junk degrade to undefined, so downstream reads
+			// take the fields as-is), the costs are authored under the zero-pair
+			// rule, and the long-context tier costs are synthesized.
 			providers.push({
 				...entry,
 				output_limit_source: undefined,
@@ -306,18 +283,7 @@ export function mergeModelDeployments(deployments: ModelDeployments): MappedMode
 		supports_pdf_input: everyDeploymentSupports(providers.map((p) => p.supports_pdf_input)),
 		supported_openai_params: intersectSupportedParams(providers.map((p) => p.supported_openai_params)),
 		reasoning_effort_levels: intersectSupportedParams(providers.map((p) => p.reasoning_effort_levels)),
-		input_cost_per_token: agreedCost(providers.map((p) => p.input_cost_per_token)),
-		output_cost_per_token: agreedCost(providers.map((p) => p.output_cost_per_token)),
-		cache_read_input_token_cost: agreedCost(providers.map((p) => p.cache_read_input_token_cost)),
-		cache_creation_input_token_cost: agreedCost(providers.map((p) => p.cache_creation_input_token_cost)),
-		long_context_input_cost_per_token: agreedCost(providers.map((p) => p.long_context_input_cost_per_token)),
-		long_context_output_cost_per_token: agreedCost(providers.map((p) => p.long_context_output_cost_per_token)),
-		long_context_cache_read_input_token_cost: agreedCost(
-			providers.map((p) => p.long_context_cache_read_input_token_cost)
-		),
-		long_context_cache_creation_input_token_cost: agreedCost(
-			providers.map((p) => p.long_context_cache_creation_input_token_cost)
-		),
+		...recordFromKeys(COST_FIELDS, (field) => agreedCost(providers.map((p) => p[field]))),
 	};
 	const inputModalities = first.inputModalities.filter((modality) =>
 		rest.every((deployment) => deployment.inputModalities.includes(modality))
