@@ -140,30 +140,10 @@ jobs:
       - name: Compile
         run: bun run compile
 
-      # The host suite asks update.code.visualstudio.com for the current build on every job, and that lookup has died
-      # with ETIMEDOUT before a single test ran. The weekly key follows the current build; the prefix restore keeps
-      # last week's as the fallback @vscode/test-electron reads when the lookup fails (its newest vscode-<platform>-*).
-      #   lookup ok, build cached   -> no download
-      #   lookup ok, build missing  -> download; saved only when this week's key was a miss
-      #   lookup times out          -> a warning, the newest cached build runs
-      - name: Stamp the week
-        id: vscode-week
-        shell: bash
-        run: echo "stamp=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
-
       - name: Cache the VS Code build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/vscode-test-cache
         with:
-          path: .vscode-test
-          key: vscode-test-${{ runner.os }}-${{ runner.arch }}-${{ inputs.vscode-version || 'stable' }}-${{ steps.vscode-week.outputs.stamp }}
-          restore-keys: vscode-test-${{ runner.os }}-${{ runner.arch }}-${{ inputs.vscode-version || 'stable' }}-
-
-      # A prefix restore would otherwise carry every build ever cached; the fallback only ever reads the newest.
-      - name: Keep only the newest cached build
-        shell: bash
-        run: |
-          shopt -s nullglob
-          printf '%s\n' .vscode-test/vscode-*/ | sort -V | sed '$d' | while read -r dir; do rm -rf "$dir"; done
+          version: ${{ inputs.vscode-version || 'stable' }}
 
       # Linux also collects coverage and enforces the line-coverage floor;
       # one coverage-enforcing OS keeps CI time in check. A non-empty
