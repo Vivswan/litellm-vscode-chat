@@ -119,7 +119,7 @@ const COST_FIELDS = consumedFieldsOfKind("cost");
  * zero cannot ride a negative sign into the per-million conversion; merged
  * entries carry null for disagreeing costs, which reads as absent here).
  */
-function serverCostValues(costs: PerTokenCosts): Partial<ServerCapabilityValues> {
+function serverCostValues(costs: Readonly<PerTokenCosts>): Partial<ServerCapabilityValues> {
 	const values: { -readonly [K in CostCapabilityField]?: number } = {};
 	for (const field of COST_FIELDS) {
 		const cost = normalizeCostPerToken(costs[field]);
@@ -184,7 +184,7 @@ export interface DiscoveredBaselineInput {
 	 * registration deliberately never priced them, and the walk's server level
 	 * must not offer what the picker refused to advertise.
 	 */
-	readonly costs?: PerTokenCosts | undefined;
+	readonly costs?: Readonly<PerTokenCosts> | undefined;
 }
 
 /**
