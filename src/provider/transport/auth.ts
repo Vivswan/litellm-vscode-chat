@@ -134,8 +134,9 @@ export class OAuthTokenSource {
 		const exchange: SharedExchange = {
 			waiters: 0,
 			abandon: () => controller.abort(),
-			// Publishing the token and leaving the map happen in the settling step itself, so no newcomer can join an
-			// exchange that has already settled.
+			// A settled exchange is never joinable: both arms leave the map before they settle.
+			//   fulfilled -> cache the token -> forget -> resolve
+			//   rejected  -> forget -> rethrow
 			token: exchangeClientCredentials(config, controller.signal).then(
 				({ accessToken, expiresInSeconds }) => {
 					const lifetimeMs = expiresInSeconds * 1000;
