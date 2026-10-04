@@ -1,8 +1,6 @@
 /**
- * Moves every string stamp on an OAuth client secret (the earlier form: the token URL alone) to secretDestination's
- * structured form (shared/serverEntry.ts), so no raw string remains on that field and no token URL text can match a
- * structured stamp. The one place that knows the earlier form: the undo of a settings import restores recorded stamps
- * through upgradedStamp too, so a snapshot taken before this release restores a secret its entry can still use.
+ * Moves the stamp 0.6.7 and earlier wrote on an OAuth client secret (the token URL as a string) to secretDestination's
+ * object (shared/serverEntry.ts); a blob with no string stamp on that field is a no-op.
  *
  *   string equal to the entry's token URL -> the entry's destination
  *   any other string                       -> { tokenUrl: <the string> } ("" -> {}), a mismatch under both rules
@@ -19,6 +17,7 @@ import { readServerSecretsRecord, restampServerSecretOwner, secretDestination } 
 import { parseServersSetting } from "../servers/serverSync/setting";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
+/** The one reader of the earlier stamp; the undo of a settings import restores a snapshot 0.6.7 wrote through it too. */
 export function upgradedStamp(entry: SecretDestinationEntry, field: SecretFieldId, owner: SecretOwner): SecretOwner {
 	if (field !== "oauthClientSecret" || typeof owner !== "string") {
 		return owner;

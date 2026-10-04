@@ -13,7 +13,7 @@
  * Pure and vscode-free.
  */
 
-import { ALL_SETTING_KEYS } from "../../shared/config/settingSpec";
+import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { isUnsafeRecordKey } from "../../shared/util/json";
 import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
 
@@ -80,9 +80,11 @@ export async function buildPreImportSnapshot(
 }
 
 export interface SnapshotRestore {
-	/** Keys to write back to the user scope with their recorded values. */
+	/** The recorded servers setting (undefined: recorded absent), set apart because the undo writes it before any blob. */
+	readonly serversValue: unknown;
+	/** The other keys to write back to the user scope with their recorded values. */
 	readonly settingWrites: readonly { readonly key: string; readonly value: unknown }[];
-	/** Keys recorded absent, to remove from the user scope. */
+	/** The other keys recorded absent, to remove from the user scope. */
 	readonly settingRemovals: readonly string[];
 	/** Labels whose recorded blob is written back whole, ownership stamps included. */
 	readonly blobWrites: readonly {
@@ -96,9 +98,14 @@ export interface SnapshotRestore {
 
 /** Turn a snapshot into the exact writes and removals that restore it. */
 export function planSnapshotRestore(snapshot: PreImportSnapshot): SnapshotRestore {
+	const serversEntry = snapshot.settings[SERVERS_SETTING_KEY];
+	const serversValue = serversEntry?.present === true ? serversEntry.value : undefined;
 	const settingWrites: { key: string; value: unknown }[] = [];
 	const settingRemovals: string[] = [];
 	for (const [key, entry] of Object.entries(snapshot.settings)) {
+		if (key === SERVERS_SETTING_KEY) {
+			continue;
+		}
 		if (entry.present) {
 			settingWrites.push({ key, value: entry.value });
 		} else {
@@ -114,5 +121,5 @@ export function planSnapshotRestore(snapshot: PreImportSnapshot): SnapshotRestor
 			blobRemovals.push(label);
 		}
 	}
-	return { settingWrites, settingRemovals, blobWrites, blobRemovals };
+	return { serversValue, settingWrites, settingRemovals, blobWrites, blobRemovals };
 }

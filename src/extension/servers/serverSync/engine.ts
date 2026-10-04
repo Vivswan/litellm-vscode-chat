@@ -397,44 +397,40 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
-	 * A multi-write flow (settings import, its undo) is one unit to the engine: no pass starts while held, and release
-	 * runs exactly one if anything asked. An in-flight pass finishes before the hold is granted.
+	 * A multi-write flow (settings import, its undo) is one unit to the engine: no pass starts while `run` is in flight,
+	 * and its end runs exactly one if anything asked. An in-flight pass finishes before `run` starts.
 	 *
-	 *   requestSync (both listeners, a pending debounce) -> noted; the one pass after release
+	 *   requestSync (both listeners, a pending debounce) -> noted; the one pass after `run`
 	 *   a finished pass's queued follow-up               -> lands here too, since the relaunch routes through syncNow
-	 *   explicit syncNow(force)                          -> waits; resolves after the post-release pass, forced if asked
+	 *   explicit syncNow(force)                          -> waits; resolves after that pass, forced if asked
 	 */
-	async hold(): Promise<() => void> {
+	async withHold<T>(run: () => Promise<T>): Promise<T> {
 		this.holds += 1;
 		if (this.timer !== undefined) {
 			clearTimeout(this.timer);
 			this.timer = undefined;
 			this.heldRequest ??= { force: false, waiters: [] };
 		}
-		// The finally of a finishing pass relaunches its queued follow-up before this continuation resumes; the loop sees
-		// that relaunch land in the held branch (no new `running`) or awaits it.
-		while (this.running !== undefined) {
-			await this.running;
-		}
-		let released = false;
-		return () => {
-			if (released) {
-				return;
+		try {
+			// The finally of a finishing pass relaunches its queued follow-up before this continuation resumes; the loop sees
+			// that relaunch land in the held branch (no new `running`) or awaits it.
+			while (this.running !== undefined) {
+				await this.running;
 			}
-			released = true;
+			return await run();
+		} finally {
 			this.holds -= 1;
 			const request = this.heldRequest;
-			if (this.holds > 0 || request === undefined) {
-				return;
+			if (this.holds === 0 && request !== undefined) {
+				this.heldRequest = undefined;
+				const settle = () => {
+					for (const waiter of request.waiters) {
+						waiter();
+					}
+				};
+				void this.syncNow(request.force).then(settle, settle);
 			}
-			this.heldRequest = undefined;
-			const settle = () => {
-				for (const waiter of request.waiters) {
-					waiter();
-				}
-			};
-			void this.syncNow(request.force).then(settle, settle);
-		};
+		}
 	}
 
 	async syncNow(force = false): Promise<void> {

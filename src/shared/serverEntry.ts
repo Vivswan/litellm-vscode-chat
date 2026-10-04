@@ -79,9 +79,7 @@ export type SecretLocation = "settings" | "secure" | "none";
  *
  *   key                 -> base URL, normalized (the transport treats a trailing slash there as insignificant)
  *   OAuth client secret -> { tokenUrl, clientId }: the token URL VERBATIM (the exchange fetches it exactly, so /token
- *                          and /token/ differ) and the client whose secret it is; a plain string on this field is the
- *                          earlier stamp, which migrations/oauthStampClientId.ts wraps and sameSecretDestination
- *                          never matches, so no token URL text can collide with a structured stamp
+ *                          and /token/ differ) and the client whose secret it is
  *   no token URL        -> {}, a real stamp, so gaining a token URL later still needs a deliberate re-pairing
  */
 export function secretDestination(entry: SecretDestinationEntry, field: SecretFieldId): SecretOwner {
@@ -118,7 +116,7 @@ export function sameSecretDestination(a: SecretOwner, b: SecretOwner): boolean {
 
 /**
  * The one decoder of a persisted stamp (a SecretStorage blob's `_owner` value, a snapshot's `owners` value): a string
- * ("" included: stored with no destination) or the structured OAuth form with no other key; anything else is no stamp.
+ * ("" included) or an OAuth destination object with no other key; anything else is no stamp.
  */
 export function parseSecretOwner(raw: unknown): SecretOwner | undefined {
 	if (typeof raw === "string") {
