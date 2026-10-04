@@ -52,17 +52,15 @@ import {
 	secretDestination,
 } from "../../shared/serverEntry";
 import { DEFAULT_API_VERSION, mcpEndpointOf } from "../../shared/util/baseUrl";
+import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { AdoptForm } from "./adoptForm";
 import { BackToServers } from "./backToServers";
 import type { DocsUrl } from "./docsLinks";
 import {
 	DOCS_LINK_AUTHENTICATION,
-	DOCS_LINK_CHECK_BASE_URL,
-	DOCS_LINK_CONFIGURE_API_KEY,
 	DOCS_LINK_DECLARED_MODELS,
 	DOCS_LINK_MODEL_CAPABILITIES,
 	DOCS_LINK_MODEL_PARAMETERS,
-	DOCS_LINK_PROXY_NOT_RUNNING,
 	DOCS_LINK_SERVER_FORM,
 } from "./docsLinks";
 import { FailureText } from "./failureText";
@@ -175,30 +173,31 @@ type TestState =
 	  };
 
 /**
- * The troubleshooting-guide section behind a setup-hint id (see shared/errorClassification.ts).
- * Labels resolve per call so the l10n bundle is honored; shared by the draft-test footer and
- * the servers error banner, so a classified failure links the same section everywhere.
+ * The troubleshooting-guide section behind a setup-hint id, read from the host's own hint-to-heading record so
+ * the dashboard and the host's toasts land on one heading. Labels resolve per call so the l10n bundle is
+ * honored; shared by the draft-test footer and the servers error banner, so a classified failure links the
+ * same section everywhere.
  */
 export function troubleshootingLink(hint: SetupHintKind): { href: DocsUrl; label: string; topic: string } {
+	const href = SETUP_HINT_DOCS_URLS[hint];
 	switch (hint) {
 		case "proxy-not-running":
 		case "use-bare-localhost":
-			// The bare-localhost advice is a bullet of the same connection-error
-			// section, so both hints link one heading.
+			// The bare-localhost advice is a bullet of the connection-error section, so both hints share one label.
 			return {
-				href: DOCS_LINK_PROXY_NOT_RUNNING,
+				href,
 				label: l10n.t("Open the troubleshooting guide: unable to connect"),
 				topic: l10n.t("unable to connect"),
 			};
 		case "configure-api-key":
 			return {
-				href: DOCS_LINK_CONFIGURE_API_KEY,
+				href,
 				label: l10n.t("Open the troubleshooting guide: authentication failed"),
 				topic: l10n.t("authentication failed"),
 			};
 		case "check-base-url":
 			return {
-				href: DOCS_LINK_CHECK_BASE_URL,
+				href,
 				label: l10n.t("Open the troubleshooting guide: the server answered 404"),
 				topic: l10n.t("the server answered 404"),
 			};

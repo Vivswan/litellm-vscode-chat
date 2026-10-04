@@ -7,8 +7,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import type { ReplacedEntryIdentity, RpcRequest } from "../../../../dashboard/endpoints";
 import type { DashboardServer } from "../../../../dashboard/viewModels";
+import { SETUP_HINT_DOCS_URLS } from "../../../../shared/util/links";
 import { App } from "../../../../webview/dashboard/app";
-import { DOCS_LINK_CHECK_BASE_URL, DOCS_LINK_PROXY_NOT_RUNNING } from "../../../../webview/dashboard/docsLinks";
 import { helpEntryModelParameterPrefix } from "../../../../webview/dashboard/helpText";
 import type { ServerEditRequest } from "../../../../webview/dashboard/serverEditPage";
 import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
@@ -1139,7 +1139,7 @@ test("a failed test with a setup hint renders the troubleshooting link inside th
 	// Full text pinned: dropping the copy-selection space would glue "404Troubleshoot" in copied text.
 	expect(alert?.textContent).toBe("the server answered 404 Troubleshoot");
 	const anchor = alert?.querySelector<HTMLAnchorElement>(".test-hint a.docs-link");
-	expect(anchor?.getAttribute("href")).toBe(DOCS_LINK_CHECK_BASE_URL);
+	expect(anchor?.getAttribute("href")).toBe(SETUP_HINT_DOCS_URLS["check-base-url"]);
 	expect(anchor?.getAttribute("aria-label")).toBe("Troubleshoot: the server answered 404");
 	expect(anchor?.textContent).toContain("Troubleshoot");
 
@@ -1192,8 +1192,8 @@ test("classified refresh failures carry a Troubleshoot link on their own row; un
 	// id, with an accessible label that LEADS with the visible verb (Label in Name).
 	const anchors = [...root.querySelectorAll<HTMLAnchorElement>(".row-diagnostic a.docs-link")];
 	expect(anchors.map((anchor) => anchor.getAttribute("href"))).toEqual([
-		DOCS_LINK_PROXY_NOT_RUNNING,
-		DOCS_LINK_CHECK_BASE_URL,
+		SETUP_HINT_DOCS_URLS["proxy-not-running"],
+		SETUP_HINT_DOCS_URLS["check-base-url"],
 	]);
 	expect(anchors.map((anchor) => anchor.getAttribute("aria-label"))).toEqual([
 		"Troubleshoot: unable to connect",

@@ -1,11 +1,13 @@
 /**
- * Every external destination the Diagnostics feedback rows link to. The marketplace listing and the repository are
- * whatever package.json publishes - its `publisher`, `name`, and `repository.url`, read at bundle time - so a
- * renamed publisher or a moved repository re-points the rows instead of leaving a dead link behind. Those manifest
- * fields are the only interpolation: nothing here reads server data.
+ * Every external destination the Diagnostics feedback rows link to. The repository and the feature-request
+ * issue come from shared/util/links.ts, the one owner the extension host reads too; the marketplace listing is
+ * whatever package.json publishes - its `publisher` and `name`, read at bundle time - so a renamed publisher
+ * re-points the row instead of leaving a dead link behind. Those two manifest fields are the only
+ * interpolation: nothing here reads server data.
  */
 
-import { name, publisher, repository } from "../../../package.json";
+import { name, publisher } from "../../../package.json";
+import { GITHUB_FEATURE_REQUEST_URL, GITHUB_REPO_URL } from "../../shared/util/links";
 
 declare const feedbackUrl: unique symbol;
 
@@ -17,6 +19,5 @@ export type FeedbackUrl = string & { readonly [feedbackUrl]: true };
 
 export const FEEDBACK_LINK_RATE =
 	`https://marketplace.visualstudio.com/items?itemName=${publisher}.${name}&ssr=false#review-details` as FeedbackUrl;
-export const FEEDBACK_LINK_FEATURE_REQUEST =
-	`${repository.url}/issues/new?labels=enhancement&title=%5BFeature%5D+` as FeedbackUrl;
-export const FEEDBACK_LINK_REPOSITORY = repository.url as FeedbackUrl;
+export const FEEDBACK_LINK_FEATURE_REQUEST = GITHUB_FEATURE_REQUEST_URL as FeedbackUrl;
+export const FEEDBACK_LINK_REPOSITORY = GITHUB_REPO_URL as FeedbackUrl;

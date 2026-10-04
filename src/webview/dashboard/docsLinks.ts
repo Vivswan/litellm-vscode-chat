@@ -1,9 +1,12 @@
 /**
- * Every docs page the dashboard links out to. Literal string constants only - no
- * interpolation, even of other constants - so a read of this file proves link targets
- * never carry server data; docsLinks.test.tsx resolves every path and anchor against
- * docs/, so a renamed page fails CI instead of serving 404s.
+ * Every docs page the dashboard links out to. Literal string constants only - no interpolation, even of other
+ * constants - so a read of this file proves link targets never carry server data. The one outside source DocsUrl
+ * admits is the host's setup-hint record in shared/util/links.ts, whose values are literals in a module that
+ * imports nothing but a type. docsLinks.test.tsx resolves every path and anchor against docs/, so a renamed page
+ * fails CI instead of serving 404s.
  */
+
+import type { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 
 export const DOCS_LINK_SERVERS = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/servers.md";
 export const DOCS_LINK_GETTING_STARTED =
@@ -24,12 +27,6 @@ export const DOCS_LINK_MODEL_CAPABILITIES =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/models.md#capabilities";
 export const DOCS_LINK_PARAMS_INACTIVE =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#per-server-model-parameters-are-inactive";
-export const DOCS_LINK_CHECK_BASE_URL =
-	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#the-server-did-not-recognize-this-request--answered-404---it-responded-but-does-not-serve-the-litellm-api";
-export const DOCS_LINK_PROXY_NOT_RUNNING =
-	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#connection-error-unable-to-connect";
-export const DOCS_LINK_CONFIGURE_API_KEY =
-	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#authentication-failed";
 export const DOCS_LINK_OPENAI_COMPATIBLE =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#pointing-at-ollama-vllm-or-plain-openai-compatible-servers";
 export const DOCS_LINK_USAGE = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/usage.md";
@@ -46,8 +43,12 @@ export const DOCS_LINK_OPENROUTER_CATALOG =
 export const DOCS_LINK_SETTINGS_MIGRATION =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/settings.md#renamed-and-removed-settings";
 
-/** The only values a docs anchor may carry; DocsLink's href is typed to it. */
+/**
+ * The only values a docs anchor may carry; DocsLink's href is typed to it. The setup-hint headings join by
+ * reading the host's record, so a hint re-pointed there re-points the dashboard with it.
+ */
 export type DocsUrl =
+	| (typeof SETUP_HINT_DOCS_URLS)[keyof typeof SETUP_HINT_DOCS_URLS]
 	| typeof DOCS_LINK_SERVERS
 	| typeof DOCS_LINK_GETTING_STARTED
 	| typeof DOCS_LINK_SERVER_FORM
@@ -59,9 +60,6 @@ export type DocsUrl =
 	| typeof DOCS_LINK_MODEL_PARAMETERS
 	| typeof DOCS_LINK_MODEL_CAPABILITIES
 	| typeof DOCS_LINK_PARAMS_INACTIVE
-	| typeof DOCS_LINK_CHECK_BASE_URL
-	| typeof DOCS_LINK_PROXY_NOT_RUNNING
-	| typeof DOCS_LINK_CONFIGURE_API_KEY
 	| typeof DOCS_LINK_OPENAI_COMPATIBLE
 	| typeof DOCS_LINK_USAGE
 	| typeof DOCS_LINK_RESOLVED_MODELS

@@ -1,24 +1,19 @@
 /**
- * The dashboard's "learn more" links into the docs: the host and webview copies agree, every path and #anchor
- * exists under docs/, and each section renders its link. Plain anchors need no plumbing or CSP grant.
+ * The dashboard's "learn more" links into the docs: every path and #anchor the webview or the host ships exists
+ * under docs/, and each section renders its link. Plain anchors need no plumbing or CSP grant.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DashboardSectionId } from "../../../../dashboard/viewModels";
-import type { SetupHintKind } from "../../../../shared/errorClassification";
-import { SETUP_HINT_KINDS } from "../../../../shared/errorClassification";
 import * as links from "../../../../shared/util/links";
 import { App } from "../../../../webview/dashboard/app";
 import * as docsLinks from "../../../../webview/dashboard/docsLinks";
 import {
-	DOCS_LINK_CHECK_BASE_URL,
-	DOCS_LINK_CONFIGURE_API_KEY,
 	DOCS_LINK_MODEL_CAPABILITIES,
 	DOCS_LINK_MODEL_PARAMETERS,
 	DOCS_LINK_MODELS,
 	DOCS_LINK_PARAMS_INACTIVE,
-	DOCS_LINK_PROXY_NOT_RUNNING,
 	DOCS_LINK_SERVER_FORM,
 	DOCS_LINK_SERVERS,
 	DOCS_LINK_SETTINGS,
@@ -42,17 +37,11 @@ const DOCS_BASE = `${links.GITHUB_REPO_URL}/blob/main/docs/`;
  * from a namespace import, so a future host link cannot escape the checks by not being hand-listed.
  */
 function hostLinkUrls(): [name: string, url: string][] {
-	return Object.entries(links).flatMap(([name, value]): [string, string][] => {
-		if (typeof value === "string") {
-			return [[name, value]];
-		}
-		if (typeof value === "object" && value !== null) {
-			return Object.entries(value)
-				.filter((entry): entry is [string, string] => typeof entry[1] === "string")
-				.map(([key, url]) => [`${name}.${key}`, url]);
-		}
-		return [];
-	});
+	return Object.entries(links).flatMap(([name, value]): [string, string][] =>
+		typeof value === "string"
+			? [[name, value]]
+			: Object.entries(value).map(([key, url]): [string, string] => [`${name}.${key}`, url])
+	);
 }
 
 /** Every docs URL the code ships: the webview constants plus the host-side links rooted under docs/. */
@@ -60,21 +49,6 @@ function allDocsUrls(): [name: string, url: string][] {
 	const entries = Object.entries(docsLinks).filter(([, value]) => typeof value === "string") as [string, string][];
 	return [...entries, ...hostLinkUrls().filter(([, url]) => url.startsWith(DOCS_BASE))];
 }
-
-test("the host's per-cause hint links and the dashboard's docsLinks constants agree", () => {
-	// The webview cannot consume SETUP_HINT_DOCS_URLS (layering plus the literal-strings-only contract force
-	// docsLinks.ts to ship its own copies), so this pin keeps the toast and the dashboard on the same heading. The
-	// Record type makes it exhaustive: a new hint id fails to compile until mapped.
-	const mirrored: Record<SetupHintKind, string> = {
-		"check-base-url": DOCS_LINK_CHECK_BASE_URL,
-		"proxy-not-running": DOCS_LINK_PROXY_NOT_RUNNING,
-		"configure-api-key": DOCS_LINK_CONFIGURE_API_KEY,
-		"use-bare-localhost": DOCS_LINK_PROXY_NOT_RUNNING,
-	};
-	for (const hint of SETUP_HINT_KINDS) {
-		expect(links.SETUP_HINT_DOCS_URLS[hint], hint).toBe(mirrored[hint]);
-	}
-});
 
 /** A markdown heading as GitHub's anchor slugger renders it. */
 function slug(heading: string): string {
