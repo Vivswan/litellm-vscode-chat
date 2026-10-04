@@ -4,6 +4,7 @@
  */
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
+import { classifyOverall } from "../../../dashboard/presenters";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import {
 	buildGroupArgs,
@@ -16,12 +17,14 @@ import {
 	ServerSyncEngine,
 } from "../../../extension/servers/serverSync";
 import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
+import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
 import { groupClientId } from "../../../provider/catalog/groupModels";
 import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
+import { unexpectedFailureCount } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { expectDefined } from "../../pureHelpers";
-import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
+import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } from "../../testUtils";
 import { makeSyncEnv, recordedEvents } from "./serverSyncHelpers";
 
 suite("extension/servers/serverSync: ServerSyncEngine", () => {
@@ -1061,6 +1064,87 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow(true);
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the blocked entry heals");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Taken"], "the landed add records its fingerprint");
+		});
+
+		test("re-adding a removed entry is in sync with the group the host kept, never a name conflict (#398)", async () => {
+			// The removal prunes the label's records while the host keeps serving its (hidden) group, so the re-add's
+			// duplicate refusal has no record to confirm against. One server, 10 served models, and the status
+			// surfaces read "Partial success: 1 serving, 1 failed, 10 models" until the duplicate reads as in sync.
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			recorded.duplicateLabels.add("Prod");
+			recorded.observedGroups = { Prod: ["http://prod.test"] };
+
+			recorded.setting = [];
+			await engine.syncNow();
+			assert.deepStrictEqual(recorded.fingerprints, {}, "the removal prunes the record");
+
+			recorded.setting = [{ label: "Prod", baseUrl: "http://prod.test" }];
+			await engine.syncNow();
+			const view = expectDefined(engine.getDeclared()[0]);
+			assert.strictEqual(view.syncFailure, undefined, "the served group is the entry's own identity");
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Prod"], "the confirmed duplicate records");
+			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://prod.test" }, "the ledger names the group");
+
+			const serving = makeServerStatus({ label: "Prod", entryLabel: "Prod", servedModelCount: 10 });
+			const judged = applySyncFailures([serving], engine.getDeclared());
+			assert.deepStrictEqual(judged, [serving], "the overlay leaves the serving row as it is");
+			assert.strictEqual(unexpectedFailureCount(judged), 0);
+			assert.strictEqual(classifyOverall(judged), "connected");
+		});
+
+		test("a lost record heals once the host is seen serving the label at the declared URL, and only then", async () => {
+			// Cold start with no record: the forced activation pass runs before the host reports the group, so the
+			// duplicate refusal has no proof and the entry blocks. The group entering the window re-runs a pass;
+			// a group served at another URL is a real conflict and stays blocked without a host call.
+			const cases: { observed: string; outcome: "healed" | "blocked" }[] = [
+				{ observed: "http://prod.test/", outcome: "healed" },
+				{ observed: "http://other.test", outcome: "blocked" },
+			];
+			for (const { observed, outcome } of cases) {
+				const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+				recorded.duplicateLabels.add("Prod");
+				// Attempts, not landed adds: a duplicate refusal records no upsert, so only this count can show hammering.
+				let hostCalls = 0;
+				const addProviderGroup = recorded.env.addProviderGroup;
+				recorded.env.addProviderGroup = (args) => {
+					hostCalls += 1;
+					return addProviderGroup(args);
+				};
+				const engine = new ServerSyncEngine(recorded.env);
+				await engine.syncNow(true);
+				assert.strictEqual(
+					engine.getDeclared()[0]?.syncFailure?.class,
+					"blocked",
+					`${observed}: before the host reports`
+				);
+				assert.strictEqual(hostCalls, 1);
+
+				recorded.observedGroups = { Prod: [observed] };
+				await engine.syncNow();
+				await engine.syncNow();
+				assert.strictEqual(
+					engine.getDeclared()[0]?.syncFailure?.class,
+					outcome === "healed" ? undefined : "blocked",
+					`${observed}: after the host reports`
+				);
+				assert.deepStrictEqual(
+					Object.keys(recorded.fingerprints),
+					outcome === "healed" ? ["Prod"] : [],
+					`${observed}: the record follows the verdict`
+				);
+				assert.strictEqual(
+					hostCalls,
+					outcome === "healed" ? 2 : 1,
+					`${observed}: the heal costs one host call and the in-sync record then stops them; a conflict makes none`
+				);
+				assert.strictEqual(
+					recorded.logged.filter(([message]) => message.includes("no update path")).length,
+					1,
+					`${observed}: the first refusal is the only conflict logged`
+				);
+			}
 		});
 
 		test("a stale fingerprint re-read cannot misclassify the engine's own group as a name conflict", async () => {

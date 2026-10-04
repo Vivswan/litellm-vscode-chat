@@ -194,7 +194,7 @@ export function groupIdentityArgs(args: Record<string, string>): Record<string, 
  * The "i1:" prefix lets migrations/fingerprintProjection.ts and the fuzz oracle tell this rendering from the
  * legacy one (both otherwise opaque hex); older versions compare records only by equality, so it is
  * downgrade-safe. The engine compares against this rendering ONLY, so an unmatched record sends the entry back
- * to the host, and a duplicate refusal there reads as blocked, carried until the entry is reverted, renamed, or removed.
+ * to the host.
  */
 export function groupArgsFingerprint(args: Record<string, string>): string {
 	return `i1:${fingerprint(JSON.stringify(groupIdentityArgs(args)))}`;
@@ -280,6 +280,7 @@ function isDuplicateGroupError(error: unknown): boolean {
  * last-known-good only, so this is the retry signal between passes.
  *
  *   blocked, unforced pass -> skip the host call and keep the error; the host has no update API, so the same configuration cannot land
+ *   blocked, but the host now serves the label at the declared URL -> back to the host once; its duplicate answer confirms (servedAsDeclared)
  *   blocked, forced pass   -> retry anyway; the user may have removed the stale group natively
  *   upsertFailed, revert   -> in sync without a call; the map's last-known-good already describes the live group
  */
@@ -584,6 +585,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 			const printed = groupArgsFingerprint(args);
 			printedByLabel.set(entry.label, printed);
 			const retryState = this.retry.get(entry.label);
+			// The host serving the label's one group at the entry's own URL proves that group IS this entry's identity
+			// (groupIdentityArgs covers nothing else; credentials overlay at serve time), so a duplicate refusal with
+			// no matching record is the add-only steady state, not a conflict (#398).
+			//   entry removed, then re-added  -> the removal pruned its records while the hidden group kept serving
+			//   records lost (new profile)    -> same evidence, same verdict
+			const servedAsDeclared = this.soleObservedBaseUrl(entry.label) === normalizeBaseUrl(entry.baseUrl);
 			if (secretsUnreadable) {
 				// Without the real secrets the fingerprint is not meaningful, so no
 				// host call and no retry bookkeeping (the stored retry state stays
@@ -627,7 +634,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// is moot for the same reason; only a failure for this very
 				// fingerprint (the guard above) sends the entry back to the host.
 				this.retry.delete(entry.label);
-			} else if (!force && retryState?.kind === "blocked" && retryState.fingerprint === printed) {
+			} else if (!force && retryState?.kind === "blocked" && retryState.fingerprint === printed && !servedAsDeclared) {
 				// The host already refused this exact configuration as a duplicate
 				// and offers no update path; retrying without a user gesture would
 				// just hammer the command. The last-known-good fingerprint is
@@ -685,7 +692,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 						// never invent a matching fingerprint, so a match proves the live
 						// group holds exactly these args while an absence proves nothing.
 						const storeRecord = this.env.getFingerprints()[entry.label];
-						const confirmed = previous[entry.label] === printed || storeRecord === printed;
+						const confirmed = previous[entry.label] === printed || storeRecord === printed || servedAsDeclared;
 						if (confirmed) {
 							// Under an add-only host, "the group already exists" for a
 							// confirmed configuration IS the synced steady state: every
