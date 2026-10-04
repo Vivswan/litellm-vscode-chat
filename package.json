@@ -79,9 +79,9 @@
 					"properties": {
 						"baseUrl": {
 							"type": "string",
-							"format": "uri",
 							"title": "%litellm.provider.baseUrl.title%",
-							"description": "%litellm.provider.baseUrl.description%"
+							"description": "%litellm.provider.baseUrl.description%",
+							"format": "uri"
 						},
 						"label": {
 							"type": "string",

@@ -460,7 +460,7 @@ interface ContributedChatProvider {
 	};
 }
 
-/** One configuration property; `secret` and `format` sit between the type and the prose. */
+/** One descriptor field's property; `secret` and `format` sit between the type and the prose, as the manifest reads. */
 function providerProperty(field: ProviderField): ProviderProperty {
 	return {
 		type: "string",
@@ -471,6 +471,21 @@ function providerProperty(field: ProviderField): ProviderProperty {
 	};
 }
 
+/** The two non-descriptor properties, in the manifest's own key order (baseUrl carries its format flag last). */
+const BASE_PROVIDER_PROPERTIES: Readonly<Record<string, ProviderProperty>> = {
+	baseUrl: {
+		type: "string",
+		title: "%litellm.provider.baseUrl.title%",
+		description: "%litellm.provider.baseUrl.description%",
+		format: "uri",
+	},
+	label: {
+		type: "string",
+		title: "%litellm.provider.label.title%",
+		description: "%litellm.provider.label.description%",
+	},
+};
+
 /**
  * contributes.languageModelChatProviders: the vendor and the group configuration's schema. baseUrl is the one
  * required field; label mirrors the servers entry label serverSync stamps in, giving groups that share a URL and
@@ -480,8 +495,8 @@ function providerProperty(field: ProviderField): ProviderProperty {
 export function renderLanguageModelChatProviders(
 	optionalFields: readonly ProviderField[] = OPTIONAL_ENTRY_FIELDS
 ): ContributedChatProvider[] {
-	const properties: Record<string, ProviderProperty> = {};
-	for (const field of [{ id: "baseUrl", format: "uri" } as const, { id: "label" }, ...optionalFields]) {
+	const properties: Record<string, ProviderProperty> = { ...BASE_PROVIDER_PROPERTIES };
+	for (const field of optionalFields) {
 		properties[field.id] = providerProperty(field);
 	}
 	return [

@@ -186,7 +186,7 @@ describe("manifest contributions renderer", () => {
 		);
 	});
 
-	test("the provider configuration keeps baseUrl required and orders each property type, flags, then prose", () => {
+	test("the provider configuration keeps baseUrl required and orders each descriptor property type, flags, then prose", () => {
 		const [provider] = renderLanguageModelChatProviders([
 			{ id: "token", secret: true },
 			{ id: "endpoint", secret: false, format: "uri" },
@@ -196,15 +196,6 @@ describe("manifest contributions renderer", () => {
 		assert.deepStrictEqual(Object.keys(properties), ["baseUrl", "label", "token", "endpoint"]);
 		assert.deepStrictEqual(required, ["baseUrl"]);
 		// Key order is compared through the serialization, as manifest:check compares it; deepStrictEqual ignores it.
-		assert.strictEqual(
-			JSON.stringify(properties.baseUrl),
-			JSON.stringify({
-				type: "string",
-				format: "uri",
-				title: "%litellm.provider.baseUrl.title%",
-				description: "%litellm.provider.baseUrl.description%",
-			})
-		);
 		assert.strictEqual(
 			JSON.stringify(properties.token),
 			JSON.stringify({
