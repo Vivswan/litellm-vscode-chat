@@ -9,7 +9,9 @@ import { type Block, blocks } from "../../src/test/bun/webview/dashboard/styles/
 /** The entry's own layers a plain sheet's layer must rank above: Tailwind's tokens and the hand-written reset. */
 const FLOOR_LAYERS = ["theme", "base"] as const;
 
-/** The one layer a plain sheet's layer must rank below: a utility class beats a stylesheet rule's normal declarations. */
+/**
+ * The one layer a plain sheet's layer must rank below: a utility class beats a stylesheet rule's normal declarations.
+ */
 const CEILING_LAYER = "utilities";
 
 /** A `@layer` block's prelude; the name is absent for an anonymous `@layer {`. */
@@ -31,19 +33,20 @@ export function assertLayersOrdered(pieces: readonly string[]): void {
 	// (a `content: "@layer x;"` is not a mention), then comments out.
 	const entry = first.replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, '""').replace(/\/\*[\s\S]*?\*\//g, "");
 	const entryBlocks = blocks(entry);
-	const mentions: { readonly name: string; readonly at: number; readonly condition: string | undefined }[] = [];
+	const mentions: { readonly name: string; readonly at: number; readonly foreignBlock: string | undefined }[] = [];
 	// A dotted name or a mention inside an `@layer` block names a sub-layer, and the first mention of `a.b` is also
 	// the first mention of `a`: every ancestor it implies ranks at that offset (parents pushed first, and the sort
-	// below is stable). A grouping rule (`@media`, `@supports`, `@container`) opens no layer but makes the mention
-	// conditional: the order a media or supports query establishes holds only where it matches, and a container query
-	// is settled per element, so the entry declares its order at the top level and a first mention under one fails.
+	// below is stable). Any other enclosing block refuses a FIRST mention, fail closed: under a media or supports
+	// query the order holds only where it matches, under a container query it is settled per element, and under a
+	// style rule this lexical walk cannot tell a nested layer (CSS nesting, a real layer) from a custom property
+	// value carrying the words, which ranks nothing. The entry declares its order at the top level, so none is lost.
 	const mention = (names: string, enclosing: readonly string[], at: number): void => {
 		const prefix: string[] = [];
-		let condition: string | undefined;
+		let foreignBlock: string | undefined;
 		for (const prelude of enclosing) {
 			const match = LAYER_PRELUDE.exec(prelude);
 			if (match === null) {
-				condition ??= prelude;
+				foreignBlock ??= prelude;
 				continue;
 			}
 			if (match[1] === undefined) {
@@ -55,7 +58,7 @@ export function assertLayersOrdered(pieces: readonly string[]): void {
 		for (const name of names.split(",")) {
 			const segments = [...prefix, ...name.trim().split(".")];
 			for (let depth = 1; depth <= segments.length; depth++) {
-				mentions.push({ name: segments.slice(0, depth).join("."), at, condition });
+				mentions.push({ name: segments.slice(0, depth).join("."), at, foreignBlock });
 			}
 		}
 	};
@@ -73,9 +76,9 @@ export function assertLayersOrdered(pieces: readonly string[]): void {
 		if (rank.includes(item.name)) {
 			continue;
 		}
-		if (item.condition !== undefined) {
+		if (item.foreignBlock !== undefined) {
 			throw new Error(
-				`[CSS_ERROR] the Tailwind entry first mentions @layer ${item.name} inside \`${item.condition}\`; the layer order is declared at the top level, outside every grouping rule`
+				`[CSS_ERROR] the Tailwind entry first mentions @layer ${item.name} inside \`${item.foreignBlock}\`; the layer order is declared at the top level, inside no other block`
 			);
 		}
 		rank.push(item.name);

@@ -60,7 +60,7 @@ const rejected: readonly {
 		sheet: plainSheet(),
 		named: ["components", "base"],
 	},
-	// A grouping rule opens no layer but holds only where its condition does: an order declared under print alone
+	// A grouping rule opens no layer and holds only where its condition does: an order declared under print alone
 	// leaves the screen with the unconditional one, which here puts components below base.
 	{
 		name: "a layer first mentioned inside a grouping rule",
@@ -68,6 +68,23 @@ const rejected: readonly {
 		sheet: plainSheet(),
 		named: ["theme", "@media print"],
 		lead: "@media print { @layer theme, base, components; }",
+	},
+	// A `@layer` block nested inside a style rule is a real layer (CSS nesting) that would rank components first;
+	// a custom property value carrying the same words ranks nothing. The lexical walk cannot tell them apart, so a
+	// first mention under a style rule fails closed either way, naming the rule.
+	{
+		name: "a layer block nested inside a style rule ahead of the order",
+		order: "theme, base, components, utilities",
+		sheet: plainSheet(),
+		named: ["components", "button.help"],
+		lead: "button.help { @layer components { color: red; } }",
+	},
+	{
+		name: "a layer statement inside a custom property value",
+		order: "theme, base, components, utilities",
+		sheet: plainSheet(),
+		named: ["diagnostic", ":root"],
+		lead: ":root { --debug: @layer diagnostic; }",
 	},
 	// A sub-layer ranks where its parent does: components.late after base in the flat list still sits inside
 	// components, which base beats.
