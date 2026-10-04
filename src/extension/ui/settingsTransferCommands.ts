@@ -484,14 +484,12 @@ async function applyServersUnit(
 		}
 		if (unrestoredLabels.size > 0) {
 			env.log("Settings import failed and left a stored secret unrestored", { error: errorLabel(error) });
-			// An unrestored secret is the IMPORTED credential, which belongs to
-			// its entry in serversValue, while the live entries are still
-			// pre-import (the servers write lands last). Withholding the wake
-			// would only defer the hazard - activation force-syncs, and any
-			// servers edit syncs too - so a credential whose live entry is not
-			// its own is CLEARED, the same rule the abandoned undo applies. Both
-			// values survive: the pre-import one in the snapshot slot this run
-			// wrote, the imported one in the file the user chose.
+			// A failed rollback can leave imported credentials under still pre-import entries (the servers write lands last),
+			// and no withheld wake hides that pairing: SecretStorage changes schedule their own sync (wiring/servers.ts),
+			// activation force-syncs, and any servers edit syncs. So a blob under an entry that is not its own is CLEARED, as
+			// the abandoned undo clears too; both values survive.
+			//   pre-import value -> the snapshot slot this run wrote
+			//   imported value   -> the file the user chose
 			const clearFailures = await clearMismatchedBlobs(
 				env,
 				unrestoredLabels,
@@ -954,8 +952,9 @@ const UNDO_CLEAR_FAILURE_LOG = "Undo import: re-clearing a restored secret under
 
 /**
  * A stored credential belongs only under the entry it was recorded for, so while the live entry is some OTHER
- * configuration (an undo's still-imported entry, a rollback's still-pre-import one) it is cleared. Withholding
- * the sync alone would not do, since activation force-syncs and any servers edit syncs too.
+ * configuration (an undo's still-imported entry, a rollback's still-pre-import one) it is cleared. Withholding the
+ * flow's explicit sync alone would not do: SecretStorage changes schedule their own sync (wiring/servers.ts),
+ * activation force-syncs, and any servers edit syncs too.
  *
  *   pre-import value -> in the snapshot slot; the kept snapshot restores whatever this removes once a retry lands the entries too
  *   imported value   -> in the user's import file
@@ -1046,9 +1045,10 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		).length;
 
 		let failures = 0;
-		// Restore order mirrors the import's adopt ordering: SecretStorage writes
-		// never wake the sync engine, the servers settings write does, so blobs
-		// restore first and the engine wakes to a consistent pre-import state.
+		// Blobs before the servers setting, as the import adopts, so a stop on a failed blob leaves the setting untouched.
+		// Both writes wake the engine (wiring/servers.ts); a pass over a half-restored pair meets the engine's own guards:
+		//   credential-only difference -> the identity print excludes credentials, so the group fingerprint is unchanged
+		//   restored field refused     -> resolveOwnedSecrets; that entry makes no host call
 		for (const write of restore.blobWrites) {
 			try {
 				// Field by field, absent fields cleared, so the blob is restored
@@ -1068,9 +1068,8 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			}
 		}
 		if (failures > 0) {
-			// Stop before the settings phase: writing the servers setting now would
-			// wake the sync engine against partially restored credentials. The slot
-			// is kept, so a retry finishes the job.
+			// Stop before the settings phase: the current entries stay live, so the clear below judges each restored blob
+			// against them. The slot is kept, so a retry redoes the whole restore.
 			failures += await clearMismatchedBlobs(
 				env,
 				restore.blobWrites.map((write) => write.label),
@@ -1103,10 +1102,8 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 				UNDO_CLEAR_FAILURE_LOG
 			);
 			failures += clearFailures;
-			// Every credential whose live entry is not its own is gone by now, so
-			// the only thing that still blocks the wake is a clear that failed and
-			// left one in place. The kept slot lets a retry finish the job and
-			// sync then.
+			// SecretStorage changes schedule their own sync (wiring/servers.ts); this branch controls only the flow's
+			// explicit request. The kept slot lets a retry clear a leftover and sync then.
 			if (clearFailures === 0) {
 				env.requestServerSync();
 			} else {

@@ -814,20 +814,15 @@ suite("settingsTransferCommands import flow", () => {
 		assert.match(note.message, /could not be restored/);
 		assert.deepStrictEqual(note.actions, ["Undo Import"]);
 		assert.ok(world.logs.some((line) => line.includes("also failed")));
-		// The unrestored secret is the imported key under the still-pre-import
-		// entry; the clear was attempted but the armed store fails deletes too,
-		// so the credential is still there and the engine must not wake.
+		// The armed store fails the clear too, so the imported key stays under the still-pre-import entry.
 		assert.ok(world.ops.includes(`secret-delete:${serverSecretsKey("a")}`), "the mismatched blob's clear is attempted");
 		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "NEW-KEY" }, "the failed clear leaves the imported key");
-		assert.strictEqual(world.syncRequests, 0, "an uncleared mismatched credential must not wake the engine");
+		assert.strictEqual(world.syncRequests, 0, "an uncleared mismatched credential earns no explicit sync request");
 		assert.ok(world.logs.some((line) => line.includes("could not be cleared")));
 	});
 
 	test("a failed rollback clears the imported credential under the re-pointed entry, then syncs", async () => {
-		// The restore write fails but the delete works: the imported key must
-		// not stay under a label whose live entry points at the old host, since
-		// activation force-syncs regardless of the withheld wake. Cleared, the
-		// pairing is consistent and the engine may reconcile now.
+		// Store fails, delete works: the imported key must leave the label whose live entry still points at the old host.
 		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] }, { a: { apiKey: "OLD-KEY" } });
 		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }] });
 		world.answers.collisions = { a: "overwrite" };
@@ -1117,8 +1112,6 @@ suite("settingsTransferCommands undo flow", () => {
 	});
 
 	test("undo restores blobs before settings, mirroring the import's adopt ordering", async () => {
-		// The servers settings write is what wakes the sync engine; the blobs
-		// must already hold their pre-import values when it lands.
 		const world = makeWorld(
 			{ "chat.timeout": 9999, servers: [{ label: "a", baseUrl: "http://old:4000" }] },
 			{ a: { apiKey: "PRE-KEY" } }
@@ -1145,9 +1138,7 @@ suite("settingsTransferCommands undo flow", () => {
 	});
 
 	test("a failed blob restore stops the undo before the settings phase", async () => {
-		// Writing the servers setting over partially restored credentials would
-		// wake the sync engine against a mismatched state; the settings phase
-		// must not start, and the kept slot lets a retry finish the job.
+		// The settings phase never starts over a failed blob restore; the kept slot lets a retry redo the whole restore.
 		const world = makeWorld(
 			{ "chat.timeout": 9999, servers: [{ label: "a", baseUrl: "http://old:4000" }] },
 			{ a: { apiKey: "PRE-KEY" } }
@@ -1172,7 +1163,7 @@ suite("settingsTransferCommands undo flow", () => {
 			"the abandoned restore leaves no blob under the still-imported entry"
 		);
 		assert.notStrictEqual(world.snapshotSlot, undefined, "the slot is kept for the retry");
-		assert.strictEqual(world.syncRequests, syncRequestsAfterImport, "nothing woke the engine, so nothing re-syncs");
+		assert.strictEqual(world.syncRequests, syncRequestsAfterImport, "the abandoned undo requests no sync itself");
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "warning");
 		assert.match(note.message, /snapshot was kept/);
@@ -1222,11 +1213,13 @@ suite("settingsTransferCommands undo flow", () => {
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "warning");
 		assert.match(note.message, /snapshot was kept/);
-		// The clear removed every credential sitting under an entry that did not
-		// restore, so the pairing is consistent again and the engine may wake -
-		// but only after the clear.
+		// The clear removed every credential sitting under an entry that did not restore, so the flow's explicit sync
+		// request follows the clear.
 		const lastDelete = world.ops.lastIndexOf(`secret-delete:${serverSecretsKey("retired")}`);
-		assert.ok(lastDelete !== -1 && lastDelete < world.ops.indexOf("sync"), "the re-clear precedes waking the engine");
+		assert.ok(
+			lastDelete !== -1 && lastDelete < world.ops.indexOf("sync"),
+			"the re-clear precedes the explicit sync request"
+		);
 
 		// The retry restores the orphan blob and removes the imported entry together.
 		world.failWrites.clear();
@@ -1292,7 +1285,7 @@ suite("settingsTransferCommands undo flow", () => {
 		assert.strictEqual(
 			world.syncRequests,
 			syncsAfterImport,
-			"the failed re-clear left a restored credential under an unrestored entry, so nothing may wake the engine"
+			"the failed re-clear left a restored credential under an unrestored entry, so the flow requests no sync itself"
 		);
 	});
 

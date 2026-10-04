@@ -81,11 +81,7 @@ export async function buildPreImportSnapshot(
 	return { settings, blobs, at: new Date().toISOString() };
 }
 
-/**
- * The write and remove lists the undo command applies. Blobs restore before
- * settings: the servers settings write is what wakes the sync engine, so the
- * blobs must already hold their pre-import values when it lands.
- */
+/** The write and remove lists the undo command applies. */
 export interface SnapshotRestore {
 	/** Keys to write back to the user scope with their recorded values. */
 	readonly settingWrites: readonly { readonly key: string; readonly value: unknown }[];
