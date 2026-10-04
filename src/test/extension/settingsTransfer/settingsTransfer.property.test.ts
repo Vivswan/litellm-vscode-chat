@@ -84,9 +84,9 @@ const validServersArb: fc.Arbitrary<Record<string, unknown>[]> = fc
 	);
 
 /**
- * Stored blob values stay unpadded on purpose: the inline settings grammar
- * trims, so a padded STORED value is not representable in an export file.
- * src/test/bun/extension/settingsTransfer/secretSurgery.test.ts pins the verbatim placement itself.
+ * Stored blob values stay unpadded on purpose: the inline settings grammar trims, so a padded STORED value is not
+ * representable in an export file. src/test/bun/extension/settingsTransfer/secretSurgery.test.ts pins the verbatim
+ * placement itself.
  */
 const blobArb: fc.Arbitrary<StoredServerSecrets> = fc
 	.record({
