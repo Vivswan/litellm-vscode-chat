@@ -37,10 +37,11 @@ export const WIRE_COST_FIELDS: readonly WireCostField[] = consumedFieldsOfKind("
 );
 
 /**
- * The cost fields as a provider entry carries them: per-token costs as LiteLLM reports them (registration converts
- * them to a per-million display cost), null where a merged entry's deployments disagree.
+ * The per-token cost fields as LiteLLM reports them and a provider entry carries them: null where a merged entry's
+ * deployments disagree, which reads as absent. Registration converts them to the per-million display cost and the
+ * capability baseline stores them as the server level; a plain record of effective values satisfies it too.
  */
-type ProviderCosts = { [K in CostCapabilityField]?: number | null | undefined };
+export type PerTokenCosts = { [K in CostCapabilityField]?: number | null | undefined };
 
 /**
  * A single underlying provider (e.g. together, groq) for a model: capability
@@ -51,7 +52,7 @@ type ProviderCosts = { [K in CostCapabilityField]?: number | null | undefined };
  * no-pricing rule; the long-context tiers never pass through raw), and the
  * remaining fields are typed reads of the passed-through entry.
  */
-export interface LiteLLMProvider extends ProviderCosts {
+export interface LiteLLMProvider extends PerTokenCosts {
 	provider: string;
 	status: string;
 	/** Wire pass-throughs may carry null; supportsTools treats only an explicit false as a veto. */

@@ -3,7 +3,6 @@ import { getCurrencySymbol } from "../../shared/config/settings";
 import type { ServerWithKey } from "../../shared/servers";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
 import type { PreAttachModelInfo } from "./groupModels";
-import type { PerTokenCosts } from "./modelCatalog";
 import {
 	buildExposedModelId,
 	collapseTokenConstraints,
@@ -12,7 +11,7 @@ import {
 	reportedReasoningLevels,
 } from "./modelCatalog";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema, supportsReasoningEffort } from "./modelConfiguration";
-import type { LiteLLMModelItem, LiteLLMProvider } from "./schemas";
+import type { LiteLLMModelItem, LiteLLMProvider, PerTokenCosts } from "./schemas";
 import { supportsTools } from "./schemas";
 
 export interface RegistrationResult {
