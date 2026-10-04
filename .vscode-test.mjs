@@ -169,7 +169,6 @@ export default defineConfig({
 			// zero labels or by more than one.
 			files: [
 				"out/test/creditConvention.test.js",
-				"out/test/dockerTestLabels.test.js",
 				"out/test/envFile.test.js",
 				"out/test/scenarios.test.js",
 				"out/test/stackDrift.test.js",

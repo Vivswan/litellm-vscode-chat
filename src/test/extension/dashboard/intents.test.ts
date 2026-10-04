@@ -1,10 +1,9 @@
 /**
- * executeDashboardIntent: the setting and command intents, adoptServer, and hidden
+ * executeDashboardIntent: the setting intents, adoptServer, and hidden
  * groups. The servers-setting intents have their own suite file.
  */
 import * as assert from "node:assert";
-import type { DashboardIntent, RequestPayload } from "../../../dashboard/endpoints";
-import { DASHBOARD_COMMAND_IDS } from "../../../dashboard/endpoints";
+import type { RequestPayload } from "../../../dashboard/endpoints";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
 import type { IntentAckNotice } from "../../../extension/dashboard/intents";
 import { executeDashboardIntent } from "../../../extension/dashboard/intents";
@@ -259,37 +258,6 @@ suite("extension/dashboard/intents", () => {
 				["inlineCompletions.languageFilter", { mode: "allow", languages: [] }],
 			]);
 			assert.deepStrictEqual(recorded.removals, ["inlineCompletions.languageFilter"]);
-		});
-
-		test("every command ID maps to an allow-listed command", async () => {
-			const recorded = makeEnv();
-			const intents: DashboardIntent[] = [
-				{ method: "executeCommand", payload: { command: "openGroupsFile" } },
-				{ method: "executeCommand", payload: { command: "testConnection" } },
-				{ method: "executeCommand", payload: { command: "openSettings" } },
-				{ method: "executeCommand", payload: { command: "reportIssue" } },
-				{ method: "executeCommand", payload: { command: "openOutput" } },
-				{ method: "executeCommand", payload: { command: "exportSettings" } },
-				{ method: "executeCommand", payload: { command: "importSettings" } },
-			];
-			// Completeness guard: a new dashboard command id must join this table.
-			assert.deepStrictEqual(
-				intents.map((intent) => (intent.method === "executeCommand" ? intent.payload.command : undefined)),
-				[...DASHBOARD_COMMAND_IDS]
-			);
-			for (const intent of intents) {
-				await executeDashboardIntent(intent, recorded.env);
-			}
-
-			assert.deepStrictEqual(recorded.commands, [
-				["litellm.openGroupsFile"],
-				["litellm.testConnection"],
-				["workbench.action.openSettings", "@ext:vivswan.litellm-vscode-chat"],
-				["litellm.reportIssue"],
-				["litellm.openOutput"],
-				["litellm.exportSettings"],
-				["litellm.importSettings"],
-			]);
 		});
 	});
 

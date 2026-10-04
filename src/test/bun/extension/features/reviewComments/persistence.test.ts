@@ -1,13 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
-	type DecodeStoreResult,
 	decodeStore,
 	encodeStore,
-	type PruneResult,
 	pruneThreads,
-	REVIEW_STORE_VERSION,
 	type ReviewCommentAuthor,
-	type ReviewCommentStore,
 	type ReviewThreadsByUri,
 	type StoredReviewComment,
 	type StoredReviewThread,
@@ -35,17 +31,6 @@ const THREADS: ReviewThreadsByUri = {
 };
 
 describe("extension/features/reviewComments/persistence", () => {
-	test("the frozen signatures and the store version", () => {
-		const encode: (threads: ReviewThreadsByUri) => ReviewCommentStore = encodeStore;
-		const decode: (raw: unknown) => DecodeStoreResult = decodeStore;
-		const prune: (threads: ReviewThreadsByUri, exists: (uri: string) => Promise<boolean>) => Promise<PruneResult> =
-			pruneThreads;
-		expect(typeof encode).toBe("function");
-		expect(typeof decode).toBe("function");
-		expect(typeof prune).toBe("function");
-		expect(REVIEW_STORE_VERSION).toBe(1);
-	});
-
 	test("a store survives the encode -> JSON -> decode roundtrip byte for byte", () => {
 		const raw: unknown = JSON.parse(JSON.stringify(encodeStore(THREADS)));
 		expect(decodeStore(raw)).toEqual({ ok: true, threads: THREADS, dropped: 0 });

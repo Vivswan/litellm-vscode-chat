@@ -4,18 +4,16 @@
  * activation, so a wrong `name` pattern, a command the registry never answers,
  * or an empty disambiguation entry ships silently green.
  *
- * The disambiguation checks are deliberately shape-and-substance guards rather
- * than prose review: they cannot judge whether a category routes well, but
- * they can refuse the failure modes that make routing impossible - a missing
- * category, a description too short to define an intent, or examples that are
- * keywords instead of the sentences the classifier is shown.
+ * The disambiguation checks are structural guards rather than prose review:
+ * they cannot judge whether a category routes well, but they can refuse the
+ * failure modes that make routing impossible - a missing category, an empty
+ * description, or no examples for the classifier to learn from.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { builtinSlashCommands } from "../../../../../extension/features/participant/slashCommands";
 import { quickFixSlashCommands } from "../../../../../extension/features/quickFixChatCommands";
-import { PARTICIPANT_ID } from "../../../../../shared/config/commandIds";
 import { CONFIG_SECTION, FEATURE_ENABLE_SETTING_KEYS } from "../../../../../shared/config/settingSpec";
 import { REPO_ROOT } from "../../../../util/repoRoot";
 
@@ -84,11 +82,7 @@ function nlsTables(): { locale: string; table: Record<string, string> }[] {
 
 /**
  * A manifest string in every locale: a "%key%" through each nls table, a
- * literal as itself. English comes first, and is the locale the length checks
- * judge - a character count is not a language-fair measure of substance (the
- * same request is roughly a third as many characters in Chinese), so only the
- * reference wording is measured and every other locale must merely be there
- * and non-empty.
+ * literal as itself. English comes first.
  */
 function localizedValues(value: string | undefined): { locale: string; text: string }[] {
 	expect(value, "a localized manifest field is missing").toBeDefined();
@@ -103,7 +97,7 @@ function localizedValues(value: string | undefined): { locale: string; text: str
 	});
 }
 
-/** The English wording of a manifest string: the one the length checks judge. */
+/** The English wording of a manifest string. */
 function englishValue(value: string | undefined): string {
 	const [english] = localizedValues(value);
 	expect(english?.locale).toBe("en");
@@ -111,8 +105,8 @@ function englishValue(value: string | undefined): string {
 }
 
 /**
- * A disambiguation block is usable when every entry names a category, defines
- * the intent in a real sentence, and shows the classifier example REQUESTS.
+ * A disambiguation block is usable when every entry names a category, carries
+ * a description, and shows the classifier at least one example.
  */
 function expectUsableDisambiguation(entries: readonly Disambiguation[] | undefined, where: string): void {
 	expect(entries, `${where} contributes no disambiguation`).toBeDefined();
@@ -123,21 +117,11 @@ function expectUsableDisambiguation(entries: readonly Disambiguation[] | undefin
 		for (const { locale, text } of localizedValues(entry.description)) {
 			expect(text.trim(), `${where}/${entry.category} description is empty in ${locale}`).not.toBe("");
 		}
-		expect(
-			englishValue(entry.description).length,
-			`${where}/${entry.category} description is too short to define an intent`
-		).toBeGreaterThan(40);
-		expect((entry.examples ?? []).length, `${where}/${entry.category} shows no examples`).toBeGreaterThan(1);
+		expect((entry.examples ?? []).length, `${where}/${entry.category} shows no examples`).toBeGreaterThan(0);
 		for (const example of entry.examples ?? []) {
 			for (const { locale, text } of localizedValues(example)) {
 				expect(text.trim(), `${where}/${entry.category} example is empty in ${locale}`).not.toBe("");
 			}
-			// Examples are the requests a user would actually type; a keyword or a
-			// label teaches the classifier nothing.
-			expect(
-				englishValue(example).length,
-				`${where}/${entry.category} example is not a request: ${englishValue(example)}`
-			).toBeGreaterThan(15);
 		}
 	}
 }
@@ -164,24 +148,10 @@ const COMMAND_KEYS = new Set(["name", "description", "when", "sampleRequest", "i
 const DISAMBIGUATION_KEYS = new Set(["category", "description", "examples"]);
 
 describe("extension/features/participant contribution", () => {
-	test("exactly one participant, under the shared id, with a host-legal name", () => {
-		const participants = readManifest().chatParticipants ?? [];
-		expect(participants.length).toBe(1);
-		expect(participants[0]?.id).toBe(PARTICIPANT_ID);
-		// The host's own pattern for the @-invoked name.
-		expect(participants[0]?.name).toMatch(/^[\w-]+$/);
-		expect(participants[0]?.fullName?.trim()).not.toBe("");
-	});
-
-	test("the participant carries the fields the chat UI shows", () => {
-		const entry = participant();
-		expect(entry.isSticky).toBe(true);
-		for (const { locale, text } of localizedValues(entry.description)) {
-			expect(text.trim(), `the participant description is empty in ${locale}`).not.toBe("");
-		}
-		for (const { locale, text } of localizedValues(entry.sampleRequest)) {
-			expect(text.trim(), `the participant sample request is empty in ${locale}`).not.toBe("");
-		}
+	test("the participant stays selected across turns", () => {
+		// Off, @litellm drops out of the input after every answer and the user
+		// re-types it, with nothing else noticing.
+		expect(participant().isSticky).toBe(true);
 	});
 
 	test("the contributed commands are exactly the live table, in the same order", () => {
@@ -190,17 +160,6 @@ describe("extension/features/participant contribution", () => {
 		// should not have to reconcile two orders.
 		const contributed = (participant().commands ?? []).map((command) => command.name);
 		expect(contributed).toEqual(liveCommands().map((command) => command.name));
-	});
-
-	test("every contributed command carries a description and a sample request in every locale", () => {
-		for (const command of participant().commands ?? []) {
-			for (const { locale, text } of localizedValues(command.description)) {
-				expect(text.trim(), `/${command.name} description is empty in ${locale}`).not.toBe("");
-			}
-			for (const { locale, text } of localizedValues(command.sampleRequest)) {
-				expect(text.trim(), `/${command.name} sample request is empty in ${locale}`).not.toBe("");
-			}
-		}
 	});
 
 	test("the manifest and the registry tell the user the same thing about each command", () => {

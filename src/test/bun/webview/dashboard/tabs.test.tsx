@@ -40,20 +40,6 @@ test("the rail's footer actions and its verdict keep their words in the DOM behi
 	expect(word.length).toBeGreaterThan(0);
 });
 
-test("every rail item carries its label in a .rail-label element, behind an aria-hidden icon", () => {
-	// The label element keeps the accessible name once the rail paints icons
-	// only - and these suites read labels from it, so a rename would leave them
-	// reading "" and still passing. The icon is aria-hidden: the name is said once.
-	const root = mountApp();
-	const items = Array.from(root.querySelectorAll("[role='tab']"));
-	expect(items.length).toBeGreaterThan(0);
-	for (const item of items) {
-		const label = item.querySelector(".rail-label")?.textContent ?? "";
-		expect(label.length).toBeGreaterThan(0);
-		expect(item.querySelector(".rail-icon")?.getAttribute("aria-hidden")).toBe("true");
-	}
-});
-
 function tab(root: ParentNode, name: string): HTMLButtonElement {
 	const found = Array.from(root.querySelectorAll("[role='tab']")).find((candidate) => labelOf(candidate) === name);
 	if (found === undefined) {

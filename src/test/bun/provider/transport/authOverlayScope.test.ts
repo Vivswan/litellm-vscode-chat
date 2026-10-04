@@ -25,7 +25,7 @@ interface CallSiteRegistration {
 	readonly overlayCalls: number;
 	/** How many `.fail(` routings the file carries for them. */
 	readonly failRoutings: number;
-	/** Why a file may carry fewer routings than calls; required exactly then. */
+	/** Why a file may carry fewer routings than calls. */
 	readonly pairlessBecause?: string;
 }
 
@@ -91,22 +91,6 @@ describe("provider/transport auth-overlay scope census", () => {
 			expect(counts?.failRoutings, `${file}: scope.fail routing count drifted from the registry`).toBe(
 				registered.failRoutings
 			);
-		}
-	});
-
-	test("the registry itself is coherent: fewer routings than calls requires a stated reason", () => {
-		for (const [file, registered] of Object.entries(REGISTRY)) {
-			if (registered.failRoutings < registered.overlayCalls) {
-				expect(
-					registered.pairlessBecause,
-					`${file} carries fewer fail routings than overlay calls without saying why`
-				).toBeDefined();
-			} else {
-				expect(
-					registered.pairlessBecause,
-					`${file} pairs every call; a pairless reason there would rot into cover for a real omission`
-				).toBeUndefined();
-			}
 		}
 	});
 });

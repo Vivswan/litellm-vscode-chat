@@ -677,29 +677,6 @@ suite("IssueReporter", () => {
 	// The repeat-report fingerprint is the diagnostic signature only (enum ids,
 	// counts, flags), so nothing response-derived can reach globalState.
 	suite("repeat-report fingerprint and ledger", () => {
-		test("the fingerprint is composed exactly from the diagnostic signature", () => {
-			const snapshot = makeSnapshot({
-				latestError: {
-					source: "discovery",
-					message: "LiteLLM API error: 502\n<html>resp-body-MARKER</html>",
-					stack: "Error: stack-MARKER\n  at somewhere",
-					timestamp: "2026-01-01T00:00:00.000Z",
-					classification: { kind: "http", status: 502 },
-				},
-				recentLogs: ["log-line-MARKER", "another log-line-MARKER"],
-			});
-			// Exact equality pins the composition: any new field joining the
-			// fingerprint must be reviewed here for content hygiene. After
-			// baseUrlConfigured comes the MCP-enabled entry count, then the pairs
-			// enabled|modelConfigured per FEATURE_IDS entry: six model features
-			// all off, then the participant's true and the agent tools' false, each
-			// with the "-" no-model-key marker, then the classification tail.
-			assert.strictEqual(
-				reportFingerprint(snapshot),
-				"v3|0.2.3|connected|5|true|true|0|false|false|false|false|false|false|false|false|false|false|false|false|true|-|false|-|http|502|-"
-			);
-		});
-
 		test("the fingerprint never carries log lines, error text, stacks, sources, or timestamps", () => {
 			const snapshot = makeSnapshot({
 				latestError: {

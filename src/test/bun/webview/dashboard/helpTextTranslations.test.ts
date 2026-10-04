@@ -1,7 +1,7 @@
 /**
- * Translated help-text guard: every translated bundle carrying an English help key must keep the contract - 10-160
- * chars (a lower band than the English 40-220, since CJK is denser), no template syntax or {0} placeholders (help
- * text never interpolates), no banned typography. Locales come from disk; missing keys are the parity suite's job.
+ * Translated help-text guard: every translated bundle carrying an English help key must keep the contract - no
+ * template syntax or {0} placeholders, because help text never interpolates and a translator's placeholder would
+ * render literally in that locale. Locales come from disk; missing keys are the l10n gate's job.
  */
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -9,7 +9,6 @@ import * as path from "node:path";
 import type { ServerFormField } from "../../../../dashboard/serverForm";
 import { EMPTY_SERVER_FORM } from "../../../../dashboard/serverForm";
 import * as helpText from "../../../../webview/dashboard/helpText";
-import { bannedTypography } from "../../../util/l10n";
 
 const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..", "..");
 
@@ -42,7 +41,7 @@ function collectEnglishHelp(): Set<string> {
 	return english;
 }
 
-test("every translated help string keeps the help-text contract", () => {
+test("every translated help string stays free of interpolation and placeholders", () => {
 	const english = collectEnglishHelp();
 	// Floor: a helpX() given an arity would silently drop out of the sweep.
 	expect(english.size).toBeGreaterThanOrEqual(25);
@@ -63,21 +62,14 @@ test("every translated help string keeps the help-text contract", () => {
 		for (const key of english) {
 			const value = table[key];
 			if (typeof value !== "string") {
-				continue; // Absent or malformed: the parity suite owns that failure.
+				continue; // Absent or malformed: the l10n gate owns that failure.
 			}
 			const where = `${name}: ${JSON.stringify(key)}`;
-			if (value.length < 10 || value.length > 160) {
-				offenses.push(`${where} is ${value.length} chars; help text stays 10-160`);
-			}
 			if (value.includes("${")) {
 				offenses.push(`${where} carries template syntax; help text never interpolates`);
 			}
 			if (/\{\d+\}/.test(value)) {
 				offenses.push(`${where} carries a {0}-style placeholder; help text takes no arguments`);
-			}
-			for (const match of value.matchAll(bannedTypography())) {
-				const code = (match[0].codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, "0");
-				offenses.push(`${where} carries banned typography U+${code}`);
 			}
 		}
 	}

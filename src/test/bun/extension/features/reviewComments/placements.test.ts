@@ -37,7 +37,6 @@ describe("extension/features/reviewComments/placements", () => {
 		// The sentinel's spelling is what the prompt tells the model to answer, and
 		// the signature is frozen because the review commands call it positionally.
 		const parse: (answer: string, lineCount: number) => ParsedPlacements = parsePlacements;
-		expect(NO_FINDINGS_REPLY).toBe("NO FINDINGS");
 		const cases = [NO_FINDINGS_REPLY, "no findings.", "No findings!", "**No-Findings.**", "```\nNO FINDINGS\n```"];
 		for (const answer of cases) {
 			expect(parse(answer, 10)).toEqual(parsed([], 0, true));

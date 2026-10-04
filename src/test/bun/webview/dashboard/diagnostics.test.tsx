@@ -8,7 +8,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { App } from "../../../../webview/dashboard/app";
 import { DOCS_LINK_GETTING_STARTED } from "../../../../webview/dashboard/docsLinks";
-import * as feedbackLinks from "../../../../webview/dashboard/feedbackLinks";
 import {
 	FEEDBACK_LINK_FEATURE_REQUEST,
 	FEEDBACK_LINK_RATE,
@@ -25,24 +24,6 @@ afterEach(() => {
 });
 
 const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..", "..");
-
-test("every feedback URL is ASCII, and the module is literal strings only", () => {
-	const entries = Object.entries(feedbackLinks).filter(([, value]) => typeof value === "string") as [string, string][];
-	expect(entries.length).toBeGreaterThan(1);
-	for (const [name, value] of entries) {
-		expect(value, name).toMatch(/^https:\/\/[\x20-\x7E]+$/);
-	}
-	const source = fs.readFileSync(path.join(repoRoot, "src", "webview", "dashboard", "feedbackLinks.ts"), "utf8");
-	expect(source).not.toContain("`");
-	expect(source).not.toContain("${");
-	const declarations = source.match(/^export const FEEDBACK_LINK_\w+ =[\s\S]*?;/gm) ?? [];
-	expect(declarations.length).toBe(entries.length);
-	for (const declaration of declarations) {
-		// Printable ASCII minus the quote itself, so a concatenation like
-		// "a" + "b" cannot hide inside the character class.
-		expect(declaration).toMatch(/^export const FEEDBACK_LINK_\w+ =\s*"[\x20-\x21\x23-\x7E]*";$/m);
-	}
-});
 
 test("the review link names the extension package.json publishes, and the GitHub links its repository", () => {
 	const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {

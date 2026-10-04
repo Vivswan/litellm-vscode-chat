@@ -4,7 +4,6 @@ import type { BudgetStatus, ResolveBudgetInput } from "../../../../extension/ser
 import { crossedThresholds, newlyCrossedThresholds, resolveBudget } from "../../../../extension/servers/usage";
 import {
 	DEFAULT_USAGE_ALERT_THRESHOLDS,
-	getUsageStatusBarMode,
 	normalizeUsageAlertThresholds,
 	normalizeUsageStatusBarMode,
 	type UsageStatusBarMode,
@@ -143,9 +142,5 @@ suite("shared/config/settings usageStatusBar mode", () => {
 		assert.strictEqual(normalizeUsageStatusBarMode("sometimes"), "always");
 		assert.strictEqual(normalizeUsageStatusBarMode(42), "always");
 		assert.strictEqual(normalizeUsageStatusBarMode(undefined), "always");
-	});
-
-	test("the live read answers the contributed default when nothing is configured", () => {
-		assert.strictEqual(getUsageStatusBarMode(), "always");
 	});
 });

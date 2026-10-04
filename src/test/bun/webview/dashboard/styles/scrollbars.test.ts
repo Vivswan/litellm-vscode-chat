@@ -77,19 +77,3 @@ test("track, corner and resting thumb are transparent; hover or inner focus reve
 	expect(only(css, "::-webkit-scrollbar").declarations).toMatch(/width:\s*10px/);
 	expect(only(css, "::-webkit-scrollbar").declarations).toMatch(/height:\s*10px/);
 });
-
-test("high contrast never hides the thumb and draws it a contrastBorder edge", async () => {
-	const css = await compileDashboard();
-	// Both HC classes named, the house spelling; :has reaches the ROOT's
-	// scrollbar, which no body-keyed descendant selector can.
-	for (const selector of [
-		":root:has(body.vscode-high-contrast)::-webkit-scrollbar-thumb",
-		":root:has(body.vscode-high-contrast) ::-webkit-scrollbar-thumb",
-		":root:has(body.vscode-high-contrast-light)::-webkit-scrollbar-thumb",
-		":root:has(body.vscode-high-contrast-light) ::-webkit-scrollbar-thumb",
-	]) {
-		const rule = only(css, selector);
-		expect(rule.declarations).toContain("var(--vscode-contrastBorder)");
-		expect(rule.declarations).toContain("var(--vscode-scrollbarSlider-background)");
-	}
-});

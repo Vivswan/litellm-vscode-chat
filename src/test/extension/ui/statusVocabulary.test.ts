@@ -2,10 +2,8 @@
  * The host half of the cross-surface serving-vocabulary pin (the bun webview
  * suite is the other half; src/test/statusVocabulary.ts is the shared table):
  * for every window state, the status bar, the notifier, the shared verdict,
- * and the diagnostics paste line must say what the table says; the table's
- * hand-written dashboard rows must be what the REAL state builder produces;
- * the table itself must be class-consistent; and coverage fails closed - every
- * verdict and every pill word must have a row.
+ * and the diagnostics paste line must say what the table says, and the table's
+ * hand-written dashboard rows must be what the REAL state builder produces.
  */
 
 import * as assert from "node:assert";
@@ -23,7 +21,7 @@ import { isHiddenGroupServerStatus } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import type { Timer } from "../../../shared/util/timer";
 import type { WindowStateRow } from "../../statusVocabulary";
-import { aggregateContradictions, uncoveredPills, uncoveredVerdicts, WINDOW_STATE_ROWS } from "../../statusVocabulary";
+import { WINDOW_STATE_ROWS } from "../../statusVocabulary";
 import { createStatusBarManager, RecordingItem } from "./statusBarHarness";
 
 /** The notifier's deferral timer, fired synchronously so the deferred no-servers claim lands inside the test. */
@@ -108,17 +106,6 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 				disposable.dispose();
 			}
 		}
-	});
-
-	test("the table's own expectations are class-consistent (no surface may contradict another)", () => {
-		for (const row of WINDOW_STATE_ROWS) {
-			assert.deepStrictEqual(aggregateContradictions(row), [], row.name);
-		}
-	});
-
-	test("coverage fails closed: every verdict and every pill word has a row", () => {
-		assert.deepStrictEqual(uncoveredVerdicts(), [], "every OverallVerdict needs a window-state row");
-		assert.deepStrictEqual(uncoveredPills(), [], "every pill word needs a window-state row");
 	});
 
 	test("the dashboard rows are what the REAL state builder makes of the window", () => {

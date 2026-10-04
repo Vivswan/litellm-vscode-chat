@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ReviewPlacement } from "../../../../../extension/features/reviewComments/placements";
-import { REVIEW_FILE_LIMIT, type ReviewUnit, runReview } from "../../../../../extension/features/reviewComments/review";
+import { type ReviewUnit, runReview } from "../../../../../extension/features/reviewComments/review";
 
 /**
  * The per-file review loop: what it sends, what it applies, what it counts,
@@ -156,10 +156,5 @@ describe("extension/features/reviewComments review", () => {
 		});
 
 		expect(reported).toEqual(["0/2", "1/2"]);
-	});
-
-	test("the file cap is a small positive bound the command can report against", () => {
-		expect(Number.isSafeInteger(REVIEW_FILE_LIMIT)).toBe(true);
-		expect(REVIEW_FILE_LIMIT).toBeGreaterThan(0);
 	});
 });

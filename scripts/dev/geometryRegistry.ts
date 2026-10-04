@@ -1236,9 +1236,8 @@ export interface WidthSurface {
 /**
  * The width extremes: each surface rendered at 2000px, asserting its structural
  * container's right edge lands on the pane's content edge (the charter's ruling
- * that structure runs full-bleed and only prose keeps a reading measure).
- * measure.test.ts pins the ruling in source; this pins that the rendered box
- * actually reaches the edge.
+ * that structure runs full-bleed and only prose keeps a reading measure); the
+ * rendered box has to reach the edge.
  */
 export const WIDTH_SURFACES: readonly WidthSurface[] = [
 	{ name: "models-list-full-bleed", fixture: "models.ts", selector: ".model-list" },

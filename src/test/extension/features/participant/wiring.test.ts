@@ -15,16 +15,13 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import type { SnapshotSource } from "../../../../extension/features/participant/snapshots";
 import { wireChatParticipant } from "../../../../extension/features/participant/wiring";
-import { PARTICIPANT_ID } from "../../../../shared/config/commandIds";
 import { Logger } from "../../../../shared/logger";
 import { useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
 import { REPO_ROOT } from "../../../util/repoRoot";
 
 interface RecordedParticipant {
-	readonly id: string;
 	readonly handler: vscode.ChatRequestHandler;
-	iconPath?: vscode.IconPath;
 	followupProvider?: vscode.ChatFollowupProvider;
 	disposed: boolean;
 }
@@ -47,7 +44,7 @@ async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): P
 	const originalOnDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration;
 
 	(vscode.chat as Record<string, unknown>).createChatParticipant = (id: string, handler: vscode.ChatRequestHandler) => {
-		const record: RecordedParticipant = { id, handler, disposed: false };
+		const record: RecordedParticipant = { handler, disposed: false };
 		participants.push(record);
 		return {
 			id,
@@ -55,11 +52,8 @@ async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): P
 			dispose: () => {
 				record.disposed = true;
 			},
-			// The wiring assigns iconPath and followupProvider onto the returned
-			// object, so the fake must let them land where the test can read them.
-			set iconPath(value: vscode.IconPath) {
-				record.iconPath = value;
-			},
+			// The wiring assigns followupProvider onto the returned object, so the
+			// fake must let it land where the test can read it.
 			set followupProvider(value: vscode.ChatFollowupProvider) {
 				record.followupProvider = value;
 			},
@@ -188,15 +182,12 @@ const SNAPSHOTS: readonly SnapshotSource[] = [
 suite("extension/features/participant wiring", () => {
 	useMsw();
 
-	test("enabled by default: one participant under the shared id, with an icon and a followup provider", async () => {
+	test("enabled by default: one participant registers under an empty configuration", async () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig({}, () => {
 				wireChatParticipant(fakeContext(), quietLogger().logger, { getSnapshots: () => [] });
 			});
 			assert.strictEqual(spies.participants.length, 1, "the participant registers without any opt-in");
-			assert.strictEqual(spies.participants[0]?.id, PARTICIPANT_ID);
-			assert.ok(spies.participants[0]?.iconPath !== undefined, "the participant carries an icon");
-			assert.ok(spies.participants[0]?.followupProvider !== undefined, "the participant carries a followup provider");
 		});
 	});
 

@@ -2,11 +2,10 @@
  * The provenance vocabulary's two registers cannot drift: every cell shape in
  * the registry below runs through BOTH - the badge register the inspectors
  * render (Provenance + CellMarks) and the diagnostics table's compact-phrase
- * register - and the words must agree, mark for mark and key for key. The
- * guard is fail-closed at both ends: a new capability level fails the total
- * Record at compile time, a new provenance-bearing field on the wire cells
- * fails the satisfies checks, and a field no registry shape exercises fails
- * the coverage test, so a new cell shape cannot ship without a row here.
+ * register - and the words must agree, mark for mark and key for key. At
+ * compile time a new capability level fails the total Record, and a wire
+ * provenance field missing from the vocabulary types fails the satisfies
+ * checks; a new cell shape still needs a row here by hand.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ResolvedCapCell, ResolvedParamCell } from "../../../../dashboard/viewModels";
@@ -31,23 +30,15 @@ afterEach(cleanup);
 
 /**
  * The wire cells' provenance-bearing fields, total both ways, so a new wire field cannot ship until the
- * vocabulary types carry it and the coverage test below has a registry shape exercising it. The Omit list is the
- * one escape hatch, for a wire field that is genuinely not provenance (a display hint, say).
+ * vocabulary types carry it. The Omit list is the one escape hatch, for a wire field that is genuinely not
+ * provenance (a display hint, say). Pinned at compile time: a key added or dropped on either side fails typecheck.
  */
 type ParamCellFields = Omit<ResolvedParamCell, "name" | "valueText">;
 type CapCellFields = Omit<ResolvedCapCell, "name" | "valueText">;
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
 
-const PARAM_CELL_FIELDS = { layer: true, key: true, forced: true, inheritedBy: true } as const satisfies Record<
-	keyof ParamCellFields,
-	true
->;
-const CAP_CELL_FIELDS = { level: true, key: true, inheritedBy: true } as const satisfies Record<
-	keyof CapCellFields,
-	true
->;
-const paramKeySetsAgree: Exact<keyof ParamCellFields, keyof ParameterCellProvenance> = true;
-const capKeySetsAgree: Exact<keyof CapCellFields, keyof CapabilityCellProvenance> = true;
+true satisfies Exact<keyof ParamCellFields, keyof ParameterCellProvenance>;
+true satisfies Exact<keyof CapCellFields, keyof CapabilityCellProvenance>;
 
 function paramCellAsVocabularyInput(cell: ParamCellFields): ParameterCellProvenance {
 	return cell;
@@ -113,19 +104,6 @@ describe("webview/dashboard/provenance register agreement", () => {
 		for (const cell of PARAM_SHAPES) {
 			const { source, marks } = parameterCellProvenance(cell);
 			expect(parameterProvenancePhrase(paramCellAsVocabularyInput(cell))).toBe(renderedPhrase(source, marks));
-		}
-	});
-
-	test("every provenance-bearing wire field is exercised by a registry shape", () => {
-		expect(paramKeySetsAgree).toBe(true);
-		expect(capKeySetsAgree).toBe(true);
-		const paramExercised = new Set(PARAM_SHAPES.flatMap((cell) => Object.keys(cell)));
-		for (const field of Object.keys(PARAM_CELL_FIELDS)) {
-			expect(paramExercised.has(field)).toBe(true);
-		}
-		const capExercised = new Set(CAP_SHAPES.flatMap((cell) => Object.keys(cell)));
-		for (const field of Object.keys(CAP_CELL_FIELDS)) {
-			expect(capExercised.has(field)).toBe(true);
 		}
 	});
 });

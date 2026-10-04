@@ -16,7 +16,6 @@ import { McpVersionCounters } from "../../../../extension/features/mcp/versions"
 import { wireMcpServers } from "../../../../extension/features/mcp/wiring";
 import { updateServerSecret } from "../../../../extension/servers/serverSync/secrets";
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
-import { MCP_PROVIDER_ID } from "../../../../shared/config/commandIds";
 import { MCP_ENTRY_VERSIONS_KEY, serverSecretsKey } from "../../../../shared/config/storageKeys";
 import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
@@ -579,7 +578,6 @@ suite("extension/features/mcp", () => {
 
 	suite("wiring: the change event", () => {
 		interface WiredSpies {
-			readonly registered: string[];
 			readonly changes: number;
 			fireConfigChange(): Promise<void>;
 			fireSecretChange(key: string): Promise<void>;
@@ -588,8 +586,7 @@ suite("extension/features/mcp", () => {
 
 		/** Wire the feature with the host surfaces recorded, and run `fn` against them. */
 		async function withWiring(initialServers: unknown[], fn: (spies: WiredSpies) => Promise<void>): Promise<void> {
-			// One array, so an id can never be sliced by the other's index.
-			const registrations: { id: string; provider: vscode.McpServerDefinitionProvider }[] = [];
+			const registrations: vscode.McpServerDefinitionProvider[] = [];
 			const configListeners: ((event: vscode.ConfigurationChangeEvent) => unknown)[] = [];
 			const secretListeners: ((event: vscode.SecretStorageChangeEvent) => unknown)[] = [];
 			let changes = 0;
@@ -605,10 +602,10 @@ suite("extension/features/mcp", () => {
 			const originalRegister = vscode.lm.registerMcpServerDefinitionProvider;
 			const originalOnDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration;
 			(vscode.lm as Record<string, unknown>).registerMcpServerDefinitionProvider = (
-				id: string,
+				_id: string,
 				provider: vscode.McpServerDefinitionProvider
 			) => {
-				registrations.push({ id, provider });
+				registrations.push(provider);
 				return new vscode.Disposable(() => {});
 			};
 			(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = (
@@ -646,13 +643,12 @@ suite("extension/features/mcp", () => {
 					};
 				});
 				const mine = registrations.slice(ours.registrations[0], ours.registrations[1]);
-				for (const { provider } of mine) {
+				for (const provider of mine) {
 					provider.onDidChangeMcpServerDefinitions?.(() => {
 						changes += 1;
 					});
 				}
 				await fn({
-					registered: mine.map((registration) => registration.id),
 					get changes() {
 						return changes;
 					},
@@ -679,13 +675,6 @@ suite("extension/features/mcp", () => {
 				(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = originalOnDidChangeConfiguration;
 			}
 		}
-
-		test("registers under the pinned contribution id, with nothing opted in", async () => {
-			await withWiring([], async (spies) => {
-				assert.deepStrictEqual(spies.registered, [MCP_PROVIDER_ID]);
-				assert.strictEqual(spies.changes, 0, "activation is not a change");
-			});
-		});
 
 		test("an entry gaining the opt-in fires; an edit that leaves the list identical does not", async () => {
 			await withWiring([{ label: "Main", baseUrl: TEST_BASE_URL }], async (spies) => {

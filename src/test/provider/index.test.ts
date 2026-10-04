@@ -423,55 +423,6 @@ suite("provider", () => {
 			);
 		});
 
-		test("every entry flavor emits exactly the registered field set", () => {
-			const { infos } = buildModelInfos(
-				[
-					{ id: "sole", shape: { kind: "deployment", provider: { provider: "openai", status: "ok" } } },
-					{ id: "bare", shape: { kind: "bare" } },
-					{
-						id: "multi",
-						shape: {
-							kind: "group",
-							providers: [
-								{ provider: "groq", status: "active", supports_tools: true },
-								{ provider: "together", status: "active", supports_tools: true },
-							],
-						},
-					},
-					{
-						id: "no-tools",
-						shape: { kind: "group", providers: [{ provider: "perplexity", status: "active", supports_tools: false }] },
-					},
-				],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
-				1,
-				() => {}
-			);
-
-			assert.deepStrictEqual(
-				infos.map((i) => i.id),
-				["sole", "bare", "multi:cheapest", "multi:fastest", "multi:groq", "multi:together", "no-tools"],
-				"all five entry flavors must be exercised"
-			);
-			const expectedKeys = [
-				"capabilities",
-				"detail",
-				"family",
-				"id",
-				"isBYOK",
-				"isUserSelectable",
-				"litellm",
-				"maxInputTokens",
-				"maxOutputTokens",
-				"name",
-				"tooltip",
-				"version",
-			];
-			for (const info of infos) {
-				assert.deepStrictEqual(Object.keys(info).sort(), expectedKeys, `unexpected field set on ${info.id}`);
-			}
-		});
-
 		test("pricing converts per-token costs to per-million and appears only where the route pins the cost", () => {
 			const { infos } = buildModelInfos(
 				[

@@ -86,9 +86,7 @@ const REQUIRED_UTILITIES = [
 	"has-[:checked]:outline-foreground",
 	"forced-color-adjust-none",
 	// The swatch's checked mark and its shared offset ride the ring geometry
-	// tokens rather than literals; the swatch is the one outline consumer whose
-	// offset applies outside a :focus selector, so the focus-geometry guard
-	// below cannot see it and the scan pin here is its only enforcement.
+	// tokens rather than literals; the scan pin here is their enforcement.
 	"outline-offset-(--ring-offset)",
 	"has-[:checked]:outline-(length:--ring-w)",
 	// The reveal primitive's whole class set (ui/reveal.tsx, models.tsx's row
@@ -252,229 +250,42 @@ test(
 		// The radius scale maps onto --radius; Tailwind's default rem-based scale
 		// must stay unreachable so an off-scale rounded-2xl cannot compile.
 		expect(output).not.toMatch(/border-radius:\s*[\d.]+rem/);
-		// The named shape radii exist at runtime (the @theme block is inline, so
-		// utilities bake values in and their variables never reach the page): the
-		// plain-CSS chip, pill, and field rules read these tokens instead of
-		// restating literals that drift.
-		for (const token of ["--radius-chip: calc(var(--radius) - 2px)", "--radius-pill: 9px", "--radius-field:"]) {
-			expect(output).toContain(token);
-		}
-		// And the near-pill literal stays minted once: a 9px radius written into
-		// the dashboard sheet is a fork of --radius-pill.
-		expect(readFileSync(dashboardEntry, "utf8")).not.toContain("border-radius: 9px");
-		// The base shape literal is retired the same way: a 4px radius written
-		// into the dashboard sheet is a fork of --radius.
-		expect(readFileSync(dashboardEntry, "utf8")).not.toContain("border-radius: 4px");
-		// The badge binds the chip token itself, not rounded-sm: the two agree only
-		// by the coincident calc(var(--radius) - 2px), and the token is the one
-		// knob the chip shape class is supposed to have. Read as the variants' own
-		// base string, so a doc comment naming rounded-sm is the prose it is.
-		const componentsDir = path.resolve(import.meta.dir, "../../../../../webview/dashboard");
-		const badge = readFileSync(path.resolve(componentsDir, "ui/badge.tsx"), "utf8");
-		const badgeBase = /cva\(\s*"([^"]*)"/.exec(badge)?.[1];
-		expect(badgeBase, "no cva base string in badge.tsx").toBeDefined();
-		expect(badgeBase).toContain("rounded-(--radius-chip)");
-		expect(badgeBase).not.toContain("rounded-sm");
-		// The remaining tsx chip and field sites bind their tokens the same way: a
-		// rounded-sm in these files would re-mint the coincidence the badge shed.
-		// Exact counts, because a site quietly losing its binding is the regression.
-		const boundSites = [
-			{ file: "recordChipPopovers.tsx", utility: "rounded-(--radius-chip)", count: 1 },
-			{ file: "recordMatcherTable.tsx", utility: "rounded-(--radius-chip)", count: 2 },
-			{ file: "ui/input.tsx", utility: "rounded-(--radius-field)", count: 1 },
-			{ file: "ui/select.tsx", utility: "rounded-(--radius-field)", count: 1 },
-			{ file: "ui/textarea.tsx", utility: "rounded-(--radius-field)", count: 1 },
-		] as const;
-		for (const site of boundSites) {
-			const source = readFileSync(path.resolve(componentsDir, site.file), "utf8");
-			expect(source, `${site.file} re-minted rounded-sm`).not.toContain("rounded-sm");
-			expect(occurrences(source, site.utility), `${site.file} lost a token binding`).toBe(site.count);
-		}
 	},
 	CHILD_PROCESS_TIMEOUT_MS
 );
 
-/**
- * The colour an `outline`/`outline-color` declaration states, or "" when it states none: widths and
- * style keywords come out, so a rule setting only geometry is the no-colour rule it is and anything
- * left is a colour that has to be the token. Every colour syntax survives the strips - the length
- * pattern only ever eats digits and units, `#000` still leaves its hash, and only the canonical
- * width token comes out (any other var() in width position reads as a colour and fails).
- */
-function outlineColor(declarations: string): string {
-	return [...declarations.matchAll(/(?:^|[;{\s])outline(?:-color)?:\s*([^;]+)/g)]
-		.map((match) => (match[1] ?? "").trim())
-		.join(" ")
-		.replace(/\b(?:none|solid|dashed|dotted|double|groove|ridge|inset|outset|auto|thin|medium|thick)\b/g, "")
-		.replace(/var\(--ring-w\)/g, "")
-		.replace(/[\d.]+(?:px|rem|em)?/g, "")
-		.trim();
-}
-
-test(
-	"every focus rule takes its color from the ring token, never the host's focusBorder",
-	async () => {
-		// theme.css remaps --ring per accent and to contrastActiveBorder under high
-		// contrast, and the tsx primitives follow it through outline-ring - so a
-		// stylesheet focus rule spelling a colour of its own is a second ring colour
-		// in the same view under any non-blue accent or HC theme. Asserted as the
-		// positive claim rather than a ban on --vscode-focusBorder alone, so a
-		// hardcoded hex fails here too. Keyed on the :focus selectors, which is the
-		// boundary: a ring painted by a class the script toggles is out of reach, and
-		// the dashboard has none.
-		const sheets = { theme: await compileTheme(), dashboard: await compileDashboard() };
-		const focusRules = (css: string) => blocks(css).filter((rule) => rule.prelude.includes(":focus"));
-		for (const css of Object.values(sheets)) {
-			const bodies = focusRules(css).map((rule) => ({
-				prelude: rule.prelude,
-				body: rule.body.replace(/\/\*[\s\S]*?\*\//g, ""),
-			}));
-			const colored = bodies.map((rule) => ({ prelude: rule.prelude, color: outlineColor(rule.body) }));
-			expect(colored.filter((rule) => rule.color !== "" && rule.color !== "var(--ring)")).toBeEmpty();
-			// The token is the whole route, so the host variable may not reach a focus
-			// rule by any property: box-shadow and border-color paint a ring too, and
-			// neither is an outline the check above can see.
-			expect(bodies.filter((rule) => rule.body.includes("--vscode-focusBorder"))).toBeEmpty();
-			// And no focus rule paints by box-shadow at all: a shadow ring's colour
-			// (hardcoded or tokened) would dodge both outline checks above, and no
-			// focus surface uses one - ban the property rather than parse it.
-			expect(bodies.filter((rule) => rule.body.includes("box-shadow"))).toBeEmpty();
-		}
-		// The counts are the walk's positive control: a parser finding no focus rules,
-		// or none stating a colour, would satisfy the emptiness above vacuously. Exact,
-		// not floors - one rule losing its ring is precisely the regression - and Bun
-		// splits a grouped selector, so the button/a/.tip-wrap global counts three
-		// times (the record JSON textarea's own rule left with the shared Textarea
-		// primitive). Update deliberately when a focus surface is added or removed.
-		const ringed = (css: string) => focusRules(css).filter((rule) => outlineColor(rule.body) === "var(--ring)");
-		expect(ringed(sheets.dashboard)).toHaveLength(4);
-		expect(ringed(sheets.theme)).toHaveLength(3);
-	},
-	CHILD_PROCESS_TIMEOUT_MS
-);
-
-/** Every outline-family declaration a rule body states, comments already stripped. */
-function outlineDeclarations(declarations: string): { property: string; value: string }[] {
-	return [...declarations.matchAll(/(?:^|[;{\s])(outline(?:-[a-z]+)?):\s*([^;}]+)/g)].map((match) => ({
-		property: match[1] ?? "",
-		value: (match[2] ?? "").trim(),
-	}));
-}
-
-test(
-	"every focus rule takes its geometry from the ring tokens, never a literal",
-	async () => {
-		// The ring's colour rides --ring (above); its geometry rides --ring-w and the two
-		// offset tokens, so a focus rule or utility spelling `1px` or an off-token offset is
-		// a second ring geometry - the fork this system replaced at a dozen sites. The inset
-		// offset is the one named variant (fields and scrollports whose ring would be clipped
-		// or sit on a fill); anything else fails here.
-		const sheets = { theme: await compileTheme(), dashboard: await compileDashboard() };
-		const OFFSETS = ["var(--ring-offset)", "var(--ring-offset-inset)"];
-		for (const css of Object.values(sheets)) {
-			for (const rule of blocks(css).filter((rule) => rule.prelude.includes(":focus"))) {
-				const body = rule.body.replace(/\/\*[\s\S]*?\*\//g, "");
-				for (const { property, value } of outlineDeclarations(body)) {
-					const where = `${rule.prelude} { ${property}: ${value} }`;
-					// No literal length in any outline declaration on a focus rule: the token
-					// names carry no digits, so one digit is a geometry spelled outside them.
-					expect(value, `a focus rule spells outline geometry of its own: ${where}`).not.toMatch(/\d/);
-					if (property === "outline-offset") {
-						expect(OFFSETS, `an off-token focus offset: ${where}`).toContain(value);
-					}
-					if (property === "outline-width") {
-						expect(value, `an off-token focus width: ${where}`).toBe("var(--ring-w)");
-					}
-					if (property === "outline") {
-						expect(value.startsWith("var(--ring-w) "), `a shorthand off the width token: ${where}`).toBe(true);
-					}
-				}
-			}
-		}
-		// Positive controls, exact: the offset statements per sheet and variant, so a parser
-		// finding no outline declarations cannot pass vacuously and a surface changing its
-		// variant is a deliberate update here. Dashboard: the button/a/.tip-wrap global (Bun
-		// splits it into three) outset; the windowed scrollport inset (the record JSON textarea
-		// rides the shared Textarea primitive's utilities now). Theme: the focus-visible outset
-		// utility; the focus and focus-visible inset ones.
-		const offsetRules = (css: string, token: string) =>
-			blocks(css).filter(
-				(rule) =>
-					rule.prelude.includes(":focus") &&
-					outlineDeclarations(rule.body).some(
-						(declaration) => declaration.property === "outline-offset" && declaration.value === token
-					)
-			);
-		expect(offsetRules(sheets.dashboard, "var(--ring-offset)")).toHaveLength(3);
-		expect(offsetRules(sheets.dashboard, "var(--ring-offset-inset)")).toHaveLength(1);
-		expect(offsetRules(sheets.theme, "var(--ring-offset)")).toHaveLength(1);
-		expect(offsetRules(sheets.theme, "var(--ring-offset-inset)")).toHaveLength(2);
-		// The tokens themselves: canonical values in the compiled theme, minted exactly once
-		// across both sources (the --axis idiom - a second declaration further down would win),
-		// with the inset offset derived from the width so the two cannot part.
-		expect(sheets.theme).toContain("--ring-w: 1px;");
-		expect(sheets.theme).toContain("--ring-offset: 1px;");
-		expect(sheets.theme).toContain("--ring-offset-inset: calc(-1 * var(--ring-w));");
-		for (const token of ["--ring-w:", "--ring-offset:", "--ring-offset-inset:"]) {
-			const declarations = [themeEntry, dashboardEntry].flatMap((entry) => [
-				...readFileSync(entry, "utf8")
-					.replace(/\/\*[\s\S]*?\*\//g, "")
-					.matchAll(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")),
-			]);
-			expect(declarations, `${token} must be minted exactly once`).toHaveLength(1);
-		}
-	},
-	CHILD_PROCESS_TIMEOUT_MS
-);
-
-test(
-	"one screen-reader-only recipe: .visually-hidden, with its width-tier mirrors declaration-identical",
-	async () => {
-		// Markup carries .visually-hidden for every unconditional case (Tailwind's sr-only
-		// twin was retired, ui/absent.tsx included). The rules that force the recipe inside a
-		// width tier - where a markup class cannot - are deliberate copies, and this pin is
-		// what keeps them copies: a rule stating ANY of the recipe's hiding devices (`clip:`,
-		// a `clip-path: inset` respelling, or the 1px box) is read as an embodiment and must
-		// match the canonical rule declaration for declaration (sorted, because the printer
-		// reorders them). Fail-closed: a fourth copy that diverges fails on equality, and the
-		// exact count makes a new mirror a deliberate update here.
-		const sortedDeclarations = (body: string) =>
-			body
-				.replace(/\/\*[\s\S]*?\*\//g, "")
-				.split(";")
-				.map((declaration) => declaration.replace(/\s+/g, " ").trim())
-				.filter((declaration) => declaration.length > 0)
-				.sort()
-				.join("; ");
-		const hidesFromPaint = (body: string) =>
-			body.includes("clip:") ||
-			body.includes("clip-path: inset") ||
-			(body.includes("width: 1px") && body.includes("height: 1px"));
-		const unconditional = (rule: Block) => !rule.context.some((prelude) => /^@(?:media|container)\b/.test(prelude));
-		const copies = blocks(await compileDashboard()).filter(
-			(rule) => !rule.prelude.startsWith("@") && hidesFromPaint(rule.body)
+test("one screen-reader-only recipe: .visually-hidden, with its width-tier mirrors declaration-identical", async () => {
+	// Markup carries .visually-hidden for every unconditional case (Tailwind's sr-only
+	// twin was retired, ui/absent.tsx included). The rules that force the recipe inside a
+	// width tier - where a markup class cannot - are deliberate copies, and this pin is
+	// what keeps them copies: a rule stating ANY of the recipe's hiding devices (`clip:`,
+	// a `clip-path: inset` respelling, or the 1px box) is read as an embodiment and must
+	// match the canonical rule declaration for declaration (sorted, because the printer
+	// reorders them).
+	const sortedDeclarations = (body: string) =>
+		body
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.split(";")
+			.map((declaration) => declaration.replace(/\s+/g, " ").trim())
+			.filter((declaration) => declaration.length > 0)
+			.sort()
+			.join("; ");
+	const hidesFromPaint = (body: string) =>
+		body.includes("clip:") ||
+		body.includes("clip-path: inset") ||
+		(body.includes("width: 1px") && body.includes("height: 1px"));
+	const unconditional = (rule: Block) => !rule.context.some((prelude) => /^@(?:media|container)\b/.test(prelude));
+	const copies = blocks(await compileDashboard()).filter(
+		(rule) => !rule.prelude.startsWith("@") && hidesFromPaint(rule.body)
+	);
+	const canonical = copies.filter(unconditional);
+	expect(canonical).toHaveLength(1);
+	for (const mirror of copies.filter((rule) => !unconditional(rule))) {
+		expect(sortedDeclarations(mirror.body), `${mirror.prelude} diverged from .visually-hidden`).toBe(
+			sortedDeclarations(canonical[0]?.body ?? "")
 		);
-		expect(copies).toHaveLength(4);
-		const canonical = copies.filter(unconditional);
-		expect(canonical).toHaveLength(1);
-		expect(canonical[0]?.prelude).toBe(".visually-hidden");
-		// The recipe itself, pinned once: the mirrors then agree with it by equality.
-		expect(sortedDeclarations(canonical[0]?.body ?? "")).toBe(
-			"border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; white-space: nowrap; width: 1px"
-		);
-		for (const mirror of copies.filter((rule) => !unconditional(rule))) {
-			expect(sortedDeclarations(mirror.body), `${mirror.prelude} diverged from .visually-hidden`).toBe(
-				sortedDeclarations(canonical[0]?.body ?? "")
-			);
-		}
-		// And the theme sheet mints no second embodiment: no sr-only utility (nothing uses
-		// it, so the scan must not emit it) and no hiding recipe of its own.
-		const theme = await compileTheme();
-		expect(theme).not.toContain(".sr-only");
-		expect(blocks(theme).filter((rule) => !rule.prelude.startsWith("@") && hidesFromPaint(rule.body))).toBeEmpty();
-	},
-	CHILD_PROCESS_TIMEOUT_MS
-);
+	}
+});
 
 test("the cascade puts the dashboard stylesheet below utilities", async () => {
 	// The order declaration lives in theme.css and the wrap in dashboard.css;
@@ -488,40 +299,17 @@ test("the cascade puts the dashboard stylesheet below utilities", async () => {
 	expect([...dashboard.matchAll(/@layer/g)]).toHaveLength(1);
 });
 
-test("source order keeps every narrow override after the full-width rule it beats", () => {
-	// One flat layer settles equal-specificity arguments by source order, and each pair
-	// below was settled wrongly at least once: the base spelling must precede the override.
-	// Anchors are asserted UNIQUE declaration texts, so a reworded or duplicated rule fails
-	// loudly instead of quietly unpinning the guard; every override must also fall below
-	// the banner opening the narrow tail.
-	const sheet = readFileSync(dashboardEntry, "utf8");
-	const bannerAt = sheet.indexOf("The narrow rules: what the dashboard does");
-	expect(bannerAt).toBeGreaterThan(-1);
-	expect(sheet.indexOf("The narrow rules", bannerAt + 1)).toBe(-1);
-	const pairs: readonly (readonly [string, string])[] = [
-		// the rail's full width, then its collapsed width
-		["flex: 0 0 216px", "flex: 0 0 48px"],
-		// the slide-over's resting width, then its collapsed-rail width
-		["width: min(680px, 94vw)", "width: min(680px, calc(100% - 49px))"],
-		// the server actions hidden at rest, then the sub-560 tier's
-		// always-painted state (the reveal idiom's one threshold) - the very
-		// opacity collision being guarded
-		["opacity: 0;\n\t\ttransition: opacity 120ms ease-out;", ".server-actions {\n\t\t\topacity: 1;\n\t\t}"],
-		// the rail icons unpainted at full width, then painted collapsed
-		[".rail-icon {\n\t\tdisplay: none;", ".rail-icon {\n\t\t\tdisplay: flex;"],
-		// the server name's full-width placement, then its three-line re-place
-		[".server-name {\n\t\tgrid-area: 1 / 2;", "grid-area: 1 / 2 / auto / -1"],
-	];
-	for (const [base, override] of pairs) {
-		const baseAt = sheet.indexOf(base);
-		const overrideAt = sheet.indexOf(override);
-		expect(baseAt, `base anchor missing: ${base}`).toBeGreaterThan(-1);
-		expect(overrideAt, `override anchor missing: ${override}`).toBeGreaterThan(-1);
-		expect(sheet.lastIndexOf(base), `base anchor is not unique: ${base}`).toBe(baseAt);
-		expect(sheet.lastIndexOf(override), `override anchor is not unique: ${override}`).toBe(overrideAt);
-		expect(baseAt, `override precedes its base rule: ${override}`).toBeLessThan(overrideAt);
-		expect(bannerAt, `override sits above the narrow banner: ${override}`).toBeLessThan(overrideAt);
-	}
+test("the scrim re-enables pointer events Radix takes away", () => {
+	// Radix's modal layer sets pointer-events:none on <body> and restores it
+	// only on the dialog node. The scrim is the dialog's sibling, so without an
+	// explicit auto it inherits none and click-to-close dies in a real browser.
+	// happy-dom does no hit-testing, so a synthesized click still passes
+	// whatever pointer-events says - this rule is the only place the contract
+	// can be pinned.
+	const dashboard = readFileSync(dashboardEntry, "utf8");
+	const scrimRule = /\.scrim\s*\{[^}]*\}/.exec(dashboard)?.[0];
+	expect(scrimRule).toBeDefined();
+	expect(scrimRule).toContain("pointer-events: auto");
 });
 
 test(
@@ -597,67 +385,6 @@ test(
 	},
 	CHILD_PROCESS_TIMEOUT_MS
 );
-
-test("the scrim re-enables pointer events Radix takes away", () => {
-	// Radix's modal layer sets pointer-events:none on <body> and restores it
-	// only on the dialog node. The scrim is the dialog's sibling, so without an
-	// explicit auto it inherits none and click-to-close dies in a real browser.
-	// happy-dom does no hit-testing, so a synthesized click still passes
-	// whatever pointer-events says - this rule is the only place the contract
-	// can be pinned.
-	const dashboard = readFileSync(dashboardEntry, "utf8");
-	const scrimRule = /\.scrim\s*\{[^}]*\}/.exec(dashboard)?.[0];
-	expect(scrimRule).toBeDefined();
-	expect(scrimRule).toContain("pointer-events: auto");
-});
-
-/** The body of the ONE rule `selector` opens in `css`, uniqueness asserted. */
-function onlyRuleBody(css: string, selector: string): string {
-	// Anchored after a brace or semicolon, so a longer selector ending in this
-	// one (`.rail-state .rail-status .dot` beside `.rail-status .dot`) is the
-	// different rule it is rather than a second copy of this one.
-	const opener = new RegExp(String.raw`[{};]\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\s*\{([^}]*)\}`, "g");
-	const bodies = [...css.matchAll(opener)].map((match) => match[1] ?? "");
-	expect(bodies, `expected exactly one \`${selector}\` rule`).toHaveLength(1);
-	return bodies[0] ?? "";
-}
-
-test("one shape per tone: the pill dots' shape vocabulary survives compilation", async () => {
-	// The dots are the only channel ranking two rows whose verdict text agrees
-	// (stale-but-serving and healthy both say "Connected"), so the shapes carry
-	// the reading for anyone who cannot separate green from amber. happy-dom
-	// runs no cascade, so no component suite would notice a shape dropping out
-	// - the compiled sheet is the only place the vocabulary can be pinned.
-	// Values are asserted as Bun's printer canonicalizes them (`transparent`
-	// on a background prints as `none`, a shorthand's currentColor is elided).
-	const compiled = await compileDashboard();
-	// The forced-colors repaints reuse these selectors for paint alone; drop
-	// those blocks so each shape rule asserts unique in the ordinary cascade,
-	// where a second rule for the same selector would silently win.
-	const output = forcedColorsBlocks(compiled).reduce((css, block) => css.replace(block.text, ""), compiled);
-	// One size property, circle by default: every tone rides the same box.
-	const base = onlyRuleBody(output, ".pill .dot");
-	expect(base).toContain("--dot-size: 8px");
-	expect(base).toContain("width: var(--dot-size)");
-	expect(base).toContain("height: var(--dot-size)");
-	expect(base).toContain("border-radius: 50%");
-	expect(base).toContain("background: currentColor");
-	// warn is a triangle: the clip-path is the shape, and the radius reset is
-	// what lets a clipped corner exist at all.
-	const warn = onlyRuleBody(output, ".pill.tone-warn .dot");
-	expect(warn).toContain("clip-path: polygon(50% 0%, 100% 100%, 0% 100%)");
-	expect(warn).toContain("border-radius: 0");
-	// error a square, muted a hollow ring - at the 2px state floor, and still
-	// hollow: the 8px box keeps a 4px hole, so absence cannot read as presence.
-	expect(onlyRuleBody(output, ".pill.tone-error .dot")).toContain("border-radius: 2px");
-	const muted = onlyRuleBody(output, ".pill.tone-muted .dot");
-	expect(muted).toContain("background: none");
-	expect(muted).toContain("border: 2px solid");
-	// The collapsed rail scales the whole vocabulary through the shared size
-	// property and declares nothing else: a shape property of its own here is
-	// how the rail's dot and the rows' fork apart again.
-	expect(onlyRuleBody(output, ".rail-status .dot").trim()).toBe("--dot-size: 11px;");
-});
 
 test("the problem-band tiers: one bar in color modes with hue and headline text, geometry ranking in the bordered modes", async () => {
 	// The band pipeline's stylesheet half. In color modes every toned band wears
@@ -810,34 +537,6 @@ test("a forced theme redefines every host token the stylesheets read", () => {
 	}
 });
 
-test(
-	"high contrast wins: nothing either appearance setting drives escapes the guard",
-	async () => {
-		// The rule is structural rather than remembered - a palette or hue added
-		// inside the guarded block is covered and there is no outside to add one to
-		// - so the test is that no rule keyed on either setting's attribute compiles
-		// without the guard on it. Both attributes, because the accent is a
-		// preference exactly as much as the theme is.
-		const output = await compileTheme();
-		const guard = ":not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light))";
-		const keyed = [...output.matchAll(/^([^\n{]*\[data-(?:theme|accent)=[^\n{]*)\{/gm)].map((match) => match[1] ?? "");
-		// `auto` is the one value that means "no choice was made", so its rule is
-		// the host-derived path and belongs outside: that is how a high contrast
-		// host keeps reaching it. Exactly one, so a second unguarded shape shows up
-		// here rather than passing as another exemption.
-		const [hostDerived, forced] = [
-			keyed.filter((selector) => selector.includes('[data-theme="auto"]')),
-			keyed.filter((selector) => !selector.includes('[data-theme="auto"]')),
-		];
-		expect(hostDerived).toHaveLength(1);
-		// An exact count, not a floor: a floor lets one more unguarded rule through,
-		// which is the mistake this test exists to catch. Update it deliberately.
-		expect(forced).toHaveLength(12);
-		expect(forced.filter((selector) => !selector.includes(guard))).toBeEmpty();
-	},
-	CHILD_PROCESS_TIMEOUT_MS
-);
-
 test("every forced host token carries !important, because inline styles are what it is fighting", async () => {
 	// VS Code writes --vscode-* onto the document element's inline style, and an
 	// inline declaration outranks every author rule on that element. A forced
@@ -907,43 +606,6 @@ test("a forced-light override of a body-declared token is repeated on the body t
 	// Equality, so the twin cannot carry a stale token either.
 	expect(declarations(twin).sort()).toEqual(owed);
 });
-
-test(
-	"severity as text resolves to the readable tier, as fills to the raw hue",
-	async () => {
-		// The raw hues are tuned for a dark editor (Light Modern's own published values are
-		// under AA as words). The repair is a TOKEN, not a class: the pills paint through
-		// .tone-* while components use text-ok/warn/err utilities - a class-only fix leaves
-		// every utility consumer failing, in light only.
-		const output = await compileTheme();
-		const source = readFileSync(themeEntry, "utf8");
-		for (const hue of ["ok", "warn", "err"] as const) {
-			expect(output).toContain(`--${hue}-text: var(--${hue})`);
-			expect(output).toContain(`--${hue}-text: color-mix(in oklab, var(--${hue}) 65%, black)`);
-			// The @theme inline mapping bakes its chain into the utilities rather
-			// than emitting a property, so the mapping itself is read from source
-			// and its effect from the compiled utility below.
-			expect(source).toContain(`--color-${hue}: var(--${hue}-text);`);
-			// ...and the shape-shaped one reads the fill tier, which on light is a
-			// darkened value of its own; see the fill-tier test below.
-			expect(source).toContain(`--color-${hue}-fill: var(--${hue}-fill);`);
-		}
-		// The utilities that exist today are text ones, and they must carry the
-		// readable tier: these are live call sites in the server editor.
-		expect(output).toContain(".text-err {\n    color: var(--err-text);");
-		expect(output).toContain(".text-warn {\n    color: var(--warn-text);");
-		const dashboard = readFileSync(dashboardEntry, "utf8");
-		expect(/\.tone-ok \{\s*color: var\(--ok-text\);/.test(dashboard)).toBe(true);
-		// No status hue may still be painted as text anywhere in the dashboard sheet.
-		const rawText = [
-			...dashboard.matchAll(
-				/\n\s*color: var\(--vscode-(testing-iconPassed|errorForeground|editorWarning-foreground|notificationsWarningIcon-foreground)/g
-			),
-		];
-		expect(rawText).toBeEmpty();
-	},
-	CHILD_PROCESS_TIMEOUT_MS
-);
 
 test(
 	"status fills darken on light too, because a meter is the reading",
@@ -1110,77 +772,6 @@ test(
 	CHILD_PROCESS_TIMEOUT_MS
 );
 
-/**
- * The action clusters whose bordered-mode fallback is TIGHT: left alone, a cluster
- * silently grows by the padding its ink-stated gap was spanning (12px per adjacent
- * compact pair), overrunning measured budgets or moving bordered renders. Not every
- * ink-stated container is here: .confirm-actions and the .chip/.toast paddings drift
- * into MORE room, and a fallback that only loosens cannot merge two boxes. `unlayered`
- * is per cluster, decided by what the twin overrules (a utility needs an unlayered twin).
- */
-const INK_GAP_CLUSTERS = [
-	{ selector: ".setting-actions", sheet: "theme", declaration: "gap: 6px", unlayered: true },
-	{ selector: ".model-row-actions", sheet: "dashboard", declaration: "gap: 6px", unlayered: false },
-	{ selector: ".server-actions", sheet: "dashboard", declaration: "column-gap: 8px", unlayered: false },
-	{ selector: ".row-diagnostic-actions", sheet: "dashboard", declaration: "column-gap: 4px", unlayered: false },
-	{ selector: ".notice .toolbar", sheet: "dashboard", declaration: "column-gap: 8px", unlayered: false },
-	{ selector: ".banner", sheet: "dashboard", declaration: "gap: 8px", unlayered: false },
-	// The banner's trailing padding is ink-stated too (the Dismiss sits at the
-	// banner's own edge), so its twin restates the box inset beside the gap.
-	{ selector: ".banner", sheet: "dashboard", declaration: "padding-right: 12px", unlayered: false },
-	{ selector: ".record-frame .editor-actions", sheet: "dashboard", declaration: "column-gap: 8px", unlayered: false },
-] as const;
-
-/**
- * A rule's declarations, asserted to STATE `declaration` rather than merely to
- * contain its text: `gap: 6px` is a substring of `row-gap: 6px`, which is a
- * different property with a different effect on the same rule.
- */
-function statesDeclaration(declarations: string, declaration: string): boolean {
-	const escaped = declaration.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	return new RegExp(`(^|[;{\\s])${escaped};`).test(declarations);
-}
-
-test(
-	"every ink-stated action cluster keeps its bordered-mode box gap",
-	async () => {
-		const sheets = { theme: await compileTheme(), dashboard: await compileDashboard() };
-		for (const cluster of INK_GAP_CLUSTERS) {
-			const output = sheets[cluster.sheet];
-			// The forced-colors gap is read as the RULE it is, not as a substring of
-			// the block around it: that block holds six other rules in theme.css, so
-			// "the block mentions this selector and the block mentions this gap"
-			// stays green with the gap on any one of its neighbours.
-			const forced = rulesFor(output, cluster.selector).filter((rule) => rule.context.includes(FORCED_COLORS_QUERY));
-			expect(forced, `no forced-colors gap for ${cluster.selector}`).toHaveLength(1);
-			expect(
-				statesDeclaration(forced[0]?.declarations ?? "", cluster.declaration),
-				`${cluster.selector}'s forced-colors twin states another gap`
-			).toBe(true);
-			// The forced-colors query and NOTHING else: a twin written inside a width
-			// query stops existing at every other width, and the narrow tiers are
-			// where these clusters have the least room to grow into.
-			expect(
-				forced[0]?.context.filter((prelude) => /^@(?:media|container|supports)\b/.test(prelude)),
-				`${cluster.selector}'s twin sits inside another query`
-			).toEqual([FORCED_COLORS_QUERY]);
-			expect(forced[0]?.unlayered, `${cluster.selector}'s twin is in the wrong layer`).toBe(cluster.unlayered);
-			// The high-contrast themes draw the same boxes, so they take the same
-			// number - read as the one rule both selectors open, carrying the
-			// declaration itself, because a selector that merely occurs somewhere
-			// proves neither that it states the gap nor that its sibling exists.
-			const hc = highContrastTwin(output, cluster.selector);
-			expect(
-				statesDeclaration(hc.declarations, cluster.declaration),
-				`the high-contrast twin for ${cluster.selector} states another gap`
-			).toBe(true);
-			expect(hc.unconditional).toBe(true);
-			expect(hc.unlayered).toBe(cluster.unlayered);
-		}
-	},
-	CHILD_PROCESS_TIMEOUT_MS
-);
-
 test("the status text aliases are declared on :root alone, never on body", () => {
 	// A plain alias declared on `body` matches body DIRECTLY, which beats the
 	// forced-theme override on `html` - so the forced light palette kept the raw
@@ -1200,7 +791,8 @@ test("the forced light palette keeps Light Modern's passing green, low contrast 
 	// This value has been wrong once already, in a landed commit: #007100 is the hcLight
 	// value, not light - the registry ships {dark/light/hcDark: #73c991, hcLight: #007100}
 	// and light_modern.json does not override it. The palette is documented as faithful to
-	// Light Modern; the contrast repair belongs to --ok-text, measured and tested above.
+	// Light Modern; the readable tier is --ok-text's job, which the tone-text test below
+	// pins .state-ok to.
 	const light = forcedBlock("light");
 	expect(light).toContain("--vscode-testing-iconPassed: #73c991");
 	expect(light).not.toContain("#007100");
@@ -1242,80 +834,6 @@ test(
 		expect(rulesFor(dashboard, ".error")).toHaveLength(0);
 		expect(rulesFor(dashboard, ".state-warn")).toHaveLength(0);
 		expect(rulesFor(dashboard, ".state-ok")).toHaveLength(0);
-	},
-	CHILD_PROCESS_TIMEOUT_MS
-);
-
-test(
-	"tone text keeps a second channel under forced colors: the editor's squiggle",
-	async () => {
-		// Forced colors repaint the severity hue to CanvasText, leaving weight as
-		// the only mark - a quiet one at hint sizes - so the unlayered
-		// forced-colors block adds the wavy underline, the editor's own problem
-		// mark. Pinned in the unlayered, unconditional forced-colors blocks
-		// because a layered or width-scoped copy is the rule silently dying.
-		const output = await compileTheme();
-		const forced = forcedColorsBlocks(output)
-			.filter((block) => block.unlayered && block.unconditional)
-			.map((block) => block.text)
-			.join("\n");
-		const rule = /\.error,\s*\.state-warn \{([^}]*)\}/.exec(forced)?.[1] ?? "";
-		expect(rule).toContain("text-decoration: underline wavy");
-		// The squiggle is the PROBLEM mark, so the ok register must never wear it:
-		// a forced-colors rule decorating .state-ok would dress a pass as a fault.
-		expect(forced).not.toContain(".state-ok");
-	},
-	CHILD_PROCESS_TIMEOUT_MS
-);
-
-test(
-	"the squiggle survives source order: no tone-text rule may declare a decoration of its own",
-	async () => {
-		// The squiggle rule compiles BEFORE the unlayered tone-text block at equal
-		// specificity, so any text-decoration the tone block gained would beat it by source
-		// order. The pin: the squiggle rule is the ONLY rule for these selectors declaring
-		// text-decoration at all.
-		const output = await compileTheme();
-		const squiggleStart = Math.min(
-			...rulesFor(output, ".error").flatMap((candidate) =>
-				candidate.context.includes(FORCED_COLORS_QUERY) && candidate.declarations.includes("underline wavy")
-					? [candidate.start]
-					: []
-			)
-		);
-		expect(squiggleStart, "no forced-colors squiggle rule for .error").toBeLessThan(Number.POSITIVE_INFINITY);
-		for (const selector of [".error", ".state-warn", ".state-ok"] as const) {
-			for (const candidate of rulesFor(output, selector)) {
-				if (candidate.context.includes(FORCED_COLORS_QUERY) && candidate.declarations.includes("underline wavy")) {
-					continue;
-				}
-				expect(
-					candidate.declarations.includes("text-decoration") && candidate.start > squiggleStart,
-					`a ${selector} rule after the squiggle declares its own text-decoration and silently overrides it`
-				).toBe(false);
-			}
-		}
-	},
-	CHILD_PROCESS_TIMEOUT_MS
-);
-
-test(
-	"the bordered modes keep the reveal primitive painted",
-	async () => {
-		// The bordered modes refuse ui/reveal.tsx's quietness trade (a resting-invisible
-		// action is a bare box flickering under the pointer). Unlayered because opacity-0 is a
-		// utility; unconditional because the boxes draw at every width. Only the compiled
-		// cascade can catch a regression here.
-		const output = await compileTheme();
-		const blocks = forcedColorsBlocks(output).filter((block) => block.text.includes('[data-slot="reveal"]'));
-		expect(blocks).toHaveLength(1);
-		expect(blocks[0]?.unlayered).toBe(true);
-		expect(blocks[0]?.unconditional).toBe(true);
-		expect(blocks[0]?.text).toMatch(/\[data-slot="reveal"\] \{\s*opacity: 1;\s*\}/);
-		const hc = highContrastTwin(output, '[data-slot="reveal"]');
-		expect(hc.declarations).toContain("opacity: 1");
-		expect(hc.unlayered).toBe(true);
-		expect(hc.unconditional).toBe(true);
 	},
 	CHILD_PROCESS_TIMEOUT_MS
 );

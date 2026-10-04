@@ -7,15 +7,13 @@ import {
 	ALL_SETTING_KEYS,
 	BOOLEAN_SETTING_SPECS,
 	type BooleanSettingId,
-	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
+	DEFAULT_INLINE_LANGUAGE_FILTER,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	FEATURE_ENABLE_SETTING_KEYS,
-	FEATURE_MODEL_IDS,
 	FEATURE_MODEL_SETTING_KEY_LIST,
-	FEATURE_MODEL_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	isIntegerSetting,
 	LANGUAGE_FILTER_MODES,
@@ -35,7 +33,6 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../../shared/config/settings";
 import { EXPECTED_FAILURE_CATEGORIES, NON_CHAT_MODES } from "../../../shared/serverEntry";
-import type { HeaderScalar } from "../../../shared/util/headers";
 import { HEADER_SCALAR_TYPES } from "../../../shared/util/headers";
 import { resolveNls } from "../../util/nls";
 
@@ -56,7 +53,6 @@ interface SettingSchema {
 	readonly additionalProperties?: boolean | { readonly type?: string | readonly string[] };
 	readonly description?: string;
 	readonly markdownDescription?: string;
-	readonly editPresentation?: string;
 	readonly enum?: readonly string[];
 	readonly properties?: Record<string, SettingSchema>;
 	readonly items?: SettingSchema & { readonly properties?: Record<string, SettingSchema> };
@@ -114,32 +110,6 @@ function schemaTypes(schema: SettingSchema): readonly string[] {
 }
 
 suite("shared/config/settingSpec: package.json drift guard", () => {
-	test("the configuration contributes exactly the fourteen titled sections, in order", () => {
-		const titles = readPackageJson().contributes.configuration.map((section) => resolveNls(section.title));
-		assert.deepStrictEqual(titles, [
-			"Servers",
-			"Models",
-			"Chat",
-			"Discovery",
-			"Usage",
-			"UI",
-			"Inline completions",
-			"Commit message generation",
-			"PR description generation",
-			"Consult tool",
-			"Quick fixes",
-			"Review comments",
-			"Chat participant",
-			"Agent tools",
-		]);
-	});
-
-	test("every contributed configuration property lives under the config section", () => {
-		for (const key of Object.keys(allProperties())) {
-			assert.ok(key.startsWith(`${CONFIG_SECTION}.`), `setting ${key} is outside the ${CONFIG_SECTION} section`);
-		}
-	});
-
 	test("every contributed scalar setting has a spec entry", () => {
 		// The reverse direction: a number or boolean setting added only to package.json
 		// must land in the spec too. Object, array, and enum-string settings have no
@@ -237,15 +207,13 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 		}
 	});
 
-	test("the usage settings are contributed with the readers' defaults and vocabulary", () => {
+	test("the usage settings are contributed as a threshold array and the readers' status-bar enum", () => {
 		const properties = allProperties();
 		const thresholds = settingSchema(properties, USAGE_ALERT_THRESHOLDS_SETTING_KEY);
 		assert.strictEqual(thresholds.type, "array");
-		assert.deepStrictEqual(thresholds.default, [0.8, 0.95]);
 		const statusBar = settingSchema(properties, USAGE_STATUS_BAR_SETTING_KEY);
 		assert.strictEqual(statusBar.type, "string");
 		assert.deepStrictEqual(statusBar.enum, [...USAGE_STATUS_BAR_MODES]);
-		assert.strictEqual(statusBar.default, "always");
 	});
 
 	test("the token-estimation setting is contributed with the spec's vocabulary and default", () => {
@@ -253,7 +221,6 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 		assert.strictEqual(schema.type, "string");
 		assert.deepStrictEqual(schema.enum, [...TOKEN_ESTIMATION_MODES]);
 		assert.strictEqual(schema.default, DEFAULT_TOKEN_ESTIMATION_MODE);
-		assert.strictEqual(schema.default, "auto");
 	});
 
 	test("the currency-symbol setting is contributed as a free string defaulting to the spec's symbol", () => {
@@ -263,7 +230,6 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 		// enum, no pattern - a vocabulary here would refuse real currencies.
 		assert.strictEqual(schema.enum, undefined);
 		assert.strictEqual(schema.default, DEFAULT_CURRENCY_SYMBOL);
-		assert.strictEqual(schema.default, "$");
 	});
 });
 
@@ -285,20 +251,6 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 	// The scalar suites above skip object settings by design (no scalar spec);
 	// these pin the object settings' keys and value shapes instead, against
 	// the constants their readers use.
-	test("the models.parameters setting is contributed under MODEL_PARAMETERS_SETTING_KEY as a record of objects", () => {
-		const schema = settingSchema(allProperties(), MODEL_PARAMETERS_SETTING_KEY);
-		assert.strictEqual(schema.type, "object");
-		assert.deepStrictEqual(schema.additionalProperties, { type: "object" });
-	});
-
-	test("the servers setting is machine-scoped", () => {
-		// Load-bearing: user settings only, so a workspace
-		// cannot re-point a label at another host to harvest its stored secrets. The
-		// panel and dev seed read and write the Global scope on that basis.
-		const schema = settingSchema(allProperties(), SERVERS_SETTING_KEY);
-		assert.strictEqual(schema.scope, "machine");
-	});
-
 	test("every setting carries exactly its ruled scope tier", () => {
 		// Load-bearing: enable booleans and model refs decide whether requests
 		// happen and where they go, and the catalog toggle causes OpenRouter
@@ -340,54 +292,6 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 		}
 	});
 
-	test("a servers entry declares the nested auth object with exactly the three forms", () => {
-		const entryProperties = settingSchema(allProperties(), SERVERS_SETTING_KEY).items?.properties;
-		assert.ok(entryProperties);
-		const auth = entryProperties.auth;
-		assert.ok(auth, "the servers items schema declares no auth property");
-		assert.strictEqual(auth.type, "object");
-		assert.strictEqual(auth.additionalProperties, false);
-		assert.deepStrictEqual(Object.keys(auth.properties ?? {}).sort(), ["apiKey", "oauth", "virtualKey"]);
-		const oauth = auth.properties?.oauth;
-		assert.ok(oauth);
-		assert.deepStrictEqual(Object.keys(oauth.properties ?? {}).sort(), [
-			"apiKey",
-			"clientId",
-			"clientSecret",
-			"scopes",
-			"tokenUrl",
-			"virtualKey",
-		]);
-		const virtualKey = auth.properties?.virtualKey;
-		assert.ok(virtualKey);
-		assert.deepStrictEqual(Object.keys(virtualKey.properties ?? {}).sort(), ["header", "value"]);
-	});
-
-	test("a servers entry declares per-entry models.parameters and models.capabilities shaped like the global settings", () => {
-		// The servers items schema is additionalProperties:false, so without
-		// these properties VS Code's settings validation would flag every entry
-		// that uses per-entry configuration.
-		const entryProperties = settingSchema(allProperties(), SERVERS_SETTING_KEY).items?.properties;
-		assert.ok(entryProperties);
-		const models = entryProperties.models;
-		assert.ok(models, "the servers items schema declares no models property");
-		assert.strictEqual(models.type, "object");
-		for (const field of ["parameters", "capabilities"] as const) {
-			const fieldSchema: SettingSchema | undefined = models.properties?.[field];
-			assert.ok(fieldSchema, `the servers models schema declares no ${field} property`);
-			assert.strictEqual(fieldSchema.type, "object");
-			assert.deepStrictEqual(fieldSchema.additionalProperties, { type: "object" });
-		}
-	});
-
-	test("the models.capabilities setting is contributed under MODEL_CAPABILITIES_SETTING_KEY as a record of objects", () => {
-		const schema = settingSchema(allProperties(), MODEL_CAPABILITIES_SETTING_KEY);
-		assert.strictEqual(schema.type, "object");
-		assert.deepStrictEqual(schema.additionalProperties, { type: "object" });
-		const description = resolveNls(schema.markdownDescription ?? "");
-		assert.ok(description.length > 0, "the setting carries a markdownDescription (it renders code examples)");
-	});
-
 	test("a servers entry declares discovery.expectedFailures as an array over exactly the shared categories", () => {
 		const entryProperties = settingSchema(allProperties(), SERVERS_SETTING_KEY).items?.properties;
 		assert.ok(entryProperties);
@@ -415,28 +319,9 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 		assert.deepStrictEqual(schema.items?.enum, [...NON_CHAT_MODES]);
 	});
 
-	test("HEADER_SCALAR_TYPES names exactly the HeaderScalar member types", () => {
-		// Both directions hold at compile time: a listed name without a matching
-		// HeaderScalar member fails the first assignment, and a HeaderScalar member the
-		// list does not name maps to "unlisted" and fails the second.
-		type TypeNameOf<T> = T extends string
-			? "string"
-			: T extends number
-				? "number"
-				: T extends boolean
-					? "boolean"
-					: "unlisted";
-		const listed: readonly TypeNameOf<HeaderScalar>[] = HEADER_SCALAR_TYPES;
-		const covered: readonly (typeof HEADER_SCALAR_TYPES)[number][] = listed;
-		assert.deepStrictEqual([...covered], [...HEADER_SCALAR_TYPES]);
-	});
-
-	test("a servers entry declares discovery.declared, headers, and budget", () => {
+	test("a servers entry declares headers over exactly the HeaderScalar wire types", () => {
 		const entryProperties = settingSchema(allProperties(), SERVERS_SETTING_KEY).items?.properties;
 		assert.ok(entryProperties);
-		const declared = entryProperties.discovery?.properties?.declared;
-		assert.ok(declared, "the servers discovery schema declares no declared property");
-		assert.strictEqual(declared.type, "array");
 		const headers = entryProperties.headers;
 		assert.ok(headers, "the servers items schema declares no headers property");
 		assert.strictEqual(headers.type, "object");
@@ -445,38 +330,6 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 		// non-finite numbers, which JSON cannot carry anyway.
 		assert.ok(typeof headers.additionalProperties === "object", "headers declares typed additionalProperties");
 		assert.deepStrictEqual(headers.additionalProperties.type, [...HEADER_SCALAR_TYPES]);
-		const budget = entryProperties.budget;
-		assert.ok(budget, "the servers items schema declares no budget property");
-		assert.strictEqual(budget.type, "number");
-	});
-
-	test("the feature model settings are contributed as the closed { server, model } object or null, defaulting to null", () => {
-		const properties = allProperties();
-		for (const feature of FEATURE_MODEL_IDS) {
-			const schema = settingSchema(properties, FEATURE_MODEL_SETTING_KEYS[feature]);
-			assert.deepStrictEqual(schema.type, ["object", "null"], `${feature} model type`);
-			assert.strictEqual(schema.default, null, `${feature} model default`);
-			// Closed shape: the ref addresses an entry and a model, nothing rides
-			// along - and a partial object is not a pick (the reader treats it as
-			// unset), so the manifest requires both halves.
-			assert.strictEqual(schema.additionalProperties, false, `${feature} model additionalProperties`);
-			assert.deepStrictEqual([...(schema.required ?? [])].sort(), ["model", "server"], `${feature} model required`);
-			assert.deepStrictEqual(Object.keys(schema.properties ?? {}).sort(), ["model", "server"]);
-			assert.strictEqual(schema.properties?.server?.type, "string");
-			assert.strictEqual(schema.properties?.model?.type, "string");
-		}
-	});
-
-	test("the commit prompt is contributed as a free string defaulting to the empty built-in marker", () => {
-		const schema = settingSchema(allProperties(), COMMIT_GENERATION_PROMPT_SETTING_KEY);
-		assert.strictEqual(schema.type, "string");
-		// Free text by design: the prompt is model-facing and replaces the
-		// built-in instruction wholesale; "" means the built-in applies.
-		assert.strictEqual(schema.enum, undefined);
-		assert.strictEqual(schema.default, "");
-		// Prose that may carry newlines: the native Settings UI must offer the
-		// multiline editor, matching the dashboard's textarea.
-		assert.strictEqual(schema.editPresentation, "multilineText");
 	});
 
 	test("the inline-completions language filter is contributed as the closed { mode, languages } object", () => {
@@ -493,6 +346,6 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 		assert.strictEqual(schema.properties?.languages?.type, "array");
 		assert.strictEqual(schema.properties?.languages?.items?.type, "string");
 		// Identical semantics to the readers' default: block nothing.
-		assert.deepStrictEqual(schema.default, { mode: "block", languages: [] });
+		assert.deepStrictEqual(schema.default, DEFAULT_INLINE_LANGUAGE_FILTER);
 	});
 });

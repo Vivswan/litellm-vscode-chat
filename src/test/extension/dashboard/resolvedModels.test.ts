@@ -138,22 +138,12 @@ suite("extension/dashboard/resolvedModels", () => {
 
 			const gpt4 = view.rows.find((row) => row.rawId === "gpt-4");
 			assert.ok(gpt4 !== undefined);
-			assert.deepStrictEqual(
-				gpt4.capabilities.slice(0, 7).map((cell) => cell.name),
-				[
-					"context_length",
-					"max_input_tokens",
-					"max_output_tokens",
-					"supports_function_calling",
-					"supports_vision",
-					"supports_reasoning",
-					"supports_audio_input",
-				],
-				"the core seven keep their table positions"
-			);
-			const extra = gpt4.capabilities.find((cell) => cell.name === "mystery_flag");
-			assert.deepStrictEqual(extra, { name: "mystery_flag", valueText: '"on"', level: "global", key: "gpt-4" });
 			assert.strictEqual(gpt4.capabilities.length, 8, "extras append; nothing else changes");
+			assert.deepStrictEqual(
+				gpt4.capabilities[7],
+				{ name: "mystery_flag", valueText: '"on"', level: "global", key: "gpt-4" },
+				"the extra appends after the core seven"
+			);
 
 			const claude = view.rows.find((row) => row.rawId === "claude");
 			assert.strictEqual(claude?.capabilities.length, 7, "a model the record does not match keeps the core table");

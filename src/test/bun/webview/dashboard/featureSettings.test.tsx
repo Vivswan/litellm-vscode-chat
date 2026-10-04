@@ -6,6 +6,8 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
+import { featureDisplayName } from "../../../../dashboard/featureNames";
+import { FEATURE_IDS } from "../../../../shared/config/settingSpec";
 import { FeaturesSection } from "../../../../webview/dashboard/featuresPage";
 import { makeSettings } from "../../../dashboardSettingsFixture";
 import { makeModel } from "../fixtures";
@@ -451,16 +453,7 @@ test("a CR-separated stored prompt gets the same editable box: no separator disq
 test("every FeatureId renders its section in registry order, enable rows included; unshipped ones say so", () => {
 	const root = mount(<FeaturesSection settings={makeSettings()} models={[]} />);
 	const titles = [...root.querySelectorAll(".settings-group-title")].map((title) => title.textContent);
-	expect(titles).toEqual([
-		"Inline completions",
-		"Commit message generation",
-		"PR description generation",
-		"Consult tool",
-		"Quick fixes",
-		"Review comments",
-		"Chat participant (@litellm)",
-		"Agent tools",
-	]);
+	expect(titles).toEqual(FEATURE_IDS.map((feature) => featureDisplayName(feature, "title")));
 	expect(root.querySelector("#setting-inlineCompletions\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-commitGeneration\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-prGeneration\\.enabled")).not.toBeNull();

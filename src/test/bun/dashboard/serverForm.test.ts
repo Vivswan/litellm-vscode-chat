@@ -20,7 +20,6 @@ import {
 	parseServerForm,
 	parseServerFormForTest,
 	SERVER_FORM_FIELD_ORDER,
-	saveFailureDisposition,
 	sectionFailureText,
 	serverFormFieldLabel,
 	staleKeyFieldsOnSave,
@@ -230,12 +229,6 @@ describe("dashboard/serverForm", () => {
 			assert.deepStrictEqual([...SERVER_FORM_FIELD_ORDER].sort(), draftFields);
 			for (const field of SERVER_FORM_FIELD_ORDER) {
 				assert.ok(serverFormFieldLabel(field).length > 0, field);
-			}
-		});
-
-		test("OAuth-section fields are a subset of the order, so a summary can always point into the form", () => {
-			for (const field of OAUTH_FORM_FIELDS) {
-				assert.ok(SERVER_FORM_FIELD_ORDER.includes(field), field);
 			}
 		});
 
@@ -638,13 +631,6 @@ describe("dashboard/serverForm", () => {
 
 			const added = draft({ authForm: "apiKey", baseUrl: "http://new.test" });
 			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(added)), [], "an add form shows no credentials");
-		});
-	});
-
-	describe("saveFailureDisposition", () => {
-		test("an operation-kind failure closes the form (the save committed, the draft is stale); validation returns to editing", () => {
-			assert.strictEqual(saveFailureDisposition("operation"), "close");
-			assert.strictEqual(saveFailureDisposition("validation"), "edit");
 		});
 	});
 

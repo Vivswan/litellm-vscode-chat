@@ -13,8 +13,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 
-// Every doc stating the minimum VS Code version. stackDrift.test.ts pins
-// this list against its own claim table, so the two cannot drift apart.
+// Every doc stating the minimum VS Code version. A doc missing here keeps its old
+// floor at the next bump, which the claims test in stackDrift.test.ts turns red.
 const FLOOR_DOCS = [
 	"README.md",
 	"README.zh-cn.md",

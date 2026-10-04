@@ -9,7 +9,6 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import type { SecretFieldDraft, ServerFormDraft, ServerFormIntent } from "../../../dashboard/serverForm";
 import {
-	CONNECTION_FIELDS,
 	deriveAuthForm,
 	EMPTY_SERVER_FORM,
 	parseDeclaredModelsText,
@@ -284,13 +283,6 @@ describe("dashboard/serverForm redesign", () => {
 			assert.ok(parse.ok);
 			assert.deepStrictEqual(parse.intent.server.headers, { "x-routing-env": "prod" });
 			assert.deepStrictEqual(parse.intent.server.declaredModels, ["deepseek-r1"]);
-		});
-
-		test("CONNECTION_FIELDS covers the auth selector and the header rows", () => {
-			assert.ok(CONNECTION_FIELDS.includes("authForm"));
-			assert.ok(CONNECTION_FIELDS.includes("headers"));
-			assert.ok(!CONNECTION_FIELDS.includes("declaredModels"));
-			assert.ok(!CONNECTION_FIELDS.includes("budget"));
 		});
 	});
 });

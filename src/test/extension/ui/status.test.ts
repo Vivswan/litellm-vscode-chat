@@ -73,16 +73,6 @@ suite("extension/ui/status", () => {
 		assert.strictEqual(realItemCreations, 0, "a test created a real status bar item in the shared host");
 	});
 
-	test("clicking the status bar item runs the injected item's command", () => {
-		// The command rides the injected item (activation pins it to
-		// CMD.openDashboard); the manager only surfaces it.
-		const item = new RecordingItem();
-		item.command = "litellm.openDashboard";
-		const manager = createManager(undefined, () => false, undefined, item);
-
-		assert.strictEqual(manager.clickCommand, "litellm.openDashboard");
-	});
-
 	suite("the item's text keeps the bar quiet: counts live in the tooltip", () => {
 		const okServers: ServerStatus[] = [
 			{

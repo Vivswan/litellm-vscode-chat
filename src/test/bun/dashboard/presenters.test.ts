@@ -12,12 +12,8 @@ import {
 	zeroModelExplanation,
 } from "../../../dashboard/presenters";
 import type { DashboardServer } from "../../../dashboard/viewModels";
-import type { CapabilityJsonValue, CapabilityValueKind } from "../../../shared/config/capabilityResolution";
-import {
-	CAPABILITY_FIELDS,
-	CONSUMED_CAPABILITY_FIELDS,
-	capabilityField,
-} from "../../../shared/config/capabilityResolution";
+import type { CapabilityJsonValue } from "../../../shared/config/capabilityResolution";
+import { capabilityField } from "../../../shared/config/capabilityResolution";
 import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { isIntegerSetting, NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 
@@ -515,16 +511,6 @@ describe("dashboard/presenters renderers", () => {
 	});
 
 	describe("capability vocabulary", () => {
-		test("the consumed vocabulary contains the registration-typed core", () => {
-			// The record editors key their inputs and validation hints off these
-			// constants.
-			for (const name of Object.keys(CAPABILITY_FIELDS)) {
-				assert.ok(Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, name), `core field ${name} must be consumed`);
-			}
-			const costKind: CapabilityValueKind | undefined = CONSUMED_CAPABILITY_FIELDS.input_cost_per_token;
-			assert.strictEqual(costKind, "cost");
-		});
-
 		test("capabilityField reads own properties only, so prototype-named open fields cannot leak members", () => {
 			const bag: Readonly<Record<string, CapabilityJsonValue | undefined>> = { toString: "own" };
 			assert.strictEqual(capabilityField(bag, "toString"), "own");

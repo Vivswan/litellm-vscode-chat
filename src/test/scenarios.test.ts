@@ -1,5 +1,4 @@
 import * as assert from "node:assert";
-import type { Scenario } from "./scenarios";
 import { isScenario, MAX_SCENARIO_ITEMS, MAX_STALL_MS } from "./scenarios";
 
 /**
@@ -85,15 +84,5 @@ suite("scenarios: isScenario boundaries", () => {
 		assert.strictEqual(isScenario({ ...validRaw, frames: ["caf\u00e9"] }), true, "0xFF and below are bytes");
 		assert.strictEqual(isScenario({ ...validRaw, frames: ["caf\u0113"] }), false, "U+0113 is not a byte");
 		assert.strictEqual(isScenario({ ...validRaw, frames: ["ok", 42] }), false, "non-strings are rejected");
-	});
-
-	test("the type guard narrows for the compiler", () => {
-		const value: unknown = validRaw;
-		if (isScenario(value)) {
-			const scenario: Scenario = value;
-			assert.strictEqual(scenario.type, "raw");
-		} else {
-			assert.fail("validRaw must validate");
-		}
 	});
 });

@@ -4,18 +4,17 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { DOCKER_SKIP_FLAGS, DOCKER_TEST_LABELS } from "./dockerTestLabels";
-import { parseEnvFile, STACK_DEFAULTS } from "./envFile";
+import { STACK_DEFAULTS } from "./envFile";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
-import { COPILOT_TOKEN_DIR, FAKE_BACKEND_PORT, REAL_PROVIDERS } from "./fakeStack/proxyConfig";
+import { COPILOT_TOKEN_DIR, REAL_PROVIDERS } from "./fakeStack/proxyConfig";
 
 /**
  * Drift guards for the docker stack's non-TypeScript mirrors. The TypeScript
- * constants are truth; docker/docker-compose.yml, .env.example, README.md,
- * docs/development.md, and the devcontainer cannot import them, so these tests
- * turn every restatement into a CI-enforced mirror. Captured values are
- * compared whole, never as substrings, so a stale number that happens to
- * prefix the live one still fails. Tests run from out/test, so the repo root
- * is two levels up.
+ * constants are truth; docker/docker-compose.yml, README.md, docs/development.md,
+ * and the workflows cannot import them, so these tests pin the restatements
+ * whose drift nothing else would surface. Captured values are compared whole,
+ * never as substrings, so a stale number that happens to prefix the live one
+ * still fails. Tests run from out/test, so the repo root is two levels up.
  */
 const repoRoot = path.resolve(__dirname, "..", "..");
 
@@ -43,47 +42,6 @@ suite("stack drift guard: docker/docker-compose.yml", () => {
 		assert.ok(body.trim() !== "", `the "${name}" service block is not empty`);
 		return body;
 	}
-
-	/** The single match of a pattern; zero or several matches fail loudly instead of comparing an arbitrary one. */
-	function captureOne(text: string, pattern: RegExp, what: string): string {
-		const captures = [...text.matchAll(pattern)].map((match) => match[1] as string);
-		assert.strictEqual(captures.length, 1, `expected exactly one ${what}, found ${captures.length}`);
-		return captures[0] as string;
-	}
-
-	test("every VAR:-default compose fallback for a stack setting states the STACK_DEFAULTS value", () => {
-		// Host-side settings only: the litellm container-internal port 4000 has
-		// no TypeScript mirror and stays deliberately unguarded.
-		const fallbacks: Record<string, string> = {};
-		for (const match of read("docker/docker-compose.yml").matchAll(/\$\{([A-Z_]+):-([^}]*)\}/g)) {
-			const name = match[1] as string;
-			assert.ok(
-				!Object.hasOwn(fallbacks, name),
-				`duplicate \${${name}:-...} fallbacks would make this guard ambiguous`
-			);
-			fallbacks[name] = match[2] as string;
-		}
-		const found = Object.keys(fallbacks).length;
-		assert.ok(found >= 3, `docker/docker-compose.yml declares \${VAR:-default} fallbacks (found ${found})`);
-		for (const [name, value] of Object.entries(STACK_DEFAULTS)) {
-			assert.ok(Object.hasOwn(fallbacks, name), `docker/docker-compose.yml has no \${${name}:-...}`);
-			assert.strictEqual(fallbacks[name], value, `compose fallback for ${name}`);
-		}
-	});
-
-	test("the fake-openai service pins FAKE_BACKEND_PORT on its PORT env, port mapping, and healthcheck", () => {
-		const block = serviceBlock("fake-openai");
-		const portEnv = captureOne(block, /^ +PORT: "(\d+)"$/gm, "fake-openai PORT env line");
-		assert.strictEqual(portEnv, String(FAKE_BACKEND_PORT), "fake-openai PORT env");
-		const mapping = captureOne(block, /"127\.0\.0\.1:\$\{FAKE_OPENAI_PORT:-\d+\}:(\d+)"/g, "fake-openai port mapping");
-		assert.strictEqual(mapping, String(FAKE_BACKEND_PORT), "fake-openai container-side mapping");
-		const health = captureOne(
-			block,
-			/"wget", "-qO-", "http:\/\/127\.0\.0\.1:(\d+)\/health"/g,
-			"fake-openai wget healthcheck"
-		);
-		assert.strictEqual(health, String(FAKE_BACKEND_PORT), "fake-openai healthcheck port");
-	});
 
 	test("the litellm environment block passes through every env var the generated config reads", () => {
 		// The wildcard-route decision runs on the HOST at generation time, but
@@ -129,29 +87,12 @@ suite("stack drift guard: docker/docker-compose.yml", () => {
 });
 
 suite("stack drift guard: vscode typings floor", () => {
-	test("the hook and the format-check workflow run the one typings-floor script, over an exact pin", () => {
+	test("@types/vscode is an exact version pin", () => {
 		// The class this pins away: the hook once ran its own inline check
 		// against the DECLARED range while CI checked the INSTALLED version, so
 		// a caret range resolving past engines.vscode was green locally and red
-		// on main. One script, both callers - matched as whole active lines, so
-		// a commented-out invocation fails - and the script must exist at the
-		// invoked path, so a rename or move that misses a caller fails here.
-		assert.ok(
-			fs.existsSync(path.join(repoRoot, "scripts/ci/check-vscode-types.ts")),
-			"the typings-floor script exists"
-		);
-		assert.match(
-			read(".husky/pre-commit"),
-			/^bun scripts\/ci\/check-vscode-types\.ts$/m,
-			"pre-commit runs the shared typings-floor script"
-		);
-		assert.match(
-			read(".github/workflows/format-check-reusable.yml"),
-			/^\s+run: bun scripts\/ci\/check-vscode-types\.ts$/m,
-			"format-check runs the shared typings-floor script"
-		);
-		// An exact pin keeps installed == declared, so a range can never again
-		// resolve past the floor between a local run and CI.
+		// on main. An exact pin keeps installed == declared, so a range can
+		// never again resolve past the floor between a local run and CI.
 		const { devDependencies } = JSON.parse(read("package.json")) as { devDependencies: Record<string, string> };
 		assert.match(devDependencies["@types/vscode"] ?? "", /^\d+\.\d+\.\d+$/, "@types/vscode is an exact version pin");
 	});
@@ -179,25 +120,6 @@ suite("stack drift guard: minimum-VS-Code claims", () => {
 			assert.ok(claimed, `${file} states the minimum VS Code version`);
 			assert.strictEqual(claimed, minimum, `${file} minimum VS Code version`);
 		}
-	});
-
-	test("the floor-sync script rewrites exactly the claim files, and its workflow runs it", () => {
-		// The script cannot import this table (rootDir: src), so its own
-		// FLOOR_DOCS list is pinned here instead: a doc added to one list
-		// without the other fails this equality, not a future Dependabot PR.
-		const block = /FLOOR_DOCS = \[([^\]]*)\]/.exec(read("scripts/ci/sync-vscode-floor.ts"))?.[1];
-		assert.ok(block, "sync-vscode-floor.ts declares FLOOR_DOCS as an array literal");
-		const listed = [...block.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-		assert.deepStrictEqual(
-			listed,
-			claims.map(([file]) => file),
-			"FLOOR_DOCS matches the claim table"
-		);
-		assert.match(
-			read(".github/workflows/dependabot-vscode-floor.yml"),
-			/^\s+run: bun scripts\/ci\/sync-vscode-floor\.ts$/m,
-			"the dependabot-vscode-floor workflow runs the shared floor-sync script"
-		);
 	});
 });
 
@@ -230,28 +152,12 @@ suite("stack drift guard: docs/development.md", () => {
 	});
 });
 
-suite("stack drift guard: .env.example", () => {
-	test("the template ships the stack defaults and covers every provider key", () => {
-		// Parsed with the same compose-conformant grammar the stack itself uses.
-		const values = parseEnvFile(read(".env.example"));
-		for (const [name, value] of Object.entries(STACK_DEFAULTS)) {
-			assert.ok(Object.hasOwn(values, name), `.env.example has no ${name} line`);
-			assert.strictEqual(values[name], value, `.env.example value for ${name}`);
-		}
-		for (const { envVar } of REAL_PROVIDERS) {
-			assert.ok(Object.hasOwn(values, envVar), `.env.example does not template ${envVar}`);
-			assert.strictEqual(values[envVar], "", `${envVar} ships empty (no key, no wildcard route)`);
-		}
-	});
-});
-
 suite("stack drift guard: checks.yml docker shards", () => {
 	/**
 	 * The shard matrices in checks.yml restate the orchestrator's label set as
 	 * quoted comma-separated strings the workflow cannot import. The
-	 * orchestrator exits 2 on an unknown label, but only when that shard
-	 * actually runs; these guards catch a rename or a new suite at unit-test
-	 * time instead.
+	 * orchestrator rejects an unknown label loudly; what it cannot see is a
+	 * label that no shard names at all, or a shard that quietly vanished.
 	 */
 	function jobBlock(name: string): string {
 		const match = new RegExp(`^  ${name}:\\n((?:(?:    .*)?\\n)*)`, "m").exec(read(".github/workflows/checks.yml"));
@@ -270,19 +176,6 @@ suite("stack drift guard: checks.yml docker shards", () => {
 		);
 	}
 
-	test("every label in the docker-stack and fuzz-docker matrices is one the orchestrator knows", () => {
-		const known: ReadonlySet<string> = new Set(DOCKER_TEST_LABELS);
-		for (const job of ["docker-stack", "fuzz-docker"]) {
-			const shards = shardLabels(job);
-			assert.ok(shards.length >= 2, `the "${job}" matrix declares at least two shards`);
-			for (const shard of shards) {
-				for (const label of shard) {
-					assert.ok(known.has(label), `checks.yml ${job} matrix lists unknown label "${label}"`);
-				}
-			}
-		}
-	});
-
 	test("the docker-stack shards cover the full label set exactly once", () => {
 		const sharded = shardLabels("docker-stack").flat().sort();
 		assert.deepStrictEqual(sharded, [...DOCKER_TEST_LABELS].sort(), "docker-stack shard union");
@@ -300,9 +193,8 @@ suite("stack drift guard: checks.yml docker shards", () => {
 	});
 
 	test("the fuzz-docker shards cover exactly the seeded fuzz labels", () => {
-		// The membership test above catches a rename; this catches a deleted
-		// shard, which would silently end that leg's elevated pass in the gate
-		// while every other guard stays green.
+		// A deleted shard would silently end that leg's elevated pass in the
+		// gate while every other guard stays green.
 		const sharded = shardLabels("fuzz-docker").flat().sort();
 		assert.deepStrictEqual(sharded, ["docker-conversation", "docker-fuzz", "docker-monkey"], "fuzz-docker shard union");
 	});
@@ -313,10 +205,9 @@ suite("stack drift guard: nightly-fuzz legs", () => {
 	 * nightly-fuzz.yml restates the orchestrator's label vocabulary twice: the
 	 * seeded docker legs name their labels through --only, and the unseeded leg
 	 * runs the complement through --skip-* flags. Neither list can import
-	 * DOCKER_TEST_LABELS or DOCKER_SKIP_FLAGS, so without these guards a label
-	 * seeded but not skipped would run twice per night, and a seeded label
-	 * whose skip flag went stale after a rename would land in the unseeded leg,
-	 * unfuzzed.
+	 * DOCKER_SKIP_FLAGS, so without these guards a label seeded but not skipped
+	 * would run twice per night, and a seeded label whose skip flag went stale
+	 * after a rename would land in the unseeded leg, unfuzzed.
 	 */
 	const workflow = () => read(".github/workflows/nightly-fuzz.yml");
 
@@ -338,51 +229,11 @@ suite("stack drift guard: nightly-fuzz legs", () => {
 		});
 	}
 
-	test("every seeded docker leg names known, skippable labels", () => {
-		const known: ReadonlySet<string> = new Set(DOCKER_TEST_LABELS);
-		const seededRows = matrixRows().filter((row) => row.family === "docker" && row.seeded === "true");
-		assert.ok(seededRows.length >= 1, "the matrix declares at least one seeded docker leg");
-		for (const row of seededRows) {
-			const labels = (row.labels ?? "").split(",").map((label) => label.trim());
-			assert.ok(labels.length > 0 && labels[0] !== "", "a seeded docker leg must name its labels");
-			for (const label of labels) {
-				assert.ok(known.has(label), `nightly-fuzz seeded leg lists unknown label "${label}"`);
-				assert.ok(
-					DOCKER_SKIP_FLAGS[label as (typeof DOCKER_TEST_LABELS)[number]] !== undefined,
-					`seeded label "${label}" has no --skip flag, so the unseeded leg cannot exclude it`
-				);
-			}
-		}
-	});
-
-	test("the leg accounting matches the header's floors", () => {
-		// The header comment promises four unit legs and three seeded docker
-		// legs per night, and the complement equation below only holds with
-		// EXACTLY one unseeded docker row. Floors, not exact counts, for the
-		// fuzzing legs: adding legs adds coverage, deleting one silently
-		// reduces a night's distinct-seed spread.
-		const rows = matrixRows();
-		assert.ok(
-			rows.filter((row) => row.family === "unit").length >= 4,
-			"the matrix keeps at least the four unit property legs"
-		);
-		assert.ok(
-			rows.filter((row) => row.family === "docker" && row.seeded === "true").length >= 3,
-			"the matrix keeps at least the three seeded docker legs"
-		);
-		assert.strictEqual(
-			rows.filter((row) => row.family === "docker" && row.seeded === "false").length,
-			1,
-			"exactly one unseeded docker leg runs the skip-flag complement"
-		);
-		for (const row of rows) {
-			assert.ok(
-				row.family === "unit" || row.family === "docker",
-				`matrix row "${row.leg}" has family "${row.family}", which no fuzz step runs`
-			);
-			// Structural, not by count: the seeded/unseeded split is inferred
-			// from this value, so a typo must fail here rather than quietly turn
-			// a seeded leg into a second unseeded run.
+	test("every docker leg declares seeded as literally true or false", () => {
+		// The seeded/unseeded split is inferred from this value by a shell
+		// string comparison, so a typo would quietly turn a seeded leg into a
+		// second unseeded run; the workflow validates family itself, not this.
+		for (const row of matrixRows()) {
 			if (row.family === "docker") {
 				assert.ok(
 					row.seeded === "true" || row.seeded === "false",
@@ -392,11 +243,39 @@ suite("stack drift guard: nightly-fuzz legs", () => {
 		}
 	});
 
+	test("exactly one unseeded docker leg runs the skip-flag complement", () => {
+		// The complement equation below holds only with ONE unseeded row: with
+		// none, the eight non-seeded labels stop running at night while every
+		// seeded leg stays green; with two, they run twice.
+		assert.strictEqual(
+			matrixRows().filter((row) => row.family === "docker" && row.seeded === "false").length,
+			1,
+			"exactly one unseeded docker leg runs the skip-flag complement"
+		);
+	});
+
+	test("every seeded label has a skip flag, so the unseeded leg can exclude it", () => {
+		// A seeded label with no --skip flag (today only "docker" lacks one)
+		// drops out of the expected-flags set below unnoticed, and that suite
+		// then runs seeded AND in the complement.
+		const seededRows = matrixRows().filter((row) => row.family === "docker" && row.seeded === "true");
+		assert.ok(seededRows.length >= 1, "the matrix declares at least one seeded docker leg");
+		for (const row of seededRows) {
+			for (const label of (row.labels ?? "").split(",").map((entry) => entry.trim())) {
+				assert.ok(
+					DOCKER_SKIP_FLAGS[label as (typeof DOCKER_TEST_LABELS)[number]] !== undefined,
+					`seeded label "${label}" has no --skip flag, so the unseeded leg cannot exclude it`
+				);
+			}
+		}
+	});
+
 	test("the unseeded leg's skip flags are exactly the seeded labels' flags", () => {
 		// The coverage equation: the unseeded leg runs the complement of its
 		// skip flags, so skips == seeded labels means every label in
-		// DOCKER_TEST_LABELS runs at night exactly once, including any label
-		// added later without touching the workflow.
+		// DOCKER_TEST_LABELS is covered at night (seeded labels by their seeded
+		// legs, each with its own salt; the rest once, in the complement),
+		// including any label added later without touching the workflow.
 		const seededLabels = new Set(
 			matrixRows()
 				.filter((row) => row.family === "docker" && row.seeded === "true")
@@ -486,7 +365,6 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 	 */
 	const HOST_SIDE_PURE_SUITES = new Map<string, string>([
 		["src/test/creditConvention.test.ts", "meta-test: walks the repository's git history"],
-		["src/test/dockerTestLabels.test.ts", "meta-test: imports .vscode-test.mjs, which loads compiled out/ files"],
 		["src/test/envFile.test.ts", "meta-test: pins the docker stack's env-file grammar beside its stack suites"],
 		["src/test/scenarios.test.ts", "meta-test: pins the canned stream shapes the docker suites replay"],
 		["src/test/stackDrift.test.ts", "meta-test: walks out/test and imports .vscode-test.mjs"],

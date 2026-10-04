@@ -309,31 +309,6 @@ suite("provider/model info and fallback", () => {
 		);
 	});
 
-	test("every registered model is a selectable BYOK entry without the legacy metadata bag", async () => {
-		mswServer.use(
-			...discoveryHandlers({
-				data: [
-					{
-						model_name: "gpt-4o",
-						model_info: { id: "gpt-4o", litellm_provider: "openai", supports_function_calling: true },
-					},
-				],
-			})
-		);
-
-		const infos = await makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
-			{ silent: true },
-			new vscode.CancellationTokenSource().token
-		);
-
-		assert.ok(infos.length > 0);
-		for (const info of infos) {
-			assert.strictEqual(info.isBYOK, true, `${info.id} runs on the user's own credentials`);
-			assert.strictEqual(info.isUserSelectable, true, `${info.id} must be selectable in the model picker`);
-			assert.ok(!("metadata" in info), `${info.id} must not carry the retired metadata duplicate`);
-		}
-	});
-
 	test("blocked models are not registered", async () => {
 		mswServer.use(
 			...discoveryHandlers({

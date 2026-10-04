@@ -139,13 +139,6 @@ const INSET_FAMILY = /^(?:inset|inset-block|inset-block-start|inset-block-end|to
 /** `all` resets every family at once, so no cluster-targeting rule may declare it at all. */
 const ALL_SHORTHAND = /^all:/;
 
-test("the resting actions cluster still aligns itself, which is what the cover has to reset", async () => {
-	// The premise of the cover's resets: if the cluster stops aligning itself, the reset rules become cargo. The
-	// compiler collapses the cluster's align-self and justify-self into one place-self, which is what ships.
-	const alignment = familyDeclarations(await clusterRules(), ALIGNMENT_FAMILY);
-	expect(alignment[0]).toEqual({ selector: ".server-actions", declaration: "place-self: center end" });
-});
-
 test("the armed cover's resets are the only other self-alignment, position, and offset words in scope", async () => {
 	// Exact equality over the whole scope: a third alignment declaration anywhere that can reach the cluster -
 	// whatever its specificity, longhand or shorthand - shows up as an extra row here. Between the two pinned

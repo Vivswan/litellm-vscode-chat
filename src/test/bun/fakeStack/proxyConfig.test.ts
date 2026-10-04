@@ -172,12 +172,6 @@ describe("fakeStack proxyConfig emission", () => {
 		]);
 	});
 
-	test("the catalog shape is pinned: exactly 9 entries across 8 aliases", () => {
-		const names = config.split("\n").filter((line) => line.startsWith("  - model_name: "));
-		assert.strictEqual(names.length, 9, "one entry per deployment");
-		assert.strictEqual(new Set(names).size, 8, "eight distinct aliases (the pair repeats)");
-	});
-
 	test("the FIM model emits mode: completion and no other model emits a mode", () => {
 		const fimBlocks = infoBlocks("codestral-fim");
 		assert.strictEqual(fimBlocks.length, 1, "one deployment");

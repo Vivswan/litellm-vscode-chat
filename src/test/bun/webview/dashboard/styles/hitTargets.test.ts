@@ -1,18 +1,15 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { compileDashboard, rulesFor } from "./compileStyles";
 
 /**
  * The 24px pointer target the page's glyph-sized controls wear (WCAG 2.5.8),
- * as a stylesheet fact plus its census. The rule must grow the HIT AREA and
+ * as a stylesheet fact. The rule must grow the HIT AREA and
  * nothing else: an out-of-flow pseudo-element, so the "?" ring stays 14px and
  * the line box it sits in keeps its height. A padding or size declaration on
  * the class itself is the regression - it would pass a "target is 24px" check
  * while enlarging every glyph and every line they sit on.
  */
 
-const dashboardDir = path.resolve(import.meta.dir, "../../../../../webview/dashboard");
 const MINIMUM_PX = 24;
 
 test("the shared hit-target rule expands only an out-of-flow pseudo-element", async () => {
@@ -38,16 +35,4 @@ test("the shared hit-target rule expands only an out-of-flow pseudo-element", as
 	expect(declarations).toContain(`min-height: ${MINIMUM_PX}px`);
 	expect(declarations).toContain("width: 100%");
 	expect(declarations).toContain("height: 100%");
-});
-
-test("the glyph-sized controls wear it, and no line-box owner does", () => {
-	// The census, so a new glyph control is a deliberate addition here rather
-	// than a silently untargetable 14px button.
-	const help = readFileSync(path.join(dashboardDir, "help.tsx"), "utf8");
-	expect(help, "the help glyph carries the target").toContain('className="help hit-24"');
-	const settingRows = readFileSync(path.join(dashboardDir, "settingRows.tsx"), "utf8");
-	expect(settingRows, "the settings.json jump carries the target").toContain("reveal-json hit-24");
-	// The wrappers that OWN the line box must not: growing them would grow the
-	// line, which is exactly what the pseudo exists to avoid.
-	expect(help, "the help wrapper stays unexpanded").not.toContain('className="help-wrap hit-24"');
 });

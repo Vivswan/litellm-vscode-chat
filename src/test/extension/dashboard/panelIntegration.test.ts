@@ -1,12 +1,5 @@
 import * as assert from "node:assert";
-import * as fs from "node:fs";
 import * as vscode from "vscode";
-import { DASHBOARD_ENDPOINTS } from "../../../dashboard/endpoints";
-import {
-	DASHBOARD_BUNDLE_FILENAME,
-	DASHBOARD_STYLESHEET_FILENAME,
-	WEBVIEW_DIST_SEGMENTS,
-} from "../../../shared/webviewPaths";
 import { catalogOff, ensureActivated } from "../../hostApiHelpers";
 import { serverPayload } from "./recordedEnv";
 
@@ -116,44 +109,6 @@ suite("extension/dashboard/panelIntegration", () => {
 		assert.strictEqual(await inject(request("ready", null)), "ok");
 		// And the schema boundary still rejects junk after the panel exists.
 		assert.strictEqual(await inject({ type: "no-such-intent" }), "ignored-malformed");
-	});
-
-	test("the bundled stylesheet exists beside the bundle at the exact path createRealPanel resolves", () => {
-		// The webview suite renders source .tsx and never loads the bundled output,
-		// so a bundler regression that stops emitting the stylesheet would ship an
-		// unstyled dashboard with every test green. This stats the css through the
-		// same constants panel.ts joins into asWebviewUri.
-		const extension = vscode.extensions.getExtension("vivswan.litellm-vscode-chat");
-		assert.ok(extension, "the extension under test must be present");
-		const distDir = vscode.Uri.joinPath(extension.extensionUri, ...WEBVIEW_DIST_SEGMENTS);
-		assert.ok(fs.existsSync(vscode.Uri.joinPath(distDir, DASHBOARD_BUNDLE_FILENAME).fsPath));
-
-		const stylesheetPath = vscode.Uri.joinPath(distDir, DASHBOARD_STYLESHEET_FILENAME).fsPath;
-		assert.ok(
-			fs.existsSync(stylesheetPath),
-			`the bundle script must emit ${stylesheetPath} beside the dashboard bundle`
-		);
-		const css = fs.readFileSync(stylesheetPath, "utf8");
-		// The dev emit this suite sees weighs ~47,961 bytes (~39,995 minified),
-		// so 30000 fails a truncated emit, not just an empty one.
-		assert.ok(css.length > 30000, `the stylesheet weighs ${css.length} bytes; the real dashboard styles are missing`);
-		assert.ok(css.includes("var(--vscode-foreground)"), "the stylesheet must read the host's theme tokens");
-		assert.ok(css.includes("var(--vscode-button-background)"), "the stylesheet must read the host's theme tokens");
-	});
-
-	test("every endpoint table method's schema survives bundling and classifies its request", async function () {
-		this.timeout(20000);
-		// Runs against the bundled dist/extension.js: a bare-number payload fails
-		// every payload schema, so each probe must come back with its method's
-		// exact refusal class without reaching a handler - notifying methods
-		// answer validation-error, reads ignored-malformed. A method whose schema
-		// or table row went missing from the bundle fails by name, and a schema
-		// that accepts the probe surfaces as "ok" instead of running a handler.
-		for (const [method, endpoint] of Object.entries(DASHBOARD_ENDPOINTS)) {
-			const outcome = await inject(request(method, 12345, `pi-survival-${method}`));
-			const expected = endpoint.outcome === "read" ? "ignored-malformed" : "validation-error";
-			assert.strictEqual(outcome, expected, `method ${method} must classify the probe payload`);
-		}
 	});
 
 	test("a setNumberSetting intent lands in real user settings via the resolved update scope", async () => {

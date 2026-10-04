@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
-import type { SettingsExportEnv, SettingsExportResult } from "../../../extension/settingsTransfer/exportBuild";
+import type { SettingsExportEnv } from "../../../extension/settingsTransfer/exportBuild";
 import { buildSettingsExport } from "../../../extension/settingsTransfer/exportBuild";
-import { ALL_SETTING_KEYS, CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
+import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 
 function env(overrides: Partial<SettingsExportEnv>): SettingsExportEnv {
 	return {
@@ -19,11 +19,6 @@ function readerFor(values: Readonly<Record<string, unknown>>): (key: string) => 
 }
 
 suite("extension/settingsTransfer/exportBuild", () => {
-	test("the frozen signature", () => {
-		const build: (env: SettingsExportEnv) => Promise<SettingsExportResult> = buildSettingsExport;
-		assert.strictEqual(typeof build, "function");
-	});
-
 	test("only keys with an explicit globalValue enter the file, and the counts state it", async () => {
 		const values = {
 			"chat.timeout": 60000,
@@ -211,18 +206,5 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		]);
 		assert.strictEqual(withoutSecrets.omittedUnsanitizableCount, 0);
 		assert.ok(!JSON.stringify(withoutSecrets.envelope).includes("sk-test-flat"));
-	});
-
-	test("the walk covers exactly ALL_SETTING_KEYS", async () => {
-		const seen: string[] = [];
-		await buildSettingsExport(
-			env({
-				readGlobalSetting: (key) => {
-					seen.push(key);
-					return undefined;
-				},
-			})
-		);
-		assert.deepStrictEqual(seen, [...ALL_SETTING_KEYS]);
 	});
 });

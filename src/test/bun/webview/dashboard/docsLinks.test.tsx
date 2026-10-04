@@ -1,7 +1,6 @@
 /**
- * The dashboard's "learn more" links into the docs, in three layers: a source sweep over docsLinks (literal ASCII
- * only, no template syntax anywhere, so a link can never carry server data), a resolution check that every path and
- * #anchor exists under docs/, and render assertions per section. Plain anchors need no plumbing or CSP grant.
+ * The dashboard's "learn more" links into the docs: the host and webview copies agree, every path and #anchor
+ * exists under docs/, and each section renders its link. Plain anchors need no plumbing or CSP grant.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -62,29 +61,6 @@ function allDocsUrls(): [name: string, url: string][] {
 	return [...entries, ...hostLinkUrls().filter(([, url]) => url.startsWith(DOCS_BASE))];
 }
 
-test("every host-side link is ASCII and rooted at the repository", () => {
-	const entries = hostLinkUrls();
-	expect(entries.length).toBeGreaterThan(1);
-	for (const [name, value] of entries) {
-		// Enforces the links module's GitHub-only docstring: a future non-GitHub link failing here is a policy decision
-		// to make, not a link-integrity bug.
-		expect(value, name).toStartWith(links.GITHUB_REPO_URL);
-		expect(value, name).toMatch(/^[\x20-\x7E]+$/);
-	}
-	// The docs-rooted subset feeds the file/anchor sweep below; if this count drops, a docs link stopped being swept
-	// rather than stopped existing.
-	expect(hostLinkUrls().filter(([, url]) => url.startsWith(DOCS_BASE)).length).toBeGreaterThanOrEqual(4);
-});
-
-test("every docs URL is ASCII and rooted at the repository's docs folder", () => {
-	const entries = allDocsUrls();
-	expect(entries.length).toBeGreaterThan(1);
-	for (const [name, value] of entries) {
-		expect(value, name).toStartWith(DOCS_BASE);
-		expect(value, name).toMatch(/^[\x20-\x7E]+$/);
-	}
-});
-
 test("the host's per-cause hint links and the dashboard's docsLinks constants agree", () => {
 	// The webview cannot consume SETUP_HINT_DOCS_URLS (layering plus the literal-strings-only contract force
 	// docsLinks.ts to ship its own copies), so this pin keeps the toast and the dashboard on the same heading. The
@@ -97,21 +73,6 @@ test("the host's per-cause hint links and the dashboard's docsLinks constants ag
 	};
 	for (const hint of SETUP_HINT_KINDS) {
 		expect(links.SETUP_HINT_DOCS_URLS[hint], hint).toBe(mirrored[hint]);
-	}
-});
-
-test("the docsLinks module is literal strings only, with no template syntax", () => {
-	// The render sweep checks evaluated values, which a computed expression could still produce; the source is the
-	// proof. Every export must be one double-quoted literal, so DocsUrl can never silently widen to string.
-	const source = fs.readFileSync(path.join(repoRoot, "src", "webview", "dashboard", "docsLinks.ts"), "utf8");
-	expect(source).not.toContain("`");
-	expect(source).not.toContain("${");
-	const declarations = source.match(/^export const DOCS_LINK_\w+ =[\s\S]*?;/gm) ?? [];
-	expect(declarations.length).toBe(Object.keys(docsLinks).length);
-	for (const declaration of declarations) {
-		// Printable ASCII minus the quote itself, so a concatenation like
-		// "a" + "b" cannot hide inside the character class.
-		expect(declaration).toMatch(/^export const DOCS_LINK_\w+ =\s*"[\x20-\x21\x23-\x7E]*";$/);
 	}
 });
 

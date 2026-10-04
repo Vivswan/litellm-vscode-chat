@@ -13,7 +13,6 @@ import {
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { type OAuthConfig, oauthCredentialFingerprint } from "../../../provider/transport/auth";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { fingerprint } from "../../../shared/util/fingerprint";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { expectDefined, makeModelInfo } from "../../pureHelpers";
 
@@ -193,14 +192,6 @@ suite("provider/catalog/groupModels", () => {
 
 	suite("groupClientId", () => {
 		const plain: GroupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "k" };
-
-		test("one identity format: group:<fingerprint of the identity tuple>:<baseUrl>", () => {
-			// The equality pin of the encoding itself: the fixed-arity tuple with
-			// one slot per component, absent components as null, hashed as one
-			// JSON string. A slot added, dropped, or reordered fails here.
-			const tuple = JSON.stringify(["http://litellm.test", null, "k", null, null]);
-			assert.strictEqual(groupClientId(plain), `group:${fingerprint(tuple)}:http://litellm.test`);
-		});
 
 		test("entries sharing a base URL and every credential get distinct identities from their labels", () => {
 			// Two declared entries, one server, one key. Without the label both

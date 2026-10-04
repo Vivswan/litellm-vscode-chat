@@ -1,8 +1,8 @@
 /**
  * Every external destination the Diagnostics feedback rows link to. Literal string
  * constants only (the docsLinks.ts rule), so link targets provably never carry server
- * data; diagnostics.test.tsx enforces the shape and derives the marketplace URL from
- * package.json, so a renamed publisher fails CI instead of serving a dead link.
+ * data; diagnostics.test.tsx derives the marketplace URL from package.json, so a
+ * renamed publisher fails CI instead of serving a dead link.
  */
 
 export const FEEDBACK_LINK_RATE =

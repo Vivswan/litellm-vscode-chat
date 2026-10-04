@@ -48,9 +48,7 @@ function auth401(body: unknown): AuthenticationError {
 /**
  * How a surface joins headline and detail, DERIVED from twoPartTexts itself
  * rather than listed here: the copy table owns that choice per surface, and a
- * list in this file would silently assert the wrong thing the day a surface is added. The
- * exact per-surface texts are pinned by equality in errorMapping.test.ts,
- * whose pin table is fail-closed over the same surface union.
+ * list in this file would silently assert the wrong thing the day a surface is added.
  */
 function joinDetail(surface: MapErrorContext["surface"], headline: string, detail: string): string {
 	if (detail === "") {
@@ -196,8 +194,7 @@ suite("provider/errorMapping properties", () => {
 					assert.strictEqual(mapped.kind, status === 401 ? "auth" : "http");
 					assert.notStrictEqual(mapped.kind, "network", "a status-bearing error must never classify as network");
 					if (status === 404) {
-						// 404 carries per-surface guidance (pinned exactly, per surface,
-						// in errorMapping.test.ts); what is invariant here is that the
+						// 404 carries per-surface guidance; what is invariant here is that the
 						// base-URL advice is claimed for discovery ALONE - on every other
 						// surface a 404 usually means the model went away, so
 						// "check the base URL" would be wrong advice for a healthy server.

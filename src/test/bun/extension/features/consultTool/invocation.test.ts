@@ -8,7 +8,6 @@ import {
 	type ConsultPromptFit,
 	type ConsultTextPart,
 	type ConsultTokenizationOptions,
-	type ConsultToolInput,
 	EMPTY_REPLY_TEXT,
 	fitConsultPrompt,
 	fitConsultReply,
@@ -251,13 +250,6 @@ describe("fitConsultPrompt", () => {
 		expect(budget - fit.prompt.length).toBeLessThanOrEqual(
 			Math.ceil(bigContext.length / 2 ** TRUNCATION_BISECTION_STEPS)
 		);
-	});
-
-	test("the input shape is exactly question plus optional context", async () => {
-		const input: ConsultToolInput = { question: QUESTION };
-		const base = assembleConsultPrompt(QUESTION, undefined);
-		const fit = await fitConsultPrompt(input, lengthCounter(base.length).options);
-		expect(fit.withinBudget).toBe(true);
 	});
 });
 

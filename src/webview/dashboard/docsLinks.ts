@@ -1,8 +1,8 @@
 /**
  * Every docs page the dashboard links out to. Literal string constants only - no
  * interpolation, even of other constants - so a read of this file proves link targets
- * never carry server data; docsLinks.test.tsx enforces the shape and resolves every
- * path and anchor against docs/, so a renamed page fails CI instead of serving 404s.
+ * never carry server data; docsLinks.test.tsx resolves every path and anchor against
+ * docs/, so a renamed page fails CI instead of serving 404s.
  */
 
 export const DOCS_LINK_SERVERS = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/servers.md";

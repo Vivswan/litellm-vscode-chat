@@ -14,7 +14,8 @@ import { FAKE_MODELS } from "./models";
 /**
  * The container-internal port the fake OpenAI backend binds. The compose file
  * restates it three times (the service's PORT env, the host mapping's container
- * side, the healthcheck URL); stackDrift.test.ts pins those copies.
+ * side, the healthcheck URL); a mismatch fails the stack's healthcheck or every
+ * proxied chat in the docker suites.
  */
 export const FAKE_BACKEND_PORT = 8080;
 
@@ -24,7 +25,7 @@ const FAKE_API_BASE = `http://fake-openai:${FAKE_BACKEND_PORT}/v1`;
  * The real-provider wildcard routes the generated config may emit, keyed by
  * the API-key variable each route reads via os.environ inside the container.
  * docker/docker-compose.yml must pass every envVar through to the litellm service
- * and .env.example must template it; stackDrift.test.ts pins both.
+ * (stackDrift.test.ts pins that) and .env.example templates it.
  * (github was a member until GitHub Models was retired on 2026-07-30.)
  */
 export const REAL_PROVIDERS: ReadonlyArray<{ prefix: string; envVar: string }> = [

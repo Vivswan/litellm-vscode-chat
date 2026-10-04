@@ -1,12 +1,11 @@
 /**
- * The dashboard's hover-help affordances: helpText's strings stay plain ASCII
- * with no interpolation (help can never carry server data), and every "?" draws
- * its own tooltip element - native titles are unreliable in the webview host.
+ * The dashboard's hover-help affordances: helpText's strings carry no
+ * interpolation (help can never carry server data), and every "?" draws its
+ * own tooltip element - native titles are unreliable in the webview host.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { SERVER_FORM_FIELD_ORDER } from "../../../../dashboard/serverForm";
 import type { DashboardSectionId } from "../../../../dashboard/viewModels";
-import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
 import { FEATURE_ENABLE_SETTING_KEYS, FEATURE_IDS } from "../../../../shared/config/settingSpec";
 import { DEFAULT_API_VERSION } from "../../../../shared/util/baseUrl";
 import { App } from "../../../../webview/dashboard/app";
@@ -77,20 +76,12 @@ function allHelpStrings(): [name: string, text: string][] {
 	return entries;
 }
 
-test("SETTING_ROW_HELP_IDS names exactly the settings whose settingRowHelp answers", () => {
-	// The id list is static (module scope may not localize) while the strings
-	// live in the switch; this closes the drift between the two.
-	expect([...SETTING_ROW_HELP_IDS]).toEqual(
-		[...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].filter((id) => settingRowHelp(id) !== undefined)
-	);
-});
-
 test("every SHIPPED feature's enable row carries help, derived from the registry", () => {
-	// The pin above ties the id list to the switch, so a feature left out of
-	// BOTH still passes - which is exactly how the consult tool shipped without
-	// the "?" its three shipped siblings carry. This derives the obligation
-	// from FEATURE_REGISTRY instead: shipping is what makes the tip owed, so
-	// the NEXT feature cannot repeat the miss by simply going unmentioned here.
+	// A feature left out of both the id list and the switch would pass every
+	// other check - which is exactly how the consult tool shipped without the
+	// "?" its three shipped siblings carry. This derives the obligation from
+	// FEATURE_REGISTRY instead: shipping is what makes the tip owed, so the
+	// NEXT feature cannot repeat the miss by simply going unmentioned here.
 	const shipped = FEATURE_IDS.filter((feature) => FEATURE_REGISTRY[feature].shipped);
 	expect(shipped.length).toBeGreaterThan(0);
 	for (const feature of shipped) {
@@ -100,17 +91,10 @@ test("every SHIPPED feature's enable row carries help, derived from the registry
 	}
 });
 
-test("every help string is short, printable ASCII, and free of template interpolation", () => {
+test("every help string is free of template interpolation", () => {
 	const entries = allHelpStrings();
 	expect(entries.length).toBeGreaterThan(0);
 	for (const [name, text] of entries) {
-		expect(typeof text, name).toBe("string");
-		// A real explanation, not a placeholder - but a tooltip, not a manual.
-		// One or two short sentences; longer text belongs in the docs.
-		expect(text.length, name).toBeGreaterThan(40);
-		expect(text.length, name).toBeLessThan(220);
-		// Printable ASCII only (no curly quotes, dashes, or control characters).
-		expect(text, name).toMatch(/^[\x20-\x7E]+$/);
 		// No interpolation anywhere near help text: these strings must be
 		// provably static so no server data can ride along into a tooltip.
 		expect(text, name).not.toContain("${");

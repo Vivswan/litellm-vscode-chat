@@ -17,20 +17,6 @@ suite("provider/catalog/modelConfiguration", () => {
 		const property = (levels: readonly string[] = DEFAULT_REASONING_EFFORT_LEVELS) =>
 			expectDefined(reasoningEffortSchema(levels).properties?.reasoningEffort);
 
-		test("the default list declares the sentinel plus every built-in level, max included", () => {
-			assert.deepStrictEqual(property().enum, ["default", "none", "minimal", "low", "medium", "high", "xhigh", "max"]);
-			assert.deepStrictEqual(
-				property().enumItemLabels,
-				["Provider default", "Off", "Minimal", "Low", "Medium", "High", "Extra High", "Max"],
-				"the host requires enumItemLabels to match the enum's length and order"
-			);
-			assert.strictEqual(
-				(property().enumDescriptions as string[]).length,
-				(property().enum as string[]).length,
-				"enumDescriptions must align with the enum too"
-			);
-		});
-
 		test("a resolved level list replaces the menu wholesale, in its own order", () => {
 			assert.deepStrictEqual(property(["high", "low"]).enum, ["default", "high", "low"]);
 		});

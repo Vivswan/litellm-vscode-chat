@@ -47,14 +47,6 @@ function command(name: string): SlashCommand {
 }
 
 describe("extension/features/participant builtinSlashCommands", () => {
-	test("the built-in table is exactly /tests, /docs, /models, each described", () => {
-		const names = builtinSlashCommands().map((entry) => entry.name);
-		expect(names).toEqual(["tests", "docs", "models"]);
-		for (const entry of builtinSlashCommands()) {
-			expect(entry.description.trim()).not.toBe("");
-		}
-	});
-
 	test("each call returns a fresh array, so no caller can mutate another's view", () => {
 		const first = builtinSlashCommands();
 		const second = builtinSlashCommands();

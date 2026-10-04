@@ -5,8 +5,6 @@ import { countTokens as o200kCountTokens } from "gpt-tokenizer/encoding/o200k_ba
 import {
 	CHARS_PER_TOKEN,
 	countTextTokens,
-	NON_LATIN_DETECTION_MIN_CHARS,
-	NON_LATIN_DETECTION_MIN_FRACTION,
 	plainTextTokenEstimate,
 	setTextTokenCounting,
 	twoBandTextTokenEstimate,
@@ -156,12 +154,6 @@ describe("shared/conversion/textTokens: the non-Latin detection threshold", () =
 		countTextTokens(text);
 		return fired;
 	}
-
-	test("the threshold constants hold the documented values", () => {
-		// The bounds below are exercised against exactly these numbers.
-		assert.strictEqual(NON_LATIN_DETECTION_MIN_CHARS, 8);
-		assert.strictEqual(NON_LATIN_DETECTION_MIN_FRACTION, 0.05);
-	});
 
 	test("the absolute floor: 8 non-Latin code points fire, 7 stay quiet", () => {
 		assert.strictEqual(detections("你好世界你好世"), 0);

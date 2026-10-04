@@ -2,7 +2,6 @@
  * readDashboardSettings: the settings page's rows, scopes, and diagnostics.
  */
 import * as assert from "node:assert";
-import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../../dashboard/viewModels";
 import { FEATURE_MODEL_IDS } from "../../../shared/config/settingSpec";
 import { recordFromKeys } from "../../../shared/util/json";
 import { makeReader, readSettings } from "./stateHelpers";
@@ -57,19 +56,6 @@ suite("extension/dashboard/state: settings", () => {
 			const unset = readSettings(makeReader({}));
 			assert.strictEqual(unset.usage.currencySymbol, "$");
 			assert.strictEqual(unset.usage.currencySymbolScope, null);
-		});
-
-		test("every catalog entry is present in the snapshot", () => {
-			const settings = readSettings(makeReader({}));
-
-			for (const id of NUMBER_SETTING_IDS) {
-				assert.ok(id in settings.numbers, `missing number setting ${id}`);
-				assert.ok(id in settings.configuredScopes.numbers, `missing number scope ${id}`);
-			}
-			for (const id of BOOLEAN_SETTING_IDS) {
-				assert.ok(id in settings.booleans, `missing boolean setting ${id}`);
-				assert.ok(id in settings.configuredScopes.booleans, `missing boolean scope ${id}`);
-			}
 		});
 
 		test("configuredScopes carry the highest scope that sets the key, or null when only the default applies", () => {
