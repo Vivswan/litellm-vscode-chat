@@ -1,76 +1,17 @@
 /**
- * The chatParticipants contribution, pinned where the manifest alone decides
- * behavior no runtime test can reach: the host reads these fields long before
- * activation, so a wrong `name` pattern, a command the registry never answers,
- * or an empty disambiguation entry ships silently green.
- *
- * The disambiguation checks are structural guards rather than prose review:
- * they cannot judge whether a category routes well, but they can refuse the
- * failure modes that make routing impossible - a missing category, an empty
- * description, or no examples for the classifier to learn from.
+ * The participant's prose: package.nls.json carries the "/" picker's copy of each command description, because the
+ * host reads the manifest long before this process exists, while the registry resolves its own through the runtime
+ * l10n bundle. The two cannot share a string, so they are pinned equal here. The manifest's structure (command set and
+ * order, gates, categories) is generated from the tables and no longer read.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { builtinSlashCommands } from "../../../../../extension/features/participant/slashCommands";
 import { quickFixSlashCommands } from "../../../../../extension/features/quickFixChatCommands";
-import { CONFIG_SECTION, FEATURE_ENABLE_SETTING_KEYS } from "../../../../../shared/config/settingSpec";
 import { REPO_ROOT } from "../../../../util/repoRoot";
 
-/**
- * Every command the participant can answer: the built-in table plus what the
- * quick-fix feature registers through the seam at activation. The manifest is
- * pinned against THIS list rather than the built-ins alone, because the host
- * routes on the manifest - a seam registration the manifest does not declare
- * is a command nothing can ever invoke, and it fails silently.
- */
-function liveCommands(): { name: string; description: string }[] {
-	return [...builtinSlashCommands(), ...quickFixSlashCommands()].map((command) => ({
-		name: command.name,
-		description: command.description,
-	}));
-}
-
-interface Disambiguation {
-	readonly category?: string;
-	readonly description?: string;
-	readonly examples?: readonly string[];
-}
-
-interface ContributedCommand {
-	readonly name?: string;
-	readonly description?: string;
-	readonly isSticky?: boolean;
-	readonly sampleRequest?: string;
-	readonly disambiguation?: readonly Disambiguation[];
-}
-
-interface ContributedParticipant {
-	readonly id?: string;
-	readonly name?: string;
-	readonly fullName?: string;
-	readonly description?: string;
-	readonly isSticky?: boolean;
-	readonly sampleRequest?: string;
-	readonly when?: string;
-	readonly disambiguation?: readonly Disambiguation[];
-	readonly commands?: readonly ContributedCommand[];
-}
-
-function readManifest(): { chatParticipants?: readonly ContributedParticipant[] } {
-	const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")) as {
-		contributes: { chatParticipants?: readonly ContributedParticipant[] };
-	};
-	return manifest.contributes;
-}
-
-function participant(): ContributedParticipant {
-	const [only] = readManifest().chatParticipants ?? [];
-	expect(only, "package.json contributes no chat participant").toBeDefined();
-	return only as ContributedParticipant;
-}
-
-/** Every nls table, so a %key% reference can be resolved in each locale that ships. */
+/** Every nls table, so a key can be resolved in each locale that ships. English comes first. */
 function nlsTables(): { locale: string; table: Record<string, string> }[] {
 	return ["", "zh-cn", "zh-tw"].map((locale) => ({
 		locale: locale === "" ? "en" : locale,
@@ -80,147 +21,27 @@ function nlsTables(): { locale: string; table: Record<string, string> }[] {
 	}));
 }
 
-/**
- * A manifest string in every locale: a "%key%" through each nls table, a
- * literal as itself. English comes first.
- */
-function localizedValues(value: string | undefined): { locale: string; text: string }[] {
-	expect(value, "a localized manifest field is missing").toBeDefined();
-	const match = /^%([\w.]+)%$/.exec(value ?? "");
-	if (match === null) {
-		return [{ locale: "en", text: value as string }];
-	}
-	return nlsTables().map(({ locale, table }) => {
-		const resolved = table[match[1] as string];
-		expect(resolved, `package.nls.${locale} has no entry for ${value}`).toBeDefined();
-		return { locale, text: resolved as string };
-	});
-}
-
-/** The English wording of a manifest string. */
-function englishValue(value: string | undefined): string {
-	const [english] = localizedValues(value);
-	expect(english?.locale).toBe("en");
-	return english?.text as string;
-}
-
-/**
- * A disambiguation block is usable when every entry names a category, carries
- * a description, and shows the classifier at least one example.
- */
-function expectUsableDisambiguation(entries: readonly Disambiguation[] | undefined, where: string): void {
-	expect(entries, `${where} contributes no disambiguation`).toBeDefined();
-	expect((entries ?? []).length, `${where} contributes an empty disambiguation array`).toBeGreaterThan(0);
-	for (const entry of entries ?? []) {
-		// Machine-readable and stable, so deliberately NOT localized.
-		expect(entry.category, `${where} has a disambiguation entry with no category`).toMatch(/^[a-z][a-z0-9_]+$/);
-		for (const { locale, text } of localizedValues(entry.description)) {
-			expect(text.trim(), `${where}/${entry.category} description is empty in ${locale}`).not.toBe("");
+describe("extension/features/participant contribution prose", () => {
+	test("the manifest and the registry tell the user the same thing about each command", () => {
+		// Two runtimes, two string tables, so the prose cannot be shared by construction - but it can be pinned
+		// equal, which is what keeps the "/" picker and the in-chat listing from describing a command two ways.
+		const [english] = nlsTables();
+		for (const command of [...builtinSlashCommands(), ...quickFixSlashCommands()]) {
+			expect(
+				english?.table[`litellm.participant.command.${command.name}.description`],
+				`/${command.name}: manifest and registry descriptions differ`
+			).toBe(command.description);
 		}
-		expect((entry.examples ?? []).length, `${where}/${entry.category} shows no examples`).toBeGreaterThan(0);
-		for (const example of entry.examples ?? []) {
-			for (const { locale, text } of localizedValues(example)) {
-				expect(text.trim(), `${where}/${entry.category} example is empty in ${locale}`).not.toBe("");
+	});
+
+	test("every participant string is non-blank in every locale", () => {
+		// A blank description or example ships silently green and gives the host's classifier nothing to route on.
+		for (const { locale, table } of nlsTables()) {
+			const keys = Object.keys(table).filter((key) => key.startsWith("litellm.participant."));
+			expect(keys.length, `${locale} carries participant strings`).toBeGreaterThan(0);
+			for (const key of keys) {
+				expect(table[key]?.trim(), `${key} is blank in ${locale}`).not.toBe("");
 			}
 		}
-	}
-}
-
-/**
- * The host's schema for these two objects is additionalProperties:false, so an
- * unknown key is not "extra metadata" - it makes VS Code reject the whole
- * contribution, and the extension then has no participant at all. A hand-written
- * interface cast cannot catch that (excess keys survive a cast), so the allowed
- * key sets are restated here as data and checked against what the file holds.
- */
-const PARTICIPANT_KEYS = new Set([
-	"id",
-	"name",
-	"fullName",
-	"description",
-	"isSticky",
-	"sampleRequest",
-	"when",
-	"disambiguation",
-	"commands",
-]);
-const COMMAND_KEYS = new Set(["name", "description", "when", "sampleRequest", "isSticky", "disambiguation"]);
-const DISAMBIGUATION_KEYS = new Set(["category", "description", "examples"]);
-
-describe("extension/features/participant contribution", () => {
-	test("the participant stays selected across turns", () => {
-		// Off, @litellm drops out of the input after every answer and the user
-		// re-types it, with nothing else noticing.
-		expect(participant().isSticky).toBe(true);
-	});
-
-	test("the contributed commands are exactly the live table, in the same order", () => {
-		// Order too, not just the set: the manifest drives the "/" picker and the
-		// registry drives the in-chat help listing, and a user reading both
-		// should not have to reconcile two orders.
-		const contributed = (participant().commands ?? []).map((command) => command.name);
-		expect(contributed).toEqual(liveCommands().map((command) => command.name));
-	});
-
-	test("the manifest and the registry tell the user the same thing about each command", () => {
-		// Two runtimes, two string tables (the host reads package.nls before this
-		// process exists), so the prose cannot be shared by construction - but it
-		// can be pinned equal, which is what keeps the "/" picker and the in-chat
-		// listing from describing the same command two ways.
-		const live = new Map(liveCommands().map((command) => [command.name, command.description]));
-		for (const command of participant().commands ?? []) {
-			const registryDescription = live.get(command.name as string);
-			expect(
-				registryDescription,
-				`/${command.name} is contributed but the registry answers no such command`
-			).toBeDefined();
-			expect(englishValue(command.description), `/${command.name}: manifest and registry descriptions differ`).toBe(
-				registryDescription as string
-			);
-		}
-	});
-
-	test("the participant and each command carry usable disambiguation", () => {
-		expectUsableDisambiguation(participant().disambiguation, "participant");
-		for (const command of participant().commands ?? []) {
-			expectUsableDisambiguation(command.disambiguation, `/${command.name}`);
-		}
-	});
-
-	test("no key outside the host's allowlist: additionalProperties is false on every level", () => {
-		const entry = participant() as unknown as Record<string, unknown>;
-		expect([...Object.keys(entry)].filter((key) => !PARTICIPANT_KEYS.has(key))).toEqual([]);
-		for (const command of (participant().commands ?? []) as unknown as Record<string, unknown>[]) {
-			expect(
-				[...Object.keys(command)].filter((key) => !COMMAND_KEYS.has(key)),
-				`/${String(command.name)} carries a key the host schema forbids`
-			).toEqual([]);
-		}
-		const blocks = [
-			...(participant().disambiguation ?? []),
-			...(participant().commands ?? []).flatMap((command) => command.disambiguation ?? []),
-		] as unknown as Record<string, unknown>[];
-		expect(blocks.length).toBeGreaterThan(0);
-		for (const block of blocks) {
-			expect([...Object.keys(block)].filter((key) => !DISAMBIGUATION_KEYS.has(key))).toEqual([]);
-		}
-	});
-
-	test("the participant is gated on its own enable setting, so disabling it also hides it", () => {
-		// Disposing the runtime participant is only half of "off": without this
-		// when-clause the host keeps offering @litellm in the picker and routes
-		// to a participant that no longer has a handler.
-		expect(participant().when).toBe(`config.${CONFIG_SECTION}.${FEATURE_ENABLE_SETTING_KEYS.chatParticipant}`);
-	});
-
-	test("every disambiguation category is unique across the whole contribution", () => {
-		// Categories are the classifier's intent ids; two blocks sharing one is a
-		// routing ambiguity of our own making.
-		const entry = participant();
-		const categories = [
-			...(entry.disambiguation ?? []),
-			...(entry.commands ?? []).flatMap((command) => command.disambiguation ?? []),
-		].map((block) => block.category);
-		expect(new Set(categories).size).toBe(categories.length);
 	});
 });

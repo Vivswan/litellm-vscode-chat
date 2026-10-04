@@ -27,8 +27,8 @@ export type { SnapshotSource } from "./snapshots";
 
 export interface ChatParticipantWiring {
 	/**
-	 * The table other features extend the participant through. contribution.test.ts pins the command factories
-	 * equal to package.json's `commands` in both directions, so a new command needs a manifest entry too.
+	 * The table other features extend the participant through. package.json's `commands` is generated from the
+	 * command factories (scripts/dev/manifest), so a new command needs a presentation row there too.
 	 *
 	 *   register during activation wiring  -> turns in flight are unaffected, this is not a runtime toggle
 	 *   name package.json does not declare -> never invoked, the HOST decides what `/name` routes to us

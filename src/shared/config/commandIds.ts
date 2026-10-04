@@ -1,27 +1,24 @@
 /**
- * The extension's command IDs and language-model vendor, in one place so
- * registrations, executeCommand calls, and package.json cannot drift apart
- * (commandIds.test.ts pins the package.json mirror). The provider layer's
- * "litellm" strings are a different concept - a provider-name and model-family
- * fallback that happens to share the spelling - and deliberately stay literal
- * over there.
+ * The extension's command IDs, contribution identities, and language-model vendor, in one place so registrations,
+ * executeCommand calls, and package.json cannot drift apart: the manifest's contributes blocks are generated from
+ * these constants (scripts/dev/manifest). The provider layer's "litellm" strings are a different concept - a
+ * provider-name and model-family fallback that happens to share the spelling - and deliberately stay literal over
+ * there.
  */
 
 import * as l10n from "@vscode/l10n";
-import type { AgentWriteToolId } from "./settingSpec";
+import type { AgentWriteToolId, FeatureId } from "./settingSpec";
 
 /** The vendor this extension registers with the language-model host; provider groups carry it. */
 export const VENDOR_ID = "litellm";
 
-/**
- * The contribution identities of the upcoming features, declared ahead of
- * their manifests so registrations and package.json cannot drift apart once
- * they land (the same contract as CMD). Each is pinned fail-closed by
- * commandIds.test.ts: the manifest section stays EMPTY until the feature
- * ships, and any entry it ever contributes must carry exactly this identity.
- */
 /** The chatParticipants contribution's id (the @litellm participant). */
 export const PARTICIPANT_ID = "litellm.participant";
+/**
+ * The participant's handle: what the user types after "@" and what the quick fixes submit. Not VENDOR_ID, which
+ * happens to share the spelling.
+ */
+export const PARTICIPANT_NAME = "litellm";
 /** The languageModelTools contribution's name (the consult tool). */
 export const TOOL_NAME = "litellm_consult";
 /**
@@ -56,10 +53,8 @@ export interface AgentToolContribution {
 }
 
 /**
- * The agent tools' contribution identities. Each read registers under the
- * feature switch alone; each write also under its own toggle, so the manifest
- * `when` clauses and the registration read the same two switches
- * (commandIds.test.ts pins the mirror).
+ * The agent tools' contribution identities. Each read registers under the feature switch alone; each write also
+ * under its own toggle, and the generated manifest's `when` clauses read the same two switches.
  */
 export const AGENT_TOOLS = {
 	diagnostics: { name: "litellm_diagnostics", referenceName: "litellmDiagnostics", toggle: undefined },
@@ -115,6 +110,35 @@ export const CMD = {
 	reviewUnresolveThread: "litellm.reviewUnresolveThread",
 	reviewDeleteThread: "litellm.reviewDeleteThread",
 } as const;
+
+/**
+ * The feature whose enable setting gates each command: its palette entry and menu items hide until that boolean is
+ * on, and a command with no feature is always offered. Literal-typed so the generator can tell gated commands from
+ * ungated ones at compile time.
+ */
+export const COMMAND_FEATURES = {
+	manage: undefined,
+	openDashboard: undefined,
+	testConnection: undefined,
+	syncModels: undefined,
+	showDiagnostics: undefined,
+	helpAndFeedback: undefined,
+	setServerSecret: undefined,
+	reportIssue: undefined,
+	refreshUsage: undefined,
+	refreshOpenRouterCatalog: undefined,
+	exportSettings: undefined,
+	importSettings: undefined,
+	undoLastImport: undefined,
+	generateCommitMessage: "commitGeneration",
+	generatePrDescription: "prGeneration",
+	reviewChanges: "reviewComments",
+	reviewFile: "reviewComments",
+	reviewReply: "reviewComments",
+	reviewResolveThread: "reviewComments",
+	reviewUnresolveThread: "reviewComments",
+	reviewDeleteThread: "reviewComments",
+} as const satisfies Record<keyof typeof CMD, FeatureId | undefined>;
 
 /**
  * CMD.manage's palette title, exactly as package.json contributes it. A

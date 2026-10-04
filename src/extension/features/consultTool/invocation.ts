@@ -41,6 +41,20 @@ export interface ConsultTokenizationOptions {
 }
 
 /**
+ * What the manifest tells the calling model this tool does (its `modelDescription`). Model-facing text, so it stays
+ * English by policy; the generated manifest carries it verbatim.
+ */
+export const CONSULT_TOOL_MODEL_DESCRIPTION = [
+	"Ask a second, independently configured LiteLLM model for its opinion, and get its answer back as",
+	"text. Reach for it when you want a second opinion before committing to an approach, when you want a",
+	"plan, a diagnosis or a piece of reasoning sanity-checked, or when a model with different strengths",
+	"than yours is likely to know better. The other model sees NOTHING of this conversation: send a",
+	"question that stands on its own, and put the code, errors, or background it needs into 'context'. It",
+	"only answers - it cannot read files, run commands, or change anything - so act on its answer",
+	"yourself, and treat it as one opinion rather than as fact.",
+].join(" ");
+
+/**
  * The built-in instruction framing the consultation. Model-facing text, so it
  * stays English by policy.
  */

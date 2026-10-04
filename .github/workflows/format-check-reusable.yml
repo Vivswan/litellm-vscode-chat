@@ -57,9 +57,6 @@ jobs:
       - name: The generated settings reference must not have drifted
         run: bun run docs:settings:check
 
-      - name: The generated tool schemas must not have drifted
-        run: bun run tools:schemas:check
-
       - name: The generated manifest blocks must not have drifted
         run: bun run manifest:check
 

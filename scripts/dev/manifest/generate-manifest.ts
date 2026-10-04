@@ -1,8 +1,8 @@
 /**
- * Regenerates the generated contributes blocks of package.json from the setting spec. `--check` verifies instead of
- * writing and exits 1 on drift; `--root <dir>` points the output at another directory (tests use it). The pre-commit
- * hook does not run this: scripts/dev/stageGenerated.ts regenerates and stages its registered generators' outputs in
- * one run.
+ * Regenerates the contributes blocks of package.json from the code constants and the authored presentation tables
+ * (contributions.ts names the blocks). `--check` verifies instead of writing and exits 1 on drift; `--root <dir>`
+ * points the output at another directory (tests use it). The pre-commit hook does not run this:
+ * scripts/dev/stageGenerated.ts regenerates and stages its registered generators' outputs in one run.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

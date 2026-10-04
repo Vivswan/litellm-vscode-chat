@@ -5,7 +5,7 @@
  *
  * Pure and vscode-free (the wiring maps these onto vscode.ChatFollowup), so the table and its rules pin in the bun
  * tree. Every `command` here is typed as SlashCommandName, so a followup naming a command no table registers does not
- * compile; the contribution test pins the tables against the manifest.
+ * compile, and the manifest's command list is generated from the tables.
  */
 
 import * as l10n from "@vscode/l10n";
