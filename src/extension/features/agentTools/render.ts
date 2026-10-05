@@ -1,8 +1,8 @@
 /**
  * What the agent tools hand back, in model-facing English, and what the confirmation cards say to the user, localized
  * at call time. Dashboard state carries secret LOCATIONS by construction; every string the model or the user reads
- * leaves through modelFacing(), the one function over the shared KnownSecrets matcher: wiring.ts applies it at the
- * tool's exits, this file per string and identifier while each is whole.
+ * leaves through modelFacing(), the one function over the shared KnownSecrets matcher, which wiring.ts applies at the
+ * tool's exits. Nothing here rewrites text before that pass: a URL leaves as stored and the pass cuts its credentials.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -10,7 +10,7 @@ import type { DashboardState } from "../../../dashboard/viewModels";
 import type { DashboardSubmission } from "../../../extension/dashboard/panel";
 import { isCredentialHeader } from "../../../shared/serverEntry";
 import type { ServerStatus } from "../../../shared/servers";
-import { displayUrl } from "../../../shared/util/displayUrl";
+import { configuredUserinfo, displayUrl } from "../../../shared/util/displayUrl";
 import { isRecord } from "../../../shared/util/json";
 import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import type { DiagnosticsSnapshot } from "../../ui/issueReporter";
@@ -36,8 +36,47 @@ export type ModelFacing = string & { readonly [MODEL_FACING]: true };
  */
 const PLACEHOLDER: unique symbol = Symbol("credential placeholder");
 
-/** Text about to leave, as pieces: strings the pass redacts, placeholders it inserts whole. */
-export type Parts = readonly (string | typeof PLACEHOLDER)[];
+/**
+ * A stored URL leaving as its own part: the exit renders it through the redactor's URL pass (displayUrl's cuts, fail
+ * closed for a value the parser refuses, and the known values judged on the same text together). Free text through
+ * the pass alone keeps a refused value and never cuts across a line break. Like a placeholder, the part is a boundary:
+ * a value is judged inside the URL or inside the text beside it, never across the two.
+ */
+interface UrlPart {
+	readonly url: string;
+}
+
+function urlPart(url: string): UrlPart {
+	return { url };
+}
+
+type Part = string | typeof PLACEHOLDER | UrlPart;
+
+/** Text about to leave, as pieces: strings the pass redacts, placeholders it inserts whole, URLs it shows as URLs. */
+export type Parts = readonly Part[];
+
+/** The marker a localized sentence carries where part `index` goes; a private-use character no locale text uses. */
+function marker(index: number): string {
+	return String.fromCharCode(0xe000 + index);
+}
+
+/**
+ * A localized sentence around parts: l10n.t rendered the sentence with markers in its placeholders, so each marker
+ * becomes its part where the locale put it, and a label is never searched for inside the sentence.
+ */
+function withParts(sentence: string, parts: readonly Part[]): Parts {
+	const out: Part[] = [];
+	let cursor = 0;
+	for (let i = 0; i < sentence.length; i++) {
+		const index = sentence.charCodeAt(i) - 0xe000;
+		if (index >= 0 && index < parts.length) {
+			out.push(sentence.slice(cursor, i), parts[index] as Part);
+			cursor = i + 1;
+		}
+	}
+	out.push(sentence.slice(cursor));
+	return out;
+}
 
 /** The bound a result is cut at and the hint that follows the cut; the shared redactor does the cutting. */
 interface Bound {
@@ -60,8 +99,12 @@ interface Bound {
 export function modelFacing(input: string | Parts, secrets: readonly string[] | Redactor, bound?: Bound): ModelFacing {
 	const known = "redact" in secrets ? secrets : compiled(secrets);
 	const pieces = coalesced(asParts(input));
-	const text = (piece: string | typeof PLACEHOLDER): string =>
-		piece === PLACEHOLDER ? CREDENTIAL_HEADER_PLACEHOLDER : known.redact(piece);
+	const text = (piece: Part): string =>
+		piece === PLACEHOLDER
+			? CREDENTIAL_HEADER_PLACEHOLDER
+			: typeof piece === "string"
+				? known.redact(piece)
+				: known.redactUrl(piece.url);
 	const whole = pieces.map(text).join("");
 	if (bound === undefined || whole.length <= bound.limit) {
 		return whole as ModelFacing;
@@ -92,7 +135,7 @@ function asParts(input: string | Parts): Parts {
 
 /** Adjacent strings as one, so the pass sees a value that spans serializer pieces (a key and its colon). */
 function coalesced(parts: Parts): Parts {
-	const out: (string | typeof PLACEHOLDER)[] = [];
+	const out: Part[] = [];
 	for (const part of parts) {
 		const last = out[out.length - 1];
 		if (typeof part === "string" && typeof last === "string") {
@@ -104,7 +147,7 @@ function coalesced(parts: Parts): Parts {
 	return out;
 }
 
-type Redactor = Pick<KnownSecrets, "redact">;
+type Redactor = Pick<KnownSecrets, "redact" | "redactUrl">;
 
 /** No values known: the URL layer alone, for a card value or a record the caller renders without a set. */
 const NONE: Redactor = new KnownSecrets();
@@ -235,9 +278,13 @@ function jsonParts(value: unknown, indent: string): Parts {
 	return out;
 }
 
-/** The parts as plain text with the placeholder spelled out; for a comparison, never for text that leaves. */
+/** The parts as plain text, the placeholder spelled out and a URL shown; for a comparison, never for text that leaves. */
 function renderedText(parts: Parts): string {
-	return parts.map((part) => (part === PLACEHOLDER ? CREDENTIAL_HEADER_PLACEHOLDER : part)).join("");
+	return parts
+		.map((part) =>
+			part === PLACEHOLDER ? CREDENTIAL_HEADER_PLACEHOLDER : typeof part === "string" ? part : displayUrl(part.url)
+		)
+		.join("");
 }
 
 /**
@@ -365,11 +412,11 @@ export function refusalText(reason: RefusalReason, detail: Readonly<Record<strin
 		case "server-not-declared":
 			return `"${detail.label}" is a provider group outside the servers setting; call litellm_remove_server with action "hide" and its baseUrl.`;
 		case "external-group-not-found":
-			return `No external provider group is at "${displayUrl(detail.baseUrl ?? "")}"${detail.label !== undefined ? ` labeled "${detail.label}"` : ""}.`;
+			return `No external provider group is at "${detail.baseUrl ?? ""}"${detail.label !== undefined ? ` labeled "${detail.label}"` : ""}.`;
 		case "external-group-ambiguous":
-			return `More than one provider group is labeled "${detail.label}" at "${displayUrl(detail.baseUrl ?? "")}"; they differ only in credentials this tool does not show. Act on it from the dashboard.`;
+			return `More than one provider group is labeled "${detail.label}" at "${detail.baseUrl ?? ""}"; they differ only in credentials this tool does not show. Act on it from the dashboard.`;
 		case "hidden-group-not-found":
-			return `No removed group is labeled "${detail.label}" at "${displayUrl(detail.baseUrl ?? "")}". Read the configuration tool's "hiddenGroups" section; only groups with reason "removed" can be unhidden.`;
+			return `No removed group is labeled "${detail.label}" at "${detail.baseUrl ?? ""}". Read the configuration tool's "hiddenGroups" section; only groups with reason "removed" can be unhidden.`;
 		case "secret-locations-unproven":
 			return `The entry "${detail.label}" has not finished loading its secret locations; call again in a moment.`;
 		case "secret-value-refused":
@@ -405,7 +452,7 @@ export function refusalText(reason: RefusalReason, detail: Readonly<Record<strin
 
 /** The fence outruns every backtick run in the content, so an agent-written key cannot close the card early. */
 function fenced(lines: readonly (string | Parts)[]): Parts {
-	const body: (string | typeof PLACEHOLDER)[] = [];
+	const body: Part[] = [];
 	lines.forEach((line, index) => {
 		if (index > 0) {
 			body.push("\n");
@@ -414,10 +461,8 @@ function fenced(lines: readonly (string | Parts)[]): Parts {
 	});
 	let longestRun = 0;
 	for (const part of body) {
-		if (typeof part === "string") {
-			for (const run of part.matchAll(/`+/g)) {
-				longestRun = Math.max(longestRun, run[0].length);
-			}
+		for (const run of renderedText([part]).matchAll(/`+/g)) {
+			longestRun = Math.max(longestRun, run[0].length);
 		}
 	}
 	const fence = "`".repeat(Math.max(3, longestRun + 1));
@@ -536,21 +581,29 @@ export function describeServerChange(
 	return fenced(lines);
 }
 
-/** An adoption: which external group is copied, under which label, and where each copied secret lands. */
+/**
+ * An adoption: which external group is copied, under which label, and where each copied secret lands. The stored URL
+ * is its own part, so the exit shows it as a URL; the card says when it carries credentials the exit will hide.
+ */
 export function describeAdoption(
 	source: { readonly label: string; readonly baseUrl: string },
 	label: string,
 	locations: Readonly<Partial<Record<string, "settings" | "secure">>>
 ): Parts {
-	const shownUrl = displayUrl(source.baseUrl);
-	const heading = l10n.t('adopt provider group "{0}" at {1} as servers entry "{2}"', source.label, shownUrl, label);
-	const lines = [
-		shownUrl === source.baseUrl
+	const heading = withParts(
+		l10n.t('adopt provider group "{0}" at {1} as servers entry "{2}"', marker(0), marker(1), marker(2)),
+		[source.label, urlPart(source.baseUrl), label]
+	);
+	const lines: Parts[] = [
+		configuredUserinfo(source.baseUrl).length === 0
 			? heading
-			: `${heading} ${l10n.t("(the stored URL carries credentials the card does not show; they are copied as-is)")}`,
+			: [
+					...heading,
+					` ${l10n.t("(the stored URL carries credentials the card does not show; they are copied as-is)")}`,
+				],
 	];
 	for (const field of ["apiKey", "oauthClientSecret", "virtualKeyValue"]) {
-		lines.push(l10n.t("{0}: copied to {1} storage if the group holds one", field, locations[field] ?? "secure"));
+		lines.push([l10n.t("{0}: copied to {1} storage if the group holds one", field, locations[field] ?? "secure")]);
 	}
 	return fenced(lines);
 }

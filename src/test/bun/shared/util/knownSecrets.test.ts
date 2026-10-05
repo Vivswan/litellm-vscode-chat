@@ -26,7 +26,7 @@ describe("shared/util/knownSecrets", () => {
 			},
 			{
 				title:
-					"the userinfo of every configured URL the parser accepts, edge whitespace aside: as the parser reads it and as written",
+					"the userinfo of every configured URL the parser accepts, edge whitespace aside: as written, whole and split at the first colon",
 				entries: [
 					entry({
 						urls: [
@@ -39,14 +39,13 @@ describe("shared/util/knownSecrets", () => {
 				],
 				stored: [],
 				expected: [
+					"user:base-pass",
 					"user",
 					"base-pass",
-					"user:base-pass",
-					"flat%20pass",
 					"u:flat%20pass",
-					"mcp%20pass",
+					"flat%20pass",
 					"u:mcp%20pass",
-					"p%20a$Q7",
+					"mcp%20pass",
 					"user:p a$Q7",
 					"p a$Q7",
 				],
@@ -80,17 +79,10 @@ describe("shared/util/knownSecrets", () => {
 				],
 			},
 			{
-				title: "a newline inside a password: the parser drops it, the as-written spelling is a value too",
+				title: "a newline inside a password rides as written; the matcher spells the parser's form",
 				entries: [entry({ urls: ["https://u:sec\nret@host.test", "\t//sk-cred\nential-Q7:pw@host.test"] })],
 				stored: [],
-				expected: [
-					"secret",
-					"u:sec\nret",
-					"sec\nret",
-					"sk-credential-Q7",
-					"sk-cred\nential-Q7:pw",
-					"sk-cred\nential-Q7",
-				],
+				expected: ["u:sec\nret", "sec\nret", "sk-cred\nential-Q7:pw", "sk-cred\nential-Q7"],
 			},
 			{
 				title: "an opaque URL has no userinfo to the parser, so the word before its @ is no credential",
@@ -111,7 +103,7 @@ describe("shared/util/knownSecrets", () => {
 					}),
 				],
 				stored: [],
-				expected: ["query-pw", "u:query-pw", "sk-credential-Q7", "sk-credential-Q7:"],
+				expected: ["u:query-pw", "query-pw", "sk-credential-Q7", "sk-credential-Q7:"],
 			},
 			{
 				title: "credential headers by the one predicate (whole words, trimmed) and the entry's carrier",
@@ -153,57 +145,70 @@ describe("shared/util/knownSecrets", () => {
 				stored: [],
 				expected: [],
 			},
+			{
+				title: "a one-character password counts through its percent form, which clears the floor",
+				entries: [entry({ urls: ["http://u:\u00e9@a.test"] })],
+				stored: [],
+				expected: ["u:\u00e9", "\u00e9"],
+			},
 		];
 		for (const { title, entries, stored, expected } of cases) {
 			assert.deepStrictEqual(collectKnownSecretValues(entries, stored), expected, title);
 		}
-		// Collected, the hidden text is redacted wherever a line echoes it bare, not only inside the URL.
 		const known = new KnownSecrets();
 		known.set(
 			collectKnownSecretValues(
-				[entry({ urls: ["https://a.test/?next=https://u:query-pw@b.test", "sk-credential-Q7@a.test:443"] })],
+				[
+					entry({
+						urls: [
+							"https://a.test/?next=https://u:query-pw@b.test",
+							"sk-credential-Q7@a.test:443",
+							"https://c.test/?next=https://u:split\n-pw@d.test",
+						],
+					}),
+				],
 				[]
 			)
 		);
 		assert.strictEqual(
-			known.redact("Denied query-pw for sk-credential-Q7 at a.test:443"),
-			"Denied [redacted] for [redacted] at a.test:443"
+			known.redact("Denied query-pw for sk-credential-Q7 at a.test:443; split\n-pw and split-pw too"),
+			"Denied [redacted] for [redacted] at a.test:443; [redacted] and [redacted] too"
 		);
 	});
 
 	// Drifts silently: the finder feeds the known-value collector and the export's secret count, displayUrl the shown
-	// text; a value one hides and the other does not find is a credential echoed bare or counted as a secret that is
-	// not one. The one exception is empty userinfo ("@a.test", "http://@host:bad"): displayUrl drops the "@" and what
-	// precedes it, the finder has no text.
-	test("configuredUserinfo finds a value wherever displayUrl hides text, tabs and newlines aside", () => {
-		for (const value of [
-			"http://user:pass@host",
-			"http://a.test\t/v1",
-			"https://u:sec\nret@host.test",
-			"\t//sk-cred\nential-Q7:pw@host.test",
-			"https://a.test/?next=https://u:query-pw@b.test",
-			"http://user:pa?ss/extra@x@host:4000 note",
-			"//user:pass@",
-			"sk-credential-Q7@a.test:443",
-			"admin@example.test",
-			"mailto:admin@example.test",
-			"u:p@host",
-			"\u00a0mailto:admin@example.test",
-			"mailto:https://u:secret-Q7@b.test\u00a0",
-			" http://u:pw@host ",
-			" http://user:secret-Q7@host:bad ",
-			"http ://user:secret-Q7@host",
-			"\u0001http://user:secret-Q7@host:bad",
-			"\u0001//a.test/path:secret-Q7@b.test",
-			"\u0001//user:pass@host",
-			"\u00a0//sk-credential-Q7:@a.test",
-			"\ufeff//sk-credential-Q7:@a.test",
-		]) {
-			assert.strictEqual(
-				configuredUserinfo(value).length > 0,
-				displayUrl(value) !== value.replace(/[\t\n\r]/g, ""),
-				JSON.stringify(value)
-			);
+	// text, and nothing but this table holds the two to one answer per spelling. A tab or newline alone, and empty
+	// userinfo, are the spellings displayUrl rewrites with no span to yield.
+	test("configuredUserinfo yields exactly the as-written text displayUrl hides", () => {
+		const cases: readonly [string, readonly string[], string][] = [
+			["http://user:pass@host", ["user:pass"], "http://host"],
+			["http://a.test\t/v1", [], "http://a.test/v1"],
+			["https://u:sec\nret@host.test", ["u:sec\nret"], "https://host.test"],
+			["\t//sk-cred\nential-Q7:pw@host.test", ["sk-cred\nential-Q7:pw"], "//host.test"],
+			["https://a.test/?next=https://u:query-pw@b.test", ["u:query-pw"], "https://a.test/?next=https://b.test"],
+			["https://a.test/?next=https://u:query\n-pw@b.test", ["u:query\n-pw"], "https://a.test/?next=https://b.test"],
+			["http://user:pa?ss/extra@x@host:4000 note", ["user:pa?ss/extra", "user:pa?ss/extra@x"], "host:4000 note"],
+			["//user:pass@", ["user:pass"], "[unparseable URL]"],
+			["sk-credential-Q7@a.test:443", ["sk-credential-Q7"], "a.test:443"],
+			["admin@example.test", ["admin"], "example.test"],
+			["mailto:admin@example.test", [], "mailto:admin@example.test"],
+			["u:p@host", [], "u:p@host"],
+			["\u00a0mailto:admin@example.test", ["admin"], "example.test"],
+			["mailto:https://u:secret-Q7@b.test\u00a0", [], "mailto:https://u:secret-Q7@b.test\u00a0"],
+			[" http://u:pw@host ", ["u:pw"], " http://host "],
+			[" http://user:secret-Q7@host:bad ", ["user:secret-Q7"], "host:bad "],
+			["http ://user:secret-Q7@host", ["user:secret-Q7"], "host"],
+			["\u0001http://user:secret-Q7@host:bad", ["user:secret-Q7"], "host:bad"],
+			["\u0001//a.test/path:secret-Q7@b.test", [], "\u0001//a.test/path:secret-Q7@b.test"],
+			["\u0001//user:pass@host", ["user:pass"], "\u0001//host"],
+			["\u00a0//sk-credential-Q7:@a.test", ["sk-credential-Q7:"], "a.test"],
+			["\ufeff//sk-credential-Q7:@a.test", ["sk-credential-Q7:"], "a.test"],
+			["@a.test", [], "a.test"],
+			["http://@host:bad", [], "host:bad"],
+		];
+		for (const [value, hidden, shown] of cases) {
+			assert.deepStrictEqual(configuredUserinfo(value), hidden, JSON.stringify(value));
+			assert.strictEqual(displayUrl(value), shown, JSON.stringify(value));
 		}
 	});
 
@@ -238,7 +243,8 @@ describe("shared/util/knownSecrets", () => {
 	});
 
 	test("a refused URL of ten thousand @ yields the capped candidates, and set() takes milliseconds", () => {
-		// 64 "@" positions: 64 whole candidates, "user", and the 61 tails of three or more "@".
+		// 64 "@" positions: 64 whole candidates, "user", and the 63 tails ("@" and "@@" count through "%40" and "%40%40",
+		// what the parser would send for them).
 		const urls = [`http://user:${"@".repeat(10000)}host:bad`];
 		const started = performance.now();
 		const values = collectKnownSecretValues([entry({ urls })], []);
@@ -247,7 +253,7 @@ describe("shared/util/knownSecrets", () => {
 		const elapsed = performance.now() - started;
 		assert.deepStrictEqual(
 			{ count: values.length, first: values[0], redacted: secrets.redact("rejected user: again") },
-			{ count: 126, first: "user:", redacted: "rejected [redacted] again" }
+			{ count: 128, first: "user:", redacted: "rejected [redacted] again" }
 		);
 		assert.ok(elapsed < 1000, `took ${elapsed.toFixed(0)} ms`);
 	});
@@ -408,12 +414,33 @@ describe("shared/util/knownSecrets", () => {
 				reason: "a one-letter value is ignored, or every letter would go",
 			},
 			{
-				text: "valid-key-Q7 and bad\ud800key",
+				text: "valid-key-Q7 and bad\ud800key, sent as bad%EF%BF%BDkey, read back as bad\ufffdkey",
 				values: ["valid-key-Q7", "bad\ud800key"],
-				expected: "[redacted] and [redacted]",
-				reason: "a lone surrogate has no percent form and still redacts raw; the other value is unaffected",
+				expected: "[redacted] and [redacted], sent as [redacted], read back as [redacted]",
+				reason:
+					"encodeURIComponent refuses a lone surrogate; the parser's form and its decoding are spellings, the raw value too",
 			},
 			{ text: "nothing here", values: [], expected: "nothing here", reason: "no values, text untouched" },
+			{
+				text: "Denied p%20a$Q7 and p%20a%24Q7 and p%2520a%24Q7",
+				values: ["p a$Q7"],
+				expected: "Denied [redacted] and [redacted] and [redacted]",
+				reason: "the parser's userinfo encoding of a password, which keeps the $, with its own spellings",
+			},
+			{
+				text: "Denied p%20a%5C$Q7 and %5C",
+				values: ["p a\\$Q7", "\\"],
+				expected: "Denied [redacted] and [redacted]",
+				reason:
+					"under a non-special scheme a backslash is sent percent-encoded; a one-character one clears the floor so",
+			},
+			{
+				text: "Denied p%20a%24Q7 and %C3%A9, not \u00e9",
+				values: ["p a%24Q7", "\u00e9"],
+				expected: "Denied [redacted] and [redacted], not \u00e9",
+				reason:
+					"a written escape rides as the parser sends it; a one-character password matches only as its percent form",
+			},
 		];
 		for (const { text, values, keep: markers, expected, reason } of cases) {
 			const secrets = new KnownSecrets();

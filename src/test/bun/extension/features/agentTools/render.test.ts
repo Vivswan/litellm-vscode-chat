@@ -281,6 +281,33 @@ describe("agentTools render", () => {
 		expect(describeAdoption({ label: "Plain", baseUrl: "http://plain.test" }, "Imported", {})).not.toContain(
 			"carries credentials"
 		);
+		// The stored URL is a URL part: the exit shows it as a URL field, so an external group's credentials (never a
+		// known value) stay hidden where the free-text pass would keep them (a value the parser refuses, a newline in the
+		// password), a known value in the path or astride the cut userinfo and the host is still found whole, and a tab
+		// the parser drops is no credential.
+		const adoptions: readonly [string, string, string][] = [
+			["http://u:password-Q7@host:bad", "secret-tail-Q7", "at host:bad as"],
+			["http://u:pass\nword-Q7@a.test", "secret-tail-Q7", "at http://a.test as"],
+			["http://u:password-Q7@a.test/secret-tail-Q7", "secret-tail-Q7", "at http://a.test/[redacted] as"],
+			[
+				"http://u:password-Q7@a.test/secret-tail-Q7",
+				"password-Q7@a.test/secret-tail-Q7",
+				"at http://a.test[redacted] as",
+			],
+		];
+		for (const [url, known, shown] of adoptions) {
+			const card: string = modelFacing(adoptionParts({ label: "Cred", baseUrl: url }, "Imported", {}), [known]);
+			expect(card).toContain(shown);
+			expect(card).toContain("the stored URL carries credentials the card does not show");
+			expect(card).not.toContain("word-Q7");
+		}
+		expect(describeAdoption({ label: "Tab", baseUrl: "http://a.test\t/v1" }, "Imported", {})).not.toContain(
+			"carries credentials"
+		);
+		// A label is a part too, never searched for inside the sentence: a marker-like character in it moves nothing.
+		expect(describeAdoption({ label: "A\u0000B", baseUrl: "http://a.test" }, "Imported", {})).toContain(
+			'adopt provider group "A\u0000B" at http://a.test as servers entry "Imported"'
+		);
 		expect(dropCredentials).not.toContain("(no field changes)");
 		expect(dropCredentials).not.toContain(secret);
 		// One password replaced by another renders alike on both sides; the card still says the hidden text changed.

@@ -16,7 +16,15 @@
  */
 
 import { isCredentialHeader, SECRET_FIELD_IDS, SECRET_FIELD_NESTED_PATHS } from "../serverEntry";
-import { type Cut, configuredUserinfo, MAX_AUTHORITY_LENGTH, REDACTED, urlCuts } from "./displayUrl";
+import {
+	type Cut,
+	configuredUserinfo,
+	displayCuts,
+	MAX_AUTHORITY_LENGTH,
+	REDACTED,
+	urlCuts,
+	userinfoParts,
+} from "./displayUrl";
 import { isHeaderScalar, usableHttpText } from "./headers";
 import { isRecord, valueAt } from "./json";
 
@@ -84,14 +92,14 @@ export function collectableEntries(raw: unknown): CollectableEntry[] {
 	});
 }
 
-/** The known values of the parsed entries plus the stored values read for them; short ones out, deduplicated. */
+/** The known values of the parsed entries plus the stored values read for them; those under the floor (meetsFloor) out, deduplicated. */
 export function collectKnownSecretValues(
 	entries: readonly CollectableEntry[],
 	stored: Iterable<string | undefined>
 ): readonly string[] {
 	const values = new Set<string>();
 	const add = (value: string | undefined): void => {
-		if (value !== undefined && value.length >= MIN_VALUE_LENGTH) {
+		if (value !== undefined && meetsFloor(value, MIN_VALUE_LENGTH)) {
 			values.add(value);
 		}
 	};
@@ -100,8 +108,10 @@ export function collectKnownSecretValues(
 			add(secret);
 		}
 		for (const url of entry.urls) {
-			for (const part of configuredUserinfo(url)) {
-				add(part);
+			for (const span of configuredUserinfo(url)) {
+				for (const part of userinfoParts(span)) {
+					add(part);
+				}
 			}
 		}
 		for (const [name, value] of Object.entries(entry.headers)) {
@@ -134,7 +144,7 @@ function spellingsOf(value: string): string[] {
 	try {
 		spellings.push(encodeURIComponent(value));
 	} catch {
-		// A lone surrogate has no percent form; the other spellings still count.
+		// encodeURIComponent refuses a lone surrogate; the parser's forms (sentPasswords) and the other spellings still count.
 	}
 	try {
 		const decoded = decodeURIComponent(value);
@@ -148,12 +158,48 @@ function spellingsOf(value: string): string[] {
 	if (token !== undefined) {
 		spellings.push(...spellingsOf(token));
 	}
-	for (const sent of new Set([value.trim(), value.replace(/[\t\n\r]/g, "")])) {
-		if (sent !== value && sent !== "") {
+	for (const sent of sentPasswords(value)) {
+		if (sent !== value) {
 			spellings.push(...spellingsOf(sent));
 		}
 	}
+	for (const form of new Set([value.trim(), value.replace(/[\t\n\r]/g, "")])) {
+		if (form !== value && form !== "") {
+			spellings.push(...spellingsOf(form));
+		}
+	}
 	return spellings;
+}
+
+/**
+ * The passwords the parser sends for a value in a userinfo position: its userinfo percent-encoding keeps characters
+ * encodeURIComponent would encode ("p a$Q7" -> "p%20a$Q7") and leaves a written escape alone ("p a%24Q7" ->
+ * "p%20a%24Q7"). Under a special scheme a backslash ends the password instead, so the non-special reading is taken
+ * too ("p a\$Q7" -> "p%20a%5C$Q7" under ssh). A reading where the value does not sit whole (a "/" or "?" ends the
+ * password early) is no form.
+ */
+function sentPasswords(value: string): string[] {
+	const forms = new Set<string>();
+	for (const scheme of ["http", "ssh"]) {
+		try {
+			const sent = new URL(`${scheme}://u:${value}@h`);
+			const path = sent.pathname === "/" || sent.pathname === "";
+			if (sent.username === "u" && sent.host === "h" && path && sent.search === "" && sent.hash === "") {
+				forms.add(sent.password);
+			}
+		} catch {
+			// The value cannot sit in a password position under this scheme.
+		}
+	}
+	return [...forms];
+}
+
+/**
+ * The floor is judged on the value and on what the parser would send for it: a one-character password still redacts
+ * its percent form ("%C3%A9") while the character itself is never matched.
+ */
+function meetsFloor(value: string, floor: number): boolean {
+	return value.length >= floor || sentPasswords(value).some((sent) => sent.length >= floor);
 }
 
 /** A hex digit as a class matching either case ("[fF]"); a decimal digit stays itself. */
@@ -258,7 +304,7 @@ export class KnownSecrets {
 
 	set(values: readonly string[], options: { readonly minLength?: number } = {}): void {
 		const floor = options.minLength ?? MIN_VALUE_LENGTH;
-		this.known = values.filter((value) => value.length >= floor);
+		this.known = values.filter((value) => meetsFloor(value, floor));
 		const forms = new Set<string>();
 		for (const value of this.known) {
 			for (const spelling of spellingsOf(value)) {
@@ -313,9 +359,28 @@ export class KnownSecrets {
 	}
 
 	redact(text: string, keep: readonly string[] = [], budget?: number): string {
-		let current = this.redactOnce(text, keep, budget);
+		return this.passes(text, keep, budget, urlCuts);
+	}
+
+	/**
+	 * The display form of one configured URL with the known values judged on the same text in the same pass: the cuts
+	 * are displayUrl's (fail-closed for a value the parser refuses), so a value astride the cut userinfo and the host
+	 * is still found whole, which a cut before the pass would split.
+	 */
+	redactUrl(url: string): string {
+		const { text, cuts } = displayCuts(url);
+		return this.passes(text, [], undefined, () => cuts);
+	}
+
+	private passes(
+		text: string,
+		keep: readonly string[],
+		budget: number | undefined,
+		cutsOf: (window: string) => readonly Cut[]
+	): string {
+		let current = this.redactOnce(text, keep, budget, cutsOf);
 		for (let pass = 1; pass < MAX_PASSES && current !== text; pass++) {
-			const next = this.redactOnce(current, keep);
+			const next = this.redactOnce(current, keep, undefined, urlCuts);
 			if (next === current) {
 				break;
 			}
@@ -324,13 +389,18 @@ export class KnownSecrets {
 		return current;
 	}
 
-	private redactOnce(text: string, keep: readonly string[], budget?: number): string {
+	private redactOnce(
+		text: string,
+		keep: readonly string[],
+		budget: number | undefined,
+		cutsOf: (window: string) => readonly Cut[]
+	): string {
 		// The window reaches one form and one URL authority past the budget, so a value or a URL split by the budget is
 		// still found whole.
 		const cut = budget !== undefined && text.length > budget;
 		const cutAt = cut ? budget : text.length;
 		const window = cut ? text.slice(0, cutAt + Math.max(this.longestForm, MAX_AUTHORITY_LENGTH)) : text;
-		const cuts: readonly Cut[] = urlCuts(window);
+		const cuts = cutsOf(window);
 		const spans = this.spans(window, keep);
 		if (cuts.length === 0 && spans.length === 0 && !cut) {
 			return text;

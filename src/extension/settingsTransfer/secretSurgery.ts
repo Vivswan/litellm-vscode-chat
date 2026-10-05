@@ -251,8 +251,6 @@ export function stripUrlUserinfo(rawEntry: Readonly<Record<string, unknown>>): S
 	if (isRecord(rawEntry.mcp)) {
 		entry.mcp = rebuilt(rawEntry.mcp, MCP_URL_KEYS);
 	} else if (!textless(rawEntry.mcp)) {
-		// An mcp slot the walk cannot enter (an array, text) could hold a credentialed URL, like an unwalkable headers
-		// shape; the boolean opt-in is textless and rides.
 		unsanitizable = true;
 	}
 	if (unsanitizable) {

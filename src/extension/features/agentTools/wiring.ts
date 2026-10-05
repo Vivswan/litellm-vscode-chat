@@ -13,7 +13,6 @@ import type { Logger } from "../../../shared/logger";
 import { localizedError, MirroredError } from "../../../shared/mirroredError";
 import type { SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
-import { displayUrl } from "../../../shared/util/displayUrl";
 import { isRecord } from "../../../shared/util/json";
 import type { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { collectableEntries, collectKnownSecretValues } from "../../../shared/util/knownSecrets";
@@ -509,8 +508,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				}
 				// A hide or unhide is identified by label AND base URL (two groups can share a label), so the card
 				// names both.
-				const target =
-					input.action === "remove" ? input.label : l10n.t("{0} at {1}", input.label, displayUrl(input.baseUrl));
+				const target = input.action === "remove" ? input.label : l10n.t("{0} at {1}", input.label, input.baseUrl);
 				return {
 					title: l10n.t("{0} the LiteLLM server {1}?", input.action, input.label),
 					message: describeAction(input.action, target),
@@ -530,7 +528,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					"label" in input
 						? row === undefined
 							? input.label
-							: l10n.t("{0} at {1}", input.label, displayUrl(row.baseUrl))
+							: l10n.t("{0} at {1}", input.label, row.baseUrl)
 						: "feature" in input
 							? input.feature
 							: undefined;

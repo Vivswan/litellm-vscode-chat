@@ -134,8 +134,8 @@ function authorityOf(span: string): { scheme: number; start: number; end: number
 	return { scheme, start, end, at: at < start ? -1 : at };
 }
 
-/** A userinfo text whole, and its user and password split at the first ":"; empty parts are no values. */
-function userinfoCandidates(userinfo: string): string[] {
+/** A userinfo text whole, then its user and password split at the first ":"; empty parts are no values. */
+export function userinfoParts(userinfo: string): string[] {
 	const colon = userinfo.indexOf(":");
 	const split = colon === -1 ? [] : [userinfo.slice(0, colon), userinfo.slice(colon + 1)];
 	return [userinfo, ...split].filter((part) => part !== "");
@@ -150,55 +150,56 @@ function parserTrim(text: string): string {
 	return text.slice(Math.min(leadingParserSpace(text), to), to);
 }
 
-function writtenUserinfo(text: string): string {
-	const { start, at } = authorityOf(text);
-	return at === -1 ? "" : text.slice(start, at);
-}
-
-function userinfoOf(span: string, written: string): string[] {
-	const read = parsedUrl(span);
-	const parts = read === undefined ? [] : [read.username, read.password].filter((part) => part !== "");
-	return [...parts, ...userinfoCandidates(written)];
+/** The text without the characters the parser drops, and each kept index mapped back to the original text. */
+function withoutIgnored(text: string): { stripped: string; origin: readonly number[] } {
+	const kept: string[] = [];
+	const origin: number[] = [];
+	for (let i = 0; i < text.length; i++) {
+		const ch = text[i] as string;
+		if (ch !== "\t" && ch !== "\n" && ch !== "\r") {
+			kept.push(ch);
+			origin.push(i);
+		}
+	}
+	origin.push(text.length);
+	return { stripped: kept.join(""), origin };
 }
 
 /**
- * The credential text of one configured URL as a line may echo it, agreeing with displayUrl by construction over the
- * same text: each cut it makes yields that URL's userinfo as the parser reads it (the value's own authority as written
- * in the setting too), and a value it fails closed on yields the text before each "@". knownSecrets.ts collects these
- * for every URL field.
- *   "http://user:pass@host"                        -> user, pass, user:pass
- *   "https://a.test/?next=https://u:pw@b.test"     -> u, pw, u:pw (the embedded URL displayUrl cuts)
- *   "http://user:pa?ss/extra@host" (refused)       -> user:pa?ss/extra, user, pa?ss/extra
- *   "sk-credential-Q7@a.test:443" (no scheme word) -> sk-credential-Q7 (displayUrl shows the tail alone)
- *   "mailto:admin@example.test" (opaque)           -> nothing, as displayUrl leaves it
- *   "@a.test", "http://@host:bad"                  -> nothing: empty userinfo, though displayUrl drops the "@"
+ * The credential text of one configured URL as written, agreeing with displayUrl by construction over the same text:
+ * each cut it makes yields that URL's userinfo, a value it fails closed on yields the text before each "@", and only
+ * empty userinfo is hidden with no text to yield. Substrings of the value, never a normalized form: the matcher
+ * (knownSecrets.ts) derives the spellings, the parts split at the first ":" included.
+ *   "http://user:pass@host"                             -> user:pass
+ *   "https://a.test/?next=https://u:qu\nery@b.test"     -> u:qu\nery (the embedded URL displayUrl cuts, as written)
+ *   "http://user:pa?ss/extra@x@host:4000 note" (refused) -> user:pa?ss/extra, user:pa?ss/extra@x
+ *   "sk-credential-Q7@a.test:443" (no scheme word)      -> sk-credential-Q7 (displayUrl shows the tail alone)
+ *   "mailto:admin@example.test" (opaque)                -> nothing, as displayUrl leaves it
+ *   "@a.test", "http://@host:bad"                       -> nothing: empty userinfo, though displayUrl drops the "@"
  */
 export function configuredUserinfo(url: string): string[] {
 	const trimmed = parserTrim(url);
-	const stripped = trimmed.replace(IGNORED, "");
+	const { stripped, origin } = withoutIgnored(trimmed);
 	const parts = new Set<string>();
 	if (parsedUrl(stripped) !== undefined) {
 		for (const cut of urlCuts(stripped)) {
-			const span = stripped.slice(cut.from, cut.resumeAt);
-			// The URL's own authority is spelled from the original text, so a tab or newline inside the password is a
-			// value as written; an embedded URL's is read from the span.
-			for (const part of userinfoOf(span, writtenUserinfo(cut.from === 0 ? trimmed : span))) {
-				parts.add(part);
+			const { start, at } = authorityOf(stripped.slice(cut.from, cut.resumeAt));
+			if (at !== -1) {
+				parts.add(trimmed.slice(origin[cut.from + start] as number, origin[cut.from + at] as number));
 			}
 		}
 		return [...parts];
 	}
-	// displayUrl shows only what follows the last "@" of a refused value. The candidates run from the scheme separator,
-	// or from the start of a value whose first "@" precedes any ":" ("sk-credential-Q7@a.test:443"): the word before a
-	// separator is a scheme to the reader of a URL, whatever it spells. Read as a reader sees the value, without the
-	// edge whitespace the parser keeps (U+00A0, U+FEFF) either.
+	// A refused value as a reader sees it, without any edge whitespace: displayUrl shows only what follows its last "@",
+	// and the text from the scheme separator (the start, when no ":" precedes the first "@") up to each "@" is the
+	// credential it hides.
 	const text = url.trim();
 	const { scheme, start } = authorityOf(text);
 	const from = scheme !== 0 && scheme - 1 > text.indexOf("@") ? 0 : start;
 	let mark = text.indexOf("@", from);
 	for (let candidates = 0; mark !== -1 && candidates < MAX_USERINFO_CANDIDATES; candidates++) {
-		for (const part of userinfoCandidates(text.slice(from, mark))) {
-			parts.add(part);
+		if (mark > from) {
+			parts.add(text.slice(from, mark));
 		}
 		mark = text.indexOf("@", mark + 1);
 	}
@@ -411,15 +412,20 @@ export function urlCuts(text: string): Cut[] {
 	return cuts;
 }
 
-/** Strip URL-embedded credentials from a text: the cuts of urlCuts applied, nothing else. */
-export function redactUrlCredentials(text: string): string {
+/** The text with the cuts applied, each replacing its span. */
+function withCuts(text: string, cuts: readonly Cut[]): string {
 	let out = "";
 	let cursor = 0;
-	for (const cut of urlCuts(text)) {
+	for (const cut of cuts) {
 		out += text.slice(cursor, cut.from) + cut.replacement;
 		cursor = cut.resumeAt;
 	}
 	return out + text.slice(cursor);
+}
+
+/** Strip URL-embedded credentials from a text: the cuts of urlCuts applied, nothing else. */
+export function redactUrlCredentials(text: string): string {
+	return withCuts(text, urlCuts(text));
 }
 
 /** A configured URL field fails closed (displayUrl); any other string is free text under the parser-based scrub. */
@@ -440,19 +446,34 @@ export function urlScrubbingReplacer(scrub?: (text: string) => string): (key: st
 }
 
 /**
+ * What displayUrl does to one CONFIGURED value, as the text it reads (tabs and newlines gone first, since the parser
+ * ignores them wherever they sit) and the cuts over it: a value the parser refuses that holds an "@" anywhere fails
+ * closed, one cut from the start to its last "@"; any other value takes the free-text cuts. KnownSecrets.redactUrl
+ * applies these cuts and the known values over the same text in one pass.
+ */
+export function displayCuts(url: string): { readonly text: string; readonly cuts: readonly Cut[] } {
+	const text = url.replace(IGNORED, "");
+	if (text.includes("@") && parsedUrl(text) === undefined) {
+		const shownFrom = text.lastIndexOf("@") + 1;
+		const cut: Cut =
+			shownFrom < text.length
+				? { from: 0, replacement: "", resumeAt: shownFrom }
+				: { from: 0, replacement: UNPARSEABLE, resumeAt: text.length };
+		return { text, cuts: [cut] };
+	}
+	return { text, cuts: urlCuts(text) };
+}
+
+/**
  * The display form of one CONFIGURED value (a URL field, a card's string). A URL without userinfo passes through
- * byte-identical, so pinned message texts never change for the common case; tabs and newlines go first, since the
- * parser ignores them wherever they sit. A value the parser refuses that holds an "@" anywhere fails closed: only what
- * follows its last "@" is shown. Free text (a log line) takes redactUrlCredentials instead, where an "@" is prose
- * until the parser reads a URL around it.
+ * byte-identical but for the tabs and newlines the parser ignores, so pinned message texts never change for the common
+ * case. A value the parser refuses that holds an "@" anywhere fails closed: only what follows its last "@" is shown.
+ * Free text (a log line) takes redactUrlCredentials instead, where an "@" is prose until the parser reads a URL
+ * around it.
  *   "http://user:pass@host:bad"  -> "host:bad"
  *   "//user:pass@"               -> "[unparseable URL]"
  */
 export function displayUrl(url: string): string {
-	const text = url.replace(IGNORED, "");
-	if (text.includes("@") && parsedUrl(text) === undefined) {
-		const tail = text.slice(text.lastIndexOf("@") + 1);
-		return tail.length > 0 ? tail : UNPARSEABLE;
-	}
-	return redactUrlCredentials(text);
+	const { text, cuts } = displayCuts(url);
+	return withCuts(text, cuts);
 }
