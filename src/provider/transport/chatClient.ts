@@ -19,6 +19,7 @@ import { chatErrorMessage, englishChatErrorMessage, localizedError } from "../..
 import type { NonChatMode } from "../../shared/serverEntry";
 import type { ServerWithKey } from "../../shared/servers";
 import { isRecord } from "../../shared/util/json";
+import type { KnownSecretCustody } from "../../shared/util/knownSecrets";
 import { validateRequest } from "../../shared/validation";
 import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/discovery";
 import { fetchModels } from "../catalog/discovery";
@@ -67,6 +68,8 @@ export interface ServerConnection extends ServerWithKey {
 export interface ChatClientOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
+	/** The one known-value set the Logger redacts with; the OAuth tokens this client receives are minted into it. */
+	knownSecrets: KnownSecretCustody;
 	/**
 	 * Resolves a declared server entry's per-entry modelParameters at request time, from the entry's label and the
 	 * group's base URL, and only when both identify the same declared entry. Defaults to none: models served by an
@@ -102,7 +105,7 @@ export class ChatClient {
 	private readonly getEntryHeaders: (label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined;
 	private readonly getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
 	private readonly clients: ServerClientCache;
-	private readonly oauthTokens = new OAuthTokenSource();
+	private readonly oauthTokens: OAuthTokenSource;
 	private readonly resolution: ModelResolutionTable;
 	private _toolCallIdCounter = 0;
 	// The single owner of tool-call ID generation; see ToolCallIdSource for the synchronous-advance requirement.
@@ -120,6 +123,12 @@ export class ChatClient {
 		this.getEntryApiVersion = options.getEntryApiVersion ?? (() => undefined);
 		this.resolution = options.resolution ?? new ModelResolutionTable();
 		this.clients = new ServerClientCache(options.fetch ?? nodeHttpFetch);
+		this.oauthTokens = new OAuthTokenSource(options.knownSecrets);
+	}
+
+	/** A throwaway client (the dashboard's draft probe) ends here, releasing its holds on the OAuth tokens it minted. */
+	dispose(): void {
+		this.oauthTokens.dispose();
 	}
 
 	/** Copied because the client cache expects an owned record. */

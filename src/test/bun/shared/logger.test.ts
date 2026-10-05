@@ -346,6 +346,27 @@ describe("shared/logger", () => {
 		}
 	});
 
+	test("a runtime-minted value is redacted on both sinks like a configured one, and only until it is retired", () => {
+		const sinks = makeSinks();
+		const secrets = new KnownSecrets();
+		secrets.set(["configured-Q7"]);
+		const logger = new Logger(sinks.channel, sinks.recorder, secrets);
+
+		secrets.mint("oauth-access-Q7");
+		logger.log('LiteLLM 401 body: {"error":"Authorization: Bearer oauth-access-Q7 rejected"}');
+		secrets.retire("oauth-access-Q7");
+		logger.log("after retire: oauth-access-Q7");
+
+		assert.deepStrictEqual(sinks.infoLines, [
+			'LiteLLM 401 body: {"error":"Authorization: Bearer [redacted] rejected"}',
+			"after retire: oauth-access-Q7",
+		]);
+		assert.deepStrictEqual(
+			sinks.bufferLines.map((line) => line.replace(/^\[[^\]]*\] /, "")),
+			['LiteLLM 401 body: {"error":"Authorization: Bearer [redacted] rejected"}', "after retire: oauth-access-Q7"]
+		);
+	});
+
 	test("a long configured password inside a 1 MB stack is redacted within the text budget", () => {
 		// A long configured password against a 1 MB stack scanned whole by both sinks took seconds per Logger.error;
 		// the budget cuts the stack before redaction.

@@ -21,6 +21,7 @@ import {
 import type { DiagnosticsSnapshot } from "../../../../../extension/ui/issueReporter";
 import { markLogSafe } from "../../../../../shared/logger";
 import type { ServerStatus } from "../../../../../shared/servers";
+import { KnownSecrets } from "../../../../../shared/util/knownSecrets";
 import { makeDeclaredServer, makeExternalServer, makeState } from "../../../webview/fixtures";
 import { agentToolsState, PROD_CONFIG, PROD_HEADER_SECRET } from "./fixture";
 
@@ -28,6 +29,20 @@ const state = agentToolsState();
 
 /** A card as the user reads it: the builders return parts, the exit's one function renders them with no values. */
 const asCard = (parts: Parts): string => modelFacing(parts, []);
+
+describe("agentTools/render with runtime-minted values", () => {
+	test("a minted OAuth token reaches the exit through values() and renders redacted", () => {
+		// renderJson({ message: "Authorization: Bearer oauth-access-Q7" }, known.values()) returned the token verbatim
+		// while only configured values were known.
+		const known = new KnownSecrets();
+		known.set(["configured-Q7"]);
+		known.mint("oauth-access-Q7");
+		const reply = JSON.parse(
+			renderJson({ message: "401: Authorization: Bearer oauth-access-Q7 rejected" }, known.values())
+		) as { message: string };
+		expect(reply.message).toBe("401: Authorization: Bearer [redacted] rejected");
+	});
+});
 const describeAdoption = (...args: Parameters<typeof adoptionParts>): string => asCard(adoptionParts(...args));
 const describeRecordChange = (...args: Parameters<typeof recordChangeParts>): string =>
 	asCard(recordChangeParts(...args));

@@ -5,7 +5,7 @@ import { collapseWhitespace } from "../../shared/util/errorText";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
-import { KnownSecrets } from "../../shared/util/knownSecrets";
+import type { KnownSecretCustody } from "../../shared/util/knownSecrets";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
 import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./errorMapping";
@@ -75,7 +75,13 @@ interface CachedToken {
 	refreshAtMs: number;
 }
 
-/** The one in-flight exchange for a credential set. It runs exactly as long as at least one caller awaits it. */
+/** The current token and the one before it stay known: a response earned by the previous token can still echo it. */
+const KNOWN_TOKEN_GENERATIONS = 2;
+
+/**
+ * The one in-flight exchange for a credential set. It runs exactly as long as at least one caller awaits it, or until
+ * the source is disposed.
+ */
 interface SharedExchange {
 	readonly token: Promise<string>;
 	readonly abandon: () => void;
@@ -85,10 +91,14 @@ interface SharedExchange {
 export class OAuthTokenSource {
 	private readonly tokens = new Map<string, CachedToken>();
 	private readonly exchanges = new Map<string, SharedExchange>();
+	private readonly issued = new Map<string, string[]>();
+
+	/** `known` is the one instance the Logger redacts with; every token this source receives is minted into it. */
+	constructor(private readonly known: KnownSecretCustody) {}
 
 	/**
-	 * No caller's bounds reach the exchange: it is abandoned only when its last waiter leaves, so a waiter never
-	 * renders a bound or a cancellation that was not its own.
+	 * No caller's bounds reach the exchange: it is abandoned only when its last waiter leaves (or the source is
+	 * disposed), so a waiter never renders a bound or a cancellation that was not its own.
 	 */
 	async getToken(
 		config: OAuthConfig,
@@ -118,7 +128,7 @@ export class OAuthTokenSource {
 				throw abortReason(signal);
 			}
 			if (ownClock.aborted) {
-				throw timeoutError(config.tokenUrl, budget, ownClock.reason);
+				throw timeoutError(config.tokenUrl, budget, this.known, ownClock.reason);
 			}
 			throw error;
 		} finally {
@@ -135,13 +145,20 @@ export class OAuthTokenSource {
 		const exchange: SharedExchange = {
 			waiters: 0,
 			abandon: () => controller.abort(),
-			// A settled exchange is never joinable: both arms leave the map before they settle.
-			//   fulfilled -> cache the token -> forget -> resolve
-			//   rejected  -> forget -> rethrow
-			token: exchangeClientCredentials(config, controller.signal).then(
+			// A settled exchange is never joinable: both arms leave the map before they settle. A token whose body was
+			// read before the exchange was abandoned or the source disposed still arrives here; it is never handed out,
+			// cached, or minted, since a waiter would carry a token no known-value set redacts.
+			//   fulfilled, still the key's exchange -> mint and cache the token -> forget -> resolve
+			//   fulfilled, forgotten already         -> reject with the abandonment
+			//   rejected                             -> forget -> rethrow
+			token: exchangeClientCredentials(config, controller.signal, this.known).then(
 				({ accessToken, expiresInSeconds }) => {
+					if (this.exchanges.get(key) !== exchange) {
+						throw abortReason(controller.signal);
+					}
 					const lifetimeMs = expiresInSeconds * 1000;
 					const skewMs = Math.min(REFRESH_SKEW_MS, lifetimeMs / 2);
+					this.remember(key, accessToken);
 					this.tokens.set(key, { accessToken, refreshAtMs: Date.now() + lifetimeMs - skewMs });
 					this.forget(key, exchange);
 					return accessToken;
@@ -163,6 +180,34 @@ export class OAuthTokenSource {
 		if (this.exchanges.get(key) === exchange) {
 			this.exchanges.delete(key);
 		}
+	}
+
+	private remember(key: string, accessToken: string): void {
+		const tokens = this.issued.get(key) ?? [];
+		this.known.mint(accessToken);
+		tokens.push(accessToken);
+		while (tokens.length > KNOWN_TOKEN_GENERATIONS) {
+			this.known.retire(tokens.shift() as string);
+		}
+		this.issued.set(key, tokens);
+	}
+
+	/**
+	 * A throwaway source (the draft probe's) ends here: its holds on the tokens it minted are released (another
+	 * source's hold on the same token stays), and an exchange still in flight is abandoned so no token arrives later.
+	 */
+	dispose(): void {
+		for (const exchange of this.exchanges.values()) {
+			exchange.abandon();
+		}
+		this.exchanges.clear();
+		for (const tokens of this.issued.values()) {
+			for (const token of tokens) {
+				this.known.retire(token);
+			}
+		}
+		this.issued.clear();
+		this.tokens.clear();
 	}
 
 	/**
@@ -223,8 +268,13 @@ class OAuthExchangeFailure extends Error {
  * choice, and an undefined `setting` (the fixed inline-completion bound) gets none, since advising a setting
  * that cannot extend the bound is a lie.
  */
-function timeoutError(tokenUrl: string, budget: TimeoutBudget, cause?: unknown): RequestError {
-	const url = displayUrl(tokenUrl);
+function timeoutError(
+	tokenUrl: string,
+	budget: TimeoutBudget,
+	known: KnownSecretCustody,
+	cause?: unknown
+): RequestError {
+	const url = shownUrl(tokenUrl, known);
 	// English mirrors ride each construction for the output channel and the
 	// issue-report buffer; the display message localizes.
 	switch (budget.setting) {
@@ -266,11 +316,17 @@ function timeoutError(tokenUrl: string, budget: TimeoutBudget, cause?: unknown):
 	}
 }
 
+/** The URL cut alone would show a client secret spelled in the token URL's path; the known values cut it. */
+function shownUrl(url: string, known: KnownSecretCustody): string {
+	return known.redact(displayUrl(url));
+}
+
 /**
- * Never the raw body: it is untrusted and can be huge. The configured client secret is scrubbed in case the identity
- * provider echoes it back in the description, in its own spelling or with its whitespace collapsed like the detail.
+ * Never the raw body: it is untrusted and can be huge. The identity provider may echo any known value in the
+ * description (the client secret, a header credential it was handed), in its own spelling or with its whitespace
+ * collapsed like the detail, so the known values are cut before the collapse and again after it, before the cap.
  */
-function oauthErrorDetail(payload: string, clientSecret: string): string {
+function oauthErrorDetail(payload: string, known: KnownSecretCustody): string {
 	try {
 		const parsed: unknown = JSON.parse(payload);
 		if (isRecord(parsed)) {
@@ -278,11 +334,7 @@ function oauthErrorDetail(payload: string, clientSecret: string): string {
 				(part): part is string => typeof part === "string" && part.length > 0
 			);
 			if (parts.length > 0) {
-				// Scrub before truncating: a secret crossing the cap must not leak its prefix. This site knows its one
-				// value and the one short text, so the whole-log floor does not apply: "ab" goes too.
-				const known = new KnownSecrets();
-				known.set([clientSecret, collapseWhitespace(clientSecret)], { minLength: 1 });
-				return known.redact(collapseWhitespace(parts.join(": "))).slice(0, 200);
+				return known.redact(collapseWhitespace(known.redact(parts.join(": ")))).slice(0, 200);
 			}
 		}
 	} catch {
@@ -305,7 +357,11 @@ function tokenLifetimeSeconds(parsed: Record<string, unknown>): number {
 	return Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
 }
 
-function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: string; expiresInSeconds: number } {
+function parseTokenResponse(
+	payload: string,
+	tokenUrl: string,
+	known: KnownSecretCustody
+): { accessToken: string; expiresInSeconds: number } {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(payload);
@@ -315,7 +371,7 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 	// Each malformed shape throws a localized headline over a fixed English detail line; these errors carry no
 	// logClassification, so the byte-faithful English mirror is what the diagnostics surfaces render.
 	if (!isRecord(parsed) || typeof parsed.access_token !== "string" || parsed.access_token.length === 0) {
-		const detail = `OAuth token endpoint ${displayUrl(tokenUrl)} answered 2xx without JSON containing a non-empty access_token.`;
+		const detail = `OAuth token endpoint ${shownUrl(tokenUrl, known)} answered 2xx without JSON containing a non-empty access_token.`;
 		throw new OAuthExchangeFailure((surface) => {
 			const texts = twoPartTexts(
 				surface,
@@ -332,7 +388,7 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 		});
 	}
 	if (!isValidHeaderValue(parsed.access_token)) {
-		const detail = `OAuth token from ${displayUrl(tokenUrl)} contains characters not allowed in an HTTP header value (control characters or non-Latin-1 text); the token was not sent, and its value is never shown or logged.`;
+		const detail = `OAuth token from ${shownUrl(tokenUrl, known)} contains characters not allowed in an HTTP header value (control characters or non-Latin-1 text); the token was not sent, and its value is never shown or logged.`;
 		throw new OAuthExchangeFailure((surface) => {
 			const texts = twoPartTexts(
 				surface,
@@ -357,7 +413,8 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,
-	signal: AbortSignal
+	signal: AbortSignal,
+	known: KnownSecretCustody
 ): Promise<{ accessToken: string; expiresInSeconds: number }> {
 	const form = new URLSearchParams({
 		grant_type: "client_credentials",
@@ -395,15 +452,15 @@ async function exchangeClientCredentials(
 		}
 
 		if (response.ok) {
-			return parseTokenResponse(payload, config.tokenUrl);
+			return parseTokenResponse(payload, config.tokenUrl, known);
 		}
 		const { status } = response;
-		const idpDetail = oauthErrorDetail(payload, config.clientSecret);
+		const idpDetail = oauthErrorDetail(payload, known);
 		if (status >= 500) {
 			// `idpDetail` quotes the IdP's error/error_description (response-derived), so it rides only the message and
 			// its English mirror; the classification is what public surfaces record.
 			const detailLine = collapseWhitespace(
-				`OAuth token endpoint ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+				`OAuth token endpoint ${status} at ${shownUrl(config.tokenUrl, known)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
 			lastFailure = new OAuthExchangeFailure((surface) => {
 				const texts = twoPartTexts(
@@ -429,7 +486,7 @@ async function exchangeClientCredentials(
 		if (status === 400 || status === 401 || status === 403) {
 			// Same: the IdP detail can carry correlation IDs and tenant text.
 			const detailLine = collapseWhitespace(
-				`OAuth ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+				`OAuth ${status} at ${shownUrl(config.tokenUrl, known)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
 			throw new OAuthExchangeFailure((surface) => {
 				const texts = twoPartTexts(
@@ -452,7 +509,7 @@ async function exchangeClientCredentials(
 			});
 		}
 		const detailLine = collapseWhitespace(
-			`OAuth token endpoint ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+			`OAuth token endpoint ${status} at ${shownUrl(config.tokenUrl, known)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 		);
 		throw new OAuthExchangeFailure((surface) => {
 			const texts = twoPartTexts(
@@ -481,7 +538,7 @@ async function exchangeClientCredentials(
 	const failure = lastFailure;
 	throw new OAuthExchangeFailure((surface, budget) =>
 		socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
-			timeoutError(config.tokenUrl, budget, failure)
+			timeoutError(config.tokenUrl, budget, known, failure)
 		)
 	);
 }

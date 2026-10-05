@@ -49,6 +49,7 @@ import type { TransportErrorClassification } from "../../shared/errorClassificat
 import type { Logger } from "../../shared/logger";
 import { pickEntryViewFields, pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
+import type { KnownSecretCustody } from "../../shared/util/knownSecrets";
 import {
 	DASHBOARD_BUNDLE_FILENAME,
 	DASHBOARD_STYLESHEET_FILENAME,
@@ -828,6 +829,7 @@ export interface RegisterDashboardOptions {
 	readonly getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined;
 	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
 	readonly ua: string;
+	readonly knownSecrets: KnownSecretCustody;
 	readonly featureProbes: FeatureProbes;
 }
 
@@ -841,6 +843,7 @@ export interface IntentEnvironmentDeps {
 	readonly logger: Pick<Logger, "log">;
 	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
 	readonly ua: string;
+	readonly knownSecrets: KnownSecretCustody;
 	readonly featureProbes: FeatureProbes;
 	readonly refreshCatalogNow: () => void;
 	readonly refreshUsageNow: () => void;
@@ -912,7 +915,7 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 		// The draft-connection test's probe: one throwaway discovery pass, no
 		// mutation, no caching, and no logger (its discovery chatter would enter
 		// the issue-report buffer).
-		probeDraftConnection: createDraftConnectionProbe(deps.ua),
+		probeDraftConnection: createDraftConnectionProbe(deps.ua, deps.knownSecrets),
 		featureProbes: deps.featureProbes,
 		refreshCatalogNow: deps.refreshCatalogNow,
 		refreshUsageNow: deps.refreshUsageNow,
@@ -955,6 +958,7 @@ export function registerDashboardCommand(
 			secrets: context.secrets,
 			logger,
 			ua,
+			knownSecrets: options.knownSecrets,
 			featureProbes: options.featureProbes,
 			// Fire-and-forget kicks; both push state when they settle. The catalog
 			// row stays toast-free; an explicit usage refresh in which NO server

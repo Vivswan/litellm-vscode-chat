@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 import { OneShotClient } from "../../provider/transport/oneShotClient";
 import type { Logger } from "../../shared/logger";
+import type { KnownSecretCustody } from "../../shared/util/knownSecrets";
 import type { FeatureProbes } from "../dashboard/intents";
 import type { DashboardController } from "../dashboard/panel";
 import type { AgentToolsDeps } from "../features/agentTools/wiring";
@@ -31,9 +32,10 @@ export function wireFeatures(
 		readonly ua: string;
 		readonly outputChannel: vscode.OutputChannel;
 		readonly getSnapshots: () => readonly SnapshotSource[];
+		readonly knownSecrets: KnownSecretCustody;
 	}
 ): { readonly featureProbes: FeatureProbes; readonly chatParticipant: ChatParticipantWiring } {
-	const oneShot = new OneShotClient({ userAgent: deps.ua });
+	const oneShot = new OneShotClient({ userAgent: deps.ua, knownSecrets: deps.knownSecrets });
 	const log = (message: string, data?: unknown): void => {
 		logger.log(message, data);
 	};

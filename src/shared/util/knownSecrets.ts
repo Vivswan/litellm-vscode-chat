@@ -10,6 +10,9 @@
  *   URL userinfo             -> every configured URL (base, token, mcp) through configuredUserinfo, the same finder
  *                               and parser the cut uses
  *   SecretStorage blobs      -> every stored value under every declared label
+ * Runtime-minted values join them in a second, separately owned set (mint/retire): an OAuth access token the
+ * identity provider issued (auth.ts OAuthTokenSource) and a dashboard draft's credentials for the length of its probe
+ * (testDraftConnection.ts). Neither set's refresh disturbs the other; the matcher treats both alike.
  * Every value is then matched in every spelling a line can carry (spellingsOf): raw, JSON-escaped, percent-encoded,
  * decoded, and the bare token of a scheme-prefixed value, whatever position the value came from; every percent escape
  * in any spelling matches in either hex case.
@@ -17,6 +20,7 @@
 
 import { isCredentialHeader, SECRET_FIELD_IDS, SECRET_FIELD_NESTED_PATHS } from "../serverEntry";
 import { type Cut, configuredUserinfo, MAX_AUTHORITY_LENGTH, REDACTED, urlCuts } from "./displayUrl";
+import { collapseWhitespace } from "./errorText";
 import { isHeaderScalar, usableHttpText } from "./headers";
 import { isRecord, valueAt } from "./json";
 
@@ -28,6 +32,9 @@ const MIN_VALUE_LENGTH = 3;
  * need more passes than this and is the recorded residue; no real credential is spelled that way.
  */
 const MAX_PASSES = 3;
+
+/** The surface a runtime owner of secret values holds; it must be the Logger's instance, never one of its own. */
+export type KnownSecretCustody = Pick<KnownSecrets, "mint" | "retire" | "redact">;
 
 /** What the collector reads of one raw record: every string at its URL, secret, header, and carrier positions. */
 export interface CollectableEntry {
@@ -126,8 +133,9 @@ const SCHEME_PREFIXED = /^(?:Bearer|Basic|Token)\s+(\S+)$/i;
 /**
  * Every spelling of one value, whatever position it came from: raw, inside a serialized card, percent-encoded, decoded
  * (a stored "pa%3Fss" echoed as "pa?ss"), the bare token of a scheme-prefixed value with its own spellings, and the
- * spellings the transport makes of the value, each with its own: trimmed (a header " Bearer token-Q7 " is sent as
- * "Bearer token-Q7") and without the tab, CR, and LF a URL drops ("tok-\t1234" inside a host reads "tok-1234").
+ * spellings the transport or a server makes of the value, each with its own: trimmed (a header " Bearer token-Q7 " is
+ * sent as "Bearer token-Q7"), without the tab, CR, and LF a URL drops ("tok-\t1234" inside a host reads "tok-1234"),
+ * and with its whitespace collapsed (an identity provider describes "alpha  beta" as "alpha beta").
  */
 function spellingsOf(value: string): string[] {
 	const spellings = [value, JSON.stringify(value).slice(1, -1)];
@@ -148,7 +156,7 @@ function spellingsOf(value: string): string[] {
 	if (token !== undefined) {
 		spellings.push(...spellingsOf(token));
 	}
-	for (const sent of new Set([value.trim(), value.replace(/[\t\n\r]/g, "")])) {
+	for (const sent of new Set([value.trim(), value.replace(/[\t\n\r]/g, ""), collapseWhitespace(value)])) {
 		if (sent !== value && sent !== "") {
 			spellings.push(...spellingsOf(sent));
 		}
@@ -244,25 +252,56 @@ function redactedSlice(text: string, from: number, to: number, spans: readonly S
  * never replaced); a value that contains the marker is replaced with it ("pre<P>post" goes, a bare "<P>" elsewhere
  * stays). The redaction marker itself is always kept, so a value inside it ("red") never nests another. A `budget`
  * cuts a long text (a 1 MB stack) before the pass; a value or URL straddling the cut is redacted whole, never split.
- * The three-character floor is the whole-log policy; a site that knows its one value sets `minLength` for it.
+ *
+ * `set` replaces the configured values; `mint` and `retire` keep the runtime ones, counted per value so two owners
+ * minting the same token (the live client and a draft probe's throwaway one) each retire only their own hold.
  */
 export class KnownSecrets {
 	private pattern: RegExp | undefined;
 	private longestForm = 0;
-	private known: readonly string[] = [];
+	private configured: readonly string[] = [];
+	private readonly minted = new Map<string, number>();
 
-	/** The values in force, for a caller that redacts over a union of this set and values of its own. */
+	/** The values in force, configured and minted, for a caller that redacts over a union of them and its own. */
 	values(): readonly string[] {
-		return this.known;
+		return [...new Set([...this.configured, ...this.minted.keys()])];
 	}
 
-	set(values: readonly string[], options: { readonly minLength?: number } = {}): void {
-		const floor = options.minLength ?? MIN_VALUE_LENGTH;
-		this.known = values.filter((value) => value.length >= floor);
+	set(values: readonly string[]): void {
+		this.configured = values.filter((value) => value.length >= MIN_VALUE_LENGTH);
+		this.compile();
+	}
+
+	mint(value: string): void {
+		if (value.length < MIN_VALUE_LENGTH) {
+			return;
+		}
+		const holds = this.minted.get(value) ?? 0;
+		this.minted.set(value, holds + 1);
+		if (holds === 0) {
+			this.compile();
+		}
+	}
+
+	/** One hold fewer; the last holder's retire ends the minted value, while a configured copy of it stays known. */
+	retire(value: string): void {
+		const holds = this.minted.get(value);
+		if (holds === undefined) {
+			return;
+		}
+		if (holds > 1) {
+			this.minted.set(value, holds - 1);
+		} else {
+			this.minted.delete(value);
+			this.compile();
+		}
+	}
+
+	private compile(): void {
 		const forms = new Set<string>();
-		for (const value of this.known) {
+		for (const value of this.values()) {
 			for (const spelling of spellingsOf(value)) {
-				if (spelling.length >= floor) {
+				if (spelling.length >= MIN_VALUE_LENGTH) {
 					forms.add(spelling);
 				}
 			}

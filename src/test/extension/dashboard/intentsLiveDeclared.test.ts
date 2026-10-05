@@ -22,6 +22,7 @@ import type { GroupServer } from "../../../provider/catalog/groupModels";
 import { groupClientId, groupServerLabel, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { makeModelInfo } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } from "../../testUtils";
 import { makeSecretStore, makeSyncEnv } from "../servers/serverSyncHelpers";
@@ -221,6 +222,7 @@ function makeFixture(): Fixture {
 		secrets,
 		logger: { log: () => {} },
 		ua: "test",
+		knownSecrets: new KnownSecrets(),
 		featureProbes: {},
 		refreshCatalogNow: () => {},
 		refreshUsageNow: () => {},

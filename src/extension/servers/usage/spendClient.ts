@@ -27,6 +27,7 @@ import { getDiscoveryTimeout } from "../../../shared/config/settings";
 import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import { isRecord } from "../../../shared/util/json";
+import type { KnownSecretCustody } from "../../../shared/util/knownSecrets";
 import { sleepUnlessAborted } from "../../../shared/util/timer";
 import { buildGroupArgs } from "../serverSync/engine";
 import type { StoredServerSecrets } from "../serverSync/secrets";
@@ -319,6 +320,8 @@ function usageHttpError(url: string, status: number): RequestError {
 
 export interface UsageClientOptions {
 	readonly userAgent: string;
+	/** The one known-value set the Logger redacts with; the OAuth tokens this client receives are minted into it. */
+	readonly knownSecrets: KnownSecretCustody;
 	/** The whole-call timeout read, injectable for tests; the default reads the live discovery.timeout setting. */
 	readonly getTimeoutMs?: () => number;
 	readonly log?: ((message: string, data?: unknown) => void) | undefined;
@@ -330,11 +333,12 @@ export interface UsageClientOptions {
  * One instance per poller so OAuth tokens cache across polls and invalidate on 401 exactly like the chat path.
  */
 export class UsageClient {
-	private readonly oauthTokens = new OAuthTokenSource();
+	private readonly oauthTokens: OAuthTokenSource;
 	private readonly getTimeoutMs: () => number;
 
 	constructor(private readonly options: UsageClientOptions) {
 		this.getTimeoutMs = options.getTimeoutMs ?? (() => getDiscoveryTimeout(options.log));
+		this.oauthTokens = new OAuthTokenSource(options.knownSecrets);
 	}
 
 	async fetchKeyInfo(connection: UsageConnection, signal?: AbortSignal): Promise<KeyUsage> {

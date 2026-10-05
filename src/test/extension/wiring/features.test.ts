@@ -6,6 +6,7 @@ import { builtinSlashCommands } from "../../../extension/features/participant/sl
 import { quickFixSlashCommands } from "../../../extension/features/quickFixChatCommands";
 import { wireFeatures } from "../../../extension/wiring/features";
 import { Logger } from "../../../shared/logger";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { REPO_ROOT } from "../../util/repoRoot";
 
 function fakeContext(): vscode.ExtensionContext {
@@ -69,6 +70,7 @@ suite("extension/wiring features", () => {
 		await withCommandSpy(async () => {
 			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
 			const { featureProbes } = wireFeatures(fakeContext(), quietLogger(), {
+				knownSecrets: new KnownSecrets(),
 				ua: "test-agent",
 				outputChannel,
 				getSnapshots: () => [],
@@ -96,6 +98,7 @@ suite("extension/wiring features", () => {
 		await withCommandSpy(async () => {
 			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
 			const live = wireFeatures(fakeContext(), quietLogger(), {
+				knownSecrets: new KnownSecrets(),
 				ua: "test-agent",
 				outputChannel,
 				getSnapshots: () => [],
@@ -111,6 +114,7 @@ suite("extension/wiring features", () => {
 			};
 			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
 			const refused = wireFeatures(fakeContext(), quietLogger(), {
+				knownSecrets: new KnownSecrets(),
 				ua: "test-agent",
 				outputChannel,
 				getSnapshots: () => [],
@@ -130,6 +134,7 @@ suite("extension/wiring features", () => {
 		await withCommandSpy(async () => {
 			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
 			const { chatParticipant } = wireFeatures(fakeContext(), quietLogger(), {
+				knownSecrets: new KnownSecrets(),
 				ua: "test-agent",
 				outputChannel,
 				getSnapshots: () => [],

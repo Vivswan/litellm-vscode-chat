@@ -130,13 +130,44 @@ describe("shared/util/knownSecrets", () => {
 		);
 	});
 
-	test("a site that knows its one value sets the floor: the OAuth detail redacts a two-character client secret", () => {
+	test("a minted value redacts like a configured one until retired; the configured rebuild leaves it in place", () => {
+		// A token the identity provider issued at runtime is in no setting and no blob, so the collector never publishes
+		// it; a settings change rebuilt the whole set and would have dropped it had the two shared one list.
 		const secrets = new KnownSecrets();
-		secrets.set(["ab", " x \t "], { minLength: 1 });
-		// The padded value's trimmed spelling is a value too, as the transport would send it.
+		secrets.set(["configured-Q7"]);
+		secrets.mint("oauth-access-Q7");
+		const probe = 'Authorization: Bearer oauth-access-Q7 for configured-Q7, {"t":"oauth-access-Q7"}';
+		assert.strictEqual(secrets.redact(probe), 'Authorization: Bearer [redacted] for [redacted], {"t":"[redacted]"}');
+		assert.deepStrictEqual(secrets.values(), ["configured-Q7", "oauth-access-Q7"]);
+
+		secrets.set(["configured-Q8"]);
+		assert.strictEqual(secrets.redact(probe), 'Authorization: Bearer [redacted] for configured-Q7, {"t":"[redacted]"}');
+
+		secrets.retire("oauth-access-Q7");
+		secrets.mint("oauth-access-Q8");
 		assert.strictEqual(
-			secrets.redact("the secret ab does not match x"),
-			"the secret [redacted] does not match [redacted]"
+			secrets.redact("old oauth-access-Q7, new oauth-access-Q8, set configured-Q8"),
+			"old oauth-access-Q7, new [redacted], set [redacted]"
+		);
+	});
+
+	test("a minted value is counted per holder: two mints need two retires, and a short one is never minted", () => {
+		// The live client and a draft probe's throwaway client receive the same token from the identity provider; the
+		// probe's retire must not strip the live client's hold.
+		const secrets = new KnownSecrets();
+		secrets.mint("shared-tok-Q7");
+		secrets.mint("shared-tok-Q7");
+		secrets.mint("ab");
+		secrets.retire("shared-tok-Q7");
+		assert.strictEqual(secrets.redact("shared-tok-Q7 ab"), "[redacted] ab");
+		secrets.retire("shared-tok-Q7");
+		secrets.retire("never-minted");
+		assert.deepStrictEqual(
+			{ text: secrets.redact("shared-tok-Q7"), values: secrets.values() },
+			{
+				text: "shared-tok-Q7",
+				values: [],
+			}
 		);
 	});
 
@@ -190,6 +221,12 @@ describe("shared/util/knownSecrets", () => {
 				values: ["pre<P>post", "postxyz"],
 				expected: "[redacted] and <P> alone",
 				reason: "a prefix pair merges; the bare inner part elsewhere stays",
+			},
+			{
+				text: "rejected alpha beta",
+				values: ["alpha  beta"],
+				expected: "rejected [redacted]",
+				reason: "an identity provider echoing the client secret with its whitespace collapsed",
 			},
 			{
 				text: 'card: {"note":"a \\"quoted\\" key"}',

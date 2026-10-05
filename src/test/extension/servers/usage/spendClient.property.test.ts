@@ -4,6 +4,7 @@ import { HttpResponse, http } from "msw";
 import type { KeyUsage, UserUsage } from "../../../../extension/servers/usage";
 import { UsageClient, usageUnavailabilityOf } from "../../../../extension/servers/usage";
 import { RequestError } from "../../../../provider/transport/errorMapping";
+import { KnownSecrets } from "../../../../shared/util/knownSecrets";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
@@ -32,6 +33,7 @@ const connection = { label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "sk-test", 
 function recordingClient(): { client: UsageClient; logs: string[] } {
 	const logs: string[] = [];
 	const client = new UsageClient({
+		knownSecrets: new KnownSecrets(),
 		userAgent: "test-agent",
 		getTimeoutMs: () => 5000,
 		log: (message, data) => {

@@ -12,6 +12,7 @@ import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { CMD, COMMENT_CONTROLLER_ID } from "../../../../shared/config/commandIds";
 import { REVIEW_COMMENT_THREADS_KEY } from "../../../../shared/config/storageKeys";
 import { Logger } from "../../../../shared/logger";
+import { KnownSecrets } from "../../../../shared/util/knownSecrets";
 import { withConfig } from "../../../testUtils";
 import { withDisposalCount } from "../disposalCount";
 import type { CommentSpies, FakeThread } from "./commentHarness";
@@ -42,7 +43,7 @@ function quietLogger(): Logger {
 
 function wire(context: vscode.ExtensionContext) {
 	return wireReviewComments(context, quietLogger(), {
-		oneShot: new OneShotClient({ userAgent: "test-agent" }),
+		oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
 		outputChannel: { show: () => {}, appendLine: () => {} } as unknown as vscode.OutputChannel,
 	});
 }

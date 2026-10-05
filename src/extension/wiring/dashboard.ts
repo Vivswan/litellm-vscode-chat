@@ -14,6 +14,7 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
+import type { KnownSecretCustody } from "../../shared/util/knownSecrets";
 import type { FeatureProbes } from "../dashboard/intents";
 import type { DashboardController } from "../dashboard/panel";
 import { registerDashboardCommand } from "../dashboard/panel";
@@ -41,6 +42,7 @@ export function wireDashboard(
 		usagePoller: UsagePoller;
 		/** The one User-Agent activation composes, for the panel's draft probe. */
 		ua: string;
+		knownSecrets: KnownSecretCustody;
 		featureProbes: FeatureProbes;
 	}
 ): DashboardController {
@@ -53,6 +55,7 @@ export function wireDashboard(
 		usagePoller: deps.usagePoller,
 		getEntryModelCapabilities: readEntryModelCapabilities,
 		ua: deps.ua,
+		knownSecrets: deps.knownSecrets,
 		featureProbes: deps.featureProbes,
 	});
 	context.subscriptions.push(deps.syncEngine.onDidSync(() => dashboard.refresh()));

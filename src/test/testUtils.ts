@@ -12,6 +12,7 @@ import type { TransportErrorClassification } from "../shared/errorClassification
 import { Logger, markLogSafe, publicErrorText } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 import { normalizeBaseUrl } from "../shared/util/baseUrl";
+import { KnownSecrets } from "../shared/util/knownSecrets";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeLogger, toHeaderMap } from "./pureHelpers";
 
@@ -80,6 +81,7 @@ export function makeProvider(
 					})(),
 				};
 	const provider = new LiteLLMChatModelProvider({
+		knownSecrets: new KnownSecrets(),
 		userAgent: "GitHubCopilotChat/test VSCode/test",
 		logger,
 		...uncachedDiscovery,

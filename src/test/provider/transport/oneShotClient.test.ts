@@ -5,6 +5,7 @@ import type { TimeoutBudget } from "../../../provider/transport/auth";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import type { OneShotChatMessage, OneShotConnection } from "../../../provider/transport/oneShotClient";
 import { OneShotClient } from "../../../provider/transport/oneShotClient";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import {
 	CHAT_COMPLETIONS_URL,
 	COMPLETIONS_URL,
@@ -18,7 +19,7 @@ import {
 const TOKEN_URL = "http://idp.test/oauth2/token";
 
 function client(): OneShotClient {
-	return new OneShotClient({ userAgent: "test-agent" });
+	return new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() });
 }
 
 function connection(overrides: Partial<OneShotConnection> = {}): OneShotConnection {

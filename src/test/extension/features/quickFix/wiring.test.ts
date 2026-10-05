@@ -20,6 +20,7 @@ import { runQuickFixChat } from "../../../../extension/features/quickFix/openCha
 import { createQuickFixProbe, wireQuickFix } from "../../../../extension/features/quickFix/wiring";
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import type { Logger } from "../../../../shared/logger";
+import { KnownSecrets } from "../../../../shared/util/knownSecrets";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
@@ -56,7 +57,7 @@ function deps(logger?: Logger): Parameters<typeof runQuickFixChat>[1] {
 }
 
 function client(): OneShotClient {
-	return new OneShotClient({ userAgent: "test-agent" });
+	return new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() });
 }
 
 function diagnostic(message: string, line: number, severity = vscode.DiagnosticSeverity.Error): vscode.Diagnostic {

@@ -10,6 +10,7 @@ import {
 	SERVERS_SETTING_KEY,
 } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
+import type { KnownSecretCustody } from "../../../shared/util/knownSecrets";
 import { readServerSecretsRecord } from "../serverSync/secrets";
 import type { UsagePollerEnv, UsageRefreshOutcome } from "./poller";
 import { usageRefreshFailureSummary } from "./poller";
@@ -18,7 +19,8 @@ import { UsageClient } from "./spendClient";
 export function createUsagePollerEnv(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	userAgent: string
+	userAgent: string,
+	knownSecrets: KnownSecretCustody
 ): UsagePollerEnv {
 	const log = (message: string, data?: unknown) => logger.log(message, data);
 	// A read that warns differently logs again.
@@ -38,7 +40,7 @@ export function createUsagePollerEnv(
 	return {
 		readServersSetting: () => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
 		readSecrets: (label) => readServerSecretsRecord(context.secrets, label),
-		client: new UsageClient({ userAgent, log }),
+		client: new UsageClient({ userAgent, knownSecrets, log }),
 		pollIntervalMs: () => getUsagePollIntervalMs(settingLog),
 		initialRefreshDelayMs: () => getUsageInitialRefreshDelayMs(settingLog),
 		serversChangeRefreshDelayMs: () => getUsageServersChangeRefreshDelayMs(settingLog),

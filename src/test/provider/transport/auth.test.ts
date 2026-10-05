@@ -7,6 +7,8 @@ import {
 	type TimeoutBudget,
 } from "../../../provider/transport/auth";
 import { RequestError } from "../../../provider/transport/errorMapping";
+import { Logger } from "../../../shared/logger";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { mswServer, useMsw } from "../../mocks/handlers";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
@@ -99,13 +101,110 @@ async function expectRequestError(promise: Promise<unknown>, kind: RequestError[
 	assert.fail("expected the promise to reject");
 }
 
+/** The known values as production publishes them: the collector's configured set, carrying the entry's secrets. */
+function configured(...values: string[]): KnownSecrets {
+	const known = new KnownSecrets();
+	known.set(values);
+	return known;
+}
+
 suite("provider/transport/auth", () => {
 	useMsw();
+
+	suite("known values", () => {
+		test("an IdP detail echoing a configured header credential renders it redacted, not just the client secret", async () => {
+			// Seen in chat as "OAuth 403 at http://idp.test/oauth2/token: invalid_client: rejected hdr-token-Q7" when the
+			// detail scrubbed only the client secret.
+			mswServer.use(
+				http.post(TOKEN_URL, () =>
+					HttpResponse.json({ error: "invalid_client", error_description: "rejected hdr-token-Q7" }, { status: 403 })
+				)
+			);
+			const source = new OAuthTokenSource(configured("secret-1", "hdr-token-Q7"));
+
+			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
+
+			assert.strictEqual(
+				error.message.split("\n")[1],
+				"OAuth 403 at http://idp.test/oauth2/token: invalid_client: rejected [redacted]"
+			);
+		});
+
+		test("a client secret spelled in the token URL's path is cut from the detail line", async () => {
+			const tokenUrl = "http://idp.test/tenants/secret-1/token";
+			mswServer.use(http.post(tokenUrl, () => HttpResponse.json({ error: "invalid_client" }, { status: 401 })));
+			const source = new OAuthTokenSource(configured("secret-1"));
+
+			const error = await expectRequestError(
+				source.getToken(oauthConfig({ tokenUrl }), "discovery", discoveryBudget()),
+				"auth"
+			);
+
+			assert.strictEqual(
+				error.message.split("\n")[1],
+				"OAuth 401 at http://idp.test/tenants/[redacted]/token: invalid_client"
+			);
+		});
+
+		test("an access token is a known value from its arrival: a line quoting it leaves the Logger redacted", async () => {
+			// renderJson({ message: "Authorization: Bearer oauth-access-Q7" }, known.values()) returned the token verbatim,
+			// and so did a Logger line quoting a 4xx body that echoed the Authorization header.
+			tokenEndpoint({ accessToken: "oauth-access-Q7", expiresIn: 3600 });
+			const known = configured("secret-1");
+			const lines: string[] = [];
+			const logger = new Logger(
+				{ info: (line) => lines.push(line), error: (line) => lines.push(line) },
+				undefined,
+				known
+			);
+			const source = new OAuthTokenSource(known);
+
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			logger.log('LiteLLM 401 body: {"error":"Authorization: Bearer oauth-access-Q7 rejected"}');
+
+			assert.deepStrictEqual(lines, ['LiteLLM 401 body: {"error":"Authorization: Bearer [redacted] rejected"}']);
+			assert.ok(known.values().includes("oauth-access-Q7"), "the exit reads the token through values()");
+		});
+
+		test("rotation keeps the previous token known and retires the one before it; dispose retires them all", async () => {
+			tokenEndpoint({ expiresIn: 3600 });
+			const known = configured("secret-1");
+			const source = new OAuthTokenSource(known);
+			const probe = "tok-1 tok-2 tok-3";
+
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			source.invalidate(oauthConfig());
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			assert.strictEqual(known.redact(probe), "[redacted] [redacted] tok-3", "a late echo of the previous token");
+			source.invalidate(oauthConfig());
+			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			assert.strictEqual(known.redact(probe), "tok-1 [redacted] [redacted]", "the one before the previous leaves");
+
+			source.dispose();
+
+			assert.strictEqual(known.redact(probe), probe);
+			assert.deepStrictEqual(known.values(), ["secret-1"], "the configured set is untouched");
+		});
+
+		test("a token that answers after dispose is neither handed out nor minted", async () => {
+			const endpoint = gatedTokenEndpoint();
+			const known = configured("secret-1");
+			const source = new OAuthTokenSource(known);
+
+			const waiter = source.getToken(oauthConfig(), "discovery", discoveryBudget());
+			await endpoint.whenRequested();
+			source.dispose();
+			endpoint.respond(HttpResponse.json({ access_token: "late-tok-Q7", token_type: "Bearer", expires_in: 3600 }));
+
+			await assert.rejects(waiter, (error: unknown) => error instanceof Error && error.name === "AbortError");
+			assert.deepStrictEqual(known.values(), ["secret-1"]);
+		});
+	});
 
 	suite("token exchange", () => {
 		test("posts a form-encoded client-credentials grant", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const token = await source.getToken(oauthConfig({ scopes: "read write" }), "discovery", discoveryBudget());
 
@@ -120,7 +219,7 @@ suite("provider/transport/auth", () => {
 
 		test("omits the scope field when no scopes are configured", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 
@@ -135,7 +234,7 @@ suite("provider/transport/auth", () => {
 					return HttpResponse.json({ error: "invalid_client" }, { status: 401 });
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
 
@@ -156,7 +255,7 @@ suite("provider/transport/auth", () => {
 			// Failed exchanges are never cached, so both calls hit the endpoint and each gets the shape of its own
 			// surface.
 			mswServer.use(http.post(TOKEN_URL, () => HttpResponse.json({ error: "invalid_client" }, { status: 401 })));
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const chat = await expectRequestError(source.getToken(oauthConfig(), "chat", discoveryBudget()), "auth");
 			assert.ok(chat.message.includes(`\n\nDetails: OAuth 401 at ${TOKEN_URL}`), chat.message);
@@ -172,7 +271,7 @@ suite("provider/transport/auth", () => {
 
 		test("a malformed token response on the chat surface joins its detail with the Details lead-in", async () => {
 			mswServer.use(http.post(TOKEN_URL, () => HttpResponse.json({ token: "wrong-field" })));
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "chat", discoveryBudget()), "http");
 
@@ -188,7 +287,7 @@ suite("provider/transport/auth", () => {
 					HttpResponse.json({ error: "invalid_scope", error_description: "unknown scope" }, { status: 400 })
 				)
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
 
@@ -208,7 +307,7 @@ suite("provider/transport/auth", () => {
 					)
 				)
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(configured("secret-1"));
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
 
@@ -226,7 +325,7 @@ suite("provider/transport/auth", () => {
 					)
 				)
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(configured(secret));
 
 			const error = await expectRequestError(
 				source.getToken(oauthConfig({ clientSecret: secret }), "discovery", discoveryBudget()),
@@ -249,7 +348,7 @@ suite("provider/transport/auth", () => {
 					)
 				)
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(configured("alpha beta"));
 
 			const error = await expectRequestError(
 				source.getToken(oauthConfig({ clientSecret: "alpha beta" }), "discovery", discoveryBudget()),
@@ -262,7 +361,7 @@ suite("provider/transport/auth", () => {
 
 		test("a public client's grant omits the client_secret field entirely", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			await source.getToken(oauthConfig({ clientSecret: "" }), "discovery", discoveryBudget());
 
@@ -278,7 +377,7 @@ suite("provider/transport/auth", () => {
 					return HttpResponse.error();
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "network");
 
@@ -301,7 +400,7 @@ suite("provider/transport/auth", () => {
 					})
 				);
 			try {
-				const source = new OAuthTokenSource();
+				const source = new OAuthTokenSource(new KnownSecrets());
 
 				const error = await expectRequestError(
 					source.getToken(oauthConfig(), "discovery", discoveryBudget()),
@@ -333,7 +432,7 @@ suite("provider/transport/auth", () => {
 			});
 			globalThis.fetch = () => Promise.reject(hostile);
 			try {
-				const source = new OAuthTokenSource();
+				const source = new OAuthTokenSource(new KnownSecrets());
 
 				const error = await expectRequestError(
 					source.getToken(oauthConfig(), "discovery", discoveryBudget()),
@@ -361,7 +460,7 @@ suite("provider/transport/auth", () => {
 					return HttpResponse.json({ access_token: "tok-after-retry", expires_in: 3600 });
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			assert.strictEqual(await source.getToken(oauthConfig(), "discovery", discoveryBudget()), "tok-after-retry");
 			assert.strictEqual(attempts, 2);
@@ -375,7 +474,7 @@ suite("provider/transport/auth", () => {
 					return HttpResponse.json({}, { status: 502 });
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "http");
 
@@ -395,7 +494,7 @@ suite("provider/transport/auth", () => {
 					return HttpResponse.json({ error: "not_found" }, { status: 404 });
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "http");
 
@@ -421,7 +520,7 @@ suite("provider/transport/auth", () => {
 					return HttpResponse.json({ token: "wrong-field" });
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "http");
 			assert.ok(error.message.includes("didn't return a usable access token"), `unexpected message: ${error.message}`);
@@ -434,7 +533,7 @@ suite("provider/transport/auth", () => {
 
 		test("an access token outside the header-value charset is rejected as malformed", async () => {
 			mswServer.use(http.post(TOKEN_URL, () => HttpResponse.json({ access_token: "tok\nInjected: x" })));
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "http");
 			assert.ok(error.message.includes("not allowed in an HTTP header value"), `unexpected message: ${error.message}`);
@@ -443,7 +542,7 @@ suite("provider/transport/auth", () => {
 
 		test("the timeout is a hard bound on the exchange", async () => {
 			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const error = await expectRequestError(
 				source.getToken(oauthConfig(), "discovery", discoveryBudget(100)),
@@ -464,7 +563,7 @@ suite("provider/transport/auth", () => {
 			// setting that cannot extend this bound. The identity rides the budget
 			// from the caller, so the advice cannot drift from the budget choice.
 			const chat = await expectRequestError(
-				new OAuthTokenSource().getToken(oauthConfig(), "chat", discoveryBudget(100)),
+				new OAuthTokenSource(new KnownSecrets()).getToken(oauthConfig(), "chat", discoveryBudget(100)),
 				"timeout"
 			);
 			assert.ok(chat.message.includes("discovery.timeout"), `unexpected message: ${chat.message}`);
@@ -472,7 +571,7 @@ suite("provider/transport/auth", () => {
 
 			// The one-shot chat features pass their chat.timeout whole-call budget through.
 			const commit = await expectRequestError(
-				new OAuthTokenSource().getToken(oauthConfig(), "commitGeneration", chatBudget(100)),
+				new OAuthTokenSource(new KnownSecrets()).getToken(oauthConfig(), "commitGeneration", chatBudget(100)),
 				"timeout"
 			);
 			assert.ok(commit.message.includes("chat.timeout"), `unexpected message: ${commit.message}`);
@@ -481,7 +580,7 @@ suite("provider/transport/auth", () => {
 			// The inline-completion bound is fixed in code (FIM_TIMEOUT_MS), so its budget names no setting - advice to
 			// raise one would be a lie.
 			const completion = await expectRequestError(
-				new OAuthTokenSource().getToken(oauthConfig(), "completion", fixedBudget(100)),
+				new OAuthTokenSource(new KnownSecrets()).getToken(oauthConfig(), "completion", fixedBudget(100)),
 				"timeout"
 			);
 			assert.ok(completion.message.includes("timed out after 100ms"), `unexpected message: ${completion.message}`);
@@ -495,7 +594,7 @@ suite("provider/transport/auth", () => {
 
 		test("an aborted caller signal interrupts the exchange and surfaces the abort, not a token timeout", async () => {
 			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 			const controller = new AbortController();
 			setTimeout(() => controller.abort(), 50);
 
@@ -513,7 +612,7 @@ suite("provider/transport/auth", () => {
 	suite("token cache", () => {
 		test("a live token is reused without hitting the token endpoint again", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const first = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			const second = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
@@ -524,7 +623,7 @@ suite("provider/transport/auth", () => {
 
 		test("an expired token is replaced on the next request", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const first = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			const realNow = Date.now;
@@ -540,7 +639,7 @@ suite("provider/transport/auth", () => {
 
 		test("a token inside the refresh skew of its expiry is treated as expired", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 300 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			const realNow = Date.now;
@@ -556,7 +655,7 @@ suite("provider/transport/auth", () => {
 
 		test("a short-lived token still caches: the skew is clamped to half the lifetime", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 30 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
@@ -566,7 +665,7 @@ suite("provider/transport/auth", () => {
 
 		test("a zero or negative expires_in means the token is never served from cache", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 0 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
@@ -576,7 +675,7 @@ suite("provider/transport/auth", () => {
 
 		test("a response without expires_in still caches for the conservative default", async () => {
 			const { requests } = tokenEndpoint();
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
@@ -586,7 +685,7 @@ suite("provider/transport/auth", () => {
 
 		test("concurrent requests for the same credentials share one exchange", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const [first, second] = await Promise.all([
 				source.getToken(oauthConfig(), "discovery", discoveryBudget()),
@@ -608,7 +707,7 @@ suite("provider/transport/auth", () => {
 						})
 				)
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const starter = source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			const controller = new AbortController();
@@ -629,7 +728,7 @@ suite("provider/transport/auth", () => {
 
 		test("invalidate discards the cached token so the next request exchanges afresh", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const first = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			source.invalidate(oauthConfig(), first);
@@ -641,7 +740,7 @@ suite("provider/transport/auth", () => {
 
 		test("a straggling 401 for an already-replaced token does not discard the fresh one", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const fresh = await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			source.invalidate(oauthConfig(), "tok-stale");
@@ -652,7 +751,7 @@ suite("provider/transport/auth", () => {
 
 		test("invalidate without a rejected token discards unconditionally", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			source.invalidate(oauthConfig());
@@ -663,7 +762,7 @@ suite("provider/transport/auth", () => {
 
 		test("a rotated client secret does not reuse the previous secret's token", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			await source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			await source.getToken(oauthConfig({ clientSecret: "rotated" }), "discovery", discoveryBudget());
@@ -683,7 +782,7 @@ suite("provider/transport/auth", () => {
 					return HttpResponse.json({ access_token: "tok-recovered", expires_in: 3600 });
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
 			assert.strictEqual(await source.getToken(oauthConfig(), "discovery", discoveryBudget()), "tok-recovered");
@@ -695,7 +794,7 @@ suite("provider/transport/auth", () => {
 
 		test("a joiner times out on its own clock while the shared exchange continues and succeeds for the originator", async () => {
 			const endpoint = gatedTokenEndpoint();
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const originator = source.getToken(oauthConfig(), "discovery", discoveryBudget(20000));
 			const joiner = source.getToken(oauthConfig(), "commitGeneration", chatBudget(100));
@@ -723,7 +822,7 @@ suite("provider/transport/auth", () => {
 
 		test("one shared failure renders through each waiter's own surface", async () => {
 			const endpoint = gatedTokenEndpoint();
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const discovery = source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			const chat = source.getToken(oauthConfig(), "chat", discoveryBudget());
@@ -749,7 +848,7 @@ suite("provider/transport/auth", () => {
 					return new Promise<Response>(() => {});
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			// completion's fixed bound names no setting; the joiner's budget names chat.timeout, so inherited rendering
 			// is distinguishable per waiter.
@@ -778,7 +877,7 @@ suite("provider/transport/auth", () => {
 				);
 			};
 			try {
-				const source = new OAuthTokenSource();
+				const source = new OAuthTokenSource(new KnownSecrets());
 				const originator = source.getToken(oauthConfig(), "discovery", discoveryBudget());
 				const joiner = source.getToken(oauthConfig(), "commitGeneration", chatBudget(7000));
 
@@ -797,7 +896,7 @@ suite("provider/transport/auth", () => {
 
 		test("cancelling one waiter releases only that waiter; the others still get the shared token", async () => {
 			const endpoint = gatedTokenEndpoint();
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const starter = source.getToken(oauthConfig(), "discovery", discoveryBudget());
 			const controller = new AbortController();
@@ -820,7 +919,7 @@ suite("provider/transport/auth", () => {
 
 		test("the originator's cancellation is never surfaced to a joiner: the joiner is served by the surviving exchange", async () => {
 			const endpoint = gatedTokenEndpoint();
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const controller = new AbortController();
 			const originator = source.getToken(oauthConfig(), "completion", fixedBudget(5000), controller.signal);
@@ -859,7 +958,7 @@ suite("provider/transport/auth", () => {
 				});
 			};
 			try {
-				const source = new OAuthTokenSource();
+				const source = new OAuthTokenSource(new KnownSecrets());
 				const controller = new AbortController();
 				const cancelled = source.getToken(oauthConfig(), "discovery", discoveryBudget(), controller.signal);
 				const patient = source.getToken(oauthConfig(), "chat", chatBudget(100));
@@ -881,7 +980,7 @@ suite("provider/transport/auth", () => {
 
 		test("N joiners across surfaces and budgets put exactly one token request on the wire", async () => {
 			const endpoint = gatedTokenEndpoint();
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(new KnownSecrets());
 
 			const surfaces = ["discovery", "chat", "commitGeneration", "consultTool", "completion"] as const;
 			const waiters = surfaces.map((surface, index) =>

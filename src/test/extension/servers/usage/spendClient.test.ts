@@ -14,6 +14,7 @@ import {
 	userInfoUrl,
 } from "../../../../extension/servers/usage";
 import { RequestError } from "../../../../provider/transport/errorMapping";
+import { KnownSecrets } from "../../../../shared/util/knownSecrets";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
 /** The usage endpoints sit at the server ROOT, not under /v1 like discovery. */
@@ -25,7 +26,12 @@ const TOKEN_URL = "http://idp.test/oauth2/token";
 const WINDOW = { startDate: "2026-07-01", endDate: "2026-07-30" };
 
 function client(overrides: Partial<UsageClientOptions> = {}): UsageClient {
-	return new UsageClient({ userAgent: "test-agent", getTimeoutMs: () => 5000, ...overrides });
+	return new UsageClient({
+		userAgent: "test-agent",
+		knownSecrets: new KnownSecrets(),
+		getTimeoutMs: () => 5000,
+		...overrides,
+	});
 }
 
 function connection(overrides: Partial<UsageConnection> = {}): UsageConnection {

@@ -15,6 +15,7 @@ import type { NonChatMode, SecretFieldId } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
 import { recordFromKeys } from "../../shared/util/json";
+import { collectKnownSecretValues, type KnownSecretCustody } from "../../shared/util/knownSecrets";
 import { buildGroupArgs } from "../servers/serverSync/engine";
 import { acceptedEntry } from "../servers/serverSync/setting";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
@@ -196,35 +197,67 @@ export async function applyTestServerDraft(
 /** The one-off probe's server ID; each probe uses a fresh throwaway client, so the ID never collides with a cache. */
 const DRAFT_PROBE_SERVER_ID = "dashboard-draft-probe";
 
+/** The connection's values through the configured-value collector, so a draft's key counts like a saved one. */
+function draftSecretValues(connection: DraftConnection): readonly string[] {
+	return collectKnownSecretValues(
+		[
+			{
+				urls: [connection.baseUrl, ...(connection.oauth !== undefined ? [connection.oauth.tokenUrl] : [])],
+				secrets: [connection.apiKey, connection.oauth?.clientSecret, connection.virtualKey?.value].filter(
+					(value): value is string => value !== undefined
+				),
+				headers: connection.headers ?? {},
+				carriers: connection.virtualKey !== undefined ? [connection.virtualKey.header] : [],
+			},
+		],
+		[]
+	);
+}
+
 /**
  * A throwaway ChatClient, so the OAuth exchange, custom headers, timeout, and retries are production discovery's
  * while the caches die with the call. Deliberately NO logger, because discovery's debug lines carry endpoint URLs
- * and response snippets, which feed the public issue-report buffer.
+ * and response snippets, which feed the public issue-report buffer. The draft's credentials are known values for
+ * exactly the probe's lifetime: a 4xx body echoing a key typed into the form, not yet saved, is redacted like a
+ * configured one.
  */
 export function createDraftConnectionProbe(
-	userAgent: string
+	userAgent: string,
+	knownSecrets: KnownSecretCustody
 ): (connection: DraftConnection) => Promise<readonly string[]> {
 	return async (connection) => {
+		const draftValues = draftSecretValues(connection);
+		for (const value of draftValues) {
+			knownSecrets.mint(value);
+		}
 		const client = new ChatClient({
 			userAgent,
+			knownSecrets,
 			...(connection.headers !== undefined ? { getEntryHeaders: () => connection.headers } : {}),
 			...(connection.apiVersion !== undefined ? { getEntryApiVersion: () => connection.apiVersion } : {}),
 		});
-		const { models } = await client.fetchModels(
-			{
-				id: DRAFT_PROBE_SERVER_ID,
-				label: DRAFT_PROBE_SERVER_ID,
-				baseUrl: connection.baseUrl,
-				apiKey: connection.apiKey,
-				// The DRAFT's label - what a declaration hint may name. Empty means "no nameable entry"
-				// (FetchModelsRequest.entryLabel); the synthetic probe ID must never surface in a user-facing message.
-				entryLabel: connection.label ?? "",
-				...(connection.oauth !== undefined ? { oauth: connection.oauth } : {}),
-				...(connection.virtualKey !== undefined ? { virtualKey: connection.virtualKey } : {}),
-			},
-			connection.expected,
-			connection.includeModes
-		);
-		return models.map((model) => model.id);
+		try {
+			const { models } = await client.fetchModels(
+				{
+					id: DRAFT_PROBE_SERVER_ID,
+					label: DRAFT_PROBE_SERVER_ID,
+					baseUrl: connection.baseUrl,
+					apiKey: connection.apiKey,
+					// The DRAFT's label - what a declaration hint may name. Empty means "no nameable entry"
+					// (FetchModelsRequest.entryLabel); the synthetic probe ID must never surface in a user-facing message.
+					entryLabel: connection.label ?? "",
+					...(connection.oauth !== undefined ? { oauth: connection.oauth } : {}),
+					...(connection.virtualKey !== undefined ? { virtualKey: connection.virtualKey } : {}),
+				},
+				connection.expected,
+				connection.includeModes
+			);
+			return models.map((model) => model.id);
+		} finally {
+			client.dispose();
+			for (const value of draftValues) {
+				knownSecrets.retire(value);
+			}
+		}
 	};
 }

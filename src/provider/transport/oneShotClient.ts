@@ -1,6 +1,7 @@
 import { APIConnectionError, APIError } from "openai";
 import * as vscode from "vscode";
 import { isRecord } from "../../shared/util/json";
+import type { KnownSecretCustody } from "../../shared/util/knownSecrets";
 import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "./auth";
 import { OAuthTokenSource } from "./auth";
 import type { AuthOverlayScope } from "./authOverlay";
@@ -66,6 +67,8 @@ export interface OneShotConnection {
 
 export interface OneShotClientOptions {
 	readonly userAgent: string;
+	/** The one known-value set the Logger redacts with; the OAuth tokens this client receives are minted into it. */
+	readonly knownSecrets: KnownSecretCustody;
 	/** The HTTP transport; tests inject a fake here. */
 	readonly fetch?: TransportFetch | undefined;
 }
@@ -109,11 +112,12 @@ function oneShotContentOf(payload: string): string {
  *     that cache
  */
 export class OneShotClient {
-	private readonly oauthTokens = new OAuthTokenSource();
+	private readonly oauthTokens: OAuthTokenSource;
 	private readonly fetch: TransportFetch;
 
 	constructor(private readonly options: OneShotClientOptions) {
 		this.fetch = options.fetch ?? nodeHttpFetch;
+		this.oauthTokens = new OAuthTokenSource(options.knownSecrets);
 	}
 
 	async completeChatOnce(

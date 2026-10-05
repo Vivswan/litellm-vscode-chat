@@ -61,7 +61,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		context,
 		logger,
 		ua,
-		storage
+		{ groupRemovals: storage.groupRemovals, knownSecrets }
 	);
 
 	await storage.runMigrations();
@@ -86,6 +86,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		observedGroupBaseUrls: (label) => provider.observedGroupBaseUrls(label),
 		observedSnapshots: () => provider.getServerSnapshots(),
 		onDidObserveGroup: provider.onDidObserveGroup,
+		knownSecrets,
 	});
 	// After wireServers: both surfaces read the sync engine's declared views for the sync-failure overlay.
 	const { statusBar, notifier } = wireStatusSurfaces(context, logger, hasConfiguredServers, () =>
@@ -96,6 +97,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		ua,
 		outputChannel,
 		getSnapshots: () => provider.getServerSnapshots(),
+		knownSecrets,
 	});
 	const dashboard = wireDashboard(context, logger, {
 		provider,
@@ -104,6 +106,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		catalogStore,
 		usagePoller: servers.usagePoller,
 		ua,
+		knownSecrets,
 		featureProbes: features.featureProbes,
 	});
 	// The agent tools are a client of the dashboard controller, so they wire after it; every write they make joins the

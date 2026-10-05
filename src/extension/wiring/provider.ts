@@ -6,6 +6,7 @@ import { getTokenEstimationMode, isOpenRouterCatalogEnabled } from "../../shared
 import type { Logger } from "../../shared/logger";
 import type { DebouncedAction } from "../../shared/util/debounce";
 import { debounced } from "../../shared/util/debounce";
+import type { KnownSecretCustody } from "../../shared/util/knownSecrets";
 import type { DashboardController } from "../dashboard/panel";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import { createOpenRouterCatalogStore } from "../openRouterCatalog";
@@ -47,6 +48,7 @@ export function wireProvider(
 	userAgent: string,
 	deps: {
 		groupRemovals: GroupRemovalStore;
+		knownSecrets: KnownSecretCustody;
 	}
 ): ProviderWiring {
 	// Created before the provider because the provider's catalog seam reads its lookup; the snapshot loads later, and
@@ -66,6 +68,7 @@ export function wireProvider(
 	const provider = new LiteLLMChatModelProvider({
 		userAgent,
 		logger,
+		knownSecrets: deps.knownSecrets,
 		getEntryModelParameters: readEntryModelParameters,
 		getEntryModelCapabilities: readEntryModelCapabilities,
 		getEntryHeaders: readEntryHeaders,

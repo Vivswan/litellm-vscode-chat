@@ -20,6 +20,7 @@ import type { Logger } from "../shared/logger";
 import { localizedError, type MirroredError } from "../shared/mirroredError";
 import type { ExpectedFailureCategory, NonChatMode } from "../shared/serverEntry";
 import type { AggregatedStatus } from "../shared/servers";
+import type { KnownSecretCustody } from "../shared/util/knownSecrets";
 import { DiscoveryCache } from "./catalog/discoveryCache";
 import type { DiscoveredGroupModels, SuppressedGroupKey } from "./catalog/groupDiscovery";
 import { GroupDiscovery } from "./catalog/groupDiscovery";
@@ -69,6 +70,7 @@ export function defaultHostRefreshDeadlineMs(log?: (message: string, data?: unkn
 export interface LiteLLMChatModelProviderOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
+	knownSecrets: KnownSecretCustody;
 	/** Request-time resolver for a declared entry's per-entry modelParameters; see ChatClientOptions. */
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
@@ -179,6 +181,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this._client = new ChatClient({
 			userAgent: options.userAgent,
 			logger: options.logger,
+			knownSecrets: options.knownSecrets,
 			getEntryModelParameters: options.getEntryModelParameters,
 			getEntryHeaders: options.getEntryHeaders,
 			getEntryApiVersion: options.getEntryApiVersion,

@@ -11,6 +11,7 @@ import {
 import { isServerSecretsKey } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { DebouncedAction } from "../../shared/util/debounce";
+import type { KnownSecretCustody } from "../../shared/util/knownSecrets";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
@@ -43,6 +44,7 @@ export function wireServers(
 		observedSnapshots: () => readonly ServerModelsSnapshot[];
 		/** Fires when a labeled group enters the provider's status window; a pass re-runs so the evidence is used. */
 		onDidObserveGroup: vscode.Event<void>;
+		knownSecrets: KnownSecretCustody;
 	}
 ): ServersWiring {
 	const { catalogStore, notifyModelsChanged } = deps;
@@ -57,7 +59,7 @@ export function wireServers(
 			deps.observedSnapshots
 		)
 	);
-	const usagePoller = new UsagePoller(createUsagePollerEnv(context, logger, userAgent));
+	const usagePoller = new UsagePoller(createUsagePollerEnv(context, logger, userAgent, deps.knownSecrets));
 	context.subscriptions.push(
 		syncEngine,
 		usagePoller,

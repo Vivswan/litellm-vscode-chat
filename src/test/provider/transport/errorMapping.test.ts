@@ -24,6 +24,7 @@ import {
 } from "../../../provider/transport/errorMapping";
 import { localizedError, MirroredError } from "../../../shared/mirroredError";
 import { DEFAULT_API_VERSION } from "../../../shared/util/baseUrl";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { assertShows, assertStartsWith } from "../../pureHelpers";
 
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
@@ -643,7 +644,7 @@ suite("provider/transport/errorMapping", () => {
 			const realFetch = globalThis.fetch;
 			globalThis.fetch = () => Promise.reject(makeFailure());
 			try {
-				await new OAuthTokenSource().getToken(
+				await new OAuthTokenSource(new KnownSecrets()).getToken(
 					{ tokenUrl: URL_UNDER_TEST, clientId: "client-1", clientSecret: "secret-1" },
 					surface,
 					budget
