@@ -69,7 +69,7 @@ function stringFieldOf(error: unknown, field: "logClassification" | "englishMess
  * producer is MirroredError, but the read stays duck-typed and total, because anything can be thrown at a logging
  * boundary.
  */
-export function classificationOf(error: unknown): string | undefined {
+function classificationOf(error: unknown): string | undefined {
 	return stringFieldOf(error, "logClassification");
 }
 

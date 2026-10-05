@@ -106,6 +106,9 @@ export function supportsTools(provider: LiteLLMProvider): boolean {
 	return provider.supports_tools !== false;
 }
 
+/** The envelope both listing endpoints answer with; element contents are narrowed per entry below. */
+export const dataEnvelopeSchema = z.looseObject({ data: z.array(z.unknown()) });
+
 /**
  * Element contents stay unvalidated here; provider entries are narrowed individually so one malformed entry drops
  * alone.

@@ -29,7 +29,7 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
-import { expectDefined } from "../../pureHelpers";
+import { assertOmits, expectDefined } from "../../pureHelpers";
 
 function request(log: (message: string, data?: unknown) => void = () => {}, fetchImpl: TransportFetch = nodeHttpFetch) {
 	const client = createServerClient(
@@ -49,6 +49,14 @@ function request(log: (message: string, data?: unknown) => void = () => {}, fetc
 		discoveryTimeout: 5000,
 		log,
 	};
+}
+
+function logRecorder(): {
+	entries: { message: string; data?: unknown }[];
+	log: (message: string, data?: unknown) => void;
+} {
+	const entries: { message: string; data?: unknown }[] = [];
+	return { entries, log: (message, data) => void entries.push({ message, data }) };
 }
 
 function expectShape<K extends ModelShape["kind"]>(model: LiteLLMModelItem, kind: K): Extract<ModelShape, { kind: K }> {
@@ -318,39 +326,69 @@ suite("provider/catalog/discovery", () => {
 				})
 			);
 
-			const logs: string[] = [];
-			const { models } = await fetchModels(request((m) => logs.push(m)));
+			const logged = logRecorder();
+			const { models } = await fetchModels(request(logged.log));
 
 			assert.deepStrictEqual(
 				models.map((m) => m.id),
 				["good-model", "listing-shaped-model"]
 			);
 			assert.strictEqual(modelsEndpointCalled, false, "Valid entries must not trigger the /v1/models fallback");
-			assert.ok(
-				logs.some((m) => m.includes("Skipping malformed model/info entry")),
-				`Expected a skip log line, got: ${logs.join(" | ")}`
+			assert.deepStrictEqual(
+				logged.entries.filter((l) => l.message === "Skipping malformed model/info entry"),
+				[
+					{
+						message: "Skipping malformed model/info entry",
+						data: {
+							index: 1,
+							modelInfo: "custom",
+							listing: "id: expected string, received undefined",
+						},
+					},
+				],
+				"the skip line names what both shapes refused, never the entry"
 			);
 		});
 
-		test("nonempty model/info payload with zero valid items falls back to /v1/models", async () => {
+		test("nonempty model/info payload with zero valid items falls back to /v1/models logging classifications only", async () => {
 			mswServer.use(
-				http.get(MODEL_INFO_URL, () => HttpResponse.json({ data: [{ nothing: "usable" }, 17] })),
+				http.get(MODEL_INFO_URL, () => HttpResponse.json({ data: [{ nothing: "sk-live-abc" }, 17] })),
 				http.get(MODELS_URL, () => HttpResponse.json({ object: "list", data: [{ id: "fallback-model" }] }))
 			);
 
-			const logged: { message: string; data?: unknown }[] = [];
-			const { models } = await fetchModels(request((message, data) => logged.push({ message, data })));
+			const logged = logRecorder();
+			const { models } = await fetchModels(request(logged.log));
 
 			assert.deepStrictEqual(
 				models.map((m) => m.id),
 				["fallback-model"]
 			);
-			const fallbackLog = logged.find((l) => l.message.includes("no usable models"));
-			assert.ok(fallbackLog, "Expected a fallback log line naming the raw payload");
-			assert.ok(
-				JSON.stringify(fallbackLog.data).includes("usable"),
-				"Fallback log should include the first raw element"
+			assert.deepStrictEqual(
+				logged.entries.filter((l) => l.message.startsWith("Skipping") || l.message.includes("falling back")),
+				[
+					{
+						message: "Skipping malformed model/info entry",
+						data: {
+							index: 0,
+							modelInfo: "custom",
+							listing: "id: expected string, received undefined",
+						},
+					},
+					{
+						message: "Skipping malformed model/info entry",
+						data: {
+							index: 1,
+							modelInfo: "expected object, received number",
+							listing: "expected object, received number",
+						},
+					},
+					{
+						message: "model/info returned data but no usable models; falling back",
+						data: { dataLength: 2 },
+					},
+				]
 			);
+			assertOmits(JSON.stringify(logged.entries), "sk-live-abc", "a rejected entry's values never reach the log");
 		});
 
 		test("a failing model/info response never leaks its body into the fallback log", async () => {
@@ -372,7 +410,7 @@ suite("provider/catalog/discovery", () => {
 					["fallback-model"],
 					`status ${status}`
 				);
-				const fallbackLog = logged.find((l) => l.message.includes(`falling back to ${MODELS_URL}`));
+				const fallbackLog = logged.find((l) => l.message === "model/info failed; falling back to the models listing");
 				assert.ok(fallbackLog, `Expected the classified fallback log line for status ${status}`);
 				assert.strictEqual(
 					(fallbackLog.data as { status?: number }).status,
@@ -386,16 +424,16 @@ suite("provider/catalog/discovery", () => {
 			}
 		});
 
-		test("a non-JSON models response throws classified: the payload snippet stays off public surfaces", async () => {
-			// V8's SyntaxError quotes a snippet of the unparseable payload, so the thrown message is response-derived;
-			// only the classification is public.
-			const marker = "internal-gateway-host-MARKER upstream capacity exhausted";
+		test("a non-JSON models response throws classified: the payload snippet stays off every surface", async () => {
+			// V8's SyntaxError quotes the body around the failure, so a secret in the body's first bytes would ride the
+			// message; the detail line carries the parser's name only.
+			const body = "sk-live-MARKER upstream capacity exhausted";
 			let modelsAttempts = 0;
 			mswServer.use(
-				http.get(MODEL_INFO_URL, () => HttpResponse.text(marker, { status: 200 })),
+				http.get(MODEL_INFO_URL, () => HttpResponse.text(body, { status: 200 })),
 				http.get(MODELS_URL, () => {
 					modelsAttempts += 1;
-					return HttpResponse.text(marker, { status: 200 });
+					return HttpResponse.text(body, { status: 200 });
 				})
 			);
 
@@ -407,26 +445,43 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(modelsAttempts, 1, "a 200 with an unparseable body must not be retried");
 			assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
 			assert.ok(error.message.startsWith("The server replied, but not with a model list"), error.message);
-			assert.ok(error.message.includes(`Unparseable response from ${MODELS_URL}`), error.message);
-			assert.strictEqual(error.message.split("\n").length, 2, `headline plus one detail line: ${error.message}`);
+			const [, detail, ...rest] = error.message.split("\n");
+			assert.strictEqual(rest.length, 0, `headline plus one detail line: ${error.message}`);
+			assert.strictEqual(
+				detail,
+				`Unparseable response from ${MODELS_URL}: SyntaxError`,
+				"the detail names the parser, never the body"
+			);
 			assert.strictEqual(error.logClassification, "RequestError(http, unparseable models response body)");
 			// The display message localizes; under the English fallback its full English mirror (what the output
 			// channel renders) is identical.
 			assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
-			assert.ok(!publicErrorText(error).includes("MARKER"), "the public rendering leaked the payload snippet");
+			assertOmits(publicErrorText(error), "sk-live", "the public rendering leaked the payload snippet");
+			assertOmits(error.message, "sk-live", "the display message leaked the payload snippet");
 		});
 
-		test("model/info payload without a data array falls back to /v1/models", async () => {
+		test("model/info payload without a data array falls back to /v1/models logging the envelope rejection only", async () => {
 			mswServer.use(
-				http.get(MODEL_INFO_URL, () => HttpResponse.json({ data: { not: "an array" } })),
+				http.get(MODEL_INFO_URL, () => HttpResponse.json({ data: { not: "sk-live-abc" } })),
 				http.get(MODELS_URL, () => HttpResponse.json({ object: "list", data: [{ id: "fallback-model" }] }))
 			);
 
-			const { models } = await fetchModels(request());
+			const logged = logRecorder();
+			const { models } = await fetchModels(request(logged.log));
 			assert.deepStrictEqual(
 				models.map((m) => m.id),
 				["fallback-model"]
 			);
+			assert.deepStrictEqual(
+				logged.entries.filter((l) => l.message.includes("no data array")),
+				[
+					{
+						message: "model/info response has no data array; falling back",
+						data: { rejection: "data: expected array, received object" },
+					},
+				]
+			);
+			assertOmits(JSON.stringify(logged.entries), "sk-live-abc", "the body's values never reach the log");
 		});
 
 		test("/v1/models items without providers are normalized to an empty providers array", async () => {
@@ -435,16 +490,21 @@ suite("provider/catalog/discovery", () => {
 				http.get(MODELS_URL, () => HttpResponse.json({ object: "list", data: [{ id: "bare-model" }, { id: 42 }] }))
 			);
 
-			const logs: string[] = [];
-			const { models } = await fetchModels(request((m) => logs.push(m)));
+			const logged = logRecorder();
+			const { models } = await fetchModels(request(logged.log));
 
 			assert.strictEqual(models.length, 1);
 			const model = expectDefined(models[0]);
 			assert.strictEqual(model.id, "bare-model");
 			assert.deepStrictEqual(model.shape, { kind: "bare" });
-			assert.ok(
-				logs.some((m) => m.includes("Skipping malformed models entry")),
-				"Malformed /v1/models entries should be skipped with a log line"
+			assert.deepStrictEqual(
+				logged.entries.filter((l) => l.message === "Skipping malformed models entry"),
+				[
+					{
+						message: "Skipping malformed models entry",
+						data: { index: 1, rejection: "id: expected string, received number" },
+					},
+				]
 			);
 		});
 
@@ -523,12 +583,12 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(provider.input_cost_per_token, undefined, "a string cost is re-narrowed to absent");
 		});
 
-		test("malformed nested provider entries are dropped without crashing registration", async () => {
+		test("malformed nested provider entries are dropped and logged as rejections, never as their values", async () => {
 			const payload = {
 				data: [
 					{
 						id: "mixed-model",
-						providers: [null, "bogus", { supports_tools: true }, { provider: "openai", supports_tools: true }],
+						providers: [null, "bogus", { id: 1, mode: "sk-live-abc" }, { provider: "openai", supports_tools: true }],
 					},
 				],
 			};
@@ -537,16 +597,31 @@ suite("provider/catalog/discovery", () => {
 				http.get(MODELS_URL, () => HttpResponse.json(payload))
 			);
 
-			const logs: string[] = [];
-			const { models } = await fetchModels(request((msg) => logs.push(msg)));
+			const logged = logRecorder();
+			const { models } = await fetchModels(request(logged.log));
 			assert.strictEqual(models.length, 1);
 			const shape = expectShape(expectDefined(models[0]), "group");
 			assert.strictEqual(shape.providers.length, 1, "Only the well-formed provider survives");
 			assert.strictEqual(shape.providers[0].provider, "openai");
-			assert.ok(
-				logs.some((l) => l.includes("Skipping malformed provider entry")),
-				"Dropped provider entries must be logged"
+			assert.deepStrictEqual(
+				logged.entries.filter((l) => l.message === "Skipping malformed provider entry"),
+				[
+					{
+						message: "Skipping malformed provider entry",
+						data: { index: 0, rejection: "expected object, received null" },
+					},
+					{
+						message: "Skipping malformed provider entry",
+						data: { index: 1, rejection: "expected object, received string" },
+					},
+					{
+						message: "Skipping malformed provider entry",
+						data: { index: 2, rejection: "provider: expected string, received undefined" },
+					},
+				]
 			);
+			assertOmits(JSON.stringify(logged.entries), "sk-live-abc", "a dropped entry's values never reach the log");
+			assertOmits(JSON.stringify(logged.entries), "mixed-model", "the server's model id never reaches the log");
 		});
 
 		test("conflicting model identifiers resolve by documented priority with valid strings only", async () => {
@@ -1009,7 +1084,6 @@ suite("provider/catalog/discovery", () => {
 
 		test("an expected model/info failure gets a single attempt and the fallback log carries the classification", async () => {
 			const attempts = { info: 0, models: 0 };
-			const logged: string[] = [];
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => {
 					attempts.info += 1;
@@ -1021,8 +1095,9 @@ suite("provider/catalog/discovery", () => {
 				})
 			);
 
+			const logged = logRecorder();
 			const { models } = await fetchModels({
-				...request((message) => logged.push(message)),
+				...request(logged.log),
 				expected: { modelInfo: true, modelListing: false },
 			});
 			assert.deepStrictEqual(
@@ -1031,13 +1106,13 @@ suite("provider/catalog/discovery", () => {
 				"the fallback chain is unchanged: an expected model/info failure still falls back"
 			);
 			assert.strictEqual(attempts.info, 1, "an expected endpoint gets exactly one attempt");
-			assert.ok(
-				logged.some((message) => message.includes("(expected: modelInfo)")),
-				`the existing fallback line carries the expected classification, got: ${JSON.stringify(logged)}`
+			const fallback = logged.entries.find(
+				(l) => l.message === "model/info failed; falling back to the models listing"
 			);
-			assert.ok(
-				logged.every((message) => !message.includes("(expected: modelListing)")),
-				"only the declared category is annotated"
+			assert.strictEqual(
+				(fallback?.data as { expected?: boolean } | undefined)?.expected,
+				true,
+				`the fallback line carries the declaration, got: ${JSON.stringify(logged.entries)}`
 			);
 		});
 
