@@ -130,12 +130,35 @@ function serializedWrite<T>(label: string, task: () => Promise<T>): Promise<T> {
 	return run;
 }
 
+type WrittenListener = (values: readonly string[], landed: Promise<void>) => void;
+
+const writtenListeners = new Set<WrittenListener>();
+
+/**
+ * Hear every value this window writes into a blob, before the write lands, with the promise of its landing.
+ * SecretStorage's own change event carries no value and the blob read behind it is asynchronous, so the Logger's
+ * known values would otherwise learn a freshly saved secret only after a line could already have quoted it; and a
+ * read that began before the landing may not hold the value yet, so a listener retires it only after `landed`.
+ */
+export function onServerSecretWritten(listener: WrittenListener): { dispose(): void } {
+	writtenListeners.add(listener);
+	return { dispose: () => writtenListeners.delete(listener) };
+}
+
 async function writeRecord(secrets: SecretStore, label: string, record: StoredSecretsRecord): Promise<void> {
-	if (Object.keys(record.values).length === 0) {
-		await secrets.delete(serverSecretsKey(label));
-		return;
+	const values = Object.values(record.values);
+	const write =
+		values.length === 0
+			? secrets.delete(serverSecretsKey(label))
+			: secrets.store(serverSecretsKey(label), serializeRecord(record));
+	const landed = Promise.resolve(write).then(
+		() => undefined,
+		() => undefined
+	);
+	for (const listener of writtenListeners) {
+		listener(values, landed);
 	}
-	await secrets.store(serverSecretsKey(label), serializeRecord(record));
+	await write;
 }
 
 /**

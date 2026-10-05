@@ -43,6 +43,8 @@ function routes(peer: () => string): http.RequestListener {
 							cookie: req.headers.cookie,
 							"proxy-authorization": req.headers["proxy-authorization"],
 							"x-custom": req.headers["x-custom"] as string | undefined,
+							"x-tenant": req.headers["x-tenant"] as string | undefined,
+							accept: req.headers.accept,
 							"content-type": req.headers["content-type"],
 							"content-length": req.headers["content-length"],
 						},
@@ -397,32 +399,37 @@ suite("provider/transport/nodeHttpFetch", () => {
 		test(`redirects: ${name}`, async () => {
 			const response = await nodeHttpFetch(`${main.url}${path}`, {
 				method,
-				headers: { Authorization: "Bearer k" },
+				headers: { Authorization: "Bearer k", "X-Tenant": "tenant" },
 				body: "payload",
 			});
 			const echo = (await response.json()) as Echo;
 			assert.strictEqual(echo.method, expect.method);
 			assert.strictEqual(echo.body, expect.body);
 			assert.strictEqual(echo.headers.authorization, "Bearer k", "same-origin hops keep credentials");
+			assert.strictEqual(echo.headers["x-tenant"], "tenant", "same-origin hops keep every custom header");
 			if (expect.method === "GET") {
 				assert.strictEqual(echo.headers["content-type"], undefined, "the body headers go with the body");
 			}
 		});
 	}
 
-	test("redirects: a cross-origin hop drops the credential headers and keeps the rest", async () => {
+	test("redirects: a cross-origin hop carries only the safelist; every other header may be a credential", async () => {
+		// An entry's credential can ride under any configured name (a virtual-key carrier "X-Tenant"), and the strip
+		// cannot see the entry, so the new origin gets the content and accept headers and nothing else.
 		const response = await nodeHttpFetch(`${main.url}/redirect/cross`, {
 			headers: {
 				Authorization: "Bearer k",
 				"X-API-Key": "k",
 				Cookie: "session=1",
 				"Proxy-Authorization": "Basic cHJveHk=",
-				"X-Custom": "kept",
+				"X-Tenant": "tenant",
+				"X-Custom": "dropped",
+				Accept: "application/json",
 			},
 		});
 		const echo = (await response.json()) as Echo;
 		// JSON drops the undefined entries, so the echo carries exactly the headers that crossed.
-		assert.deepStrictEqual(echo.headers, { "x-custom": "kept" });
+		assert.deepStrictEqual(echo.headers, { accept: "application/json" });
 	});
 
 	// Discarding a body that already errored: cancel() rejects with the stored error, which must not surface as an

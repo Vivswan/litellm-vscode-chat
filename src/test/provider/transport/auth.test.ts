@@ -213,7 +213,7 @@ suite("provider/transport/auth", () => {
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
 
 			assert.ok(!error.message.includes("secret-1"), `the client secret leaked: ${error.message}`);
-			assert.ok(error.message.includes("the secret [REDACTED] does not match"), `unexpected message: ${error.message}`);
+			assert.ok(error.message.includes("the secret [redacted] does not match"), `unexpected message: ${error.message}`);
 		});
 
 		test("a secret longer than the detail cap is scrubbed before truncation, so no prefix leaks", async () => {
@@ -235,7 +235,7 @@ suite("provider/transport/auth", () => {
 
 			assert.ok(!error.message.includes("superlongsecret-"), `a prefix of the secret leaked: ${error.message}`);
 			assert.ok(!error.message.includes("x".repeat(20)), `part of the secret leaked: ${error.message}`);
-			assert.ok(error.message.includes("[REDACTED]"), `unexpected message: ${error.message}`);
+			assert.ok(error.message.includes("[redacted]"), `unexpected message: ${error.message}`);
 		});
 
 		test("a secret containing whitespace cannot be reassembled by the whitespace collapse", async () => {
@@ -257,7 +257,7 @@ suite("provider/transport/auth", () => {
 			);
 
 			assert.ok(!error.message.includes("alpha beta"), `the collapsed secret leaked: ${error.message}`);
-			assert.ok(error.message.includes("[REDACTED]"), `unexpected message: ${error.message}`);
+			assert.ok(error.message.includes("[redacted]"), `unexpected message: ${error.message}`);
 		});
 
 		test("a public client's grant omits the client_secret field entirely", async () => {

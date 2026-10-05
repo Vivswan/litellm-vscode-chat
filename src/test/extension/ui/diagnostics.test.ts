@@ -3,7 +3,7 @@ import { buildDiagnosticsSnapshot } from "../../../extension/ui/diagnostics";
 import type { DiagnosticsSnapshot } from "../../../extension/ui/issueReporter";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
 import type { ConnectionStatus } from "../../../extension/ui/status";
-import { markLogSafe } from "../../../shared/logger";
+import { markLogSafe, recordedError } from "../../../shared/logger";
 import { expectDefined } from "../../pureHelpers";
 import { makeServerStatus, withConfig } from "../../testUtils";
 
@@ -15,7 +15,7 @@ suite("extension/ui/diagnostics", () => {
 			const reporter = new IssueReporter();
 			reporter.appendLog("first log line");
 			reporter.appendLog("second log line");
-			reporter.recordError("discovery", new Error("fetch exploded"));
+			reporter.recordError("discovery", recordedError(new Error("fetch exploded")));
 
 			// Non-default configuration on every settings-derived field, through the same getConfiguration surface the
 			// snapshot reads (withConfig restores it in its finally): a build that hardcoded the defaults must fail
@@ -88,7 +88,9 @@ suite("extension/ui/diagnostics", () => {
 			// thrown value.
 			reporter.recordError(
 				"discovery",
-				Object.assign(new Error("connect ECONNREFUSED"), { kind: "connection", setupHint: "proxy-not-running" })
+				recordedError(
+					Object.assign(new Error("connect ECONNREFUSED"), { kind: "connection", setupHint: "proxy-not-running" })
+				)
 			);
 
 			const snapshot = buildDiagnosticsSnapshot(

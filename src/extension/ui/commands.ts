@@ -3,8 +3,7 @@ import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../provider/catalog/groupModels";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
-import type { ErrorRecorder, Logger } from "../../shared/logger";
-import { publicErrorStack, publicErrorText } from "../../shared/logger";
+import type { ErrorRecorder, Logger, RecordedError } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
@@ -582,13 +581,12 @@ export class SessionLogTee implements ErrorRecorder {
 		this.push(line);
 	}
 
-	recordError(source: string, error: unknown): void {
+	recordError(source: string, error: RecordedError): void {
 		this.inner.recordError(source, error);
 		// The reporter's latest-error slot is last-write-wins, so a snapshot overwritten between two reads would escape
 		// a scan of the slot; every snapshot's public rendering joins the line stream instead. Self-contained on
 		// purpose - it must not rely on the caller also having appended a message line.
-		const stack = publicErrorStack(error);
-		this.push(`[error] ${source}: ${publicErrorText(error)}${stack === undefined ? "" : `\n${stack}`}`);
+		this.push(`[error] ${source}: ${error.message}${error.stack === undefined ? "" : `\n${error.stack}`}`);
 	}
 
 	private push(line: string): void {

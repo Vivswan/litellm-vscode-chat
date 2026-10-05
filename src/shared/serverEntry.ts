@@ -18,10 +18,12 @@ import { normalizeBaseUrl } from "./util/baseUrl";
  *   secret ones flagged -> inline storage is legal for those; a SecretStorage blob is the alternative
  *   the current "i1:" fingerprint reads only the identity projection (serverSync/engine.ts groupIdentityArgs) -> is
  *     order-free
+ *   a URL field (format "uri") names its nested key too -> URL_FIELD_KEYS derives every key a configured URL is
+ *     serialized under
  */
 export const OPTIONAL_ENTRY_FIELDS = [
 	{ id: "apiKey", secret: true },
-	{ id: "oauthTokenUrl", secret: false, format: "uri" },
+	{ id: "oauthTokenUrl", secret: false, format: "uri", nestedKey: "tokenUrl" },
 	{ id: "oauthClientId", secret: false },
 	{ id: "oauthClientSecret", secret: true },
 	{ id: "oauthScopes", secret: false },
@@ -30,6 +32,19 @@ export const OPTIONAL_ENTRY_FIELDS = [
 ] as const;
 
 type OptionalEntryField = (typeof OPTIONAL_ENTRY_FIELDS)[number];
+
+/**
+ * The keys a configured URL is serialized under, for a reader that must fail closed on a URL the parser refuses
+ * (displayUrl's JSON replacer) and treat any other string as text: the required `baseUrl`, every optional field of
+ * format "uri" with its nested key, and McpOptIn's one key.
+ */
+export const URL_FIELD_KEYS: ReadonlySet<string> = new Set([
+	"baseUrl",
+	...OPTIONAL_ENTRY_FIELDS.flatMap((field) =>
+		"format" in field && field.format === "uri" ? [field.id, field.nestedKey] : []
+	),
+	"url",
+]);
 
 export type OptionalEntryFieldId = OptionalEntryField["id"];
 
@@ -128,6 +143,56 @@ export function parseSecretOwner(raw: unknown): SecretOwner | undefined {
 		return undefined;
 	}
 	return { ...(tokenUrl !== undefined ? { tokenUrl } : {}), ...(clientId !== undefined ? { clientId } : {}) };
+}
+
+/**
+ * Where each secret field's value may sit inside a raw entry's `auth` object: the one table the settings parser
+ * assigns secret values through (parseAuth), pinned position by position by a host test, so a nested secret the
+ * parser reads is always a secret field the known-value collector receives from the parsed entry. The flat position
+ * is the field id itself (SECRET_FIELD_IDS).
+ */
+export const SECRET_FIELD_NESTED_PATHS = {
+	apiKey: [
+		["auth", "apiKey"],
+		["auth", "oauth", "apiKey"],
+	],
+	oauthClientSecret: [["auth", "oauth", "clientSecret"]],
+	virtualKeyValue: [
+		["auth", "virtualKey", "value"],
+		["auth", "oauth", "virtualKey", "value"],
+	],
+} as const satisfies Record<SecretFieldId, readonly (readonly string[])[]>;
+
+/** The words of a header name that make it a credential; whole words, so "X-Monkey" is no key. */
+const CREDENTIAL_HEADER_WORDS = new Set([
+	"auth",
+	"authentication",
+	"authorization",
+	"token",
+	"apikey",
+	"key",
+	"secret",
+	"password",
+	"credential",
+	"cookie",
+]);
+
+/**
+ * The ONE "this header carries a credential" judgment by NAME, for every reader that must treat a configured header
+ * value as a secret (the known-value collector, model-facing output). Trimmed: the entry's own
+ * virtual-key carriers, and any name one of whose words (split at non-alphanumerics) says so. The issue report's
+ * redactSecrets keeps its own textual patterns: it finds header VALUES inside free text by shape, not names.
+ *   Authorization, Authentication, X-API-Key, X-Gateway-Token, " Cookie " -> credential
+ *   Content-Type, X-Request-Id, X-Monkey, X-Hockey-Team   -> not
+ */
+export function isCredentialHeader(name: string, carriers: Iterable<string> = []): boolean {
+	const lower = name.trim().toLowerCase();
+	for (const carrier of carriers) {
+		if (carrier.trim().toLowerCase() === lower) {
+			return true;
+		}
+	}
+	return lower.split(/[^a-z0-9]+/).some((word) => CREDENTIAL_HEADER_WORDS.has(word));
 }
 
 /**

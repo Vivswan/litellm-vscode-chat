@@ -1,7 +1,13 @@
 import * as assert from "node:assert";
 import { APIConnectionError, APIError, AuthenticationError } from "openai";
 import * as vscode from "vscode";
-import { registerTestCommands, runConnectionTest, runModelSync, runReportIssue } from "../../../extension/ui/commands";
+import {
+	registerTestCommands,
+	runConnectionTest,
+	runModelSync,
+	runReportIssue,
+	SessionLogTee,
+} from "../../../extension/ui/commands";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
 import { statusErrorHeadline } from "../../../extension/ui/notifier";
 import type { ConnectionStatus } from "../../../extension/ui/status";
@@ -9,7 +15,7 @@ import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/transport/errorMapping";
 import { HAS_SHOWN_WELCOME_KEY, LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
 import { SETUP_HINT_KINDS, type SetupHintKind } from "../../../shared/errorClassification";
-import { Logger, markLogSafe } from "../../../shared/logger";
+import { Logger, markLogSafe, recordedError } from "../../../shared/logger";
 import { DOCS_GETTING_STARTED_URL, GITHUB_REPO_URL, SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
 import { expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
@@ -995,11 +1001,13 @@ suite("extension/ui/commands", () => {
 			// gate a now-healthy user.
 			reporter.recordError(
 				"discovery",
-				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), {
-					surface: "discovery",
-					baseUrl: "http://litellm.test",
-					timeoutMs: 5000,
-				})
+				recordedError(
+					mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), {
+						surface: "discovery",
+						baseUrl: "http://litellm.test",
+						timeoutMs: 5000,
+					})
+				)
 			);
 			const mocks = mockGate("Report Anyway");
 			try {
@@ -1131,10 +1139,12 @@ suite("extension/ui/commands", () => {
 				reporter.appendLog("log-line-MARKER");
 				reporter.recordError(
 					"discovery",
-					new RequestError("LiteLLM API error: 502\n<html>resp-body-MARKER</html>", "http", {
-						status: 502,
-						logClassification: "RequestError(http, status 502)",
-					})
+					recordedError(
+						new RequestError("LiteLLM API error: 502\n<html>resp-body-MARKER</html>", "http", {
+							status: 502,
+							logClassification: "RequestError(http, status 502)",
+						})
+					)
 				);
 				const mocks = mockHint(undefined);
 				try {
@@ -1534,6 +1544,33 @@ suite("extension/ui/commands", () => {
 					payload: null,
 				}),
 				"ok"
+			);
+		});
+	});
+
+	suite("SessionLogTee", () => {
+		test("the tee's line stream carries only what the Logger handed it: no credential reaches readSince", () => {
+			// The tee once rebuilt its line from the thrown value itself, so litellm._test.getSessionLogs returned the
+			// password the channel and buffer had already lost.
+			const reporter = new IssueReporter();
+			const tee = new SessionLogTee(reporter);
+			const logger = new Logger({ info: () => {}, error: () => {} }, tee);
+			const err = new Error("connect http://user:pass@host:4000");
+			err.stack = "Error: connect http://user:pass@host:4000\n    at real (x.ts:1:1)";
+
+			logger.error("failure", err);
+
+			// The tee carries the buffer line first, then its own [error] snapshot line; the stamp is the only variable.
+			assert.deepStrictEqual(
+				tee.readSince(0).lines.map((line) => line.replace(/^\[\d{4}-\d{2}-\d{2}T[^\]]+\]/, "[T]")),
+				[
+					"[T] ERROR: failure: connect http://host:4000",
+					"[error] failure: connect http://host:4000\nError: connect http://host:4000\n    at real (x.ts:1:1)",
+				]
+			);
+			assert.deepStrictEqual(
+				{ message: reporter.getLatestError()?.message, stack: reporter.getLatestError()?.stack },
+				{ message: "connect http://host:4000", stack: "Error: connect http://host:4000\n    at real (x.ts:1:1)" }
 			);
 		});
 	});
