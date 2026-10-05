@@ -1,6 +1,7 @@
 /**
  * Credentials exist extension-side only, so the form offers one storage choice per secret field and the intent
- * carries no credential value. ServerEditPage owns the round trip, and servers.tsx watches the same envelope for its notice.
+ * carries no credential value. ServerEditPage owns the round trip, and servers.tsx watches the same envelope for its
+ * notice.
  */
 import * as l10n from "@vscode/l10n";
 import { useState } from "react";
@@ -28,7 +29,6 @@ export function AdoptForm({
 	declaredLabels: readonly string[];
 	saving: boolean;
 	onDirtyChange: (dirty: boolean) => void;
-	/** Hands the posted intent's requestId to the page, which owns the round trip. */
 	onAdoptPosted: (requestId: string) => void;
 	onRequestClose: () => void;
 }) {
@@ -60,8 +60,8 @@ export function AdoptForm({
 		onAdoptPosted(requestId);
 	};
 
-	// The credential verdict is coarse (reported for OAuth-only groups too), so the key row drops
-	// out only when the group demonstrably holds no credentials; every row states its own condition.
+	// The credential verdict is coarse (reported for OAuth-only groups too), so the key row drops out only when the
+	// group demonstrably holds no credentials; every row states its own condition.
 	const secretRows: readonly { field: SecretFieldId; hint: string }[] = [
 		...(server.credentials === "present"
 			? [{ field: "apiKey" as const, hint: l10n.t("Copied only if the group has an API key.") }]

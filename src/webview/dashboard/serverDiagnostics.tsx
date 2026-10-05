@@ -1,7 +1,6 @@
 /**
- * A server row's diagnostics: the health verdict, the inactive-surface notices,
- * the per-row and usage-derived problem lines with their actions and absence
- * reasons, and the drawer notices.
+ * A server row's diagnostics: the health verdict, the inactive-surface notices, the per-row and usage-derived problem
+ * lines with their actions and absence reasons, and the drawer notices.
  */
 import * as l10n from "@vscode/l10n";
 import { servedModelsBreakdown } from "../../dashboard/presenters";
@@ -29,10 +28,7 @@ import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
 import { sendRequest } from "./vscodeApi";
 
-/**
- * Every inactive notice's user-facing phrase; the satisfies clause fails to compile until a
- * new notice is named here. Zero-arg functions, so strings resolve after the l10n bootstrap.
- */
+/** Zero-arg functions, so strings resolve after the l10n bootstrap. */
 const INACTIVE_NOTICE_PRESENTATION = {
 	"entry-params-inactive": {
 		surface: () => l10n.t("per-server model parameters"),
@@ -44,8 +40,8 @@ const INACTIVE_NOTICE_PRESENTATION = {
 		surface: () => l10n.t("per-server custom headers"),
 	},
 	"entry-api-version-inactive": {
-		// The consequence rides the phrase: uniquely here, the surface silently falls back to
-		// a different rule rather than simply not applying.
+		// The consequence rides the phrase: uniquely here, the surface silently falls back to a different rule rather
+		// than simply not applying.
 		surface: () => l10n.t("per-server API version overrides (requests use the auto rule)"),
 	},
 } as const satisfies Record<InactiveEntryNotice, { surface: () => string }>;
@@ -53,35 +49,32 @@ const INACTIVE_NOTICE_PRESENTATION = {
 const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly InactiveEntryNotice[];
 
 /*
- * This page's reading of ./severity.ts, ranked by what a problem costs the server's purpose:
- * "blocking" serves nothing until someone acts; "degraded" needs a human even if models serve
- * (a refused usage key counts - user-ruled); "advisory" needs nobody and still renders whole,
- * only tint and attention count reduced. The tiers are what the summary line counts, so a
- * tier is a promise about whether someone has to act, not a volume knob.
+ *   This page's reading of ./severity.ts -> ranked by what a problem costs the server's purpose
+ *
+ *   "blocking" -> serves nothing until someone acts
+ *   "degraded" -> needs a human even if models serve (a refused usage key counts - user-ruled)
+ *   "advisory" -> still renders whole, only tint and attention count reduced
+ *
+ *   The tiers -> are what the summary line counts
  */
 
 /**
- * One action offered beside a problem: it REVEALS where a human fixes it, or retries - never
- * a silent settings edit. The one exception, declare-expected, appends one closed-vocabulary
- * token (discovery.expectedFailures) behind an explicit confirm that named what it writes.
+ * One action offered beside a problem: it REVEALS where a human fixes it, or retries - never a silent settings edit.
+ * The one exception, declare-expected, appends one closed-vocabulary token (discovery.expectedFailures) behind an
+ * explicit confirm that named what it writes.
  */
 type DiagnosticAction =
-	/**
-	 * `ariaLabel` names the server (the buttons repeat down the page); the visible label stays
-	 * the short verb and stays inside the accessible name, as Label in Name requires.
-	 */
 	| {
 			readonly kind: "button";
 			/**
-			 * Stable across renders and independent of the label: keying by text rebuilds the
-			 * node the instant its wording changes, throwing away the reader's focus.
+			 * Stable across renders and independent of the label: keying by text rebuilds the node the instant its
+			 * wording changes, throwing away the reader's focus.
 			 */
 			readonly id: string;
 			readonly label: string;
 			readonly ariaLabel: string;
 			/** In flight: the control states that it is working and refuses a second click. */
 			readonly disabled?: boolean | undefined;
-			/** In flight: the spinner beside the label, so a minute-long pass shows motion. */
 			readonly busy?: boolean | undefined;
 			/** The accent rank, for the one action of an armed pair that commits; everything else stays secondary. */
 			readonly emphasized?: boolean | undefined;
@@ -95,7 +88,6 @@ type DiagnosticAction =
 			readonly ariaLabel: string;
 	  };
 
-/** What a problem line carries wherever it sits; the seat arms below add the seat's own fields. */
 interface DiagnosticBase {
 	/** Stable within a row, so React keeps focus on an action button across pushes. */
 	readonly key: string;
@@ -114,12 +106,12 @@ interface CollapsedDiagnostic extends DiagnosticBase {
 }
 
 /**
- * A banded line whose paint tier comes from the user's usage.alertThresholds rather than the
- * severity ladder alone: past the error threshold (or past the budget) the tone lifts the
- * band to the error tier, USER-RULED (2026-08-17: error-tier money problems wear error
- * colour everywhere they render). Paint only - the severity keeps the ranking, the pill,
- * and the hidden tier word. Degraded by construction: a blocking line is already error-tier,
- * and an advisory means nothing is wrong, so neither has a tone to lift.
+ * A banded line whose paint tier comes from the user's usage.alertThresholds rather than the severity ladder alone:
+ * past the error threshold (or past the budget) the tone lifts the band to the error tier, USER-RULED (2026-08-17:
+ * error-tier money problems wear error colour everywhere they render). Paint only - the severity keeps the ranking,
+ * the pill, and the hidden tier word.
+ *
+ *   a blocking line is already error-tier -> Degraded by construction
  */
 interface SpendErrorDiagnostic extends DiagnosticBase {
 	readonly severity: "degraded";
@@ -128,31 +120,32 @@ interface SpendErrorDiagnostic extends DiagnosticBase {
 }
 
 /**
- * The drawer seat, USER-RULED (2026-08-16) for the sub-error budget-pressure line: the tinted
- * meter already signals it. The diagnostic still ranks the pill and the attention count either
- * way. Warn-tier by construction - the tone field can only be absent here, so nothing can ask
- * the notice for a hue its triangle and its text do not have.
+ * The drawer seat, USER-RULED (2026-08-16) for the sub-error budget-pressure line: the tinted meter already signals
+ * it. The diagnostic still ranks the pill and the attention count either way.
+ *
+ *   Warn-tier by construction              -> the tone field can only be absent here
+ *   the tone field can only be absent here -> nothing can ask the notice for a hue its triangle and its text do not
+ *                                             have
  */
 export interface DrawerNotice extends DiagnosticBase {
 	readonly placement: "drawer";
 	readonly tone?: undefined;
 }
 
-/** The two banded seats, which ServerDiagnosticLine renders. */
 type BandedDiagnostic = CollapsedDiagnostic | SpendErrorDiagnostic;
 
 type RowDiagnostic = BandedDiagnostic | DrawerNotice;
 
-/** A single optional detail as the details list: [] renders nothing, exactly like the old absent field. */
 export function detailLines(...lines: readonly (string | undefined)[]): readonly string[] {
 	return lines.filter((line): line is string => line !== undefined);
 }
 
-/** What one row's diagnostics need to rank spend problems; all of it rides the pushed usage snapshot. */
 export interface SpendContext {
 	readonly thresholds: readonly number[];
 	readonly currencySymbol: string;
-	/** Background polling is off (usage.pollInterval 0); retry copy names Refresh now instead of the automatic retry. */
+	/**
+	 * Background polling is off (usage.pollInterval 0); retry copy names Refresh now instead of the automatic retry.
+	 */
 	readonly pollingOff: boolean;
 	/** The effective discovery.timeout; the timeout detail line prints it. */
 	readonly discoveryTimeoutMs: number;
@@ -161,7 +154,6 @@ export interface SpendContext {
 /** The two usage endpoints whose standings turn into English detail lines. */
 export type UsageEndpoint = Extract<UsageEndpointId, "keyInfo" | "dailyActivity">;
 
-/** One row's problems plus the usage endpoints whose detail line a diagnostic carries. */
 interface RowDiagnostics {
 	/** Every problem the server has, worst first. */
 	readonly lines: readonly RowDiagnostic[];
@@ -169,10 +161,8 @@ interface RowDiagnostics {
 	readonly usageDetailsCarried: ReadonlySet<UsageEndpoint>;
 }
 
-/** Every problem one server has, attached to the row that owns it. */
 export function serverDiagnostics(
 	server: DashboardServer,
-	/** The row's usage card (denied cards included); its problems rank beside the discovery ones. */
 	usage: UsageServerCardView | undefined,
 	spend: SpendContext,
 	actions: {
@@ -197,9 +187,7 @@ export function serverDiagnostics(
 		readonly refreshingExplicitly?: boolean;
 	}
 ): RowDiagnostics {
-	// The two-step declare control: the plain button arms, the armed pair
-	// confirms or cancels (the Remove idiom). Only rows wired with the
-	// callbacks - declared entries - get any of it.
+	// The two-step declare control: the plain button arms, the armed pair confirms or cancels (the Remove idiom).
 	const declareActions = (category: ExpectedFailureCategory): DiagnosticAction[] => {
 		const { onDeclareExpected, onArmDeclare } = actions;
 		if (onDeclareExpected === undefined || onArmDeclare === undefined) {
@@ -217,10 +205,9 @@ export function serverDiagnostics(
 							: l10n.t("Confirm declaring the expected failure for {0}", server.label),
 					disabled: actions.declaring === true,
 					busy: actions.declaring === true,
-					// The committing half of the armed pair leads; Cancel stays quiet.
 					emphasized: true,
-					// The pair stays armed through the round trip so this button can
-					// state "Declaring..."; the row disarms when the outcome lands.
+					// The pair stays armed through the round trip so this button can state "Declaring..."; the row
+					// disarms when the outcome lands.
 					onClick: () => onDeclareExpected(category),
 				},
 				{
@@ -228,8 +215,8 @@ export function serverDiagnostics(
 					id: `declare-cancel-${category}`,
 					label: l10n.t("Cancel"),
 					ariaLabel: l10n.t("Cancel declaring the expected failure for {0}", server.label),
-					// A posted write cannot be cancelled; an enabled Cancel beside
-					// "Declaring..." would claim otherwise. It only ever disarms.
+					// A posted write cannot be cancelled; an enabled Cancel beside "Declaring..." would claim
+					// otherwise.
 					disabled: actions.declaring === true,
 					onClick: () => onArmDeclare(undefined),
 				},
@@ -246,8 +233,6 @@ export function serverDiagnostics(
 			},
 		];
 	};
-	// The endpoint-declaration diagnostics' shared guide link (the new
-	// troubleshooting section covering Ollama/vLLM/plain-OpenAI servers).
 	const openAiCompatibleGuide: DiagnosticAction = {
 		kind: "docs",
 		id: "openai-compatible-guide",
@@ -255,9 +240,10 @@ export function serverDiagnostics(
 		label: l10n.t("Learn more"),
 		ariaLabel: l10n.t("Learn more: the OpenAI-compatible servers guide"),
 	};
-	// A discovery pass can take tens of seconds (the per-request timeouts sum), so the
-	// in-flight Retry relabels and spins. Only the asking row SAYS it is checking, but every
-	// Retry disables while a pass runs: the command is fleet-wide, so no row may queue another.
+	// A discovery pass can take tens of seconds (the per-request timeouts sum), so the in-flight Retry relabels and
+	// spins.
+	//
+	//   Only the asking row -> SAYS it is checking
 	const retryAction = (): DiagnosticAction => ({
 		kind: "button",
 		id: "retry",
@@ -275,8 +261,8 @@ export function serverDiagnostics(
 		found.push({
 			key: "misconfigured",
 			severity: "blocking",
-			// The consequence first: the entry is not merely invalid, it is switched
-			// off, and no amount of retrying changes that.
+			// The consequence first: the entry is not merely invalid, it is switched off, and no amount of retrying
+			// changes that.
 			headline: l10n.t("{0} is switched off until this entry is fixed.", server.label),
 			// The parser's structural reports stay English by policy.
 			details: server.problems,
@@ -305,18 +291,16 @@ export function serverDiagnostics(
 	if (error !== undefined && server.origin !== "misconfigured") {
 		const headline = statusErrorHeadline(error);
 		if (verdict === "degraded" || verdict === "blocking") {
-			// A live group whose sync failed keeps serving what it had (degraded);
-			// one that has nothing serves nothing (blocking).
 			const serving = verdict === "degraded";
-			// Where the declare action is withheld, the identity fix rides the details - unless
-			// the entry-inactive line below renders and says the same sentence itself.
+			// Where the declare action is withheld, the identity fix rides the details - unless the entry-inactive line
+			// below renders and says the same sentence itself.
 			const declareWithheld =
 				server.origin === "declared" &&
 				server.classification?.unsupportedEndpoint === "modelListing" &&
 				server.entryFieldsInactive === true;
-			// The declaration-suggesting transport string is atomic (toasts show it whole) and
-			// leads with the remediation, so the swap happens here: a short consequence clause
-			// takes the headline's slot and the advice rides the detail lines.
+			// The declaration-suggesting transport string is atomic (toasts show it whole) and leads with the
+			// remediation, so the swap happens here: a short consequence clause takes the headline's slot and the
+			// advice rides the detail lines.
 			const declarationAdvice = server.classification?.unsupportedEndpoint === "modelListing";
 			const cause = declarationAdvice ? l10n.t("the server answers, but its models listing fails.") : headline;
 			found.push({
@@ -345,13 +329,11 @@ export function serverDiagnostics(
 						: []),
 					...(server.origin === "declared" && server.classification?.unsupportedEndpoint === "modelListing"
 						? [
-								// The error's declaration advice (riding the detail lines,
-								// transport proved the shape) already spells the fix; this is
-								// its one-click form, writing exactly the category the advice
-								// names - withheld when the group did not join by the entry's
-								// identity (the details then carry the identity fix), because
-								// the written declaration may not reach it (the same
-								// classification the advisory tier keys on).
+								// The error's declaration advice (riding the detail lines, transport proved the shape)
+								// already spells the fix; this is its one-click form, writing exactly the category the
+								// advice names - withheld when the group did not join by the entry's identity (the
+								// details then carry the identity fix), because the written declaration may not reach
+								// it (the same classification the advisory tier keys on).
 								...(declareWithheld ? [] : declareActions("modelListing")),
 								openAiCompatibleGuide,
 							]
@@ -361,12 +343,11 @@ export function serverDiagnostics(
 								{
 									kind: "docs" as const,
 									id: "troubleshoot",
-									// The helper's `label` is a whole sentence for surfaces that
-									// SHOW it; here the visible text is the short verb, so the
-									// accessible name must lead with that verb (Label in Name)
-									// and the helper's `topic` supplies the distinguishing tail.
-									// Do not spread the helper over these - it carries its own
-									// `label` and would put the long sentence on screen.
+									// The helper's `label` is a whole sentence for surfaces that SHOW it; here the
+									// visible text is the short verb, so the accessible name must lead with that verb
+									// (Label in Name) and the helper's `topic` supplies the distinguishing tail. Do not
+									// spread the helper over these - it carries its own `label` and would put the long
+									// sentence on screen.
 									href: troubleshootingLink(server.classification.setupHint).href,
 									label: l10n.t("Troubleshoot"),
 									ariaLabel: l10n.t("Troubleshoot: {0}", troubleshootingLink(server.classification.setupHint).topic),
@@ -376,12 +357,9 @@ export function serverDiagnostics(
 				],
 			});
 		} else if (verdict === "expected") {
-			// Quiet tier: the entry declared this failure and something still serves
-			// through it - its declared models, or the stale window's last known
-			// list. The server's own words ride the detail lines, not the headline
-			// (colon chaining). The count vocabulary is the shared breakdown the
-			// English outcome line renders too, so the headline always states the
-			// served total the row's own count shows.
+			// The server's own words ride the detail lines, not the headline (colon chaining).
+			//
+			//   The count vocabulary -> is the shared breakdown the English outcome line renders too
 			const breakdown = servedModelsBreakdown(server.servedModelCount, server.declaredModelCount ?? 0);
 			found.push({
 				key: "expected-serving",
@@ -414,8 +392,7 @@ export function serverDiagnostics(
 			});
 		} else {
 			found.push({
-				// Serves nothing at all: blocking. The expected category makes the CAUSE
-				// unsurprising; it does not put any models in the picker.
+				// The expected category makes the CAUSE unsurprising; it does not put any models in the picker.
 				key: "expected-nothing-declared",
 				severity: "blocking",
 				headline: l10n.t(
@@ -442,10 +419,9 @@ export function serverDiagnostics(
 		}
 	}
 	if (server.state === "ok" && server.modelInfoUnsupported !== undefined && server.origin === "declared") {
-		// Quiet tier: the models serve and the config applies. Declaring marks the failing
-		// probe as normal (single attempt, info log) - it does NOT shorten the probe's wait,
-		// so the copy promises the marking, never speed. The one-click write is withheld when
-		// the group did not join by the entry's identity; the details then carry the fix.
+		// Declaring marks the failing probe as normal (single attempt, info log) - it does NOT shorten the probe's
+		// wait, so the copy promises the marking, never speed. The one-click write is withheld when the group did not
+		// join by the entry's identity; the details then carry the fix.
 		const withheld = server.entryFieldsInactive === true;
 		found.push({
 			key: "model-info-unsupported",
@@ -460,8 +436,8 @@ export function serverDiagnostics(
 							"{0} serves its models without LiteLLM's model-info endpoint (capability and pricing metadata). Declaring the failure expected marks that as normal for this server.",
 							server.label
 						),
-			// English by policy for the endpoint facts; the identity fix rides
-			// localized, like the entry-inactive line it comes from.
+			// English by policy for the endpoint facts; the identity fix rides localized, like the entry-inactive line
+			// it comes from.
 			details: detailLines(
 				server.modelInfoUnsupported === "timeout"
 					? 'GET /model/info times out; GET /models succeeds. The action writes "expectedFailures": ["modelInfo"] on this entry.'
@@ -472,17 +448,14 @@ export function serverDiagnostics(
 		});
 	}
 	if (server.origin === "declared" && server.notices?.includes("non-chat-modes-skipped") === true) {
-		// Serves nothing: blocking. The skip counts are the one cause the row can name
-		// (blocked or malformed entries may have dropped the rest), and only the entry's
-		// includeModes can put the skipped ones in the picker. The counts are
-		// classifications (mode tokens from the closed vocabulary), so they ride the
-		// English details line like the other protocol facts.
+		// The counts are classifications (mode tokens from the closed vocabulary), so they ride the English details
+		// line like the other protocol facts.
+		//
+		//   The skip counts              -> are the one cause the row can name
+		//   blocked or malformed entries -> may have dropped the rest
 		const dropped = Object.entries(server.skippedModeCounts ?? {})
 			.map(([mode, count]) => `${mode}: ${count}`)
 			.join(", ");
-		// Like the model-info declare action: an entry edit cannot reach a group
-		// that did not join by the entry's identity, so the one-click edit is
-		// withheld there and the details carry the identity fix instead.
 		const withheld = server.entryFieldsInactive === true;
 		found.push({
 			key: "non-chat-modes-skipped",
@@ -514,9 +487,8 @@ export function serverDiagnostics(
 		});
 	}
 	if (inactive.length > 0) {
-		// One line for every inactive surface: cause and fix are identical for all. Degraded,
-		// not advisory - the group may be serving WITHOUT settings the user wrote, and
-		// advisory would keep these rows out of the summary count.
+		// One line for every inactive surface: cause and fix are identical for all. Degraded, not advisory - the group
+		// may be serving WITHOUT settings the user wrote, and advisory would keep these rows out of the summary count.
 		found.push({
 			key: "entry-inactive",
 			severity: "degraded",
@@ -535,8 +507,6 @@ export function serverDiagnostics(
 					id: "learn-more",
 					label: l10n.t("Learn more"),
 					href: DOCS_LINK_PARAMS_INACTIVE,
-					// Docs accessible names LEAD with the visible verb (Label in Name), with the
-					// destination as the distinguishing tail.
 					ariaLabel: l10n.t("Learn more in the troubleshooting guide"),
 				},
 			],
@@ -555,10 +525,10 @@ export function serverDiagnostics(
 }
 
 /**
- * The row's spend and usage problems, ranked by the same tiers as everything else on it: one
- * classifier, so the summary count can never disagree with what a row renders. Every English
- * endpoint detail a diagnostic carries is recorded through `carry`, so the drawer's remainder
- * derives from the emissions themselves rather than a hand-copied predicate.
+ * The row's spend and usage problems, ranked by the same tiers as everything else on it: one classifier, so the
+ * summary count can never disagree with what a row renders. Every English endpoint detail a diagnostic carries is
+ * recorded through `carry`, so the drawer's remainder derives from the emissions themselves rather than a hand-copied
+ * predicate.
  */
 function usageDiagnostics(
 	label: string,
@@ -571,16 +541,15 @@ function usageDiagnostics(
 	}
 ): RowDiagnostics {
 	const carried = new Set<UsageEndpoint>();
-	// Attaching an endpoint's detail to a diagnostic and marking it consumed are one move;
-	// an absent detail marks nothing, so "carried" always means "a diagnostic prints it".
+	// Attaching an endpoint's detail to a diagnostic and marking it consumed are one move; an absent detail marks
+	// nothing, so "carried" always means "a diagnostic prints it".
 	const carry = (endpoint: UsageEndpoint, detail: string | undefined): string | undefined => {
 		if (detail !== undefined) {
 			carried.add(endpoint);
 		}
 		return detail;
 	};
-	// The fix every usage problem shares: the fleet-wide refreshUsage intent. Disabled during
-	// ANY pass (one serialized engine); the busy label only for an explicit one.
+	// Disabled during ANY pass (one serialized engine); the busy label only for an explicit one.
 	const refreshNow = (id: string): DiagnosticAction[] =>
 		actions.onRefreshUsage === undefined
 			? []
@@ -599,8 +568,8 @@ function usageDiagnostics(
 					},
 				];
 	if (card.kind === "forbidden") {
-		// USER RULING (2026-08-14): a denied usage key is DEGRADED, not advisory - nothing
-		// here clears itself; only a human can change the key's permission.
+		// USER RULING (2026-08-14): a denied usage key is DEGRADED, not advisory - nothing here clears itself; only a
+		// human can change the key's permission.
 		return {
 			lines: [
 				{
@@ -622,8 +591,7 @@ function usageDiagnostics(
 	}
 	const found: RowDiagnostic[] = [];
 	if (card.keyInfo.kind === "unavailable" && card.keyInfo.reason === "forbidden") {
-		// The same user-ruled tier as the whole-card denial: a permission only a human can
-		// fix, so it counts.
+		// The same user-ruled tier as the whole-card denial: a permission only a human can fix, so it counts.
 		found.push({
 			key: "spend-denied",
 			severity: "degraded",
@@ -648,9 +616,6 @@ function usageDiagnostics(
 		});
 	}
 	if (card.keyInfo.kind === "error") {
-		// ADVISORY STILL RENDERS IN FULL - the tier's contract: headline, English detail, and
-		// Refresh now render exactly as a degraded line's would; only tint and count reduce.
-		// With polling off nothing retries, so the headline names the manual path.
 		found.push({
 			key: "usage-refresh-failed",
 			severity: "advisory",
@@ -668,12 +633,11 @@ function usageDiagnostics(
 		});
 	}
 	if (card.spend !== undefined && card.effectiveBudget !== undefined && card.spentFraction !== undefined) {
-		// Degraded per the tier contract: the reader set the budget to be told before it runs
-		// out. The line says how far past or how much is left; no action fixes a budget.
-		// The shared map owns the whole tone decision - past the whole budget it is error even
-		// with an empty threshold list - so line, meter fill, and status bar cannot split. The
-		// tone also picks the seat: warn waits in the drawer (the tinted meter already signals
-		// it), error stays banded on the collapsed row in the error hue.
+		// Degraded per the tier contract: the reader set the budget to be told before it runs out. The line says how
+		// far past or how much is left; no action fixes a budget.
+		//
+		//   The shared map owns the whole tone decision -> line, meter fill, and status bar cannot split
+		//   past the whole budget                       -> it is error even with an empty threshold list
 		const tone = spendTone(card.spentFraction, spend.thresholds);
 		if (tone !== "ok") {
 			const overBudget = card.spentFraction > 1;
@@ -688,9 +652,8 @@ function usageDiagnostics(
 						label,
 						formatMoney(card.effectiveBudget - card.spend, spend.currencySymbol)
 					);
-			// The row's one staleness vocabulary, cause and all: the band qualifies a
-			// non-fresh figure with stalenessText verbatim, so it can never name the
-			// state differently than the drawer's fact.
+			// The row's one staleness vocabulary, cause and all: the band qualifies a non-fresh figure with
+			// stalenessText verbatim, so it can never name the state differently than the drawer's fact.
 			const staleness = stalenessText(card.fresh, card.keyInfo);
 			const line = {
 				key: overBudget ? "over-budget" : "budget-pressure",
@@ -704,7 +667,6 @@ function usageDiagnostics(
 	return { lines: found, usageDetailsCarried: carried };
 }
 
-/** A diagnostic's action cluster, one embodiment for the banded lines and the drawer notices. */
 function DiagnosticActions({ actions }: { actions: readonly DiagnosticAction[] }) {
 	if (actions.length === 0) {
 		return null;
@@ -721,9 +683,9 @@ function DiagnosticActions({ actions }: { actions: readonly DiagnosticAction[] }
 						variant={action.emphasized === true ? undefined : "secondary"}
 						size="compact"
 						aria-label={action.ariaLabel}
-						// aria-disabled, not disabled: the attribute drops focus to the body and a
-						// changed accessible name is announced only on the FOCUSED element, so this
-						// keeps the node focused; the handler refuses the click instead.
+						// aria-disabled, not disabled: the attribute drops focus to the body and a changed accessible
+						// name is announced only on the FOCUSED element, so this keeps the node focused; the handler
+						// refuses the click instead.
 						aria-disabled={action.disabled === true}
 						onClick={() => {
 							if (action.disabled !== true) {
@@ -731,8 +693,8 @@ function DiagnosticActions({ actions }: { actions: readonly DiagnosticAction[] }
 							}
 						}}
 					>
-						{/* Motion beside the reworded label: a static "Checking..." on a
-						    minute-long pass reads as a stuck page. */}
+						{/* Motion beside the reworded label: a static "Checking..." on a minute-long pass reads as
+						    a stuck page. */}
 						{action.busy === true ? <span className="spinner" aria-hidden="true" /> : null}
 						{action.label}
 					</Button>
@@ -746,11 +708,6 @@ function DiagnosticActions({ actions }: { actions: readonly DiagnosticAction[] }
 	);
 }
 
-/**
- * One problem, indented under the row that owns it, through the one band pipeline: the
- * severity ranks it, the spend tone may lift its paint tier, and ProblemBand turns that
- * pair into the band's bar, hue, and headline text.
- */
 export function ServerDiagnosticLine({ diagnostic }: { diagnostic: BandedDiagnostic }) {
 	return (
 		<ProblemBand
@@ -765,11 +722,10 @@ export function ServerDiagnosticLine({ diagnostic }: { diagnostic: BandedDiagnos
 }
 
 /**
- * A drawer-placed diagnostic as the inventory's leading row: the warn triangle beside the
- * toned sentence, in the facts' own register - no band, no rule, no box (USER-RULED
- * 2026-08-17: a banner nested in the drawer card read as a card inside a card, and its
- * trailing seat left dead padding under the facts). The warn tier rides the glyph's SHAPE and
- * the text colour; the hidden tier word still leads, exactly like the banded lines.
+ * A drawer-placed diagnostic as the inventory's leading row: the warn triangle beside the toned sentence, in the
+ * facts' own register - no band, no rule, no box (USER-RULED 2026-08-17: a banner nested in the drawer card read as a
+ * card inside a card, and its trailing seat left dead padding under the facts). The warn tier rides the glyph's SHAPE
+ * and the text colour; the hidden tier word still leads, exactly like the banded lines.
  */
 export function DrawerNoticeLine({ diagnostic }: { diagnostic: DrawerNotice }) {
 	return (
@@ -791,17 +747,12 @@ export function DrawerNoticeLine({ diagnostic }: { diagnostic: DrawerNotice }) {
 	);
 }
 
-/** The row's inactive surfaces as one localized phrase, resolved at call time. */
 function inactiveSurfacesText(server: DashboardServer): string {
 	return INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true)
 		.map((notice) => INACTIVE_NOTICE_PRESENTATION[notice].surface())
 		.join(", ");
 }
 
-/**
- * The identity fix, spelled once: reused by every diagnostic that withholds a one-click
- * entry write because the group may not carry the entry's labeled identity.
- */
 function entryInactiveFixText(): string {
 	return l10n.t(
 		"The provider group serving this entry may not carry the entry's labeled identity. Delete the group's object from the models file (chatLanguageModels.json), reload the window, then run Sync models - or save the entry under a new label instead."
@@ -809,9 +760,9 @@ function entryInactiveFixText(): string {
 }
 
 /**
- * The row's discovery health, classified ONCE: the pill's word, the discovery diagnostic's
- * severity, and (through the ranked diagnostics) the dot's tone all render from this verdict,
- * so a second state walk can never put "Error" beside a warn dot again.
+ * The row's discovery health, classified ONCE: the pill's word, the discovery diagnostic's severity, and (through the
+ * ranked diagnostics) the dot's tone all render from this verdict, so a second state walk can never put "Error" beside
+ * a warn dot again.
  */
 export type ServerHealthVerdict =
 	| "misconfigured"
@@ -836,26 +787,23 @@ export function serverHealth(server: DashboardServer): ServerHealthVerdict {
 		case "unchecked":
 			return "unchecked";
 		case "ok":
-			// A sync failure never rides an "ok" row: declaredOutcome turns it into
-			// an error row that keeps its served count, so serving is unqualified.
+			// A sync failure never rides an "ok" row: declaredOutcome turns it into an error row that keeps its served
+			// count, so serving is unqualified.
 			return "serving";
 		case "error":
 			if (server.expected === true) {
-				// Serving through the declared-normal failure (declared models or the
-				// stale window) is the quiet expected state; alarming would contradict
-				// the aggregate, which never counts expected failures as failures.
+				// Serving through the declared-normal failure (declared models or the stale window) is the quiet
+				// expected state; alarming would contradict the aggregate, which never counts expected failures as
+				// failures.
 				return server.servedModelCount > 0 ? "expected" : "expected-blocking";
 			}
-			// A group whose sync failed keeps serving what it had (servedModelCount
-			// counts the stale-window and declared models); one with nothing serves nothing.
+			// A group whose sync failed keeps serving what it had (servedModelCount counts the stale-window and
+			// declared models); one with nothing serves nothing.
 			return server.servedModelCount > 0 ? "degraded" : "blocking";
 	}
 }
 
-/**
- * Why a server has never reported spend, per the /key/info standing. Reasons are lowercase
- * clauses across the whole drawer - they annotate a dash, they are not sentences.
- */
+/** Reasons are lowercase clauses across the whole drawer - they annotate a dash, they are not sentences. */
 export function neverUpdatedText(standing: UsageEndpointStandingView): string {
 	if (standing.kind === "unavailable") {
 		return standing.reason === "forbidden"
@@ -866,10 +814,10 @@ export function neverUpdatedText(standing: UsageEndpointStandingView): string {
 }
 
 /**
- * The Spend fact's reason when /key/info gave no spend number, keyed by the standing: the ONE
- * map for both drawers (reporting and denied), so the wording cannot fork again. The dash
- * beside it already says the number is missing, and the remedy lives in the row's diagnostic,
- * so no branch restates either.
+ * The Spend fact's reason when /key/info gave no spend number, keyed by the standing: the ONE map for both drawers
+ * (reporting and denied), so the wording cannot fork again.
+ *
+ *   The dash beside it -> already says the number is missing
  */
 export function spendMissingReason(standing: UsageEndpointStandingView, pollingOff: boolean): string {
 	switch (standing.kind) {
@@ -892,21 +840,19 @@ export function spendMissingReason(standing: UsageEndpointStandingView, pollingO
 type UsageEndpointPath = (typeof USAGE_ENDPOINT_PATHS)[UsageEndpoint];
 
 /**
- * The one English template for a forbidden endpoint standing, so pasted issue reports stay
- * uniform; the fix and re-probe live in the surrounding diagnostic, refusal alone here.
+ * The one English template for a forbidden endpoint standing, so pasted issue reports stay uniform; the fix and
+ * re-probe live in the surrounding diagnostic, refusal alone here.
  */
 function forbiddenLine(path: UsageEndpointPath, status: number | undefined): string {
 	return `LiteLLM ${path}:${status !== undefined ? ` HTTP ${status} -` : ""} this key may not read usage data`;
 }
 
-/** forbiddenLine's unsupported twin: one template for an endpoint this server does not serve. */
 function notServedLine(path: UsageEndpointPath, status: number | undefined): string {
 	return `LiteLLM ${path}: not served on this server${status !== undefined ? ` (HTTP ${status})` : ""}`;
 }
 
 /**
- * The /key/info technical detail, undefined when nothing is wrong. English by policy (pasted
- * into issue reports), built from closed enums and numbers only - response text never exists
+ * English by policy (pasted into issue reports), built from closed enums and numbers only - response text never exists
  * here. The advisory headline already says whether a retry is automatic; no branch repeats it.
  */
 export function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: number): string | undefined {
@@ -962,9 +908,8 @@ export function activityDetail(server: UsageServerView): string | undefined {
 }
 
 /**
- * The Requests fact's reason when /user/daily/activity has no retained window, keyed by the
- * standing: the one map for both drawers. The Refresh now remedy for a denied key lives in
- * the row's diagnostic, not here.
+ * The Requests fact's reason when /user/daily/activity has no retained window, keyed by the standing: the one map for
+ * both drawers. The Refresh now remedy for a denied key lives in the row's diagnostic, not here.
  */
 export function requestsMissingReason(standing: UsageEndpointStandingView): string {
 	if (standing.kind === "unavailable") {
@@ -976,9 +921,9 @@ export function requestsMissingReason(standing: UsageEndpointStandingView): stri
 }
 
 /**
- * The English detail line for one denied endpoint standing (a mixed 404-plus-403 server
- * states both facts); same English-by-policy, closed-enums-only rules as keyInfoDetail.
- * Takes the endpoint id so the printed path can only come from the shared table.
+ * The English detail line for one denied endpoint standing (a mixed 404-plus-403 server states both facts); same
+ * English-by-policy, closed-enums-only rules as keyInfoDetail. Takes the endpoint id so the printed path can only come
+ * from the shared table.
  */
 function forbiddenRowDetail(endpoint: UsageEndpoint, standing: UsageEndpointStandingView): string | undefined {
 	if (standing.kind !== "unavailable") {

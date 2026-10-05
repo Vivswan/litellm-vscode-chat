@@ -1,10 +1,10 @@
 /**
  * Every docs page the dashboard links out to: docsUrl calls with literal page and anchor arguments only - no
  * variable, not even another constant - so a read of this file plus shared/util/links.ts, whose docsUrl builds from
- * its own literal origin and which imports nothing but a type, proves link targets never carry server data. The
- * outside sources DocsUrl admits are that module's getting-started link and setup-hint record. docsLinks.test.tsx
- * resolves every page and anchor against docs/ under the site's heading-id rule, so a renamed page or heading fails
- * CI instead of serving 404s.
+ * its own literal origin and which imports nothing but a type, proves link targets never carry server data.
+ *
+ * docsLinks.test.tsx resolves every page and anchor against docs/ under the site's heading-id rule, so a renamed page
+ * or heading fails CI instead of serving 404s.
  */
 
 import { type DOCS_GETTING_STARTED_URL, docsUrl, type SETUP_HINT_DOCS_URLS } from "../../shared/util/links";

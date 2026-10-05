@@ -1,11 +1,3 @@
-/**
- * The Settings tab: every scalar setting as one row over the same configuration the
- * Settings editor writes - two views of one file, never two stores. The row anatomy and
- * the filter pipeline live in settingRows.tsx, shared with the Features tab; the
- * per-feature rows live on that tab (featuresPage.tsx), and this page renders everything
- * else: the scalar groups, the record editors, and the import/export tail.
- */
-
 import * as l10n from "@vscode/l10n";
 import type { FocusEvent, ReactNode } from "react";
 import { useEffect, useId, useState } from "react";
@@ -82,19 +74,17 @@ import { Radio } from "./ui/radio";
 import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
-/**
- * The inspectors' configure-jump into one of this tab's record editors: which editor plus
- * the ExternalRecordEdit it applies. Minted by App; the seq keys re-delivery.
- */
+/** Minted by App; the seq keys re-delivery. */
 export interface EditRecordRequest extends ExternalRecordEdit {
 	readonly kind: "parameters" | "capabilities";
 }
 
 /**
- * The form's grouping and order, most-touched first. Presentation only: anything not
- * placed here still renders in a trailing "Other" group, so a new setting can never
- * silently vanish (feature-owned rows render on the Features tab instead, which the
- * owner map states). Titles are zero-arg functions so localized text resolves at render.
+ * The form's grouping and order, most-touched first. Presentation only: anything not placed here still renders in a
+ * trailing "Other" group, so a new setting can never silently vanish (feature-owned rows render on the Features tab
+ * instead, which the owner map states).
+ *
+ *   Titles are zero-arg functions -> localized text resolves at render
  */
 const SETTING_GROUPS: readonly {
 	readonly title: () => string;
@@ -127,9 +117,9 @@ const SETTING_GROUPS: readonly {
 ];
 
 /**
- * The catalog row's status text, one place for the row AND the filter: the row shows
- * exactly these strings and the filter matches on them, so a needle always finds the
- * row that visibly says it (the non-scalar description functions' no-drift rule).
+ * The catalog row's status text, one place for the row AND the filter: the row shows exactly these strings and the
+ * filter matches on them, so a needle always finds the row that visibly says it (the non-scalar description functions'
+ * no-drift rule).
  */
 function catalogStatusParts(
 	catalog: CatalogStatusView,
@@ -144,8 +134,8 @@ function catalogStatusParts(
 	const age = updated !== undefined ? l10n.t("updated {0}", updated) : l10n.t("bundled snapshot");
 	return {
 		summary: `${count} - ${age}`,
-		// The classification is CatalogRefreshFailure's fixed English vocabulary,
-		// protocol-ish like header names, so it renders raw.
+		// The classification is CatalogRefreshFailure's fixed English vocabulary, protocol-ish like header names, so it
+		// renders raw.
 		failure:
 			catalog.lastFailure !== undefined
 				? l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification)
@@ -154,9 +144,9 @@ function catalogStatusParts(
 }
 
 /**
- * The OpenRouter catalog row's status cluster (docs/dashboard.md#settings), in the row's
- * description slot: snapshot size and age, Refresh, a standing failure on its own line -
- * never a toast - and a short inert line while off. The prose lives in the row's "?".
+ * The OpenRouter catalog row's status cluster (docs/dashboard.md#settings), in the row's description slot: snapshot
+ * size and age, Refresh, a standing failure on its own line - never a toast - and a short inert line while off. The
+ * prose lives in the row's "?".
  */
 function CatalogMeta({ catalog, enabled, now }: { catalog: CatalogStatusView; enabled: boolean; now: number }) {
 	const parts = catalogStatusParts(catalog, enabled, now);
@@ -164,8 +154,8 @@ function CatalogMeta({ catalog, enabled, now }: { catalog: CatalogStatusView; en
 		return <span className="catalog-status">{parts.off}</span>;
 	}
 	return (
-		// Plain inline flow, not inline-flex: an atomic inline-flex box takes the whole column
-		// the moment it wraps, stranding the trailing "?" alone on the line below.
+		// Plain inline flow, not inline-flex: an atomic inline-flex box takes the whole column the moment it wraps,
+		// stranding the trailing "?" alone on the line below.
 		<span className="catalog-status">
 			<span>{parts.summary}</span>{" "}
 			<Button
@@ -199,8 +189,8 @@ function CatalogMeta({ catalog, enabled, now }: { catalog: CatalogStatusView; en
 }
 
 /**
- * The non-scalar rows' descriptions, held here because the filter matches on them exactly
- * as it does scalar descriptions: visible text and filter text must not drift.
+ * The non-scalar rows' descriptions, held here because the filter matches on them exactly as it does scalar
+ * descriptions: visible text and filter text must not drift.
  */
 function usageStatusBarDescription(): string {
 	// What the shown number means lives in the row's "?" (helpUsageStatusBar).
@@ -217,9 +207,8 @@ function toolSchemaKeywordsDescription(): string {
 }
 
 /**
- * The thresholds row's explanation per branch: the read-only custom branch renders no
- * fields, so "clear both fields" would instruct gestures the row cannot take.
- * Branch-keyed because the filter matches the same text the row shows.
+ * The thresholds row's explanation per branch: the read-only custom branch renders no fields, so "clear both fields"
+ * would instruct gestures the row cannot take. Branch-keyed because the filter matches the same text the row shows.
  */
 function usageThresholdsDescription(custom: boolean): string {
 	return custom
@@ -232,8 +221,8 @@ function currencySymbolDescription(): string {
 }
 
 function uiThemeDescription(): string {
-	// The Auto option names its own behavior ("Follow the editor"), and the
-	// row's "?" (helpUiTheme) states it with the high-contrast exception.
+	// The Auto option names its own behavior ("Follow the editor"), and the row's "?" (helpUiTheme) states it with the
+	// high-contrast exception.
 	return l10n.t("Whether the dashboard renders light or dark.");
 }
 
@@ -260,8 +249,8 @@ function tokenEstimationLabel(mode: TokenEstimationMode): string {
 			return l10n.t("Auto - tokenizer when text needs it");
 		case "heuristic":
 			return l10n.t("Heuristic - 4 characters per token");
-		// The encoding names are protocol terms and stay untranslated; the
-		// parenthetical says which model families they meter.
+		// The encoding names are protocol terms and stay untranslated; the parenthetical says which model families they
+		// meter.
 		case "o200k_base":
 			return l10n.t("o200k_base tokenizer (GPT-4o and newer)");
 		case "cl100k_base":
@@ -303,9 +292,8 @@ function uiAccentLabel(accent: UiAccent): string {
 }
 
 /**
- * The ui.accent row: four swatches, because the choice IS the color. Native radios carry
- * semantics and keyboard; the visible swatch is their label, ringed when checked and
- * when the hidden input takes focus.
+ * The ui.accent row: four swatches, because the choice IS the color. Native radios carry semantics and keyboard; the
+ * visible swatch is their label, ringed when checked and when the hidden input takes focus.
  */
 function UiAccentRow({
 	accent,
@@ -330,8 +318,8 @@ function UiAccentRow({
 					{UI_ACCENTS.map((candidate) => (
 						<label
 							key={candidate}
-							// The checked ring is the foreground, not the accent: a violet
-							// ring around the violet swatch is not a selection marker.
+							// The checked ring is the foreground, not the accent: a violet ring around the violet
+							// swatch is not a selection marker.
 							className={cn(
 								"cursor-pointer rounded-full p-0.5 outline-offset-(--ring-offset)",
 								"has-[:checked]:outline-(length:--ring-w) has-[:checked]:outline-foreground",
@@ -362,10 +350,8 @@ function UiAccentRow({
 }
 
 /**
- * One threshold box's parse: a fraction (0.8), a percentage (80%), or a bare number
- * above 1 read as percent. The docs' bound applies after conversion: (0, 1].
- * Lossy in value space by an ulp ("53.3%" is not 0.533 back), but render ->
- * parse -> render IS a fixed point, which is the space commit() compares in.
+ * The docs' bound applies after conversion: (0, 1]. Lossy in value space by an ulp ("53.3%" is not 0.533 back), but
+ * render -> parse -> render IS a fixed point, which is the space commit() compares in.
  */
 export function parseThresholdBox(
 	text: string
@@ -409,10 +395,9 @@ function ThresholdBox({
 	onCommit: (event?: FocusEvent) => void;
 }) {
 	return (
-		// One flex ITEM per pair: the wrapping control cell may break between the
-		// two pairs at the 320px floor, but never inside one - loose siblings
-		// wrapped as "80% warning 95%" / "error", stranding a label alone. The
-		// inner gap-2 restates the cell's own, so the pair reads unchanged.
+		// One flex ITEM per pair: the wrapping control cell may break between the two pairs at the 320px floor, but
+		// never inside one - loose siblings wrapped as "80% warning 95%" / "error", stranding a label alone. The inner
+		// gap-2 restates the cell's own, so the pair reads unchanged.
 		<span className="threshold-pair flex items-center gap-2">
 			<Input
 				id={id}
@@ -443,10 +428,9 @@ function ThresholdBox({
 }
 
 /**
- * The usage.alertThresholds row: two inputs over the list setting. Both set writes
- * [low, high] (sorted, equal values collapse); one writes a single-element list (treated
- * as the error threshold); both empty writes [] (off). A stored list the boxes cannot
- * represent renders read-only with the reveal button, so the dashboard never destroys it.
+ * Both set writes [low, high] (sorted, equal values collapse); one writes a single-element list (treated as the error
+ * threshold); both empty writes [] (off). A stored list the boxes cannot represent renders read-only with the reveal
+ * button, so the dashboard never destroys it.
  */
 function UsageThresholdsRow({
 	values,
@@ -469,7 +453,7 @@ function UsageThresholdsRow({
 	const [warningText, setWarningText] = useState(externalWarning);
 	const [errorText, setErrorText] = useState(externalError);
 	const syncKey = `${values.join(",")}@${configuredScope ?? "default"}`;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on syncKey alone; the external texts are read at sync time, not watched
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on syncKey alone
 	useEffect(() => {
 		setWarningText(externalWarning);
 		setErrorText(externalError);
@@ -491,10 +475,9 @@ function UsageThresholdsRow({
 	const warningId = `${inputId}-warning`;
 	const errorInputId = `${inputId}-error-at`;
 	const problemId = `${inputId}-problem`;
-	// The two boxes are ONE draft: a blur that only moves focus to the sibling
-	// box must not commit, or the write's own state push would resync the pair
-	// and overwrite what is being typed in the second box. Enter and a blur
-	// leaving the pair commit.
+	// The two boxes are ONE draft: a blur that only moves focus to the sibling box must not commit, or the write's own
+	// state push would resync the pair and overwrite what is being typed in the second box. Enter and a blur leaving
+	// the pair commit.
 	const commit = (event?: FocusEvent) => {
 		const next = event?.relatedTarget;
 		if (next instanceof HTMLElement && (next.id === warningId || next.id === errorInputId)) {
@@ -503,22 +486,18 @@ function UsageThresholdsRow({
 		if (parsed === undefined) {
 			return;
 		}
-		// "Did the user change anything" compares in the vocabulary the boxes
-		// show: reparsing a rendered percent lands an ulp off the stored value,
-		// so a raw compare reads an untouched blur as an edit.
+		// "Did the user change anything" compares in the vocabulary the boxes show: reparsing a rendered percent lands
+		// an ulp off the stored value, so a raw compare reads an untouched blur as an edit.
 		if (parsed.map(formatPercentExact).join(",") !== values.map(formatPercentExact).join(",")) {
 			sendRequest("setUsageAlertThresholds", { values: parsed });
 		}
 	};
 
 	const title = l10n.t("Usage alert thresholds");
-	// The 3+ shape only the settings file can write; the two boxes cannot
-	// round-trip it, so the row shows it instead of editing it.
 	const custom = values.length > 2;
-	// What the CURRENT configuration does, per branch. The custom branch reads
-	// the stored list - its boxes do not exist, so their empty drafts must not
-	// speak for it (they once printed "Alerts are off." beside a live list);
-	// the editable branch reads the live draft the boxes hold.
+	// The custom branch reads the stored list - its boxes do not exist, so their empty drafts must not speak for it
+	// (they once printed "Alerts are off." beside a live list); the editable branch reads the live draft the boxes
+	// hold.
 	const semanticsHint = custom
 		? l10n.t(
 				"Warns from {0}; errors at {1}.",
@@ -543,8 +522,8 @@ function UsageThresholdsRow({
 					{semanticsHint !== undefined ? <span className="ml-1 text-foreground">{semanticsHint}</span> : null}
 				</>
 			}
-			// The tip instructs the two boxes, so it renders only where they do:
-			// the custom branch has no fields to enter or clear.
+			// The tip instructs the two boxes, so it renders only where they do: the custom branch has no fields to
+			// enter or clear.
 			help={custom ? undefined : helpUsageThresholds()}
 			error={
 				custom || parsed !== undefined ? undefined : l10n.t("Thresholds run from above 0% to 100%: enter 80% or 0.8.")
@@ -594,11 +573,9 @@ function UsageThresholdsRow({
 }
 
 /**
- * The usage.currencySymbol row. maxLength gates typing only: a longer symbol hand-written
- * in settings.json round-trips into the box, and the row must neither truncate it nor
- * let a commit die as a generic envelope failure - an over-limit draft shows the bound
+ * maxLength gates typing only: a longer symbol hand-written in settings.json round-trips into the box, and the row
+ * must neither truncate it nor let a commit die as a generic envelope failure - an over-limit draft shows the bound
  * (WIRE_LIMITS.currencySymbol, which the intent schema also reads) and never commits.
- * Clearing commits the empty string; commits on Enter or blur.
  */
 function CurrencySymbolRow({
 	value,
@@ -611,7 +588,7 @@ function CurrencySymbolRow({
 }) {
 	const [text, setText] = useState(value);
 	const syncKey = `${value}@${configuredScope ?? "default"}`;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on syncKey alone; the external value is read at sync time, not watched
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on syncKey alone
 	useEffect(() => {
 		setText(value);
 	}, [syncKey]);
@@ -661,7 +638,6 @@ function CurrencySymbolRow({
 	);
 }
 
-/** The chat.additionalToolSchemaKeywords row over the shared comma-list editor. */
 function ToolSchemaKeywordsRow({ setting, hidden }: { setting: StringListSetting; hidden: boolean }) {
 	return (
 		<CommaListRow
@@ -684,8 +660,8 @@ function ToolSchemaKeywordsRow({ setting, hidden }: { setting: StringListSetting
 }
 
 /**
- * Where scalar edits land, for the header's meta line: User settings, except a setting
- * the workspace already sets is changed there (the write-scope rule).
+ * Where scalar edits land, for the header's meta line: User settings, except a setting the workspace already sets is
+ * changed there (the write-scope rule).
  */
 function scopeSummary(scopes: readonly (SettingScope | null)[]): string {
 	return scopes.some((scope) => scope === "workspace")
@@ -693,11 +669,9 @@ function scopeSummary(scopes: readonly (SettingScope | null)[]): string {
 		: l10n.t("editing User settings");
 }
 
-/** This page's rows' configured scopes, in one list: the meta line counts and summarizes over it. */
 function configuredScopes(settings: DashboardSettings): readonly (SettingScope | null)[] {
 	return [
-		// Only the scalars this page owns: the feature rows' scopes belong to
-		// the Features page's own count.
+		// Only the scalars this page owns: the feature rows' scopes belong to the Features page's own count.
 		...NUMBER_SETTING_IDS.filter((id) => settingRowPage(id) === "settings").map(
 			(id) => settings.configuredScopes.numbers[id]
 		),
@@ -714,12 +688,7 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 	];
 }
 
-/**
- * Whether a record editor matches the filter: by its heading, its own header help, or
- * any key it holds in any scope (plus modelParameters' nested parameter names). Store
- * keys only, deliberately: a dirty draft lives inside the editor, which the filter
- * hides but never unmounts.
- */
+/** Store keys only, deliberately: a dirty draft lives inside the editor, which the filter hides but never unmounts. */
 function recordEditorMatches(
 	needle: string,
 	title: string,
@@ -754,7 +723,10 @@ export function SettingsSection({
 }: {
 	settings: DashboardSettings;
 	models: readonly DashboardModel[];
-	/** The cross-server observed /model/info key union (DashboardState.observedModelInfoKeys), the capability editor's hint evidence. */
+	/**
+	 * The cross-server observed /model/info key union (DashboardState.observedModelInfoKeys), the capability editor's
+	 * hint evidence.
+	 */
 	observedModelInfoKeys?: readonly string[] | undefined;
 	/** The shared clock tick; the catalog row's "updated N ago" reads it. */
 	now?: number;
@@ -765,8 +737,8 @@ export function SettingsSection({
 }) {
 	const [filter, setFilter] = useState("");
 	const filterId = useId();
-	// A jump must land on a visible editor: a leftover filter that hides the
-	// target section would swallow the focus, so the request clears it.
+	// A jump must land on a visible editor: a leftover filter that hides the target section would swallow the focus, so
+	// the request clears it.
 	const editSeq = editRecordRequest?.seq;
 	useEffect(() => {
 		if (editSeq !== undefined) {
@@ -774,16 +746,14 @@ export function SettingsSection({
 		}
 	}, [editSeq]);
 	const { needle, matches } = filterMatcher(filter);
-	// One clock reading for the whole render: the filter haystack and the
-	// rendered status cluster must speak the same age - two Date.now() calls
-	// straddling a minute boundary would let a needle match "5 min ago" while
-	// the row shows 6.
+	// One clock reading for the whole render: the filter haystack and the rendered status cluster must speak the same
+	// age - two Date.now() calls straddling a minute boundary would let a needle match "5 min ago" while the row
+	// shows 6.
 	const nowMs = now ?? Date.now();
-	// Row-level help is in a row's haystack: the "?" is visible at rest and its tip carries
-	// the matching words, so a reader can see why the row survived. The catalog row's
-	// haystack is what that row SHOWS - its static description renders nowhere, and a
-	// translated bundle renders the two keys independently, so only excluding it keeps
-	// "the haystack holds what the row shows" true in every locale.
+	// Row-level help is in a row's haystack: the "?" is visible at rest and its tip carries the matching words, so a
+	// reader can see why the row survived. The catalog row's haystack is what that row SHOWS - its static description
+	// renders nowhere, and a translated bundle renders the two keys independently, so only excluding it keeps "the
+	// haystack holds what the row shows" true in every locale.
 	const catalogTexts = Object.values(
 		catalogStatusParts(settings.catalog, settings.booleans["models.openRouterCatalog"], nowMs)
 	).filter((text): text is string => text !== undefined);
@@ -796,8 +766,6 @@ export function SettingsSection({
 	};
 
 	const placed = new Set<string>(SETTING_GROUPS.flatMap((group) => [...group.numbers, ...group.booleans]));
-	// A scalar neither placed here nor owned by the Features page still renders
-	// (the trailing "Other" group), so a new setting can never silently vanish.
 	const otherNumbers = NUMBER_SETTING_IDS.filter((id) => !placed.has(id) && settingRowPage(id) === "settings");
 	const otherBooleans = BOOLEAN_SETTING_IDS.filter((id) => !placed.has(id) && settingRowPage(id) === "settings");
 
@@ -809,9 +777,9 @@ export function SettingsSection({
 		recordEditorMatches(needle, modelCapabilitiesTitle(), helpModelCapabilitiesSection(), settings.modelCapabilities);
 	const scalarIds = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].filter((id) => settingRowPage(id) === "settings");
 	const anyScalarVisible = scalarIds.some(isVisible);
-	// The non-scalar rows filter by the same rule as the scalar ones, so a needle cannot
-	// find one kind and miss the other. Hoisted because the empty-state verdict below has
-	// to see them: a filter matching only a tail row once rendered it under "nothing matched".
+	// The non-scalar rows filter by the same rule as the scalar ones, so a needle cannot find one kind and miss the
+	// other. Hoisted because the empty-state verdict below has to see them: a filter matching only a tail row once
+	// rendered it under "nothing matched".
 	const statusBarVisible = matches(
 		l10n.t("Usage status bar"),
 		usageStatusBarDescription(),
@@ -831,8 +799,8 @@ export function SettingsSection({
 		helpToolSchemaKeywords()
 	);
 	const thresholdsCustom = settings.usage.alertThresholds.length > 2;
-	// The editable branch's help joins its haystack only while that branch
-	// renders it: a needle from the tip must not keep the custom row alive.
+	// The editable branch's help joins its haystack only while that branch renders it: a needle from the tip must not
+	// keep the custom row alive.
 	const thresholdsVisible = matches(
 		l10n.t("Usage alert thresholds"),
 		usageThresholdsDescription(thresholdsCustom),
@@ -847,10 +815,9 @@ export function SettingsSection({
 	);
 	const themeVisible = matches(l10n.t("Dashboard theme"), uiThemeDescription(), "ui.theme", helpUiTheme());
 	const accentVisible = matches(l10n.t("Accent color"), uiAccentDescription(), "ui.accent", helpUiAccent());
-	// The Import & Export group filters like a scalar row (title and button labels). Its
-	// help stays OUT of the haystack even though row-level help is in: a group matched
-	// through group help would stand with no row in it matching - the reader scans the
-	// surviving rows and finds the needle in none. Section-level help is out likewise.
+	// Its help stays OUT of the haystack even though row-level help is in: a group matched through group help would
+	// stand with no row in it matching - the reader scans the surviving rows and finds the needle in none.
+	// Section-level help is out likewise.
 	const importExportVisible =
 		needle.length === 0 ||
 		[l10n.t("Import & Export"), l10n.t("Export settings"), l10n.t("Import settings")].some((text) =>
@@ -875,9 +842,8 @@ export function SettingsSection({
 	};
 	const scopes = configuredScopes(settings);
 	const modifiedCount = scopes.filter((scope) => scope !== null).length;
-	// Whether the row a failure would land on is actually on screen: the tail
-	// rows carry the named verdicts above, every scalar row the shared one, and
-	// anything else fails OPEN to visible - an id this page cannot name must
+	// Whether the row a failure would land on is actually on screen: the tail rows carry the named verdicts above,
+	// every scalar row the shared one, and anything else fails OPEN to visible - an id this page cannot name must
 	// render its notice, never crash a lookup (settingRowPage's contract).
 	const rowVisible = (row: SettingRowId): boolean => {
 		switch (row) {
@@ -900,8 +866,8 @@ export function SettingsSection({
 		}
 	};
 	const { rowFailures, unclaimed } = placeWriteFailures(writeFailures, "settings", rowVisible);
-	// One announcement per failure seq across every surface: the pane-top away
-	// line may already have spoken this failure before the reader arrived here.
+	// One announcement per failure seq across every surface: the pane-top away line may already have spoken this
+	// failure before the reader arrived here.
 	const unclaimedRole = useAlertOnce(unclaimed?.seq);
 	return (
 		<SettingFailuresContext.Provider value={rowFailures}>
@@ -943,8 +909,8 @@ export function SettingsSection({
 					</>
 				}
 			>
-				{/* The fallback for a failure no mounted row claims; a claimed one
-			    renders under its own row instead (see SettingRow). */}
+				{/* The fallback for a failure no mounted row claims; a claimed one renders under its own row instead
+				    (see SettingRow). */}
 				{unclaimed !== undefined ? (
 					<p key={unclaimed.seq} className="error" role={unclaimedRole}>
 						{writeFailureText(unclaimed)}
@@ -963,7 +929,7 @@ export function SettingsSection({
 						const isUiGroup = group.booleans.includes("ui.maskSecretInputs");
 						return (
 							<SettingGroup
-								// biome-ignore lint/suspicious/noArrayIndexKey: the group list is a fixed literal; position is the identity
+								// biome-ignore lint/suspicious/noArrayIndexKey: the group list is a fixed literal
 								key={index}
 								{...group}
 								settings={settings}
@@ -1074,11 +1040,10 @@ export function SettingsSection({
 							isVisible={isVisible}
 						/>
 					) : null}
-					{/* The trailing Import & Export group: the two actions ARE its content, so they stand in
-					    its body at full size (parked in the heading's actions slot they read as tucked-away
-					    chrome) and at the primary rank - a section whose whole content is its actions has
-					    no quieter neighbour to rank under. Rendered last so file transfer never sits
-					    between rows. */}
+					{/* The trailing Import & Export group: the two actions ARE its content, so they stand in its body
+					    at full size (parked in the heading's actions slot they read as tucked-away chrome) and at the
+					    primary rank - a section whose whole content is its actions has no quieter neighbour to rank
+					    under. Rendered last so file transfer never sits between rows. */}
 					<SettingGroup
 						title={() => l10n.t("Import & Export")}
 						help={helpImportExportGroup}

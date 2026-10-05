@@ -1,7 +1,3 @@
-/**
- * The server form's field primitives: sections, rows and spans, the text and
- * secret fields with their stored-secret row, and the header rows editor.
- */
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
@@ -30,7 +26,6 @@ export function secretDraft(existing: SecretLocation): SecretFieldDraft {
 	return { value: "", location: existing === "settings" ? "settings" : "secure", clear: false, existing };
 }
 
-/** The storage locations' display names, resolved at call time (no module-level localized constants). */
 function locationName(location: Exclude<SecretLocation, "none">): string {
 	return location === "secure" ? l10n.t("secret storage") : l10n.t("settings");
 }
@@ -38,8 +33,8 @@ function locationName(location: Exclude<SecretLocation, "none">): string {
 export interface FieldRenderProps {
 	readonly draft: ServerFormDraft;
 	/**
-	 * The problems the form shows right now, computed once per render in ServerForm; fields
-	 * render these directly, so field decorations and the save summary cannot disagree.
+	 * The problems the form shows right now, computed once per render in ServerForm; fields render these directly, so
+	 * field decorations and the save summary cannot disagree.
 	 */
 	readonly visibleProblems: ServerFormProblems;
 	readonly disabled: boolean;
@@ -48,9 +43,9 @@ export interface FieldRenderProps {
 }
 
 /**
- * One section of the flat page - one scroll, no folds - so a section either belongs to the
- * required path or reads as an aside, which is the whole of what `quiet` says: it dims the
- * heading and label column; fields stay at full strength (a typed value is never quiet).
+ * One section of the flat page - one scroll, no folds - so a section either belongs to the required path or reads as
+ * an aside, which is the whole of what `quiet` says: it dims the heading and label column; fields stay at full
+ * strength (a typed value is never quiet).
  */
 export function FormSection({
 	title,
@@ -64,21 +59,17 @@ export function FormSection({
 	/** The heading's quiet trailing fact: "optional", plus a count where the section holds rows. */
 	aside?: string;
 	/**
-	 * The section's detail, behind its "?". Required: a section with neither is a heading that
-	 * explains nothing. The glyph is named for its section - a page with a dozen of them
-	 * announces a dozen identical "Help" buttons otherwise.
+	 * Required: a section with neither is a heading that explains nothing. The glyph is named for its section - a page
+	 * with a dozen of them announces a dozen identical "Help" buttons otherwise.
 	 */
 	help: string;
-	/** The section's docs anchor, on the header line in the primitive's docs slot. */
 	docs?: { readonly href: DocsUrl; readonly label: string };
 	quiet?: boolean;
 	children: ReactNode;
 }) {
 	return (
 		<div className="form-section mt-6">
-			{/* The shared header primitive: title, help, docs, meta, actions as SIBLINGS on the
-			    .section-head line; the form's own scale rides the .form-section-head rules. Quiet
-			    dims the whole line through inheritance; the fields below stay at full strength. */}
+			{/* Quiet dims the whole line through inheritance; the fields below stay at full strength. */}
 			<SectionHeader
 				level={4}
 				title={title}
@@ -87,16 +78,16 @@ export function FormSection({
 				{...(aside !== undefined ? { meta: aside } : {})}
 				className={cn("form-section-head mb-0.5", quiet === true && "text-muted-foreground")}
 			/>
-			{/* The rule's only paint is a fill, which forced colours repaint to
-			    Canvas - the section seam vanished; restated in ink there. */}
+			{/* The rule's only paint is a fill, which forced colours repaint to Canvas - the section seam vanished;
+			    restated in ink there. */}
 			<div className="mt-2 mb-3 h-px bg-border forced-colors:bg-[CanvasText]" />
-			{/* The section owns the tracks; every row adopts them through subgrid, which is what
-			    gives shared sizing AND per-row placement (per-row grids let a docs link drag the
-			    fr tracks; one flat grid cannot move the glyph track per breakpoint). The
-			    breakpoint measures the PANE, not the viewport - the form narrows with rail, dock,
-			    and split. The gutter is the settings rows' 10rem floor as a FLAT track: fixed,
-			    the edge is uniform by construction in every locale; the form-records fixture
-			    guard pins the label edge. */}
+			{/* The section owns the tracks; every row adopts them through subgrid, which is what gives shared sizing
+			    AND per-row placement (per-row grids let a docs link drag the fr tracks; one flat grid cannot move the
+			    glyph track per breakpoint). The breakpoint measures the PANE, not the viewport - the form narrows with
+			    rail, dock, and split.
+
+			      The gutter is the settings rows' 10rem floor as a FLAT track -> fixed, the edge is uniform by
+			                                                                      construction in every locale */}
 			<div
 				className={cn(
 					"grid grid-cols-[10rem_minmax(0,1.35fr)_minmax(0,1fr)_auto] gap-x-4 gap-y-2.5",
@@ -110,11 +101,6 @@ export function FormSection({
 	);
 }
 
-/**
- * One row of the section grid: label in the gutter, control, hint (or the field's problem
- * in its place). A `wide` control takes the hint column and carries its own hint below;
- * a help-less wide one runs through the glyph track as well.
- */
 export function FieldRow({
 	htmlFor,
 	label,
@@ -139,14 +125,12 @@ export function FieldRow({
 	children: ReactNode;
 }) {
 	const showProblem = problem !== undefined;
-	// One row of the section's tracks via subgrid. Wide: gutter, control, hint, glyph.
-	// Stacked below 700px of PANE - the threshold dashboard.css already stacks key/value
-	// rows at, so the page changes idiom once.
+	// Stacked below 700px of PANE - the threshold dashboard.css already stacks key/value rows at, so the page changes
+	// idiom once.
 	const GRID = cn(
 		"col-span-4 grid grid-cols-subgrid items-center",
-		// Only the column axis is subgridded, so the parent's row gap does not
-		// reach between a stacked row's three lines: without this the hint sits
-		// flush against the bottom of the input it explains.
+		// Only the column axis is subgridded, so the parent's row gap does not reach between a stacked row's three
+		// lines: without this the hint sits flush against the bottom of the input it explains.
 		"@max-[700px]/pane:col-span-2 @max-[700px]/pane:items-start @max-[700px]/pane:gap-y-1"
 	);
 	return (
@@ -154,8 +138,8 @@ export function FieldRow({
 			<span
 				className={cn(
 					"label-row col-start-1 flex items-baseline justify-end text-right text-[12.5px]",
-					// Stacked, the label sits above its control, so right-aligning it
-					// would push it away from the thing it names.
+					// Stacked, the label sits above its control, so right-aligning it would push it away from the thing
+					// it names.
 					"@max-[700px]/pane:justify-start @max-[700px]/pane:pt-1.5 @max-[700px]/pane:text-left",
 					wide === true && "self-start pt-1"
 				)}
@@ -165,11 +149,11 @@ export function FieldRow({
 			<div
 				className={cn(
 					"col-start-2 row-start-1 flex min-w-0 items-center gap-2",
-					// Stacked, the control takes both tracks on its own line: the
-					// second track exists for the glyph beside the label.
+					// Stacked, the control takes both tracks on its own line: the second track exists for the glyph
+					// beside the label.
 					"@max-[700px]/pane:col-start-1 @max-[700px]/pane:col-span-2 @max-[700px]/pane:row-start-2",
-					// A wide row spans the hint track; a help-less wide row runs through the glyph track
-					// too, so the tables' trailing pencil column ends on the other rows' glyph edge.
+					// A wide row spans the hint track; a help-less wide row runs through the glyph track too, so the
+					// tables' trailing pencil column ends on the other rows' glyph edge.
 					wide === true && "flex-col items-stretch gap-1",
 					wide === true && (help === undefined ? "col-span-3" : "col-span-2")
 				)}
@@ -177,12 +161,13 @@ export function FieldRow({
 				{children}
 			</div>
 			{wide === true ? null : (
-				// The hint cell carries the field's id in both voices: the hint stays in flow (invisible
-				// while a problem stands, holding the reserved height) and the problem overlays the same
-				// box, so a field going invalid never moves anything (the charter's transients clause).
-				// min-height reserves one line for hint-less fields; only visible text is announced.
-				// break-anywhere because a hint may now interpolate USER text - the MCP row names the
-				// derived endpoint - and a long URL offers no break opportunity of its own.
+				// The hint cell carries the field's id in both voices: the hint stays in flow (invisible while a
+				// problem stands, holding the reserved height) and the problem overlays the same box, so a field going
+				// invalid never moves anything (the charter's transients clause). min-height reserves one line for
+				// hint-less fields; only visible text is announced.
+				//
+				//   a hint may now interpolate USER text - the MCP row names the derived endpoint - and a long URL
+				//   offers no break opportunity of its own -> break-anywhere
 				<span
 					id={errorId}
 					className={cn(
@@ -207,17 +192,19 @@ export function FieldRow({
 					) : null}
 				</span>
 			)}
-			{/* Last in the DOM, so Tab reaches a field's control before its help. The glyph is the
-			    ONLY thing this track carries - a row-level extra widens the auto track and jogs the
-			    help column off the other sections'. A help-less row mounts no cell: an empty span
-			    would block the wide control's span through the track. */}
+			{/* Last in the DOM, so Tab reaches a field's control before its help. The glyph is the ONLY thing this
+			    track carries - a row-level extra widens the auto track and jogs the help column off the other
+			    sections'.
+
+			      an empty span would block the wide control's span through the track
+			        -> A help-less row mounts no cell */}
 			{help === undefined ? null : (
 				<span
 					className={cn(
 						"col-start-4 flex items-baseline gap-1.5 self-center",
 						"@max-[700px]/pane:col-start-2 @max-[700px]/pane:row-start-1 @max-[700px]/pane:justify-self-start @max-[700px]/pane:pt-1.5",
-						// A wide row's control is tall (a textarea), and centring against
-						// it drops the glyph a line below the label it belongs to.
+						// A wide row's control is tall (a textarea), and centring against it drops the glyph a line
+						// below the label it belongs to.
 						wide === true && "self-start pt-1"
 					)}
 				>
@@ -228,15 +215,13 @@ export function FieldRow({
 	);
 }
 
-/** A note or control that belongs to the section but not to one field; spans the whole grid. */
 export function FieldSpan({ children, className }: { children: ReactNode; className?: string }) {
 	return <div className={cn("col-span-4 min-w-0 @max-[700px]/pane:col-span-2", className)}>{children}</div>;
 }
 
 /**
- * The line marking off an auth form's companions - second credentials sent beside the
- * chosen form's own. A real heading with "optional" in the meta slot; not a fold, since
- * there is nothing to open.
+ * The line marking off an auth form's companions - second credentials sent beside the chosen form's own. A real
+ * heading with "optional" in the meta slot; not a fold, since there is nothing to open.
  */
 export function CompanionNote() {
 	return (
@@ -251,7 +236,6 @@ export function CompanionNote() {
 	);
 }
 
-/** A record section's heading note: optional always, plus how many matchers the entry carries. */
 export function matcherCountAside(count: number): string {
 	if (count === 0) {
 		return l10n.t("optional");
@@ -259,27 +243,23 @@ export function matcherCountAside(count: number): string {
 	return count === 1 ? l10n.t("optional - 1 matcher") : l10n.t("optional - {0} matchers", count);
 }
 
-/** The commit bar's unsaved-change count, resolved at call time (no module-level localized constants). */
 export function unsavedText(count: number): string {
 	return count === 1 ? l10n.t("1 unsaved change") : l10n.t("{0} unsaved changes", count);
 }
 
 /**
- * The shared commit bar: sticky, its rule meeting the page's 860px measure and bleeding
- * into .pane's 24px gutter when the pane is what limits it. The bleed is a CLAMP, not a
- * pane query: 860 sits inside the band the rail's collapse makes ambiguous (the same pane
- * width occurs on both sides, so a threshold flips - narrowThresholds.test.ts refuses it);
- * a continuous ramp cannot flip, and 884px = cap + full bleed starts it exactly where the
- * gutter stops being the limit. The z-index is the house footer level.
+ * The bleed is a CLAMP, not a pane query: 860 sits inside the band the rail's collapse makes ambiguous (the same pane
+ * width occurs on both sides, so a threshold flips - narrowThresholds.test.ts refuses it); a continuous ramp cannot
+ * flip, and 884px = cap + full bleed starts it exactly where the gutter stops being the limit. The z-index is the
+ * house footer level.
  */
 export const COMMIT_BAR_CLASS =
 	"toolbar sticky bottom-0 z-[2] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background py-3 [--bleed:clamp(0px,884px_-_100cqw,24px)] mx-[calc(0px_-_var(--bleed))] px-[var(--bleed)]";
 
-/** A control that belongs under the row above it: it clears the label gutter, and takes the full width once the rows stack. */
 export function FieldUnderRow({ children, className }: { children: ReactNode; className?: string }) {
 	return (
-		// Placed in the grid rather than hand-padded past the gutter: a literal offset restates
-		// the track width plus the gap, and the two drift the moment either changes.
+		// Placed in the grid rather than hand-padded past the gutter: a literal offset restates the track width plus
+		// the gap, and the two drift the moment either changes.
 		<div className="col-span-4 grid grid-cols-subgrid @max-[700px]/pane:col-span-2">
 			<div
 				className={cn(
@@ -316,7 +296,6 @@ export function TextField({
 		| "includeModes"
 	>;
 	placeholder?: string;
-	/** The line beside the field; the field's problem takes its place while one stands. */
 	hint?: string;
 	/** Machine text (URLs, header names, scopes) reads in the mono face. */
 	mono?: boolean;
@@ -358,19 +337,17 @@ export function TextField({
 }
 
 /**
- * One secret field: a password input plus the per-field storage choice. Secure-side values
- * never reach this page; an inline value prefills masked (settings.json already shows it).
- * Empty input or unedited prefill keeps the stored value. Invariant: the page's ONLY
- * secret-bearing input - the uncontrolled SecretInput keeps the value out of the
- * serialized DOM (no controlled mirror, so no value attribute to leak).
+ * Secure-side values never reach this page; an inline value prefills masked (settings.json already shows it).
+ * Invariant: the page's ONLY secret-bearing input - the uncontrolled SecretInput keeps the value out of the serialized
+ * DOM (no controlled mirror, so no value attribute to leak).
  */
 export function SecretField({ field, help, props }: { field: SecretFieldId; help?: string; props: FieldRenderProps }) {
 	const value = props.draft[field];
 	const problem = props.visibleProblems[field];
 	const showProblem = problem !== undefined;
 	const [revealed, setRevealed] = useState(false);
-	// Nothing to reveal in an empty or removal-marked field: the toggle disables and revealed
-	// state resets, so the next value starts masked.
+	// Nothing to reveal in an empty or removal-marked field: the toggle disables and revealed state resets, so the next
+	// value starts masked.
 	const empty = value.value.trim().length === 0;
 	useEffect(() => {
 		if (empty || value.clear) {
@@ -381,9 +358,9 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 	const errorId = `${id}-error`;
 	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
 		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
-	// One short line, only where it says what the reader cannot see: where the value is now,
-	// or what Save will do with the typed one. A problem takes its place, so the row stays
-	// one line tall; the two states need separate sentences (tense differs in translation).
+	// One short line, only where it says what the reader cannot see: where the value is now, or what Save will do with
+	// the typed one. A problem takes its place, so the row stays one line tall; the two states need separate sentences
+	// (tense differs in translation).
 	const unchangedPrefill =
 		value.prefill !== undefined && value.value === value.prefill && value.location === "settings";
 	const storageHint = value.clear
@@ -397,8 +374,8 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 					: value.existing !== "none" && empty
 						? l10n.t("In {0}. Leave empty to keep it.", locationName(value.existing))
 						: undefined;
-	// Two states earn a tone: a value on its way into plain text, and a stored value on its
-	// way out - consequences one Save away. An unchanged prefill states itself plainly.
+	// Two states earn a tone: a value on its way into plain text, and a stored value on its way out - consequences one
+	// Save away. An unchanged prefill states itself plainly.
 	const hintTone =
 		value.clear || (!empty && value.location === "settings" && !unchangedPrefill) ? ("warn" as const) : undefined;
 	return (
@@ -415,8 +392,8 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 				<span className="secret-input relative flex min-w-0 flex-1 items-center">
 					<SecretInput
 						id={id}
-						// The reveal button is absolutely positioned over the field's
-						// right edge; the padding keeps the value clear of it.
+						// The reveal button is absolutely positioned over the field's right edge; the padding keeps the
+						// value clear of it.
 						className="min-w-0 flex-1 pr-13"
 						type={revealed ? "text" : "password"}
 						value={value.value}
@@ -429,8 +406,8 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 					<Button
 						variant="secondary"
 						size="compact"
-						// mx-0: absolutely positioned against the input's edge, so the
-						// primitive's layout hand-back would drag the box past `right-1`.
+						// mx-0: absolutely positioned against the input's edge, so the primitive's layout hand-back
+						// would drag the box past `right-1`.
 						className="absolute top-1/2 right-1 mx-0 -translate-y-1/2"
 						aria-pressed={revealed}
 						aria-label={
@@ -498,10 +475,6 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 	);
 }
 
-/**
- * Whether a field "holds content" for problem visibility: rows and lists count entries,
- * text and secret fields count their text.
- */
 export function fieldHasContent(draft: ServerFormDraft, field: ServerFormField): boolean {
 	if (
 		field === "modelParameters" ||
@@ -517,13 +490,11 @@ export function fieldHasContent(draft: ServerFormDraft, field: ServerFormField):
 		return false;
 	}
 	if (field === "apiVersion") {
-		// Only a custom mode with text counts: an empty custom surfaces on Save, which marks
-		// every field touched.
+		// Only a custom mode with text counts: an empty custom surfaces on Save, which marks every field touched.
 		return draft.apiVersion.mode === "custom" && draft.apiVersion.custom.length > 0;
 	}
 	if (field === "mcp") {
-		// The endpoint text is the only thing that can carry a problem; the
-		// checkbox alone never does.
+		// The endpoint text is the only thing that can carry a problem; the checkbox alone never does.
 		return draft.mcp.enabled && draft.mcp.url.length > 0;
 	}
 	const value = draft[field];
@@ -531,8 +502,8 @@ export function fieldHasContent(draft: ServerFormDraft, field: ServerFormField):
 }
 
 /**
- * An inactive form's stored secret: keeps the Remove checkbox reachable without offering
- * an input (the parse would drop anything typed into an unselected form's field).
+ * An inactive form's stored secret: keeps the Remove checkbox reachable without offering an input (the parse would
+ * drop anything typed into an unselected form's field).
  */
 export function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldRenderProps }) {
 	const value = props.draft[field];
@@ -567,7 +538,6 @@ export function StoredSecretRow({ field, props }: { field: SecretFieldId; props:
 	);
 }
 
-/** The custom-header rows: the record editors' row idiom over the entry's headers record. */
 export function HeaderRowsEditor({
 	rows,
 	problems,
@@ -582,12 +552,12 @@ export function HeaderRowsEditor({
 	return (
 		<>
 			{rows.map((row, index) => (
-				// biome-ignore lint/suspicious/noArrayIndexKey: header rows are positional while being edited; the index is the identity
+				// biome-ignore lint/suspicious/noArrayIndexKey: header rows are positional while being edited
 				<div className="row flex flex-wrap items-center gap-2" key={index}>
 					<Input
 						type="text"
-						// 204 = the 190px measure this input always showed plus padding and border, which
-						// border-box counts inside the width; at 190 the placeholder lost three characters.
+						// 204 = the 190px measure this input always showed plus padding and border, which border-box
+						// counts inside the width; at 190 the placeholder lost three characters.
 						className="key w-[204px] font-mono text-[12px]"
 						aria-label={l10n.t("Header name")}
 						aria-invalid={problems[index] !== undefined}
@@ -618,9 +588,8 @@ export function HeaderRowsEditor({
 					>
 						<IconTrash /> {l10n.t("Remove")}
 					</Button>
-					{/* Reserved whether or not it speaks (min-height 1lh, the shared
-					    .row .row-status rule): the verdict lands per keystroke, and a
-					    line mounted only when it speaks moves the row below. */}
+					{/* Reserved whether or not it speaks (min-height 1lh, the shared .row .row-status rule): the
+					    verdict lands per keystroke, and a line mounted only when it speaks moves the row below. */}
 					<span className={cn("row-status basis-full text-[11.5px]", problems[index] !== undefined && "error")}>
 						{problems[index]}
 					</span>
@@ -638,10 +607,3 @@ export function HeaderRowsEditor({
 		</>
 	);
 }
-
-/**
- * The inline Add/Edit form. Save posts one saveServerSetting intent and waits for its
- * correlated outcome: ok closes; a validation fail returns to editing; an operation fail
- * closes too - the save committed, so the draft is stale and the section notice carries
- * the recovery. Unrelated state pushes leave it alone.
- */

@@ -1,8 +1,8 @@
 /**
- * The server form's pure model: one parser yields either the assembled
- * saveServerSetting intent or the field problems that block it, so validation
- * and assembly cannot diverge. DOM-free, and shared across the trust boundary:
- * the extension re-validates the assembled payload with the same rules.
+ * The server form's pure model: one parser yields either the assembled saveServerSetting intent or the field problems
+ * that block it, so validation and assembly cannot diverge.
+ *
+ *   DOM-free -> shared across the trust boundary
  */
 
 import * as l10n from "@vscode/l10n";
@@ -28,10 +28,8 @@ import type { CapabilityGroupIssues, GroupHints, GroupProblems, HeaderRow, Prefi
 import { draftRowsKey, parseCapabilityGroups, parseGroups, parseHeaderRows } from "./recordDraft";
 
 /**
- * One secret field as the form edits it. `existing` is where the value lives
- * now; an empty `value` means keep it there, typing replaces it in `location`,
- * `clear` removes it outright. A value equal to `prefill` saves as "keep", so
- * an untouched prefill never rewrites.
+ * One secret field as the form edits it. `existing` is where the value lives now; an empty `value` means keep it there,
+ * typing replaces it in `location`, `clear` removes it outright.
  */
 export interface SecretFieldDraft {
 	readonly value: string;
@@ -42,17 +40,16 @@ export interface SecretFieldDraft {
 }
 
 /**
- * The picked auth form. The selector IS the exactly-one-form rule: only the
- * picked form's fields are validated and assembled, so a second form is
- * unreachable by construction. Lower-ranked companions ride along where the
- * grammar allows (oauth carries apiKey/virtualKey, apiKey carries virtualKey).
+ * Lower-ranked companions ride along where the grammar allows (oauth carries apiKey/virtualKey, apiKey carries
+ * virtualKey).
+ *
+ *   The selector -> IS the exactly-one-form rule
  */
 export type AuthFormId = "none" | "apiKey" | "virtualKey" | "oauth";
 
 /**
- * The API version control: three modes so "custom with no text yet" stays
- * representable instead of collapsing into "none". Maps onto the entry's
- * apiVersion: auto writes no key, none writes "", custom writes the trimmed text.
+ * The API version control: three modes so "custom with no text yet" stays representable instead of collapsing into
+ * "none". Maps onto the entry's apiVersion: auto writes no key, none writes "", custom writes the trimmed text.
  */
 export interface ApiVersionDraft {
 	readonly mode: "auto" | "none" | "custom";
@@ -68,10 +65,9 @@ export function apiVersionDraftOf(value: string | undefined): ApiVersionDraft {
 }
 
 /**
- * The MCP control: an opt-in switch plus the optional endpoint URL, kept apart
- * so "opted in, no custom URL yet" stays representable instead of collapsing
- * into "opted out". Maps onto the entry's `mcp`: off writes no key, on with no
- * URL writes `true`, on with a URL writes `{ url }`.
+ * The MCP control: an opt-in switch plus the optional endpoint URL, kept apart so "opted in, no custom URL yet" stays
+ * representable instead of collapsing into "opted out". Maps onto the entry's `mcp`: off writes no key, on with no URL
+ * writes `true`, on with a URL writes `{ url }`.
  */
 export interface McpDraft {
 	readonly enabled: boolean;
@@ -177,10 +173,13 @@ export type ServerFormProblems = Partial<Record<ServerFormField, string>>;
  * The save bar counts these, so a quiet bar under a move the user can see reads as broken, and one that goes quiet
  * on an edit that blocks is worse.
  *
- *   text and secret fields -> compare what Save would write, so padding or an inactive form's leftover never counts
- *   text Save would refuse -> still counts, by its trimmed form
- *   authForm               -> raw draft; switching it can leave every directive "keep"
- *   the three row grids    -> raw draft; a row can sit mid-edit and unparseable
+ *   text and secret fields                        -> compare what Save would write
+ *   compare what Save would write                 -> padding or an inactive form's leftover never counts
+ *   text Save would refuse                        -> still counts, by its trimmed form
+ *   authForm                                      -> raw draft
+ *   switching it can leave every directive "keep" -> raw draft
+ *   the three row grids                           -> raw draft
+ *   a row can sit mid-edit and unparseable        -> raw draft
  */
 export function changedServerFormFields(draft: ServerFormDraft, baseline: ServerFormDraft): readonly ServerFormField[] {
 	const nowSecrets = parseSecrets(draft);
@@ -198,8 +197,8 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 			return draft[field].trim() !== baseline[field].trim();
 		}
 		if (field === "apiVersion") {
-			// Save reads the custom text only in custom mode, so another mode's
-			// leftover text never counts; a mode switch always does.
+			// Save reads the custom text only in custom mode, so another mode's leftover text never counts; a mode
+			// switch always does.
 			const now = draft.apiVersion;
 			const was = baseline.apiVersion;
 			return now.mode !== was.mode || (now.mode === "custom" && now.custom.trim() !== was.custom.trim());
@@ -217,19 +216,17 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 			);
 		}
 		if (field === "expectedFailures" || field === "includeModes") {
-			// A set, not a list: comparing sequences would report a change for a
-			// check-then-uncheck round trip (the toggle canonicalizes the order
-			// while a stored entry keeps its author's).
+			// A set, not a list: comparing sequences would report a change for a check-then-uncheck round trip (the
+			// toggle canonicalizes the order while a stored entry keeps its author's).
 			return !sameTokenSet(draft[field], baseline[field]);
 		}
 		if (field === "authForm") {
 			// The selector itself, by draft: see the carve-out above.
 			return draft.authForm !== baseline.authForm;
 		}
-		// The row grids, by draft too. Small JSON-safe drafts, so their
-		// id-stripped serialization IS their identity - no field-by-field walk
-		// that a new sub-field could silently fall out of, and no false edit from
-		// the record rows' UI-only ids.
+		// The row grids, by draft too. Small JSON-safe drafts, so their id-stripped serialization IS their identity -
+		// no field-by-field walk that a new sub-field could silently fall out of, and no false edit from the record
+		// rows' UI-only ids.
 		return draftRowsKey(draft[field]) !== draftRowsKey(baseline[field]);
 	});
 }
@@ -261,10 +258,9 @@ export function isUsableHttpUrl(text: string): boolean {
 }
 
 /**
- * One secret field parsed once: the directive the save will carry, whether the
- * field still resolves afterwards, and the value the form can see. Validation
- * and assembly read this one derivation, so a field the directive retires can
- * never block Save on its stale input text.
+ * One secret field parsed once: the directive the save will carry, whether the field still resolves afterwards, and the
+ * value the form can see. Validation and assembly read this one derivation, so a field the directive retires can never
+ * block Save on its stale input text.
  */
 interface SecretParse {
 	readonly directive: SecretDirective;
@@ -281,19 +277,17 @@ function parseSecret(draft: SecretFieldDraft): SecretParse {
 		return { directive: { action: "keep" }, resolves: draft.existing !== "none", visibleValue: undefined };
 	}
 	if (draft.prefill !== undefined && value === draft.prefill && draft.location === "settings") {
-		// The prefilled inline value, unedited and staying inline: nothing to
-		// rewrite. A changed value or a storage move falls through to a real set.
+		// The prefilled inline value, unedited and staying inline: nothing to rewrite. A changed value or a storage
+		// move falls through to a real set.
 		return { directive: { action: "keep" }, resolves: true, visibleValue: value };
 	}
 	return { directive: { action: "set", location: draft.location, value }, resolves: true, visibleValue: value };
 }
 
 /**
- * A secret field whose auth form is not the selected one. Never "set": a value
- * typed before the form switched away must not land in storage for a shape
- * that does not send it. Clear stays honored, everything else is "keep", and
- * `resolves` still reports a kept stored value - the extension's pairing rules
- * see it too.
+ * Never "set": a value typed before the form switched away must not land in storage for a shape that does not send it.
+ * Clear stays honored, everything else is "keep", and `resolves` still reports a kept stored value - the extension's
+ * pairing rules see it too.
  */
 function parseInactiveSecret(draft: SecretFieldDraft): SecretParse {
 	if (draft.clear) {
@@ -316,9 +310,8 @@ function authFormActivity(authForm: AuthFormId): {
 }
 
 /**
- * The stored secrets the picked form does not send: the webview's orphan rows
- * (warn line plus Remove checkbox) read this, the same activity ring the
- * blocking rules use, so a drift can never make a block unreachable.
+ * The stored secrets the picked form does not send: the webview's orphan rows (warn line plus Remove checkbox) read
+ * this, the same activity ring the blocking rules use, so a drift can never make a block unreachable.
  */
 export function storedInactiveSecrets(draft: ServerFormDraft): Readonly<Record<SecretFieldId, boolean>> {
 	const active = authFormActivity(draft.authForm);
@@ -330,9 +323,8 @@ export function storedInactiveSecrets(draft: ServerFormDraft): Readonly<Record<S
 }
 
 /**
- * The draft's three secret parses, active or inactive per the picked auth form:
- * the one selection the intent assembly and the changed-field count both read.
- * Spelled out per field (no cast-and-loop): a secret field added to the catalog
+ * The draft's three secret parses, active or inactive per the picked auth form: the one selection the intent assembly
+ * and the changed-field count both read. Spelled out per field (no cast-and-loop): a secret field added to the catalog
  * fails to compile here instead of surfacing at runtime.
  */
 function parseSecrets(draft: ServerFormDraft): Record<SecretFieldId, SecretParse> {
@@ -349,9 +341,8 @@ function parseSecrets(draft: ServerFormDraft): Record<SecretFieldId, SecretParse
 }
 
 /**
- * The four optional auth texts as Save reads them: trimmed, and zeroed on any
- * form that does not send them - the same activity selection the secret parses
- * use, so a collapsed form's leftover text never saves and never counts.
+ * The four optional auth texts as Save reads them: trimmed, and zeroed on any form that does not send them - the same
+ * activity selection the secret parses use, so a collapsed form's leftover text never saves and never counts.
  */
 function activeOptionalText(draft: ServerFormDraft): Readonly<Record<NonSecretOptionalFieldId, string>> {
 	const active = authFormActivity(draft.authForm);
@@ -364,9 +355,8 @@ function activeOptionalText(draft: ServerFormDraft): Readonly<Record<NonSecretOp
 }
 
 /**
- * The budget text parsed once: empty clears (null), a positive finite number
- * saves, anything else blocks and keeps its trimmed text. Validation,
- * assembly, and the changed-field count all read this one derivation.
+ * The budget text parsed once: empty clears (null), a positive finite number saves, anything else blocks and keeps its
+ * trimmed text. Validation, assembly, and the changed-field count all read this one derivation.
  */
 type BudgetParse = { readonly ok: true; readonly value: number | null } | { readonly ok: false; readonly text: string };
 
@@ -384,12 +374,10 @@ function sameBudget(a: BudgetParse, b: BudgetParse): boolean {
 }
 
 /**
- * The MCP control parsed once: off clears (null), on with no URL publishes the
- * derived endpoint (true), on with a usable http(s) URL publishes that URL, and
- * anything else blocks while keeping its trimmed text. The URL rule is the
- * form's, not the settings parser's - the setting takes a URL as written and
- * reports an unusable one, exactly as it does for `baseUrl`, while the guided
- * path refuses to write one it can see is broken.
+ * The MCP control parsed once: off clears (null), on with no URL publishes the derived endpoint (true), on with a
+ * usable http(s) URL publishes that URL, and anything else blocks while keeping its trimmed text.
+ *
+ *   The URL rule -> is the form's, not the settings parser's
  */
 type McpParse = { readonly ok: true; readonly value: McpOptIn | null } | { readonly ok: false; readonly text: string };
 
@@ -415,10 +403,9 @@ function sameMcp(a: McpParse, b: McpParse): boolean {
 }
 
 /**
- * Which auth form a saved entry's configuration reads as, for the edit form's
- * initial selector state: oauth when the token URL and client ID pair is
- * configured, else apiKey when a key is stored anywhere, else virtualKey when
- * the pair's header or stored value exists, else none.
+ * Which auth form a saved entry's configuration reads as, for the edit form's initial selector state: oauth when the
+ * token URL and client ID pair is configured, else apiKey when a key is stored anywhere, else virtualKey when the
+ * pair's header or stored value exists, else none.
  */
 export function deriveAuthForm(config: {
 	readonly oauthTokenUrl?: string | undefined;
@@ -439,8 +426,8 @@ export function deriveAuthForm(config: {
 }
 
 /**
- * The declared-models textarea's reading: one exact ID per line, trimmed,
- * empties dropped, duplicates removed in first-seen order.
+ * The declared-models textarea's reading: one exact ID per line, trimmed, empties dropped, duplicates removed in
+ * first-seen order.
  */
 export function parseDeclaredModelsText(text: string): string[] {
 	return [
@@ -458,15 +445,13 @@ export interface ServerFormContext {
 	/** Labels of the other declared entries. */
 	readonly takenLabels?: readonly string[];
 	/**
-	 * The entry being edited, as the form displayed it; absent when adding.
-	 * Rides the intents as `replace`, so the extension can refuse a save or
-	 * probe when the label's entry no longer matches what the form showed.
+	 * The entry being edited, as the form displayed it; absent when adding. Rides the intents as `replace`, so the
+	 * extension can refuse a save or probe when the label's entry no longer matches what the form showed.
 	 */
 	readonly original?: ReplacedEntryIdentity;
 	/**
-	 * The edited entry's observed /model/info key set, the evidence behind the
-	 * capability rows' unknown-key hints: with no set or an empty one, every
-	 * such hint stays suppressed - the host's advisory filter, run live.
+	 * The edited entry's observed /model/info key set, the evidence behind the capability rows' unknown-key hints: with
+	 * no set or an empty one, every such hint stays suppressed - the host's advisory filter, run live.
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
 }
@@ -483,21 +468,22 @@ export type ServerFormParse =
 			readonly ok: true;
 			readonly intent: ServerFormIntent;
 			/**
-			 * Row-aligned capability issues from the same parseCapabilityGroups
-			 * pass that assembled the intent. Non-empty even on a clean parse:
-			 * advisory hints never block a save but must still render.
+			 * Row-aligned capability issues from the same parseCapabilityGroups pass that assembled the intent.
+			 *
+			 *   advisory hints -> never block a save but must still render
 			 */
 			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
-			/** Row-aligned model-parameter hints (directive semantics and wrong-type notes); non-blocking, like the capability issues. */
+			/**
+			 *   Row-aligned model-parameter hints (directive semantics and wrong-type notes) -> non-blocking
+			 */
 			readonly modelParameterHints: readonly GroupHints[];
 	  }
 	| {
 			readonly ok: false;
 			readonly problems: ServerFormProblems;
 			/**
-			 * Row-aligned problems for the model-parameters rows, from the same
-			 * parseGroups pass that judged the draft; empty when those rows are
-			 * clean and some other field blocks.
+			 * Row-aligned problems for the model-parameters rows, from the same parseGroups pass that judged the draft;
+			 * empty when those rows are clean and some other field blocks.
 			 */
 			readonly modelParameterProblems: readonly GroupProblems[];
 			/** Row-aligned capability issues; see the ok branch. */
@@ -520,11 +506,12 @@ function secretDirectives(
 }
 
 /**
- * The fields whose edit invalidates a draft-connection test result: a stale
- * PASS on edited credentials is worse than no result, so the form clears the
- * result when any of these change. The label and the model-parameter rows do
- * not touch the connection and keep it. Also the probe's blocking set: only
- * these fields' problems reach the connection arm of the analysis.
+ * The fields whose edit invalidates a draft-connection test result: a stale PASS on edited credentials is worse than no
+ * result, so the form clears the result when any of these change. Also the probe's blocking set: only these fields'
+ * problems reach the connection arm of the analysis.
+ *
+ *   The label and the model-parameter rows -> keep it
+ *   do not touch the connection            -> keep it
  */
 export const CONNECTION_FIELDS: readonly ServerFormField[] = [
 	"baseUrl",
@@ -541,10 +528,8 @@ export const CONNECTION_FIELDS: readonly ServerFormField[] = [
 ];
 
 /**
- * What a connection-clean draft assembles to: everything the draft-connection
- * probe sends. `modelCapabilities` is the parsed rows when they are clean and
- * `{}` otherwise - the probe carries what it can, and the capability rows are
- * not connection fields.
+ * `modelCapabilities` is the parsed rows when they are clean and `{}` otherwise - the probe carries what it can, and
+ * the capability rows are not connection fields.
  */
 interface ServerConnectionValues {
 	/** The draft's trimmed label, possibly empty or reserved (only the save blocks on that). */
@@ -567,17 +552,17 @@ interface ServerFormValues extends ServerConnectionValues {
 }
 
 /**
- * The one shared analysis behind both parsers, discriminated so each consumer
- * reads its arm instead of re-deriving it: a clean draft IS its assembled
- * values, a blocked one carries the problems - with the connection slice
- * discriminated again inside it, because the probe blocks only on
- * CONNECTION_FIELDS problems. The save and probe rules cannot drift because
- * both read this one result.
+ * The one shared analysis behind both parsers, discriminated so each consumer reads its arm instead of re-deriving it:
+ * a clean draft IS its assembled values, a blocked one carries the problems - with the connection slice discriminated
+ * again inside it, because the probe blocks only on CONNECTION_FIELDS problems. The save and probe rules cannot drift
+ * because both read this one result.
  */
 type ServerFormAnalysis = {
 	/** Row-aligned capability issues from the parse that judged the draft; hints render on both arms. */
 	readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
-	/** Row-aligned model-parameter hints (directive semantics and wrong-type notes); non-blocking, like the capability issues. */
+	/**
+	 *   Row-aligned model-parameter hints (directive semantics and wrong-type notes) -> non-blocking
+	 */
 	readonly modelParameterHints: readonly GroupHints[];
 } & (
 	| { readonly blocked: false; readonly values: ServerFormValues }
@@ -593,10 +578,10 @@ type ServerFormAnalysis = {
 );
 
 function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): ServerFormAnalysis {
-	// The selector decides which credential fields are live: everything else is
-	// excluded from the payload and demoted to keep/clear directives. Validation
-	// and assembly both read activeText, so a field an inactive form leaves
-	// behind can neither block a save nor reach it.
+	// The selector decides which credential fields are live: everything else is excluded from the payload and demoted
+	// to keep/clear directives.
+	//
+	//   Validation and assembly -> both read activeText
 	const active = authFormActivity(draft.authForm);
 	const secrets = parseSecrets(draft);
 	const activeText = activeOptionalText(draft);
@@ -624,8 +609,9 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	}
 
 	// Custom text must exist, or a picked "custom" would silently save as "none".
-	// Slashes and inner whitespace are named problems, not silently rewritten:
-	// "/v2" appended verbatim builds http://host//v2 and every request 404s.
+	//
+	//   Slashes and inner whitespace -> are named problems, not silently rewritten
+	//   "/v2" appended verbatim      -> builds http://host//v2
 	let apiVersion: string | undefined;
 	if (draft.apiVersion.mode === "none") {
 		apiVersion = "";
@@ -640,9 +626,8 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		}
 	}
 
-	// OAuth is one unit: the request path drops partial configurations silently,
-	// so a partial one must not save as if it worked. On any other form a KEPT
-	// stored client secret still blocks - the extension reads it as OAuth-shaped.
+	// OAuth is one unit: the request path drops partial configurations silently, so a partial one must not save as if
+	// it worked. On any other form a KEPT stored client secret still blocks - the extension reads it as OAuth-shaped.
 	if (active.oauth) {
 		const tokenUrl = activeText.oauthTokenUrl;
 		const clientId = activeText.oauthClientId;
@@ -661,10 +646,8 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		);
 	}
 
-	// Both-or-neither like OAuth, and must be sendable as an HTTP header (the
-	// request path drops anything less without a trace). The sendability check
-	// reads the parsed visible value, so a cleared field's stale text cannot
-	// block; on "none" a kept stored value blocks like the client secret above.
+	// The sendability check reads the parsed visible value, so a cleared field's stale text cannot block; on "none" a
+	// kept stored value blocks like the client secret above.
 	const virtualKey = secrets.virtualKeyValue;
 	if (active.virtualKey) {
 		const header = activeText.virtualKeyHeader;
@@ -684,17 +667,15 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		);
 	}
 
-	// The API-key twin of the two rules above: storage counts as part of the
-	// shape (docs/servers.md#secrets-and-secret-storage), so saving a form
-	// that does not send the kept key would no-op and snap back on reopen.
+	// The API-key twin of the two rules above: storage counts as part of the shape
+	// (docs/servers.md#secrets-and-secret-storage), so saving a form that does not send the kept key would no-op and
+	// snap back on reopen.
 	if (!active.apiKey && secrets.apiKey.resolves) {
 		problems.apiKey = l10n.t(
 			"A stored API key is still attached; remove it with its checkbox, or pick a form that sends it"
 		);
 	}
 
-	// The record and header rows share the global editors' parsers, so a draft
-	// that renders clean there is exactly a draft that saves here.
 	const groupsParse = parseGroups(draft.modelParameters);
 	if (!groupsParse.ok) {
 		problems.modelParameters = l10n.t("Fix the model parameter rows");
@@ -711,8 +692,8 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		problems.headers = l10n.t("Fix the header rows");
 	}
 
-	// Budget: empty means none (the payload's null clear); anything else must
-	// be a finite number greater than zero, the rule the extension re-checks.
+	// Budget: empty means none (the payload's null clear); anything else must be a finite number greater than zero, the
+	// rule the extension re-checks.
 	const budgetParse = parseBudgetText(draft.budget);
 	let budget: number | null = null;
 	if (budgetParse.ok) {
@@ -721,8 +702,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		problems.budget = l10n.t("Must be a number greater than 0");
 	}
 
-	// MCP: off clears (the payload's null); on publishes the derived endpoint
-	// unless a usable URL names another one.
+	// MCP: off clears (the payload's null); on publishes the derived endpoint unless a usable URL names another one.
 	const mcpParse = parseMcpDraft(draft.mcp);
 	let mcp: McpOptIn | null = null;
 	if (mcpParse.ok) {
@@ -731,8 +711,8 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		problems.mcp = l10n.t("Must be a usable http(s) URL");
 	}
 
-	// Only the active form's text fields reach the payload: an inactive form's
-	// leftover text is excluded exactly like an empty input.
+	// Only the active form's text fields reach the payload: an inactive form's leftover text is excluded exactly like
+	// an empty input.
 	const optionalText: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
 	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
 		const value = activeText[field];
@@ -773,8 +753,8 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 			connectionProblems[field] = problem;
 		}
 	}
-	// headers is a connection field, so a clean connection implies clean header
-	// rows; the narrowing states the half the type system cannot see.
+	// headers is a connection field, so a clean connection implies clean header rows; the narrowing states the half the
+	// type system cannot see.
 	const connection =
 		headersParse.ok && !Object.values(connectionProblems).some((problem) => problem !== undefined)
 			? {
@@ -802,10 +782,10 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 }
 
 /**
- * Parse a draft into the saveServerSetting intent, or the problems that block
- * it; there is no separate validation pass to drift from the assembly. The
- * problem messages never repeat an entered value: drafts carry secrets, and
- * the extension surfaces the same messages through logs and the fail notice.
+ * Parse a draft into the saveServerSetting intent, or the problems that block it; there is no separate validation pass
+ * to drift from the assembly.
+ *
+ *   drafts carry secrets -> The problem messages never repeat an entered value
  */
 export function parseServerForm(draft: ServerFormDraft, context: ServerFormContext = {}): ServerFormParse {
 	const analysis = analyzeServerForm(draft, context);
@@ -820,8 +800,8 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		};
 	}
 	const { values } = analysis;
-	// The record and list fields are always sent, even empty (the payload
-	// requires them); modelParameters is the one optional field.
+	// The record and list fields are always sent, even empty (the payload requires them); modelParameters is the one
+	// optional field.
 	const server: SaveServerPayload = {
 		label: values.label,
 		baseUrl: values.baseUrl,
@@ -854,7 +834,9 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
  * re-stamps the same way.
  *
  *   kept stored secret, destination moved -> the save flow asks first; keeping re-stamps host-side, clearing deletes
- *   inline value                          -> no question; it has no stamp and already sits in settings.json
+ *   inline value                          -> no question
+ *   it has no stamp and already sits in settings.json
+ *                                         -> no question
  */
 export function staleKeyFieldsOnSave(intent: ServerFormIntent): readonly SecretFieldId[] {
 	const original = intent.replace;
@@ -881,12 +863,9 @@ export type ServerTestParse =
 	| { readonly ok: false; readonly problems: ServerFormProblems };
 
 /**
- * Parse a draft into the testServerDraft intent, or the connection-relevant
- * problems that block it, from the same analyzeServerForm pass. Broken header
- * rows block (the probe sends them); label, record-row, and budget problems do
- * not. The intent omits modelParameters and the budget, carries the capability
- * rows only when they parse clean, and keeps the draft's real trimmed label:
- * the label addresses "keep" resolution extension-side.
+ * Broken header rows block (the probe sends them); label, record-row, and budget problems do not.
+ *
+ *   the label addresses "keep" resolution extension-side -> keeps the draft's real trimmed label
  */
 export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFormContext = {}): ServerTestParse {
 	const analysis = analyzeServerForm(draft, context);
@@ -919,9 +898,8 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 }
 
 /**
- * The adopt form's label rule: the full form's constraints plus a hard
- * collision refusal (adoption always creates a new entry, never replaces one).
- * The extension re-checks the same rules on the intent.
+ * The adopt form's label rule: the full form's constraints plus a hard collision refusal (adoption always creates a new
+ * entry, never replaces one). The extension re-checks the same rules on the intent.
  */
 export function validateAdoptLabel(label: string, takenLabels: readonly string[]): string | undefined {
 	const trimmed = label.trim();
@@ -938,19 +916,15 @@ export function validateAdoptLabel(label: string, takenLabels: readonly string[]
 }
 
 /**
- * What the form does with its own save failure: a validation-kind failure left
- * the setting untouched (the draft is still the truth, return to editing); an
- * operation-kind failure committed the save, so the draft is stale and the
- * form closes.
+ *   a validation-kind failure -> left the setting untouched (the draft is still the truth, return to editing)
  */
 export function saveFailureDisposition(kind: "validation" | "operation"): "edit" | "close" {
 	return kind === "operation" ? "close" : "edit";
 }
 
 /**
- * The section-level failure notice text. A recognized field prefix in the
- * message ("label: ...") is promoted to the field's display name and the
- * section prefix dropped, avoiding a stuttering double prefix.
+ * The section-level failure notice text. A recognized field prefix in the message ("label: ...") is promoted to the
+ * field's display name and the section prefix dropped, avoiding a stuttering double prefix.
  */
 export function sectionFailureText(prefix: string, message: string): string {
 	const colon = message.indexOf(":");
@@ -963,10 +937,9 @@ export function sectionFailureText(prefix: string, message: string): string {
 }
 
 /**
- * Merge an inlineSecrets response into the draft, marked as the prefill
- * parseSecret treats as "keep". Only inline-stored fields the user has not
- * typed into or marked for removal are touched, so a slow response never
- * clobbers an edit in progress.
+ * Merge an inlineSecrets response into the draft, marked as the prefill parseSecret treats as "keep". Only
+ * inline-stored fields the user has not typed into or marked for removal are touched, so a slow response never clobbers
+ * an edit in progress.
  */
 export function applyInlinePrefill(
 	draft: ServerFormDraft,

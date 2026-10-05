@@ -1,10 +1,10 @@
 /**
- * The dashboard's wire contract as one endpoint table: the envelope unions,
- * the routing, the zod schema map, and the panel handler map all derive from
- * DASHBOARD_ENDPOINTS, so a method missing a payload, schema, handler, or (for
- * reads) response type fails compilation. Imported by both sides, so pure: no
- * vscode, DOM, Node, or zod. State pushes carry secret LOCATIONS, never values
- * (readInlineSecrets is the one value path); failures carry webview-safe text.
+ * The dashboard's wire contract as one endpoint table: the envelope unions, the routing, the zod schema map, and the
+ * panel handler map all derive from DASHBOARD_ENDPOINTS, so a method missing a payload, schema, handler, or (for
+ * reads) response type fails compilation. State pushes carry secret LOCATIONS, never values (readInlineSecrets is the
+ * one value path); failures carry webview-safe text.
+ *
+ *   Imported by both sides -> pure: no vscode, DOM, Node, or zod
  */
 
 import type { EffectiveCapabilities } from "../shared/config/capabilityResolution";
@@ -61,11 +61,7 @@ export const DASHBOARD_COMMAND_IDS = [
 
 export type DashboardCommandId = (typeof DASHBOARD_COMMAND_IDS)[number];
 
-/**
- * Size bounds on webview-minted values, enforced by the extension-side schemas
- * (intentSchema.ts). Generous enough that no honest input meets one: they only
- * keep a hostile or broken page from ballooning a settings write.
- */
+/** Size bounds on webview-minted values, enforced by the extension-side schemas (intentSchema.ts). */
 export const WIRE_LIMITS = {
 	/** Entry labels, created or addressed. */
 	label: 1024,
@@ -73,15 +69,12 @@ export const WIRE_LIMITS = {
 	url: 4096,
 	/** The non-secret free-text entry fields (client ID, scopes, header name). */
 	textField: 2048,
-	/** Secret values (API keys, client secrets, virtual keys). */
 	secretValue: 8192,
 	/** Matcher keys in a record map. */
 	recordKey: 512,
-	/** Field names inside one record. */
 	recordFieldName: 256,
 	/** Records per map; far above any per-model record set on a large proxy. */
 	recordGroups: 1024,
-	/** Fields per record. */
 	recordFields: 256,
 	/** One record map's whole JSON rendering, in UTF-16 code units. */
 	recordJsonUnits: 1024 * 1024,
@@ -110,10 +103,10 @@ export const WIRE_LIMITS = {
 } as const;
 
 /**
- * What to do with one secret field on save: "keep" leaves it where it is,
- * "clear" removes it from both locations, "set" replaces it in the chosen
- * location and removes it from the other. Values flow webview -> extension ->
- * storage only: never logged, never echoed back into DashboardState.
+ * What to do with one secret field on save: "keep" leaves it where it is, "clear" removes it from both locations,
+ * "set" replaces it in the chosen location and removes it from the other.
+ *
+ *   Values -> never logged, never echoed back into DashboardState
  */
 export type SecretDirective =
 	| { readonly action: "keep" }
@@ -134,44 +127,40 @@ export interface ReplacedEntryIdentity extends NonSecretOptionalFields {
 }
 
 /**
- * The non-secret half of a servers entry as the form submits it. The label is
- * the entry's identity: the sync engine names the provider group after it, so
- * renaming creates a new group.
+ * The non-secret half of a servers entry as the form submits it.
+ *
+ *   the sync engine names the provider group after it -> The label is the entry's identity
  */
 export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly label: string;
 	readonly baseUrl: string;
 	/**
-	 * The entry's apiVersion override: absent means auto (the saved entry
-	 * carries no key), "" means append nothing, anything else is appended
-	 * verbatim.
+	 *   absent        -> auto (the saved entry carries no key)
+	 *   ""            -> append nothing
+	 *   anything else -> appended verbatim
 	 */
 	readonly apiVersion?: string | undefined;
 	/** The entry's per-entry modelParameters; absent or empty means the saved entry carries none. */
 	readonly modelParameters?: EntryModelParametersPayload | undefined;
 	/** The entry's per-entry modelCapabilities; empty means the saved entry carries none. */
 	readonly modelCapabilities: EntryModelCapabilitiesPayload;
-	/** The entry's expected discovery-failure categories; empty means none. */
 	readonly expectedFailures: readonly ExpectedFailureCategory[];
 	/**
 	 * The entry's custom HTTP headers (plain settings text, not secrets).
-	 * Always sent - the schema refuses a payload without it, so a save can never
-	 * silently delete a stored record.
+	 *
+	 *   the schema refuses a payload without it -> Always sent
 	 */
 	readonly headers: Readonly<Record<string, HeaderScalar>>;
-	/** The entry's discovery.declared model IDs; empty means none. */
 	readonly declaredModels: readonly string[];
-	/** The entry's discovery.includeModes; empty means none. */
 	readonly includeModes: readonly NonChatMode[];
 	/** The entry's manual usage budget in USD; null means none (clearing any stored budget). */
 	readonly budget: number | null;
 	/**
-	 * The entry's MCP opt-in; null means none (clearing any stored opt-in).
-	 * Deliberately absent from ReplacedEntryIdentity, which re-checks the
-	 * STAMPED destinations a resolved secret may be sent to (the base URL, the
-	 * token URL). An MCP endpoint is not one of those: it receives credentials
-	 * only on the entry's own origin, which `baseUrl` - already in the identity
-	 * - is what pins.
+	 * Deliberately absent from ReplacedEntryIdentity, which re-checks the STAMPED destinations a resolved secret may be
+	 * sent to (the base URL, the token URL). An MCP endpoint is not one of those: it receives credentials only on the
+	 * entry's own origin, which `baseUrl` - already in the identity - is what pins.
+	 *
+	 *   null -> none (clearing any stored opt-in)
 	 */
 	readonly mcp: McpOptIn | null;
 }
@@ -180,9 +169,12 @@ export interface SaveServerPayload extends NonSecretOptionalFields {
  * How one method's outcome returns and which queue its handling joins.
  *
  *   outcome "read"            -> a correlated response
- *   outcome "acked"           -> a correlated ack or fail; only success is followed by the state push its write triggers
+ *   outcome "acked"           -> a correlated ack or fail; only success is followed by the state push its write
+ *                                triggers
  *   outcome "fire-and-forget" -> no ack; the following push is the success signal
- *   channel "chained"         -> one at a time on the mutation chain (two concurrent saves would lose an update)
+ *   channel "chained"         -> one at a time on the mutation chain
+ *   two concurrent saves would lose an update
+ *                            -> one at a time on the mutation chain
  *   channel "concurrent"      -> off the chain; only non-mutating methods
  */
 type DashboardEndpointSpec =
@@ -203,9 +195,8 @@ type DashboardEndpointSpec =
 	  };
 
 /**
- * The endpoint table: one row per method the webview can call. The webview is
- * a trust boundary - the extension re-validates every request against the
- * schema map in extension/dashboard/intentSchema.ts, mapped over this table.
+ * The endpoint table: one row per method the webview can call. The webview is a trust boundary - the extension
+ * re-validates every request against the schema map in extension/dashboard/intentSchema.ts, mapped over this table.
  */
 export const DASHBOARD_ENDPOINTS = {
 	/** The page-load handshake: the state push it triggers is the answer. */
@@ -234,43 +225,36 @@ export const DASHBOARD_ENDPOINTS = {
 	refreshUsage: { outcome: "fire-and-forget", channel: "chained", fail: "log-only" },
 	saveServerSetting: { outcome: "acked", channel: "chained" },
 	/**
-	 * Append one expected-failure category to the named entry (the servers
-	 * page's one-click declaration). Chained like every servers-array
-	 * read-modify-write.
+	 * Append one expected-failure category to the named entry (the servers page's one-click declaration). Chained like
+	 * every servers-array read-modify-write.
 	 */
 	declareExpectedFailure: { outcome: "acked", channel: "chained" },
 	/**
-	 * One read-only discovery probe of a draft configuration. Concurrent because
-	 * it can block on the network for a whole discovery timeout, and a Save
-	 * queued behind an abandoned probe would stall.
+	 * One read-only discovery probe of a draft configuration. Concurrent because it can block on the network for a
+	 * whole discovery timeout, and a Save queued behind an abandoned probe would stall.
 	 */
 	testServerDraft: { outcome: "acked", channel: "concurrent" },
 	/**
-	 * One read-only probe of a picked (feature, server, model) triple. Concurrent
-	 * for the same reason as testServerDraft: it blocks on the network for up to
-	 * the feature's fixed probe timeout and writes nothing.
+	 * One read-only probe of a picked (feature, server, model) triple.
+	 *
+	 *   it blocks on the network -> Concurrent
 	 */
 	testFeatureModel: { outcome: "acked", channel: "concurrent" },
 	removeServerSetting: { outcome: "acked", channel: "chained" },
-	/** Adopt an external provider group into the servers setting; credentials resolve extension-side only. */
 	adoptServer: { outcome: "acked", channel: "chained" },
 	hideExternalServer: { outcome: "acked", channel: "chained" },
 	unhideServer: { outcome: "acked", channel: "chained" },
 	/** Open the host's Manage Language Models editor on a hidden group, where its Delete action lives. */
 	manageHiddenGroup: { outcome: "acked", channel: "chained" },
 	/**
-	 * Run a full model sync now. Acked because the answer IS the point: state
-	 * pushes emit long before discovery starts, so a control disabled during the
-	 * pass needs the ack to release. The ack proves only that the sync command
-	 * settled, not that every server answered. Concurrent: the pass blocks on
-	 * the network and never writes the servers setting.
+	 * Acked because the answer IS the point: state pushes emit long before discovery starts, so a control disabled
+	 * during the pass needs the ack to release. The ack proves only that the sync command settled, not that every
+	 * server answered.
+	 *
+	 *   the pass blocks on the network and never writes the servers setting -> Concurrent
 	 */
 	syncModels: { outcome: "acked", channel: "concurrent" },
-	/**
-	 * The edit form's on-demand prefill of inline-stored secret fields (see the response
-	 * payload). Chained although non-mutating: a prefill read must never overtake the
-	 * save it follows.
-	 */
+	/** Chained although non-mutating: a prefill read must never overtake the save it follows. */
 	readInlineSecrets: { outcome: "read", channel: "chained" },
 	readModelCapabilities: { outcome: "read", channel: "concurrent" },
 	readModelParameters: { outcome: "read", channel: "concurrent" },
@@ -281,7 +265,6 @@ export const DASHBOARD_ENDPOINTS = {
 
 export type DashboardMethod = keyof typeof DASHBOARD_ENDPOINTS;
 
-/** The methods of one outcome class, derived from the table. */
 type MethodsWithOutcome<O extends DashboardEndpointSpec["outcome"]> = {
 	[K in DashboardMethod]: (typeof DASHBOARD_ENDPOINTS)[K]["outcome"] extends O ? K : never;
 }[DashboardMethod];
@@ -290,14 +273,9 @@ export type ReadMethod = MethodsWithOutcome<"read">;
 export type AckedMethod = MethodsWithOutcome<"acked">;
 type FireAndForgetMethod = MethodsWithOutcome<"fire-and-forget">;
 
-/** The methods that produce ack/fail notices: everything whose answer is not a correlated response. */
 export type NotifyingMethod = AckedMethod | FireAndForgetMethod;
 
-/**
- * Request and response payloads, one row per table method. A method missing a
- * row breaks the RequestPayload mapped type; a read missing `response` breaks
- * ResponseFor. `request: null` methods carry no parameters.
- */
+/** A method missing a row breaks the RequestPayload mapped type; a read missing `response` breaks ResponseFor. */
 interface DashboardEndpointIO {
 	ready: { request: null };
 	setNumberSetting: { request: { readonly setting: NumberSettingId; readonly value: number | null } };
@@ -317,17 +295,20 @@ interface DashboardEndpointIO {
 	/** Values must be fractions in (0, 1]; the extension re-validates and refuses out-of-range entries. */
 	setUsageAlertThresholds: { request: { readonly values: readonly number[] } };
 	/**
-	 * Pick or clear one feature's model: a declared entry's label plus a raw
-	 * model ID (user configuration, never a secret); null clears the pick and
-	 * resets the setting. One method for both features - the feature
-	 * discriminant names the setting.
+	 * Pick or clear one feature's model: a declared entry's label plus a raw model ID (user configuration, never a
+	 * secret); null clears the pick and resets the setting.
+	 *
+	 *   the feature discriminant -> names the setting
 	 */
 	setFeatureModel: { request: { readonly feature: FeatureModelId; readonly value: FeatureModelRef | null } };
-	/** The commitGeneration.prompt text; the empty string resets the setting (the built-in instruction applies). */
+	/**
+	 *   the empty string -> resets the setting
+	 */
 	setCommitPrompt: { request: { readonly value: string } };
 	/**
 	 * One field per request because each settings row sends only its own half (the schema refuses both or neither).
-	 * The type stays the optional pair so executeDashboardIntent keeps its own empty-patch refusal for a bypassing caller.
+	 * The type stays the optional pair so executeDashboardIntent keeps its own empty-patch refusal for a bypassing
+	 * caller.
 	 */
 	setLanguageFilter: {
 		request: {
@@ -341,15 +322,16 @@ interface DashboardEndpointIO {
 		request: {
 			readonly server: SaveServerPayload;
 			readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
-			/** When editing: the displayed identity of the entry to replace (its label differs from server.label on rename). */
+			/**
+			 * When editing: the displayed identity of the entry to replace (its label differs from server.label on
+			 * rename).
+			 */
 			readonly replace?: ReplacedEntryIdentity | undefined;
 		};
 	};
 	/**
-	 * Test a DRAFT server configuration with one extension-side discovery probe.
-	 * Read-only by contract: nothing is written, synced, or cached. "keep"
-	 * directives resolve against the entry `replace` identifies, and the success
-	 * notice is composed extension-side, never from payload or response text.
+	 * Read-only by contract: nothing is written, synced, or cached. "keep" directives resolve against the entry
+	 * `replace` identifies, and the success notice is composed extension-side, never from payload or response text.
 	 */
 	testServerDraft: {
 		request: {
@@ -359,26 +341,24 @@ interface DashboardEndpointIO {
 		};
 	};
 	/**
-	 * Test one feature's picked (server, model) pair with the feature's own
-	 * probe: the exact pipeline the feature runs (the inline-completions probe
-	 * is the FIM send over a sample context - same connection resolution,
-	 * template application, and fixed bounds). Read-only, and the success
-	 * notice is composed extension-side from counts only - never from response
-	 * text. Refused when no probe is registered for the feature.
+	 * Test one feature's picked (server, model) pair with the feature's own probe: the exact pipeline the feature runs
+	 * (the inline-completions probe is the FIM send over a sample context - same connection resolution, template
+	 * application, and fixed bounds). Read-only, and the success notice is composed extension-side from counts only -
+	 * never from response text.
+	 *
+	 *   no probe is registered for the feature -> Refused
 	 */
 	testFeatureModel: { request: { readonly feature: FeatureModelId; readonly model: FeatureModelRef } };
 	removeServerSetting: { request: { readonly label: string } };
 	/**
-	 * Append `category` to the declared entry `label` names. The whole payload
-	 * is two closed vocabularies - no free-typed value ever rides this method;
-	 * an already-declared category acks as a no-op.
+	 * The whole payload is two closed vocabularies - no free-typed value ever rides this method; an already-declared
+	 * category acks as a no-op.
 	 */
 	declareExpectedFailure: { request: { readonly label: string; readonly category: ExpectedFailureCategory } };
 	/**
-	 * Adopt an external provider group into the servers setting: the group's
-	 * credentials are resolved extension-side (the webview never sees them) and
-	 * stored where `secrets` directs per field. `sourceHandle` resolves only
-	 * against groups that are still external and still at `baseUrl`.
+	 * Adopt an external provider group into the servers setting: the group's credentials are resolved extension-side
+	 * (the webview never sees them) and stored where `secrets` directs per field. `sourceHandle` resolves only against
+	 * groups that are still external and still at `baseUrl`.
 	 */
 	adoptServer: {
 		request: {
@@ -389,43 +369,38 @@ interface DashboardEndpointIO {
 		};
 	};
 	/**
-	 * Remove (hide) an external provider group by writing its removal
-	 * tombstone. Named by the opaque handle, resolved only against groups still
-	 * external and still at `baseUrl`, so a forged request cannot hide a
-	 * declared group.
+	 * Remove (hide) an external provider group by writing its removal tombstone. Named by the opaque handle, resolved
+	 * only against groups still external and still at `baseUrl`, so a forged request cannot hide a declared group.
 	 */
 	hideExternalServer: { request: { readonly baseUrl: string; readonly sourceHandle: string } };
 	/** Clear one hidden group's tombstone (the identity its HiddenGroup row carried). */
 	unhideServer: { request: { readonly label: string; readonly baseUrl: string } };
 	/**
-	 * Open Manage Language Models searched for a hidden group's synced name (the
-	 * identity its HiddenGroup row carried, offered only with syncedName).
-	 * Resolved against the tombstones, so a stale request opens nothing.
+	 * Open Manage Language Models searched for a hidden group's synced name (the identity its HiddenGroup row carried,
+	 * offered only with syncedName). Resolved against the tombstones, so a stale request opens nothing.
 	 */
 	manageHiddenGroup: { request: { readonly label: string; readonly baseUrl: string } };
 	/**
-	 * A declared entry's inline-stored secret values, for the edit form's
-	 * prefill: inline values already sit in plaintext in the settings file.
-	 * Secure-stored or absent fields carry NO key in the response; their values
-	 * never reach the webview. Deliberately a read, never part of
-	 * DashboardState: state pushes must never carry secret material.
+	 * A declared entry's inline-stored secret values, for the edit form's prefill: inline values already sit in
+	 * plaintext in the settings file. Secure-stored or absent fields carry NO key in the response; their values never
+	 * reach the webview.
+	 *
+	 *   state pushes must never carry secret material -> Deliberately a read, never part of DashboardState
 	 */
 	readInlineSecrets: {
 		/**
-		 * The displayed identity of the entry being edited, not a bare label: a
-		 * same-label replacement racing the prefill must get an empty answer,
-		 * never the replacement's inline values into a form showing another
-		 * entry.
+		 * The displayed identity of the entry being edited, not a bare label: a same-label replacement racing the
+		 * prefill must get an empty answer, never the replacement's inline values into a form showing another entry.
 		 */
 		request: { readonly replace: ReplacedEntryIdentity };
 		response: { readonly values: Readonly<Partial<Record<SecretFieldId, string>>> };
 	};
 	/**
-	 * One model's effective capabilities, produced by the same
-	 * resolveModelCapabilities walk registration runs, so the inspector cannot
-	 * drift from what is served. Addressed by scope key plus raw ID; a stale key
-	 * de-resolves, and absent `capabilities` says so instead of inventing
-	 * values. `globalRecordKey` and `chains` are extension-computed.
+	 * One model's effective capabilities, produced by the same resolveModelCapabilities walk registration runs, so the
+	 * inspector cannot drift from what is served. Addressed by scope key plus raw ID; a stale key de-resolves, and
+	 * absent `capabilities` says so instead of inventing values.
+	 *
+	 *   `globalRecordKey` and `chains` -> extension-computed
 	 */
 	readModelCapabilities: {
 		request: { readonly scopeKey: string; readonly rawId: string };
@@ -436,9 +411,8 @@ interface DashboardEndpointIO {
 		};
 	};
 	/**
-	 * One model's effective-parameters projection, resolved through the
-	 * provider's SHARED flat resolution table - the same cache requests read -
-	 * so the inspector cannot drift from the wire.
+	 *   One model's effective-parameters projection -> resolved through the provider's SHARED flat resolution table
+	 *   the provider's SHARED flat resolution table -> the same cache requests read
 	 */
 	readModelParameters: {
 		request: { readonly scopeKey: string; readonly rawId: string };
@@ -449,15 +423,11 @@ interface DashboardEndpointIO {
 		};
 	};
 	/**
-	 * The Diagnostics tab's Resolved-models view, computed extension-side. On
-	 * demand rather than in state pushes because it scales with models x fields.
+	 * The Diagnostics tab's Resolved-models view, computed extension-side. On demand rather than in state pushes
+	 * because it scales with models x fields.
 	 */
 	readResolvedModels: { request: null; response: { readonly view: ResolvedModelsView } };
-	/**
-	 * Search the extension-side OpenRouter catalog snapshot. The query is
-	 * user-typed filter text, never a secret; the catalog data itself never
-	 * enters the webview bundle.
-	 */
+	/** The query is user-typed filter text, never a secret; the catalog data itself never enters the webview bundle. */
 	searchCatalog: {
 		request: { readonly query: string };
 		response: { readonly results: readonly CatalogModelSummary[] };
@@ -467,16 +437,12 @@ interface DashboardEndpointIO {
 	syncModels: { request: null };
 }
 
-/** One method's request payload; errors here mean a table method is missing its DashboardEndpointIO row. */
 export type RequestPayload<K extends DashboardMethod> = DashboardEndpointIO[K]["request"];
 
-/** One read's response payload; errors here mean a read method is missing its `response` type. */
 export type ResponseFor<K extends ReadMethod> = DashboardEndpointIO[K]["response"];
 
 /**
- * One webview-to-extension call. `id` is a webview-minted correlation token,
- * echoed by the response, ack, or fail that answers it, so no outcome is ever
- * uncorrelated.
+ *   `id` -> a webview-minted correlation token, echoed by the response, ack, or fail that answers it
  */
 export type RpcRequest<K extends DashboardMethod> = {
 	readonly kind: "request";
@@ -485,18 +451,14 @@ export type RpcRequest<K extends DashboardMethod> = {
 	readonly payload: RequestPayload<K>;
 };
 
-/** The webview-to-extension union. The extension re-validates every request: the webview is a trust boundary. */
 export type RpcRequestType = { [K in DashboardMethod]: RpcRequest<K> }[DashboardMethod];
 
-/** A schema-valid request that asks the extension to do something (everything but the reads and the handshake). */
 type IntentMethod = Exclude<NotifyingMethod, "ready">;
 
-/** One parsed intent as the executor consumes it; discriminated on `method` so payloads narrow with it. */
 export type DashboardIntent = {
 	[K in IntentMethod]: { readonly method: K; readonly payload: RequestPayload<K> };
 }[IntentMethod];
 
-/** The answer to one read request, correlated by the request's id. */
 type RpcResponse<K extends ReadMethod> = {
 	readonly kind: "response";
 	readonly id: string;
@@ -510,10 +472,8 @@ export type RpcResponseType = { [K in ReadMethod]: RpcResponse<K> }[ReadMethod];
 export type IntentAckTone = "warning";
 
 /**
- * An acked intent's success notice. `message` is an optional caveat about the
- * success - informational text only, never a value from the payload. `tone`
- * marks a success worth a warning rendering (the draft probe's zero-model
- * outcome); absent renders the quiet success.
+ * `message` is an optional caveat about the success - informational text only, never a value from the payload. `tone`
+ * marks a success worth a warning rendering (the draft probe's zero-model outcome); absent renders the quiet success.
  */
 interface IntentAckMessage {
 	readonly kind: "ack";
@@ -524,14 +484,12 @@ interface IntentAckMessage {
 }
 
 /**
- * An intent's failure notice, correlated to the request that failed.
- * `failureKind`: "validation" means nothing landed, so the editor's draft is
- * still the truth; "operation" means the durable write committed but a
- * follow-up effect failed, so drafts over the pre-save state are stale.
- * `message` is webview-safe text (never a secret); `classification` is the
- * transport classification behind a failed probe - enum ids, never message
- * text; `row` is the failed scalar write's owning settings row
- * (settingWriteRow), extension-derived from the validated payload.
+ * `message` is webview-safe text (never a secret); `classification` is the transport classification behind a failed
+ * probe - enum ids, never message text; `row` is the failed scalar write's owning settings row (settingWriteRow),
+ * extension-derived from the validated payload.
+ *
+ *   "validation"   -> nothing landed
+ *   nothing landed -> the editor's draft is still the truth
  */
 interface IntentFailMessage {
 	readonly kind: "fail";
@@ -544,18 +502,17 @@ interface IntentFailMessage {
 }
 
 /**
- * Extension-to-webview messages: full state pushes (the webview never holds
- * partial truth), the focusSection deep link, read responses, and per-intent
- * outcome notices. A validation-kind failure produces no state push; an
- * operation-kind failure committed its write, so its push must not be read as
- * the intent succeeding.
+ * Extension-to-webview messages: full state pushes (the webview never holds partial truth), the focusSection deep link,
+ * read responses, and per-intent outcome notices.
+ *
+ *   A validation-kind failure -> produces no state push
  */
 export type ExtensionToWebviewMessage =
 	| { readonly kind: "push"; readonly state: DashboardState }
 	| {
 			/**
-			 * Switch the page to a section (the litellm.showDiagnostics deep
-			 * link), after the ready handshake or directly when the page is live.
+			 * Switch the page to a section (the litellm.showDiagnostics deep link), after the ready handshake or
+			 * directly when the page is live.
 			 */
 			readonly kind: "focusSection";
 			readonly section: DashboardSectionId;
@@ -565,9 +522,8 @@ export type ExtensionToWebviewMessage =
 	| IntentFailMessage;
 
 /**
- * Every extension-to-webview discriminant: a kind added to the union stops
- * compiling until registered here, instead of being silently dropped by the
- * webview's receive guard.
+ * Every extension-to-webview discriminant: a kind added to the union stops compiling until registered here, instead of
+ * being silently dropped by the webview's receive guard.
  */
 const EXTENSION_MESSAGE_KINDS: Readonly<Record<ExtensionToWebviewMessage["kind"], true>> = {
 	push: true,
@@ -578,8 +534,8 @@ const EXTENSION_MESSAGE_KINDS: Readonly<Record<ExtensionToWebviewMessage["kind"]
 };
 
 /**
- * The webview's receive guard. Window messages come from the extension only
- * (the CSP allows no other frames), so a discriminant shape check suffices.
+ * The webview's receive guard. Window messages come from the extension only (the CSP allows no other frames), so a
+ * discriminant shape check suffices.
  */
 export function isExtensionMessage(data: unknown): data is ExtensionToWebviewMessage {
 	if (typeof data !== "object" || data === null) {
@@ -589,7 +545,6 @@ export function isExtensionMessage(data: unknown): data is ExtensionToWebviewMes
 	return typeof kind === "string" && Object.hasOwn(EXTENSION_MESSAGE_KINDS, kind);
 }
 
-/** Whether a method name (possibly from an untyped record key) names an acked-outcome table row. */
 export function isAckedMethod(method: string): method is AckedMethod {
 	return (
 		Object.hasOwn(DASHBOARD_ENDPOINTS, method) && DASHBOARD_ENDPOINTS[method as DashboardMethod].outcome === "acked"
@@ -597,23 +552,20 @@ export function isAckedMethod(method: string): method is AckedMethod {
 }
 
 /**
- * The scalar setting-write methods, whose fail envelopes carry the owning settings row
- * (`row` on IntentFailMessage) so the Settings page can place a standing refusal under
- * the row that posted it without keeping a correlation map of its own. Derived from the
- * table's `fail: "settings-row"` marks, never hand-listed: a method joins the class where
- * its endpoint row is declared, and joining without a SETTING_WRITE_ROWS entry (or the
- * inverse) fails the mapped type below.
+ * The scalar setting-write methods, whose fail envelopes carry the owning settings row (`row` on IntentFailMessage) so
+ * the Settings page can place a standing refusal under the row that posted it without keeping a correlation map of its
+ * own. Derived from the table's `fail: "settings-row"` marks, never hand-listed: a method joins the class where its
+ * endpoint row is declared, and joining without a SETTING_WRITE_ROWS entry (or the inverse) fails the mapped type
+ * below.
  */
 export type SettingWriteMethod = {
 	[K in DashboardMethod]: (typeof DASHBOARD_ENDPOINTS)[K] extends { readonly fail: "settings-row" } ? K : never;
 }[DashboardMethod];
 
 /**
- * The fire-and-forget methods whose standing fail notice is the shell's
- * pane-top line (methods posted from any tab that own no settings row).
- * Derived from the table like SettingWriteMethod: marking a row "pane-top" is
- * the whole registration - the shell iterates this list, so there is no second
- * list a new method could miss.
+ * The fire-and-forget methods whose standing fail notice is the shell's pane-top line (methods posted from any tab that
+ * own no settings row). Derived from the table like SettingWriteMethod: marking a row "pane-top" is the whole
+ * registration - the shell iterates this list, so there is no second list a new method could miss.
  */
 type PaneTopFailMethod = {
 	[K in DashboardMethod]: (typeof DASHBOARD_ENDPOINTS)[K] extends { readonly fail: "pane-top" } ? K : never;
@@ -627,11 +579,9 @@ export const PANE_TOP_FAIL_METHODS = (Object.keys(DASHBOARD_ENDPOINTS) as readon
 );
 
 /**
- * Each scalar write's owning row, derived from the request itself: the `setting`-carrying
- * methods name it, every other write method owns exactly one row. Derivation (rather than
- * a webview-minted payload field) makes a row that mismatches its request unrepresentable.
- * The ONE registry for the class: exhaustive over SettingWriteMethod by mapped type, and
- * the method list below derives from it rather than standing beside it.
+ * Derivation (rather than a webview-minted payload field) makes a row that mismatches its request unrepresentable. The
+ * ONE registry for the class: exhaustive over SettingWriteMethod by mapped type, and the method list below derives
+ * from it rather than standing beside it.
  */
 const SETTING_WRITE_ROWS: { readonly [K in SettingWriteMethod]: (payload: RequestPayload<K>) => SettingRowId } = {
 	setNumberSetting: (payload) => payload.setting,
@@ -651,7 +601,6 @@ const SETTING_WRITE_ROWS: { readonly [K in SettingWriteMethod]: (payload: Reques
 
 export const SETTING_WRITE_METHODS = Object.keys(SETTING_WRITE_ROWS) as readonly SettingWriteMethod[];
 
-/** One method-payload pair per table method; what settingWriteRow can read a row off. */
 type MethodPayload = {
 	[K in DashboardMethod]: { readonly method: K; readonly payload: RequestPayload<K> };
 }[DashboardMethod];
@@ -672,16 +621,14 @@ function settingWriteRowOf<K extends SettingWriteMethod>(request: {
 	return SETTING_WRITE_ROWS[request.method](request.payload);
 }
 
-/** The settings row a request's failure belongs to; undefined for every non-setting-write method. */
 export function settingWriteRow(request: MethodPayload): SettingRowId | undefined {
 	return isSettingWrite(request) ? settingWriteRowOf(request) : undefined;
 }
 
 /**
- * The failure notices a state push leaves standing. Acked methods' failures
- * survive pushes: a push is not their success signal, and a partially applied
- * save requests a sync whose push would otherwise erase the very warning the
- * save raised. Every other method's success signal IS the following push.
+ * Acked methods' failures survive pushes: a push is not their success signal, and a partially applied save requests a
+ * sync whose push would otherwise erase the very warning the save raised. Every other method's success signal IS the
+ * following push.
  */
 export function failuresAfterStatePush<K extends string, V>(
 	failures: Readonly<Partial<Record<K, V>>>

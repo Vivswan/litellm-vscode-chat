@@ -1,8 +1,7 @@
 /**
- * The inspectors' compact inheritance figure: one line per record map showing the matching
- * chain broadest to winner, each key jumping into the editor that owns it, barrier and
- * exclusive-list markers worded exactly as the Diagnostics tree words them. A chain of one
- * record tells no inheritance story and renders nothing.
+ * The inspectors' compact inheritance figure: one line per record map showing the matching chain broadest to winner,
+ * each key jumping into the editor that owns it, barrier and exclusive-list markers worded exactly as the Diagnostics
+ * tree words them. A chain of one record tells no inheritance story and renders nothing.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -10,7 +9,6 @@ import type { RecordChainView } from "../../dashboard/viewModels";
 import { entryScope, Provenance, settingsScope } from "./provenance";
 import { Button } from "./ui/button";
 
-/** The chains that tell an inheritance story; a chain of one record renders nothing. */
 function chainsWithStory(chains: readonly RecordChainView[] | undefined): readonly RecordChainView[] {
 	return (chains ?? []).filter((chain) => chain.links.length >= 2);
 }
@@ -20,7 +18,6 @@ export function RecordChainFigure({
 	onEditRecord,
 	onEditEntry,
 }: {
-	/** The response's per-map chains; absent or single-link chains render nothing. */
 	chains: readonly RecordChainView[] | undefined;
 	/** Jump into the global record editor focused on the key; absent, keys render as plain text. */
 	onEditRecord?: ((key: string) => void) | undefined;
@@ -34,9 +31,8 @@ export function RecordChainFigure({
 	return (
 		<div className="record-chains">
 			{shown.map((chain) => {
-				// The jump is gated on the LAYER, never on which callback happens to
-				// exist: an entry key must open the entry's form or nothing - falling
-				// back to the global editor would contradict its own aria-label.
+				// The jump is gated on the LAYER, never on which callback happens to exist: an entry key must open the
+				// entry's form or nothing - falling back to the global editor would contradict its own aria-label.
 				const jump =
 					chain.layer === "entry"
 						? onEditEntry === undefined
@@ -55,9 +51,8 @@ export function RecordChainFigure({
 						{chain.links.map((link, index) => {
 							const onJump = jumpFor(link.key);
 							return (
-								// One nowrap unit per link - arrow, key, and markers - so a
-								// long chain wraps BETWEEN links, never mid-marker or with an
-								// arrow stranded at a line's end.
+								// One nowrap unit per link - arrow, key, and markers - so a long chain wraps BETWEEN
+								// links, never mid-marker or with an arrow stranded at a line's end.
 								<span className="record-chain-link" key={link.key}>
 									{index > 0 ? <span className="record-chain-arrow"> {"->"} </span> : null}
 									{onJump !== undefined ? (

@@ -38,8 +38,7 @@ const buttonVariants = cva(
 				danger: "text-err-quiet hover:bg-err-wash hover:text-err-strong",
 			},
 			size: {
-				// The value is the size's own horizontal padding, negated: the
-				// hand-back exists to cancel it exactly.
+				// The value is the size's own horizontal padding, negated: the hand-back exists to cancel it exactly.
 				default: "[--btn-mx:-0.625rem] px-2.5 py-1",
 				compact: "[--btn-mx:-0.375rem] px-1.5 py-0.5",
 			},
@@ -53,45 +52,42 @@ const buttonVariants = cva(
 			{
 				variant: "secondary",
 				labelled: true,
-				// currentColor, not tinted: the resting decoration must clear a graphical object's 3:1
-				// (half the muted token measures 2.2:1 on Light Modern), and count-link uses
-				// currentColor too, so the two spellings cannot drift. Hover does not clear it: a
-				// transparent decoration COLOUR gets repainted by forced colours, and the background
-				// fades over 120ms while a cleared line returns instantly.
+				// currentColor, not tinted: the resting decoration must clear a graphical object's 3:1 (half the muted
+				// token measures 2.2:1 on Light Modern), and count-link uses currentColor too, so the two spellings
+				// cannot drift. Hover does not clear it: a transparent decoration COLOUR gets repainted by forced
+				// colours, and the background fades over 120ms while a cleared line returns instantly.
 				class: "underline decoration-dotted underline-offset-2",
 			},
 			{
 				variant: "secondary",
 				labelled: true,
-				// No underline when disabled: an affordance saying "activate me" on a control that
-				// refuses is worse than none. aria-disabled paints identically.
+				// No underline when disabled: an affordance saying "activate me" on a control that refuses is worse
+				// than none. aria-disabled paints identically.
 				class: "disabled:no-underline aria-disabled:no-underline",
 			},
 		],
 		defaultVariants: {
 			variant: "default",
 			size: "default",
-			// labelled has no default on purpose: Button always passes it, and absent, no compound
-			// matches and the underline stays off - the safe direction if the prop ever goes missing.
+			// labelled has no default on purpose: Button always passes it, and absent, no compound matches and the
+			// underline stays off - the safe direction if the prop ever goes missing.
 		},
 	}
 );
 
 /**
- * Whether a button has words to underline. CSS cannot answer it (:has counts ELEMENT
- * children), and Children.toArray flattens arrays but NOT fragments - several call sites
- * wrap a label beside its icon in a fragment - hence the recursion. A string child is
- * the label; JSX's inter-element space is a string too, so whitespace-only does not
- * count. Text rendered by a child COMPONENT is invisible here: such a button would
- * read as unlabelled and lose its underline (no call site does this).
+ * CSS cannot answer it (:has counts ELEMENT children), and Children.toArray flattens arrays but NOT fragments - several
+ * call sites wrap a label beside its icon in a fragment - hence the recursion. Text rendered by a child COMPONENT is
+ * invisible here: such a button would read as unlabelled and lose its underline (no call site does this).
+ *
+ *   JSX's inter-element space is a string too -> whitespace-only does not count
  */
 function hasTextLabel(children: ReactNode): boolean {
 	return Children.toArray(children).some((child) => {
 		if (typeof child === "string") {
 			return child.trim().length > 0;
 		}
-		// bigint is in React 19's ReactNode and renders as its digits, so it is
-		// a label exactly as a number is.
+		// bigint is in React 19's ReactNode and renders as its digits, so it is a label exactly as a number is.
 		if (typeof child === "number" || typeof child === "bigint") {
 			return true;
 		}
@@ -111,8 +107,8 @@ export function Button({
 	children,
 	...props
 }: ComponentProps<"button"> & Omit<VariantProps<typeof buttonVariants>, "labelled">) {
-	// data-slot and data-variant name the part and its design intent for
-	// tests and inspection; the utility list alone says neither.
+	// data-slot and data-variant name the part and its design intent for tests and inspection; the utility list alone
+	// says neither.
 	return (
 		<button
 			type={type ?? "button"}

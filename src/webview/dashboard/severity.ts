@@ -1,10 +1,9 @@
 import * as l10n from "@vscode/l10n";
 
 /**
- * The dashboard's ONE severity vocabulary: how much a problem costs the reader. The
- * server rows and the Diagnostics page rank by the same three tiers and render through
- * the same band pipeline (problemBand.tsx), sharing this order and the label table -
- * two mechanisms would drift.
+ * The dashboard's ONE severity vocabulary: how much a problem costs the reader. The server rows and the Diagnostics
+ * page rank by the same three tiers and render through the same band pipeline (problemBand.tsx), sharing this order
+ * and the label table - two mechanisms would drift.
  */
 export type DiagnosticSeverity = "blocking" | "degraded" | "advisory";
 
@@ -15,12 +14,9 @@ export type SeveritySubject = "configuration" | "server";
 export const SEVERITY_ORDER: Readonly<Record<DiagnosticSeverity, number>> = { blocking: 0, degraded: 1, advisory: 2 };
 
 /**
- * The tier said in words, for assistive technology: on screen a tier rides hue, wash,
- * and text colour (stroke geometry in the bordered modes), none of which a screen
- * reader can report. Per-subject wording,
- * because a label is a claim about the sentence it prefixes - a budget overrun announced
- * as "Partly ignored:" contradicts its own headline. A new surface picks a subject; it
- * never mints words of its own.
+ * The tier said in words, for assistive technology: on screen a tier rides hue, wash, and text colour (stroke geometry
+ * in the bordered modes), none of which a screen reader can report. Per-subject wording, because a label is a claim
+ * about the sentence it prefixes - a budget overrun announced as "Partly ignored:" contradicts its own headline.
  */
 export function severityLabel(severity: DiagnosticSeverity, subject: SeveritySubject): string {
 	switch (severity) {

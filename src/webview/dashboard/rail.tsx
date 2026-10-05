@@ -1,14 +1,12 @@
 /**
- * The dashboard's rail: navigation and global state, always on screen (it replaced a tab
- * strip whose fleet state scrolled away). The ARIA contract stays the tabs contract:
- * still one pane at a time with a roving tabindex (role="tablist"), only the axis is
- * vertical - and the `tab-<section>` ids stay, which the inspector's focus fallback
- * names. NARROW: below the collapse the rail becomes an icon rail; nothing is hidden -
- * labels, brand, verdict, and sync time go visually-hidden, so the accessible tree and
- * keyboard contract are identical at every width. Collapsed controls carry the tip
- * primitive beside the rail (a tip above would cover its neighbour, and the rail's
- * scrolling column would clip it); every bubble is paint-only, repeating what the
- * accessible tree already carries, and renders only while collapsed.
+ * The ARIA contract stays the tabs contract: still one pane at a time with a roving tabindex (role="tablist"), only
+ * the axis is vertical - and the `tab-<section>` ids stay, which the inspector's focus fallback names. Collapsed
+ * controls carry the tip primitive beside the rail (a tip above would cover its neighbour, and the rail's scrolling
+ * column would clip it); every bubble is paint-only, repeating what the accessible tree already carries, and renders
+ * only while collapsed.
+ *
+ *   below the collapse the rail becomes an icon rail -> nothing is hidden
+ *   labels, brand, verdict, and sync time -> go visually-hidden
  */
 import * as l10n from "@vscode/l10n";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -29,21 +27,16 @@ export interface Overall {
 export interface RailSection<Id extends string = string> {
 	readonly id: Id;
 	readonly label: string;
-	/**
-	 * The destination's collapsed-rail icon. Required: an icon rail with a missing icon is a
-	 * blank square with no way back to its name.
-	 */
+	/** Required: an icon rail with a missing icon is a blank square with no way back to its name. */
 	readonly icon: ReactNode;
 	/**
-	 * The live number this destination is about - the rail's whole claim over a tab strip.
-	 * Absent when there is nothing to count: an absent number is a fact, a zero would be a
-	 * different and usually wrong one.
+	 * The live number this destination is about - the rail's whole claim over a tab strip. Absent when there is nothing
+	 * to count: an absent number is a fact, a zero would be a different and usually wrong one.
 	 */
 	readonly count?: string | undefined;
 	/**
-	 * The count said in words, with its own unit ("4 models", "87% of budget"): a bare "4"
-	 * announces as "Servers 4", and the tabpanel inherits that name. The visible label stays
-	 * inside the accessible name (Label in Name).
+	 * The count said in words, with its own unit ("4 models", "87% of budget"): a bare "4" announces as "Servers 4",
+	 * and the tabpanel inherits that name. The visible label stays inside the accessible name (Label in Name).
 	 */
 	readonly countLabel?: string | undefined;
 	/** Tints the count when it is something to act on rather than merely a total. */
@@ -51,25 +44,23 @@ export interface RailSection<Id extends string = string> {
 }
 
 /**
- * The collapse width as a media query, spelled here as well as in the stylesheet: CSS
- * decides what the rail LOOKS like, this decides what it can DO, and neither can read
- * the other. A test pins the two spellings together. `<=` rather than the house `<`:
- * layout applies a `< 1000px` block AT 1000 while matchMedia says false there, so the
- * two disagreed at that one integer width; `<=` evaluates the same both ways (the
- * stylesheet's rail block carries the measurement).
+ * The collapse width as a media query, spelled here as well as in the stylesheet: CSS decides what the rail LOOKS
+ * like, this decides what it can DO, and neither can read the other. A test pins the two spellings together.
+ *
+ *   layout applies a `< 1000px` block AT 1000 while matchMedia says false there, so the two disagreed at that one
+ *   integer width -> `<=` rather than the house `<`
+ *   `<=`          -> evaluates the same both ways (the stylesheet's rail block carries the measurement)
  */
 export const RAIL_COLLAPSE_QUERY = "(width <= 1000px)";
 
 /**
- * Whether the rail is painting icons instead of labels. Two behaviours depend on it that
- * a stylesheet cannot express: whether the verdict is worth a tab stop (collapsed, its
- * word is unpainted; expanded, a stop revealing nothing taxes every keyboard user), and
- * whether each control renders its tip bubble at all.
+ * Two behaviours depend on it that a stylesheet cannot express: whether the verdict is worth a tab stop (collapsed,
+ * its word is unpainted; expanded, a stop revealing nothing taxes every keyboard user), and whether each control
+ * renders its tip bubble at all.
  */
 function useCollapsedRail(): boolean {
-	// Initialized from the query, not false: the stylesheet collapses the paint
-	// on the very first frame, so a false start would leave the pill's tab stop
-	// and the tips disagreeing with the paint until the effect ran.
+	// Initialized from the query, not false: the stylesheet collapses the paint on the very first frame, so a false
+	// start would leave the pill's tab stop and the tips disagreeing with the paint until the effect ran.
 	const [collapsed, setCollapsed] = useState(() => window.matchMedia(RAIL_COLLAPSE_QUERY).matches);
 	useEffect(() => {
 		const query = window.matchMedia(RAIL_COLLAPSE_QUERY);
@@ -81,7 +72,7 @@ function useCollapsedRail(): boolean {
 	return collapsed;
 }
 
-/** One destination. Its own tip, since only the hovered control needs coordinates. */
+/** Its own tip, since only the hovered control needs coordinates. */
 function RailTab<Id extends string>({
 	section,
 	active,
@@ -138,7 +129,6 @@ function RailTab<Id extends string>({
 	);
 }
 
-/** A rail footer action: its label paints beside the icon, or becomes its tip. */
 function RailAction({
 	icon,
 	label,
@@ -157,9 +147,9 @@ function RailAction({
 		<Button
 			variant="secondary"
 			size="compact"
-			// aria-disabled, not disabled (the Button doc's reason): the attribute drops the control
-			// from the tab order and stops pointer events, leaving an icon-only control whose tip
-			// could never measure itself. The handler refuses instead.
+			// aria-disabled, not disabled (the Button doc's reason): the attribute drops the control from the tab order
+			// and stops pointer events, leaving an icon-only control whose tip could never measure itself. The handler
+			// refuses instead.
 			aria-disabled={disabled === true}
 			onClick={() => {
 				if (disabled !== true) {
@@ -167,12 +157,10 @@ function RailAction({
 				}
 			}}
 			{...tip.triggerProps}
-			// mx-0: the footer's glyph-column arithmetic (--rail-inset in
-			// dashboard.css) aligns the verdict dot against this button's inline
-			// padding, so the padding stays in the layout here.
-			// Raw [@media(width<=1000px)] variants, not Tailwind's max variant:
-			// the collapse is spelled `<=` everywhere it lives (the query constant
-			// above explains why), and a max variant compiles to `< N`.
+			// mx-0: the footer's glyph-column arithmetic (--rail-inset in dashboard.css) aligns the verdict dot
+			// against this button's inline padding, so the padding stays in the layout here. Raw
+			// [@media(width<=1000px)] variants, not Tailwind's max variant: the collapse is spelled `<=` everywhere it
+			// lives (the query constant above explains why), and a max variant compiles to `< N`.
 			className="rail-action mx-0 [@media(width<=1000px)]:size-8 [@media(width<=1000px)]:px-0 [@media(width<=1000px)]:py-0"
 		>
 			<span className="rail-action-icon" aria-hidden="true">
@@ -203,9 +191,8 @@ export function Rail<Id extends string>({
 }) {
 	const collapsed = useCollapsedRail();
 	const verdictTip = useTip("beside", collapsed);
-	// The sync line's id, minted rather than spelled: the verdict pill points
-	// its description at that paragraph, and a literal id would be correct only
-	// for as long as exactly one rail is ever mounted.
+	// The sync line's id, minted rather than spelled: the verdict pill points its description at that paragraph, and a
+	// literal id would be correct only for as long as exactly one rail is ever mounted.
 	const syncedId = useId();
 	const select = (id: Id) => {
 		onSelect(id);
@@ -231,13 +218,13 @@ export function Rail<Id extends string>({
 		event.preventDefault();
 	};
 
-	// Said once, so the verdict's tip and its screen-reader text cannot drift:
-	// the collapsed rail paints a dot, and this is what the dot means.
+	// Said once, so the verdict's tip and its screen-reader text cannot drift: the collapsed rail paints a dot, and
+	// this is what the dot means.
 	const verdict = synced === undefined ? overall.word : l10n.t("{0}, last sync {1}", overall.word, synced);
 
 	return (
-		// data-tip-edge: the collapsed controls' tips anchor their x to this
-		// box's right edge, so the column of tips lines up (ui/tip.tsx).
+		// data-tip-edge: the collapsed controls' tips anchor their x to this box's right edge, so the column of tips
+		// lines up (ui/tip.tsx).
 		<nav className="rail" aria-label={l10n.t("Dashboard")} data-tip-edge="">
 			<div className="rail-inner">
 				<h1 className="rail-brand">LiteLLM</h1>
@@ -264,18 +251,17 @@ export function Rail<Id extends string>({
 				    carry: it stays put while the pane beside it scrolls. */}
 				<div className="rail-state">
 					{/* The same pill and tone vocabulary every server row uses: one set of
-				    state indicators for the page, so the rail's verdict and a row's
-				    can never drift apart visually. */}
+					    state indicators for the page, so the rail's verdict and a row's
+					    can never drift apart visually. */}
 					{/* Focusable only while collapsed - there the verdict is a dot and its word unpainted, so
 					    a keyboard or touch reader has no other way to read it; above the collapse a stop
 					    that reveals nothing taxes every visit. Screen readers reach the word either way. */}
 					<p
 						className={cn("rail-status pill", `tone-${overall.tone}`)}
 						tabIndex={collapsed ? 0 : undefined}
-						// The tab stop must say everything the hover says, each thing once: the description
-						// points at the visually-hidden sync paragraph (the one fact the pill's own text lacks);
-						// the tip - word plus time - would read the word twice, so it stays paint-only.
-						// tips are.
+						// The tab stop must say everything the hover says, each thing once: the description points at
+						// the visually-hidden sync paragraph (the one fact the pill's own text lacks); the tip - word
+						// plus time - would read the word twice, so it stays paint-only.
 						aria-describedby={collapsed && synced !== undefined ? syncedId : undefined}
 						{...verdictTip.triggerProps}
 					>

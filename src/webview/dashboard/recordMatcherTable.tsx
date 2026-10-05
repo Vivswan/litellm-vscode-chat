@@ -1,7 +1,3 @@
-/**
- * The matcher table: one row per record with its chips, and the full-editor
- * overlay a row opens.
- */
 import * as l10n from "@vscode/l10n";
 import { useEffect, useId, useState } from "react";
 import type { CapabilityGroupIssues, GroupHints, GroupProblems, PrefixGroup } from "../../dashboard/recordDraft";
@@ -29,9 +25,9 @@ import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
 
 /**
- * The table's two shapes as one discriminated union, not an optional `onChange`: a
- * writer written only to satisfy a type is indistinguishable from a real handler
- * someone forgot to wire. Every key appears in both halves for destructuring.
+ * The table's two shapes as one discriminated union, not an optional `onChange`: a writer written only to satisfy a
+ * type is indistinguishable from a real handler someone forgot to wire. Every key appears in both halves for
+ * destructuring.
  */
 type RecordMatcherTableProps = {
 	kind: RecordEditorKind;
@@ -39,7 +35,10 @@ type RecordMatcherTableProps = {
 	issues: readonly GroupIssueView[];
 } & (
 	| {
-			/** Render as a static display: plain chips, no popovers, no add or edit actions (the other-scope records, the server drawer's entry records). */
+			/**
+			 * Render as a static display: plain chips, no popovers, no add or edit actions (the other-scope records,
+			 * the server drawer's entry records).
+			 */
 			readOnly: true;
 			disabled?: undefined;
 			keySuggestions?: undefined;
@@ -50,21 +49,20 @@ type RecordMatcherTableProps = {
 	| {
 			readOnly?: false | undefined;
 			disabled?: boolean | undefined;
-			/** The add popover's field-name suggestions; the capability vocabulary fills in for the caps kind. */
 			keySuggestions?: readonly string[] | undefined;
 			onChange: (next: PrefixGroup[]) => void;
-			/** The pencil action; the owner opens the full matcher editor overlay on this draft index. */
 			onOpenEditor?: ((groupIndex: number) => void) | undefined;
-			/** Reports the open field popover as "groupIndex:rowIndex", so the card's verdict can skip the problem it states. */
+			/**
+			 * Reports the open field popover as "groupIndex:rowIndex", so the card's verdict can skip the problem it
+			 * states.
+			 */
 			onOpenFieldChange?: ((openField: string | undefined) => void) | undefined;
 	  }
 );
 
 /**
- * The compact matcher table both record editors and the server form render: one row per
- * matcher. Rows display in precedence order, lowest first (sortedGroupOrder - a VIEW
- * order; the draft's storage order is never rewritten). readOnly renders the same table
- * as a static display.
+ * Rows display in precedence order, lowest first (sortedGroupOrder - a VIEW order; the draft's storage order is never
+ * rewritten).
  */
 export function RecordMatcherTable({
 	kind,
@@ -79,18 +77,13 @@ export function RecordMatcherTable({
 }: RecordMatcherTableProps) {
 	const [popover, setPopover] = useState<ChipPopoverTarget | undefined>(undefined);
 	const tableId = useId();
-	// Said once: the open popover states its own field's problem beside the
-	// input, so the card's verdict skips THAT problem and no other.
 	const openField = openFieldAddress(groups, popover);
 	useEffect(() => {
 		onOpenFieldChange?.(openField);
 		// Cleared on unmount: a stale address would silence a real problem.
 		return () => onOpenFieldChange?.(undefined);
 	}, [openField, onOpenFieldChange]);
-	// A popover whose group or field left the draft (a state push with no
-	// draft pinned, a removal elsewhere) closes instead of editing a stale
-	// row; one with live edits is never dropped - its edits sit in the draft,
-	// which pins across pushes.
+	//   A popover whose group or field left the draft -> closes instead of editing a stale row
 	useEffect(() => {
 		setPopover((current) => {
 			if (current === undefined) {
@@ -112,10 +105,9 @@ export function RecordMatcherTable({
 	const editable = readOnly !== true;
 	const order = sortedGroupOrder(groups);
 	return (
-		// Rows share ONE internal grid through subgrid (the models list's construction). The
-		// STRUCTURE lives in dashboard.css, not utilities: dashboard.css sits in the components
-		// layer UNDER utilities, so a `grid` utility here would beat the stylesheet's sub-700px
-		// fallback no matter the query.
+		// Rows share ONE internal grid through subgrid (the models list's construction). The STRUCTURE lives in
+		// dashboard.css, not utilities: dashboard.css sits in the components layer UNDER utilities, so a `grid`
+		// utility here would beat the stylesheet's sub-700px fallback no matter the query.
 		<ul className="record-table" aria-label={recordListLabel(kind)}>
 			{order.map((groupIndex) => {
 				const group = groups[groupIndex];
@@ -123,9 +115,8 @@ export function RecordMatcherTable({
 					return null;
 				}
 				const issueView = issues[groupIndex];
-				// Identity is the RAW key (reorder-stable where trimmed identity
-				// is not) plus the occurrence ordinal for exact duplicates, which
-				// block the parse but stay representable.
+				// Identity is the RAW key (reorder-stable where trimmed identity is not) plus the occurrence ordinal
+				// for exact duplicates, which block the parse but stay representable.
 				const groupKey = group.prefix;
 				const groupOrdinal = groups.slice(0, groupIndex).filter((candidate) => candidate.prefix === groupKey).length;
 				const groupHere = (target: ChipPopoverTarget | undefined): boolean =>
@@ -133,19 +124,17 @@ export function RecordMatcherTable({
 				const pinnedKey = popover?.kind === "field" && groupHere(popover) ? popover.fieldKey : undefined;
 				const chips = chipRowIndices(kind, group, issueView?.rows ?? [], pinnedKey);
 				const addOpen = popover?.kind === "add" && groupHere(popover);
-				// The visible cell's fallback doubles as the accessible name for
-				// the row's actions: a fresh matcher must not announce as "".
+				// The visible cell's fallback doubles as the accessible name for the row's actions: a fresh matcher
+				// must not announce as "".
 				const matcherName = group.prefix.trim().length > 0 ? group.prefix : l10n.t("(no matcher)");
 				return (
-					// Rows are keyed by their MATCHER KEY plus occurrence (index
-					// only for the empty edge): an index key would remount the row
-					// when a state push reorders the record, dropping an open add
-					// popover's half-typed field with it.
+					//   Rows                  -> are keyed by their MATCHER KEY plus occurrence
+					//   an index key          -> would remount the row when a state push reorders the record
+					//   would remount the row -> dropping an open add popover's half-typed field with it
 					<li
-						// The wash is the row's edit affordance, so only editable rows wear
-						// it: on a read-only row it promises an editor that never comes, and
-						// its tint under the non-repainting read-only chips took their flag
-						// words under AA (3.38:1 in the server drawer, violet).
+						// The wash is the row's edit affordance, so only editable rows wear it: on a read-only row it
+						// promises an editor that never comes, and its tint under the non-repainting read-only chips
+						// took their flag words under AA (3.38:1 in the server drawer, violet).
 						className={cn(
 							"record-row group/row -mx-2 rounded-md px-2 py-1",
 							editable && "hover:bg-accent-soft focus-within:bg-accent-soft"
@@ -178,9 +167,8 @@ export function RecordMatcherTable({
 								const key = resolvedFieldName(kind, row.key);
 								const issue = issueView?.rows[rowIndex];
 								const catalog = kind === "caps" && key === OPENROUTER_MODEL_DIRECTIVE;
-								// Chip identity mirrors the group's: the RAW key plus the
-								// occurrence ordinal among exact duplicates, so each
-								// duplicate answers its OWN popover and Remove field can
+								// Chip identity mirrors the group's: the RAW key plus the occurrence ordinal among
+								// exact duplicates, so each duplicate answers its OWN popover and Remove field can
 								// never aim at a sibling row.
 								const ordinal = group.params.slice(0, rowIndex).filter((param) => param.key === row.key).length;
 								const openHere =
@@ -195,9 +183,9 @@ export function RecordMatcherTable({
 								const problemId =
 									issue?.problem !== undefined ? `${tableId}-problem-${groupIndex}-${rowIndex}` : undefined;
 								const describedBy = [problemId, hintId].filter((id) => id !== undefined).join(" ") || undefined;
-								// The chip's states resolve through chipVariants (the module's one
-								// table); worst mark first, so the exclusivity between the two marks
-								// is the variant's shape rather than merge order.
+								// The chip's states resolve through chipVariants (the module's one table); worst mark
+								// first, so the exclusivity between the two marks is the variant's shape rather than
+								// merge order.
 								const chipClass = cn(
 									chipVariants({
 										editable,
@@ -207,9 +195,6 @@ export function RecordMatcherTable({
 									})
 								);
 								const flags = chipFlags(kind, group, key);
-								// The wrong-record-type sentence, when a flag carries one: the
-								// read-only chip's HoverTip below is its only reachable carrier
-								// (the editable chip describes it through aria-describedby).
 								const flagNote = flags.find((flag) => flag.note !== undefined)?.note;
 								const body = (
 									<>
@@ -227,9 +212,8 @@ export function RecordMatcherTable({
 									</>
 								);
 								return (
-									// Chips are keyed by their FIELD KEY so a directive row
-									// inserted or removed by a flag toggle cannot remount an
-									// open popover mid-interaction.
+									// Chips are keyed by their FIELD KEY so a directive row inserted or removed by a
+									// flag toggle cannot remount an open popover mid-interaction.
 									<span className="chip-anchor" key={`${row.key}#${ordinal}`}>
 										{editable ? (
 											<button
@@ -261,10 +245,9 @@ export function RecordMatcherTable({
 												{body}
 											</button>
 										) : flagNote !== undefined ? (
-											// A read-only chip cannot open the popover and a native
-											// title never reliably renders in the webview host, so
-											// the flag's sentence rides the tip primitive: hover,
-											// keyboard focus, and aria-describedby all reach it.
+											// A read-only chip cannot open the popover and a native title never
+											// reliably renders in the webview host, so the flag's sentence rides the
+											// tip primitive: hover, keyboard focus, and aria-describedby all reach it.
 											<HoverTip tip={flagNote}>
 												<span className={chipClass}>{body}</span>
 											</HoverTip>
@@ -338,10 +321,10 @@ export function RecordMatcherTable({
 						<InheritsSummary kind={kind} group={group} />
 						{editable ? (
 							/**
-							 * Pushed to the row's end only in the wrapping tier (the wide grid has no free space).
-							 * A utility, because the button primitive's own mx- would outrank a stylesheet rule; it
-							 * survives the bordered modes only because their hand-back zeroes a custom property,
-							 * not the margin itself (ui/button.tsx).
+							 * Pushed to the row's end only in the wrapping tier (the wide grid has no free space). A
+							 * utility, because the button primitive's own mx- would outrank a stylesheet rule; it
+							 * survives the bordered modes only because their hand-back zeroes a custom property, not
+							 * the margin itself (ui/button.tsx).
 							 */
 							<Button
 								variant="secondary"
@@ -362,10 +345,7 @@ export function RecordMatcherTable({
 }
 
 /**
- * The full matcher editor, an overlay on the model inspectors' slide-over machinery. It
- * edits the same draft the table renders - closing commits nothing and loses nothing.
- * Focus returns to the opening pencil on close, `fallbackFocusId` covering a pencil the
- * removal deleted.
+ *   It edits the same draft the table renders -> closing commits nothing
  */
 export function RecordMatcherEditorOverlay({
 	kind,
@@ -387,16 +367,12 @@ export function RecordMatcherEditorOverlay({
 }: {
 	kind: RecordEditorKind;
 	group: PrefixGroup;
-	/** The group's slice of parseGroups' problems (params kind). */
 	groupProblems?: GroupProblems | undefined;
-	/** The group's slice of parseGroups' hints (params kind). */
 	groupHints?: GroupHints | undefined;
-	/** The group's slice of parseCapabilityGroups' issues (caps kind). */
 	groupIssues?: CapabilityGroupIssues | undefined;
 	prefixPlaceholder?: string | undefined;
 	prefixHelp?: string | undefined;
 	prefixSuggestions?: readonly string[];
-	/** The field-name suggestions: parameter names (params kind) or capability keys (caps kind). */
 	keySuggestions?: readonly string[];
 	disabled?: boolean;
 	/** Where focus lands on close when the opening pencil is gone (a removed matcher); the owner's stable control. */
@@ -455,11 +431,9 @@ export function RecordMatcherEditorOverlay({
 interface MatcherEditing {
 	/** Identity exactly as stored - the grammar trims nothing, so neither does identity. */
 	readonly key: string;
-	/** Occurrence among groups with the SAME raw key (the exact-duplicate edge). */
 	readonly ordinal: number;
 }
 
-/** The draft index the target currently resolves to; undefined once the group left the rows. */
 function resolveMatcherEditing(
 	groups: readonly PrefixGroup[],
 	editing: MatcherEditing | undefined
@@ -480,14 +454,12 @@ function resolveMatcherEditing(
 }
 
 /**
- * The overlay target, resolved to a draft index SYNCHRONOUSLY per render: a pristine
- * push may reorder groups under an open overlay, and a stored index would edit the
- * wrong record for one keystroke. Identity is the RAW matcher key plus an occurrence
- * ordinal; trackRename follows a rename typed inside. The effect clears only once the
- * target is unresolvable, so a key that REAPPEARS cannot resurrect a closed overlay.
+ * The overlay target, resolved to a draft index SYNCHRONOUSLY per render: a pristine push may reorder groups under an
+ * open overlay, and a stored index would edit the wrong record for one keystroke.
+ *
+ * The effect clears only once the target is unresolvable, so a key that REAPPEARS cannot resurrect a closed overlay.
  */
 export function useMatcherEditing(groups: readonly PrefixGroup[]): {
-	/** The open overlay's draft index this render, or undefined when closed. */
 	editingIndex: number | undefined;
 	/** Open on a draft index; `key` overrides the capture when the group is appended in the same tick. */
 	openEditor: (index: number, key?: string) => void;
