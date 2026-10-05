@@ -9,8 +9,8 @@
 import { isDeepStrictEqual } from "node:util";
 import { isRecord } from "../../../shared/util/json";
 import {
-	entryCanReceiveHeaders,
-	entryCanReceiveRecordKeys,
+	ENTRY_SLOTS,
+	entrySlotAccepts,
 	restructureServers,
 	scopedMoveTargets,
 	withEntryDeclares,
@@ -27,7 +27,7 @@ import {
 	NEW_MODEL_PARAMETERS_ID,
 	SERVERS_ID,
 } from "./legacyIds";
-import type { RecordKind } from "./records";
+import type { RecordKind, ScopedMoveTargetState } from "./records";
 import { transformGlobalRecord } from "./records";
 import { mergeTokenDefaults } from "./tokenDefaults";
 import type { RedesignPlan, SettingsSnapshot, SettingWrite } from "./types";
@@ -88,8 +88,15 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 			keptNewNames += 1;
 			return { value: newValue };
 		}
-		const receivable = targets.filter((target) => entryCanReceiveRecordKeys(entryAt(target.entryIndex), kind));
-		const transform = transformGlobalRecord(oldValue, kind, receivable);
+		const slotStates: ScopedMoveTargetState[] = targets.map((target) => {
+			const entry = entryAt(target.entryIndex);
+			return {
+				...target,
+				acceptsRecords: entrySlotAccepts(entry, ENTRY_SLOTS[kind]),
+				acceptsDeclares: entrySlotAccepts(entry, ENTRY_SLOTS.declared),
+			};
+		});
+		const transform = transformGlobalRecord(oldValue, kind, slotStates);
 		counts.starredKeys += transform.starredKeys;
 		counts.droppedAliasKeys += transform.droppedAliasKeys;
 		counts.strippedInertDeclares += transform.strippedInertDeclares;
@@ -97,11 +104,11 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 		movedScoped += transform.movedScopedKeys;
 		inertScoped += transform.inertScopedKeys;
 		for (const [index, additions] of transform.entryAdditions) {
-			updateEntry(index, (entry) => withEntryRecordAdditions(entry, kind, additions).entry);
+			updateEntry(index, (entry) => withEntryRecordAdditions(entry, kind, additions));
 		}
 		for (const [index, ids] of transform.entryDeclares) {
 			counts.movedDeclares += ids.length;
-			updateEntry(index, (entry) => withEntryDeclares(entry, ids).entry);
+			updateEntry(index, (entry) => withEntryDeclares(entry, ids));
 		}
 		valueWrites.push({ section: newId, value: transform.value });
 		deletions.push(oldId);
@@ -122,18 +129,19 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 			deletions.push(LEGACY_HEADERS_ID);
 			logLines.push("Removed the global headers setting from user settings; it carried no usable headers");
 		} else {
-			const receivers = targets.filter((target) => entryCanReceiveHeaders(entryAt(target.entryIndex)));
-			if (receivers.length === 0) {
+			// Every accepted entry sent these headers under the old runtime, so one blocked entry keeps the setting for all.
+			const blocked = targets.some((target) => !entrySlotAccepts(entryAt(target.entryIndex), ENTRY_SLOTS.headers));
+			if (targets.length === 0 || blocked) {
 				logLines.push(
-					"Left the global headers setting in place: no declared server entry can receive it (see the dashboard hint)"
+					"Left the global headers setting in place: no declared server entry can receive it, or one cannot (see the dashboard hint)"
 				);
 			} else {
-				for (const target of receivers) {
-					updateEntry(target.entryIndex, (entry) => withEntryHeaders(entry, rawHeaders).entry);
+				for (const target of targets) {
+					updateEntry(target.entryIndex, (entry) => withEntryHeaders(entry, rawHeaders));
 				}
 				deletions.push(LEGACY_HEADERS_ID);
 				logLines.push(
-					`Copied the global headers setting into ${receivers.length} server ${entriesNoun(receivers.length)} and removed it`
+					`Copied the global headers setting into ${targets.length} server ${entriesNoun(targets.length)} and removed it`
 				);
 			}
 		}
@@ -202,6 +210,11 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 	if (counts.droppedJunkFields > 0) {
 		logLines.push(`Dropped ${counts.droppedJunkFields} legacy entry field value(s) the old readers never honored`);
 	}
+	if (counts.blockedFields > 0) {
+		logLines.push(
+			`Left ${counts.blockedFields} legacy entry field(s) in place: the entry's destination slot holds a value that cannot take them`
+		);
+	}
 	if (counts.starredKeys > 0) {
 		logLines.push(`Rewrote ${counts.starredKeys} record key(s) to explicit matchers`);
 	}
@@ -213,7 +226,7 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 	}
 	if (inertScoped > 0) {
 		logLines.push(
-			`Left ${inertScoped} server-scoped record key(s) in place: no declared entry could receive them (see the dashboard hint)`
+			`Left ${inertScoped} server-scoped record key(s) in place: no declared entry at their URL can receive them, or one cannot (see the dashboard hint)`
 		);
 	}
 	if (counts.movedDeclares > 0) {

@@ -10,13 +10,14 @@
  *   plain override                         -> now also beats an `_openrouter_model` directive
  *   existing "*" record                    -> only added fields join its `_inheritable` list (a user's `true` stays);
  *                                             no old field is newly marked
- *   `_fallback: true` as an override lands -> expands to the pre-existing valid fields so the fill lands unmarked;
- *                                             later fields lose auto-marking
+ *   `_fallback: true` as an override lands -> expands to the fields the live parser marks under it, so the fill lands
+ *                                             unmarked; later fields lose auto-marking
  */
 
 import { isRecord } from "../../../shared/util/json";
 import { normalizePositiveNumber } from "../../../shared/util/numbers";
-import { isValidCapabilityField, REMOVED_TOKEN_DEFAULTS } from "./legacyIds";
+import { fallbackMarksUnderTrue } from "./entries";
+import { REMOVED_TOKEN_DEFAULTS } from "./legacyIds";
 import type { SettingsSnapshot } from "./types";
 
 const CATCH_ALL_KEY = "*";
@@ -95,8 +96,8 @@ export function mergeTokenDefaults(capabilitiesValue: unknown, snapshot: Setting
 		(source.placement === "override" ? overrideAdditions : fallbackAdditions).push(source.field);
 	}
 
-	// An override-placed fill must land unmarked, so `true` expands to the pre-existing valid fields and inert names of
-	// the filled field drop from a list.
+	// An override-placed fill must land unmarked, so `true` expands to what the parser marks under it today and inert
+	// names of the filled field drop from a list.
 	const writeFallback = (list: readonly string[]): void => {
 		if (list.length === 0) {
 			delete merged[FALLBACK_DIRECTIVE];
@@ -106,10 +107,9 @@ export function mergeTokenDefaults(capabilitiesValue: unknown, snapshot: Setting
 	};
 	if (fallback.value === true) {
 		if (overrideAdditions.length > 0) {
-			const preExisting = Object.keys(catchAll).filter(
-				(name) => !name.startsWith("_") && isValidCapabilityField(name, catchAll[name])
-			);
-			writeFallback([...preExisting, ...fallbackAdditions]);
+			// A padded spelling of the override field is the same field to the parser, so it leaves the list too.
+			const kept = fallbackMarksUnderTrue(catchAll).filter((key) => !overrideAdditions.includes(key.trim()));
+			writeFallback([...kept, ...fallbackAdditions]);
 		}
 	} else {
 		const base = (Array.isArray(fallback.value) ? fallback.value : []).filter(

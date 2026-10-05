@@ -66,31 +66,11 @@ export const LEGACY_ENTRY_FIELD_IDS = [
 export const DECLARE_DIRECTIVE = "_declare";
 
 /**
- * The capability vocabulary and the unforceable-key rule as the OLD parsers applied them, quarantined with the rest of
- * the legacy identifiers: the migration expands a `true` directive into the names that directive really marked at the
- * time it was written, so it can never mint a name the old world skipped (and the diagnostic that would come with it).
- * Declared here rather than imported so the redesign's own resolvers can be rewritten without silently changing what
- * an old config meant.
+ * The unforceable-key rule as the OLD `_force` parser applied it, quarantined with the rest of the legacy identifiers:
+ * records.ts rewrites a migrated `_force` to the names it really forced when written, so the move can never newly force
+ * max_tokens (which the live grammar allows). Declared here rather than imported so the live rule can move without
+ * silently changing what an old config meant.
  */
-const CAPABILITY_FIELD_TYPES: Readonly<Record<string, "number" | "boolean">> = {
-	context_length: "number",
-	max_input_tokens: "number",
-	max_output_tokens: "number",
-	supports_function_calling: "boolean",
-	supports_vision: "boolean",
-	supports_reasoning: "boolean",
-	supports_audio_input: "boolean",
-};
-
-export function isValidCapabilityField(name: string, value: unknown): boolean {
-	const type = CAPABILITY_FIELD_TYPES[name];
-	if (type === "number") {
-		return typeof value === "number" && Number.isInteger(value) && value > 0;
-	}
-	return type === "boolean" && typeof value === "boolean";
-}
-
-/** The request fields the extension owns; `_force` refused them (and underscore keys) as unforceable. */
 const PROVIDER_OWNED_KEYS: ReadonlySet<string> = new Set([
 	"model",
 	"messages",

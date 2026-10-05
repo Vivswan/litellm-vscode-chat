@@ -1,23 +1,23 @@
 /**
  * Pure functions over the raw setting value - acceptance rules and secret semantics are deliberately duplicated from
  * the old parser here (quarantine), so the live parser can be rewritten for the new shape without touching migration
- * behavior.
+ * behavior. The live record parsers are the one import: a migrated record is theirs to read, so what their `true`
+ * directive covers is theirs to say.
  *
  * Secrets never appear: a field whose value lives only in SecretStorage was absent from the flat entry and stays
  * absent from the restructured one - the stored value keeps working through its unchanged storage key.
+ *
+ * Records are assembled with Object.fromEntries throughout: it defines own properties, so a user's "__proto__" key
+ * stays inert data instead of becoming a prototype.
  */
 
+import { parseCapabilityRecord } from "../../../shared/config/capabilityResolution";
+import { parseParameterRecord } from "../../../shared/config/parameterResolution";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
-import {
-	isForceableKey,
-	isValidCapabilityField,
-	LEGACY_ENTRY_AUTH_FIELD_IDS,
-	LEGACY_ENTRY_FIELD_IDS,
-	type LegacyEntryAuthFieldId,
-} from "./legacyIds";
-import type { ScopedMoveTarget } from "./records";
+import { LEGACY_ENTRY_AUTH_FIELD_IDS, LEGACY_ENTRY_FIELD_IDS, type LegacyEntryAuthFieldId } from "./legacyIds";
+import type { EntryRecordTransform, RecordKind, ScopedMoveTarget } from "./records";
 import { transformEntryRecord } from "./records";
 
 /** The old parser's usable-text rule, quarantined: a string with non-blank content, used trimmed. */
@@ -55,18 +55,47 @@ export function scopedMoveTargets(rawServers: unknown): ScopedMoveTarget[] {
 	return targets;
 }
 
-/** Safe record assembly: fromEntries defines own properties, so "__proto__" keys stay inert data. */
-function fromPairs(pairs: readonly (readonly [string, unknown])[]): Record<string, unknown> {
-	return Object.fromEntries(pairs);
+/**
+ * One rule for every landing an entry takes (flat fields, scoped keys, declares, the global headers): a slot takes a
+ * value only while the records on its path and its leaf are absent or of the mergeable shape. A hand-written value of
+ * any other shape is the user's text; the source stays in place and is counted instead of overwriting it.
+ */
+export interface EntrySlot {
+	readonly path: readonly string[];
+	readonly leaf: "record" | "list";
 }
 
-function mergePreferring(preferred: Record<string, unknown>, filler: Record<string, unknown>): Record<string, unknown> {
-	return fromPairs([...Object.entries(filler), ...Object.entries(preferred)]);
+export const ENTRY_SLOTS = {
+	auth: { path: ["auth"], leaf: "record" },
+	headers: { path: ["headers"], leaf: "record" },
+	parameters: { path: ["models", "parameters"], leaf: "record" },
+	capabilities: { path: ["models", "capabilities"], leaf: "record" },
+	declared: { path: ["discovery", "declared"], leaf: "list" },
+	expectedFailures: { path: ["discovery", "expectedFailures"], leaf: "list" },
+} as const satisfies Readonly<Record<string, EntrySlot>>;
+
+export function entrySlotAccepts(entry: unknown, slot: EntrySlot): boolean {
+	let holder: unknown = entry;
+	for (const key of slot.path.slice(0, -1)) {
+		if (!isRecord(holder)) {
+			return false;
+		}
+		holder = holder[key];
+		if (holder === undefined) {
+			return true;
+		}
+	}
+	if (!isRecord(holder)) {
+		return false;
+	}
+	const leaf = holder[slot.path[slot.path.length - 1] as string];
+	return leaf === undefined || (slot.leaf === "record" ? isRecord(leaf) : Array.isArray(leaf));
 }
 
 export interface EntryRestructureCounts {
 	restructuredEntries: number;
 	droppedJunkFields: number;
+	blockedFields: number;
 	starredKeys: number;
 	movedDeclares: number;
 	strippedInertDeclares: number;
@@ -78,6 +107,7 @@ function emptyCounts(): EntryRestructureCounts {
 	return {
 		restructuredEntries: 0,
 		droppedJunkFields: 0,
+		blockedFields: 0,
 		starredKeys: 0,
 		movedDeclares: 0,
 		strippedInertDeclares: 0,
@@ -136,7 +166,7 @@ function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 		droppedVirtualKeyValues =
 			(fields.virtualKeyHeader !== undefined ? 1 : 0) + (fields.virtualKeyValue !== undefined ? 1 : 0);
 	}
-	const virtualKey = virtualKeyPairs.length > 0 ? fromPairs(virtualKeyPairs) : undefined;
+	const virtualKey = virtualKeyPairs.length > 0 ? Object.fromEntries(virtualKeyPairs) : undefined;
 
 	const oauthUsable = fields.oauthTokenUrl !== undefined && fields.oauthClientId !== undefined;
 	if (oauthUsable) {
@@ -156,7 +186,7 @@ function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 		if (virtualKey !== undefined) {
 			oauthPairs.push(["virtualKey", virtualKey]);
 		}
-		return { auth: { oauth: fromPairs(oauthPairs) }, droppedAuthPieces: droppedVirtualKeyValues };
+		return { auth: { oauth: Object.fromEntries(oauthPairs) }, droppedAuthPieces: droppedVirtualKeyValues };
 	}
 
 	const droppedAuthPieces =
@@ -177,133 +207,92 @@ function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 }
 
 /**
- * A hand-mixed entry carrying both shapes merges with the nested side winning: nested values are the newer intent, and
- * the flat leftovers still drain so the entry stops being detected as legacy.
+ * A hand-mixed entry carrying both shapes keeps the nested side: nested values are the newer intent, so an existing
+ * auth form or record key wins and the flat leftovers drain. A flat field whose slot is blocked stays in place, which
+ * keeps the entry old-world, so every activation retries it until the user repairs the slot.
  */
 function restructureEntry(record: Record<string, unknown>, counts: EntryRestructureCounts): Record<string, unknown> {
 	if (!LEGACY_ENTRY_FIELD_IDS.some((id) => Object.hasOwn(record, id))) {
 		return record;
 	}
-	counts.restructuredEntries += 1;
-
-	const authFields = collectAuthFields(record, counts);
-	const { auth: flatAuth, droppedAuthPieces } = buildAuth(authFields);
-	counts.droppedJunkFields += droppedAuthPieces;
-
-	const modelPairs: (readonly [string, unknown])[] = [];
-	let declared: readonly string[] = [];
-	if (Object.hasOwn(record, "modelParameters")) {
-		const transform = transformEntryRecord(record.modelParameters, "parameters");
+	let entry = record;
+	const consumed = new Set<string>();
+	const land = (ids: readonly string[], slots: readonly EntrySlot[], landing: () => void): void => {
+		const present = ids.filter((id) => Object.hasOwn(record, id));
+		if (present.length === 0) {
+			return;
+		}
+		if (!slots.every((slot) => entrySlotAccepts(entry, slot))) {
+			counts.blockedFields += present.length;
+			return;
+		}
+		landing();
+		for (const id of present) {
+			consumed.add(id);
+		}
+	};
+	const landRecord = (kind: RecordKind, transform: EntryRecordTransform): void => {
 		counts.starredKeys += transform.starredKeys;
 		counts.droppedAliasKeys += transform.droppedAliasKeys;
-		counts.rewroteForceDirectives += transform.rewroteForce;
-		modelPairs.push(["parameters", transform.value]);
-	}
-	if (Object.hasOwn(record, "modelCapabilities")) {
-		const transform = transformEntryRecord(record.modelCapabilities, "capabilities");
-		counts.starredKeys += transform.starredKeys;
-		counts.droppedAliasKeys += transform.droppedAliasKeys;
-		counts.strippedInertDeclares += transform.strippedInertDeclares;
-		counts.movedDeclares += transform.declared.length;
-		declared = transform.declared;
-		modelPairs.push(["capabilities", transform.value]);
-	}
-	const flatModels = modelPairs.length > 0 ? fromPairs(modelPairs) : undefined;
-
-	const discoveryPairs: (readonly [string, unknown])[] = [];
-	if (Object.hasOwn(record, "expectedFailures")) {
-		discoveryPairs.push(["expectedFailures", record.expectedFailures]);
-	}
-	if (declared.length > 0) {
-		discoveryPairs.push(["declared", declared]);
-	}
-	const flatDiscovery = discoveryPairs.length > 0 ? fromPairs(discoveryPairs) : undefined;
-
-	// `auth` never merges: exactly one form is legal, and mixing a flat credential into an existing auth object would
-	// fabricate a second form.
-	let mergedAuth: unknown;
-	if (record.auth === undefined) {
-		mergedAuth = flatAuth;
-	} else if (!isRecord(record.auth) && flatAuth !== undefined) {
-		// An inert non-record nested value loses to real flat configuration.
-		counts.droppedJunkFields += 1;
-		mergedAuth = flatAuth;
-	} else {
-		if (flatAuth !== undefined) {
+		if (isRecord(transform.value)) {
+			entry = withEntryRecordAdditions(entry, kind, new Map(Object.entries(transform.value)));
+			return;
+		}
+		// A non-record rides verbatim into an empty slot (inert under both worlds); an existing record drains it.
+		const models = isRecord(entry.models) ? entry.models : {};
+		if (models[kind] === undefined) {
+			entry = { ...entry, models: { ...models, [kind]: transform.value } };
+		} else {
 			counts.droppedJunkFields += 1;
 		}
-		mergedAuth = record.auth;
-	}
-
-	const mergeNested = (
-		flat: Record<string, unknown> | undefined,
-		existing: unknown
-	): Record<string, unknown> | unknown => {
-		if (existing === undefined) {
-			return flat;
-		}
-		if (!isRecord(existing)) {
-			// An inert non-record nested value loses to real flat configuration and otherwise stays as the user's own
-			// text.
-			if (flat !== undefined) {
-				counts.droppedJunkFields += 1;
-				return flat;
-			}
-			return existing;
-		}
-		if (flat === undefined) {
-			return existing;
-		}
-		return mergePreferring(existing, flat);
 	};
 
-	const mergedDiscoveryBase = mergeNested(flatDiscovery, record.discovery);
-	const mergedDiscovery =
-		isRecord(mergedDiscoveryBase) && declared.length > 0
-			? withDeclaredIds(mergedDiscoveryBase, declared)
-			: mergedDiscoveryBase;
-
-	const nested: Record<string, unknown | undefined> = {
-		auth: mergedAuth,
-		models: mergeNested(flatModels, record.models),
-		discovery: mergedDiscovery,
-	};
-
-	const placed = new Set<string>();
-	const pairs: (readonly [string, unknown])[] = [];
-	for (const [key, value] of Object.entries(record)) {
-		if ((LEGACY_ENTRY_FIELD_IDS as readonly string[]).includes(key)) {
-			continue;
+	land(LEGACY_ENTRY_AUTH_FIELD_IDS, [ENTRY_SLOTS.auth], () => {
+		const { auth, droppedAuthPieces } = buildAuth(collectAuthFields(record, counts));
+		counts.droppedJunkFields += droppedAuthPieces;
+		if (auth === undefined) {
+			return;
 		}
-		if (Object.hasOwn(nested, key)) {
-			placed.add(key);
-			if (nested[key] !== undefined) {
-				pairs.push([key, nested[key]]);
+		// Exactly one auth form is legal, so a flat credential never merges into an existing auth object.
+		if (entry.auth === undefined) {
+			entry = { ...entry, auth };
+		} else {
+			counts.droppedJunkFields += 1;
+		}
+	});
+	land(["modelParameters"], [ENTRY_SLOTS.parameters], () => {
+		const transform = transformEntryRecord(record.modelParameters, "parameters");
+		counts.rewroteForceDirectives += transform.rewroteForce;
+		landRecord("parameters", transform);
+	});
+	if (Object.hasOwn(record, "modelCapabilities")) {
+		const transform = transformEntryRecord(record.modelCapabilities, "capabilities");
+		const declares = transform.declared.length > 0;
+		land(
+			["modelCapabilities"],
+			declares ? [ENTRY_SLOTS.capabilities, ENTRY_SLOTS.declared] : [ENTRY_SLOTS.capabilities],
+			() => {
+				counts.strippedInertDeclares += transform.strippedInertDeclares;
+				counts.movedDeclares += transform.declared.length;
+				landRecord("capabilities", transform);
+				if (declares) {
+					entry = withEntryDeclares(entry, transform.declared);
+				}
 			}
-			continue;
-		}
-		pairs.push([key, value]);
+		);
 	}
-	for (const key of ["auth", "models", "discovery"]) {
-		if (!placed.has(key) && nested[key] !== undefined) {
-			pairs.push([key, nested[key]]);
+	land(["expectedFailures"], [ENTRY_SLOTS.expectedFailures], () => {
+		const discovery = isRecord(entry.discovery) ? entry.discovery : {};
+		if (!Object.hasOwn(discovery, "expectedFailures")) {
+			entry = { ...entry, discovery: { ...discovery, expectedFailures: record.expectedFailures } };
 		}
-	}
-	return fromPairs(pairs);
-}
+	});
 
-function withDeclaredIds(discovery: Record<string, unknown>, ids: readonly string[]): Record<string, unknown> {
-	const existing = discovery.declared;
-	if (existing !== undefined && !Array.isArray(existing)) {
-		return discovery;
+	if (consumed.size === 0) {
+		return record;
 	}
-	const merged = [...(existing ?? [])];
-	for (const id of ids) {
-		if (!merged.includes(id)) {
-			merged.push(id);
-		}
-	}
-	return { ...discovery, declared: merged };
+	counts.restructuredEntries += 1;
+	return Object.fromEntries(Object.entries(entry).filter(([key]) => !consumed.has(key)));
 }
 
 /** Non-array values and non-record entries ride verbatim: they were inert and remain the user's text to fix. */
@@ -316,44 +305,32 @@ export function restructureServers(raw: unknown): { value: unknown; counts: Entr
 	return { value, counts };
 }
 
-/** Whether one entry's `models.<kind>` slot can take migrated record keys without destroying user data. */
-export function entryCanReceiveRecordKeys(entry: unknown, kind: "parameters" | "capabilities"): boolean {
-	if (!isRecord(entry)) {
-		return false;
-	}
-	const models = entry.models;
-	if (models === undefined) {
-		return true;
-	}
-	if (!isRecord(models)) {
-		return false;
-	}
-	const slot = models[kind];
-	return slot === undefined || isRecord(slot);
+/**
+ * The record's own keys a `_fallback: true` marks, as the live parser reads it: it trims field keys and list entries
+ * alike, so a list written under the record's own spelling still names the field.
+ */
+export function fallbackMarksUnderTrue(record: Record<string, unknown>): string[] {
+	const marked = parseCapabilityRecord(record).fallback;
+	return Object.keys(record).filter((key) => marked.has(key.trim()));
 }
 
-/**
- * The two list-shaped directives a colliding-record merge must reconcile; everything else merges entry-wins. Each
- * carries the eligibility rule its own parser applies when expanding a `true` directive, so the merge cannot mint
- * names the old world never marked: `_force` refuses provider-owned and underscore keys, `_fallback` accepts only
- * validly-typed capability fields.
- */
+/** Old forceability is settled upstream: records.ts rewrites a migrated `_force` before any merge. */
 const LIST_DIRECTIVES: readonly {
 	readonly name: string;
-	readonly eligible: (record: Record<string, unknown>, key: string) => boolean;
+	readonly marksUnderTrue: (record: Record<string, unknown>) => string[];
 }[] = [
-	{ name: "_force", eligible: (_record, key) => isForceableKey(key) },
-	{ name: "_fallback", eligible: (record, key) => isValidCapabilityField(key, record[key]) },
+	{ name: "_force", marksUnderTrue: (record) => [...parseParameterRecord(record).forced] },
+	{ name: "_fallback", marksUnderTrue: fallbackMarksUnderTrue },
 ];
 
 const LIST_DIRECTIVE_NAMES: readonly string[] = LIST_DIRECTIVES.map((directive) => directive.name);
 
 /**
- * A same-key collision is the one overlap the move resolves losslessly, since identical keys match identical
- * models and the old runtime merged entry over scoped field by field. Adding fields changes what a record's own
- * `_force`/`_fallback` cover, so every mark keeps exactly the coverage it had.
+ * A same-key collision merges field by field with the entry winning, as the old runtime merged entry over scoped; the
+ * one accepted loss is a scoped mark on a field the entry overrode, which drops rather than re-pointing at the entry's
+ * value. Adding fields changes what a record's own `_force`/`_fallback` cover, so every mark keeps the coverage it had.
  *
- *   entry-side `true`                          -> expands to the entry's literal field list before scoped fields land
+ *   entry-side `true`                          -> expands to what the parser marks under it before scoped fields land
  *   entry-side name that marked nothing        -> dropped once the scoped record supplies the field
  *   scoped name whose field the entry overrode -> dropped, never re-pointed at the entry's value
  */
@@ -365,18 +342,14 @@ function mergeCollidingRecords(
 		([name]) => !LIST_DIRECTIVE_NAMES.includes(name) && !Object.hasOwn(existing, name)
 	);
 	const arrivingNames = new Set(newPlain.map(([name]) => name));
-	const eligibleNames = (
-		record: Record<string, unknown>,
-		eligible: (record: Record<string, unknown>, key: string) => boolean
-	): string[] => Object.keys(record).filter((name) => !name.startsWith("_") && eligible(record, name));
 
 	const directiveChanges: (readonly [string, unknown])[] = [];
-	for (const { name: directive, eligible } of LIST_DIRECTIVES) {
+	for (const { name: directive, marksUnderTrue } of LIST_DIRECTIVES) {
 		const existingRaw = Object.hasOwn(existing, directive) ? existing[directive] : undefined;
 		const additionRaw = Object.hasOwn(addition, directive) ? addition[directive] : undefined;
 		const additionNames =
 			additionRaw === true
-				? eligibleNames(addition, eligible)
+				? marksUnderTrue(addition)
 				: Array.isArray(additionRaw)
 					? additionRaw.filter((name): name is string => typeof name === "string" && Object.hasOwn(addition, name))
 					: [];
@@ -385,7 +358,7 @@ function mergeCollidingRecords(
 				// Expand before the arriving fields widen what `true` covers; the scoped side's marks follow its
 				// surviving fields.
 				const surviving = additionNames.filter((name) => arrivingNames.has(name));
-				directiveChanges.push([directive, [...eligibleNames(existing, eligible), ...surviving]]);
+				directiveChanges.push([directive, [...marksUnderTrue(existing), ...surviving]]);
 				continue;
 			}
 			// A `true` with nothing arriving (or a junk value) stays as written; junk cannot take additions without
@@ -405,32 +378,26 @@ function mergeCollidingRecords(
 	if (newPlain.length === 0 && directiveChanges.length === 0) {
 		return undefined;
 	}
-	return fromPairs([...Object.entries(existing), ...newPlain, ...directiveChanges]);
+	return Object.fromEntries([...Object.entries(existing), ...newPlain, ...directiveChanges]);
 }
 
 /**
- * An entry-side value the old normalization dropped (a non-record) is not user configuration at all - the scoped
- * record was what applied - so the incoming record replaces it.
+ * Callers gate with entrySlotAccepts first, so `models` and the slot are absent or records here. An entry-side value
+ * the old normalization dropped (a non-record) was never configuration, so the incoming record replaces it.
  */
 export function withEntryRecordAdditions(
 	entry: Record<string, unknown>,
-	kind: "parameters" | "capabilities",
+	kind: RecordKind,
 	additions: ReadonlyMap<string, unknown>
-): { entry: Record<string, unknown>; added: number } {
+): Record<string, unknown> {
 	const models = isRecord(entry.models) ? entry.models : {};
-	const slot = isRecord(models[kind]) ? (models[kind] as Record<string, unknown>) : {};
-	const merged: Record<string, unknown> = Object.fromEntries(Object.entries(slot));
+	const slot = models[kind];
+	const merged = new Map(isRecord(slot) ? Object.entries(slot) : []);
 	let added = 0;
 	for (const [key, value] of additions) {
-		//   Addition keys come out of explicitMatcherKey -> never a reserved name, so direct assignment is safe here
-		if (!Object.hasOwn(merged, key)) {
-			merged[key] = value;
-			added += 1;
-			continue;
-		}
-		const existingValue = merged[key];
-		if (!isRecord(existingValue)) {
-			merged[key] = value;
+		const existingValue = merged.get(key);
+		if (!merged.has(key) || !isRecord(existingValue)) {
+			merged.set(key, value);
 			added += 1;
 			continue;
 		}
@@ -439,44 +406,30 @@ export function withEntryRecordAdditions(
 		}
 		const collided = mergeCollidingRecords(existingValue, value);
 		if (collided !== undefined) {
-			merged[key] = collided;
+			merged.set(key, collided);
 			added += 1;
 		}
 	}
 	if (added === 0) {
-		return { entry, added: 0 };
+		return entry;
 	}
-	return {
-		entry: { ...entry, models: { ...models, [kind]: merged } },
-		added,
-	};
+	return { ...entry, models: { ...models, [kind]: Object.fromEntries(merged) } };
 }
 
-export function withEntryDeclares(
-	entry: Record<string, unknown>,
-	ids: readonly string[]
-): { entry: Record<string, unknown>; added: number } {
-	const discovery = isRecord(entry.discovery) ? entry.discovery : entry.discovery === undefined ? {} : undefined;
-	if (discovery === undefined) {
-		return { entry, added: 0 };
+/** Callers gate with entrySlotAccepts first, so `discovery` and `declared` are absent or of the mergeable shape here. */
+export function withEntryDeclares(entry: Record<string, unknown>, ids: readonly string[]): Record<string, unknown> {
+	const discovery = isRecord(entry.discovery) ? entry.discovery : {};
+	const current: unknown[] = Array.isArray(discovery.declared) ? discovery.declared : [];
+	const declared = [...current];
+	for (const id of ids) {
+		if (!declared.includes(id)) {
+			declared.push(id);
+		}
 	}
-	const existing = discovery.declared;
-	if (existing !== undefined && !Array.isArray(existing)) {
-		return { entry, added: 0 };
+	if (declared.length === current.length) {
+		return entry;
 	}
-	const current: unknown[] = [...(existing ?? [])];
-	const missing = ids.filter((id) => !current.includes(id));
-	if (missing.length === 0) {
-		return { entry, added: 0 };
-	}
-	return {
-		entry: { ...entry, discovery: { ...discovery, declared: [...current, ...missing] } },
-		added: missing.length,
-	};
-}
-
-export function entryCanReceiveHeaders(entry: unknown): boolean {
-	return isRecord(entry) && (entry.headers === undefined || isRecord(entry.headers));
+	return { ...entry, discovery: { ...discovery, declared } };
 }
 
 /**
@@ -486,12 +439,12 @@ export function entryCanReceiveHeaders(entry: unknown): boolean {
 export function withEntryHeaders(
 	entry: Record<string, unknown>,
 	headers: Record<string, unknown>
-): { entry: Record<string, unknown>; added: number } {
+): Record<string, unknown> {
 	const existing = isRecord(entry.headers) ? entry.headers : {};
 	const existingNames = new Set(Object.keys(existing).map((name) => name.toLowerCase()));
 	const missing = Object.entries(headers).filter(([name]) => !existingNames.has(name.toLowerCase()));
 	if (missing.length === 0) {
-		return { entry, added: 0 };
+		return entry;
 	}
-	return { entry: { ...entry, headers: fromPairs([...Object.entries(existing), ...missing]) }, added: missing.length };
+	return { ...entry, headers: Object.fromEntries([...Object.entries(existing), ...missing]) };
 }
