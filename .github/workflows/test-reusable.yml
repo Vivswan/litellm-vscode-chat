@@ -104,11 +104,11 @@ jobs:
             exit 1
           fi
           if [ -n "$DOCKER_ONLY" ] && [ "$SUITE" != "docker" ]; then
-            echo "::error::docker-only is set but this is the '$SUITE' suite; it applies only to the docker suite."
+            echo "::error::docker-only is set but this is the '$SUITE' suite on $RUNNER_OS; it applies only to the docker suite on Linux."
             exit 1
           fi
           if [ -n "$DOCKER_ONLY" ] && [ "$RUNNER_OS" != "Linux" ]; then
-            echo "::error::docker-only is set but this runs on $RUNNER_OS; it applies only to the docker suite on Linux."
+            echo "::error::docker-only is set but this is the '$SUITE' suite on $RUNNER_OS; it applies only to the docker suite on Linux."
             exit 1
           fi
           if [ -n "$LITELLM_IMAGE" ] && [ "$SUITE" != "docker" ]; then

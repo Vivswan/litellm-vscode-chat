@@ -9,6 +9,7 @@
  *   three rejected pushes                    -> ::error::, exit 1
  */
 import { spawnSync } from "node:child_process";
+import os from "node:os";
 import { setOutput } from "./githubActions";
 
 /** Only the files sync-vscode-floor.ts owns, so a stray runner edit can never ride along. */
@@ -23,13 +24,16 @@ function env(name: string): string {
 	return value;
 }
 
-function git(args: readonly string[]): boolean {
-	return spawnSync("git", args, { stdio: "inherit" }).status === 0;
+/** The git child's exit status as the shell would carry it out of a failed step, 128 plus the signal for a kill. */
+function git(args: readonly string[]): number {
+	const { status, signal } = spawnSync("git", args, { stdio: "inherit" });
+	return status ?? 128 + (signal === null ? 0 : os.constants.signals[signal]);
 }
 
 function must(args: readonly string[]): void {
-	if (!git(args)) {
-		throw new Error(`git ${args[0]} failed`);
+	const status = git(args);
+	if (status !== 0) {
+		process.exit(status);
 	}
 }
 
@@ -37,7 +41,7 @@ function main(): void {
 	const token = env("TOKEN");
 	const headRef = env("HEAD_REF");
 	const repository = env("GITHUB_REPOSITORY");
-	if (git(["diff", "--quiet"])) {
+	if (git(["diff", "--quiet"]) === 0) {
 		console.log("floor already in sync");
 		return;
 	}
@@ -49,7 +53,7 @@ function main(): void {
 	const remote = `https://x-access-token:${token}@github.com/${repository}.git`;
 	let pushed = false;
 	for (let attempt = 1; attempt <= PUSH_ATTEMPTS && !pushed; attempt++) {
-		pushed = git(["push", remote, `HEAD:${headRef}`]);
+		pushed = git(["push", remote, `HEAD:${headRef}`]) === 0;
 		if (!pushed) {
 			must(["fetch", "origin", headRef]);
 			must(["rebase", `origin/${headRef}`]);

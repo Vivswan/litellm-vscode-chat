@@ -12,7 +12,7 @@ import { once } from "node:events";
 import { closeSync, copyFileSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DOCKER_SKIP_FLAGS, type DockerTestLabel, SEEDED_FUZZ_LABELS } from "../../src/test/dockerTestLabels";
+import { nightlyDockerArgs } from "../../src/test/dockerTestLabels";
 import { parseLastFuzzSeedLine } from "../../src/test/fuzzSeed";
 
 function env(name: string): string {
@@ -87,23 +87,13 @@ async function unitLeg(): Promise<number> {
 	return status;
 }
 
-function skipFlagOf(label: DockerTestLabel): string {
-	const flag = DOCKER_SKIP_FLAGS[label];
-	if (flag === undefined) {
-		throw new Error(`seeded label "${label}" has no --skip flag, so the unseeded leg cannot exclude it`);
-	}
-	return flag;
-}
-
 async function dockerLeg(): Promise<number> {
 	const leg = env("LEG");
 	const seed = env("SEED");
 	const seeded = env("SEEDED") === "true";
-	const labels = SEEDED_FUZZ_LABELS.join(",");
 	// One explicit seed for every suite in a seeded leg (resolveDockerFuzzSeed replays it exactly), so one seed
-	// reproduces the whole leg and legs never overlap. Skip flags rather than --only for the unseeded leg: a label
-	// added to DOCKER_TEST_LABELS runs at night automatically instead of silently never running.
-	const args = seeded ? ["--only", labels] : SEEDED_FUZZ_LABELS.map(skipFlagOf);
+	// reproduces the whole leg and legs never overlap.
+	const args = nightlyDockerArgs(seeded);
 	const logPath = "nightly-docker.log";
 	console.log(`leg ${leg}: test:docker ${args.join(" ")}${seeded ? `, seed ${seed}` : ""}`);
 	const status = await runLogged(
@@ -129,7 +119,7 @@ async function dockerLeg(): Promise<number> {
 					"```bash",
 					`FUZZ_SEED=${replaySeed} FUZZ_ITERATIONS=${env("FUZZ_ITERATIONS")} ` +
 						`CONVERSATION_ITERATIONS=${env("CONVERSATION_ITERATIONS")} MONKEY_ITERATIONS=${env("MONKEY_ITERATIONS")} ` +
-						`bun run test:docker --only ${labels}`,
+						`bun run test:docker ${args.join(" ")}`,
 					"```",
 					"",
 					"Every suite in this leg ran under the same explicit seed, so the",
