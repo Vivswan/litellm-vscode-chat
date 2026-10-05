@@ -106,19 +106,22 @@ function declaredGroupIdentity(entry: DeclaredServer, args: Readonly<Record<stri
 	};
 }
 
-/** One identity the setting currently declares: the entry label and its normalized base URL. */
-export interface DeclaredEntryIdentity {
-	readonly label: string;
-	readonly baseUrl: string;
-}
-
 /**
  * "renamed" means a label NEW this pass (see declaredLabelsLastPass) now declares the removed label's base URL,
  * so the old group is a rename leftover rather than an explicit removal. A "removed" baseUrl is undefined when
  * neither the ledger nor an unambiguous host observation names it, because the env must never tombstone a guess.
  */
 export type RemovedEntryEvent =
-	| { readonly kind: "removed"; readonly label: string; readonly baseUrl: string | undefined }
+	| {
+			readonly kind: "removed";
+			readonly label: string;
+			readonly baseUrl: string | undefined;
+			/**
+			 * The one live group the removed entry joined by its last readable identities and no present entry shares
+			 * (ServerSyncEngine.joinKeyOf): what a pre-label leftover hides by. Empty when nothing live answers to it.
+			 */
+			readonly groupIds: readonly string[];
+	  }
 	| { readonly kind: "renamed"; readonly oldLabel: string; readonly newLabel: string; readonly baseUrl: string };
 
 /** Everything the engine touches, injected; createServerSyncEnv builds the real one. */
@@ -157,6 +160,8 @@ export interface ServerSyncEnv {
 	 * within a sweep; wiring/servers.ts re-runs a pass when a labeled group enters, so late evidence is not lost.
 	 */
 	observedGroupBaseUrls(label: string): readonly string[];
+	/** The client IDs of the groups the host serves right now; see joinKeyOf. */
+	observedGroupIds(): ReadonlySet<string>;
 	/**
 	 * A re-declared group must never stay suppressed, so the env clears matching removal tombstones before
 	 * recording the events; extensions cannot delete the group itself, only the user can.
@@ -164,7 +169,7 @@ export interface ServerSyncEnv {
 	 *   The pass awaits it -> reconciliations stay serialized with their passes
 	 */
 	reconcileEntryIdentities(
-		declared: readonly DeclaredEntryIdentity[],
+		declared: readonly DeclaredGroupIdentity[],
 		events: readonly RemovedEntryEvent[]
 	): Promise<void>;
 	log(message: string, data?: unknown): void;
@@ -379,6 +384,42 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 *     -> is not, however few records it has
 	 */
 	private declaredLabelsLastPass: ReadonlySet<string> | undefined;
+	/**
+	 * Each label's identities as its last readable accepted view published them, kept while the label stays in the
+	 * setting (a rejected shape publishes no view, a failed blob read a credential-less one). The removal event and
+	 * the tombstone clear both read them through joinKeyOf, so neither acts by a key the group ownership would not
+	 * join the entry by.
+	 */
+	private readonly lastIdentities = new Map<
+		string,
+		Pick<DeclaredGroupIdentity, "expectedClientId" | "expectedConnectionId">
+	>();
+
+	/**
+	 * The identity the group ownership (dashboard/declaredJoin.ts) joins the entry by, given the groups the host serves
+	 * now: its client ID when a group carries it, else its connection ID when a pre-label group carries that, else
+	 * nothing; the connection ID is never an entry's identity beside its own labeled group.
+	 */
+	private joinKeyOf(
+		ids: Pick<DeclaredGroupIdentity, "expectedClientId" | "expectedConnectionId"> | undefined,
+		live: ReadonlySet<string>
+	): string | undefined {
+		if (ids?.expectedClientId !== undefined && live.has(ids.expectedClientId)) {
+			return ids.expectedClientId;
+		}
+		return ids?.expectedConnectionId !== undefined && live.has(ids.expectedConnectionId)
+			? ids.expectedConnectionId
+			: undefined;
+	}
+
+	/** The host's live group IDs; a throwing env reads as none served. */
+	private liveGroupIds(): ReadonlySet<string> {
+		try {
+			return this.env.observedGroupIds();
+		} catch {
+			return new Set();
+		}
+	}
 	private running: Promise<void> | undefined;
 	private queued: { force: boolean; promise: Promise<void>; resolve: () => void } | undefined;
 	private timer: ReturnType<typeof setTimeout> | undefined;
@@ -896,8 +937,19 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 		}
 
+		for (const view of views) {
+			// A pass whose stored secrets did not all resolve (the read failed, or a stamp refused a value) built its
+			// identities over incomplete secrets: not the live group's.
+			if (view.syncFailure?.class === "secretsUnreadable" || view.syncFailure?.class === "secretsMismatched") {
+				continue;
+			}
+			this.lastIdentities.set(view.label, {
+				expectedClientId: view.expectedClientId,
+				expectedConnectionId: view.expectedConnectionId,
+			});
+		}
 		try {
-			await this.finishPass(rawSetting, entries, previous, next, printedByLabel);
+			await this.finishPass(rawSetting, entries, views, previous, next, printedByLabel);
 		} finally {
 			// In a finally because a throwing finish must not discard the pass's computed views.
 			//
@@ -917,6 +969,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 	private async finishPass(
 		rawSetting: unknown,
 		entries: readonly DeclaredServer[],
+		views: readonly DeclaredServerView[],
 		previous: Readonly<Record<string, string>>,
 		next: Record<string, string>,
 		printedByLabel: ReadonlyMap<string, string>
@@ -1003,6 +1056,8 @@ export class ServerSyncEngine implements vscode.Disposable {
 				removed.push(label);
 			}
 		}
+		const present = rawDeclaredLabels(rawSetting);
+		const live = this.liveGroupIds();
 		const events: RemovedEntryEvent[] = [];
 		for (const label of removed) {
 			const baseUrl = ledger[label] ?? this.soleObservedBaseUrl(label);
@@ -1011,7 +1066,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				//   A rename's other half -> is remembered only within the session
 				if (carried === undefined) {
 					this.unresolvedRemovals.set(label, newLabels);
-					events.push({ kind: "removed", label, baseUrl });
+					events.push({ kind: "removed", label, baseUrl, groupIds: [] });
 				}
 				continue;
 			}
@@ -1020,10 +1075,17 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 			this.unresolvedRemovals.delete(label);
 			const renamedTo = [...(carried ?? newLabels)].find(([, url]) => url === baseUrl)?.[0];
+			const own = this.lastIdentities.get(label);
+			this.lastIdentities.delete(label);
+			const shared = new Set(
+				[...this.lastIdentities].flatMap(([other, ids]) => (present.has(other) ? [this.joinKeyOf(ids, live)] : []))
+			);
+			const ownKey = this.joinKeyOf(own, live);
+			const groupIds = ownKey !== undefined && !shared.has(ownKey) ? [ownKey] : [];
 			events.push(
 				renamedTo !== undefined
 					? { kind: "renamed", oldLabel: label, newLabel: renamedTo, baseUrl }
-					: { kind: "removed", label, baseUrl }
+					: { kind: "removed", label, baseUrl, groupIds }
 			);
 		}
 		// An unresolved removal - detected this pass or carried from an earlier one - keeps its fingerprint record (see
@@ -1077,8 +1139,16 @@ export class ServerSyncEngine implements vscode.Disposable {
 		if (reported.length > 0) {
 			this.env.log("Servers setting entries removed; their provider groups remain", { labels: reported });
 		}
+		for (const label of [...this.lastIdentities.keys()]) {
+			if (!present.has(label)) {
+				this.lastIdentities.delete(label);
+			}
+		}
 		await this.env.reconcileEntryIdentities(
-			entries.map((entry) => ({ label: entry.label, baseUrl: normalizeBaseUrl(entry.baseUrl) })),
+			views.map(({ label, baseUrl }) => {
+				const key = this.joinKeyOf(this.lastIdentities.get(label), live);
+				return { label, baseUrl: normalizeBaseUrl(baseUrl), expectedClientId: key };
+			}),
 			events
 		);
 	}

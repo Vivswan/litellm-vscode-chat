@@ -48,7 +48,6 @@ import {
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { Logger } from "../../shared/logger";
 import { pickEntryViewFields, pickNonSecretOptionalFields } from "../../shared/serverEntry";
-import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
 import {
 	DASHBOARD_BUNDLE_FILENAME,
@@ -56,7 +55,8 @@ import {
 	WEBVIEW_DIST_SEGMENTS,
 } from "../../shared/webviewPaths";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
-import type { GroupRemovalStore } from "../servers/groupRemovals";
+import type { GroupRemovalStore, TombstoneIdentity } from "../servers/groupRemovals";
+import { tombstoneHides } from "../servers/groupRemovals";
 import { openManageLanguageModels } from "../servers/manageLanguageModels";
 import type { SecretStore, ServerSyncEngine } from "../servers/serverSync";
 import {
@@ -193,11 +193,6 @@ export type DashboardSubmission =
  */
 type MessageSource = "webview" | "external";
 
-/** One observed group identity as a set key, normalized like the tombstone store's identities. */
-function observedIdentityKey(label: string, baseUrl: string): string {
-	return `${label}\n${normalizeBaseUrl(baseUrl)}`;
-}
-
 /** How many catalog search results one response may carry; the picker shows a short list. */
 const CATALOG_RESULT_LIMIT = 20;
 
@@ -253,15 +248,10 @@ export class DashboardController implements vscode.Disposable {
 	 * replay a stale jump.
 	 */
 	private _pendingFocusSection: DashboardSectionId | undefined;
-	/**
-	 * Session-sticky on purpose: snapshots age out of the status window after minutes, but a suppressed group the host
-	 * still holds must keep its hidden-groups row all session, while a group deleted from the models file before this
-	 * session must not show a ghost row.
-	 */
-	/**
-	 * Identity key -> whether a LABELED group was ever seen at it; see DashboardStateInputs.wasLabeledGroupObserved.
-	 */
-	private readonly _observedGroupIdentities = new Map<string, boolean>();
+	private readonly _observedGroups = new Map<
+		string,
+		{ readonly label: string; readonly entryLabel: string | undefined; readonly baseUrl: string }
+	>();
 	/**
 	 * The current page's generation, bumped whenever the page is torn down or replaced (the panel hides - without
 	 * retainContextWhenHidden the page dies hidden and reloads on reveal - or is disposed). _readyGeneration records
@@ -410,20 +400,24 @@ export class DashboardController implements vscode.Disposable {
 	readState(): DashboardState {
 		const snapshots = this.env.getSnapshots();
 		for (const snapshot of snapshots) {
-			const key = observedIdentityKey(snapshot.status.label, snapshot.status.baseUrl);
-			this._observedGroupIdentities.set(
-				key,
-				(this._observedGroupIdentities.get(key) ?? false) || snapshot.entryLabel !== undefined
-			);
+			this._observedGroups.set(snapshot.status.serverId, {
+				label: snapshot.status.label,
+				entryLabel: snapshot.entryLabel,
+				baseUrl: snapshot.status.baseUrl,
+			});
 		}
 		const reader = this.env.settingsReader();
 		const declared = this.env.getDeclaredServers();
 		const entryReports = serverSettingReports(this.env.readServersSetting());
 		const removedGroups = this.env.getRemovedGroups();
-		const wasGroupObserved = (label: string, baseUrl: string) =>
-			this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl));
-		const wasLabeledGroupObserved = (label: string, baseUrl: string) =>
-			this._observedGroupIdentities.get(observedIdentityKey(label, baseUrl)) === true;
+		// A tombstone is a ghost until the group it hides was seen this session, by the key it hides by.
+		const observed = (tombstone: TombstoneIdentity) =>
+			[...this._observedGroups.entries()].filter(([groupId, group]) =>
+				tombstoneHides(tombstone, { groupId, ...group })
+			);
+		const wasGroupObserved = (tombstone: TombstoneIdentity) => observed(tombstone).length > 0;
+		const wasLabeledGroupObserved = (tombstone: TombstoneIdentity) =>
+			observed(tombstone).some(([, group]) => group.entryLabel !== undefined);
 		// In FEATURE_MODEL_IDS order for a stable push, whatever object the env built its probes record from.
 		const featureProbes = FEATURE_MODEL_IDS.filter((feature) => this.env.featureProbes[feature] !== undefined);
 		const state = buildDashboardState({
@@ -841,7 +835,7 @@ export interface RegisterDashboardOptions {
 export interface IntentEnvironmentDeps {
 	readonly provider: Pick<LiteLLMChatModelProvider, "getServerSnapshots" | "getGroupServer">;
 	readonly syncEngine: Pick<ServerSyncEngine, "requestSync" | "resolveDeclaredIdentities">;
-	readonly removals: Pick<GroupRemovalStore, "addTombstone" | "removeTombstone" | "isTombstoned">;
+	readonly removals: Pick<GroupRemovalStore, "addTombstone" | "removeTombstone" | "hasTombstone">;
 	readonly settingsAccess: SettingsAccess;
 	readonly secrets: SecretStore;
 	readonly logger: Pick<Logger, "log">;
@@ -888,12 +882,8 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 		resolveAdoptionCredentials: async (baseUrl, sourceHandle) => {
 			const live = await liveIdentities();
 			return {
-				credentials: resolveAdoptableCredentials(
-					provider.getServerSnapshots(),
-					live,
-					baseUrl,
-					sourceHandle,
-					(serverId) => provider.getGroupServer(serverId)
+				source: resolveAdoptableCredentials(provider.getServerSnapshots(), live, baseUrl, sourceHandle, (serverId) =>
+					provider.getGroupServer(serverId)
 				),
 				setting: live.setting,
 			};
@@ -914,7 +904,7 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 		// background refresh.
 		hideGroup: (identity) => removals.addTombstone(identity),
 		unhideGroup: (identity) => removals.removeTombstone(identity),
-		isGroupHidden: (identity) => removals.isTombstoned(identity.label, identity.baseUrl),
+		isGroupHidden: (identity) => removals.hasTombstone(identity.label, identity.baseUrl),
 		openManageLanguageModels: (search) => openManageLanguageModels(search),
 		// The draft-connection test's probe: one throwaway discovery pass, no
 		// mutation, no caching, and no logger (its discovery chatter would enter

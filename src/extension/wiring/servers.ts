@@ -38,6 +38,8 @@ export function wireServers(
 		notifyModelsChanged: DebouncedAction;
 		/** The engine's live ownership evidence: which base URLs the host is serving each labeled group at. */
 		observedGroupBaseUrls: (label: string) => readonly string[];
+		/** The client IDs of the groups the host serves now; see ServerSyncEnv.observedGroupIds. */
+		observedGroupIds: () => ReadonlySet<string>;
 		/** Fires when a labeled group enters the provider's status window; a pass re-runs so the evidence is used. */
 		onDidObserveGroup: vscode.Event<void>;
 	}
@@ -45,7 +47,14 @@ export function wireServers(
 	const { catalogStore, notifyModelsChanged } = deps;
 	// Created before the dashboard, which edits the setting and reads the engine's declared-server view.
 	const syncEngine = new ServerSyncEngine(
-		createServerSyncEnv(context, logger, deps.fingerprintSalt, deps.groupRemovals, deps.observedGroupBaseUrls)
+		createServerSyncEnv(
+			context,
+			logger,
+			deps.fingerprintSalt,
+			deps.groupRemovals,
+			deps.observedGroupBaseUrls,
+			deps.observedGroupIds
+		)
 	);
 	const usagePoller = new UsagePoller(createUsagePollerEnv(context, logger, userAgent));
 	context.subscriptions.push(

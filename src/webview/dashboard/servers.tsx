@@ -427,8 +427,8 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 			{expanded ? (
 				<ul id={listId}>
 					{hidden.map((group) => (
-						// Keyed by the identity pair the unhideServer intent posts.
-						<li key={`${group.label}:${group.baseUrl}`}>
+						// A removed group and a superseded leftover can share the pair; the reason tells them apart.
+						<li key={`${group.reason}:${group.label}:${group.baseUrl}`}>
 							<span className="hidden-label">{group.label}</span> <span className="url">{group.baseUrl}</span>{" "}
 							{group.reason === "superseded" ? (
 								<span className="hidden-reason">

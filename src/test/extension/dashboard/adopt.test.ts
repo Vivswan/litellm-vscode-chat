@@ -75,12 +75,11 @@ suite("extension/dashboard/adopt", () => {
 			const second = handleOf(snapshots, [], "ext.test (2)");
 			for (const ordering of [snapshots, [...snapshots].reverse()]) {
 				assert.deepStrictEqual(resolveAdoptableCredentials(ordering, live(), "http://ext.test", first, lookup), {
-					apiKey: "sk-one",
+					credentials: { apiKey: "sk-one" },
 				});
-				assert.deepStrictEqual(
-					resolveAdoptableCredentials(ordering, live(), "http://ext.test/", second, lookup),
-					OAUTH_CREDENTIALS
-				);
+				assert.deepStrictEqual(resolveAdoptableCredentials(ordering, live(), "http://ext.test/", second, lookup), {
+					credentials: OAUTH_CREDENTIALS,
+				});
 			}
 		});
 
@@ -105,7 +104,7 @@ suite("extension/dashboard/adopt", () => {
 			);
 			assert.deepStrictEqual(
 				resolveAdoptableCredentials(snapshots, live(declared), "http://ext.test", second, lookup),
-				OAUTH_CREDENTIALS,
+				{ credentials: OAUTH_CREDENTIALS },
 				"the still-external sibling stays adoptable"
 			);
 		});
@@ -119,7 +118,7 @@ suite("extension/dashboard/adopt", () => {
 			);
 		});
 
-		test("returns undefined for an unknown handle or a snapshot without group credentials", () => {
+		test("resolves nothing for an unknown handle, and a registry-only snapshot as a source without credentials", () => {
 			const snapshots = [snapshotFor("group:aaa:http://ext.test")];
 			assert.strictEqual(
 				resolveAdoptableCredentials(snapshots, live(), "http://ext.test", "not-a-minted-handle", lookup),
@@ -132,7 +131,7 @@ suite("extension/dashboard/adopt", () => {
 					models: [],
 				},
 			];
-			assert.strictEqual(
+			assert.deepStrictEqual(
 				resolveAdoptableCredentials(
 					registryOnly,
 					live(),
@@ -140,8 +139,8 @@ suite("extension/dashboard/adopt", () => {
 					handleOf(registryOnly, [], "ext.test"),
 					lookup
 				),
-				undefined,
-				"a registry snapshot has no group credentials to adopt"
+				{ credentials: undefined },
+				"a registry snapshot is external with no group credentials to adopt"
 			);
 		});
 
@@ -153,7 +152,7 @@ suite("extension/dashboard/adopt", () => {
 			const moved = live([makeDeclared({ label: "Prod", baseUrl: "http://new.test" })]);
 			assert.deepStrictEqual(
 				resolveAdoptableCredentials(snapshots, moved, "http://ext.test", handle, lookup),
-				{ apiKey: "sk-one" },
+				{ credentials: { apiKey: "sk-one" } },
 				"with no stored value under the label, the group is the user's own"
 			);
 			const holding = { ...moved, storedSecrets: new Map([["Prod", { values: { apiKey: "sk-one" }, owners: {} }]]) };
@@ -164,13 +163,12 @@ suite("extension/dashboard/adopt", () => {
 			);
 		});
 
-		test("resolveExternalGroupIdentity yields the raw status identity, under the same trust rules", () => {
+		test("resolveExternalGroupIdentity yields the group's own tombstone identity, under the same trust rules", () => {
 			const snapshots = [snapshotFor("group:aaa:http://ext.test"), snapshotFor("group:bbb:http://ext.test")];
-			// Both ordinal rows resolve to the same raw status identity: the
-			// tombstone is keyed by the snapshot's own label, never the display
-			// ordinal.
 			const handle = handleOf(snapshots, [], "ext.test (1)");
 			assert.deepStrictEqual(resolveExternalGroupIdentity(snapshots, live(), "http://ext.test", handle, lookup), {
+				by: "group",
+				groupId: "group:aaa:http://ext.test",
 				label: "ext.test",
 				baseUrl: "http://ext.test",
 			});

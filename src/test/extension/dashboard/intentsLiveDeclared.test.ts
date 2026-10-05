@@ -4,15 +4,17 @@
  * engine and a fake host, in a window where a weaker resolution would hand out a declared entry's secret.
  */
 import * as assert from "node:assert";
+import { isDeepStrictEqual } from "node:util";
 import type { RequestPayload } from "../../../dashboard/endpoints";
 import type { DashboardState } from "../../../dashboard/viewModels";
-import { adoptSourceHandle } from "../../../extension/dashboard/adoptHandle";
+import { adoptSourceHandle, modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import { storedSecretHolders } from "../../../extension/dashboard/declaredJoin";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import { DashboardValidationError, executeDashboardIntent } from "../../../extension/dashboard/intents";
 import { createIntentEnvironment, declaredViewsFromSetting } from "../../../extension/dashboard/panel";
 import type { DeclaredServersInput } from "../../../extension/dashboard/state";
 import { buildDashboardState } from "../../../extension/dashboard/state";
+import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import type { SecretStore } from "../../../extension/servers/serverSync";
 import { acceptedEntry, ServerSyncEngine, serverSettingReports } from "../../../extension/servers/serverSync";
 import { readServerSecretsRecord, secretDestination } from "../../../extension/servers/serverSync/secrets";
@@ -21,7 +23,8 @@ import type { GroupServer } from "../../../provider/catalog/groupModels";
 import { groupClientId, groupServerLabel, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
-import { makeServerStatus } from "../../testUtils";
+import { makeModelInfo } from "../../pureHelpers";
+import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
 import { makeSecretStore, makeSyncEnv } from "../servers/serverSyncHelpers";
 import { makeReader } from "./stateHelpers";
 
@@ -63,8 +66,10 @@ function makeHost() {
 					serverId,
 					label: server.label ?? groupServerLabel(server.baseUrl),
 					baseUrl: args.baseUrl ?? "",
+					servedModelCount: 1,
 				}),
-				models: [],
+				// One model per group, so a hide's effect on the models list is observable.
+				models: [makeModelInfo({ id: `${args.name}-model`, name: `${args.name}-model` })],
 				...(args.label !== undefined ? { entryLabel: args.label } : {}),
 			});
 			await gate;
@@ -88,8 +93,8 @@ interface Fixture {
 	host: ReturnType<typeof makeHost>;
 	/** Every array the servers setting was written with. */
 	writes: unknown[][];
-	/** Every tombstone the hide intent wrote. */
-	hidden: { label: string; baseUrl: string }[];
+	/** The real removal store the intents and the push share. */
+	removals: GroupRemovalStore;
 	/** Runs before every SecretStorage read of the given label's blob (the engine's and the intents'). */
 	onSecretRead: ((label: string) => void) | undefined;
 	/** Replace the servers setting outright, any value, as a hand edit or another window would. */
@@ -135,7 +140,7 @@ function makeFixture(): Fixture {
 	const fixture: Fixture = {
 		host,
 		writes,
-		hidden: [],
+		removals: new GroupRemovalStore(makeExtensionStorage().memento),
 		secretOps: [],
 		currentSetting: effective,
 		secretsSnapshot: () =>
@@ -163,6 +168,7 @@ function makeFixture(): Fixture {
 				reader: makeReader({}),
 				declared,
 				entryReports: serverSettingReports(effective()),
+				removedGroups: { tombstones: fixture.removals.tombstones(), origins: [] },
 				secretHolders: storedSecretHolders(
 					host.snapshots,
 					(serverId) => host.servers.get(serverId),
@@ -201,6 +207,7 @@ function makeFixture(): Fixture {
 	fixture.engine = new ServerSyncEngine(
 		{
 			...makeSyncEnv().env,
+			observedGroupIds: () => new Set(host.snapshots.map((snapshot) => snapshot.status.serverId)),
 			readServersSetting: effective,
 			readSecrets: (label) => readServerSecretsRecord(secrets, label),
 			addProviderGroup: host.addProviderGroup,
@@ -210,13 +217,7 @@ function makeFixture(): Fixture {
 	fixture.env = createIntentEnvironment({
 		provider: { getServerSnapshots: () => host.snapshots, getGroupServer: (serverId) => host.servers.get(serverId) },
 		syncEngine: fixture.engine,
-		removals: {
-			addTombstone: async (identity) => {
-				fixture.hidden.push({ label: identity.label, baseUrl: identity.baseUrl });
-			},
-			removeTombstone: async () => false,
-			isTombstoned: () => false,
-		},
+		removals: fixture.removals,
 		settingsAccess,
 		secrets,
 		logger: { log: () => {} },
@@ -261,8 +262,7 @@ interface Scenario {
 	open(fixture: Fixture): Promise<Opened>;
 	/** The intents the window applies to; hide has no step between its resolution and its write. */
 	intents: readonly ("adopt" | "hide")[];
-	/** What adopt does with the handle: the plain entry with the caveat, the group's own key, or a refusal. */
-	adopt: "plain-entry" | "rejects" | { readonly copies: string };
+	adopt: "rejects" | { readonly copies: string };
 	/** What hide throws, and adopt when it rejects: the stale-row validation error, or the failed secrets read. */
 	refusal: RegExp | typeof DashboardValidationError | ((error: unknown) => boolean);
 	/**
@@ -348,7 +348,7 @@ const WINDOWS: Record<string, Scenario> = {
 	"mid-pass": {
 		after: { setting: [A_ENTRY, L1_ENTRY], secrets: { A: keyBlob("http://a.test", A_KEY), L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
-		adopt: "plain-entry",
+		adopt: "rejects",
 		refusal: DashboardValidationError,
 		open: async ({ engine, env, host, pushedHandle }) => {
 			await executeDashboardIntent(
@@ -381,7 +381,7 @@ const WINDOWS: Record<string, Scenario> = {
 	"first-pass": {
 		after: { setting: [L1_ENTRY], secrets: { L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
-		adopt: "plain-entry",
+		adopt: "rejects",
 		refusal: DashboardValidationError,
 		open: async ({ env, host, pushedHandle, handleOf }) => {
 			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("L1", H) }, env);
@@ -414,7 +414,7 @@ const WINDOWS: Record<string, Scenario> = {
 	"declared-mid-read": {
 		after: { setting: [A_ENTRY, L1_ENTRY], secrets: { A: keyBlob("http://a.test", A_KEY), L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
-		adopt: "plain-entry",
+		adopt: "rejects",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
 			const { engine, env, host, pushedHandle } = fixture;
@@ -462,7 +462,7 @@ const WINDOWS: Record<string, Scenario> = {
 	"secret-rotates-mid-read": {
 		after: { setting: [L1_ENTRY, A_ENTRY], secrets: { L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
-		adopt: "plain-entry",
+		adopt: "rejects",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
 			const { engine, host, pushedHandle } = fixture;
@@ -493,7 +493,7 @@ const WINDOWS: Record<string, Scenario> = {
 	"rejected-entry": {
 		after: { setting: [L1_REJECTED], secrets: { L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
-		adopt: "plain-entry",
+		adopt: "rejects",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
 			const { engine, env, pushedHandle, pushedLegacyRows } = fixture;
@@ -509,7 +509,7 @@ const WINDOWS: Record<string, Scenario> = {
 	"label-only-entry": {
 		after: { setting: [{ label: "L1" }], secrets: { L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
-		adopt: "plain-entry",
+		adopt: "rejects",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
 			const { engine, env, pushedHandle, pushedLegacyRows } = fixture;
@@ -670,7 +670,7 @@ const WINDOWS: Record<string, Scenario> = {
 	"moved-entry-old-group": {
 		after: { setting: [{ label: "L1", baseUrl: "http://new.test" }], secrets: { L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
-		adopt: "plain-entry",
+		adopt: "rejects",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
 			const { engine, env, pushedHandle, pushedState } = fixture;
@@ -691,7 +691,7 @@ const WINDOWS: Record<string, Scenario> = {
 			secrets: { L1: keyBlob(H) },
 		},
 		intents: ["adopt", "hide"],
-		adopt: "plain-entry",
+		adopt: "rejects",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
 			const { engine, host, pushedHandle, pushedLegacyRows } = fixture;
@@ -713,7 +713,7 @@ const WINDOWS: Record<string, Scenario> = {
 			secrets: {},
 		},
 		intents: ["adopt", "hide"],
-		adopt: "plain-entry",
+		adopt: "rejects",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
 			const { engine, pushedHandle, pushedLegacyRows, pushedState } = fixture;
@@ -804,9 +804,9 @@ const WINDOWS: Record<string, Scenario> = {
 function assertOutcome(
 	fixture: Fixture,
 	scenario: Scenario,
-	before: { writes: number; hostCalls: number; secretOps: number },
+	before: { writes: number; hostCalls: number; secretOps: number; state: DashboardState; windowMoved: () => boolean },
 	settingsWrites: readonly unknown[][],
-	hidden: readonly { label: string; baseUrl: string }[] = []
+	acted: { readonly handle: string; readonly hidden?: readonly { label: string; baseUrl: string }[] }
 ): void {
 	assert.deepStrictEqual(fixture.writes.slice(before.writes), settingsWrites);
 	assert.deepStrictEqual(fixture.currentSetting(), settingsWrites.at(-1) ?? scenario.after.setting);
@@ -816,8 +816,65 @@ function assertOutcome(
 		[],
 		"an intent routing nothing to secure storage writes no blob"
 	);
-	assert.deepStrictEqual(fixture.hidden, hidden);
 	assert.strictEqual(fixture.host.attempted.length, before.hostCalls, "an intent never calls the host");
+	const tombstones = fixture.removals.tombstones();
+	assert.deepStrictEqual(
+		tombstones.map(({ label, baseUrl }) => ({ label, baseUrl })),
+		acted.hidden ?? []
+	);
+	for (const tombstone of tombstones) {
+		assert.ok(
+			tombstone.by === "group" && adoptSourceHandle(tombstone.groupId) === acted.handle,
+			"a hide tombstones the group by its own client ID, never by a label or URL another group shares"
+		);
+	}
+	// A window that re-declares or re-keys the setting or a secret mid-intent moves the rows on its own, so only the
+	// Copy rule is checked for it.
+	const after = fixture.pushedState();
+	const copyRows = after.servers.filter((server) => server.origin === "declared" && server.label === "Copy");
+	assert.strictEqual(
+		copyRows.length,
+		settingsWrites.length > 0 && fixture.engine.getDeclared().length === 0 ? 1 : 0,
+		"the Copy row appears only through the settings fallback after a landed adoption"
+	);
+	if (before.windowMoved()) {
+		return;
+	}
+	const hiddenId =
+		acted.hidden === undefined
+			? undefined
+			: [...fixture.host.servers.keys()].find((serverId) => adoptSourceHandle(serverId) === acted.handle);
+	assert.ok(acted.hidden === undefined || hiddenId !== undefined, "the hidden handle names a host group");
+	const liveRows = (state: DashboardState) => state.servers.filter((server) => server.origin !== "declared");
+	assert.deepStrictEqual(
+		liveRows(after),
+		liveRows(before.state).filter((server) => hiddenId === undefined || server.adoptHandle !== acted.handle)
+	);
+	assert.deepStrictEqual(
+		after.servers.filter((server) => server.origin === "declared" && server.label !== "Copy"),
+		before.state.servers.filter((server) => server.origin === "declared")
+	);
+	assert.deepStrictEqual(
+		after.models,
+		before.state.models.filter((model) => hiddenId === undefined || model.scopeKey !== modelScopeKey(hiddenId))
+	);
+	assert.strictEqual(after.servedModelCount, before.state.servedModelCount - (hiddenId === undefined ? 0 : 1));
+	assert.deepStrictEqual(
+		after.hiddenGroups,
+		hiddenId === undefined
+			? before.state.hiddenGroups
+			: [
+					...before.state.hiddenGroups,
+					...(acted.hidden ?? []).map((group) => ({ ...group, reason: "removed" as const })),
+				]
+	);
+}
+
+function windowMovedSince(fixture: Fixture, scenario: Scenario): () => boolean {
+	const setting = structuredClone(fixture.currentSetting());
+	const secrets = fixture.secretsSnapshot();
+	return () =>
+		!isDeepStrictEqual(scenario.after.setting, setting) || !isDeepStrictEqual(scenario.after.secrets, secrets);
 }
 
 suite("extension/dashboard intents against the live sync truth", () => {
@@ -835,6 +892,8 @@ suite("extension/dashboard intents against the live sync truth", () => {
 					writes: fixture.writes.length,
 					hostCalls: fixture.host.attempted.length,
 					secretOps: fixture.secretOps.length,
+					state: fixture.pushedState(),
+					windowMoved: windowMovedSince(fixture, scenario),
 				};
 				const adopt = () =>
 					executeDashboardIntent(
@@ -850,20 +909,19 @@ suite("extension/dashboard intents against the live sync truth", () => {
 						env
 					);
 				try {
-					if (scenario.adopt === "plain-entry") {
-						const notice = await adopt();
-						assert.ok(typeof notice === "string" && /could not be read/.test(notice), `caveat expected, got ${notice}`);
-						assert.ok(Array.isArray(scenario.after.setting));
-						assertOutcome(fixture, scenario, before, [[...scenario.after.setting, { label: "Copy", baseUrl: H }]]);
-					} else if (typeof scenario.adopt === "object") {
+					if (typeof scenario.adopt === "object") {
 						assert.strictEqual(await adopt(), undefined, "a full adoption carries no caveat");
 						assert.ok(Array.isArray(scenario.after.setting));
-						assertOutcome(fixture, scenario, before, [
-							[...scenario.after.setting, { label: "Copy", baseUrl: H, auth: { apiKey: scenario.adopt.copies } }],
-						]);
+						assertOutcome(
+							fixture,
+							scenario,
+							before,
+							[[...scenario.after.setting, { label: "Copy", baseUrl: H, auth: { apiKey: scenario.adopt.copies } }]],
+							{ handle: opened.handle }
+						);
 					} else {
 						await assert.rejects(adopt, scenario.refusal);
-						assertOutcome(fixture, scenario, before, []);
+						assertOutcome(fixture, scenario, before, [], { handle: opened.handle });
 					}
 				} finally {
 					await opened.close();
@@ -885,6 +943,8 @@ suite("extension/dashboard intents against the live sync truth", () => {
 					writes: fixture.writes.length,
 					hostCalls: fixture.host.attempted.length,
 					secretOps: fixture.secretOps.length,
+					state: fixture.pushedState(),
+					windowMoved: windowMovedSince(fixture, scenario),
 				};
 				const hide = () =>
 					executeDashboardIntent(
@@ -894,10 +954,10 @@ suite("extension/dashboard intents against the live sync truth", () => {
 				try {
 					if (scenario.after.hidden === undefined) {
 						await assert.rejects(hide, scenario.refusal);
-						assertOutcome(fixture, scenario, before, []);
+						assertOutcome(fixture, scenario, before, [], { handle: opened.handle });
 					} else {
 						assert.strictEqual(await hide(), undefined);
-						assertOutcome(fixture, scenario, before, [], scenario.after.hidden);
+						assertOutcome(fixture, scenario, before, [], { handle: opened.handle, hidden: scenario.after.hidden });
 					}
 				} finally {
 					await opened.close();

@@ -12,7 +12,6 @@
  */
 
 export type {
-	DeclaredEntryIdentity,
 	DeclaredGroupIdentity,
 	DeclaredIdentities,
 	DeclaredServerView,

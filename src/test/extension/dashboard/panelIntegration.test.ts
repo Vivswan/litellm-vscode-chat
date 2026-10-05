@@ -346,7 +346,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		);
 	});
 
-	test("adoptServer with no matching host group still saves the entry instead of failing the intent", async function () {
+	test("adoptServer with no matching host group refuses as a stale row and saves nothing", async function () {
 		this.timeout(20000);
 		const outcome = await inject(
 			request(
@@ -360,19 +360,9 @@ suite("extension/dashboard/panelIntegration", () => {
 				"pi-adopt-1"
 			)
 		);
-		// Degrading instead of throwing is the contract: adoption must stay usable
-		// exactly when the group vanished. The caveat message rides the
-		// unobservable webview ack, so this pins the outcome class and the entry.
-		assert.strictEqual(outcome, "ok");
+		assert.strictEqual(outcome, "validation-error");
 		const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
-		assert.ok(JSON.stringify(globalValue ?? {}).includes("PanelIT-Adopted"), "the adopted entry must be saved");
-		// Clean up through the same real path.
-		assert.strictEqual(
-			await inject(
-				request("removeServerSetting", { label: "PanelIT-Adopted", baseUrl: "http://localhost:49999" }, "pi-adopt-rm")
-			),
-			"ok"
-		);
+		assert.ok(!JSON.stringify(globalValue ?? {}).includes("PanelIT-Adopted"), "no entry may be saved");
 	});
 
 	test("litellm.manage resolves through the legacy path in the test-mode host with the quick pick cancelled", async function () {

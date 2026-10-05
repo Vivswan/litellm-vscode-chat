@@ -64,6 +64,14 @@ function discoveryCacheKey(groupClientId: string, apiRoot: string, includeModes:
 	return JSON.stringify([groupClientId, apiRoot, [...includeModes].sort()]);
 }
 
+export interface SuppressedGroupKey {
+	readonly groupId: string;
+	/** The status label: the configuration stamp, else the URL host. */
+	readonly label: string;
+	readonly entryLabel: string | undefined;
+	readonly baseUrl: string;
+}
+
 export interface GroupDiscoveryOptions {
 	/** The transport's model listing; its errors arrive unlogged and are logged once here at the boundary. */
 	client: Pick<ChatClient, "fetchModels">;
@@ -83,7 +91,7 @@ export interface GroupDiscoveryOptions {
 	/** Per-entry includeModes resolver, matched like getExpectedFailures; it also keys the discovery cache. */
 	getEntryIncludeModes: (label: string, baseUrl: string) => readonly NonChatMode[] | undefined;
 	/** The extension layer's tombstone predicate; see LiteLLMChatModelProviderOptions.isGroupSuppressed. */
-	isGroupSuppressed: (label: string, baseUrl: string, entryLabel: string | undefined) => boolean;
+	isGroupSuppressed: (group: SuppressedGroupKey) => boolean;
 	// Facade-bound log callbacks: this module logs only through them, so the provider facade stays the single logging
 	// boundary.
 	log: (message: string, data?: unknown) => void;
@@ -244,7 +252,14 @@ export class GroupDiscovery {
 		// touches the network or the cache. Its status still reports (healthy with zero models, flagged
 		// hiddenByRemoval) so the status window ages it like any live group and the dashboard's hidden-groups view
 		// stays coherent.
-		if (this._options.isGroupSuppressed(server.label, groupServer.baseUrl, groupServer.label)) {
+		if (
+			this._options.isGroupSuppressed({
+				groupId: server.id,
+				label: server.label,
+				entryLabel: groupServer.label,
+				baseUrl: groupServer.baseUrl,
+			})
+		) {
 			this._options.log("Provider group is hidden by the user's configuration; serving no models", {
 				baseUrl: server.baseUrl,
 			});

@@ -15,6 +15,7 @@ import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serv
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
+import type { TombstoneIdentity } from "../servers/groupRemovals";
 import type { DeclaredIdentities } from "../servers/serverSync";
 import { secretDestination } from "../servers/serverSync/secrets";
 import { acceptedEntry } from "../servers/serverSync/setting";
@@ -36,10 +37,14 @@ export type AdoptableGroupCredentials = OptionalEntryFields;
  * judged against.
  */
 export interface AdoptionResolution {
-	/** Undefined when nothing still-external matches the handle. */
-	readonly credentials: AdoptableGroupCredentials | undefined;
+	readonly source: AdoptionSource | undefined;
 	/** The raw servers setting value the resolution is consistent with (ServerSyncEngine.resolveDeclaredIdentities). */
 	readonly setting: unknown;
+}
+
+/** The external group an adopt intent copies from; `credentials` is undefined when the group is registry-only. */
+export interface AdoptionSource {
+	readonly credentials: AdoptableGroupCredentials | undefined;
 }
 
 /**
@@ -48,7 +53,7 @@ export interface AdoptionResolution {
  */
 export interface ExternalGroupResolution {
 	/** Undefined when nothing still-external matches the handle. */
-	readonly identity: { readonly label: string; readonly baseUrl: string } | undefined;
+	readonly identity: TombstoneIdentity | undefined;
 	readonly setting: unknown;
 }
 
@@ -79,41 +84,36 @@ function resolveExternalSnapshot(
 	)?.snapshot;
 }
 
-/** The identity a hide's tombstone is keyed by: status label and base URL, under resolveExternalSnapshot's rules. */
 export function resolveExternalGroupIdentity(
 	snapshots: readonly ServerModelsSnapshot[],
 	live: LiveDeclaration,
 	baseUrl: string,
 	sourceHandle: string,
 	getGroupServer: (serverId: string) => GroupServer | undefined
-): { label: string; baseUrl: string } | undefined {
+): TombstoneIdentity | undefined {
 	const source = resolveExternalSnapshot(snapshots, live, baseUrl, sourceHandle, getGroupServer);
 	if (source === undefined) {
 		return undefined;
 	}
-	return { label: source.status.label, baseUrl: source.status.baseUrl };
+	return { by: "group", groupId: source.status.serverId, label: source.status.label, baseUrl: source.status.baseUrl };
 }
 
-/**
- * The credentials an adopt intent may copy, under resolveExternalSnapshot's rules. Undefined when nothing external
- * matches; the caller then adopts the plain entry with a caveat.
- */
 export function resolveAdoptableCredentials(
 	snapshots: readonly ServerModelsSnapshot[],
 	live: LiveDeclaration,
 	baseUrl: string,
 	sourceHandle: string,
 	getGroupServer: (serverId: string) => GroupServer | undefined
-): AdoptableGroupCredentials | undefined {
+): AdoptionSource | undefined {
 	const source = resolveExternalSnapshot(snapshots, live, baseUrl, sourceHandle, getGroupServer);
 	if (source === undefined) {
 		return undefined;
 	}
 	const server = getGroupServer(source.status.serverId);
 	if (server === undefined) {
-		return undefined;
+		return { credentials: undefined };
 	}
-	return {
+	const credentials: AdoptableGroupCredentials = {
 		...(server.apiKey.length > 0 ? { apiKey: server.apiKey } : {}),
 		...(server.oauth !== undefined
 			? {
@@ -127,14 +127,17 @@ export function resolveAdoptableCredentials(
 			? { virtualKeyHeader: server.virtualKey.header, virtualKeyValue: server.virtualKey.value }
 			: {}),
 	};
+	return { credentials };
 }
 
-/**
- * What the handle resolves to decides what lands; the staged secrets roll back on any refusal below.
- *
- *   a still-external group  -> its credentials, inline or staged under the new label as the form routed them
- *   nothing still-external  -> the plain entry and the caveat notice
- */
+function staleRowRefusal(): DashboardValidationError {
+	return new DashboardValidationError(
+		`${l10n.t("This row no longer matches an adoptable server - it may have just been declared or removed.")}\n${l10n.t(
+			"The row did not resolve to an external VS Code provider group."
+		)}`
+	);
+}
+
 export async function applyAdoptServer(
 	intent: RequestPayload<"adoptServer">,
 	env: IntentEnvironment
@@ -154,7 +157,11 @@ export async function applyAdoptServer(
 	}
 	requireLabelFree(rawServerEntries(env.readServersSetting()), label);
 
-	const { credentials } = await env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
+	const { source } = await env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
+	if (source === undefined) {
+		throw staleRowRefusal();
+	}
+	const { credentials } = source;
 	// The adopted entry assembles through the shared assembler into the NESTED auth object the sync engine parses:
 	// secrets the user routed to settings join the inline fields; secure-routed values stay out of the entry and land
 	// in SecretStorage below. Writing any flat credential field here would sync credential-less and escape the
@@ -213,7 +220,10 @@ export async function applyAdoptServer(
 		// Resolved again after the awaited staging: a source declared meanwhile is not copied, and the array written
 		// is the one this resolution read.
 		const again = await env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
-		if (credentials !== undefined && !isDeepStrictEqual(again.credentials, credentials)) {
+		if (again.source === undefined) {
+			throw staleRowRefusal();
+		}
+		if (!isDeepStrictEqual(again.source.credentials, credentials)) {
 			throw new DashboardValidationError(
 				l10n.t(
 					"The server this row described was declared in the servers setting while the adoption ran; nothing was copied"

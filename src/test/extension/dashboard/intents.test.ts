@@ -444,9 +444,9 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.serverWrites, []);
 		});
 
-		test("a missing credential lookup still adopts the plain entry and reports the caveat", async () => {
+		test("a source whose credentials cannot be read still adopts the plain entry and reports the caveat", async () => {
 			const recorded = makeEnv([]);
-			// adoptionCredentials stays unset: the group refreshed away.
+			// adoptionCredentials stays unset: the group is registry-only.
 
 			const notice = await adopt(recorded);
 
@@ -586,14 +586,16 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv();
 			// The resolved identity is the group's own status label and URL, not
 			// what the intent claimed: the handle is the authority.
-			recorded.externalGroup = { label: "Prod", baseUrl: "http://prod.test/" };
+			recorded.externalGroup = { by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test/" };
 			await executeDashboardIntent(
 				{ method: "hideExternalServer", payload: { baseUrl: "http://prod.test", sourceHandle: "handle-1" } },
 				recorded.env
 			);
 
 			assert.deepStrictEqual(recorded.externalLookups, [["http://prod.test", "handle-1"]]);
-			assert.deepStrictEqual(recorded.hidden, [{ label: "Prod", baseUrl: "http://prod.test/" }]);
+			assert.deepStrictEqual(recorded.hidden, [
+				{ by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test/" },
+			]);
 		});
 
 		test("hideExternalServer refuses an unusable base URL before any lookup", async () => {

@@ -452,7 +452,7 @@ suite("extension/dashboard/state", () => {
 						snapshots: [],
 						reader: makeReader({}),
 						entryReports: rejectedProd("http://new.test"),
-						removedGroups: { tombstones: [{ label: "Prod", baseUrl: "http://old.test" }], origins: [] },
+						removedGroups: { tombstones: [{ by: "entry", label: "Prod", baseUrl: "http://old.test" }], origins: [] },
 						wasGroupObserved: () => true,
 						wasLabeledGroupObserved: () => true,
 					},
@@ -481,7 +481,7 @@ suite("extension/dashboard/state", () => {
 						snapshots: [group("g-prod", "Prod", "http://old.test", "Prod")],
 						reader: makeReader({}),
 						entryReports: rejectedProd("http://new.test"),
-						removedGroups: { tombstones: [{ label: "Prod", baseUrl: "http://old.test" }], origins: [] },
+						removedGroups: { tombstones: [{ by: "entry", label: "Prod", baseUrl: "http://old.test" }], origins: [] },
 						wasGroupObserved: () => true,
 						wasLabeledGroupObserved: () => true,
 					},
@@ -1366,7 +1366,7 @@ suite("extension/dashboard/state", () => {
 				],
 				makeReader({}),
 				[],
-				{ tombstones: [{ label: "Prod", baseUrl: "http://prod.test" }], origins: [] }
+				{ tombstones: [{ by: "group", groupId: "g1", label: "Prod", baseUrl: "http://prod.test" }], origins: [] }
 			);
 
 			assert.deepStrictEqual(
@@ -1387,9 +1387,9 @@ suite("extension/dashboard/state", () => {
 			);
 		});
 
-		test("tombstones suppress by the raw status label, not the display ordinal", () => {
+		test("tombstones suppress by the group's client ID, never the display ordinal", () => {
 			// Two external groups share a label, so the table would render "Dup
-			// (1)" and "Dup (2)"; the tombstone still stores the raw identity.
+			// (1)" and "Dup (2)"; the tombstone names one group's client ID.
 			const state = buildState(
 				[
 					{
@@ -1403,7 +1403,7 @@ suite("extension/dashboard/state", () => {
 				],
 				makeReader({}),
 				[],
-				{ tombstones: [{ label: "Dup", baseUrl: "http://b.test" }], origins: [] }
+				{ tombstones: [{ by: "group", groupId: "g2", label: "Dup", baseUrl: "http://b.test" }], origins: [] }
 			);
 
 			assert.deepStrictEqual(
@@ -1425,7 +1425,7 @@ suite("extension/dashboard/state", () => {
 				],
 				makeReader({}),
 				[makeDeclared()],
-				{ tombstones: [{ label: "Prod", baseUrl: "http://prod.test" }], origins: [] }
+				{ tombstones: [{ by: "group", groupId: "srv1", label: "Prod", baseUrl: "http://prod.test" }], origins: [] }
 			);
 
 			assert.strictEqual(state.servers.length, 1);
@@ -1467,7 +1467,9 @@ suite("extension/dashboard/state", () => {
 					makeDeclared({ label: "Twin", baseUrl: "http://old.test" }),
 					makeDeclared({ label: "bare.test", baseUrl: "http://elsewhere.test" }),
 				],
-				{ tombstones: [{ label: "Prod", baseUrl: "http://old.test" }], origins: [] }
+				{ tombstones: [{ by: "entry", label: "Prod", baseUrl: "http://old.test" }], origins: [] },
+				// The controller saw the stamped group this session, which is what lets the line read it as superseded.
+				{ wasGroupObserved: () => true, wasLabeledGroupObserved: () => true }
 			);
 
 			assert.deepStrictEqual(
@@ -1493,7 +1495,7 @@ suite("extension/dashboard/state", () => {
 
 		test("hidden groups persist without a live snapshot, so unhide stays offered", () => {
 			const state = buildState([], makeReader({}), [], {
-				tombstones: [{ label: "Gone", baseUrl: "http://gone.test" }],
+				tombstones: [{ by: "entry", label: "Gone", baseUrl: "http://gone.test" }],
 				origins: [],
 			});
 
@@ -1521,14 +1523,14 @@ suite("extension/dashboard/state", () => {
 				},
 				removedGroups: {
 					tombstones: [
-						{ label: "Prod", baseUrl: "http://old.test" },
-						{ label: "bare.test", baseUrl: "http://bare.test" },
-						{ label: "Gone", baseUrl: "http://gone.test" },
+						{ by: "entry", label: "Prod", baseUrl: "http://old.test" },
+						{ by: "group", groupId: "g-bare", label: "bare.test", baseUrl: "http://bare.test" },
+						{ by: "entry", label: "Gone", baseUrl: "http://gone.test" },
 					],
 					origins: [],
 				},
 				wasGroupObserved: () => true,
-				wasLabeledGroupObserved: (label) => label === "Prod" || label === "Gone",
+				wasLabeledGroupObserved: (tombstone) => tombstone.by === "entry",
 			});
 
 			assert.deepStrictEqual(state.hiddenGroups, [
@@ -1548,12 +1550,12 @@ suite("extension/dashboard/state", () => {
 				reader: makeReader({}),
 				removedGroups: {
 					tombstones: [
-						{ label: "Ghost", baseUrl: "http://ghost.test" },
-						{ label: "Seen", baseUrl: "http://seen.test" },
+						{ by: "group", groupId: "g-ghost", label: "Ghost", baseUrl: "http://ghost.test" },
+						{ by: "group", groupId: "g-seen", label: "Seen", baseUrl: "http://seen.test" },
 					],
 					origins: [],
 				},
-				wasGroupObserved: (label) => label === "Seen",
+				wasGroupObserved: (tombstone) => tombstone.label === "Seen",
 			});
 
 			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Seen", baseUrl: "http://seen.test", reason: "removed" }]);
@@ -1571,7 +1573,10 @@ suite("extension/dashboard/state", () => {
 				],
 				makeReader({}),
 				[],
-				{ tombstones: [{ label: "Legacy", baseUrl: "http://legacy.test" }], origins: [] }
+				{
+					tombstones: [{ by: "group", groupId: "g-legacy", label: "Legacy", baseUrl: "http://legacy.test" }],
+					origins: [],
+				}
 			);
 
 			assert.strictEqual(state.servers.length, 0, "the tombstoned row leaves the table");
@@ -1749,7 +1754,7 @@ suite("extension/dashboard/state", () => {
 				},
 			];
 			const state = buildState(snapshots, makeReader({}), [], {
-				tombstones: [{ label: "Hidden", baseUrl: "http://hidden.test" }],
+				tombstones: [{ by: "group", groupId: "g1", label: "Hidden", baseUrl: "http://hidden.test" }],
 				origins: [],
 			});
 			assert.deepStrictEqual(

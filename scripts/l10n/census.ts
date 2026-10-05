@@ -11,6 +11,7 @@
  */
 export const LAZY_L10N_HELPERS: readonly string[] = [
 	"configureNowLabel",
+	"staleRowRefusal",
 	"hubItems",
 	"manageCommandTitle",
 	"featureDisabledMessage",

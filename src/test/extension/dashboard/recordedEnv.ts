@@ -8,6 +8,7 @@ import type { AdoptableGroupCredentials } from "../../../extension/dashboard/ado
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import { entriesOf } from "../../../extension/dashboard/rowBoundWrite";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
+import type { TombstoneIdentity } from "../../../extension/servers/groupRemovals";
 import type { DeclaredServer } from "../../../extension/servers/serverSync";
 import { acceptedEntry, inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync";
 import { resolveOwnedSecrets } from "../../../extension/servers/serverSync/secrets";
@@ -148,7 +149,7 @@ export interface RecordedEnv {
 	adoptionCredentials?: AdoptableGroupCredentials;
 	adoptionLookups: [string, string][];
 	/** What resolveExternalGroup returns; every call is recorded in externalLookups. */
-	externalGroup?: { label: string; baseUrl: string };
+	externalGroup?: TombstoneIdentity;
 	externalLookups: [string, string][];
 	/** Every probeDraftConnection call's resolved connection; probeResult/probeError shape the outcome. */
 	probes: DraftConnection[];
@@ -161,7 +162,7 @@ export interface RecordedEnv {
 	reviewProbes: FeatureModelRef[];
 	reviewProbeResult: string | undefined;
 	/** Every hideGroup call. */
-	hidden: { label: string; baseUrl: string }[];
+	hidden: TombstoneIdentity[];
 	/** Every unhideGroup call; unhideResult is what the fake reports back. */
 	unhidden: { label: string; baseUrl: string }[];
 	unhideResult: boolean;
@@ -291,7 +292,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			},
 			resolveAdoptionCredentials: async (baseUrl, sourceHandle) => {
 				recorded.adoptionLookups.push([baseUrl, sourceHandle]);
-				return { credentials: recorded.adoptionCredentials, setting: currentSetting };
+				return { source: { credentials: recorded.adoptionCredentials }, setting: currentSetting };
 			},
 			resolveExternalGroup: async (baseUrl, sourceHandle) => {
 				recorded.externalLookups.push([baseUrl, sourceHandle]);

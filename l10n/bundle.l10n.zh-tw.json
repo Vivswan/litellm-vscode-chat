@@ -1432,5 +1432,6 @@
 	"{0}: {1} of {2} ({3}) - key reports {4}": "{0}: {1} / {2} ({3}) - 金鑰回報 {4}",
 	"{0}: {1} spent, no budget": "{0}: 已花費 {1}, 無預算",
 	"legacy": "遺留",
-	"Left behind by the entry \"{0}\", whose configuration no longer matches it. Its models stay in the picker until its object is deleted from the models file or in Manage Language Models.": "由項目「{0}」遺留, 其設定已與此群組不符。在從模型檔案或「管理語言模型」中刪除其物件之前, 它的模型會一直留在選擇器中。"
+	"Left behind by the entry \"{0}\", whose configuration no longer matches it. Its models stay in the picker until its object is deleted from the models file or in Manage Language Models.": "由項目「{0}」遺留, 其設定已與此群組不符。在從模型檔案或「管理語言模型」中刪除其物件之前, 它的模型會一直留在選擇器中。",
+	"This row no longer matches an adoptable server - it may have just been declared or removed.": "該列不再符合可收編的伺服器 - 它可能剛被宣告或移除。"
 }

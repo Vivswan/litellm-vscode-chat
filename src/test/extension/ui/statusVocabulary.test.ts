@@ -126,9 +126,12 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 				declared: { source: "engine", views: declaredViews(row) },
 				entryReports: rejects,
 				removedGroups: {
-					tombstones: row.window
-						.filter(isHiddenGroupServerStatus)
-						.map((status) => ({ label: status.label, baseUrl: status.baseUrl })),
+					tombstones: row.window.filter(isHiddenGroupServerStatus).map((status) => ({
+						by: "group" as const,
+						groupId: status.serverId,
+						label: status.label,
+						baseUrl: status.baseUrl,
+					})),
 					origins: [],
 				},
 			});

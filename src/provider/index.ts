@@ -19,7 +19,7 @@ import type { Logger } from "../shared/logger";
 import type { ExpectedFailureCategory, NonChatMode } from "../shared/serverEntry";
 import type { AggregatedStatus } from "../shared/servers";
 import { DiscoveryCache } from "./catalog/discoveryCache";
-import type { DiscoveredGroupModels } from "./catalog/groupDiscovery";
+import type { DiscoveredGroupModels, SuppressedGroupKey } from "./catalog/groupDiscovery";
 import { GroupDiscovery } from "./catalog/groupDiscovery";
 import type { EntryCredentialsResolver, GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
 import {
@@ -113,11 +113,12 @@ export interface LiteLLMChatModelProviderOptions {
 	 * A suppressed group answers empty and skips the network, while its group-side status still reports, so
 	 * the status window and the dashboard stay coherent.
 	 *
-	 *   removed    -> judged by the group's status label and normalized base URL, the tombstone identity
+	 *   removed    -> judged by the group's client ID, by the entry label its configuration is stamped with at its
+	 *                 base URL, or by the status label and URL a pre-keyed tombstone carries
 	 *   superseded -> the entry carrying `entryLabel` now declares another URL; unlabeled groups pass no
 	 *                 `entryLabel`, so a URL-host display label never reads as an entry's
 	 */
-	isGroupSuppressed?: ((label: string, baseUrl: string, entryLabel: string | undefined) => boolean) | undefined;
+	isGroupSuppressed?: ((group: SuppressedGroupKey) => boolean) | undefined;
 	/** Cache seam for tests (fake TTL clock); the provider owns a real one by default. */
 	discoveryCache?: DiscoveryCache<DiscoveredGroupModels> | undefined;
 	/** The status window's only clock seam; tests inject a fake. The default reads Date.now at call time. */

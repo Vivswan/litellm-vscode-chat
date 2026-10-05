@@ -125,7 +125,8 @@ export function createServerSyncEnv(
 	logger: Logger,
 	fingerprintSalt: FingerprintSaltSession,
 	removals: GroupRemovalStore,
-	observedGroupBaseUrls: (label: string) => readonly string[]
+	observedGroupBaseUrls: (label: string) => readonly string[],
+	observedGroupIds: () => ReadonlySet<string>
 ): ServerSyncEnv {
 	if (fingerprintSalt.state() !== "durable") {
 		logger.log(
@@ -174,6 +175,7 @@ export function createServerSyncEnv(
 			await context.globalState.update(SYNCED_ENTRY_BASE_URLS_KEY, map);
 		},
 		observedGroupBaseUrls,
+		observedGroupIds,
 		reconcileEntryIdentities: async (declared, events) => {
 			try {
 				await removals.clearTombstonesFor(declared);
@@ -201,7 +203,11 @@ export function createServerSyncEnv(
 							baseUrl: event.baseUrl,
 							origin: { kind: "removed-entry-leftover", removedLabel: event.label },
 						});
-						await removals.addTombstone({ label: event.label, baseUrl: event.baseUrl });
+						await removals.addTombstone({ by: "entry", label: event.label, baseUrl: event.baseUrl });
+						// A pre-label group carries no stamp: it hides by the identity the removed entry joined it by.
+						for (const groupId of event.groupIds) {
+							await removals.addTombstone({ by: "group", groupId, label: event.label, baseUrl: event.baseUrl });
+						}
 						noticeEvents.push(event);
 					} else {
 						// The ledger predates this label, so no group identity can be resolved: no tombstone, no
@@ -211,7 +217,7 @@ export function createServerSyncEnv(
 				} catch (error) {
 					logger.error("Recording removed-group bookkeeping failed", error);
 					if (event.kind === "removed") {
-						noticeEvents.push({ kind: "removed", label: event.label, baseUrl: undefined });
+						noticeEvents.push({ kind: "removed", label: event.label, baseUrl: undefined, groupIds: [] });
 					} else {
 						noticeEvents.push(event);
 					}

@@ -47,6 +47,7 @@ import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
+import type { TombstoneIdentity } from "../servers/groupRemovals";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
@@ -153,10 +154,10 @@ export interface IntentEnvironment {
 	 */
 	resolveExternalGroup(baseUrl: string, sourceHandle: string): Promise<ExternalGroupResolution>;
 	/** Persist one removed-group tombstone; the group answers with no models until unhidden. */
-	hideGroup(identity: { label: string; baseUrl: string }): Promise<void>;
-	/** Clear one removed-group tombstone. Resolves false when no tombstone matched the identity. */
+	hideGroup(identity: TombstoneIdentity): Promise<void>;
+	/** Clear the tombstones shown under this identity. Resolves false when none matched. */
 	unhideGroup(identity: { label: string; baseUrl: string }): Promise<boolean>;
-	/** Whether a removed-group tombstone holds this identity right now. */
+	/** Whether a removed-group tombstone is shown under this identity right now. */
 	isGroupHidden(identity: { label: string; baseUrl: string }): boolean;
 	/**
 	 * Open the host's Manage Language Models editor searched for `search` (a group name); its Delete action is the one

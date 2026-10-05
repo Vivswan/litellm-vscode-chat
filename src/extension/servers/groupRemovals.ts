@@ -4,23 +4,58 @@
  * validated on read: the keys are extension-owned, but storage can hand back stale or corrupt shapes and those must
  * not ride behind a cast.
  *
- *   Tombstones -> identities of groups the user EXPLICITLY removed
+ *   Tombstones -> identities of groups the user EXPLICITLY removed (TombstoneIdentity)
  *   Provenance: identity -> origin classification for groups a removal or rename orphaned
  *
  *   a tombstoned group                           -> an empty model list
  *   the provider layer cannot import this module -> injected as a predicate at activation
- *   Host-side group names are unique per vendor  -> the one accepted collision is two UNLABELED groups on one host
- *   removing one hides both                      -> visibly, in the hidden-groups line, and reversibly through Unhide
  */
 
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../shared/config/storageKeys";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isRecord } from "../../shared/util/json";
+import type { DeclaredGroupIdentity } from "./serverSync/engine";
 
-/** One group identity as the removal bookkeeping stores it; baseUrl is kept normalized. */
+/** One group identity as the provenance bookkeeping stores it; baseUrl is kept normalized. */
 export interface GroupIdentity {
 	readonly label: string;
 	readonly baseUrl: string;
+}
+
+/**
+ * What a tombstone hides a group by: the identity the group ownership (dashboard/declaredJoin.ts) names the group
+ * with, never a looser key. `label` and `baseUrl` are what the hidden-groups line shows and what Unhide echoes.
+ *
+ *   group  -> a live group the user hid: its client ID
+ *   entry  -> a removed entry's leftover: the entry label the group's configuration is stamped with, at the URL
+ *   status -> a record persisted before the keyed kinds: the status label and URL it carried; nothing writes it anew
+ */
+export type TombstoneIdentity =
+	| { readonly by: "group"; readonly groupId: string; readonly label: string; readonly baseUrl: string }
+	| { readonly by: "entry"; readonly label: string; readonly baseUrl: string }
+	| { readonly by: "status"; readonly label: string; readonly baseUrl: string };
+
+export interface GroupKey {
+	readonly groupId: string;
+	/** The status label: the configuration stamp, else the URL host (groupDiscovery.ts). */
+	readonly label: string;
+	readonly entryLabel: string | undefined;
+	readonly baseUrl: string;
+}
+
+export function tombstoneHides(record: TombstoneIdentity, group: GroupKey): boolean {
+	switch (record.by) {
+		case "group":
+			return record.groupId === group.groupId;
+		case "entry":
+			return (
+				group.entryLabel !== undefined &&
+				record.label === group.entryLabel &&
+				record.baseUrl === normalizeBaseUrl(group.baseUrl)
+			);
+		case "status":
+			return record.label === group.label && record.baseUrl === normalizeBaseUrl(group.baseUrl);
+	}
 }
 
 /**
@@ -62,11 +97,27 @@ function parseOrigin(value: unknown): OrphanedGroupOrigin | undefined {
 	return undefined;
 }
 
-function parseIdentityList(raw: unknown): GroupIdentity[] {
+function parseTombstone(value: unknown): TombstoneIdentity | undefined {
+	const identity = parseIdentity(value);
+	if (identity === undefined) {
+		return undefined;
+	}
+	if (!isRecord(value) || value.by === undefined) {
+		return { by: "status", ...identity };
+	}
+	if (value.by === "entry" || value.by === "status") {
+		return { by: value.by, ...identity };
+	}
+	return value.by === "group" && typeof value.groupId === "string"
+		? { by: "group", groupId: value.groupId, ...identity }
+		: undefined;
+}
+
+function parseTombstoneList(raw: unknown): TombstoneIdentity[] {
 	if (!Array.isArray(raw)) {
 		return [];
 	}
-	return raw.map(parseIdentity).filter((identity): identity is GroupIdentity => identity !== undefined);
+	return raw.map(parseTombstone).filter((record): record is TombstoneIdentity => record !== undefined);
 }
 
 function parseProvenanceList(raw: unknown): OrphanedGroupRecord[] {
@@ -86,6 +137,12 @@ function parseProvenanceList(raw: unknown): OrphanedGroupRecord[] {
 
 function sameIdentity(a: GroupIdentity, label: string, baseUrl: string): boolean {
 	return a.label === label && a.baseUrl === normalizeBaseUrl(baseUrl);
+}
+
+function sameTombstone(a: TombstoneIdentity, b: TombstoneIdentity): boolean {
+	return a.by === "group" || b.by === "group"
+		? a.by === "group" && b.by === "group" && a.groupId === b.groupId
+		: sameIdentity(a, b.label, b.baseUrl);
 }
 
 /** One persisted blob: the region's records plus the adoption counter (a decimal string on the wire). */
@@ -250,28 +307,33 @@ export class GroupRemovalStore {
 		this.persistErrorListener = listener;
 	}
 
-	private readonly tombstoneRegion: VersionedRegion<GroupIdentity>;
+	private readonly tombstoneRegion: VersionedRegion<TombstoneIdentity>;
 	private readonly provenanceRegion: VersionedRegion<OrphanedGroupRecord>;
 
 	constructor(memento: RemovalMemento) {
 		const report = (error: unknown) => this.persistErrorListener?.(error);
-		this.tombstoneRegion = new VersionedRegion(memento, REMOVED_GROUP_TOMBSTONES_KEY, parseIdentityList, report);
+		this.tombstoneRegion = new VersionedRegion(memento, REMOVED_GROUP_TOMBSTONES_KEY, parseTombstoneList, report);
 		this.provenanceRegion = new VersionedRegion(memento, ORPHANED_GROUP_PROVENANCE_KEY, parseProvenanceList, report);
 	}
 
-	tombstones(): readonly GroupIdentity[] {
+	tombstones(): readonly TombstoneIdentity[] {
 		return [...this.tombstoneRegion.list()];
 	}
 
 	/** Whether the user explicitly removed this group; the provider-side suppression predicate. */
-	isTombstoned(label: string, baseUrl: string): boolean {
-		return this.tombstoneRegion.list().some((identity) => sameIdentity(identity, label, baseUrl));
+	isTombstoned(group: GroupKey): boolean {
+		return this.tombstoneRegion.list().some((record) => tombstoneHides(record, group));
 	}
 
-	async addTombstone(identity: GroupIdentity): Promise<void> {
-		const normalized: GroupIdentity = { label: identity.label, baseUrl: normalizeBaseUrl(identity.baseUrl) };
+	/** Whether a tombstone is shown under this identity: what the hidden-groups line's rows act on. */
+	hasTombstone(label: string, baseUrl: string): boolean {
+		return this.tombstoneRegion.list().some((record) => sameIdentity(record, label, baseUrl));
+	}
+
+	async addTombstone(identity: TombstoneIdentity): Promise<void> {
+		const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
 		const current = this.tombstoneRegion.list();
-		const changed = !current.some((existing) => sameIdentity(existing, normalized.label, normalized.baseUrl));
+		const changed = !current.some((existing) => sameTombstone(existing, normalized));
 		if (!changed) {
 			await this.tombstoneRegion.persistCommitted();
 			return;
@@ -286,6 +348,7 @@ export class GroupRemovalStore {
 		}
 	}
 
+	/** Clear every tombstone shown under the identity (the line's row), whatever key each hides by. */
 	async removeTombstone(identity: GroupIdentity): Promise<boolean> {
 		const current = this.tombstoneRegion.list();
 		const next = current.filter((existing) => !sameIdentity(existing, identity.label, identity.baseUrl));
@@ -302,13 +365,23 @@ export class GroupRemovalStore {
 	}
 
 	/**
-	 * The automatic clear: a declared entry matching a tombstoned identity (re)appeared, so the group is wanted again
-	 * and must never stay suppressed. The sync engine's pass calls this with every current declared identity.
+	 * The automatic clear: a declared entry whose group a tombstone hides (re)appeared, so the group is wanted again
+	 * and must never stay suppressed; the sync engine's pass calls this with every current declared identity. A group
+	 * record a declared entry would reach only by label and URL stays hidden and out of the join (state.ts), so the
+	 * dashboard and the provider agree.
+	 *
+	 *   group record         -> the entry's join key (ServerSyncEngine.joinKeyOf) is the group's
+	 *   entry, status record -> the entry's label and URL
 	 */
-	async clearTombstonesFor(declared: readonly GroupIdentity[]): Promise<boolean> {
+	async clearTombstonesFor(declared: readonly DeclaredGroupIdentity[]): Promise<boolean> {
 		const current = this.tombstoneRegion.list();
 		const next = current.filter(
-			(existing) => !declared.some((identity) => sameIdentity(existing, identity.label, identity.baseUrl))
+			(existing) =>
+				!declared.some((identity) =>
+					existing.by === "group"
+						? existing.groupId === identity.expectedClientId
+						: sameIdentity(existing, identity.label, identity.baseUrl)
+				)
 		);
 		if (next.length === current.length) {
 			return false;

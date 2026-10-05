@@ -79,6 +79,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		catalogStore,
 		notifyModelsChanged,
 		observedGroupBaseUrls: (label) => provider.observedGroupBaseUrls(label),
+		observedGroupIds: () => new Set(provider.getServerSnapshots().map((snapshot) => snapshot.status.serverId)),
 		onDidObserveGroup: provider.onDidObserveGroup,
 	});
 	// After wireServers: both surfaces read the sync engine's declared views for the sync-failure overlay.

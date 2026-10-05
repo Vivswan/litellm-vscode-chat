@@ -188,15 +188,27 @@ export function patchRow(
 	return mint(next);
 }
 
-/** Nothing awaits between the read here and the write. */
-export async function writeServersSettingFrom(
+/**
+ * The lock every dashboard writer of the servers array takes, its read of the current value inside it, so two
+ * writers cannot interleave with one landing an entry the other's precomputed array then drops.
+ */
+let serversWriteTurn: Promise<unknown> = Promise.resolve();
+function withServersSettingWrite<T>(run: () => Promise<T>): Promise<T> {
+	const turn = serversWriteTurn.then(run, run);
+	serversWriteTurn = turn.catch(() => undefined);
+	return turn;
+}
+
+export function writeServersSettingFrom(
 	env: IntentEnvironment,
 	next: (fresh: readonly unknown[]) => ValidatedServersWrite | undefined
 ): Promise<boolean> {
-	const write = next(rawServerEntries(env.readServersSetting()));
-	if (write === undefined) {
-		return false;
-	}
-	await env.writeServersSetting(write);
-	return true;
+	return withServersSettingWrite(async () => {
+		const write = next(rawServerEntries(env.readServersSetting()));
+		if (write === undefined) {
+			return false;
+		}
+		await env.writeServersSetting(write);
+		return true;
+	});
 }

@@ -4,7 +4,7 @@
  * inspect.
  */
 import type {
-	DeclaredEntryIdentity,
+	DeclaredGroupIdentity,
 	RemovedEntryEvent,
 	SecretStore,
 	ServerSyncEnv,
@@ -32,7 +32,7 @@ export interface Recorded {
 	/** The persisted identity ledger (label -> normalized base URL). */
 	entryBaseUrls: Record<string, string>;
 	/** Every reconcileEntryIdentities call: the declared identities and the removal events. */
-	reconciles: { declared: DeclaredEntryIdentity[]; events: RemovedEntryEvent[] }[];
+	reconciles: { declared: DeclaredGroupIdentity[]; events: RemovedEntryEvent[] }[];
 	logged: [string, unknown][];
 	loggedErrors: [string, unknown][];
 	env: ServerSyncEnv;
@@ -50,6 +50,8 @@ export interface Recorded {
 	saltDurable: boolean;
 	/** What observedGroupBaseUrls reports per label: the base URLs the host served that label's group at. */
 	observedGroups: Record<string, readonly string[]>;
+	/** What observedGroupIds reports: the client IDs the host serves now. */
+	liveGroupIds: Set<string>;
 }
 
 export function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServerSecrets> = {}): Recorded {
@@ -67,6 +69,7 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 		duplicateLabels: new Set(),
 		saltDurable: true,
 		observedGroups: {},
+		liveGroupIds: new Set(),
 		env: {
 			readServersSetting: () => recorded.setting,
 			readSecrets: async (label) => ({
@@ -97,6 +100,7 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 				recorded.entryBaseUrls = { ...map };
 			},
 			observedGroupBaseUrls: (label) => recorded.observedGroups[label] ?? [],
+			observedGroupIds: () => recorded.liveGroupIds,
 			reconcileEntryIdentities: async (declared, events) => {
 				recorded.reconciles.push({ declared: [...declared], events: [...events] });
 			},
@@ -111,7 +115,18 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 	return recorded;
 }
 
-/** The removal/rename events the recorded env saw, flattened across passes (most passes record none). */
+/**
+ * The removal/rename events the recorded env saw, flattened across passes (most passes record none), without the
+ * removed entries' group IDs: those are fingerprint-derived, so a suite compares them against the captured view.
+ */
 export function recordedEvents(recorded: Recorded): RemovedEntryEvent[] {
-	return recorded.reconciles.flatMap((reconcile) => reconcile.events);
+	return recorded.reconciles.flatMap((reconcile) =>
+		reconcile.events.map((event) => {
+			if (event.kind !== "removed") {
+				return event;
+			}
+			const { groupIds: _groupIds, ...rest } = event;
+			return rest as RemovedEntryEvent;
+		})
+	);
 }

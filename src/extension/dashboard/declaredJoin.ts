@@ -22,8 +22,8 @@ export interface LabeledSnapshot {
 }
 
 export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): LabeledSnapshot[] {
-	// The serverId tiebreak keeps the sort total: the status window re-inserts refreshed entries at the end, so without
-	// it two groups on one host would swap ordinals whenever their insertion order churned.
+	// The serverId tiebreak keeps the sort total, so insertion-order churn alone never swaps two same-host groups'
+	// ordinals.
 	const sorted = [...snapshots].sort(
 		(a, b) =>
 			a.status.label.localeCompare(b.status.label) ||
