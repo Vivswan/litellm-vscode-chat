@@ -1,9 +1,10 @@
-import { stripMarkdownFences } from "../../../shared/util/text";
+import { closesFence, fenceLine, unwrapWholeReplyFence } from "../../../shared/util/text";
 
 /**
  * The empty variant carries nothing, so no response-derived text can ride a failure into logs or issue reports.
- * stripMarkdownFences runs only when its precondition literally holds, exactly TWO fence lines, because a
- * description that merely ends with a code block passes a first-and-last-line test and would lose that block's closer.
+ * Only a fence wrapping the WHOLE reply is unwrapped as a pair (the shared predicate); any other leading fence is
+ * judged line by line below, because a description that merely ends with a code block would otherwise lose that
+ * block's closer.
  */
 
 /** A parsed one-shot answer; `empty` means no usable title could be read. */
@@ -17,8 +18,6 @@ const DESCRIPTION_LABEL = /^[\s#>*_`-]*description[\s*_`]*:\s*(.*)$/i;
 
 /** A line of pure markdown furniture (rules, heading marks, emphasis runs) - the labels' noise vocabulary, alone. */
 const NOISE_ONLY = /^[\s#>*_`-]+$/;
-
-const BARE_FENCE = /^\s*```\s*$/;
 
 /**
  * A label beyond the first counts only when the line before it reads as a preamble (ends with a colon) or carries the
@@ -79,15 +78,15 @@ function cleanTitle(line: string): string {
 
 export function parseTitleAndDescription(reply: string): TitleAndDescriptionParse {
 	const normalized = reply.replace(/\r\n?/g, "\n").trim();
-	// Both ends, never a lone opener: see the module comment.
-	const fenceLines = normalized.split("\n").filter((line) => /^\s*```/.test(line)).length;
-	const wholeReplyFenced = normalized.startsWith("```") && /\n```\s*$/.test(normalized) && fenceLines === 2;
-	const all = (wholeReplyFenced ? stripMarkdownFences(normalized) : normalized).split("\n");
-	// A leading opener the helper did not take (tagged or bare): drop the line alone. Leaving it in would make
-	// "```markdown" the title, and removing a trailing fence instead would be the closer-eating this rule exists to
-	// avoid.
-	const titleFromFencedBlock = !wholeReplyFenced && /^\s*```/.test(all[0] ?? "");
-	const lines = titleFromFencedBlock ? all.slice(1) : all;
+	const unwrapped = unwrapWholeReplyFence(normalized);
+	const all = (unwrapped ?? normalized).split("\n");
+	// A leading opener the whole-reply rule did not take (tagged or bare): drop the line alone. Leaving it in would
+	// make "```markdown" the title, and removing a trailing fence instead would be the closer-eating this rule exists
+	// to avoid.
+	const leadingOpener = unwrapped === undefined ? fenceLine(all[0] ?? "") : undefined;
+	const closesTitleBlock = (line: string | undefined) =>
+		leadingOpener !== undefined && closesFence(line ?? "", leadingOpener);
+	const lines = leadingOpener === undefined ? all : all.slice(1);
 	const leading: number[] = [];
 	for (let i = 0; i < lines.length && leading.length < TITLE_SCAN_LINES; i++) {
 		const line = lines[i] ?? "";
@@ -124,7 +123,7 @@ export function parseTitleAndDescription(reply: string): TitleAndDescriptionPars
 		title = cleanTitle(first);
 		rest = lines.slice(firstContent + 1);
 	}
-	const closerFollowsTitle = BARE_FENCE.test(rest[0] ?? "");
+	const closerFollowsTitle = closesTitleBlock(rest[0]);
 	const preDescIndex = pre.findIndex((line) => DESCRIPTION_LABEL.test(line));
 	const preLines =
 		preDescIndex >= 0
@@ -136,10 +135,11 @@ export function parseTitleAndDescription(reply: string): TitleAndDescriptionPars
 			? [stripLabelNoise(rest[firstRest]?.match(DESCRIPTION_LABEL)?.[1] ?? ""), ...rest.slice(firstRest + 1)]
 			: rest;
 	let description = [...preLines, ...restLines].join("\n").trim();
-	// Two conditions keep a real code block safe: only a BARE fence qualifies ("```ts" is an opener and stays), and it
-	// must be the line immediately AFTER the title - a fence arriving later belongs to the description's own first
-	// block, with its own prose or label in between.
-	if (titleFromFencedBlock && closerFollowsTitle && BARE_FENCE.test(description.split("\n", 1)[0] ?? "")) {
+	// Two conditions keep a real code block safe: only a fence CLOSING the leading opener qualifies ("```ts" is an
+	// opener and stays, a shorter bare fence is a nested block's own), and it must be the line immediately AFTER the
+	// title - a fence arriving later belongs to the description's own first block, with its own prose or label in
+	// between.
+	if (closerFollowsTitle && closesTitleBlock(description.split("\n", 1)[0])) {
 		description = description.split("\n").slice(1).join("\n").trim();
 	}
 	if (title === "") {

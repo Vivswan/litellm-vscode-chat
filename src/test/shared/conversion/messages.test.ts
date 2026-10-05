@@ -350,15 +350,25 @@ suite("shared/conversion/messages", () => {
 			content: [new vscode.LanguageModelTextPart(text), img(), img()],
 			name: undefined,
 		});
-		const out = convertMessages([turn("one"), turn("two"), turn("three")], {
-			log: (message, data) => logged.push({ message, data }),
-		});
-		assert.equal(out.length, 3, "every turn keeps its text");
-		assert.equal(
-			logged.filter((l) => l.message.includes("Skipping LanguageModelDataPart")).length,
-			1,
-			"six dropped parts must produce one log, not evict the issue buffer"
-		);
+		// An agent session's history: every tool result carries a screenshot the model cannot take. These drops rode
+		// outside the once flag and logged one line per image per request.
+		const toolTurn = (id: string) => [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelToolCallPart(id, "screenshot", {})],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelToolResultPart(id, [img()])],
+				name: undefined,
+			},
+		];
+		const history = [turn("one"), turn("two"), turn("three"), ...toolTurn("call_1"), ...toolTurn("call_2")];
+		const out = convertMessages(history, { log: (message, data) => logged.push({ message, data }) });
+		assert.equal(out.length, 7, "every turn keeps its text");
+		assert.equal(logged.length, 1, "eight dropped parts must produce one log, not evict the issue buffer");
+		assert.ok(expectDefined(logged[0]).message.includes("Skipping LanguageModelDataPart"));
 	});
 
 	test("a model-controlled mime never reaches the skip log unless it is a safe type/subtype", () => {
@@ -543,7 +553,7 @@ suite("shared/conversion/messages", () => {
 			assert.strictEqual(expectDefined(out[1]).content, "plain");
 		});
 
-		test("non-image media inside a tool result drops with its own classification log", () => {
+		test("non-image media inside a tool result drops with a classification log", () => {
 			// PDF and audio blocks exist only on user messages; inside a tool
 			// result they cannot ride the wire even for a fully capable model,
 			// and the drop must stay observable like the non-vision image case.
@@ -563,11 +573,10 @@ suite("shared/conversion/messages", () => {
 				"no message may be synthesized for undeliverable media"
 			);
 			assert.strictEqual(expectDefined(out[1]).content, "report", "the text survives, the media drops");
-			const drops = logged.filter((l) => l.message === "Tool returned media with no tool-result wire mapping");
 			assert.deepEqual(
-				drops.map((l) => l.data),
-				[{ mimeType: "application/pdf" }, { mimeType: "audio/wav" }],
-				"each dropped part logs its classification"
+				logged.map((l) => [l.message, l.data]),
+				[["Tool returned media with no tool-result wire mapping", { mimeType: "application/pdf" }]],
+				"the first drop logs its classification; the rest share the conversion's once flag"
 			);
 		});
 	});
@@ -832,7 +841,7 @@ suite("shared/conversion/messages", () => {
 			assert.strictEqual(expectDefined(out[0]).content, "before after");
 		});
 
-		test("non-vision tool result DataParts: text mimes decode, image and other binary mimes each log their drop", () => {
+		test("non-vision tool result DataParts: text mimes decode, binary mimes drop with one log", () => {
 			const logged: string[] = [];
 			const result = new vscode.LanguageModelToolResultPart("call_1", [
 				new vscode.LanguageModelDataPart(new TextEncoder().encode('{"rows":3}'), "application/json"),
@@ -853,9 +862,8 @@ suite("shared/conversion/messages", () => {
 			// The vision arm (imageInput: true synthesizing an image message) is
 			// pinned by the tool-result images suite above; this is the gate's
 			// other side, with no imageInput capability.
-			assert.strictEqual(logged.length, 2, "the image and the opaque binary each log their drop");
+			assert.strictEqual(logged.length, 1, "the image logs its drop; the opaque binary shares the once flag");
 			assert.ok(expectDefined(logged[0]).includes("cannot be forwarded"), expectDefined(logged[0]));
-			assert.ok(expectDefined(logged[1]).includes("no tool-result wire mapping"), expectDefined(logged[1]));
 		});
 
 		test("an empty tool result still emits a tool message with empty-string content", () => {

@@ -186,6 +186,19 @@ suite("extension openRouterCatalog store", () => {
 		assert.strictEqual(pendingSchedules(harness.scheduled).length, 1);
 	});
 
+	test("re-initializing after the cache file vanished stops serving the snapshot it held", async () => {
+		// The docker suite's reset: seed a cache in a build without a bundled file, then delete it and re-run
+		// initialize. The both-missing branch installed nothing, so the six-model fixture kept serving.
+		const harness = makeHarness({ cached: fixtureText });
+		await harness.store.initialize();
+		assert.strictEqual(harness.store.snapshot().models.length, 6);
+
+		fs.rmSync(harness.cachePath);
+		await harness.store.initialize();
+		assert.strictEqual(harness.store.snapshot().models.length, 0);
+		assert.deepStrictEqual(harness.store.lookup.byExactId("anthropic/claude-sonnet-4.5"), { kind: "not-found" });
+	});
+
 	test("a malformed cache file falls back to the bundled snapshot with a classification log", async () => {
 		const harness = makeHarness({ bundled: fixtureText, cached: '{"data": [{"torn...' });
 		await harness.store.initialize();

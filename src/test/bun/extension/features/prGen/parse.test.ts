@@ -155,6 +155,22 @@ describe("extension/features/prGen parseTitleAndDescription", () => {
 		expect(parsed.kind === "parsed" && (parsed.description ?? "")).not.toMatch(/^```/);
 	});
 
+	test("a four-backtick wrapper around a reply with its own code block unwraps as a pair", () => {
+		// Counting three-backtick lines called this four fences and dropped only the opener, leaving the four-backtick
+		// closer at the end of the description.
+		expect(
+			parseTitleAndDescription("````markdown\nTitle: Add retry\nDescription:\n```ts\nretry(3)\n```\n````")
+		).toEqual({ kind: "parsed", title: "Add retry", description: "```ts\nretry(3)\n```" });
+	});
+
+	test("a shorter bare fence right after the title is a nested block's opener, not the title block's closer", () => {
+		expect(parseTitleAndDescription("`````markdown\nTitle: Add retry\n````\nretry(3)\n````\nMore body.")).toEqual({
+			kind: "parsed",
+			title: "Add retry",
+			description: "````\nretry(3)\n````\nMore body.",
+		});
+	});
+
 	test("markdown noise wrapping the title itself is cleaned", () => {
 		for (const reply of ['Title: "Add MCP publishing"', "Title: **Add MCP publishing**", "# Add MCP publishing"]) {
 			const parsed = parseTitleAndDescription(reply);
