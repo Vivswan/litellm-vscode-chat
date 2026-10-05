@@ -5,7 +5,7 @@ import { StreamProcessor } from "../../../provider/transport/streaming";
 import type { ThinkingPartCtor } from "../../../shared/conversion/thinkingPart";
 import { resetThinkingPartLogOnce } from "../../../shared/conversion/thinkingPart";
 import { expectDefined } from "../../pureHelpers";
-import { collector, idSource, sseStream, toolCallsOf, visibleTextOf } from "./streamingHelpers";
+import { collector, eventSequenceOf, idSource, sseStream, toolCallsOf, visibleTextOf } from "./streamingHelpers";
 
 suite("provider/streaming end-of-stream policy", () => {
 	function token(): vscode.CancellationToken {
@@ -281,6 +281,24 @@ suite("provider/streaming end-of-stream policy", () => {
 			assert.strictEqual(calls.length, 1, `${label}: one call, not an empty twin plus the real one`);
 			assert.deepStrictEqual(calls[0]?.input, { a: 1 }, `${label}: the late arguments complete the call`);
 		}
+	});
+
+	test("an inline tool call split across finish_reason still lands: the text parser's held call survives", async () => {
+		// The delta buffers and the text parser hold partial calls separately, so the pin above stays green while a
+		// finish_reason flush hands the parser's half-read call to the broken-call error.
+		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress);
+		const content = (text: string) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n`;
+		const body = sseStream([
+			content('<|tool_call_begin|>t<|tool_call_argument_begin|>{"a":'),
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+			content("1}<|tool_call_end|>"),
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, token());
+		assert.deepStrictEqual(eventSequenceOf(parts), ["tool:t"]);
+		assert.deepStrictEqual(toolCallsOf(parts)[0]?.input, { a: 1 });
 	});
 
 	test("a name-only call cut by the output limit classifies instead of emitting an empty call", async () => {
