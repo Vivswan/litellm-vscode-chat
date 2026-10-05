@@ -9,12 +9,8 @@ import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_UR
 import { DEFAULT_DISCOVERY_PAYLOAD, makeLogger } from "../../pureHelpers";
 import { makeProvider } from "../../testUtils";
 
-/**
- * The unresolved-credentials failure's two log renderings: the classification (status window, issue-report buffer)
- * and the English mirror (output channel).
- */
+/** The unresolved-credentials failure's log rendering, in the status window and the issue report's latest error. */
 const EXPECTED_CLASSIFICATION = "EntryCredentialsUnavailable(secretsUnreadable)";
-const EXPECTED_ENGLISH = "entry credentials unavailable";
 
 /** The host passes the group configuration structurally; stable typings only declare `silent`. */
 function groupOptions(configuration: unknown, silent = true): { silent: boolean } {
@@ -130,12 +126,19 @@ suite("provider credential overlay", () => {
 			assert.strictEqual(statuses[0]?.logSafeError, EXPECTED_CLASSIFICATION, `${name}: the log rendering`);
 			assert.strictEqual(statuses[0]?.servedModelCount, 0);
 			assert.strictEqual(classifyOverall(statuses), "error", `${name}: the window is not connected`);
-			assert.strictEqual(
-				lines.filter(
-					(line) => line.includes("Failed to fetch models for provider group") && line.includes(EXPECTED_ENGLISH)
-				).length,
-				2,
-				`${name}: the facade logs each failed serve once, with the English mirror on the channel`
+			// The silent serve, then the throwing one: each logs the whole failure line once, at error level, with no
+			// transport kind to name.
+			assert.deepStrictEqual(
+				lines.filter((line) => line.startsWith("ERROR: ")),
+				[true, false].map(
+					(silent) =>
+						`ERROR: Model discovery failed for provider group: ${JSON.stringify(
+							{ expected: false, silent, kind: "unclassified" },
+							null,
+							2
+						)}`
+				),
+				`${name}: the facade's failure lines`
 			);
 		}
 	});

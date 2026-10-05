@@ -264,4 +264,16 @@ export class Logger {
 		}
 		this.recorder?.recordError(message, recordedError(error));
 	}
+
+	/**
+	 * An error-level line whose text is the caller's data, for a failure whose own text is response-derived: the channel
+	 * and the buffer get the data, and the recorder's latest-error snapshot takes the error through its public
+	 * renderings. No stack reaches the channel, since its first line would be the error's message.
+	 */
+	failure(message: string, data: unknown, error: unknown): void {
+		const text = `${message}: ${logDataText(data, this.scrub)}`;
+		this.output.error(text);
+		this.recorder?.appendLog(`[${new Date().toISOString()}] ERROR: ${text}`);
+		this.recorder?.recordError(message, recordedError(error));
+	}
 }

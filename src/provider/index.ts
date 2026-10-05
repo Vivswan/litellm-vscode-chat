@@ -201,7 +201,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			getEntryIncludeModes: options.getEntryIncludeModes ?? (() => undefined),
 			isGroupSuppressed: options.isGroupSuppressed ?? (() => false),
 			log: (message, data) => this.log(message, data),
-			logError: (message, error) => this.logError(message, error),
+			logFailure: (message, data, error) => this.logger?.failure(message, data, error),
 		});
 	}
 
