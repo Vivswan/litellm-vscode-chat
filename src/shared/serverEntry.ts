@@ -8,6 +8,7 @@
 
 import type { ModelRecordMap } from "./config/modelMatcher";
 import { normalizeBaseUrl } from "./util/baseUrl";
+import { trimHttpWhitespace } from "./util/headers";
 import { isRecord } from "./util/json";
 
 /**
@@ -244,9 +245,9 @@ export function entryUsesSecretField(
 	return normalizeBaseUrl(entry.baseUrl).length > 0 && presentCarriers(field, entry) !== undefined;
 }
 
-/** Header names compare case-insensitively, trimmed the way the settings parser (serverSync/setting.ts) trims them. */
+/** Header names compare case-insensitively under trimHttpWhitespace, the one trim rule for settings text. */
 export function sameHeaderName(a: string, b: string): boolean {
-	return a.trim().toLowerCase() === b.trim().toLowerCase();
+	return trimHttpWhitespace(a).toLowerCase() === trimHttpWhitespace(b).toLowerCase();
 }
 
 /**
