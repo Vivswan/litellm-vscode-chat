@@ -6,6 +6,7 @@
  * unit-testable without vscode.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import type * as vscode from "vscode";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
@@ -22,7 +23,14 @@ import { fingerprint } from "../../../shared/util/fingerprint";
 import type { StoredSecretsRecord, StoredServerSecrets } from "./secrets";
 import { inlineSecretValues, resolveOwnedSecrets, secretLocations } from "./secrets";
 import type { DeclaredServer } from "./setting";
-import { acceptedEntry, parseServersSetting, rawDeclaredLabels, stillDeclaredIn } from "./setting";
+import {
+	acceptedEntry,
+	drawableRejects,
+	parseServersSetting,
+	rawDeclaredLabels,
+	serverSettingReports,
+	stillDeclaredIn,
+} from "./setting";
 
 /**
  * Consumers key on the class alone, never on message text. extension/dashboard/state.ts denies only an
@@ -47,31 +55,47 @@ export interface SyncFailure {
 	readonly message: string;
 }
 
-/** The non-secret view of a declared server the dashboard renders; secret values stay out. */
-export interface DeclaredServerView extends NonSecretOptionalFields, EntryViewFields {
+/**
+ * What the declared join (extension/dashboard/declaredJoin.ts) keys an entry on. Both IDs embed a non-secret
+ * credential fingerprint and stay extension-side, never in DashboardState; both are absent when the entry does
+ * not resolve to a usable group configuration.
+ *
+ *   expectedClientId     -> the client ID the entry's resolved configuration produces, the identity the provider stamps on its status snapshots
+ *   expectedConnectionId -> the same without the entry label; groups created before labels flowed into the configuration report under it
+ */
+export interface DeclaredGroupIdentity {
 	readonly label: string;
 	readonly baseUrl: string;
-	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
-	/**
-	 * The group client ID the entry's resolved configuration produces: the same
-	 * identity the provider stamps on its status snapshots, so the dashboard can
-	 * join a declared entry to exactly its live group even when several entries
-	 * share a base URL. The embedded credential fingerprint is non-secret, but
-	 * the ID stays extension-side and is never pushed into DashboardState.
-	 * Absent when the entry does not resolve to a usable group configuration.
-	 */
 	readonly expectedClientId?: string | undefined;
-	/**
-	 * The label-agnostic connection identity: the client ID the same
-	 * configuration produces without the entry label. Groups created before
-	 * labels flowed into the configuration report under this identity, and
-	 * entries that mirror one server with one credential set share it, so the
-	 * join's shared-status pass can hand them all the same live snapshot. Same
-	 * non-secret handling rules as expectedClientId.
-	 */
 	readonly expectedConnectionId?: string | undefined;
+}
+
+/** One consistent reading: the identities and the raw setting value they were derived from (ServerSyncEngine.resolveDeclaredIdentities). */
+export interface DeclaredIdentities {
+	readonly setting: unknown;
+	readonly identities: readonly DeclaredGroupIdentity[];
+}
+
+/** The non-secret view of a declared server the dashboard renders; secret values stay out. */
+export interface DeclaredServerView extends DeclaredGroupIdentity, NonSecretOptionalFields, EntryViewFields {
+	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 	/** The label's last sync failure, cleared by the next success. */
 	readonly syncFailure?: SyncFailure | undefined;
+}
+
+/** One derivation for the join keys (extension/dashboard/declaredJoin.ts), so a pass's views and the live resolution cannot drift. */
+function declaredGroupIdentity(entry: DeclaredServer, args: Readonly<Record<string, string>>): DeclaredGroupIdentity {
+	const groupServer = parseGroupConfiguration(args);
+	if (groupServer === undefined) {
+		return { label: entry.label, baseUrl: entry.baseUrl };
+	}
+	const { label: _label, ...connection } = groupServer;
+	return {
+		label: entry.label,
+		baseUrl: entry.baseUrl,
+		expectedClientId: groupClientId(groupServer),
+		expectedConnectionId: groupClientId(connection),
+	};
 }
 
 /** One identity the setting currently declares: the entry label and its normalized base URL. */
@@ -206,6 +230,20 @@ export function groupArgsFingerprint(args: Record<string, string>): string {
  * secrets, and the log buffer feeds public issue reports.
  */
 export const GROUP_UPSERT_FAILED_MESSAGE = "The host rejected the provider group upsert";
+
+/** How many times resolveDeclaredIdentities re-reads a setting+secrets pair that changed under it before giving up. */
+const IDENTITY_READ_ATTEMPTS = 3;
+
+const SETTING_UNSTABLE_MESSAGE =
+	"The servers setting or its stored secrets changed on every read while identities were being resolved; retry";
+
+/** The live resolution's refusal of a setting the pass would treat as declaring a label nothing can join on. */
+export class IndeterminateServersSettingError extends Error {
+	constructor() {
+		super("The servers setting is not an array, or carries an entry without a base URL; fix the setting, then retry");
+		this.name = "IndeterminateServersSettingError";
+	}
+}
 
 /**
  * The actionable text for an entry the host refused to sync because a provider
@@ -378,6 +416,73 @@ export class ServerSyncEngine implements vscode.Disposable {
 		}
 		const record = await this.env.readSecrets(match.entry.label);
 		return buildGroupArgs(match.entry, resolveOwnedSecrets(match.entry, record).values);
+	}
+
+	/**
+	 * The join keys of every entry the setting declares at the moment of the call, resolved like a pass resolves them
+	 * but with no host call and no bookkeeping. The adopt and hide intents decide which live groups are external
+	 * against this, never against getDeclared(), whose views lag until the next pass ends.
+	 *
+	 *   settings write, pass pending        -> the new entry is already here
+	 *   pass running, new group served      -> it joins by identity instead of reading as external
+	 *   secrets read throws                 -> rejects; inline-only keys miss a legacy group whose connection ID carries the secret
+	 *   setting or a blob changes mid-read  -> read everything again; the pair returned was read twice unchanged, or the call rejects
+	 *   parser-rejected entry, label and URL -> an identity with no client ID; the group a valid earlier shape created joins by label and URL
+	 *   non-array setting, or a label with no URL -> rejects; the pass still treats the label as declared, and nothing could join its group
+	 *   a blob rotated after its second read -> not seen; SecretStorage has no compare-and-swap (secrets.ts), the save path's residual too
+	 */
+	async resolveDeclaredIdentities(): Promise<DeclaredIdentities> {
+		let previous = await this.readDeclaredPair();
+		for (let attempt = 0; attempt < IDENTITY_READ_ATTEMPTS; attempt++) {
+			const current = await this.readDeclaredPair();
+			if (isDeepStrictEqual(current, previous)) {
+				return {
+					setting: current.setting,
+					identities: [
+						...current.entries.map(({ entry, stored }) => declaredGroupIdentity(entry, buildGroupArgs(entry, stored))),
+						...current.rejected,
+					],
+				};
+			}
+			previous = current;
+		}
+		throw new Error(SETTING_UNSTABLE_MESSAGE);
+	}
+
+	/**
+	 * One full reading: the cloned setting, each accepted entry's owned secrets, and the label plus base URL of each
+	 * parser-rejected carrier that draws a Misconfigured row. A valid earlier shape of such an entry may have created
+	 * its group, and that group stays declared, joined by label and URL. A setting the pass would treat as declaring a
+	 * label without giving it a base URL to join on is indeterminate, and the reading rejects.
+	 *
+	 *   container not an array           -> a pass keeps every old label as present (finishPass); nothing can join
+	 *   a raw label with no usable URL    -> stillDeclaredIn keeps its group alive; nothing can join it
+	 */
+	private async readDeclaredPair(): Promise<{
+		setting: unknown;
+		entries: { entry: DeclaredServer; stored: StoredServerSecrets }[];
+		rejected: DeclaredEntryIdentity[];
+	}> {
+		const setting: unknown = structuredClone(this.env.readServersSetting());
+		if (!Array.isArray(setting)) {
+			throw new IndeterminateServersSettingError();
+		}
+		const entries: { entry: DeclaredServer; stored: StoredServerSecrets }[] = [];
+		for (const entry of parseServersSetting(setting).entries) {
+			entries.push({ entry, stored: resolveOwnedSecrets(entry, await this.env.readSecrets(entry.label)).values });
+		}
+		const accepted = new Set(entries.map(({ entry }) => entry.label));
+		const rejected = drawableRejects(serverSettingReports(setting), accepted).map(({ label, baseUrl }) => ({
+			label,
+			baseUrl,
+		}));
+		const joinable = new Set([...accepted, ...rejected.map(({ label }) => label)]);
+		for (const label of rawDeclaredLabels(setting)) {
+			if (!joinable.has(label)) {
+				throw new IndeterminateServersSettingError();
+			}
+		}
+		return { setting, entries, rejected };
 	}
 
 	requestSync(): void {
@@ -797,22 +902,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 					}
 				}
 			}
-			const groupServer = parseGroupConfiguration(args);
-			let expectedClientId: string | undefined;
-			let expectedConnectionId: string | undefined;
-			if (groupServer !== undefined) {
-				expectedClientId = groupClientId(groupServer);
-				const { label: _label, ...connection } = groupServer;
-				expectedConnectionId = groupClientId(connection);
-			}
 			views.push({
-				label: entry.label,
-				baseUrl: entry.baseUrl,
+				...declaredGroupIdentity(entry, args),
 				...pickNonSecretOptionalFields(entry),
 				...pickEntryViewFields(entry),
 				secrets: secretLocations(entry, stored),
-				expectedClientId,
-				expectedConnectionId,
 				syncFailure,
 			});
 		}

@@ -52,7 +52,7 @@ suite("extension/dashboard/intents: request validation", () => {
 						secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
 					},
 				}),
-				req("removeServerSetting", { label: "Prod" }),
+				req("removeServerSetting", { label: "Prod", baseUrl: "http://prod.test" }),
 				req("testServerDraft", {
 					server: serverPayload({ label: "", baseUrl: "http://prod.test", oauthTokenUrl: "https://idp.test/token" }),
 					secrets: KEEP_ALL,

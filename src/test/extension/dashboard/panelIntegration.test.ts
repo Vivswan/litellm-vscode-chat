@@ -86,7 +86,9 @@ suite("extension/dashboard/panelIntegration", () => {
 		// Stray host-triggered refreshes of that leftover group are absorbed
 		// by the baseline localhost:49999 handler in mocks/handlers.ts.
 		for (const view of await declared()) {
-			await inject(request("removeServerSetting", { label: view.label }, `pi-teardown-${view.label}`));
+			await inject(
+				request("removeServerSetting", { label: view.label, baseUrl: view.baseUrl }, `pi-teardown-${view.label}`)
+			);
 		}
 		const config = vscode.workspace.getConfiguration(CONFIG);
 		for (const key of TOUCHED_KEYS) {
@@ -200,7 +202,12 @@ suite("extension/dashboard/panelIntegration", () => {
 		);
 		assert.ok(!views.some((view) => view.label === "PanelIT"), "the old label must be replaced, not duplicated");
 
-		assert.strictEqual(await inject(request("removeServerSetting", { label: "PanelIT-Renamed" }, "pi-remove-1")), "ok");
+		assert.strictEqual(
+			await inject(
+				request("removeServerSetting", { label: "PanelIT-Renamed", baseUrl: "http://localhost:49999" }, "pi-remove-1")
+			),
+			"ok"
+		);
 		await declaredEventually((v) => v.length === 0, "the removed entry to sync away");
 		const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
 		assert.ok(!JSON.stringify(globalValue ?? {}).includes("PanelIT"), "the settings entry must be gone");
@@ -274,7 +281,12 @@ suite("extension/dashboard/panelIntegration", () => {
 			"an edit that no longer includes modes clears the list, like every always-sent field"
 		);
 
-		assert.strictEqual(await inject(request("removeServerSetting", { label: "PanelIT-Caps" }, "pi-caps-rm")), "ok");
+		assert.strictEqual(
+			await inject(
+				request("removeServerSetting", { label: "PanelIT-Caps", baseUrl: "http://localhost:49999" }, "pi-caps-rm")
+			),
+			"ok"
+		);
 	});
 
 	test("an executeCommand intent dispatches through the real vscode.commands bridge", async function () {
@@ -355,7 +367,12 @@ suite("extension/dashboard/panelIntegration", () => {
 		const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
 		assert.ok(JSON.stringify(globalValue ?? {}).includes("PanelIT-Adopted"), "the adopted entry must be saved");
 		// Clean up through the same real path.
-		assert.strictEqual(await inject(request("removeServerSetting", { label: "PanelIT-Adopted" }, "pi-adopt-rm")), "ok");
+		assert.strictEqual(
+			await inject(
+				request("removeServerSetting", { label: "PanelIT-Adopted", baseUrl: "http://localhost:49999" }, "pi-adopt-rm")
+			),
+			"ok"
+		);
 	});
 
 	test("litellm.manage resolves through the legacy path in the test-mode host with the quick pick cancelled", async function () {

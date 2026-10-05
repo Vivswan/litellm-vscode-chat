@@ -8,7 +8,7 @@
 
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
-import type { DeclaredServerView } from "../servers/serverSync";
+import type { DeclaredGroupIdentity } from "../servers/serverSync";
 
 /**
  * Snapshots joined with the display label their server renders under. Labels
@@ -67,7 +67,7 @@ export type JoinPass = "identity" | "connection" | "label-url" | "url";
  */
 export function joinDeclared(
 	labeled: readonly LabeledSnapshot[],
-	declared: readonly DeclaredServerView[]
+	declared: readonly DeclaredGroupIdentity[]
 ): {
 	/** The labeled snapshot each declared entry matched, with the pass that matched it, by declared index. */
 	matchedByDeclared: Map<number, { entry: LabeledSnapshot; pass: JoinPass }>;
@@ -78,7 +78,7 @@ export function joinDeclared(
 	const matchedByDeclared = new Map<number, { entry: LabeledSnapshot; pass: JoinPass }>();
 	const passes: readonly {
 		pass: JoinPass;
-		match: (snapshot: ServerModelsSnapshot, view: DeclaredServerView) => boolean;
+		match: (snapshot: ServerModelsSnapshot, view: DeclaredGroupIdentity) => boolean;
 		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide (see the doc above). */
 		shared?: boolean;
 	}[] = [

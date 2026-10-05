@@ -192,9 +192,10 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 			model: fc.string({ minLength: 1, maxLength: 128 }),
 		}),
 	}),
-	removeServerSetting: fc.record({ label: fc.string() }),
+	removeServerSetting: fc.record({ label: fc.string(), baseUrl: fc.string() }),
 	declareExpectedFailure: fc.record({
 		label: fc.string(),
+		baseUrl: fc.string(),
 		category: fc.constantFrom(...EXPECTED_FAILURE_CATEGORIES),
 	}),
 	hideExternalServer: fc.record({ baseUrl: fc.string(), sourceHandle: requestId }),

@@ -82,8 +82,8 @@ import {
 import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
-import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
-import { supersedingBaseUrl } from "../servers/serverSync";
+import type { DeclaredServerView, DrawableReject, ServerEntryReport } from "../servers/serverSync";
+import { drawableRejects, supersedingBaseUrl } from "../servers/serverSync";
 import { declaredPresentation } from "../servers/syncFailureOverlay";
 import type { SettingsInspection } from "../settingsAccess";
 import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
@@ -231,9 +231,6 @@ function declaredOutcome(
 	};
 }
 
-/** A rejected entry that has the identity a row needs: both fields narrowed, so no call site defaults them. */
-export type DrawableReject = ServerEntryReport & { readonly label: string; readonly baseUrl: string };
-
 /**
  * The declared views with the one fact the views themselves cannot carry:
  * whether their secret locations come from a real blob read. The sync engine
@@ -269,37 +266,12 @@ function secretsView(view: DeclaredServerView, source: DeclaredServersInput["sou
 	return { kind: "unproven" };
 }
 
-/**
- * The rejected servers-setting entries that earn a row of their own, in
- * setting order. A reject sits in the setting, so a silently missing row would
- * read as a removal - but a row needs an honest identity to draw, and four
- * causes leave a reject without one: no label, no base URL, a label a declared
- * entry already owns, and a label an earlier reject already drew. Those stay
- * in Configuration diagnostics ONLY, which is why this rule is exported rather
- * than inlined: diagnostics drop the entry problems a row already states, and
- * must drop exactly the ones a row was drawn for.
- */
+/** The rejected entries that draw a Misconfigured row: drawableRejects over the labels the declared views hold. */
 export function rejectsWithOwnRow(
 	entryReports: readonly ServerEntryReport[],
 	declared: readonly Pick<DeclaredServerView, "label">[]
 ): readonly DrawableReject[] {
-	const declaredLabels = new Set(declared.map((view) => view.label));
-	const drawn = new Set<string>();
-	const rows: DrawableReject[] = [];
-	for (const report of entryReports) {
-		if (
-			report.accepted ||
-			report.label === undefined ||
-			report.baseUrl === undefined ||
-			declaredLabels.has(report.label) ||
-			drawn.has(report.label)
-		) {
-			continue;
-		}
-		drawn.add(report.label);
-		rows.push({ ...report, label: report.label, baseUrl: report.baseUrl });
-	}
-	return rows;
+	return drawableRejects(entryReports, new Set(declared.map((view) => view.label)));
 }
 
 /**

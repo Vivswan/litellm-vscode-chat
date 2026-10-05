@@ -495,7 +495,7 @@ describe("agentTools planner remove_server, run_action, inspect_model", () => {
 		[
 			"remove a declared entry",
 			{ action: "remove", label: "Prod" },
-			{ method: "removeServerSetting", payload: { label: "Prod" } },
+			{ method: "removeServerSetting", payload: { label: "Prod", baseUrl: "http://prod.test" } },
 		],
 		[
 			"hide the twin at the shared base URL picks its handle by label",

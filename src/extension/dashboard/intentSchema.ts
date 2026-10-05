@@ -222,10 +222,14 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 			model: z.string().min(1).max(WIRE_LIMITS.modelId),
 		}),
 	}),
-	removeServerSetting: z.strictObject({ label: labelSchema }),
-	// Two closed vocabularies: an entry label and a category token; the
-	// entry-existence check lives in executeDashboardIntent.
-	declareExpectedFailure: z.strictObject({ label: labelSchema, category: asEnum(EXPECTED_FAILURE_CATEGORIES) }),
+	// Row-bound writes carry the row's identity (label and base URL); the
+	// entry-existence and identity checks live in executeDashboardIntent.
+	removeServerSetting: z.strictObject({ label: labelSchema, baseUrl: z.string().max(WIRE_LIMITS.url) }),
+	declareExpectedFailure: z.strictObject({
+		label: labelSchema,
+		baseUrl: z.string().max(WIRE_LIMITS.url),
+		category: asEnum(EXPECTED_FAILURE_CATEGORIES),
+	}),
 	adoptServer: z.strictObject({
 		label: labelSchema,
 		baseUrl: z.string().max(WIRE_LIMITS.url),

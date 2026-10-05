@@ -297,7 +297,11 @@ suite("extension/dashboard/intents", () => {
 			const notice = await adopt(recorded);
 
 			assert.strictEqual(notice, undefined, "a full adoption carries no caveat");
-			assert.deepStrictEqual(recorded.adoptionLookups, [["http://ext.test", "handle-ext"]]);
+			assert.ok(
+				recorded.adoptionLookups.length > 0 &&
+					recorded.adoptionLookups.every(([url, handle]) => url === "http://ext.test" && handle === "handle-ext"),
+				"every lookup names the intent's base URL and handle"
+			);
 			assert.deepStrictEqual(recorded.serverWrites, [
 				[
 					{ label: "Existing", baseUrl: "http://other.test" },

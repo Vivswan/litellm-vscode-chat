@@ -1923,7 +1923,7 @@ test("an unserved model-info probe raises the quiet declare hint; the two-step c
 	expect(postedMessages.length).toBe(1);
 	const posted = postedMessages[0] as RpcRequest<"declareExpectedFailure">;
 	expect(posted.method).toBe("declareExpectedFailure");
-	expect(posted.payload).toEqual({ label: "Ollama", category: "modelInfo" });
+	expect(posted.payload).toEqual({ label: "Ollama", baseUrl: "http://localhost:4000", category: "modelInfo" });
 
 	// In flight the pair stays and states that it is working; Cancel refuses
 	// too, because the posted write cannot be cancelled - it only ever disarms.
@@ -1987,7 +1987,7 @@ test("a models-listing-unserved error offers the declare action writing modelLis
 	fireClick(buttonByText(root, "Confirm declaration?"));
 	expect(postedMessages.length).toBe(1);
 	const posted = postedMessages[0] as RpcRequest<"declareExpectedFailure">;
-	expect(posted.payload).toEqual({ label: "Gateway", category: "modelListing" });
+	expect(posted.payload).toEqual({ label: "Gateway", baseUrl: "http://localhost:4000", category: "modelListing" });
 });
 
 test("a models-listing-unserved error leads bright with the consequence and dims the declaration advice", () => {

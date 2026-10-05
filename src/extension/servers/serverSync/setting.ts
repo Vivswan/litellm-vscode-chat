@@ -319,6 +319,38 @@ export interface ServerEntryReport {
 	readonly accepted: boolean;
 }
 
+/** A rejected entry that has the identity a row or a join needs: both fields narrowed, so no call site defaults them. */
+export type DrawableReject = ServerEntryReport & { readonly label: string; readonly baseUrl: string };
+
+/**
+ * The rejected entries that stand for a label nothing accepted holds, one per label in setting order. A reject sits
+ * in the setting, so it must show somewhere; without a label and a base URL it has no identity to show under.
+ *
+ *   state.ts rejectsWithOwnRow                   -> draws the Misconfigured rows from this, and Configuration diagnostics drop exactly the problems those rows state
+ *   ServerSyncEngine.resolveDeclaredIdentities   -> gives each its label-and-URL identity, so the group a valid earlier shape created stays declared
+ */
+export function drawableRejects(
+	entryReports: readonly ServerEntryReport[],
+	acceptedLabels: ReadonlySet<string>
+): readonly DrawableReject[] {
+	const drawn = new Set<string>();
+	const rows: DrawableReject[] = [];
+	for (const report of entryReports) {
+		if (
+			report.accepted ||
+			report.label === undefined ||
+			report.baseUrl === undefined ||
+			acceptedLabels.has(report.label) ||
+			drawn.has(report.label)
+		) {
+			continue;
+		}
+		drawn.add(report.label);
+		rows.push({ ...report, label: report.label, baseUrl: report.baseUrl });
+	}
+	return rows;
+}
+
 export function serverSettingReports(raw: unknown): ServerEntryReport[] {
 	if (!Array.isArray(raw)) {
 		return [];

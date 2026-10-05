@@ -18,7 +18,7 @@ import type {
 import { unitBehavior, zeroModelExplanation } from "../../dashboard/presenters";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
-import type { FeatureModelId, FeatureModelRef, NumberSettingId } from "../../shared/config/settingSpec";
+import type { FeatureModelId, FeatureModelRef, KeyedSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
@@ -52,8 +52,10 @@ import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 import { nonSecretIdentityMatches } from "../servers/serverSync/setting";
-import type { AdoptableGroupCredentials } from "./adopt";
+import type { AdoptionResolution, ExternalGroupResolution } from "./adopt";
 import { applyAdoptServer } from "./adopt";
+import type { ValidatedServersWrite } from "./rowBoundWrite";
+import { patchRow, removeRow, requireSettingUnchanged, writeServersSettingFrom } from "./rowBoundWrite";
 import { applySaveServerSetting } from "./saveServer";
 import type { DraftConnection } from "./testDraftConnection";
 import { applyTestServerDraft } from "./testDraftConnection";
@@ -108,16 +110,17 @@ export type FeatureProbes = Readonly<
 
 /** The effects an intent can have; injected so intents are testable without vscode. */
 export interface IntentEnvironment {
-	/** Write one litellm-vscode-chat.* setting (the key is relative to the section). */
-	updateSetting(key: string, value: unknown): Promise<void>;
-	/** Remove one litellm-vscode-chat.* setting from the highest-precedence scope that sets it (resolveConfiguredScope). */
-	removeSetting(key: string): Promise<void>;
+	/** Write one litellm-vscode-chat.* setting by key; the servers array is no key here, only a rowBoundWrite.ts guard writes it. */
+	updateSetting(key: KeyedSettingId, value: unknown): Promise<void>;
+	/** Remove one keyed setting from the highest-precedence scope that sets it (resolveConfiguredScope). */
+	removeSetting(key: KeyedSettingId): Promise<void>;
 	/** Read one litellm-vscode-chat.* setting's effective (scope-merged) value, reflecting landed writes. */
 	readSetting(key: string): unknown;
 	executeCommand(command: string, ...args: readonly unknown[]): Thenable<unknown>;
 	/** The servers array a write would replace (the user-scope value; the setting is machine-scoped). */
 	readServersSetting(): unknown;
-	writeServersSetting(value: readonly unknown[]): Promise<void>;
+	/** Write the servers array one of rowBoundWrite.ts's guards derived; no other value is writable from an intent. */
+	writeServersSetting(write: ValidatedServersWrite): Promise<void>;
 	/**
 	 * Write one secure-side secret field for a label; undefined deletes it.
 	 * `owner` is the ownership stamp - the destination the value is being
@@ -137,18 +140,14 @@ export interface IntentEnvironment {
 	/** Ask the sync engine for a pass; secure-only changes fire no configuration event. */
 	requestServerSync(): void;
 	/**
-	 * The live credentials of the external group an adopt intent names by its
-	 * opaque row handle. Resolves only groups that are still external and still
-	 * at `baseUrl`. The returned values go straight into the setting or
-	 * SecretStorage and are never logged.
+	 * The live credentials of the external group an adopt intent names by its opaque row handle, with the raw
+	 * servers setting the resolution is consistent with (ServerSyncEngine.resolveDeclaredIdentities), never the
+	 * last pass's views. Resolves only groups still external and still at `baseUrl`; the values go straight into
+	 * the setting or SecretStorage and are never logged.
 	 */
-	resolveAdoptionCredentials(baseUrl: string, sourceHandle: string): AdoptableGroupCredentials | undefined;
-	/**
-	 * The identity (status label and base URL) of the external group a hide
-	 * intent names by its opaque row handle; same resolution rules as the
-	 * adopt path, no credential material.
-	 */
-	resolveExternalGroup(baseUrl: string, sourceHandle: string): { label: string; baseUrl: string } | undefined;
+	resolveAdoptionCredentials(baseUrl: string, sourceHandle: string): Promise<AdoptionResolution>;
+	/** The identity (status label and base URL) a hide intent's handle names, with the setting it was judged against; same resolution rules, no credential material. */
+	resolveExternalGroup(baseUrl: string, sourceHandle: string): Promise<ExternalGroupResolution>;
 	/** Persist one removed-group tombstone; the group answers with no models until unhidden. */
 	hideGroup(identity: { label: string; baseUrl: string }): Promise<void>;
 	/** Clear one removed-group tombstone. Resolves false when no tombstone matched the identity. */
@@ -380,17 +379,6 @@ export function validateTestServerDraft(
  */
 export function rawServerEntries(raw: unknown): unknown[] {
 	return Array.isArray(raw) ? [...raw] : [];
-}
-
-/**
- * Whether a raw entry carries this label, trimmed on both sides:
- * parseServersSetting trims labels, so a hand-written `" Prod "` entry
- * displays as "Prod" and its edits and removals must find it again. Removal
- * matches every raw carrier of the label on purpose; per-entry resolution goes
- * through acceptedEntry instead.
- */
-function entryHasLabel(entry: unknown, label: string): entry is Record<string, unknown> {
-	return isRecord(entry) && typeof entry.label === "string" && entry.label.trim() === label.trim();
 }
 
 /**
@@ -759,53 +747,32 @@ export async function executeDashboardIntent(
 			return probeAnswerText(intent.payload.feature, text.length);
 		}
 		case "removeServerSetting": {
-			const entries = rawServerEntries(env.readServersSetting());
-			const next = entries.filter((entry) => !entryHasLabel(entry, intent.payload.label));
-			if (next.length === entries.length) {
-				throw new DashboardValidationError(
-					l10n.t("No servers setting entry has this label; the server is managed outside the setting")
-				);
-			}
 			// The label's secure-side secrets are kept on purpose: a hand-written
 			// re-add of the entry still resolves them, and the provider group
 			// itself survives anyway (VS Code offers no programmatic group
 			// removal). A dashboard create over the label wipes them instead - the
 			// form showed no credentials, so none may resurrect (saveServer.ts).
-			await env.writeServersSetting(next);
+			await writeServersSettingFrom(env, (fresh) => removeRow(fresh, intent.payload));
 			env.requestServerSync();
 			return undefined;
 		}
 		case "declareExpectedFailure": {
-			const entries = rawServerEntries(env.readServersSetting());
-			// The entry written is the one the dashboard row described, never a
-			// rejected same-label sibling.
-			const accepted = acceptedEntry(entries, intent.payload.label);
-			const rawEntry = accepted !== undefined ? entries[accepted.index] : undefined;
-			if (!isRecord(rawEntry) || accepted === undefined) {
-				throw new DashboardValidationError(
-					l10n.t("No servers setting entry has this label; the server is managed outside the setting")
-				);
-			}
 			const category = intent.payload.category;
-			const discovery = isRecord(rawEntry.discovery) ? rawEntry.discovery : {};
-			const declared = Array.isArray(discovery.expectedFailures) ? discovery.expectedFailures : [];
-			if (declared.includes(category)) {
-				// Already declared (a stale row, a double click): the ack is
-				// truthful with nothing written.
-				return undefined;
+			// Only discovery.expectedFailures grows; every other key on the entry, junk included, is written back verbatim.
+			//   category already declared (a stale row, a double click)       -> nothing written, the ack stays truthful
+			//   discovery not a record, or expectedFailures not an array       -> replaced by the valid shape so the category can land
+			const written = await writeServersSettingFrom(env, (fresh) =>
+				patchRow(fresh, intent.payload, (rawEntry) => {
+					const discovery = isRecord(rawEntry.discovery) ? rawEntry.discovery : {};
+					const declared = Array.isArray(discovery.expectedFailures) ? discovery.expectedFailures : [];
+					return declared.includes(category)
+						? undefined
+						: { ...rawEntry, discovery: { ...discovery, expectedFailures: [...declared, category] } };
+				})
+			);
+			if (written) {
+				env.requestServerSync();
 			}
-			// Everything else on the entry - junk keys included - is preserved
-			// verbatim; only discovery.expectedFailures grows by one category. The
-			// one exception: a non-record `discovery` or a non-array
-			// `expectedFailures` is replaced by the valid shape, since preserving
-			// it would leave the declaration unable to land at all.
-			const next = [...entries];
-			next[accepted.index] = {
-				...rawEntry,
-				discovery: { ...discovery, expectedFailures: [...declared, category] },
-			};
-			await env.writeServersSetting(next);
-			env.requestServerSync();
 			return undefined;
 		}
 		case "adoptServer":
@@ -817,18 +784,16 @@ export async function executeDashboardIntent(
 				// translation: sectionFailureText routes the failure by it.
 				throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 			}
-			// Resolution binds the opaque handle to a group that is external RIGHT
-			// NOW: a stale or forged intent cannot tombstone a declared group's
-			// identity or a group at another host.
-			const identity = env.resolveExternalGroup(baseUrl, intent.payload.sourceHandle);
-			if (identity === undefined) {
+			const resolved = await env.resolveExternalGroup(baseUrl, intent.payload.sourceHandle);
+			if (resolved.identity === undefined) {
 				throw new DashboardValidationError(
 					`${l10n.t("This row no longer matches a hideable server - it may have just been adopted or removed.")}\n${l10n.t(
 						"The row did not resolve to an external VS Code provider group."
 					)}`
 				);
 			}
-			await env.hideGroup(identity);
+			requireSettingUnchanged(env, resolved.setting);
+			await env.hideGroup(resolved.identity);
 			return undefined;
 		}
 		case "unhideServer": {

@@ -179,7 +179,7 @@ function ServerRow({
 	refreshingExplicitly: boolean;
 }) {
 	const confirmRemove = () => {
-		sendRequest("removeServerSetting", { label: server.label });
+		sendRequest("removeServerSetting", { label: server.label, baseUrl: server.baseUrl });
 		onArmRemove(false);
 	};
 	// The declare control's confirm step, per row (row identity is keyed, so a push cannot
@@ -942,7 +942,7 @@ export function ServersSection({
 										setPendingDeclare({
 											rowKey,
 											label: server.label,
-											requestId: declareIntent.send({ label: server.label, category }),
+											requestId: declareIntent.send({ label: server.label, baseUrl: server.baseUrl, category }),
 										});
 									}}
 									declaring={pendingDeclare?.rowKey === rowKey}

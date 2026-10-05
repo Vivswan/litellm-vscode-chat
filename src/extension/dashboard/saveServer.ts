@@ -4,7 +4,6 @@
  * intents.ts for its size; executeDashboardIntent is the only caller.
  */
 
-import { isDeepStrictEqual } from "node:util";
 import * as l10n from "@vscode/l10n";
 import type { ReplacedEntryIdentity, RequestPayload, SecretDirective } from "../../dashboard/endpoints";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
@@ -15,15 +14,11 @@ import type { DeclaredServer } from "../servers/serverSync";
 import { acceptedEntry, inlineSecretValues, secretLocations } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 import { resolveOwnedSecrets, secretDestination } from "../servers/serverSync/secrets";
-import {
-	declaredEntryLabel,
-	nonSecretIdentityMatches,
-	rawDeclaredLabels,
-	stillDeclaredIn,
-} from "../servers/serverSync/setting";
+import { declaredEntryLabel, nonSecretIdentityMatches, stillDeclaredIn } from "../servers/serverSync/setting";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
+import { appendFree, replaceShown, requireLabelFree, writeServersSettingFrom } from "./rowBoundWrite";
 
 /**
  * Computed once so the pairing checks, the guarded apply, and the cleanup agree on it. Either rename branch leaves
@@ -216,12 +211,12 @@ export async function applySaveServerSetting(
 	// Raw labels count as taken (the webview's own rule): a parser-rejected
 	// entry still occupies its label, and a rename beside it would land two
 	// entries under one label.
-	if (renaming && rawDeclaredLabels(entries).has(label)) {
+	if (renaming) {
 		// The "fieldId:" prefix is what sectionFailureText matches against the
 		// internal field names to route the failure onto the right form section,
 		// so it stays an ASCII identifier outside the translation. Same rule for
 		// every field-prefixed message below.
-		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
+		requireLabelFree(entries, label);
 	}
 
 	// The one rule for WHICH element an in-place save replaces, read again at
@@ -384,37 +379,16 @@ export async function applySaveServerSetting(
 				await env.storeServerSecret(label, field, undefined, undefined);
 			}
 		}
-		// The array is re-read at write time and the new entry lands in THAT
-		// array: the guarded secret operations above await, so a sibling entry
-		// edited concurrently (another window, a hand edit) would be silently
-		// reverted by writing the pass-start snapshot. The TARGET element must
-		// still be byte-identical to the one the plans resolved against - and a
-		// create's label still free - or the save refuses inside the guarded
-		// unit (the rollback above restores every staged secret). The window
-		// that remains is the write itself: VS Code's configuration update is
-		// last-write-wins across windows and offers nothing smaller.
-		const freshEntries = rawServerEntries(env.readServersSetting());
-		const next = [...freshEntries];
-		if (mode.kind === "create") {
-			if (rawDeclaredLabels(freshEntries).has(label)) {
-				throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
-			}
-			next.push(newEntry);
-		} else {
-			if (mode.kind === "rename" && rawDeclaredLabels(freshEntries).has(label)) {
-				throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
-			}
-			const freshIndex = indexOfTarget(freshEntries);
-			if (freshIndex === -1 || !isDeepStrictEqual(freshEntries[freshIndex], entries[mode.index])) {
-				throw new DashboardValidationError(
-					l10n.t(
-						"The entry being edited changed in the servers setting while the form was open; close the form and retry"
-					)
-				);
-			}
-			next[freshIndex] = newEntry;
-		}
-		await env.writeServersSetting(next);
+		// Re-read at write time, after the awaited secret operations, so the pass-start array cannot revert a sibling
+		// edited meanwhile. A refusal lands in the catch below, which rolls the staged secrets back; the write itself
+		// stays last-write-wins across windows, since VS Code offers nothing smaller.
+		//   create       -> the label must still be free
+		//   edit, rename -> the target must still equal the element the plans resolved against
+		await writeServersSettingFrom(env, (fresh) =>
+			mode.kind === "create"
+				? appendFree(fresh, label, newEntry)
+				: replaceShown(fresh, indexOfTarget(fresh), entries[mode.index], newEntry, renaming ? label : undefined)
+		);
 	} catch (error) {
 		// The setting still resolves what it resolved before, so the secure side
 		// must too. A rename's copy replaced the new label's whole blob, so that

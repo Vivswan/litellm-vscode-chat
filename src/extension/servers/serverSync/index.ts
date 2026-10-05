@@ -15,6 +15,7 @@
 
 export type {
 	DeclaredEntryIdentity,
+	DeclaredGroupIdentity,
 	DeclaredServerView,
 	RemovedEntryEvent,
 	ServerSyncEnv,
@@ -24,15 +25,17 @@ export {
 	buildGroupArgs,
 	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
 	GROUP_UPSERT_FAILED_MESSAGE,
+	IndeterminateServersSettingError,
 	SALT_UNAVAILABLE_MESSAGE,
 	SECRETS_READ_FAILED_MESSAGE,
 	ServerSyncEngine,
 } from "./engine";
 export type { SecretStore, StoredServerSecrets } from "./secrets";
 export { deleteServerSecrets, inlineSecretValues, secretLocations, updateServerSecret } from "./secrets";
-export type { DeclaredServer, ServerEntryReport } from "./setting";
+export type { DeclaredServer, DrawableReject, ServerEntryReport } from "./setting";
 export {
 	acceptedEntry,
+	drawableRejects,
 	entryExpectedFailuresFor,
 	entryIncludeModesFor,
 	entryModelCapabilitiesFor,

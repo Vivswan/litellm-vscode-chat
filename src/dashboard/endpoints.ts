@@ -367,13 +367,18 @@ interface DashboardEndpointIO {
 	 * text. Refused when no probe is registered for the feature.
 	 */
 	testFeatureModel: { request: { readonly feature: FeatureModelId; readonly model: FeatureModelRef } };
-	removeServerSetting: { request: { readonly label: string } };
 	/**
-	 * Append `category` to the declared entry `label` names. The whole payload
-	 * is two closed vocabularies - no free-typed value ever rides this method;
-	 * an already-declared category acks as a no-op.
+	 * Remove every entry under the row's label. `label` and `baseUrl` are the row's identity: the write refuses when
+	 * the entry under the label now points elsewhere, so a stale row cannot act on its successor.
 	 */
-	declareExpectedFailure: { request: { readonly label: string; readonly category: ExpectedFailureCategory } };
+	removeServerSetting: { request: { readonly label: string; readonly baseUrl: string } };
+	/**
+	 * Append `category` (a closed vocabulary) to the declared entry the row identifies, bound like
+	 * removeServerSetting; an already-declared category acks as a no-op.
+	 */
+	declareExpectedFailure: {
+		request: { readonly label: string; readonly baseUrl: string; readonly category: ExpectedFailureCategory };
+	};
 	/**
 	 * Adopt an external provider group into the servers setting: the group's
 	 * credentials are resolved extension-side (the webview never sees them) and

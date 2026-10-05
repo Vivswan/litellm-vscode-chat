@@ -6,6 +6,7 @@
 import type { ReplacedEntryIdentity, SaveServerPayload } from "../../../dashboard/endpoints";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
+import { entriesOf } from "../../../extension/dashboard/rowBoundWrite";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
 import type { DeclaredServer } from "../../../extension/servers/serverSync";
 import { acceptedEntry, inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync";
@@ -224,13 +225,13 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 				recorded.commands.push([command, ...args]);
 			},
 			readServersSetting: () => currentSetting,
-			writeServersSetting: async (value) => {
+			writeServersSetting: async (write) => {
 				if (recorded.failWrites !== undefined) {
 					throw recorded.failWrites;
 				}
-				recorded.serverWrites.push([...value]);
+				recorded.serverWrites.push([...entriesOf(write)]);
 				recorded.ops.push("write");
-				const visible = [...value];
+				const visible = [...entriesOf(write)];
 				currentSetting = visible;
 				recorded.afterWrite?.(visible);
 			},
@@ -288,13 +289,13 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			refreshUsageNow: () => {
 				recorded.usageRefreshes += 1;
 			},
-			resolveAdoptionCredentials: (baseUrl, sourceHandle) => {
+			resolveAdoptionCredentials: async (baseUrl, sourceHandle) => {
 				recorded.adoptionLookups.push([baseUrl, sourceHandle]);
-				return recorded.adoptionCredentials;
+				return { credentials: recorded.adoptionCredentials, setting: currentSetting };
 			},
-			resolveExternalGroup: (baseUrl, sourceHandle) => {
+			resolveExternalGroup: async (baseUrl, sourceHandle) => {
 				recorded.externalLookups.push([baseUrl, sourceHandle]);
-				return recorded.externalGroup;
+				return { identity: recorded.externalGroup, setting: currentSetting };
 			},
 			hideGroup: async (identity) => {
 				recorded.hidden.push({ ...identity });
