@@ -119,11 +119,18 @@ export function requireLabelFree(entries: readonly unknown[], label: string): vo
 
 /**
  * A decision made on `setting` (ServerSyncEngine.resolveDeclaredIdentities) is written only while the setting still
- * reads the same, in the same tick as the write; a promise continuation between the two is a yield point. Raw values
- * compare, so an array turning into a malformed container counts as a change.
+ * reads the same, in the same tick as the write; a promise continuation between the two is a yield point. The
+ * engine read the effective value and this reads the user scope, so an unset setting is [] there and undefined here.
+ *
+ *   same entries, an array or unset          -> unchanged
+ *   different entries, or a malformed value  -> changed; a container turning non-array counts
  */
 export function requireSettingUnchanged(env: IntentEnvironment, setting: unknown): void {
-	if (!isDeepStrictEqual(env.readServersSetting(), setting)) {
+	const current = env.readServersSetting();
+	const unchanged =
+		(current === undefined || Array.isArray(current)) &&
+		isDeepStrictEqual(rawServerEntries(current), rawServerEntries(setting));
+	if (!unchanged) {
 		throw new DashboardValidationError(l10n.t("The servers setting changed while this action ran; retry"));
 	}
 }

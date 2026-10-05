@@ -53,9 +53,10 @@ export interface ExternalGroupResolution {
  * resolution (ServerSyncEngine.resolveDeclaredIdentities), so a stale or forged handle cannot land on a group the
  * setting declares now, and cannot re-point at another host.
  *
- *   identity with client IDs      -> joinDeclared's passes claim one group for it
- *                                    (by ID, else by label and URL, else by URL alone)
- *   identity with none (a reject) -> its group is any group at its URL, so every one of them stays off limits
+ *   identity matched by an ID pass          -> that group is its own; the rest at its URL stay external
+ *   matched by label and URL, by URL alone, -> its own group could be any group at its URL (a reject has no IDs; an
+ *   or not at all                              entry whose credentials changed no longer matches its old group), so
+ *                                              every unmatched group there stays off limits
  */
 function resolveExternalSnapshot(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -64,12 +65,14 @@ function resolveExternalSnapshot(
 	sourceHandle: string
 ): ServerModelsSnapshot | undefined {
 	const labeled = labeledSnapshots(snapshots);
-	const { unmatched } = joinDeclared(labeled, declared);
-	const reserved = new Set(
-		declared
-			.filter((identity) => identity.expectedClientId === undefined && identity.expectedConnectionId === undefined)
-			.map((identity) => normalizeBaseUrl(identity.baseUrl))
-	);
+	const { unmatched, matchedByDeclared } = joinDeclared(labeled, declared);
+	const reserved = new Set<string>();
+	declared.forEach((identity, index) => {
+		const pass = matchedByDeclared.get(index)?.pass;
+		if (pass !== "identity" && pass !== "connection") {
+			reserved.add(normalizeBaseUrl(identity.baseUrl));
+		}
+	});
 	return [...unmatched].find(
 		(entry) =>
 			adoptSourceHandle(entry.snapshot.status.serverId) === sourceHandle &&

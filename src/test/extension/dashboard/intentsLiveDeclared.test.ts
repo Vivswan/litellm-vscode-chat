@@ -96,7 +96,8 @@ function makeFixture(): Fixture {
 	let setting: unknown = [];
 	const writes: unknown[][] = [];
 	const settingsAccess: SettingsAccess = {
-		readGlobal: () => setting,
+		// The user scope reads undefined while nothing is set; the engine's effective read below sees the [] default.
+		readGlobal: () => (Array.isArray(setting) && setting.length === 0 ? undefined : setting),
 		readEffective: () => setting,
 		inspect: () => undefined,
 		writeGlobal: async (_key, value) => {
@@ -217,8 +218,8 @@ interface Scenario {
 	open(fixture: Fixture): Promise<Opened>;
 	/** The intents the window applies to; hide has no step between its resolution and its write. */
 	intents: readonly ("adopt" | "hide")[];
-	/** What adopt does with the handle: the plain entry with the caveat, or the refusal with nothing written. */
-	adopt: "plain-entry" | "rejects";
+	/** What adopt does with the handle: the plain entry with the caveat, the source's own key, or a refusal. */
+	adopt: "plain-entry" | "copies" | "rejects";
 	/** What hide throws, and adopt when it rejects: the stale-row validation error, or the failed secrets read. */
 	refusal: RegExp | typeof DashboardValidationError | ((error: unknown) => boolean);
 	/** The declared setting and the stored API keys once the intent has run, the window's mid-intent changes included. */
@@ -230,6 +231,12 @@ const L1_ENTRY = { label: "L1", baseUrl: H };
 const L1_INLINE = { label: "L1", baseUrl: H, auth: { apiKey: SECRET } };
 /** An OAuth block without its client id: the parser refuses the entry whole. */
 const L1_REJECTED = { label: "L1", baseUrl: H, auth: { oauth: { tokenUrl: "https://idp.test/token" } } };
+/** L1 after its token URL moved to another identity provider; the client secret is the one its legacy group holds. */
+const L1_OAUTH_ROTATED = {
+	label: "L1",
+	baseUrl: H,
+	auth: { oauth: { tokenUrl: "https://idp2.test/token", clientId: "client-1", clientSecret: SECRET } },
+};
 /** The blob a secure API key stored for an entry at `baseUrl` leaves, owner stamp included. */
 const keyBlob = (baseUrl: string) => ({ apiKey: SECRET, _owner: { apiKey: secretDestination({ baseUrl }, "apiKey") } });
 /** A refusal the webview renders as validation text, not as the generic failure: the class and the message both. */
@@ -256,6 +263,10 @@ const validation =
  *                                beside another group at H the URL join would claim first
  *   malformed-after-resolution -> the setting turns into a non-array in the continuation
  *                                 between the resolution's return and the write
+ *   rotated-oauth-legacy      -> L1's OAuth token URL changed while its client secret stayed; an unlabeled legacy
+ *                                group at H still carries the old tuple and the secret, beside a group that sorts first
+ *   unset-setting-native      -> nothing declared (the user scope reads undefined, the engine []); a native group's own
+ *                                key is the one adoption that copies
  */
 const WINDOWS: Record<string, Scenario> = {
 	"mid-pass": {
@@ -487,6 +498,46 @@ const WINDOWS: Record<string, Scenario> = {
 			return { handle, close: async () => {} };
 		},
 	},
+	"rotated-oauth-legacy": {
+		after: { setting: [L1_OAUTH_ROTATED], secrets: {} },
+		intents: ["adopt", "hide"],
+		adopt: "plain-entry",
+		refusal: DashboardValidationError,
+		open: async (fixture) => {
+			const { engine, host, pushedHandle } = fixture;
+			fixture.declare([L1_OAUTH_ROTATED]);
+			host.taken.add("L1");
+			await host.addProviderGroup({ name: "a-ext", vendor: "litellm", baseUrl: H });
+			await host.addProviderGroup({
+				name: "legacy",
+				vendor: "litellm",
+				baseUrl: H,
+				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "client-1",
+				oauthClientSecret: SECRET,
+			});
+			await engine.syncNow();
+			const handle = pushedHandle("legacy");
+			assert.ok(
+				handle !== undefined,
+				"L1's identity no longer matches the legacy group by ID, and the URL join claims a-ext first"
+			);
+			return { handle, close: async () => {} };
+		},
+	},
+	"unset-setting-native": {
+		after: { setting: [], secrets: {} },
+		intents: ["adopt"],
+		adopt: "copies",
+		refusal: DashboardValidationError,
+		open: async ({ engine, host, pushedHandle }) => {
+			await host.addProviderGroup({ name: "native", vendor: "litellm", baseUrl: H, apiKey: SECRET });
+			await engine.syncNow();
+			const handle = pushedHandle("native");
+			assert.ok(handle !== undefined);
+			return { handle, close: async () => {} };
+		},
+	},
 	"declared-after-resolution": {
 		after: { setting: [L1_INLINE], secrets: {} },
 		intents: ["hide"],
@@ -531,7 +582,11 @@ function assertOutcome(
 suite("extension/dashboard intents against the live sync truth", () => {
 	for (const [name, scenario] of Object.entries(WINDOWS)) {
 		if (scenario.intents.includes("adopt")) {
-			test(`${name}: adopt copies nothing from the group carrying the declared secret`, async () => {
+			const outcome =
+				scenario.adopt === "copies"
+					? "copies the native group's own key"
+					: "copies nothing from the group carrying the declared secret";
+			test(`${name}: adopt ${outcome}`, async () => {
 				const fixture = makeFixture();
 				const { engine, env } = fixture;
 				const opened = await scenario.open(fixture);
@@ -559,6 +614,12 @@ suite("extension/dashboard intents against the live sync truth", () => {
 						assert.ok(typeof notice === "string" && /could not be read/.test(notice), `caveat expected, got ${notice}`);
 						assert.ok(Array.isArray(scenario.after.setting));
 						assertOutcome(fixture, scenario, before, [[...scenario.after.setting, { label: "Copy", baseUrl: H }]]);
+					} else if (scenario.adopt === "copies") {
+						assert.strictEqual(await adopt(), undefined, "a full adoption carries no caveat");
+						assert.ok(Array.isArray(scenario.after.setting));
+						assertOutcome(fixture, scenario, before, [
+							[...scenario.after.setting, { label: "Copy", baseUrl: H, auth: { apiKey: SECRET } }],
+						]);
 					} else {
 						await assert.rejects(adopt, scenario.refusal);
 						assertOutcome(fixture, scenario, before, []);
