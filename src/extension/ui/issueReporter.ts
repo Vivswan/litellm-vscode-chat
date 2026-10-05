@@ -522,10 +522,12 @@ function shortenLine(text: string, maxLength: number): string {
 }
 
 /**
- * A JSON pair whose name is any string: the predicate judges the name, so a padded or carrier name is its concern.
- * The value pattern consumes escaped sequences so an escaped quote inside the secret cannot end the match early.
+ * A JSON pair whose name is any string and whose value is any configured HeaderScalar (shared/util/headers.ts) in
+ * its JSON form: the predicate judges the name, so a padded or carrier name is its concern. The string pattern
+ * consumes escaped sequences so an escaped quote inside the secret cannot end the match early.
  */
-const JSON_PAIR = /("((?:[^"\\]|\\.)+)"\s*:\s*")((?:Bearer\s+)?)(?:\\.|[^"\\])*(")/gi;
+const JSON_PAIR =
+	/("((?:[^"\\]|\\.)+)"\s*:\s*)(?:"((?:Bearer\s+)?)(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:e[+-]?\d+)?|true|false)/gi;
 /**
  * A bare `name:` at a token start (whitespace, a bracket, a brace, a parenthesis, a double quote, or a separator
  * before it); the name token admits every header-name character, apostrophe and backtick included. The value is cut
@@ -539,8 +541,8 @@ const BARE_NAME = /(?<=^|[\s,;{}()[\]"])([^\s:"{}()[\],;]+)[ \t]*:[ \t]*/gm;
  * several pairs, so one token would leave the credential standing.
  */
 function redactHeaderValues(text: string, virtualKeyHeaders: readonly string[]): string {
-	const json = text.replace(JSON_PAIR, (match, prefix: string, name: string, bearer: string, quote: string) =>
-		isCredentialHeader(name, virtualKeyHeaders) ? `${prefix}${bearer}[REDACTED]${quote}` : match
+	const json = text.replace(JSON_PAIR, (match, prefix: string, name: string, bearer: string | undefined) =>
+		isCredentialHeader(name, virtualKeyHeaders) ? `${prefix}"${bearer ?? ""}[REDACTED]"` : match
 	);
 	let out = "";
 	let cursor = 0;

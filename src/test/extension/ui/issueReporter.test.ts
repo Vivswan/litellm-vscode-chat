@@ -683,6 +683,12 @@ suite("IssueReporter", () => {
 			redactSecrets('{" authorization ": "Bearer tok-marker", "X-Private": "pm", "model": "gpt"}', ["x-private"]),
 			'{" authorization ": "Bearer [REDACTED]", "X-Private": "[REDACTED]", "model": "gpt"}'
 		);
+		// The configured headers JSON may hold a number or a boolean bare (settings.ts stringifies it for transport); the
+		// marker is quoted so the redacted line still parses as JSON.
+		assert.equal(
+			redactSecrets('{"X-API-Key":42,"X-Flag": true,"X-Neg":-1.5e3,"port":4000,"debug":false}', ["X-Flag", "X-Neg"]),
+			'{"X-API-Key":"[REDACTED]","X-Flag": "[REDACTED]","X-Neg":"[REDACTED]","port":4000,"debug":false}'
+		);
 	});
 
 	test("redactSecrets removes sk- prefixed keys", () => {
