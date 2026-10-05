@@ -9,6 +9,7 @@ import {
 import { DEV_SEED_FILENAME, type DevSeed, type DevSeedEntry, type DevSeedModels } from "../shared/devSeed";
 import type { Logger } from "../shared/logger";
 import { errorLabel } from "../shared/util/errorLabel";
+import { trimHttpWhitespace } from "../shared/util/headers";
 import { isRecord } from "../shared/util/json";
 import { updateServerSecret } from "./servers/serverSync";
 import { createSettingsAccess } from "./settingsAccess";
@@ -40,8 +41,8 @@ function parseSeedEntry(raw: unknown): DevSeedEntry | undefined {
 	if (!isRecord(raw)) {
 		return undefined;
 	}
-	const label = typeof raw.label === "string" ? raw.label.trim() : "";
-	const baseUrl = typeof raw.baseUrl === "string" ? raw.baseUrl.trim() : "";
+	const label = typeof raw.label === "string" ? trimHttpWhitespace(raw.label) : "";
+	const baseUrl = typeof raw.baseUrl === "string" ? trimHttpWhitespace(raw.baseUrl) : "";
 	if (label.length === 0 || baseUrl.length === 0) {
 		return undefined;
 	}
@@ -68,12 +69,12 @@ export function parseDevSeed(raw: string): DevSeed | undefined {
 		return undefined;
 	}
 	const record = value;
-	if (typeof record.baseUrl !== "string" || record.baseUrl.trim().length === 0) {
+	if (typeof record.baseUrl !== "string" || trimHttpWhitespace(record.baseUrl).length === 0) {
 		return undefined;
 	}
 	// Trimmed like parseServersSetting trims: the label keys the SecretStorage blob and the entry match, so both sides
 	// must resolve the same name.
-	const label = typeof record.label === "string" ? record.label.trim() : "";
+	const label = typeof record.label === "string" ? trimHttpWhitespace(record.label) : "";
 	const models = parseSeedModels(record.models);
 	const entries = Array.isArray(record.entries)
 		? record.entries.map(parseSeedEntry).filter((entry): entry is DevSeedEntry => entry !== undefined)
@@ -81,7 +82,7 @@ export function parseDevSeed(raw: string): DevSeed | undefined {
 	const records = parseSeedModels(record.records);
 	return {
 		label: label.length > 0 ? label : DEFAULT_SEED_LABEL,
-		baseUrl: record.baseUrl.trim(),
+		baseUrl: trimHttpWhitespace(record.baseUrl),
 		apiKey: typeof record.apiKey === "string" ? record.apiKey : "",
 		openDashboard: record.openDashboard === true,
 		...(models !== undefined ? { models } : {}),
@@ -150,7 +151,8 @@ function upsertSeedEntry(raw: unknown, entry: DevSeedEntry): unknown[] {
 	const entries: unknown[] = Array.isArray(raw) ? [...raw] : [];
 	const value = seedEntryValue(entry);
 	const index = entries.findIndex(
-		(candidate) => isRecord(candidate) && typeof candidate.label === "string" && candidate.label.trim() === entry.label
+		(candidate) =>
+			isRecord(candidate) && typeof candidate.label === "string" && trimHttpWhitespace(candidate.label) === entry.label
 	);
 	if (index >= 0) {
 		entries[index] = value;

@@ -26,6 +26,7 @@ import { GroupDiscovery } from "./catalog/groupDiscovery";
 import type { EntryCredentialsResolver, GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
 import {
 	groupClientId,
+	logCredentialRejections,
 	overlayEntryCredentials,
 	parseGroupConfiguration,
 	parseModelMetadata,
@@ -186,8 +187,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
 		this._statusWindow = new StatusWindow(
 			options.now ?? (() => Date.now()),
-			// Read per consumption so settings changes apply live; the clamp warning routes through the facade's
-			// logger.
+			// Read per consumption so settings changes apply live; the out-of-contract diagnostic routes through the
+			// facade's logger.
 			() => getDiscoveryStaleServeWindow((message, data) => this.log(message, data)),
 			() => this._onDidObserveGroupEmitter.fire()
 		);
@@ -305,7 +306,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	/** Model IDs are returned raw and display names unprefixed because the host namespaces group models itself. */
 	private async provideGroupModels(configuration: unknown, silent: boolean): Promise<LiteLLMModelInfo[]> {
-		const parsed = parseGroupConfiguration(configuration, (message, data) => this.log(message, data));
+		const parsed = parseGroupConfiguration(
+			configuration,
+			logCredentialRejections((message, data) => this.log(message, data))
+		);
 		if (!parsed) {
 			this.log("Ignoring provider-group refresh with malformed configuration (baseUrl must be a string)");
 			return [];

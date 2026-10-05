@@ -3,6 +3,7 @@ import { useEffect, useId, useState } from "react";
 import type { CapabilityGroupIssues, GroupHints, GroupProblems, PrefixGroup } from "../../dashboard/recordDraft";
 import { matcherKind, resolvedFieldName, sortedGroupOrder } from "../../dashboard/recordDraft";
 import { OPENROUTER_MODEL_DIRECTIVE } from "../../shared/config/recordResolution";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { HoverTip } from "./help";
 import { helpModelParameterPrefix } from "./helpText";
 import { IconAdd, IconEdit, IconTrash } from "./icons";
@@ -126,7 +127,7 @@ export function RecordMatcherTable({
 				const addOpen = popover?.kind === "add" && groupHere(popover);
 				// The visible cell's fallback doubles as the accessible name for the row's actions: a fresh matcher
 				// must not announce as "".
-				const matcherName = group.prefix.trim().length > 0 ? group.prefix : l10n.t("(no matcher)");
+				const matcherName = trimHttpWhitespace(group.prefix).length > 0 ? group.prefix : l10n.t("(no matcher)");
 				return (
 					//   Rows                  -> are keyed by their MATCHER KEY plus occurrence
 					//   an index key          -> would remount the row when a state push reorders the record

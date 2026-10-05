@@ -5,9 +5,17 @@
 
 import * as l10n from "@vscode/l10n";
 import type { BooleanSettingId, NumberSettingId } from "../shared/config/settingSpec";
-import { NUMBER_SETTING_SPECS } from "../shared/config/settingSpec";
+import {
+	acceptsNumberSetting,
+	isUsableThreshold,
+	NUMBER_SETTING_SPECS,
+	numberSettingOffValue,
+} from "../shared/config/settingSpec";
+import { DECIMAL_TEXT_PATTERN, parseDecimalText } from "../shared/util/decimalText";
 import { statusErrorDetail, statusErrorHeadline } from "../shared/util/errorText";
 import type { HeaderScalar } from "../shared/util/headers";
+import { trimHttpWhitespace } from "../shared/util/headers";
+import { nonFiniteNumberPath } from "../shared/util/json";
 import type { DashboardServer, DeclaredServerNotice, SettingScope } from "./viewModels";
 
 /**
@@ -289,7 +297,7 @@ export function serverOutcomeText(server: DashboardServer): string {
 	// A two-part error (headline "\n" detail) flattens to one physical line: this is the copy-paste issue-report form.
 	const flatError = parts.error
 		?.split("\n")
-		.map((line) => line.trim())
+		.map((line) => trimHttpWhitespace(line))
 		.filter((line) => line.length > 0)
 		.join(" - ");
 	const error = flatError === undefined ? "" : parts.status === "OK" ? ` - ${flatError}` : `: ${flatError}`;
@@ -327,10 +335,8 @@ export interface NumberUnitBehavior {
 	readonly exactDisplay: (value: number) => string | undefined;
 	/** The muted "= ..." equivalence beside the input, or undefined when the unit offers none. */
 	readonly equivalence: (value: number, zeroMeaning: string | undefined) => string | undefined;
-	/**
-	 * The minimum bound as failure-detail text, unit-suffixed; stays English (it rides intent-failure detail lines).
-	 */
-	readonly minimumText: (minimum: number) => string;
+	/** A bound as failure-detail text, unit-suffixed; stays English (it rides intent-failure detail lines). */
+	readonly boundText: (minimum: number) => string;
 	/** Whether the grammar needs a free-text input (a number input would swallow suffix letters). */
 	readonly freeTextInput: boolean;
 }
@@ -347,27 +353,63 @@ const DURATION_SUFFIX_MS: Readonly<Record<string, number>> = {
  * milliseconds; undefined for everything else, so the form renders one grammar error.
  */
 function parseDurationDraftMs(text: string): number | undefined {
-	const trimmed = text.trim();
+	const trimmed = trimHttpWhitespace(text);
 	const match = /^(.*?)(ms|s|m|h)$/i.exec(trimmed);
 	if (match === null) {
-		// No suffix: the bare-number-is-ms reading. Number("") is 0, so the empty draft must never reach this helper
-		// unguarded.
-		const bare = trimmed.length === 0 ? Number.NaN : Number(trimmed);
-		return Number.isFinite(bare) ? bare : undefined;
+		// No suffix: the bare-number-is-ms reading, through the same exact arithmetic as a suffixed one so an authored
+		// fraction below float precision is refused here too. The empty draft never reaches this helper unguarded.
+		return trimmed.length === 0 ? undefined : scaledDecimal(trimmed, 1);
 	}
 	const prefix = match[1] ?? "";
 	const suffix = (match[2] ?? "").toLowerCase();
-	if (prefix.trim().length === 0) {
+	if (trimHttpWhitespace(prefix).length === 0) {
 		return undefined;
 	}
-	const value = Number(prefix);
-	if (!Number.isFinite(value)) {
+	const factor = DURATION_SUFFIX_MS[suffix] ?? Number.NaN;
+	return Number.isNaN(factor) ? undefined : scaledDecimal(prefix, factor);
+}
+
+/**
+ * The prefix times the unit factor in exact decimal arithmetic, so "1.001s" is 1001 (its float product is
+ * 1000.9999999999999). A whole result is exact; a non-whole one, an exponent past 400 digits either way, or a result
+ * beyond Number's range is reported as NaN, a reading the contract refuses (not a grammar failure), so
+ * "1.0000000000000000001s" cannot round back to an accepted 1000 and "1e309s" is refused by its bound, not its
+ * spelling. Anything outside decimal notation is no reading.
+ */
+function scaledDecimal(prefix: string, factor: number): number | undefined {
+	const match = DECIMAL_TEXT_PATTERN.exec(trimHttpWhitespace(prefix));
+	if (match === null) {
 		return undefined;
 	}
-	const scaled = value * (DURATION_SUFFIX_MS[suffix] ?? Number.NaN);
-	// The scaling can overflow ("9e307h"): a non-finite product must not read as a valid draft. Finite products round
-	// to whole milliseconds.
-	return Number.isFinite(scaled) ? Math.round(scaled) : undefined;
+	const [, sign = "", whole = "", fraction = "", exponent = "0"] = match;
+	if (whole === "" && fraction === "") {
+		return undefined;
+	}
+	// The mantissa as significant digits only: leading and trailing zeros spell nothing, so neither counts against the
+	// exponent guard ("1" + 401 zeros + "e-401" is 1).
+	const spelled = `${whole}${fraction}`.replace(/^0+/, "");
+	const digits = spelled.replace(/0+$/, "");
+	if (digits === "") {
+		return 0;
+	}
+	const power = Number(exponent) - fraction.length + (spelled.length - digits.length);
+	// The value has digits.length + power integer digits; past 16 it exceeds every setting maximum before the unit factor
+	// is applied, so a pasted million-digit draft is refused without building its BigInt.
+	if (!Number.isSafeInteger(power) || Math.abs(power) > 400 || digits.length + power > 16) {
+		return Number.NaN;
+	}
+	let product = BigInt(digits) * BigInt(factor);
+	let scale = 1n;
+	if (power >= 0) {
+		product *= 10n ** BigInt(power);
+	} else {
+		scale = 10n ** BigInt(-power);
+	}
+	if (product % scale !== 0n) {
+		return Number.NaN;
+	}
+	const result = Number(product / scale);
+	return Number.isFinite(result) ? (sign === "-" ? -result : result) : Number.NaN;
 }
 
 /**
@@ -414,25 +456,21 @@ const NUMBER_UNIT_BEHAVIOR = {
 			const duration = formatDuration(value);
 			return duration === undefined ? undefined : `= ${duration.label}`;
 		},
-		minimumText: (minimum) => `${minimum} ms`,
+		boundText: (minimum) => `${minimum} ms`,
 		freeTextInput: true,
 	},
 	count: {
 		parseDraft: (text) => {
-			const trimmed = text.trim();
-			// Number("") is 0; an empty draft has no reading under any grammar.
-			if (trimmed.length === 0) {
-				return undefined;
-			}
-			const value = Number(trimmed);
-			//   Counts are whole by definition -> a fractional draft has no reading
-			return Number.isInteger(value) ? value : undefined;
+			const trimmed = trimHttpWhitespace(text);
+			// The same exact arithmetic as a duration, so "1.0000000000000000001" is a fraction the contract refuses
+			// rather than the 1 that Number would make of it. An empty draft has no reading under any grammar.
+			return trimmed.length === 0 ? undefined : scaledDecimal(trimmed, 1);
 		},
 		parseProblem: () => l10n.t("Not a whole number"),
 		exactDisplay: () => undefined,
 		// A digit-grouped echo of the same number would say nothing.
 		equivalence: () => undefined,
-		minimumText: (minimum) => String(minimum),
+		boundText: (minimum) => String(minimum),
 		freeTextInput: false,
 	},
 } as const satisfies Record<string, NumberUnitBehavior>;
@@ -524,11 +562,13 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 }
 
 /**
- * The single value extraction behind parseNumberDraft AND isBoundViolation, so the two can never disagree about what a
- * draft is worth.
+ * One draft's numeric reading under the field's grammar (the unit's
+ * parseDraft); undefined when the text has no reading, empty included. The
+ * single value extraction behind parseNumberDraft AND violatesContract, so the
+ * two can never disagree about what a draft is worth.
  */
 function draftValue(id: NumberSettingId, text: string): number | undefined {
-	const trimmed = text.trim();
+	const trimmed = trimHttpWhitespace(text);
 	if (trimmed.length === 0) {
 		return undefined;
 	}
@@ -545,12 +585,13 @@ export function defaultDisplay(id: NumberSettingId): string {
 }
 
 /**
+ * Whether a rejected draft has a reading the spec refuses (outside a bound, or a fraction on an integer-only setting).
  * The form keeps these quiet until the field blurs (typing the 5 of 5000 passes through honest below-minimum values),
- * while true parse failures stay live.
+ * while true parse failures stay live. Reads the draft through the same draftValue extraction parseNumberDraft uses.
  */
-export function isBoundViolation(id: NumberSettingId, text: string): boolean {
+export function violatesContract(id: NumberSettingId, text: string): boolean {
 	const value = draftValue(id, text);
-	return value !== undefined && value < NUMBER_SETTING_SPECS[id].minimum;
+	return value !== undefined && !acceptsNumberSetting(id, value);
 }
 
 export interface BooleanSettingPresentation {
@@ -687,7 +728,7 @@ export type NumberDraftParse =
 
 export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraftParse {
 	const spec = NUMBER_SETTING_SPECS[id];
-	const trimmed = text.trim();
+	const trimmed = trimHttpWhitespace(text);
 	if (trimmed.length === 0) {
 		return spec.nullable ? { kind: "clear" } : { kind: "invalid", problem: l10n.t("Enter a number") };
 	}
@@ -695,15 +736,36 @@ export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraft
 	if (value === undefined) {
 		return { kind: "invalid", problem: unitBehavior(id).parseProblem() };
 	}
-	if (value < spec.minimum) {
-		return { kind: "invalid", problem: l10n.t("Must be at least {0}", spec.minimum) };
+	// The spec's own contract, the rule the host write and the settings reader apply: a fraction or an out-of-range
+	// value is refused as typed, never rounded or clamped, so nothing the form commits reads back as the default.
+	if (!acceptsNumberSetting(id, value)) {
+		return { kind: "invalid", problem: numberContractSentence(id) };
 	}
 	return { kind: "value", value };
 }
 
 /**
- * Takes the value parseNumberDraft committed to, so it cannot re-read the raw text by other rules; the rendering itself
- * is the unit's.
+ * The one localized sentence for a number setting's contract: the dashboard row, the Diagnostics tab, and the
+ * settings-import preview all show this text, so a user meets one wording for one rule.
+ */
+export function numberContractSentence(id: NumberSettingId): string {
+	const spec = NUMBER_SETTING_SPECS[id];
+	const offValue = numberSettingOffValue(id);
+	return offValue === undefined
+		? l10n.t("{0} must be a whole number between {1} and {2}.", id, spec.minimum, spec.maximum)
+		: l10n.t(
+				"{0} must be a whole number between {1} and {2}, or {3} to turn it off.",
+				id,
+				spec.minimum,
+				spec.maximum,
+				offValue
+			);
+}
+
+/**
+ * The muted equivalence rendered next to a number input. Takes the value
+ * parseNumberDraft committed to, so it cannot re-read the raw text by other
+ * rules; the rendering itself is the unit's.
  */
 export function equivalence(id: NumberSettingId, value: number): string | undefined {
 	return unitBehavior(id).equivalence(value, numberSettingPresentation(id).zeroMeaning);
@@ -735,15 +797,27 @@ export type ParsedJsonValue =
 
 /** Invalid input is a validation error, never a silent guess. */
 export function parseJsonValue(text: string): ParsedJsonValue {
-	const trimmed = text.trim();
+	const trimmed = trimHttpWhitespace(text);
 	if (trimmed.length === 0) {
 		return { ok: false, error: l10n.t('Enter a JSON value, e.g. 0.2, true, or "text".') };
 	}
+	let value: unknown;
 	try {
-		return { ok: true, value: JSON.parse(trimmed) as unknown };
+		value = JSON.parse(trimmed);
 	} catch {
 		return { ok: false, error: l10n.t('Not valid JSON. Quote strings, e.g. "text".') };
 	}
+	const overflowAt = nonFiniteNumberPath(value);
+	if (overflowAt !== undefined) {
+		return {
+			ok: false,
+			error:
+				overflowAt === ""
+					? l10n.t("Number too large for JSON; it would be saved as null")
+					: l10n.t("Number too large for JSON at {0}; it would be saved as null", overflowAt),
+		};
+	}
+	return { ok: true, value };
 }
 
 /**
@@ -751,19 +825,15 @@ export function parseJsonValue(text: string): ParsedJsonValue {
  * values ("true" is a boolean, "42" a number, "\"42\"" a string) and anything else is the literal string.
  */
 export function parseHeaderValue(text: string): HeaderScalar {
-	const trimmed = text.trim();
-	try {
-		const parsed: unknown = JSON.parse(trimmed);
-		if (typeof parsed === "string" || typeof parsed === "boolean") {
-			return parsed;
-		}
-		// Non-finite numbers (JSON.parse("1e999") is Infinity) fall through to the literal string: isHeaderScalar
-		// refuses them at the header-record parse boundary, so parsing them as numbers would make Apply a silent no-op.
-		if (typeof parsed === "number" && Number.isFinite(parsed)) {
-			return parsed;
-		}
-	} catch {
-		// Fall through: the text is a plain string value.
+	const trimmed = trimHttpWhitespace(text);
+	const parsed = parseJsonValue(trimmed);
+	// Non-finite numbers (parseJsonValue refuses "1e999") fall through to the literal string: isHeaderScalar refuses
+	// them at the header-record parse boundary, so parsing them as numbers would make Apply a silent no-op.
+	if (
+		parsed.ok &&
+		(typeof parsed.value === "string" || typeof parsed.value === "boolean" || typeof parsed.value === "number")
+	) {
+		return parsed.value;
 	}
 	return trimmed;
 }
@@ -786,4 +856,29 @@ export function formatHeaderValue(value: HeaderScalar): string {
 	} catch {
 		return value;
 	}
+}
+
+/**
+ * One threshold box's parse: a fraction (0.8), a percentage (80%), or a bare number above 1 read as percent. The docs'
+ * bound applies after conversion: (0, 1]. Lossy in value space by an ulp ("53.3%" is not 0.533 back), but render ->
+ * parse -> render IS a fixed point, which is the space the settings page's commit compares in.
+ */
+export function parseThresholdBox(
+	text: string
+): { readonly kind: "empty" } | { readonly kind: "value"; readonly value: number } | { readonly kind: "invalid" } {
+	const trimmed = trimHttpWhitespace(text);
+	if (trimmed.length === 0) {
+		return { kind: "empty" };
+	}
+	const percent = trimmed.endsWith("%");
+	const numberText = percent ? trimHttpWhitespace(trimmed.slice(0, -1)) : trimmed;
+	const parsed = parseDecimalText(numberText);
+	if (parsed === undefined) {
+		return { kind: "invalid" };
+	}
+	const value = percent || parsed > 1 ? parsed / 100 : parsed;
+	if (!isUsableThreshold(value)) {
+		return { kind: "invalid" };
+	}
+	return { kind: "value", value };
 }

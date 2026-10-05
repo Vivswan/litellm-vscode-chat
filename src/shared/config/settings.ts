@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { z } from "zod";
 import type { HeaderScalar } from "../util/headers";
-import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../util/headers";
+import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue, trimHttpWhitespace } from "../util/headers";
 import { isRecord, isUnsafeRecordKey } from "../util/json";
 import type {
 	AgentWriteToolId,
@@ -18,6 +18,7 @@ import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	AGENT_TOOL_TOGGLE_KEYS,
 	AGENT_TOOLS_SECRET_VALUES_KEY,
+	acceptsNumberSetting,
 	BOOLEAN_SETTING_SPECS,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
@@ -32,13 +33,13 @@ import {
 	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_MODEL_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
-	isIntegerSetting,
 	isUsableThreshold,
 	LANGUAGE_FILTER_MODES,
 	MIN_TIMEOUT_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	NUMBER_SETTING_SPECS,
+	numberSettingBoundText,
 	SERVERS_SETTING_KEY,
 	TOKEN_ESTIMATION_MODES,
 	TOKEN_ESTIMATION_SETTING_KEY,
@@ -77,46 +78,33 @@ function getConfig(): vscode.WorkspaceConfiguration {
 	return vscode.workspace.getConfiguration(CONFIG_SECTION);
 }
 
-function getNumberSetting(id: NumberSettingId): number | null {
-	return getConfig().get<number | null>(id, NUMBER_SETTING_SPECS[id].default);
-}
-
 function getBooleanSetting(id: BooleanSettingId): boolean {
 	return getConfig().get<boolean>(id, BOOLEAN_SETTING_SPECS[id].default);
 }
 
 /**
- * Validate a configured number setting: non-finite values fall back to the default, integer-only settings floor
- * fractions (the contribution says integer, but settings.json is free text), and finite values are clamped to the
- * minimum.
+ * settings.json is free text, so the spec's contract (acceptsNumberSetting; the manifest states a looser schema where
+ * an off switch exists) is applied here rather than trusted. A value outside it is never guessed at (no clamp, no rounding): the default applies, and the log names
+ * the key and the bound, the same judgment the dashboard's Diagnostics tab renders.
  */
-function clampNumber(
-	raw: unknown,
-	fallback: number,
-	minimum: number,
-	integer: boolean,
-	name: string,
-	log?: LogFn
-): number {
-	const candidate = typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
-	const clamped = Math.max(minimum, integer ? Math.floor(candidate) : candidate);
-	if (clamped !== raw) {
-		log?.(`Invalid ${name} configuration, using clamped value`, { configured: raw, clamped });
-	}
-	return clamped;
-}
-
-function getClampedNumberSetting(id: NumberSettingId, log?: LogFn): number {
+function readNumberSetting(id: NumberSettingId, log?: LogFn): number {
 	const spec = NUMBER_SETTING_SPECS[id];
-	return clampNumber(getNumberSetting(id), spec.default, spec.minimum, isIntegerSetting(id), id, log);
+	const raw = getConfig().get<unknown>(id, spec.default);
+	if (acceptsNumberSetting(id, raw)) {
+		return raw as number;
+	}
+	log?.(`${id} must be a whole number ${numberSettingBoundText(id)}; using the default`, {
+		configured: typeof raw === "number" ? raw : typeof raw,
+	});
+	return spec.default;
 }
 
 export function getDiscoveryTimeout(log?: LogFn): number {
-	return getClampedNumberSetting("discovery.timeout", log);
+	return readNumberSetting("discovery.timeout", log);
 }
 
 export function getRequestTimeout(log?: LogFn): number {
-	return getClampedNumberSetting("chat.timeout", log);
+	return readNumberSetting("chat.timeout", log);
 }
 
 export function normalizeTokenEstimationMode(raw: unknown): TokenEstimationMode {
@@ -132,7 +120,7 @@ export function getTokenEstimationMode(): TokenEstimationMode {
 
 /** 0 is a valid configuration. */
 export function getDiscoveryCacheTtl(log?: LogFn): number {
-	return getClampedNumberSetting("discovery.cacheTtl", log);
+	return readNumberSetting("discovery.cacheTtl", log);
 }
 
 /**
@@ -140,7 +128,7 @@ export function getDiscoveryCacheTtl(log?: LogFn): number {
  * successful discovery, in milliseconds.
  */
 export function getDiscoveryStaleServeWindow(log?: LogFn): number {
-	return getClampedNumberSetting("discovery.staleServeWindow", log);
+	return readNumberSetting("discovery.staleServeWindow", log);
 }
 
 export function isPromptCachingEnabled(): boolean {
@@ -149,7 +137,7 @@ export function isPromptCachingEnabled(): boolean {
 
 /** How many tools one chat request may carry before it is refused locally instead of sent. */
 export function getMaxToolsPerRequest(log?: LogFn): number {
-	return getClampedNumberSetting("chat.maxToolsPerRequest", log);
+	return readNumberSetting("chat.maxToolsPerRequest", log);
 }
 
 export function normalizeAdditionalToolSchemaKeywords(raw: unknown, log?: LogFn): readonly string[] {
@@ -183,39 +171,22 @@ export function getAdditionalToolSchemaKeywords(log?: LogFn): readonly string[] 
 	);
 }
 
-/**
- * The floor a NONZERO usage poll interval clamps to: zero stays the documented off switch, but a tiny positive value
- * ("1") would otherwise be a permanent as-fast-as-the-network-allows loop of several GETs per server.
- */
-export const MIN_USAGE_POLL_INTERVAL_MS = 30000;
-
-/**
- * Zero disables polling entirely (the documented off switch; explicit refresh still works), negatives clamp to zero,
- * and nonzero values clamp up to MIN_USAGE_POLL_INTERVAL_MS.
- */
+/** Zero is the documented off switch (explicit refresh still works); see the spec's offValue. */
 export function getUsagePollIntervalMs(log?: LogFn): number {
-	const clamped = getClampedNumberSetting("usage.pollInterval", log);
-	if (clamped > 0 && clamped < MIN_USAGE_POLL_INTERVAL_MS) {
-		log?.("Invalid usage.pollInterval configuration, using clamped value", {
-			configured: clamped,
-			clamped: MIN_USAGE_POLL_INTERVAL_MS,
-		});
-		return MIN_USAGE_POLL_INTERVAL_MS;
-	}
-	return clamped;
+	return readNumberSetting("usage.pollInterval", log);
 }
 
 export function getUsageInitialRefreshDelayMs(log?: LogFn): number {
-	return getClampedNumberSetting("usage.initialRefreshDelay", log);
+	return readNumberSetting("usage.initialRefreshDelay", log);
 }
 
 export function getUsageServersChangeRefreshDelayMs(log?: LogFn): number {
-	return getClampedNumberSetting("usage.serversChangeRefreshDelay", log);
+	return readNumberSetting("usage.serversChangeRefreshDelay", log);
 }
 
 /** 0 is valid: on-demand data then never counts as fresh, so the status bar aggregates nothing while polling is off. */
 export function getUsagePollingOffFreshnessWindowMs(log?: LogFn): number {
-	return getClampedNumberSetting("usage.pollingOffFreshnessWindow", log);
+	return readNumberSetting("usage.pollingOffFreshnessWindow", log);
 }
 
 /**
@@ -286,7 +257,7 @@ export function getUiAccent(): UiAccent {
 
 const settingsRecordSchema = z.record(z.string(), z.unknown());
 
-const headerNameSchema = z.string().trim().regex(HEADER_NAME_PATTERN);
+const headerNameSchema = z.string().regex(HEADER_NAME_PATTERN);
 
 const headerValueSchema = z.custom<HeaderScalar>(isHeaderScalar).transform((value) => String(value));
 
@@ -303,7 +274,7 @@ export function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string
 	const headers: Record<string, string> = {};
 	const seenLower = new Set<string>();
 	for (const [name, value] of Object.entries(parsed.data)) {
-		const parsedName = headerNameSchema.safeParse(name);
+		const parsedName = headerNameSchema.safeParse(trimHttpWhitespace(name));
 		if (!parsedName.success || isUnsafeRecordKey(parsedName.data)) {
 			log?.("Ignoring invalid custom header name", { name });
 			continue;
@@ -335,43 +306,99 @@ export function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string
 
 const prefixKeyedEntrySchema = z.record(z.string(), z.unknown());
 
-function normalizePrefixKeyedRecords(raw: unknown): Record<string, Record<string, unknown>> {
-	const parsed = settingsRecordSchema.safeParse(raw);
-	if (!parsed.success) {
+type RecordSettingKey = typeof MODEL_PARAMETERS_SETTING_KEY | typeof MODEL_CAPABILITIES_SETTING_KEY;
+
+/**
+ * What the records normalizer refused: the whole map, one model's entry whose value is not an object, or an entry
+ * under a reserved name (named; model IDs are user configuration).
+ */
+type RecordShapeProblem =
+	| { readonly kind: "map" }
+	| { readonly kind: "entry"; readonly key: string }
+	| { readonly kind: "reserved-key"; readonly key: string };
+
+export type RecordShapeReport = (problem: RecordShapeProblem) => void;
+
+/** The log-side reporter: one classification line per refusal, the model ID but never a value. */
+export function logRecordShapeProblems(setting: RecordSettingKey, log: LogFn): RecordShapeReport {
+	return (problem) => {
+		switch (problem.kind) {
+			case "map":
+				log(`Invalid ${setting} configuration, reading it as empty`);
+				break;
+			case "entry":
+				log(`Ignoring ${setting} entry whose value is not an object`, { model: problem.key });
+				break;
+			case "reserved-key":
+				log(`Ignoring ${setting} entry under a reserved name`, { model: problem.key });
+				break;
+		}
+	};
+}
+
+/**
+ * The one classifier of a records map's shape: a wrong-shaped map reads as empty, a wrong-shaped entry or one under a
+ * reserved name as absent, each reported through the caller's channel (the log, or the dashboard's Diagnostics tab).
+ */
+function normalizePrefixKeyedRecords(
+	raw: unknown,
+	report?: RecordShapeReport
+): Record<string, Record<string, unknown>> {
+	// Own keys of the raw object, not a zod record parse: zod drops "__proto__" before anything could name it, and a
+	// reserved name is exactly what the user must be told about.
+	if (!isRecord(raw)) {
+		if (raw !== undefined) {
+			report?.({ kind: "map" });
+		}
 		return {};
 	}
 
 	const records: Record<string, Record<string, unknown>> = {};
-	for (const [modelId, value] of Object.entries(parsed.data)) {
+	for (const modelId of Object.keys(raw)) {
 		if (isUnsafeRecordKey(modelId)) {
+			report?.({ kind: "reserved-key", key: modelId });
 			continue;
 		}
-		const entry = prefixKeyedEntrySchema.safeParse(value);
+		const entry = prefixKeyedEntrySchema.safeParse(raw[modelId]);
 		if (entry.success) {
 			records[modelId] = entry.data;
+		} else {
+			report?.({ kind: "entry", key: modelId });
 		}
 	}
 	return records;
 }
 
-export function normalizeModelParameters(raw: unknown): Record<string, Record<string, unknown>> {
-	return normalizePrefixKeyedRecords(raw);
+export function normalizeModelParameters(
+	raw: unknown,
+	report?: RecordShapeReport
+): Record<string, Record<string, unknown>> {
+	return normalizePrefixKeyedRecords(raw, report);
 }
 
-export function getModelParametersConfig(): Record<string, Record<string, unknown>> {
-	return normalizeModelParameters(getConfig().get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY, {}));
+export function getModelParametersConfig(log?: LogFn): Record<string, Record<string, unknown>> {
+	return normalizeModelParameters(
+		getConfig().get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY, {}),
+		log === undefined ? undefined : logRecordShapeProblems(MODEL_PARAMETERS_SETTING_KEY, log)
+	);
 }
 
 /**
  * Shape only, deliberately as lenient as normalizeModelParameters: the capability vocabulary and value typing are
  * enforced in one place, capabilityResolution's parseCapabilityRecord.
  */
-export function normalizeModelCapabilities(raw: unknown): Record<string, Record<string, unknown>> {
-	return normalizePrefixKeyedRecords(raw);
+export function normalizeModelCapabilities(
+	raw: unknown,
+	report?: RecordShapeReport
+): Record<string, Record<string, unknown>> {
+	return normalizePrefixKeyedRecords(raw, report);
 }
 
-export function getModelCapabilitiesConfig(): Record<string, Record<string, unknown>> {
-	return normalizeModelCapabilities(getConfig().get<Record<string, unknown>>(MODEL_CAPABILITIES_SETTING_KEY, {}));
+export function getModelCapabilitiesConfig(log?: LogFn): Record<string, Record<string, unknown>> {
+	return normalizeModelCapabilities(
+		getConfig().get<Record<string, unknown>>(MODEL_CAPABILITIES_SETTING_KEY, {}),
+		log === undefined ? undefined : logRecordShapeProblems(MODEL_CAPABILITIES_SETTING_KEY, log)
+	);
 }
 
 export function getMaskSecretInputs(): boolean {
@@ -411,8 +438,8 @@ export function normalizeFeatureModelRef(
 	if (raw === undefined || raw === null) {
 		return undefined;
 	}
-	const server = isRecord(raw) && typeof raw.server === "string" ? raw.server.trim() : "";
-	const model = isRecord(raw) && typeof raw.model === "string" ? raw.model.trim() : "";
+	const server = isRecord(raw) && typeof raw.server === "string" ? trimHttpWhitespace(raw.server) : "";
+	const model = isRecord(raw) && typeof raw.model === "string" ? trimHttpWhitespace(raw.model) : "";
 	if (server.length === 0 || model.length === 0) {
 		log?.(`Invalid ${FEATURE_MODEL_SETTING_KEYS[feature]} configuration, reading the model as unset`, {
 			configured: typeof raw,
@@ -463,7 +490,7 @@ export function normalizeInlineLanguageFilter(raw: unknown, log?: LogFn): Inline
 	}
 	const valid = raw.languages
 		.filter((value): value is string => typeof value === "string")
-		.map((value) => value.trim())
+		.map((value) => trimHttpWhitespace(value))
 		.filter((value) => value.length > 0);
 	if (valid.length < raw.languages.length) {
 		log?.("Ignoring language filter entries that are not non-empty language IDs", {

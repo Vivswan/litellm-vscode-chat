@@ -8,7 +8,7 @@ import type {
 	ServerFormField,
 	ServerFormProblems,
 } from "../../dashboard/serverForm";
-import { serverFormFieldLabel } from "../../dashboard/serverForm";
+import { secretDraftIsEmpty, serverFormFieldLabel } from "../../dashboard/serverForm";
 import type { SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import type { DocsUrl } from "./docsLinks";
 import { Help } from "./help";
@@ -348,7 +348,7 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 	const [revealed, setRevealed] = useState(false);
 	// Nothing to reveal in an empty or removal-marked field: the toggle disables and revealed state resets, so the next
 	// value starts masked.
-	const empty = value.value.trim().length === 0;
+	const empty = secretDraftIsEmpty(value.value);
 	useEffect(() => {
 		if (empty || value.clear) {
 			setRevealed(false);

@@ -4,6 +4,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
+import { trimHttpWhitespace } from "../util/headers";
 import type { ConsumedCapabilityField, CostCapabilityField } from "./capabilityResolution";
 import { consumedFieldsOfKind } from "./capabilityResolution";
 
@@ -132,6 +133,6 @@ export function formatCostPerMillion(perTokenCost: number, currencySymbol: strin
  * million tokens" - and the empty symbol drops the currency claim entirely.
  */
 export function costUnitLabel(currencySymbol: string): string {
-	const symbol = currencySymbol.trim();
+	const symbol = trimHttpWhitespace(currencySymbol);
 	return symbol.length === 0 ? l10n.t("per million tokens") : l10n.t("{0} per million tokens", symbol);
 }

@@ -139,7 +139,7 @@ describe("settings reference generation", () => {
 		const defaults = new Map(settings.defaults);
 		defaults.set("toString", null);
 		assert.throws(
-			() => buildReferenceTable("en", { order, defaults }, SETTING_PROSE),
+			() => buildReferenceTable("en", { order, defaults, bounds: settings.bounds }, SETTING_PROSE),
 			(error: Error) => error.message.includes("no entry for toString")
 		);
 	});
@@ -147,7 +147,7 @@ describe("settings reference generation", () => {
 	test("a setting without a default fails generation", () => {
 		const defaults = new Map(settings.defaults);
 		defaults.delete("servers");
-		const gutted: SpecSettings = { order: settings.order, defaults };
+		const gutted: SpecSettings = { order: settings.order, defaults, bounds: settings.bounds };
 		assert.throws(() => buildReferenceTable("en", gutted, SETTING_PROSE), /servers/);
 	});
 
@@ -157,7 +157,7 @@ describe("settings reference generation", () => {
 		for (const bad of ["a`b", "a|b"]) {
 			const defaults = new Map(settings.defaults);
 			defaults.set("usage.currencySymbol", bad);
-			const poisoned: SpecSettings = { order: settings.order, defaults };
+			const poisoned: SpecSettings = { order: settings.order, defaults, bounds: settings.bounds };
 			assert.throws(() => buildReferenceTable("en", poisoned, SETTING_PROSE), /usage\.currencySymbol/);
 		}
 	});

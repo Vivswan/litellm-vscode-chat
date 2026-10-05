@@ -10,17 +10,18 @@ import {
 	defaultDisplay,
 	draftSyncKey,
 	equivalence,
-	isBoundViolation,
 	numberSettingPresentation,
 	parseNumberDraft,
 	settingScopeLabel,
 	unitBehavior,
+	violatesContract,
 } from "../../dashboard/presenters";
 import type { SettingRowId, SettingRowPageId, SettingScope } from "../../dashboard/viewModels";
 import { settingRowPage } from "../../dashboard/viewModels";
 import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 import { statusErrorHeadline } from "../../shared/util/errorText";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { useAlertOnce } from "./announceOnce";
 import { FailureText } from "./failureText";
 import { Help, NoBreakTail } from "./help";
@@ -106,7 +107,7 @@ export function filterMatcher(filter: string): {
 	readonly needle: string;
 	readonly matches: (...haystack: string[]) => boolean;
 } {
-	const needle = filter.trim().toLowerCase();
+	const needle = trimHttpWhitespace(filter).toLowerCase();
 	return {
 		needle,
 		matches: (...haystack: string[]): boolean =>
@@ -505,9 +506,11 @@ export function SettingRow({
 }
 
 /**
- * One parse per keystroke feeds display, commit, and equivalence hint alike - never latched at commit time. One
- * display exception: a minimum-bound rejection stays quiet until first blur, because typing the 5 of 5000 honestly
- * passes below the bound; the parse itself is unchanged and the blurred latch re-arms on every external resync.
+ * A number setting edited as draft text, committed on blur or Enter. One parse per
+ * keystroke feeds display, commit, and equivalence hint alike - never latched at commit
+ * time. One display exception: a draft with a numeric reading the spec refuses (outside a bound, or a bare fraction
+ * on a duration) stays quiet until first blur, because typing the 5 of 5000 honestly passes below the bound; the
+ * parse itself is unchanged and the blurred latch re-arms on every external resync.
  */
 function NumberField({
 	id,
@@ -537,7 +540,7 @@ function NumberField({
 	}, [syncKey]);
 
 	const parse = parseNumberDraft(id, text);
-	const suppressed = parse.kind === "invalid" && !blurred && isBoundViolation(id, text);
+	const suppressed = parse.kind === "invalid" && !blurred && violatesContract(id, text);
 	const error = parse.kind === "invalid" && !suppressed ? parse.problem : undefined;
 	const commit = () => {
 		if (parse.kind === "invalid") {
@@ -728,7 +731,7 @@ export function EnumSettingRow<T extends string>({
  * list lives in, so it freezes alongside it) must never disagree.
  */
 export function commaListCustom(values: readonly string[], lossy: boolean): boolean {
-	return lossy || values.some((entry) => entry.includes(",") || entry !== entry.trim());
+	return lossy || values.some((entry) => entry.includes(",") || entry !== trimHttpWhitespace(entry));
 }
 
 /**
@@ -780,7 +783,7 @@ export function CommaListRow({
 		...new Set(
 			text
 				.split(",")
-				.map((entry) => entry.trim())
+				.map((entry) => trimHttpWhitespace(entry))
 				.filter((entry) => entry.length > 0)
 		),
 	];

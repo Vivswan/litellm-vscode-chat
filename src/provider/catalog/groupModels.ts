@@ -20,7 +20,7 @@ import type { NormalizedBaseUrl } from "../../shared/util/baseUrl";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { displayUrl } from "../../shared/util/displayUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
-import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../shared/util/headers";
+import { HEADER_NAME_PATTERN, sendableHeaderValue, usableHttpText } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import type { OAuthConfig, VirtualKeyConfig } from "../transport/auth";
 import { oauthCredentialFingerprint } from "../transport/auth";
@@ -212,14 +212,6 @@ export function isGroupClientId(serverId: unknown): boolean {
 	return typeof serverId === "string" && serverId.startsWith(GROUP_CLIENT_ID_PREFIX);
 }
 
-function usableString(value: unknown): string | undefined {
-	if (typeof value !== "string") {
-		return undefined;
-	}
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
-}
-
 type RawOptionalFields = { readonly [K in OptionalEntryFieldId]?: unknown };
 
 /**
@@ -230,7 +222,7 @@ type RawOptionalFields = { readonly [K in OptionalEntryFieldId]?: unknown };
 function usableNonSecretFields(raw: RawOptionalFields): NonSecretOptionalFields {
 	const fields: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
 	for (const id of NON_SECRET_OPTIONAL_FIELD_IDS) {
-		const value = usableString(raw[id]);
+		const value = usableHttpText(raw[id]);
 		if (value !== undefined) {
 			fields[id] = value;
 		}
@@ -240,7 +232,8 @@ function usableNonSecretFields(raw: RawOptionalFields): NonSecretOptionalFields 
 
 /**
  * OAuth is present as one typed unit or not at all: a usable token URL and client ID make the unit, anything less
- * degrades to absent. The secret is taken verbatim (an empty one means a public client) and scopes are optional.
+ * degrades to absent. The secret is taken verbatim (an empty one means a public client) and scopes are optional; it
+ * rides the token request's body (transport/auth.ts), never a header, so no header rule applies to it.
  */
 function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
 	const fields = usableNonSecretFields(raw);
@@ -256,32 +249,82 @@ function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
 	};
 }
 
-type NarrowLog = (message: string, data?: unknown) => void;
+/**
+ * A credential the narrowing dropped, named by field so the dashboard can point at the entry's auth field and the log
+ * can classify it. `header` is the virtual key's configured header name (user configuration, never a value);
+ * `fingerprint` identifies the configured value for once-only logging and never reveals it.
+ */
+export interface CredentialRejection {
+	readonly field: Extract<SecretFieldId, "apiKey" | "virtualKeyValue">;
+	readonly header?: string;
+	readonly fingerprint: string;
+}
 
-/** One warning per rejected header name, so repeated serves of one configuration do not spam the log. */
-const reportedInvalidVirtualKeys = new Set<string>();
+export type CredentialRejectionReport = (rejection: CredentialRejection) => void;
 
-/** A rejection is logged once per header name so typos are diagnosable; the value never reaches the log. */
-function narrowVirtualKey(raw: RawOptionalFields, log?: NarrowLog): VirtualKeyConfig | undefined {
+/** One log line per distinct rejected value, so per-request re-narrowing does not spam the log. */
+const loggedRejections = new Set<string>();
+
+/** The per-request paths' reporter: the classification, the virtual key's header name for typo hunting, never a value. */
+export function logCredentialRejections(log: (message: string, data?: unknown) => void): CredentialRejectionReport {
+	return (rejection) => {
+		const key = `${rejection.field}:${rejection.fingerprint}`;
+		if (loggedRejections.has(key)) {
+			return;
+		}
+		loggedRejections.add(key);
+		if (rejection.field === "apiKey") {
+			log("Ignoring the configured API key: the value cannot be sent as an HTTP header");
+		} else {
+			log("Ignoring the configured virtual key: the header name or value cannot be sent as an HTTP header", {
+				header: rejection.header,
+			});
+		}
+	};
+}
+
+/**
+ * The key rides two headers (transport/clients.ts buildDefaultHeaders), so a value the platform's Headers would
+ * refuse never reaches it: that TypeError quotes the whole value, and it would surface in the chat error, the
+ * dashboard row, and the output channel. A pasted trailing newline is the common case and is repaired by trimming;
+ * a value still refused has no unambiguous repair and drops the key.
+ */
+function narrowApiKey(raw: RawOptionalFields, report?: CredentialRejectionReport): string | undefined {
+	if (typeof raw.apiKey !== "string") {
+		return undefined;
+	}
+	const sendable = sendableHeaderValue(raw.apiKey);
+	if (sendable !== undefined) {
+		return sendable;
+	}
+	report?.({ field: "apiKey", fingerprint: fingerprint(raw.apiKey) });
+	return undefined;
+}
+
+/**
+ * A rejection names the header so typos are diagnosable; the value never leaves the narrowing. A header with no value
+ * at all is a missing secret, not a rejected one, and the secret-location view already shows it: nothing to report.
+ * The value is read by the one credential trim rule (sendableHeaderValue), so a pasted newline is repaired and a
+ * Latin-1 byte survives, exactly as for the API key.
+ */
+function narrowVirtualKey(raw: RawOptionalFields, report?: CredentialRejectionReport): VirtualKeyConfig | undefined {
 	if (raw.virtualKeyHeader === undefined && raw.virtualKeyValue === undefined) {
 		return undefined;
 	}
 	const carriers = presentCarriers("virtualKeyValue", usableNonSecretFields(raw));
-	const usableValue = usableString(raw.virtualKeyValue);
+	const sendable = typeof raw.virtualKeyValue === "string" ? sendableHeaderValue(raw.virtualKeyValue) : undefined;
 	if (
 		carriers !== undefined &&
-		usableValue !== undefined &&
-		HEADER_NAME_PATTERN.test(carriers.virtualKeyHeader) &&
-		isValidHeaderValue(usableValue)
+		sendable !== undefined &&
+		sendable.length > 0 &&
+		HEADER_NAME_PATTERN.test(carriers.virtualKeyHeader)
 	) {
-		return { header: carriers.virtualKeyHeader, value: usableValue };
+		return { header: carriers.virtualKeyHeader, value: sendable };
 	}
-	const name = carriers?.virtualKeyHeader ?? "(not set)";
-	if (log !== undefined && !reportedInvalidVirtualKeys.has(name)) {
-		reportedInvalidVirtualKeys.add(name);
-		log("Ignoring the configured virtual key: the header name or value cannot be sent as an HTTP header", {
-			header: name,
-		});
+	if (raw.virtualKeyValue !== undefined) {
+		const header = carriers?.virtualKeyHeader ?? "(not set)";
+		const value = typeof raw.virtualKeyValue === "string" ? raw.virtualKeyValue : "";
+		report?.({ field: "virtualKeyValue", header, fingerprint: fingerprint(`${header}\u0000${value}`) });
 	}
 	return undefined;
 }
@@ -296,21 +339,17 @@ type CredentialUnit = {
 	[S in keyof GroupCredentials]-?: {
 		readonly slot: S;
 		readonly passengers: readonly NonSecretOptionalFieldId[];
-		readonly narrow: (raw: RawOptionalFields, log?: NarrowLog) => GroupCredentials[S] | undefined;
+		readonly narrow: (raw: RawOptionalFields, report?: CredentialRejectionReport) => GroupCredentials[S] | undefined;
 	};
 }[keyof GroupCredentials];
 
 /**
  * The parser's reading of the secret-field vocabulary, total over SecretFieldId: a secret field without a unit here
- * does not compile, so buildGroupArgs (serverSync/engine.ts) cannot send one the parser drops. narrowCredentials
+ * does not compile, so buildGroupArgs (serverSync/engine.ts) cannot send one the parser drops. narrowGroupCredentials
  * reads this table, never the field names.
  */
 const CREDENTIAL_UNITS = {
-	apiKey: {
-		slot: "apiKey",
-		passengers: [],
-		narrow: (raw) => (typeof raw.apiKey === "string" ? raw.apiKey : undefined),
-	},
+	apiKey: { slot: "apiKey", passengers: [], narrow: narrowApiKey },
 	oauthClientSecret: { slot: "oauth", passengers: ["oauthScopes"], narrow: narrowOAuth },
 	virtualKeyValue: { slot: "virtualKey", passengers: [], narrow: narrowVirtualKey },
 } as const satisfies Record<SecretFieldId, CredentialUnit>;
@@ -331,22 +370,26 @@ function fillSlot<S extends keyof GroupCredentials>(
 	slots: CredentialSlots,
 	unit: {
 		readonly slot: S;
-		readonly narrow: (raw: RawOptionalFields, log?: NarrowLog) => GroupCredentials[S] | undefined;
+		readonly narrow: (raw: RawOptionalFields, report?: CredentialRejectionReport) => GroupCredentials[S] | undefined;
 	},
 	raw: RawOptionalFields,
-	log?: NarrowLog
+	report?: CredentialRejectionReport
 ): void {
-	const value = unit.narrow(raw, log);
+	const value = unit.narrow(raw, report);
 	if (value !== undefined) {
 		slots[unit.slot] = value;
 	}
 }
 
-/** An absent key is the empty string, GroupServer's no-key value. */
-function narrowCredentials(raw: RawOptionalFields, log?: NarrowLog): GroupCredentials {
+/**
+ * The credential half of a group server from the raw optional fields (an absent key is the empty string, GroupServer's
+ * no-key value). Exported so the usage client (usage/spendClient.ts) narrows by this very table and cannot diverge on
+ * which credentials travel.
+ */
+export function narrowGroupCredentials(raw: RawOptionalFields, report?: CredentialRejectionReport): GroupCredentials {
 	const slots: CredentialSlots = {};
 	for (const field of SECRET_FIELD_IDS) {
-		fillSlot(slots, CREDENTIAL_UNITS[field], raw, log);
+		fillSlot(slots, CREDENTIAL_UNITS[field], raw, report);
 	}
 	return { ...slots, apiKey: slots.apiKey ?? "" };
 }
@@ -356,23 +399,26 @@ function narrowCredentials(raw: RawOptionalFields, log?: NarrowLog): GroupCreden
  * forward compatibility. The credentials come off CREDENTIAL_UNITS, so the fields this parser carries are the fields
  * that table claims.
  */
-export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog): GroupServer | undefined {
+export function parseGroupConfiguration(
+	configuration: unknown,
+	report?: CredentialRejectionReport
+): GroupServer | undefined {
 	if (!isRecord(configuration)) {
 		return undefined;
 	}
-	const rawBaseUrl = usableString(configuration.baseUrl);
+	const rawBaseUrl = usableHttpText(configuration.baseUrl);
 	const baseUrl = rawBaseUrl === undefined ? undefined : normalizeBaseUrl(rawBaseUrl);
 	if (baseUrl === undefined || baseUrl.length === 0) {
 		return undefined;
 	}
 	// The entry label the sync engine stamps into the configuration; not an OPTIONAL_ENTRY_FIELDS member because it is
 	// a required field of the declared entry itself, read explicitly here like baseUrl.
-	const label = usableString(configuration.label);
+	const label = usableHttpText(configuration.label);
 	const raw: { -readonly [K in OptionalEntryFieldId]?: unknown } = {};
 	for (const { id } of OPTIONAL_ENTRY_FIELDS) {
 		raw[id] = configuration[id];
 	}
-	return { baseUrl, ...narrowCredentials(raw, log), ...(label !== undefined ? { label } : {}) };
+	return { baseUrl, ...narrowGroupCredentials(raw, report), ...(label !== undefined ? { label } : {}) };
 }
 
 /** `detail` is dropped so the host fills it with the group name. */
@@ -437,7 +483,7 @@ export interface ParsedModelMetadata {
 export function parseModelMetadata(model: LiteLLMModelInfo): ParsedModelMetadata {
 	const rawModelId = model.litellm?.rawModelId;
 	return {
-		group: usableString(model.litellm?.group),
+		group: usableHttpText(model.litellm?.group),
 		rawModelId: typeof rawModelId === "string" && rawModelId.length > 0 ? rawModelId : model.id,
 		maxInputTokens: model.maxInputTokens,
 		maxOutputTokens: model.maxOutputTokens,

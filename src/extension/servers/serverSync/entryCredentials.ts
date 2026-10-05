@@ -7,7 +7,7 @@
  */
 
 import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
-import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
+import { logCredentialRejections, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { buildGroupArgs } from "./engine";
 import type { StoredSecretsRecord } from "./secrets";
@@ -45,7 +45,10 @@ export async function entryGroupCredentialsFor(
 	if (owned.refused.length > 0) {
 		return { kind: "unavailable", reason: "secretsMismatched" };
 	}
-	const groupServer = parseGroupConfiguration(buildGroupArgs(entry, owned.values));
+	const groupServer = parseGroupConfiguration(
+		buildGroupArgs(entry, owned.values),
+		log === undefined ? undefined : logCredentialRejections(log)
+	);
 	if (groupServer === undefined) {
 		return { kind: "unavailable", reason: "unusable" };
 	}

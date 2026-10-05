@@ -7,7 +7,7 @@
  */
 
 import { ALL_SETTING_KEYS, CONFIG_SECTION } from "../../shared/config/settingSpec";
-import { isRecord } from "../../shared/util/json";
+import { isRecord, nonFiniteNumberPath } from "../../shared/util/json";
 
 /** The format version this build writes and the highest one it can read. */
 export const SETTINGS_EXPORT_FORMAT_VERSION = 1;
@@ -31,6 +31,7 @@ export type ParseEnvelopeResult =
 			readonly exportedBy: string | undefined;
 	  }
 	| { readonly ok: false; readonly reason: "not-json" | "not-an-export" }
+	| { readonly ok: false; readonly reason: "overflowing-number"; readonly path: string }
 	| { readonly ok: false; readonly reason: "newer-version"; readonly exportedBy: string | undefined };
 
 export function buildEnvelope(settings: Readonly<Record<string, unknown>>, exportedBy: string): SettingsExportEnvelope {
@@ -47,6 +48,12 @@ export function parseEnvelope(raw: string): ParseEnvelopeResult {
 		parsed = JSON.parse(raw);
 	} catch {
 		return { ok: false, reason: "not-json" };
+	}
+	const overflowAt = nonFiniteNumberPath(parsed);
+	if (overflowAt !== undefined) {
+		// 1e999 parsed to Infinity and would import as null: no repair, so the file is refused whole, naming the value
+		// by its settings path (the envelope wrapper is not the user's to fix).
+		return { ok: false, reason: "overflowing-number", path: overflowAt.replace(/^settings\./, "") };
 	}
 	if (!isRecord(parsed)) {
 		return { ok: false, reason: "not-an-export" };

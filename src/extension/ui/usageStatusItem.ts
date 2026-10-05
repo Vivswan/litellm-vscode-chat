@@ -11,7 +11,7 @@ import type * as vscode from "vscode";
 import type { SpendTone } from "../../dashboard/spendFormat";
 import { formatMoney, formatPercent, stalenessText, worstSpendTone } from "../../dashboard/spendFormat";
 import type { UsageStatusBarMode } from "../../shared/config/settingSpec";
-import { usableThresholds } from "../../shared/config/settingSpec";
+import { MAX_TIMER_MS, usableThresholds } from "../../shared/config/settingSpec";
 import type { Clock, Timer } from "../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../shared/util/timer";
 import { isUsageFresh, usageFreshnessWindowMs } from "../servers/usage/freshness";
@@ -242,6 +242,8 @@ export class UsageStatusBar implements vscode.Disposable {
 		if (expiries.length === 0) {
 			return;
 		}
-		this.staleEdge.arm(() => this.render(), Math.max(0, Math.min(...expiries)));
+		// A window past the platform timer's ceiling (a maximal pollInterval doubled, or a large polling-off window) would
+		// fire after about 1 ms and re-arm from every render; the cap fires at the ceiling, re-renders, and re-arms.
+		this.staleEdge.arm(() => this.render(), Math.min(Math.max(0, Math.min(...expiries)), MAX_TIMER_MS));
 	}
 }

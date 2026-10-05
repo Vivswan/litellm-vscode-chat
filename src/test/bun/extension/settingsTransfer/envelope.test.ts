@@ -24,6 +24,16 @@ describe("extension/settingsTransfer/envelope", () => {
 		}
 	});
 
+	test("an overflowing literal anywhere in the file is refused whole: it would import as null", () => {
+		// JSON.parse reads 1e999 as Infinity, and the structured settings then serialize it as null.
+		const raw = `{"${CONFIG_SECTION}":1,"settings":{"models.parameters":{"gpt-4":{"temperature":1e999}}}}`;
+		assert.deepStrictEqual(parseEnvelope(raw), {
+			ok: false,
+			reason: "overflowing-number",
+			path: "models.parameters.gpt-4.temperature",
+		});
+	});
+
 	test("JSON without the discriminant shape reads as not-an-export", () => {
 		const cases = [
 			"null",

@@ -6,12 +6,14 @@
 import * as l10n from "@vscode/l10n";
 import type { RequestPayload } from "../../dashboard/endpoints";
 import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery";
+import { parseGroupConfiguration } from "../../provider/catalog/groupModels";
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
 import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import type { NonChatMode, SecretFieldId } from "../../shared/serverEntry";
-import { pickNonSecretOptionalFields, presentCarriers, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
 import { recordFromKeys } from "../../shared/util/json";
 import { buildGroupArgs } from "../servers/serverSync/engine";
 import { acceptedEntry } from "../servers/serverSync/setting";
@@ -43,11 +45,6 @@ export interface DraftConnection {
 	readonly includeModes?: readonly NonChatMode[] | undefined;
 }
 
-function trimmedOptional(value: string | undefined): string | undefined {
-	const trimmed = value?.trim();
-	return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
-}
-
 /**
  * A draft probe's outcome, for the success notice intents.ts composes. "connected" carries the total the saved entry
  * would register (discovered plus declared models discovery does not list); "expected-failure" means discovery failed
@@ -63,7 +60,7 @@ export type DraftProbeOutcome =
  * stores it. The probe tests the draft as typed, not the last-saved state.
  */
 function draftDeclaredModelIds(payload: readonly string[]): readonly string[] {
-	return [...new Set(payload.map((id) => id.trim()).filter((id) => id.length > 0))];
+	return [...new Set(payload.map((id) => trimHttpWhitespace(id)).filter((id) => id.length > 0))];
 }
 
 /**
@@ -77,14 +74,14 @@ const PARSE_BACK_LABEL = "draft";
  * probe unauthenticated and lie.
  *
  *   the save path's secret plans -> the shared auth assembler -> serverSync's parser -> buildGroupArgs
- *   -> presentCarriers for the OAuth and virtual-key units
+ *   -> parseGroupConfiguration, the credential units a sync pass bakes into the group
  */
 export async function applyTestServerDraft(
 	intent: RequestPayload<"testServerDraft">,
 	env: IntentEnvironment
 ): Promise<DraftProbeOutcome> {
-	const label = intent.server.label.trim();
-	const targetLabel = (intent.replace?.label ?? intent.server.label).trim();
+	const label = trimHttpWhitespace(intent.server.label);
+	const targetLabel = trimHttpWhitespace(intent.replace?.label ?? intent.server.label);
 	const entries = rawServerEntries(env.readServersSetting());
 	const sources = await readKeepSources(entries, label, targetLabel, (secretsLabel) =>
 		env.readServerSecrets(secretsLabel)
@@ -141,34 +138,28 @@ export async function applyTestServerDraft(
 		// probe a guessed shape.
 		throw new DashboardValidationError(l10n.t("The draft's credentials do not form a valid server entry"));
 	}
-	const resolved = buildGroupArgs(parsed.entry, secureValues);
+	// The credentials narrowed exactly as a sync pass bakes them into the group (entryCredentials.ts takes the same
+	// route), so the probe sends what a save would send: a key or virtual key the platform's Headers would refuse is
+	// dropped here too, never quoted back by the probe's error.
+	const groupServer = parseGroupConfiguration(buildGroupArgs(parsed.entry, secureValues));
+	if (groupServer === undefined) {
+		throw new DashboardValidationError(l10n.t("The draft's credentials do not form a valid server entry"));
+	}
 
 	// Header values normalized to strings as the setting parser stores them.
 	const draftHeaders: Readonly<Record<string, string>> = Object.fromEntries(
 		Object.entries(intent.server.headers).map(([name, value]) => [name, String(value)])
 	);
 
-	const oauthCarriers = presentCarriers("oauthClientSecret", resolved);
-	const virtualKeyCarriers = presentCarriers("virtualKeyValue", resolved);
+	const usableLabel = usableHttpText(intent.server.label);
 	const connection: DraftConnection = {
-		baseUrl: intent.server.baseUrl.trim(),
-		...(trimmedOptional(intent.server.label) !== undefined ? { label: trimmedOptional(intent.server.label) } : {}),
-		...(intent.server.apiVersion !== undefined ? { apiVersion: intent.server.apiVersion.trim() } : {}),
-		apiKey: resolved.apiKey ?? "",
+		baseUrl: trimHttpWhitespace(intent.server.baseUrl),
+		...(usableLabel !== undefined ? { label: usableLabel } : {}),
+		...(intent.server.apiVersion !== undefined ? { apiVersion: trimHttpWhitespace(intent.server.apiVersion) } : {}),
+		apiKey: groupServer.apiKey,
 		...(Object.keys(draftHeaders).length > 0 ? { headers: draftHeaders } : {}),
-		...(oauthCarriers !== undefined
-			? {
-					oauth: {
-						tokenUrl: oauthCarriers.oauthTokenUrl,
-						clientId: oauthCarriers.oauthClientId,
-						clientSecret: resolved.oauthClientSecret ?? "",
-						...(resolved.oauthScopes !== undefined ? { scopes: resolved.oauthScopes } : {}),
-					},
-				}
-			: {}),
-		...(virtualKeyCarriers !== undefined && resolved.virtualKeyValue !== undefined
-			? { virtualKey: { header: virtualKeyCarriers.virtualKeyHeader, value: resolved.virtualKeyValue } }
-			: {}),
+		...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
+		...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
 		expected: {
 			modelInfo: intent.server.expectedFailures.includes("modelInfo"),
 			modelListing: intent.server.expectedFailures.includes("modelListing"),

@@ -104,17 +104,23 @@ suite("extension/dashboard/panelIntegration", () => {
 	});
 
 	test("a setNumberSetting intent lands in real user settings via the resolved update scope", async () => {
-		assert.strictEqual(await inject(request("setNumberSetting", { setting: "usage.pollInterval", value: 4242 })), "ok");
+		assert.strictEqual(
+			await inject(request("setNumberSetting", { setting: "usage.pollInterval", value: 42000 })),
+			"ok"
+		);
 		const inspected = vscode.workspace.getConfiguration(CONFIG).inspect<number>("usage.pollInterval");
 		assert.strictEqual(
 			inspected?.globalValue,
-			4242,
+			42000,
 			"the write must land in the user scope, not vanish or shadow-write"
 		);
 	});
 
 	test("a resetSetting intent removes the configured value with the global fallback", async () => {
-		assert.strictEqual(await inject(request("setNumberSetting", { setting: "usage.pollInterval", value: 4242 })), "ok");
+		assert.strictEqual(
+			await inject(request("setNumberSetting", { setting: "usage.pollInterval", value: 42000 })),
+			"ok"
+		);
 		assert.strictEqual(await inject(request("resetSetting", { setting: "usage.pollInterval" })), "ok");
 		const inspected = vscode.workspace.getConfiguration(CONFIG).inspect<number>("usage.pollInterval");
 		assert.strictEqual(inspected?.globalValue, undefined, "the dashboard claimed a reset; the value must be gone");

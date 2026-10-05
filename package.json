@@ -480,10 +480,10 @@
 							"type": "boolean"
 						},
 						"server": {
-							"description": "A servers entry label, to edit that entry's own record instead of the global setting.",
 							"type": "string",
 							"minLength": 1,
-							"maxLength": 1024
+							"maxLength": 1024,
+							"description": "A servers entry label, to edit that entry's own record instead of the global setting."
 						}
 					},
 					"required": [
@@ -902,10 +902,10 @@
 									"additionalProperties": false
 								},
 								"renameFrom": {
-									"description": "The current label of the entry to rename to label.",
 									"type": "string",
 									"minLength": 1,
-									"maxLength": 1024
+									"maxLength": 1024,
+									"description": "The current label of the entry to rename to label."
 								}
 							},
 							"required": [
@@ -1636,15 +1636,17 @@
 				"title": "%litellm.config.section.chat%",
 				"properties": {
 					"litellm-vscode-chat.chat.timeout": {
-						"type": "number",
+						"type": "integer",
 						"default": 300000,
 						"minimum": 1000,
+						"maximum": 2147483647,
 						"description": "%litellm.config.chat.timeout.description%"
 					},
 					"litellm-vscode-chat.chat.maxToolsPerRequest": {
 						"type": "integer",
 						"default": 128,
 						"minimum": 1,
+						"maximum": 9007199254740991,
 						"description": "%litellm.config.chat.maxToolsPerRequest.description%"
 					},
 					"litellm-vscode-chat.chat.additionalToolSchemaKeywords": {
@@ -1685,21 +1687,24 @@
 				"title": "%litellm.config.section.discovery%",
 				"properties": {
 					"litellm-vscode-chat.discovery.timeout": {
-						"type": "number",
+						"type": "integer",
 						"default": 30000,
 						"minimum": 1000,
+						"maximum": 2147483647,
 						"description": "%litellm.config.discovery.timeout.description%"
 					},
 					"litellm-vscode-chat.discovery.cacheTtl": {
-						"type": "number",
+						"type": "integer",
 						"default": 3600000,
 						"minimum": 0,
+						"maximum": 9007199254740991,
 						"description": "%litellm.config.discovery.cacheTtl.description%"
 					},
 					"litellm-vscode-chat.discovery.staleServeWindow": {
-						"type": "number",
+						"type": "integer",
 						"default": 600000,
 						"minimum": 0,
+						"maximum": 9007199254740991,
 						"description": "%litellm.config.discovery.staleServeWindow.description%"
 					}
 				}
@@ -1708,27 +1713,31 @@
 				"title": "%litellm.config.section.usage%",
 				"properties": {
 					"litellm-vscode-chat.usage.pollInterval": {
-						"type": "number",
+						"type": "integer",
 						"default": 300000,
 						"minimum": 0,
+						"maximum": 2147483647,
 						"description": "%litellm.config.usage.pollInterval.description%"
 					},
 					"litellm-vscode-chat.usage.initialRefreshDelay": {
-						"type": "number",
+						"type": "integer",
 						"default": 5000,
 						"minimum": 0,
+						"maximum": 2147483647,
 						"description": "%litellm.config.usage.initialRefreshDelay.description%"
 					},
 					"litellm-vscode-chat.usage.serversChangeRefreshDelay": {
-						"type": "number",
+						"type": "integer",
 						"default": 2000,
 						"minimum": 0,
+						"maximum": 2147483647,
 						"description": "%litellm.config.usage.serversChangeRefreshDelay.description%"
 					},
 					"litellm-vscode-chat.usage.pollingOffFreshnessWindow": {
-						"type": "number",
+						"type": "integer",
 						"default": 600000,
 						"minimum": 0,
+						"maximum": 9007199254740991,
 						"description": "%litellm.config.usage.pollingOffFreshnessWindow.description%"
 					},
 					"litellm-vscode-chat.usage.alertThresholds": {

@@ -5,6 +5,7 @@ import {
 	type GroupServer,
 	groupClientId,
 	type LiteLLMModelInfo,
+	logCredentialRejections,
 	markStale,
 	type PreAttachModelInfo,
 	parseGroupConfiguration,
@@ -19,6 +20,9 @@ import { expectDefined, makeModelInfo } from "../../pureHelpers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
+
+// Spelled out: the typography gate refuses a literal non-breaking space, and the test is about that very byte.
+const NBSP = String.fromCharCode(0xa0);
 
 /** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
@@ -122,8 +126,17 @@ suite("provider/catalog/groupModels", () => {
 			assert.deepStrictEqual(
 				trimmed.virtualKey,
 				{ header: "x-vk", value: "vk-1" },
-				"leading and trailing whitespace is harmless and stripped"
+				"leading and trailing HTTP whitespace is harmless and stripped"
 			);
+			// The one credential trim rule: a Latin-1 non-breaking space is the value's own byte and survives.
+			const padded = expectDefined(
+				parseGroupConfiguration({
+					baseUrl: "http://litellm.test",
+					virtualKeyHeader: "x-vk",
+					virtualKeyValue: `${NBSP}vk-1`,
+				})
+			);
+			assert.deepStrictEqual(padded.virtualKey, { header: "x-vk", value: `${NBSP}vk-1` });
 
 			const invalidValues = ["vk\r\nInjected: x", "vk\n1", "vk\r1", "vk\u00001", "   "];
 			for (const virtualKeyValue of invalidValues) {
@@ -140,10 +153,17 @@ suite("provider/catalog/groupModels", () => {
 
 		test("a rejected virtual key logs the header name once and never the value; absence stays silent", () => {
 			const lines: string[] = [];
-			const log = (message: string, data?: unknown) => lines.push(`${message} ${JSON.stringify(data ?? null)}`);
+			const log = logCredentialRejections((message: string, data?: unknown) =>
+				lines.push(`${message} ${JSON.stringify(data ?? null)}`)
+			);
 
 			const noKey = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test" }, log));
 			assert.strictEqual(noKey.virtualKey, undefined);
+			// A header with no value is a missing secret the dashboard already shows as such, not a rejected one.
+			const noValue = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk" }, log)
+			);
+			assert.strictEqual(noValue.virtualKey, undefined);
 			assert.strictEqual(lines.length, 0, "an unconfigured virtual key must not be logged as rejected");
 
 			const config = {
@@ -160,6 +180,36 @@ suite("provider/catalog/groupModels", () => {
 				lines.every((line) => !line.includes("secret")),
 				`the virtual key value leaked into the log: ${lines.join(" | ")}`
 			);
+		});
+
+		test("an API key's edge whitespace is trimmed; an interior control character drops it, logged once without the value", () => {
+			// Headers.append throws a TypeError quoting the whole value ('"sk-a\nb" is an invalid header value'); the
+			// chat error, the dashboard row, and the output channel would all carry it.
+			const lines: string[] = [];
+			const log = logCredentialRejections((message: string, data?: unknown) =>
+				lines.push(`${message} ${JSON.stringify(data ?? null)}`)
+			);
+			assert.deepStrictEqual(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: " sk-abc\n" }, log), {
+				baseUrl: "http://litellm.test",
+				apiKey: "sk-abc",
+			});
+			// Only HTTP whitespace is edge-trimmed: Headers keeps a Latin-1 non-breaking space, so the key does too.
+			assert.deepStrictEqual(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: `${NBSP}sk-abc${NBSP}` }, log),
+				{
+					baseUrl: "http://litellm.test",
+					apiKey: `${NBSP}sk-abc${NBSP}`,
+				}
+			);
+			assert.strictEqual(lines.length, 0, "a trimmed key is a repair, not a rejection");
+
+			const config = { baseUrl: "http://litellm.test", apiKey: "sk-a\nb" };
+			const keyless = { baseUrl: "http://litellm.test", apiKey: "" };
+			assert.deepStrictEqual(parseGroupConfiguration(config, log), keyless);
+			assert.deepStrictEqual(parseGroupConfiguration(config, log), keyless);
+			assert.deepStrictEqual(lines, [
+				"Ignoring the configured API key: the value cannot be sent as an HTTP header null",
+			]);
 		});
 
 		test("unknown configuration fields are ignored", () => {

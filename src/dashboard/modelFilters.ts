@@ -4,6 +4,7 @@
  * capabilities, where each pill is its own dimension ("tools" and "vision" together mean a model that has both).
  */
 import * as l10n from "@vscode/l10n";
+import { trimHttpWhitespace } from "../shared/util/headers";
 import type { DashboardModel } from "./viewModels";
 
 /**
@@ -140,7 +141,7 @@ export function filterModels(
 	filter: ModelFilter,
 	query: string
 ): readonly DashboardModel[] {
-	const needle = query.trim().toLowerCase();
+	const needle = trimHttpWhitespace(query).toLowerCase();
 	return models.filter((model) => matchesFilter(model, filter) && (needle.length === 0 || matchesQuery(model, needle)));
 }
 

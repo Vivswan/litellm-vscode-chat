@@ -6,6 +6,7 @@ import {
 	directiveEligible,
 	directiveRowAbsorbed,
 	draftRowsKey,
+	groupsFromJsonText,
 	inheritFromChoice,
 	newParamRow,
 	parseCapabilityGroups,
@@ -315,7 +316,7 @@ describe("dashboard/recordDraft inheritance directives", () => {
 			});
 		});
 
-		test("non-objects and non-record field values are one problem, keyed to the offender", () => {
+		test("non-objects, non-record field values, and overflowing numbers are one problem, keyed to the offender", () => {
 			assert.deepStrictEqual(capabilityGroupsFromJsonText("[1, 2]"), {
 				ok: false,
 				problem: 'Must be a JSON object, e.g. {"gpt-4": {"context_length": 128000}}.',
@@ -323,6 +324,11 @@ describe("dashboard/recordDraft inheritance directives", () => {
 			const scalarField = capabilityGroupsFromJsonText('{"gpt-4": 128000}');
 			assert.ok(!scalarField.ok);
 			assert.match(scalarField.problem, /^"gpt-4": Expected an object of capability fields/);
+			// JSON.parse reads 1e999 as Infinity; serialized into a row it became the text "null" and Apply stored null.
+			assert.deepStrictEqual(groupsFromJsonText('{"gpt-4": {"temperature": 1e999}}'), {
+				ok: false,
+				problem: "Number too large for JSON at gpt-4.temperature; it would be saved as null",
+			});
 		});
 
 		test("a blocking row problem surfaces as the single side-door message; hints alone stay ok", () => {

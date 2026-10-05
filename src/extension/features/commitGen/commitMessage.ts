@@ -1,3 +1,4 @@
+import { usableHttpText } from "../../../shared/util/headers";
 import { stripMarkdownFences, truncateHeadWithMarker, truncationMarker } from "../../../shared/util/text";
 import type { Commit, Repository } from "../gitApi";
 import { repositoryRelativePath } from "../gitPaths";
@@ -57,7 +58,9 @@ export interface CommitPromptArgs {
 }
 
 export function buildCommitPrompt(args: CommitPromptArgs): string {
-	const instruction = args.customPrompt.trim() === "" ? BUILT_IN_COMMIT_INSTRUCTION : args.customPrompt;
+	// A prompt of HTTP whitespace is empty and selects the built-in instruction; any other text, a U+00A0 included, is
+	// the user's instruction as written.
+	const instruction = usableHttpText(args.customPrompt) === undefined ? BUILT_IN_COMMIT_INSTRUCTION : args.customPrompt;
 	const diff = truncateHeadWithMarker(args.diff, DIFF_CHAR_LIMIT, truncationMarker("diff"));
 	const sections = [instruction];
 	if (args.recentSubjects.length > 0) {

@@ -6,6 +6,7 @@
  *   a `_fallback` field                                                -> drops below the server level
  */
 
+import { trimHttpWhitespace } from "../util/headers";
 import type { ModelRecordMap } from "./modelMatcher";
 import { DEFAULT_MAX_TOKENS_CAP } from "./parameterResolution";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
@@ -184,7 +185,7 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 
 	for (const [key, value] of Object.entries(normalized)) {
 		if (key === OPENROUTER_MODEL_DIRECTIVE) {
-			if (typeof value === "string" && value.trim() !== "") {
+			if (typeof value === "string" && trimHttpWhitespace(value) !== "") {
 				openrouterModel = value;
 			} else {
 				diagnostics.push({ kind: "invalid-directive", key });

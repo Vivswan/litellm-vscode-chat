@@ -43,6 +43,7 @@ import {
 } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { displayUrl } from "../../../shared/util/displayUrl";
+import { usableHttpText } from "../../../shared/util/headers";
 import { isRecord, recordFromKeys } from "../../../shared/util/json";
 import type { AgentSecretDirective, AgentToolInput } from "./inputSchema";
 
@@ -361,8 +362,7 @@ function edited(current: string | undefined, next: string | null | undefined): s
  * destination compare judges the saved value.
  */
 function editedOauthField(current: string | undefined, next: string | null | undefined): string | undefined {
-	const trimmed = edited(current, next)?.trim();
-	return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
+	return usableHttpText(edited(current, next));
 }
 
 /**

@@ -1,4 +1,15 @@
 import * as assert from "node:assert";
+import { parseHeaderValue, parseJsonValue, parseNumberDraft, parseThresholdBox } from "../../../dashboard/presenters";
+import { parseCatalogIdText, parseHeaderRows, parseInheritKeysText } from "../../../dashboard/recordDraft";
+import { parseBudgetText, parseDeclaredModelsText } from "../../../dashboard/serverForm";
+import { assembleEntryAuth } from "../../../extension/dashboard/entryAuth";
+import { parseAgentToolInput } from "../../../extension/features/agentTools/inputSchema";
+import { buildCommitPrompt } from "../../../extension/features/commitGen/commitMessage";
+import { transformEntryRecord } from "../../../extension/migrations/settingsRedesign/records";
+import { parseServersSetting } from "../../../extension/servers/serverSync/setting";
+import { planSettingsImport, resolveImportPlan } from "../../../extension/settingsTransfer/importPlan";
+import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
+import { parseCapabilityRecord } from "../../../shared/config/capabilityResolution";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	BOOLEAN_SETTING_SPECS,
@@ -10,6 +21,8 @@ import {
 	DEFAULT_UI_THEME,
 	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_IDS,
+	MAX_TIMER_MS,
+	MIN_USAGE_POLL_INTERVAL_MS,
 	TOKEN_ESTIMATION_MODES,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
@@ -39,8 +52,8 @@ import {
 	getUsagePollingOffFreshnessWindowMs,
 	getUsageServersChangeRefreshDelayMs,
 	isFeatureEnabled,
+	logRecordShapeProblems,
 	MIN_TIMEOUT_MS,
-	MIN_USAGE_POLL_INTERVAL_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	normalizeAdditionalToolSchemaKeywords,
 	normalizeCommitGenerationPrompt,
@@ -53,7 +66,8 @@ import {
 	normalizeUiAccent,
 	normalizeUiTheme,
 } from "../../../shared/config/settings";
-import { expectDefined } from "../../pureHelpers";
+import { usableHttpText } from "../../../shared/util/headers";
+import { normalizePositiveNumber } from "../../../shared/util/numbers";
 import { withConfig } from "../../testUtils";
 
 suite("shared/config/settings timeout getters", () => {
@@ -75,18 +89,24 @@ suite("shared/config/settings timeout getters", () => {
 		});
 	});
 
-	test("clamp sub-minimum values to the minimum and log", async () => {
-		const logged: { msg: string; data?: unknown }[] = [];
-		await withConfig({ "chat.timeout": 500 }, () => {
-			assert.strictEqual(
-				getRequestTimeout((msg, data) => logged.push({ msg, data })),
-				MIN_TIMEOUT_MS
-			);
-		});
-		assert.strictEqual(logged.length, 1);
-		const entry = expectDefined(logged[0]);
-		assert.ok(entry.msg.includes("chat.timeout"));
-		assert.deepStrictEqual(entry.data, { configured: 500, clamped: MIN_TIMEOUT_MS });
+	test("a value outside the contract reads as the default, logged with the key and the bound, never clamped", async () => {
+		// 2^31 made setTimeout and AbortSignal.timeout fire after 1 ms (every request timed out at once); 2^32 and a
+		// fraction made AbortSignal.timeout throw a RangeError.
+		for (const configured of [500, 2 ** 31, 2 ** 32, 1000.5]) {
+			const logged: { msg: string; data?: unknown }[] = [];
+			await withConfig({ "chat.timeout": configured }, () => {
+				assert.strictEqual(
+					getRequestTimeout((msg, data) => logged.push({ msg, data })),
+					DEFAULT_REQUEST_TIMEOUT_MS
+				);
+			});
+			assert.deepStrictEqual(logged, [
+				{
+					msg: `chat.timeout must be a whole number between ${MIN_TIMEOUT_MS} and ${MAX_TIMER_MS}; using the default`,
+					data: { configured },
+				},
+			]);
+		}
 	});
 
 	test("fall back to the default for NaN", async () => {
@@ -139,17 +159,20 @@ suite("shared/config/settings getDiscoveryCacheTtl", () => {
 		});
 	});
 
-	test("clamps negative values to 0 and logs", async () => {
+	test("a negative TTL reads as the default and is logged with the key and the bound", async () => {
 		const logged: { msg: string; data?: unknown }[] = [];
 		await withConfig({ "discovery.cacheTtl": -5 }, () => {
 			assert.strictEqual(
 				getDiscoveryCacheTtl((msg, data) => logged.push({ msg, data })),
-				0
+				DEFAULT_DISCOVERY_CACHE_TTL_MS
 			);
 		});
-		const entry = expectDefined(logged[0]);
-		assert.ok(entry.msg.includes("discovery.cacheTtl"));
-		assert.deepStrictEqual(entry.data, { configured: -5, clamped: 0 });
+		assert.deepStrictEqual(logged, [
+			{
+				msg: `discovery.cacheTtl must be a whole number between 0 and ${Number.MAX_SAFE_INTEGER}; using the default`,
+				data: { configured: -5 },
+			},
+		]);
 	});
 
 	test("falls back to the default for non-finite and non-number values", async () => {
@@ -220,14 +243,25 @@ suite("shared/config/settings normalizeModelCapabilities", () => {
 		assert.deepStrictEqual(normalizeModelCapabilities(raw), raw);
 	});
 
-	test("one malformed entry drops only itself; unsafe and non-record inputs drop entirely", () => {
-		assert.deepStrictEqual(normalizeModelCapabilities({ "gpt-4": { supports_vision: true }, bad: "not a record" }), {
-			"gpt-4": { supports_vision: true },
-		});
+	test("one malformed entry drops only itself, named; unsafe and non-record inputs drop entirely, reported", () => {
+		// A string-valued top-level setting used to read as {} with no trace, so the dashboard showed no overrides and
+		// nothing said why.
+		const logged: { msg: string; data?: unknown }[] = [];
+		const log = logRecordShapeProblems("models.capabilities", (msg, data) => logged.push({ msg, data }));
+		assert.deepStrictEqual(
+			normalizeModelCapabilities({ "gpt-4": { supports_vision: true }, bad: "not a record" }, log),
+			{ "gpt-4": { supports_vision: true } }
+		);
 		const polluted = JSON.parse('{"__proto__": {"x": 1}, "constructor": {"y": 2}, "gpt-4": {}}');
-		assert.deepStrictEqual(normalizeModelCapabilities(polluted), { "gpt-4": {} });
-		assert.deepStrictEqual(normalizeModelCapabilities("not a record"), {});
-		assert.deepStrictEqual(normalizeModelCapabilities(undefined), {});
+		assert.deepStrictEqual(normalizeModelCapabilities(polluted, log), { "gpt-4": {} });
+		assert.deepStrictEqual(normalizeModelCapabilities("not a record", log), {});
+		assert.deepStrictEqual(normalizeModelCapabilities(undefined, log), {});
+		assert.deepStrictEqual(logged, [
+			{ msg: "Ignoring models.capabilities entry whose value is not an object", data: { model: "bad" } },
+			{ msg: "Ignoring models.capabilities entry under a reserved name", data: { model: "__proto__" } },
+			{ msg: "Ignoring models.capabilities entry under a reserved name", data: { model: "constructor" } },
+			{ msg: "Invalid models.capabilities configuration, reading it as empty", data: undefined },
+		]);
 	});
 
 	test("getModelCapabilitiesConfig reads the modelCapabilities setting through the normalizer", async () => {
@@ -237,19 +271,40 @@ suite("shared/config/settings normalizeModelCapabilities", () => {
 		await withConfig({}, () => {
 			assert.deepStrictEqual(getModelCapabilitiesConfig(), {});
 		});
+		const logged: { msg: string; data?: unknown }[] = [];
+		await withConfig({ [MODEL_CAPABILITIES_SETTING_KEY]: "oops" }, () => {
+			assert.deepStrictEqual(
+				getModelCapabilitiesConfig((msg, data) => logged.push({ msg, data })),
+				{}
+			);
+		});
+		assert.deepStrictEqual(logged, [
+			{ msg: "Invalid models.capabilities configuration, reading it as empty", data: undefined },
+		]);
 	});
 });
 
 suite("shared/config/settings getUsagePollIntervalMs", () => {
-	test("zero stays the off switch; tiny positive values clamp up; negatives clamp to zero", async () => {
+	test("zero stays the off switch; a nonzero value below the floor reads as the default, named with the floor", async () => {
 		await withConfig({ "usage.pollInterval": 0 }, () => {
 			assert.strictEqual(getUsagePollIntervalMs(), 0);
 		});
+		// A 1 ms interval would be a permanent request loop; it used to clamp up to the floor.
+		const logged: { msg: string; data?: unknown }[] = [];
 		await withConfig({ "usage.pollInterval": 1 }, () => {
-			assert.strictEqual(getUsagePollIntervalMs(), MIN_USAGE_POLL_INTERVAL_MS, "a 1ms loop must not ship");
+			assert.strictEqual(
+				getUsagePollIntervalMs((msg, data) => logged.push({ msg, data })),
+				300000
+			);
 		});
+		assert.deepStrictEqual(logged, [
+			{
+				msg: `usage.pollInterval must be a whole number between ${MIN_USAGE_POLL_INTERVAL_MS} and ${MAX_TIMER_MS}, or 0 to turn it off; using the default`,
+				data: { configured: 1 },
+			},
+		]);
 		await withConfig({ "usage.pollInterval": -5 }, () => {
-			assert.strictEqual(getUsagePollIntervalMs(), 0, "negatives read as the off switch");
+			assert.strictEqual(getUsagePollIntervalMs(), 300000, "a negative is outside the contract: the default applies");
 		});
 		await withConfig({ "usage.pollInterval": 600000 }, () => {
 			assert.strictEqual(getUsagePollIntervalMs(), 600000);
@@ -258,7 +313,7 @@ suite("shared/config/settings getUsagePollIntervalMs", () => {
 });
 
 suite("shared/config/settings usage cadence getters", () => {
-	test("the delays and the polling-off window default from the spec and clamp negatives to zero", async () => {
+	test("the delays and the polling-off window default from the spec; negatives read as the default", async () => {
 		await withConfig({}, () => {
 			assert.strictEqual(getUsageInitialRefreshDelayMs(), 5000);
 			assert.strictEqual(getUsageServersChangeRefreshDelayMs(), 2000);
@@ -277,14 +332,14 @@ suite("shared/config/settings usage cadence getters", () => {
 			}
 		);
 		await withConfig({ "usage.initialRefreshDelay": -1, "usage.pollingOffFreshnessWindow": -5 }, () => {
-			assert.strictEqual(getUsageInitialRefreshDelayMs(), 0);
-			assert.strictEqual(getUsagePollingOffFreshnessWindowMs(), 0);
+			assert.strictEqual(getUsageInitialRefreshDelayMs(), 5000);
+			assert.strictEqual(getUsagePollingOffFreshnessWindowMs(), 600000);
 		});
 	});
 });
 
 suite("shared/config/settings max tools per request", () => {
-	test("defaults to 128, clamps below 1, and passes configured values through", async () => {
+	test("defaults to 128, passes configured values through, and reads a zero or fractional cap as the default", async () => {
 		await withConfig({}, () => {
 			assert.strictEqual(getMaxToolsPerRequest(), 128);
 		});
@@ -295,16 +350,16 @@ suite("shared/config/settings max tools per request", () => {
 		await withConfig({ "chat.maxToolsPerRequest": 0 }, () => {
 			assert.strictEqual(
 				getMaxToolsPerRequest(() => logged.push(true)),
-				1,
+				128,
 				"a zero cap would refuse every tool-carrying request"
 			);
 		});
 		assert.strictEqual(logged.length, 1);
-		await withConfig({ "chat.maxToolsPerRequest": 128.5 }, () => {
+		await withConfig({ "chat.maxToolsPerRequest": 2.5 }, () => {
 			assert.strictEqual(
 				getMaxToolsPerRequest(() => logged.push(true)),
 				128,
-				"fractional caps floor, so the refusal detail never reports a fraction"
+				"a fractional cap is not guessed at, so the refusal detail never reports a fraction"
 			);
 		});
 		assert.strictEqual(logged.length, 2);
@@ -612,5 +667,150 @@ suite("shared/config/settings feature opt-in getters", () => {
 			assert.strictEqual(isFeatureEnabled("inlineCompletions"), true);
 			assert.strictEqual(isFeatureEnabled("commitGeneration"), true);
 		});
+	});
+});
+
+suite("one trim rule: padded user values are kept verbatim or refused, never repaired", () => {
+	// Edge HTTP whitespace (tab, space, CR, LF) goes; a U+00A0 or U+2003 beside or inside a value is the user's spelling,
+	// kept where the reader can use it and refused where it cannot. Number text passes the one decimal grammar, so
+	// Number()'s own whitespace and "0x10" readings never happen. One row per reader the sweep touched.
+	const NBSP = String.fromCharCode(0xa0);
+	const EM_SPACE = String.fromCharCode(0x2003);
+	const padded = (text: string): string => `${NBSP}${text}${EM_SPACE}`;
+	const BASE_URL = "http://localhost:4000";
+
+	function renamedImportLabel(newLabel: string): unknown[] {
+		// Two entries under one label with different connections collide; the rename decision names the landing label.
+		const current = [{ label: "Prod", baseUrl: BASE_URL }];
+		const incoming = [{ label: "Prod", baseUrl: "http://other.example.com" }];
+		const plan = planSettingsImport({ servers: incoming }, current);
+		const application = resolveImportPlan(plan, { Prod: { action: "rename", newLabel } });
+		return (application.serversValue ?? []).map((entry) => (entry as { label?: string }).label);
+	}
+
+	test("one case table across the readers of a user-authored string", () => {
+		const logged: string[] = [];
+		const cases: readonly (readonly [string, () => unknown, unknown])[] = [
+			["usableHttpText", () => usableHttpText(` \t${padded("sk-abc")}\r\n`), padded("sk-abc")],
+			[
+				"normalizeCustomHeaders: padded name dropped, U+2003 value dropped, U+00A0 value kept",
+				() =>
+					normalizeCustomHeaders({ [padded("x-vk")]: "v", "X-Em": padded("v"), "X-Nbsp": `${NBSP}v` }, (line) => {
+						logged.push(line);
+					}),
+				{ "X-Nbsp": `${NBSP}v` },
+			],
+			[
+				"normalizeFeatureModelRef",
+				() => normalizeFeatureModelRef({ server: ` ${padded("Prod")} `, model: padded("gpt") }, "quickFix"),
+				{ server: padded("Prod"), model: padded("gpt") },
+			],
+			[
+				"normalizeInlineLanguageFilter",
+				() => normalizeInlineLanguageFilter({ mode: "block", languages: [padded("ts"), " js "] }),
+				{ mode: "block", languages: [padded("ts"), "js"] },
+			],
+			[
+				"parseCapabilityRecord keys",
+				() => Object.keys(parseCapabilityRecord({ [` ${padded("vision")} `]: true }).fields),
+				[padded("vision")],
+			],
+			[
+				"parseServersSetting labels",
+				() =>
+					parseServersSetting([{ label: ` ${padded("Prod")} `, baseUrl: BASE_URL }]).entries.map(
+						(entry) => entry.label
+					),
+				[padded("Prod")],
+			],
+			[
+				"parseGroupConfiguration label and key",
+				() => {
+					const group = parseGroupConfiguration({
+						baseUrl: BASE_URL,
+						label: ` ${padded("Prod")} `,
+						apiKey: ` ${NBSP}sk `,
+					});
+					return { label: group?.label, apiKey: group?.apiKey };
+				},
+				{ label: padded("Prod"), apiKey: `${NBSP}sk` },
+			],
+			["assembleEntryAuth", () => assembleEntryAuth({ apiKey: ` ${NBSP}sk ` }).auth, { apiKey: `${NBSP}sk` }],
+			["parseDeclaredModelsText", () => parseDeclaredModelsText(`a\n ${padded("b")} \n`), ["a", padded("b")]],
+			["parseCatalogIdText", () => parseCatalogIdText(` ${padded("openai/gpt")} `), padded("openai/gpt")],
+			["parseInheritKeysText", () => parseInheritKeysText(` ${padded("a")} , b `), [padded("a"), "b"]],
+			[
+				"parseHeaderRows: U+00A0 value kept",
+				() => parseHeaderRows([{ name: " X-Nbsp ", valueText: ` ${NBSP}v ` }]),
+				{ ok: true, value: { "X-Nbsp": `${NBSP}v` } },
+			],
+			[
+				"parseHeaderRows: padded name refused",
+				() => parseHeaderRows([{ name: padded("x-vk"), valueText: "v" }]).ok,
+				false,
+			],
+			[
+				"import rename lands the HTTP-trimmed label",
+				() => renamedImportLabel(` ${padded("Prod2")} `),
+				["Prod", padded("Prod2")],
+			],
+			[
+				"transformEntryRecord declared IDs",
+				() => transformEntryRecord({ [` ${padded("gpt")} `]: { _declare: true } }, "capabilities").declared,
+				[padded("gpt")],
+			],
+			["parseBudgetText: HTTP edges", () => parseBudgetText(" 100 "), { ok: true, value: 100 }],
+			["parseBudgetText: U+00A0 refused", () => parseBudgetText(`${NBSP}100`), { ok: false, text: `${NBSP}100` }],
+			["parseBudgetText: hex refused", () => parseBudgetText("0x10"), { ok: false, text: "0x10" }],
+			["parseThresholdBox: HTTP edges", () => parseThresholdBox(" 80% "), { kind: "value", value: 0.8 }],
+			["parseThresholdBox: U+00A0 refused", () => parseThresholdBox(`${NBSP}0.8`), { kind: "invalid" }],
+			["normalizePositiveNumber: HTTP edges", () => normalizePositiveNumber(" 9000 "), 9000],
+			["normalizePositiveNumber: U+00A0 refused", () => normalizePositiveNumber(`${NBSP}9000`), undefined],
+			["normalizePositiveNumber: hex refused", () => normalizePositiveNumber("0x10"), undefined],
+			[
+				"agent tool label",
+				() => {
+					const parsed = parseAgentToolInput("inspectModel", { server: ` ${padded("Prod")} `, model: "m" });
+					return parsed.ok ? parsed.input.server : parsed;
+				},
+				padded("Prod"),
+			],
+			[
+				"commitGeneration.prompt: U+00A0 is an instruction",
+				() =>
+					buildCommitPrompt({ customPrompt: NBSP, diff: "", recentSubjects: [], untrackedPaths: [] }).startsWith(NBSP),
+				true,
+			],
+			[
+				"commitGeneration.prompt: HTTP whitespace is empty",
+				() =>
+					buildCommitPrompt({ customPrompt: " \n", diff: "", recentSubjects: [], untrackedPaths: [] }).startsWith(" "),
+				false,
+			],
+			[
+				"parseNumberDraft: HTTP edges",
+				() => parseNumberDraft("chat.timeout", " 1000 "),
+				{ kind: "value", value: 1000 },
+			],
+			[
+				"parseNumberDraft: U+2003 is a grammar error",
+				() => parseNumberDraft("chat.timeout", `${EM_SPACE}1000${EM_SPACE}`),
+				{ kind: "invalid", problem: "Not a duration - use ms, s, m, or h" },
+			],
+			["parseJsonValue: HTTP edges", () => parseJsonValue(" 1 "), { ok: true, value: 1 }],
+			["parseJsonValue: U+2003 refused", () => parseJsonValue(`${EM_SPACE}1${EM_SPACE}`).ok, false],
+			[
+				"parseHeaderValue keeps the padded literal",
+				() => parseHeaderValue(`${EM_SPACE}Bearer sk-abc${EM_SPACE}`),
+				`${EM_SPACE}Bearer sk-abc${EM_SPACE}`,
+			],
+		];
+		for (const [name, actual, expected] of cases) {
+			assert.deepStrictEqual(actual(), expected, name);
+		}
+		assert.deepStrictEqual(logged, [
+			"Ignoring invalid custom header name",
+			"Ignoring custom header whose value cannot be sent as an HTTP header",
+		]);
 	});
 });

@@ -26,6 +26,7 @@ import {
 	isFeatureModelId,
 	LANGUAGE_FILTER_MODES,
 } from "../../shared/config/settingSpec";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { useAlertOnce } from "./announceOnce";
 import { DOCS_LINK_DASHBOARD_FEATURES } from "./docsLinks";
 import {
@@ -261,12 +262,17 @@ function FeatureModelRow({
 		}
 	};
 	const customCommittable =
-		customDraft !== undefined && declaredLabels.includes(customDraft.server) && customDraft.model.trim() !== "";
+		customDraft !== undefined &&
+		declaredLabels.includes(customDraft.server) &&
+		trimHttpWhitespace(customDraft.model) !== "";
 	const commitCustom = () => {
 		if (customDraft === undefined || !customCommittable) {
 			return;
 		}
-		sendRequest("setFeatureModel", { feature, value: { server: customDraft.server, model: customDraft.model.trim() } });
+		sendRequest("setFeatureModel", {
+			feature,
+			value: { server: customDraft.server, model: trimHttpWhitespace(customDraft.model) },
+		});
 		updateDraft(undefined);
 	};
 	const picker =

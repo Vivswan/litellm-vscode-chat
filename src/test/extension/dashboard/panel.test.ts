@@ -780,7 +780,7 @@ suite("extension/dashboard/panel", () => {
 		const notice = fake.posted.at(-1) as ExtensionToWebviewMessage;
 		assert.strictEqual(notice.kind, "fail");
 		assert.ok(notice.kind === "fail" && notice.method === "setNumberSetting");
-		assert.ok(notice.kind === "fail" && notice.message.includes("at least"));
+		assert.ok(notice.kind === "fail" && notice.message.includes("between"));
 		assert.ok(notice.kind === "fail" && notice.failureKind === "validation", "a refused intent is validation-kind");
 		assert.ok(!("classification" in notice), "a non-transport validation failure carries no classification");
 		// The fail envelope names the owning settings row, derived from the validated payload, so the page can place

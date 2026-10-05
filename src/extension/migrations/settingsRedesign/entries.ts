@@ -14,21 +14,13 @@
 import { parseCapabilityRecord } from "../../../shared/config/capabilityResolution";
 import { parseParameterRecord } from "../../../shared/config/parameterResolution";
 import { canonicalFieldKey } from "../../../shared/config/recordResolution";
+import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
+import { HEADER_NAME_PATTERN, usableHttpText } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 import { LEGACY_ENTRY_AUTH_FIELD_IDS, LEGACY_ENTRY_FIELD_IDS, type LegacyEntryAuthFieldId } from "./legacyIds";
 import type { EntryRecordTransform, RecordKind, ScopedMoveTarget } from "./records";
 import { transformEntryRecord } from "./records";
-
-/** The old parser's usable-text rule, quarantined: a string with non-blank content, used trimmed. */
-function usableString(value: unknown): string | undefined {
-	if (typeof value !== "string") {
-		return undefined;
-	}
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
-}
 
 /**
  * The entries scoped keys and the global headers value may move into, under the old acceptance rules (usable label and
@@ -45,8 +37,8 @@ export function scopedMoveTargets(rawServers: unknown): ScopedMoveTarget[] {
 		if (!isRecord(item)) {
 			return;
 		}
-		const label = usableString(item.label);
-		const baseUrl = usableString(item.baseUrl);
+		const label = usableHttpText(item.label);
+		const baseUrl = usableHttpText(item.baseUrl);
 		if (label === undefined || baseUrl === undefined || isUnsafeRecordKey(label) || seen.has(label)) {
 			return;
 		}
@@ -119,7 +111,8 @@ function emptyCounts(): EntryRestructureCounts {
 
 /**
  * A present-but-unusable value (a number, blank text) was invisible to every old reader, so it is consumed and counted
- * instead of carried.
+ * instead of carried. A credential position reads by the one credential trim rule (HTTP whitespace), so a Latin-1 byte
+ * at the edge of a key migrates as the key's own; the settings import reuses this restructuring.
  */
 function collectAuthFields(
 	record: Record<string, unknown>,
@@ -130,7 +123,9 @@ function collectAuthFields(
 		if (!Object.hasOwn(record, id)) {
 			continue;
 		}
-		const value = usableString(record[id]);
+		const value = (SECRET_FIELD_IDS as readonly string[]).includes(id)
+			? usableHttpText(record[id])
+			: usableHttpText(record[id]);
 		if (value === undefined) {
 			counts.droppedJunkFields += 1;
 		} else {

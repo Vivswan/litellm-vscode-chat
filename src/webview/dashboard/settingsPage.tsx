@@ -3,6 +3,7 @@ import type { FocusEvent, ReactNode } from "react";
 import { useEffect, useId, useState } from "react";
 import type { SettingWriteMethod } from "../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../dashboard/endpoints";
+import { parseThresholdBox } from "../../dashboard/presenters";
 import { formatPercentExact } from "../../dashboard/spendFormat";
 import type {
 	CatalogStatusView,
@@ -21,13 +22,7 @@ import type {
 	UiTheme,
 	UsageStatusBarMode,
 } from "../../shared/config/settingSpec";
-import {
-	isUsableThreshold,
-	TOKEN_ESTIMATION_MODES,
-	UI_ACCENTS,
-	UI_THEMES,
-	USAGE_STATUS_BAR_MODES,
-} from "../../shared/config/settingSpec";
+import { TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES, USAGE_STATUS_BAR_MODES } from "../../shared/config/settingSpec";
 import { useAlertOnce } from "./announceOnce";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink } from "./help";
@@ -347,30 +342,6 @@ function UiAccentRow({
 			}
 		/>
 	);
-}
-
-/**
- * The docs' bound applies after conversion: (0, 1]. Lossy in value space by an ulp ("53.3%" is not 0.533 back), but
- * render -> parse -> render IS a fixed point, which is the space commit() compares in.
- */
-export function parseThresholdBox(
-	text: string
-): { readonly kind: "empty" } | { readonly kind: "value"; readonly value: number } | { readonly kind: "invalid" } {
-	const trimmed = text.trim();
-	if (trimmed.length === 0) {
-		return { kind: "empty" };
-	}
-	const percent = trimmed.endsWith("%");
-	const numberText = percent ? trimmed.slice(0, -1).trim() : trimmed;
-	const parsed = Number(numberText);
-	if (numberText.length === 0 || !Number.isFinite(parsed)) {
-		return { kind: "invalid" };
-	}
-	const value = percent || parsed > 1 ? parsed / 100 : parsed;
-	if (!isUsableThreshold(value)) {
-		return { kind: "invalid" };
-	}
-	return { kind: "value", value };
 }
 
 /** One of the two threshold inputs with its trailing label; error and hint lines render at the row level. */

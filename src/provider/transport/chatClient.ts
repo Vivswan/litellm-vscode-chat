@@ -263,7 +263,7 @@ export class ChatClient {
 		const entryModelParameters =
 			server.label !== undefined ? this.getEntryModelParameters(server.label, server.baseUrl) : undefined;
 		const { params: modelParams, forcedParams } = this.resolution.resolveParameters(serverId, metadata.rawModelId, {
-			globalParameters: getModelParametersConfig(),
+			globalParameters: getModelParametersConfig(this.log),
 			entryParameters: entryModelParameters,
 		});
 

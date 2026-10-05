@@ -6,6 +6,7 @@
  */
 
 import type * as vscode from "vscode";
+import type { CredentialRejection } from "../../../provider/catalog/groupModels";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
 import type {
@@ -70,6 +71,11 @@ export interface DeclaredServerView extends NonSecretOptionalFields, EntryViewFi
 	readonly expectedConnectionId?: string | undefined;
 	/** The label's last sync failure, cleared by the next success. */
 	readonly syncFailure?: SyncFailure | undefined;
+	/**
+	 * The credential fields the group narrowing dropped (a key the platform's Headers would refuse): the request path
+	 * sends without them, and the dashboard says so beside the entry. Fields only, never values.
+	 */
+	readonly rejectedCredentials?: readonly CredentialRejection["field"][] | undefined;
 }
 
 /** One identity the setting currently declares: the entry label and its normalized base URL. */
@@ -764,7 +770,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 					}
 				}
 			}
-			const groupServer = parseGroupConfiguration(args);
+			// The same narrowing the provider applies, collected rather than logged: the dashboard names the dropped
+			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it.
+			const rejections: CredentialRejection[] = [];
+			const groupServer = parseGroupConfiguration(args, (rejection) => rejections.push(rejection));
 			let expectedClientId: string | undefined;
 			let expectedConnectionId: string | undefined;
 			if (groupServer !== undefined) {
@@ -778,6 +787,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				...pickNonSecretOptionalFields(entry),
 				...pickEntryViewFields(entry),
 				secrets: secretLocations(entry, stored),
+				rejectedCredentials: rejections.map((rejection) => rejection.field),
 				expectedClientId,
 				expectedConnectionId,
 				syncFailure,

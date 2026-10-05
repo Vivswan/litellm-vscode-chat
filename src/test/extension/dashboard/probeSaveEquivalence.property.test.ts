@@ -1,15 +1,17 @@
 /**
- * The probe-save equivalence pin (seed-pinned, FUZZ_RUNS-scaled): for arbitrary drafts - field combinations, secret
- * directives, an existing entry with inline credentials, a stored blob, a label that keeps or renames the entry - Test
- * Connection and Save either refuse with the SAME message, or the connection the probe sends equals the credentials the
- * saved entry's provider group would be handed (the written entry parsed by serverSync's own parser, secrets resolved
- * by buildGroupArgs over the post-save blob). OAuth and the virtual key compare as complete units, the only form in
- * which the transport sends them.
- *
- *   the gap that once let a retired label's orphan blob resolve host-side behind a form showing "none" - on a fresh
- *   label and on a rename onto one alike
- *     -> A second pin holds the host's plan resolution (derived from the entry and the blob) equal to the resolution
- *        the real form parser reports for the draft the user saved
+ * The probe-save equivalence pin (seed-pinned, FUZZ_RUNS-scaled): for
+ * arbitrary drafts - field combinations, secret directives, an existing entry
+ * with inline credentials, a stored blob, a label that keeps or renames the
+ * entry - Test Connection and Save either refuse with the SAME message, or the
+ * connection the probe sends equals the credentials the saved entry's provider
+ * group would be handed (the written entry parsed by serverSync's own parser,
+ * secrets resolved by buildGroupArgs over the post-save blob, narrowed by the
+ * group parser). OAuth and the virtual key compare as complete units, the only
+ * form in which the transport sends them. A second pin holds the host's plan
+ * resolution (derived from the entry and the blob) equal to the resolution the
+ * real form parser reports for the draft the user saved: the gap that once let
+ * a retired label's orphan blob resolve host-side behind a form showing "none"
+ * - on a fresh label and on a rename onto one alike.
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -26,6 +28,7 @@ import {
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync/secrets";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
+import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { recordFromKeys } from "../../../shared/util/json";
@@ -193,23 +196,14 @@ suite("extension/dashboard: probe-save equivalence", () => {
 					const connection = probeEnv.probes[0];
 					assert.ok(connection !== undefined, "the probe ran");
 
-					// The effective credentials on each side: OAuth and the virtual key count only as complete units,
-					// mirroring the transport.
+					// The credentials the provider is handed: the saved args narrowed by the group parser, where OAuth
+					// and the virtual key count only as complete units and a header-illegal value is dropped.
+					const savedGroup = parseGroupConfiguration(args);
+					assert.ok(savedGroup !== undefined, "a saved entry's group args parse");
 					const savedEffective = {
-						apiKey: args.apiKey ?? "",
-						oauth:
-							args.oauthTokenUrl !== undefined && args.oauthClientId !== undefined
-								? compact({
-										tokenUrl: args.oauthTokenUrl,
-										clientId: args.oauthClientId,
-										clientSecret: args.oauthClientSecret ?? "",
-										scopes: args.oauthScopes,
-									})
-								: undefined,
-						virtualKey:
-							args.virtualKeyHeader !== undefined && args.virtualKeyValue !== undefined
-								? { header: args.virtualKeyHeader, value: args.virtualKeyValue }
-								: undefined,
+						apiKey: savedGroup.apiKey,
+						oauth: savedGroup.oauth,
+						virtualKey: savedGroup.virtualKey,
 					};
 					const probeEffective = {
 						apiKey: connection.apiKey,

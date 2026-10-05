@@ -6,6 +6,7 @@ import {
 	validateNumberSetting,
 	validateSaveServerSetting,
 } from "../../../extension/dashboard/intents";
+import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { inlineOnlyIdentity, KEEP_ALL, replaceIdentity, serverPayload } from "./recordedEnv";
 
 suite("extension/dashboard/intents: request validation", () => {
@@ -376,18 +377,25 @@ suite("extension/dashboard/intents: request validation", () => {
 			assert.notStrictEqual(validateNumberSetting("usage.pollInterval", null), undefined);
 		});
 
-		test("validateNumberSetting refuses fractions for integer-only settings", () => {
-			// The message schema admits any finite number, so this host-side gate is what keeps a crafted payload from
-			// writing a fraction into a field whose contribution declares "integer", driven by the spec's integer flag.
-			const refused = validateNumberSetting("chat.maxToolsPerRequest", 2.5);
-			assert.ok(refused !== undefined, "a fractional tool cap is refused");
-			assert.ok(refused.split("\n")[1]?.includes("chat.maxToolsPerRequest"), refused);
-			assert.strictEqual(validateNumberSetting("chat.maxToolsPerRequest", 129), undefined);
-			assert.strictEqual(
-				validateNumberSetting("chat.timeout", 1000.5),
-				undefined,
-				"non-integer settings still accept fractions"
-			);
+		test("validateNumberSetting refuses what the spec refuses: a fraction, a value past either bound", () => {
+			// The message schema admits any finite number (the webview is outside the trust boundary), so this host-side
+			// gate is what keeps a crafted payload from writing a value settings.json would read as the default.
+			// chat.timeout 4294967296 used to pass here (finite, above the minimum, whole) and land in settings.json.
+			const expected = (setting: string, min: string, max: string, lo: number, hi: number) =>
+				`Enter a whole number between ${min} and ${max}.\nsetting ${setting}: must be a whole number between ${lo} and ${hi}`;
+			const toolCap = expected("chat.maxToolsPerRequest", "1", "9007199254740991", 1, Number.MAX_SAFE_INTEGER);
+			const timeout = expected("chat.timeout", "1000 ms", "2147483647 ms", 1000, 2147483647);
+			const cases: readonly (readonly [NumberSettingId, number, string | undefined])[] = [
+				["chat.maxToolsPerRequest", 2.5, toolCap],
+				["chat.maxToolsPerRequest", 0, toolCap],
+				["chat.maxToolsPerRequest", 129, undefined],
+				["chat.timeout", 4294967296, timeout],
+				["chat.timeout", 1000.5, timeout],
+				["chat.timeout", 1000, undefined],
+			];
+			for (const [setting, value, verdict] of cases) {
+				assert.strictEqual(validateNumberSetting(setting, value), verdict, `${setting} ${value}`);
+			}
 		});
 
 		test("number-setting refusals are two-part: a headline, then a detail line naming the setting id", () => {
@@ -469,10 +477,10 @@ suite("extension/dashboard/intents: request validation", () => {
 		test("validateSaveServerSetting messages never repeat the entered values", () => {
 			const problem = validateSaveServerSetting(serverPayload({ label: "Prod", baseUrl: "http://x" }), {
 				...KEEP_ALL,
-				virtualKeyValue: { action: "set", location: "secure", value: "vk-secret\n" },
+				virtualKeyValue: { action: "set", location: "secure", value: "vk\nsecret" },
 			});
 			assert.ok(problem !== undefined);
-			assert.ok(!problem.includes("vk-secret"), problem);
+			assert.ok(!problem.includes("secret"), problem);
 		});
 	});
 });

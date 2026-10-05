@@ -8,16 +8,26 @@ import { WIRE_LIMITS } from "../../../dashboard/endpoints";
 import type { AgentToolId } from "../../../shared/config/commandIds";
 import { FEATURE_MODEL_IDS } from "../../../shared/config/settingSpec";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { trimHttpWhitespace } from "../../../shared/util/headers";
 import { recordFromKeys } from "../../../shared/util/json";
 
 /** The catalog search's own bound; every other string takes the dashboard's wire limit for its kind. */
 const QUERY_MAX = 200;
 
 /**
- * Labels are trimmed here because the dashboard's save trims too: an untrimmed " Prod " would miss the stored Prod in
- * the planner (new-entry defaults, no replace identity) and then overwrite Prod on save, deleting its fields.
+ * Labels lose edge HTTP whitespace here, the dashboard save's one trim rule: an untrimmed " Prod " would miss the stored
+ * Prod in the planner (new-entry defaults, no replace identity) and then overwrite Prod on save, deleting its fields. A
+ * U+00A0 is part of the spelling and stays.
  */
-const label = z.string().trim().min(1).max(WIRE_LIMITS.label);
+function label(description: string) {
+	return z
+		.string()
+		.min(1)
+		.max(WIRE_LIMITS.label)
+		.describe(description)
+		.transform(trimHttpWhitespace)
+		.refine((text) => text.length > 0, "Expected a non-empty label");
+}
 
 /** The sections of the configuration read, so an agent can ask for the slice it needs instead of everything. */
 const CONFIGURATION_SECTIONS = ["servers", "settings", "models", "hiddenGroups", "catalog", "usage"] as const;
@@ -56,7 +66,7 @@ const clearable = z
 	.optional()
 	.describe("A string sets it, null clears it, absent keeps the stored value.");
 
-const removableLabel = label.describe(
+const removableLabel = label(
 	"The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
 );
 const groupBaseUrl = z
@@ -64,7 +74,7 @@ const groupBaseUrl = z
 	.min(1)
 	.describe("The group's base URL as litellm_configuration shows it; with the label it identifies the group.");
 
-const serverLabel = label.describe("The entry's label (its identity; the model picker groups models under it).");
+const serverLabel = label("The entry's label (its identity; the model picker groups models under it).");
 
 /**
  * The `.describe` texts are model-facing English: `bun run manifest:generate` writes them, with the shapes, into
@@ -86,7 +96,7 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 	// byte. scopeKey (from the configuration tool's models) disambiguates when a declared entry and an external group
 	// share a label and serve the same ID.
 	inspectModel: z.strictObject({
-		server: label.describe("The servers entry label, from litellm_configuration."),
+		server: label("The servers entry label, from litellm_configuration."),
 		model: z
 			.string()
 			.min(1)
@@ -122,9 +132,7 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 			.optional()
 			.describe("Field names to remove from the record."),
 		removeKey: z.boolean().optional().describe("Remove the whole key."),
-		server: label
-			.optional()
-			.describe("A servers entry label, to edit that entry's own record instead of the global setting."),
+		server: label("A servers entry label, to edit that entry's own record instead of the global setting.").optional(),
 	}),
 	saveServer: z.union([
 		z
@@ -132,7 +140,7 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 				label: serverLabel,
 				adoptFrom: z
 					.strictObject({
-						label: label.describe("The external group's label, from litellm_configuration."),
+						label: label("The external group's label, from litellm_configuration."),
 						baseUrl: z.string().min(1).describe("The external group's base URL, from litellm_configuration."),
 					})
 					.describe("The external provider group to copy, from litellm_configuration."),
@@ -193,7 +201,7 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 					)
 					.optional()
 					.describe("One directive per secret; a secret without a directive is kept."),
-				renameFrom: label.optional().describe("The current label of the entry to rename to label."),
+				renameFrom: label("The current label of the entry to rename to label.").optional(),
 			})
 			.describe("Add or edit a servers entry. On an edit, omitted fields keep their stored values."),
 	]),
@@ -220,7 +228,7 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 	runAction: z.discriminatedUnion("action", [
 		z.strictObject({
 			action: z.literal("testConnection").describe("Probe a stored servers entry with its stored credentials."),
-			label: label.describe("The stored servers entry to probe with its stored credentials."),
+			label: label("The stored servers entry to probe with its stored credentials."),
 		}),
 		z.strictObject({
 			action: z.literal("testFeatureModel").describe("Send a feature's picked model a fixed probe prompt."),

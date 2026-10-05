@@ -1,6 +1,7 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import { failuresAfterStatePush, isExtensionMessage } from "../../../dashboard/endpoints";
+import type { NumberDraftParse } from "../../../dashboard/presenters";
 import {
 	draftSyncKey,
 	equivalence,
@@ -45,11 +46,28 @@ describe("dashboard: protocol value helpers", () => {
 			assert.ok(!isExtensionMessage(42));
 		});
 
-		test("parseJsonValue is strict JSON with an error for junk and empty input", () => {
+		test("parseJsonValue is strict JSON with an error for junk, empty, and overflowing input", () => {
 			assert.deepStrictEqual(parseJsonValue("0.2"), { ok: true, value: 0.2 });
 			assert.deepStrictEqual(parseJsonValue(' ["stop"] '), { ok: true, value: ["stop"] });
 			assert.strictEqual(parseJsonValue("hello").ok, false);
 			assert.strictEqual(parseJsonValue("").ok, false);
+			// JSON.parse("1e999") is Infinity, which the setting would store as null and the row would render "null"; the
+			// refusal names where in a structured value.
+			const overflowing: readonly (readonly [string, string])[] = [
+				["1e999", "Number too large for JSON; it would be saved as null"],
+				["-1e999", "Number too large for JSON; it would be saved as null"],
+				["[1e999]", "Number too large for JSON at [0]; it would be saved as null"],
+				['{"temperature": 1e999}', "Number too large for JSON at temperature; it would be saved as null"],
+				['{"a": {"b": [0, 1e999]}}', "Number too large for JSON at a.b[1]; it would be saved as null"],
+			];
+			for (const [text, error] of overflowing) {
+				assert.deepStrictEqual(parseJsonValue(text), { ok: false, error }, text);
+			}
+			// The scan for those must survive whatever JSON.parse survives: a recursive walk overflowed the stack on the
+			// deep value, and spreading children into push overflowed it on the wide one.
+			for (const large of [`${"[".repeat(5000)}0${"]".repeat(5000)}`, `[${"0,".repeat(199999)}0]`]) {
+				assert.deepStrictEqual(parseJsonValue(large), { ok: true, value: JSON.parse(large) as unknown });
+			}
 		});
 
 		test("parseHeaderValue takes JSON scalars typed and everything else as the literal string", () => {
@@ -83,36 +101,80 @@ describe("dashboard: protocol value helpers", () => {
 				problem: "Not a duration - use ms, s, m, or h",
 			});
 			assert.strictEqual(parseNumberDraft("chat.timeout", "999").kind, "invalid", "below the 1000 minimum");
+			// 2^31 would make the timer fire after 1 ms and 1000.5 would throw in it; both are refused as typed, never
+			// clamped or rounded, with the one message the host write and the settings reader judge by.
+			for (const text of ["2147483648", "1000.5"]) {
+				assert.deepStrictEqual(parseNumberDraft("chat.timeout", text), {
+					kind: "invalid",
+					problem: "chat.timeout must be a whole number between 1000 and 2147483647.",
+				});
+			}
 			assert.deepStrictEqual(parseNumberDraft("discovery.cacheTtl", "0"), { kind: "value", value: 0 });
 		});
 
 		test("parseNumberDraft: the duration grammar on ms settings - suffixes scale, bare numbers stay ms", () => {
-			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "1500ms"), { kind: "value", value: 1500 });
-			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "90s"), { kind: "value", value: 90000 });
-			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "5m"), { kind: "value", value: 300000 });
-			assert.deepStrictEqual(parseNumberDraft("discovery.cacheTtl", "1h"), { kind: "value", value: 3600000 });
-			assert.deepStrictEqual(parseNumberDraft("chat.timeout", " 5 M "), { kind: "value", value: 300000 });
-			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "1.5h"), { kind: "value", value: 5400000 });
-			// Suffixed values commit whole milliseconds: sub-ms precision in a duration string is noise, and fractional
-			// timeouts are unusable.
-			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "1.0005s"), { kind: "value", value: 1001 });
+			const refused: NumberDraftParse = {
+				kind: "invalid",
+				problem: "chat.timeout must be a whole number between 1000 and 2147483647.",
+			};
+			const value = (ms: number): NumberDraftParse => ({ kind: "value", value: ms });
+			// Case-insensitive, whitespace-tolerant, fractional prefixes allowed; the product is exact decimal arithmetic, so
+			// "1.001s" (float product 1000.9999999999999) reads as 1001 while an authored fraction is refused, never rounded
+			// ("1.0005s" used to commit as 1001).
+			const cases: readonly (readonly [string, NumberDraftParse])[] = [
+				["1500ms", value(1500)],
+				["90s", value(90000)],
+				["5m", value(300000)],
+				[" 5 M ", value(300000)],
+				["1.5h", value(5400000)],
+				["1.1s", value(1100)],
+				["1.001s", value(1001)],
+				["1.001 s", value(1001)],
+				["1.001e0s", value(1001)],
+				["1.0005s", refused],
+				["2147483647.4ms", refused],
+				["2147483.647000007s", refused],
+				["1000.0000001ms", refused],
+				// Below float precision: the exact remainder is nonzero, and Number must not round it back to 1000.
+				["1000.0000000000000001ms", refused],
+				["1.0000000000000000001s", refused],
+				["1000.0000000000000001", refused],
+				// An exponent past any millisecond count is a refusal, not a power of ten the runtime cannot build; one
+				// that cancels against spelled zeros is exact; a result past Number's range is refused by its bound.
+				["1e999999999999999999999s", refused],
+				[`1${"0".repeat(401)}e-401s`, value(1000)],
+				["1e309s", refused],
+				["9e307h", refused],
+				["500ms", refused],
+			];
+			for (const [text, expected] of cases) {
+				assert.deepStrictEqual(parseNumberDraft("chat.timeout", text), expected, JSON.stringify(text));
+			}
+			assert.deepStrictEqual(parseNumberDraft("discovery.cacheTtl", "1h"), value(3600000));
+			assert.deepStrictEqual(parseNumberDraft("discovery.cacheTtl", "0e401s"), value(0), "an all-zero mantissa is 0");
+			// A suffix needs a number.
 			assert.strictEqual(parseNumberDraft("chat.timeout", "ms").kind, "invalid");
 			assert.strictEqual(parseNumberDraft("chat.timeout", "h").kind, "invalid");
-			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "500ms"), {
-				kind: "invalid",
-				problem: "Must be at least 1000",
-			});
 			// Unit typos are grammar errors, never silent guesses.
 			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "5 min"), {
 				kind: "invalid",
 				problem: "Not a duration - use ms, s, m, or h",
 			});
 			assert.strictEqual(parseNumberDraft("chat.timeout", "5d").kind, "invalid");
-			// A product that overflows to Infinity is as unwritable as junk.
-			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "9e307h"), {
+		});
+
+		test("parseNumberDraft: a million-digit draft is refused on its digit count, never converted", () => {
+			// The field parses every change twice; building this draft's BigInt took 133 ms each time and stalled the
+			// dashboard for a quarter second per keystroke.
+			const draft = "1".repeat(1_000_000);
+			const started = performance.now();
+			const parse = parseNumberDraft("chat.timeout", draft);
+			const elapsedMs = performance.now() - started;
+			assert.deepStrictEqual(parse, {
 				kind: "invalid",
-				problem: "Not a duration - use ms, s, m, or h",
+				problem: "chat.timeout must be a whole number between 1000 and 2147483647.",
 			});
+			assert.ok(elapsedMs < 50, `refusing the draft took ${elapsedMs} ms`);
 		});
 
 		/** The hint the settings form shows for a draft: parse once, then the equivalence of the committed value. */

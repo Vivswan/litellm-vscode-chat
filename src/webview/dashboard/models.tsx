@@ -18,6 +18,7 @@ import {
 } from "../../dashboard/modelFilters";
 import type { DashboardModel } from "../../dashboard/viewModels";
 import { capabilityDisplayLabel, costUnitLabel } from "../../shared/config/capabilityDisplay";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { compactTokenCount } from "../../shared/util/tokenCount";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { helpModelsSection } from "./helpText";
@@ -580,7 +581,7 @@ export function ModelsSection({
 	// pill-filtered list, or OR-within-a-dimension would be unreachable. Memoized: every scroll event re-renders, and
 	// the options walk the list.
 	const pillOptions = useMemo(() => modelFilterOptions(scoped, pills), [scoped, pills]);
-	const textActive = filter.trim().length > 0;
+	const textActive = trimHttpWhitespace(filter).length > 0;
 	// Both clear actions unmount the button that was just pressed, so focus would fall to the body and take the
 	// keyboard user's place with it; the filter input is where the cleared filters live on.
 	const filterInputRef = useRef<HTMLInputElement>(null);

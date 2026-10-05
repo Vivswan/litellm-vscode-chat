@@ -21,7 +21,7 @@ import {
 	wrongTypeDirectives,
 } from "../shared/config/recordResolution";
 import type { HeaderScalar } from "../shared/util/headers";
-import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
+import { isValidHeaderName, isValidHeaderValue, trimHttpWhitespace } from "../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../shared/util/json";
 import { formatHeaderValue, formatJsonValue, parseHeaderValue, parseJsonValue } from "./presenters";
 
@@ -114,7 +114,7 @@ const CAPABILITY_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeD
  *   the matcher grammar trims nothing -> Matcher keys and `_inherit_from` entries stay raw in both
  */
 export function resolvedFieldName(kind: "params" | "caps", key: string): string {
-	return kind === "caps" ? key.trim() : key;
+	return kind === "caps" ? trimHttpWhitespace(key) : key;
 }
 
 /**
@@ -157,7 +157,7 @@ interface KeyProblemMessages {
 function keyProblem(key: string, messages: KeyProblemMessages, dupes: Set<string>): string | undefined {
 	// Emptiness is judged trimmed for every kind: a whitespace-only name is almost certainly an accident, and a visible
 	// refusal beats persisting it.
-	if (key.trim().length === 0) {
+	if (trimHttpWhitespace(key).length === 0) {
 		return messages.empty;
 	}
 	if (isUnsafeRecordKey(key)) {
@@ -415,10 +415,10 @@ type HeaderRowsDetailedParse =
  * "succeed" on a header that would never be sent.
  */
 function parseHeaderRowsDetailed(rows: readonly HeaderRow[]): HeaderRowsDetailedParse {
-	const duplicateNames = duplicates(rows.map((row) => row.name.trim()));
+	const duplicateNames = duplicates(rows.map((row) => trimHttpWhitespace(row.name)));
 	const headers: Record<string, HeaderScalar> = Object.create(null) as Record<string, HeaderScalar>;
 	const problems = rows.map((row): RowFieldProblem | undefined => {
-		const name = row.name.trim();
+		const name = trimHttpWhitespace(row.name);
 		const problem = keyProblem(
 			name,
 			{ empty: l10n.t("Enter a header name"), duplicate: l10n.t("Duplicate header name") },
@@ -455,24 +455,29 @@ export type RecordJsonParse<Rows> =
 	| { readonly ok: true; readonly rows: Rows }
 	| { readonly ok: false; readonly problem: string };
 
+/**
+ * The grid's value parser reads the whole pasted text, so the JSON side door refuses exactly what a cell would (an
+ * overflowing literal included) before any value is re-serialized into a row.
+ */
 function recordFromJsonText(
 	text: string,
 	example: string
 ): { readonly ok: true; readonly value: Record<string, unknown> } | { readonly ok: false; readonly problem: string } {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(text) as unknown;
-	} catch {
-		return { ok: false, problem: l10n.t("Not valid JSON.") };
-	}
-	if (!isRecord(parsed)) {
+	if (trimHttpWhitespace(text).length === 0) {
 		return { ok: false, problem: l10n.t("Must be a JSON object, e.g. {0}.", example) };
 	}
-	return { ok: true, value: parsed };
+	const parsed = parseJsonValue(text);
+	if (!parsed.ok) {
+		return { ok: false, problem: parsed.error };
+	}
+	if (!isRecord(parsed.value)) {
+		return { ok: false, problem: l10n.t("Must be a JSON object, e.g. {0}.", example) };
+	}
+	return { ok: true, value: parsed.value };
 }
 
 function withKey(key: string, message: string): string {
-	return key.trim().length === 0 ? message : `"${key}": ${message}`;
+	return trimHttpWhitespace(key).length === 0 ? message : `"${key}": ${message}`;
 }
 
 function firstGroupProblem(groups: readonly PrefixGroup[], problems: readonly GroupProblems[]): string {
@@ -604,7 +609,7 @@ function consumedInvalidHint(kind: CapabilityValueKind, key: string): string {
 }
 
 function parseBooleanText(text: string): boolean | undefined {
-	const trimmed = text.trim();
+	const trimmed = trimHttpWhitespace(text);
 	return trimmed === "true" ? true : trimmed === "false" ? false : undefined;
 }
 
@@ -613,18 +618,15 @@ function parseBooleanText(text: string): boolean | undefined {
  * Empty means no ID.
  */
 export function parseCatalogIdText(text: string): string | undefined {
-	const trimmed = text.trim();
+	const trimmed = trimHttpWhitespace(text);
 	if (trimmed.length === 0) {
 		return undefined;
 	}
-	try {
-		const parsed: unknown = JSON.parse(trimmed);
-		if (typeof parsed === "string") {
-			return parsed.trim().length > 0 ? parsed.trim() : undefined;
-		}
-	} catch {
-		// Bare text is the normal case.
+	const parsed = parseJsonValue(trimmed);
+	if (parsed.ok && typeof parsed.value === "string") {
+		return trimHttpWhitespace(parsed.value).length > 0 ? trimHttpWhitespace(parsed.value) : undefined;
 	}
+	// Bare text is the normal case.
 	return trimmed;
 }
 
@@ -885,7 +887,7 @@ export function directiveMarkedFields(
 
 /** Whether the Inherits control's comma-joined keys input can reproduce this `_inherit_from` list entry. */
 function inheritKeyRoundTrips(entry: string): boolean {
-	return entry.length > 0 && entry === entry.trim() && !entry.includes(",");
+	return entry.length > 0 && entry === trimHttpWhitespace(entry) && !entry.includes(",");
 }
 
 /**
@@ -1000,7 +1002,7 @@ export function inheritFromChoice(kind: "params" | "caps", group: PrefixGroup): 
 export function parseInheritKeysText(text: string): readonly [string, ...string[]] | undefined {
 	const keys = text
 		.split(",")
-		.map((key) => key.trim())
+		.map((key) => trimHttpWhitespace(key))
 		.filter((key) => key.length > 0);
 	const [first, ...rest] = keys;
 	return first === undefined ? undefined : [first, ...rest];

@@ -41,18 +41,18 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		en:
 			"Hard time budget for one chat completion call, and for one commit-message, pull-request-description, " +
 			"consult-tool, quick-fix or review-comment call, in milliseconds. Chat requests are never retried, so this is " +
-			"the total time one request may take, streaming included. Minimum 1000; lower values are clamped. Raise it " +
+			"the total time one request may take, streaming included. Raise it " +
 			"for long reasoning runs or slow infrastructure",
-		zhCn: "单次聊天补全调用, 以及单次提交消息生成、拉取请求描述生成、咨询工具、快速修复或评审评论调用的硬性时间预算, 毫秒。聊天请求从不重试, 所以这是一个请求可占用的总时间, 含流式传输。最小 1000; 更低的值会被钳制。为长推理运行或缓慢的基础设施调大它",
-		zhTw: "單次聊天補全呼叫, 以及單次提交訊息產生、提取要求描述產生、諮詢工具、快速修復或審查評論呼叫的硬性時間預算, 毫秒。聊天請求從不重試, 所以這是一個請求可占用的總時間, 含串流。最小 1000; 更低的值會被箝制。為長推理運行或緩慢的基礎設施調大它",
+		zhCn: "单次聊天补全调用, 以及单次提交消息生成、拉取请求描述生成、咨询工具、快速修复或评审评论调用的硬性时间预算, 毫秒。聊天请求从不重试, 所以这是一个请求可占用的总时间, 含流式传输。为长推理运行或缓慢的基础设施调大它",
+		zhTw: "單次聊天補全呼叫, 以及單次提交訊息產生、提取要求描述產生、諮詢工具、快速修復或審查評論呼叫的硬性時間預算, 毫秒。聊天請求從不重試, 所以這是一個請求可占用的總時間, 含串流。為長推理運行或緩慢的基礎設施調大它",
 	},
 	"chat.maxToolsPerRequest": {
 		en:
 			"How many tools one chat request may carry before the extension refuses it locally instead of sending it " +
 			"(most OpenAI-compatible servers enforce 128). Raising it past what your server or model accepts moves the " +
-			"failure server-side: the request is sent and the server rejects it. Minimum 1",
-		zhCn: "一次聊天请求最多可携带的工具数, 超过时扩展在本地拒绝该请求而不发送 (多数 OpenAI 兼容服务器强制 128)。调大到超出你的服务器或模型接受的范围, 只会把失败移到服务器端: 请求会被发送, 然后被服务器拒绝。最小 1",
-		zhTw: "一次聊天請求最多可攜帶的工具數, 超過時延伸模組在本機拒絕該請求而不送出 (多數 OpenAI 相容伺服器強制 128)。調高到超出你的伺服器或模型接受的範圍, 只會把失敗移到伺服器端: 請求會被送出, 然後被伺服器拒絕。最小 1",
+			"failure server-side: the request is sent and the server rejects it",
+		zhCn: "一次聊天请求最多可携带的工具数, 超过时扩展在本地拒绝该请求而不发送 (多数 OpenAI 兼容服务器强制 128)。调大到超出你的服务器或模型接受的范围, 只会把失败移到服务器端: 请求会被发送, 然后被服务器拒绝",
+		zhTw: "一次聊天請求最多可攜帶的工具數, 超過時延伸模組在本機拒絕該請求而不送出 (多數 OpenAI 相容伺服器強制 128)。調高到超出你的伺服器或模型接受的範圍, 只會把失敗移到伺服器端: 請求會被送出, 然後被伺服器拒絕",
 	},
 	"chat.additionalToolSchemaKeywords": {
 		en:
@@ -89,18 +89,17 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		en:
 			"Hard time budget for each model-discovery request, in milliseconds, its retries included. The model-info " +
 			"listing, the `/v1/models` fallback, and the OAuth token exchange each get a fresh budget, so a discovery " +
-			"pass may take up to their sum. Minimum 1000",
-		zhCn: "每个模型发现请求的硬性时间预算, 毫秒, 含该请求的重试。模型信息列表、`/v1/models` 回退和 OAuth 令牌交换各自获得一份新预算, 所以一轮发现最长可能耗时到它们之和。最小 1000",
-		zhTw: "每個模型探索請求的硬性時間預算, 毫秒, 含該請求的重試。模型資訊清單、`/v1/models` 退回和 OAuth 權杖交換各自獲得一份新預算, 所以一輪探索最長可能耗時到它們之和。最小 1000",
+			"pass may take up to their sum",
+		zhCn: "每个模型发现请求的硬性时间预算, 毫秒, 含该请求的重试。模型信息列表、`/v1/models` 回退和 OAuth 令牌交换各自获得一份新预算, 所以一轮发现最长可能耗时到它们之和",
+		zhTw: "每個模型探索請求的硬性時間預算, 毫秒, 含該請求的重試。模型資訊清單、`/v1/models` 退回和 OAuth 權杖交換各自獲得一份新預算, 所以一輪探索最長可能耗時到它們之和",
 	},
 	"discovery.cacheTtl": {
 		en:
 			"How long a discovered model list is reused, in milliseconds. VS Code re-resolves providers often (sometimes " +
-			"several times a second); the cache keeps that off your server. `0` fetches fresh every time (negative values " +
-			'clamp to `0`); failures are never cached; simultaneous refreshes share one request; "LiteLLM: Sync Models ' +
-			'Now" bypasses it',
-		zhCn: '已发现的模型列表复用多久, 毫秒。VS Code 重新解析提供程序很频繁 (有时一秒好几次); 缓存把那挡在你的服务器之外。`0` 表示每次都新取 (负值钳制为 `0`); 失败从不缓存; 同时发生的刷新共享一个请求; "LiteLLM: Sync Models Now" 绕过它',
-		zhTw: '已探索的模型清單沿用多久, 毫秒。VS Code 重新解析提供者很頻繁 (有時一秒好幾次); 快取把那擋在您的伺服器之外。`0` 表示每次都重新擷取 (負值箝制為 `0`); 失敗從不快取; 同時發生的重新整理共用一個請求; "LiteLLM: Sync Models Now" 略過它',
+			"several times a second); the cache keeps that off your server. `0` fetches fresh every time; failures are " +
+			'never cached; simultaneous refreshes share one request; "LiteLLM: Sync Models Now" bypasses it',
+		zhCn: '已发现的模型列表复用多久, 毫秒。VS Code 重新解析提供程序很频繁 (有时一秒好几次); 缓存把那挡在你的服务器之外。`0` 表示每次都新取; 失败从不缓存; 同时发生的刷新共享一个请求; "LiteLLM: Sync Models Now" 绕过它',
+		zhTw: '已探索的模型清單沿用多久, 毫秒。VS Code 重新解析提供者很頻繁 (有時一秒好幾次); 快取把那擋在您的伺服器之外。`0` 表示每次都重新擷取; 失敗從不快取; 同時發生的重新整理共用一個請求; "LiteLLM: Sync Models Now" 略過它',
 	},
 	"discovery.staleServeWindow": {
 		en:
@@ -115,10 +114,9 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		en:
 			"Background spend/budget polling cadence, in milliseconds. `0` = off: no background requests and no alerts; " +
 			"the dashboard fetches on open only when a fetch is due (no completed fetch this session, the last one older " +
-			"than five minutes, or a changed `servers` setting). Nonzero values below `30000` clamp up to 30 seconds. " +
-			"Full story: [Usage](usage.md)",
-		zhCn: "后台支出/预算轮询节奏, 毫秒。`0` = 关闭: 没有后台请求, 没有警报; 仪表板打开时只在一次获取到期时才获取 (本次会话还没有完成过获取、距上一次获取已超过五分钟, 或 `servers` 设置有变更)。低于 `30000` 的非零值向上钳制到 30 秒。完整故事: [用量](usage.md)",
-		zhTw: "背景支出/預算輪詢節奏, 毫秒。`0` = 關閉: 沒有背景請求, 沒有警示; 儀表板開啟時只在一次擷取到期時才擷取 (本次工作階段還沒有完成過擷取、距上一次擷取已超過五分鐘, 或 `servers` 設定有變更)。低於 `30000` 的非零值向上箝制到 30 秒。完整故事: [用量](usage.md)",
+			"than five minutes, or a changed `servers` setting). Full story: [Usage](usage.md)",
+		zhCn: "后台支出/预算轮询节奏, 毫秒。`0` = 关闭: 没有后台请求, 没有警报; 仪表板打开时只在一次获取到期时才获取 (本次会话还没有完成过获取、距上一次获取已超过五分钟, 或 `servers` 设置有变更)。完整故事: [用量](usage.md)",
+		zhTw: "背景支出/預算輪詢節奏, 毫秒。`0` = 關閉: 沒有背景請求, 沒有警示; 儀表板開啟時只在一次擷取到期時才擷取 (本次工作階段還沒有完成過擷取、距上一次擷取已超過五分鐘, 或 `servers` 設定有變更)。完整故事: [用量](usage.md)",
 	},
 	"usage.initialRefreshDelay": {
 		en: "How long after extension startup the first usage poll runs, in milliseconds",
