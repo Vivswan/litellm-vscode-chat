@@ -34,11 +34,6 @@ interface RunResult {
 	parts: vscode.LanguageModelResponsePart[];
 }
 
-/**
- * Drive every assembled chunk through parseChunk and processDelta, then run the post-loop
- * end of stream, mirroring the transport loop's delta handling plus its final run, where
- * the trailers emit.
- */
 function runChunks(chunks: unknown[]): RunResult {
 	const parts: vscode.LanguageModelResponsePart[] = [];
 	const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };

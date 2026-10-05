@@ -44,8 +44,6 @@ suite("provider/streaming refusal and annotations", () => {
 				],
 			},
 			{ choices: [{ delta: {}, finish_reason: "stop" }] },
-			// A replayed finish_reason runs the end-of-stream path again; the trailer must not repeat.
-			{ choices: [{ delta: {}, finish_reason: "stop" }] },
 		]);
 
 		const text = visibleTextOf(parts);
@@ -405,8 +403,6 @@ suite("provider/streaming generated media", () => {
 		return parts.filter((p) => p instanceof FakeDataPart) as unknown as FakeDataPart[];
 	}
 
-	const finish = { choices: [{ delta: {}, finish_reason: "stop" }] };
-
 	test("a delta.images data URL becomes one DataPart with decoded bytes and the header mime", () => {
 		const { parts, progress } = collector();
 		const stream = mediaProcessor(progress);
@@ -576,7 +572,7 @@ suite("provider/streaming generated media", () => {
 		assert.equal(dataPartsOf(parts).length, 0, "audio accumulates; the clip may not emit before the stream finishes");
 		assert.equal(visibleTextOf(parts), "spoken words", "the transcript is the model's text and streams immediately");
 
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		const audio = dataPartsOf(parts);
 		assert.equal(audio.length, 1);
@@ -592,7 +588,7 @@ suite("provider/streaming generated media", () => {
 
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "U", transcript: "Hel" } } }] }); // typos: ignore
 		stream.processDelta({ choices: [{ delta: { audio: { data: "klGRg==", transcript: "lo" } } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		assert.equal(visibleTextOf(parts), "Hello");
 		const audio = dataPartsOf(parts);
@@ -607,7 +603,7 @@ suite("provider/streaming generated media", () => {
 		// "U" alone is undecodable base64; only the concatenation is valid.
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "U" } } }] });
 		stream.processDelta({ choices: [{ delta: { audio: { data: "klGRg==" } } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		const audio = dataPartsOf(parts);
 		assert.equal(audio.length, 1, "fragments must merge into a single DataPart");
@@ -620,7 +616,7 @@ suite("provider/streaming generated media", () => {
 
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] });
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a2", data: "BAUG" } } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		const audio = dataPartsOf(parts);
 		assert.equal(audio.length, 2);
@@ -635,7 +631,7 @@ suite("provider/streaming generated media", () => {
 
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "!!!bad!!!" } } }] });
 		stream.processDelta({ choices: [{ delta: { content: "text survives" } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		assert.equal(dataPartsOf(parts).length, 0);
 		assert.equal(visibleTextOf(parts), "text survives");
@@ -659,7 +655,7 @@ suite("provider/streaming generated media", () => {
 			const { parts, progress } = collector();
 			const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor, format);
 			stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] });
-			stream.processDelta(finish);
+			stream.endOfStream();
 			const audio = dataPartsOf(parts);
 			assert.equal(audio.length, 1, `format ${JSON.stringify(format)} must still emit`);
 			assert.equal(expectDefined(audio[0]).mimeType, expectedMime, `format ${JSON.stringify(format)}`);
@@ -672,7 +668,7 @@ suite("provider/streaming generated media", () => {
 		const stream = mediaProcessor(progress, (msg) => logs.push(msg));
 
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "\n" } } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		assert.equal(dataPartsOf(parts).length, 0, "whitespace strips to nothing; an empty clip must not emit");
 		assert.ok(logs.some((l) => l.includes("Skipping generated audio")));
@@ -702,25 +698,13 @@ suite("provider/streaming generated media", () => {
 		assert.ok(logs.some((l) => l.includes("Skipping generated image")));
 	});
 
-	test("repeated end-of-stream runs do not duplicate the audio part", () => {
-		const { parts, progress } = collector();
-		const stream = mediaProcessor(progress);
-
-		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] });
-		stream.processDelta(finish);
-		// The [DONE] line runs the end-of-stream path a second time.
-		stream.processDelta(finish);
-
-		assert.equal(dataPartsOf(parts).length, 1);
-	});
-
 	test("id-less fragments before the first id'd fragment merge into that id's single part", () => {
 		const { parts, progress } = collector();
 		const stream = mediaProcessor(progress);
 
 		stream.processDelta({ choices: [{ delta: { audio: { data: "U" } } }] });
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "klGRg==" } } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		const audio = dataPartsOf(parts);
 		assert.equal(audio.length, 1, "the late id adopts the open accumulation instead of splitting it");
@@ -740,19 +724,8 @@ suite("provider/streaming generated media", () => {
 		assert.equal(dataPartsOf(parts).length, 0, "a cancelled request must not emit a partial clip");
 
 		// The same processor serving a subsequent stream must start clean.
-		stream.processDelta(finish);
+		stream.endOfStream();
 		assert.equal(dataPartsOf(parts).length, 0, "the dropped accumulation must not resurface later");
-	});
-
-	test("resetState clears an in-flight audio accumulation", () => {
-		const { parts, progress } = collector();
-		const stream = mediaProcessor(progress);
-
-		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] });
-		stream.resetState();
-		stream.processDelta(finish);
-
-		assert.equal(dataPartsOf(parts).length, 0);
 	});
 
 	test("the audio part flushes before the citations trailer", async () => {
@@ -771,7 +744,7 @@ suite("provider/streaming generated media", () => {
 					},
 				],
 			},
-			finish,
+			{ choices: [{ delta: {}, finish_reason: "stop" }] },
 		]);
 
 		const kinds = parts.map((p) => (p instanceof FakeDataPart ? "data" : "text"));
@@ -909,9 +882,9 @@ suite("provider/streaming media without DataPart support", () => {
 			choices: [{ delta: { images: [{ type: "image_url", image_url: { url: "data:image/png;base64,AQID" } }] } }],
 		});
 		first.processDelta({ choices: [{ delta: { content: "still text" } }] });
-		first.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] });
+		first.endOfStream();
 		second.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "UklGRg==", transcript: " and words" } } }] });
-		second.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] });
+		second.endOfStream();
 
 		assert.equal(
 			visibleTextOf(parts),

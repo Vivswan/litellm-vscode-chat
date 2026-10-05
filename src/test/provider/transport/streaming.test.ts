@@ -111,29 +111,7 @@ suite("provider/transport/streaming", () => {
 		assert.equal(ids.count, 1);
 	});
 
-	test("a terminal finish_reason flushes buffered state without the [DONE] fallback", async () => {
-		const parts: vscode.LanguageModelResponsePart[] = [];
-		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
-		const stream = new StreamProcessor(idSource(), () => {}, progress);
-
-		// A nameless buffered call cannot emit early (only the end-of-stream flush
-		// names it unknown_tool), and no [DONE] or EOF follows here.
-		stream.processDelta({
-			choices: [{ delta: { tool_calls: [{ index: 0, id: "call_x", function: { arguments: '{"a":1}' } }] } }],
-		});
-		assert.equal(parts.length, 0, "a nameless buffered call must not emit before the flush");
-
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] });
-
-		const toolParts = toolCallsOf(parts);
-		assert.equal(toolParts.length, 1, "the finish chunk itself must flush the buffer");
-		const toolPart = expectDefined(toolParts[0]);
-		assert.equal(toolPart.callId, "call_x");
-		assert.equal(toolPart.name, "unknown_tool");
-		assert.deepEqual(toolPart.input, { a: 1 });
-	});
-
-	test("tool call arguments split across deltas emit exactly once, including after finish_reason", async () => {
+	test("tool call arguments split across deltas emit exactly once, including at end of stream", async () => {
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
@@ -148,7 +126,7 @@ suite("provider/transport/streaming", () => {
 		assert.equal(parts.length, 0, "Should not emit while arguments are incomplete JSON");
 
 		stream.processDelta({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ':"b"}' } }] } }] });
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] });
+		stream.endOfStream();
 
 		const toolParts = parts.filter((p) => p instanceof vscode.LanguageModelToolCallPart);
 		assert.equal(toolParts.length, 1, "Should emit exactly one tool call part");
@@ -223,7 +201,7 @@ suite("provider/streaming tool call index normalization", () => {
 			choices: [{ delta: { tool_calls: [{ index: "0", id: "c9", function: { name: "s", arguments: '{"k"' } }] } }],
 		});
 		stream.processDelta({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ':"v"}' } }] } }] });
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] });
+		stream.endOfStream();
 
 		const toolParts = toolCallsOf(parts);
 		assert.equal(toolParts.length, 1, "String and numeric index must address the same buffer");
@@ -256,7 +234,7 @@ suite("provider/streaming dedup across channels", () => {
 		stream.processDelta({
 			choices: [{ delta: { tool_calls: [{ index: 0, id: "d1", function: { name: "dup", arguments: '{"x":1}' } }] } }],
 		});
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] });
+		stream.endOfStream();
 
 		assert.equal(toolCallsOf(parts).length, 1);
 	});
@@ -303,7 +281,7 @@ suite("provider/streaming dedup across channels", () => {
 				},
 			],
 		});
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] });
+		stream.endOfStream();
 
 		assert.equal(
 			toolCallsOf(parts).length,

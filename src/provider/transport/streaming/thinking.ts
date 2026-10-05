@@ -72,16 +72,12 @@ export function reasoningOnlyResponseMessage(): string {
 /**
  * Per-request aggregate of reasoning dropped because no thinking part could be built: counts and lengths only, never
  * the text. "parts" counts thinking items, not SSE chunks.
- *   logged and threw -> latch the once-per-request drop log line and the reasoning-only error, because finishStream
- *                       runs more than once per stream
  */
 export interface DroppedReasoning {
 	parts: number;
 	length: number;
-	logged: boolean;
-	threw: boolean;
 }
 
 export function freshDroppedReasoning(): DroppedReasoning {
-	return { parts: 0, length: 0, logged: false, threw: false };
+	return { parts: 0, length: 0 };
 }
