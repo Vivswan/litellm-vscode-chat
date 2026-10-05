@@ -32,7 +32,7 @@ LiteLLM VSCode Chat: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered b
 <!-- Add project-specific instructions below the END marker; they are this repository's own and survive every sync. -->
 <!-- END REPO-PLATFORM MANAGED -->
 
-A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Language Model Chat Provider API: streaming chat with tool calls, multimodal input, reasoning, and several LiteLLM servers at once. Code is the source of truth: this section holds only the rules and the decisions a reader could not recover from the code.
+A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Language Model Chat Provider API: streaming chat with tool calls, multimodal input, reasoning, and several LiteLLM servers at once.
 
 ### Hard rules
 
@@ -45,8 +45,6 @@ A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Lan
 - **Logs carry classifications, never response-derived text.** They feed the public issue report. `console.*` is banned in `src/` outside tests, and a localized error that can reach a log carries an English mirror (`MirroredError`).
 - **Secrets never cross the dashboard wire.** State pushes carry secret locations, not values; every Memento and SecretStorage key lives in `src/shared/config/storageKeys.ts`.
 - **One l10n shape**: `import * as l10n from "@vscode/l10n"` and `l10n.t(...)`, resolved at call time, `{0}` interpolation. Logger output, the issue report, model-facing prompt text, and protocol terms stay English.
-- **One concept, one pipeline.** A second classifier or parser where one exists is a finding.
-- **Plain ASCII, no AI or tool attribution** in code, commits, or PRs.
 
 ### Decisions a reader would otherwise reverse
 
@@ -58,11 +56,10 @@ A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Lan
 - **Migrations are idempotent, state-detecting, and expire** (`src/extension/migrations/expiries.ts`). A passed expiry turns the build red until the migration is deleted.
 - **The two `models.*` record settings are `restricted`; every `.enabled`, `.model`, and `models.openRouterCatalog` is machine-overridable** (`src/shared/config/settingSpec.ts`).
 - **Every `contributes` block of `package.json` and `docs/settings.md` with its zh-cn/zh-tw twins are generated output** (`bun run manifest:generate`, `bun run docs:settings`; the sources are the code constants plus the presentation tables in `scripts/dev/manifest/`). Edit the source, run the generator, commit; the hook's `check:static` and CI refuse drift and name the command.
-- **Pre-commit hooks**: allowed, check -> fail, or check -> fail -> write the fix into the working tree -> fail; forbidden, changing the commit, any writing git command (read-only queries are fine), anything else. The developer reruns the commit. No bun test builds a scratch repository or calls git.
+- **Pre-commit hooks**: No bun test builds a scratch repository or calls git.
 - **English for the manifest stays in `package.nls.json`** under the keys the generator derives from the ids; a new setting needs a prose entry in all three locales. The agent tools' model-facing text lives in `src/extension/features/agentTools/inputSchema.ts`.
 - **Fuzz findings are pinned, not fixed in place**: a fuzz-found failure gets a corpus entry in `src/test/fuzzCorpus.ts`.
 - **Dashboard appearance is reviewed, not gated**: `check-overflow` and `check-geometry` gate fit and geometry; looks are judged against `docs/dashboard-visual-language.md`.
-- **Tests are few but strong.** Flag shape-only tests, one-axis variants that should be one case table, and a deleted test with no successor.
 
 ### Releases
 
