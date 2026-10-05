@@ -5,6 +5,7 @@ import { collapseWhitespace } from "../../shared/util/errorText";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
+import { KnownSecrets } from "../../shared/util/knownSecrets";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
 import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./errorMapping";
@@ -267,7 +268,7 @@ function timeoutError(tokenUrl: string, budget: TimeoutBudget, cause?: unknown):
 
 /**
  * Never the raw body: it is untrusted and can be huge. The configured client secret is scrubbed in case the identity
- * provider echoes it back in the description.
+ * provider echoes it back in the description, in its own spelling or with its whitespace collapsed like the detail.
  */
 function oauthErrorDetail(payload: string, clientSecret: string): string {
 	try {
@@ -277,19 +278,11 @@ function oauthErrorDetail(payload: string, clientSecret: string): string {
 				(part): part is string => typeof part === "string" && part.length > 0
 			);
 			if (parts.length > 0) {
-				// Scrub before truncating: a secret longer than the cap, or one crossing it, must not leak its prefix.
-				// Scrub again after the whitespace collapse: a secret containing whitespace dodges the exact-match pass
-				// when the IdP echoes it with different whitespace, and the collapse would otherwise reassemble it.
-				let detail = parts.join(": ");
-				if (clientSecret.length > 0) {
-					detail = detail.split(clientSecret).join("[REDACTED]");
-				}
-				detail = collapseWhitespace(detail);
-				const collapsedSecret = collapseWhitespace(clientSecret);
-				if (collapsedSecret.length > 0) {
-					detail = detail.split(collapsedSecret).join("[REDACTED]");
-				}
-				return detail.slice(0, 200);
+				// Scrub before truncating: a secret crossing the cap must not leak its prefix. This site knows its one
+				// value and the one short text, so the whole-log floor does not apply: "ab" goes too.
+				const known = new KnownSecrets();
+				known.set([clientSecret, collapseWhitespace(clientSecret)], { minLength: 1 });
+				return known.redact(collapseWhitespace(parts.join(": "))).slice(0, 200);
 			}
 		}
 	} catch {

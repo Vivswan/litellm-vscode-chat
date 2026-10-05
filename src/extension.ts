@@ -6,6 +6,7 @@ import { registerTestCommands, SessionLogTee } from "./extension/ui/commands";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
 import { wireDashboard, wireGroupRemovalReactions, wireUsageSurfaces } from "./extension/wiring/dashboard";
 import { wireDashboardClientFeatures, wireFeatures } from "./extension/wiring/features";
+import { wireKnownSecrets } from "./extension/wiring/knownSecrets";
 import { wireCatalogRefresh, wireProvider, wireTokenCounting } from "./extension/wiring/provider";
 import { wireServers } from "./extension/wiring/servers";
 import { wireStorage } from "./extension/wiring/storage";
@@ -13,6 +14,7 @@ import { maybeShowWelcome, wireStatusFanout, wireStatusSurfaces, wireUiCommands 
 import { CMD, VENDOR_ID } from "./shared/config/commandIds";
 import type { DevSeed } from "./shared/devSeed";
 import { Logger } from "./shared/logger";
+import { KnownSecrets } from "./shared/util/knownSecrets";
 
 /**
  * The ordering constraints activate() owns are commented at their call sites: l10n configuration first, the state
@@ -45,8 +47,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri));
 	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
 	const sessionLogTee = testMode ? new SessionLogTee(issueReporter) : undefined;
-	const logger = new Logger(outputChannel, sessionLogTee ?? issueReporter);
+	const knownSecrets = new KnownSecrets();
+	const logger = new Logger(outputChannel, sessionLogTee ?? issueReporter, knownSecrets);
 	logger.log(`LiteLLM Extension activated (v${extVersion})`);
+	// Awaited so no server work logs before the configured secret values are known.
+	await wireKnownSecrets(context, logger, (values) => knownSecrets.set(values));
 
 	const storage = await wireStorage(context, logger);
 	// Token estimation serves the request path from the first request: mode applied now, tokenizer loads settle off the

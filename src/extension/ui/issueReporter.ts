@@ -4,8 +4,7 @@ import type { FeatureId } from "../../shared/config/settingSpec";
 import { FEATURE_IDS } from "../../shared/config/settingSpec";
 import { LAST_ISSUE_REPORT_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
-import { transportClassificationOf } from "../../shared/errorClassification";
-import { publicErrorStack, publicErrorText } from "../../shared/logger";
+import type { RecordedError } from "../../shared/logger";
 import { redactUrlCredentials } from "../../shared/util/displayUrl";
 import { GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
@@ -237,16 +236,13 @@ export class IssueReporter {
 		}
 	}
 
-	recordError(source: string, error: unknown): void {
-		//   An http RequestError's message (and the copy V8 prefixes onto the stack) embeds the response body -> both
-		//       degrade to its classification
-		const classification = transportClassificationOf(error);
+	recordError(source: string, error: RecordedError): void {
 		this._latestError = {
 			source,
-			message: publicErrorText(error),
-			stack: publicErrorStack(error),
+			message: error.message,
+			stack: error.stack,
 			timestamp: new Date().toISOString(),
-			...(classification !== undefined ? { classification } : {}),
+			...(error.classification !== undefined ? { classification: error.classification } : {}),
 		};
 	}
 

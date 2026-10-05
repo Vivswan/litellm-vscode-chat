@@ -1,7 +1,7 @@
 import type { DashboardState } from "../../../dashboard/viewModels";
 import type { DashboardSubmission } from "../../../extension/dashboard/panel";
 import type { ServerStatus } from "../../../shared/servers";
-import { displayUrl } from "../../../shared/util/displayUrl";
+import { displayUrl, urlScrubbingReplacer } from "../../../shared/util/displayUrl";
 import type { DiagnosticsSnapshot } from "../../ui/issueReporter";
 import type { ConfigurationSection } from "./inputSchema";
 import type { AgentRequest, RefusalReason, SecretPrompt } from "./planner";
@@ -12,31 +12,15 @@ import type { AgentRequest, RefusalReason, SecretPrompt } from "./planner";
  */
 const AGENT_RESULT_CHAR_LIMIT = 60_000;
 
-/**
- * Deep on purpose: a server's config nests its token URL and MCP URL.
- */
-function scrubUrls<T>(value: T): T {
-	if (typeof value === "string") {
-		return (value.includes("://") || value.startsWith("//") ? displayUrl(value) : value) as T;
-	}
-	if (Array.isArray(value)) {
-		return value.map(scrubUrls) as T;
-	}
-	if (value !== null && typeof value === "object") {
-		return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, scrubUrls(entry)])) as T;
-	}
-	return value;
-}
-
 const TRUNCATION_MARKER = '\n... [truncated: ask for fewer "sections", or inspect one model at a time]';
 
 /**
- * A base URL is user configuration and may carry `user:password@`, so every URL-shaped string in the value tree is
- * rebuilt without userinfo first (scrubUrls). Per string, never over the serialized text: a text-level pass would run
- * from one field's "//" to the next field's "@" and eat the JSON between.
+ * JSON for the model, cut at the bound with a visible marker. A base URL is user configuration and may carry
+ * `user:password@`, so every string is scrubbed as it serializes (urlScrubbingReplacer, per string and never over the
+ * text, where a pass would run from one field's "//" to the next field's "@").
  */
 export function renderJson(value: unknown): string {
-	const text = JSON.stringify(scrubUrls(value), null, 2) ?? "null";
+	const text = JSON.stringify(value, urlScrubbingReplacer(), 2) ?? "null";
 	if (text.length <= AGENT_RESULT_CHAR_LIMIT) {
 		return text;
 	}
@@ -216,9 +200,9 @@ function fenced(lines: readonly string[]): string {
 	return `${fence}\n${body}\n${fence}`;
 }
 
-/** Card values render through the same URL rebuild as results. */
+/** Card values are scrubbed as results are. */
 function json(value: unknown): string {
-	return JSON.stringify(scrubUrls(value)) ?? "undefined";
+	return JSON.stringify(value, urlScrubbingReplacer()) ?? "undefined";
 }
 
 const HIDDEN_TEXT_NOTE = " (carries text the card does not show, such as URL credentials)";

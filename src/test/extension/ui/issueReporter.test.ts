@@ -10,6 +10,7 @@ import {
 	reportFingerprint,
 } from "../../../extension/ui/issueReporter";
 import { mapSdkError, RequestError } from "../../../provider/transport/errorMapping";
+import { recordedError } from "../../../shared/logger";
 import { GITHUB_REPO_URL } from "../../../shared/util/links";
 import { assertContains, assertOmits, assertStartsWith, expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage } from "../../testUtils";
@@ -193,7 +194,7 @@ suite("IssueReporter", () => {
 			new Headers()
 		);
 		const mapped = mapSdkError(sdkError, { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 });
-		reporter.recordError("Chat request failed", mapped);
+		reporter.recordError("Chat request failed", recordedError(mapped));
 		const snapshot = makeSnapshot({ latestError: reporter.getLatestError() });
 
 		const body = reporter.buildBody(snapshot);
@@ -212,9 +213,11 @@ suite("IssueReporter", () => {
 		const reporter = new IssueReporter();
 		reporter.recordError(
 			"Chat request failed",
-			new RequestError("LiteLLM request timed out after 3000ms.", "timeout", {
-				englishMessage: "LiteLLM request timed out after 3000ms.",
-			})
+			recordedError(
+				new RequestError("LiteLLM request timed out after 3000ms.", "timeout", {
+					englishMessage: "LiteLLM request timed out after 3000ms.",
+				})
+			)
 		);
 		const body = reporter.buildBody(makeSnapshot({ latestError: reporter.getLatestError() }));
 		assert.ok(body.includes("LiteLLM request timed out after 3000ms."), "template text stays useful in the issue");
@@ -227,14 +230,14 @@ suite("IssueReporter", () => {
 			baseUrl: "http://litellm.test",
 			timeoutMs: 5000,
 		});
-		reporter.recordError("discovery", mapped);
+		reporter.recordError("discovery", recordedError(mapped));
 		assert.deepStrictEqual(expectDefined(reporter.getLatestError()).classification, {
 			kind: "http",
 			status: 404,
 			setupHint: "check-base-url",
 		});
 
-		reporter.recordError("discovery", new Error("plain failure"));
+		reporter.recordError("discovery", recordedError(new Error("plain failure")));
 		assert.strictEqual(
 			expectDefined(reporter.getLatestError()).classification,
 			undefined,
@@ -550,7 +553,7 @@ suite("IssueReporter", () => {
 	test("recordError captures message and stack", () => {
 		const reporter = new IssueReporter();
 		const err = new Error("test failure");
-		reporter.recordError("testSource", err);
+		reporter.recordError("testSource", recordedError(err));
 		const latest = reporter.getLatestError();
 		assert.ok(latest);
 		assert.equal(latest.source, "testSource");
@@ -561,7 +564,7 @@ suite("IssueReporter", () => {
 
 	test("recordError handles string errors", () => {
 		const reporter = new IssueReporter();
-		reporter.recordError("src", "plain string error");
+		reporter.recordError("src", recordedError("plain string error"));
 		const latest = reporter.getLatestError();
 		assert.ok(latest);
 		assert.equal(latest.message, "plain string error");
