@@ -182,12 +182,13 @@ function ModelDetail({
 }
 
 /**
- * A row's identity for the copy flash and the open row, surviving re-sort and re-filter. The label alone is not an
- * identity - two provider groups may carry the SAME label, so scopeKey is what distinguishes them; the label stays
- * because the reader sees it.
+ * Two provider groups may carry the SAME label, so scopeKey distinguishes them; a joined string is no identity either,
+ * since labels and IDs both carry "/":
+ *   "prod"        + "openai/gpt-4" -> prod/openai/gpt-4
+ *   "prod/openai" + "gpt-4"        -> prod/openai/gpt-4
  */
 function rowIdOf(model: DashboardModel): string {
-	return `${model.scopeKey}/${model.serverLabel}/${model.id}`;
+	return JSON.stringify([model.scopeKey, model.serverLabel, model.id]);
 }
 
 /**

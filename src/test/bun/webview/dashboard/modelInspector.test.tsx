@@ -610,17 +610,23 @@ test("the max_tokens derivation states the declared and capped-default branches"
 	expect(normOf(capped, ".max-tokens")).toBe("max_tokens 4,096 min(4,096, model max) - a default, not declared");
 });
 
-test("a forced max_tokens reports the forced derivation with its attribution", () => {
-	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { max_tokens: 2222, _force: ["max_tokens"] } } });
-	// Badge plus the force mark, whose tip states the rule.
-	expect(normOf(root, ".max-tokens")).toContain("max_tokens 2,222 settings gpt-4* force");
-	// A forced max_tokens renders on the derivation line, never as a row - but runtime options lose to it as they lose
-	// to a forced row, so the caveat below makes the exception with no forced row in the table.
-	expect(root.textContent).toContain("Overrides every table row above except forced rows.");
-	expect(root.querySelector('.max-tokens [role="tooltip"]')?.textContent).toBe(
-		"Overrides runtime options and the picker configuration; never clamped."
-	);
-});
+test.each([
+	["a list", ["max_tokens"]],
+	["true", true],
+])(
+	"a forced max_tokens (_force spelled as %s) reports the forced derivation and counts as configuration",
+	(_, force) => {
+		const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { max_tokens: 2222, _force: force } } });
+		expect(normOf(root, ".max-tokens")).toContain("max_tokens 2,222 settings gpt-4* force");
+		// A forced max_tokens renders on the derivation line, never as a row - but runtime options lose to it as they lose
+		// to a forced row, so the caveat below makes the exception with no forced row in the table.
+		expect(root.textContent).toContain("Overrides every table row above except forced rows.");
+		expect(root.querySelector(".absent")).toBeNull();
+		expect(root.querySelector('.max-tokens [role="tooltip"]')?.textContent).toBe(
+			"Overrides runtime options and the picker configuration; never clamped."
+		);
+	}
+);
 
 test("the runtime caveat always renders; the picker caveat only on reasoning models", () => {
 	const plain = mountParamsAnswered({});
