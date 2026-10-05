@@ -13,6 +13,7 @@ import { buildModelInfos } from "./registration";
 import type { ServedModelDecorator } from "./servedModels";
 import type { GroupServeOutcome, GroupStatusReporter } from "./statusReporting";
 import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./statusWindow";
+import { logicalGroupId } from "./statusWindow";
 
 /** GroupServeOutcome minus the served-set counts, which recordAndServe derives from the served pair. */
 type OkServeShape = Omit<Extract<GroupServeOutcome, { state: "ok" }>, "servedModelCount">;
@@ -101,18 +102,13 @@ export class GroupDiscovery {
 		this._options = options;
 	}
 
-	/** One injective identity per labeled logical group; undefined for unlabeled servers. */
-	private logicalGroupId(groupServer: Pick<GroupServer, "label" | "baseUrl">): string | undefined {
-		return groupServer.label !== undefined ? JSON.stringify([groupServer.label, groupServer.baseUrl]) : undefined;
-	}
-
 	/**
 	 * Claim the next serve generation for a logical group, SYNCHRONOUSLY and before any await in the caller: the
 	 * overlay never changes label or base URL, so the pre-overlay parse is a valid claim ticket.
 	 *   Undefined for unlabeled groups -> keep plain last-write-wins recording
 	 */
 	beginServe(groupServer: Pick<GroupServer, "label" | "baseUrl">): number | undefined {
-		const logicalId = this.logicalGroupId(groupServer);
+		const logicalId = logicalGroupId(groupServer);
 		if (logicalId === undefined) {
 			return undefined;
 		}
@@ -186,7 +182,7 @@ export class GroupDiscovery {
 		// Computed before recordAndServe because it doubles as this serve's configuration stamp there.
 		const cacheKey = this.cacheKeyFor(groupServer);
 		// An unclaimed labeled serve claims here, so it can at least be superseded by later serves.
-		const logicalId = this.logicalGroupId(groupServer);
+		const logicalId = logicalGroupId(groupServer);
 		const serveGeneration = generation ?? this.beginServe(groupServer);
 		// The one outcome that serves WITHOUT recording is the rotated-configuration yield below.
 		//   both outcome counts -> derive from the same pair
