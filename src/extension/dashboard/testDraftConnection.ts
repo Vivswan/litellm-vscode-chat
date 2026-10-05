@@ -11,6 +11,7 @@ import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/aut
 import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { transportClassificationOf } from "../../shared/errorClassification";
+import type { EnglishRendering } from "../../shared/mirroredError";
 import type { NonChatMode, SecretFieldId } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
@@ -197,6 +198,27 @@ export async function applyTestServerDraft(
 /** The one-off probe's server ID; each probe uses a fresh throwaway client, so the ID never collides with a cache. */
 const DRAFT_PROBE_SERVER_ID = "dashboard-draft-probe";
 
+/**
+ * The failure the dashboard renders, its two texts passed through the known values while the probe still holds the
+ * draft's; the original, whose texts may quote them, is dropped rather than chained.
+ */
+function redactedFailure(error: RequestError, known: KnownSecretCustody): RequestError {
+	const english: EnglishRendering =
+		error.logClassification !== undefined
+			? {
+					logClassification: error.logClassification,
+					...(error.englishMessage !== undefined ? { englishMessage: known.redact(error.englishMessage) } : {}),
+				}
+			: { englishMessage: known.redact(error.englishMessage ?? error.message) };
+	return new RequestError(known.redact(error.message), error.kind, {
+		...english,
+		...(error.status !== undefined ? { status: error.status } : {}),
+		...(error.setupHint !== undefined ? { setupHint: error.setupHint } : {}),
+		...(error.unsupportedEndpoint !== undefined ? { unsupportedEndpoint: error.unsupportedEndpoint } : {}),
+		...(error.oauthTokenEndpoint !== undefined ? { oauthTokenEndpoint: error.oauthTokenEndpoint } : {}),
+	});
+}
+
 /** The connection's values through the configured-value collector, so a draft's key counts like a saved one. */
 function draftSecretValues(connection: DraftConnection): readonly string[] {
 	return collectKnownSecretValues(
@@ -218,8 +240,8 @@ function draftSecretValues(connection: DraftConnection): readonly string[] {
  * A throwaway ChatClient, so the OAuth exchange, custom headers, timeout, and retries are production discovery's
  * while the caches die with the call. Deliberately NO logger, because discovery's debug lines carry endpoint URLs
  * and response snippets, which feed the public issue-report buffer. The draft's credentials are known values for
- * exactly the probe's lifetime: a 4xx body echoing a key typed into the form, not yet saved, is redacted like a
- * configured one.
+ * exactly the probe's lifetime, and the failure it throws is rendered inside that lifetime: a 4xx body echoing a key
+ * typed into the form, not yet saved, reaches the dashboard redacted like a configured one.
  */
 export function createDraftConnectionProbe(
 	userAgent: string,
@@ -253,6 +275,8 @@ export function createDraftConnectionProbe(
 				connection.includeModes
 			);
 			return models.map((model) => model.id);
+		} catch (error) {
+			throw error instanceof RequestError ? redactedFailure(error, knownSecrets) : error;
 		} finally {
 			client.dispose();
 			for (const value of draftValues) {

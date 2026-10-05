@@ -324,7 +324,9 @@ function shownUrl(url: string, known: KnownSecretCustody): string {
 /**
  * Never the raw body: it is untrusted and can be huge. The identity provider may echo any known value in the
  * description (the client secret, a header credential it was handed), in its own spelling or with its whitespace
- * collapsed like the detail, so the known values are cut before the collapse and again after it, before the cap.
+ * collapsed like the detail, so the known values are cut before the collapse and again after it, before the cap. The
+ * detail is one short text, so the whole-log floor does not apply: a two-character client secret the parser accepts
+ * goes too.
  */
 function oauthErrorDetail(payload: string, known: KnownSecretCustody): string {
 	try {
@@ -334,7 +336,7 @@ function oauthErrorDetail(payload: string, known: KnownSecretCustody): string {
 				(part): part is string => typeof part === "string" && part.length > 0
 			);
 			if (parts.length > 0) {
-				return known.redact(collapseWhitespace(known.redact(parts.join(": ")))).slice(0, 200);
+				return known.redactShort(collapseWhitespace(known.redactShort(parts.join(": ")))).slice(0, 200);
 			}
 		}
 	} catch {

@@ -35,7 +35,16 @@ describe("shared/util/knownSecrets", () => {
 					}),
 				],
 				stored: [],
-				expected: ["user", "base-pass", "user:base-pass", "flat%20pass", "u:flat%20pass", "mcp%20pass", "u:mcp%20pass"],
+				expected: [
+					"user",
+					"base-pass",
+					"user:base-pass",
+					"u",
+					"flat%20pass",
+					"u:flat%20pass",
+					"mcp%20pass",
+					"u:mcp%20pass",
+				],
 			},
 			{
 				title:
@@ -69,7 +78,7 @@ describe("shared/util/knownSecrets", () => {
 				title: "a newline inside a password: the parser drops it, the as-written spelling is a value too",
 				entries: [entry({ urls: ["https://u:sec\nret@host.test"] })],
 				stored: [],
-				expected: ["secret", "u:sec\nret", "sec\nret"],
+				expected: ["u", "secret", "u:sec\nret", "sec\nret"],
 			},
 			{
 				title: "an opaque URL has no userinfo to the parser, so the word before its @ is no credential",
@@ -98,11 +107,10 @@ describe("shared/util/knownSecrets", () => {
 				expected: ["gateway-Q7", "Bearer bearer-Q7", "authn-Q7", "tenant-Q7", "cookie-Q7", "12345678"],
 			},
 			{
-				title:
-					"a three-letter value is a credential; a one-letter user or a two-letter password would blank every line",
+				title: "short values are collected like any other; the matchers decide where a floor applies",
 				entries: [entry({ urls: ["http://a:bb@localhost:4000"], secrets: ["dev"] })],
 				stored: ["x"],
-				expected: ["dev", "a:bb"],
+				expected: ["dev", "a", "bb", "a:bb", "x"],
 			},
 		];
 		for (const { title, entries, stored, expected } of cases) {
@@ -130,49 +138,123 @@ describe("shared/util/knownSecrets", () => {
 		);
 	});
 
-	test("a minted value redacts like a configured one until retired; the configured rebuild leaves it in place", () => {
+	test("hold accounting: a minted value beside the configured list, per holder, until its last retire", () => {
 		// A token the identity provider issued at runtime is in no setting and no blob, so the collector never publishes
-		// it; a settings change rebuilt the whole set and would have dropped it had the two shared one list.
-		const secrets = new KnownSecrets();
-		secrets.set(["configured-Q7"]);
-		secrets.mint("oauth-access-Q7");
-		const probe = 'Authorization: Bearer oauth-access-Q7 for configured-Q7, {"t":"oauth-access-Q7"}';
-		assert.strictEqual(secrets.redact(probe), 'Authorization: Bearer [redacted] for [redacted], {"t":"[redacted]"}');
-		assert.deepStrictEqual(secrets.values(), ["configured-Q7", "oauth-access-Q7"]);
-
-		secrets.set(["configured-Q8"]);
-		assert.strictEqual(secrets.redact(probe), 'Authorization: Bearer [redacted] for configured-Q7, {"t":"[redacted]"}');
-
-		secrets.retire("oauth-access-Q7");
-		secrets.mint("oauth-access-Q8");
-		assert.strictEqual(
-			secrets.redact("old oauth-access-Q7, new oauth-access-Q8, set configured-Q8"),
-			"old oauth-access-Q7, new [redacted], set [redacted]"
-		);
+		// it, and a settings change rebuilds the configured list, which must leave it in place. The live client and
+		// a draft probe's throwaway client receive the same token, so one retire must not strip the other's hold.
+		const T = "oauth-access-Q7";
+		const cases: readonly {
+			title: string;
+			arrange: (secrets: KnownSecrets) => void;
+			text: string;
+			expected: string;
+			values: readonly string[];
+		}[] = [
+			{
+				title: "minted beside configured: every spelling of both",
+				arrange: (s) => {
+					s.set(["configured-Q7"]);
+					s.mint(T);
+				},
+				text: `Authorization: Bearer ${T} for configured-Q7, {"t":"${T}"}`,
+				expected: 'Authorization: Bearer [redacted] for [redacted], {"t":"[redacted]"}',
+				values: ["configured-Q7", T],
+			},
+			{
+				title: "the configured rebuild replaces its own list and leaves the minted value in place",
+				arrange: (s) => {
+					s.set(["configured-Q7"]);
+					s.mint(T);
+					s.set(["configured-Q8"]);
+				},
+				text: `${T} configured-Q7 configured-Q8`,
+				expected: "[redacted] configured-Q7 [redacted]",
+				values: ["configured-Q8", T],
+			},
+			{
+				title: "retire ends the minted value; a later mint of another starts it",
+				arrange: (s) => {
+					s.mint(T);
+					s.retire(T);
+					s.mint("oauth-access-Q8");
+				},
+				text: `${T} oauth-access-Q8`,
+				expected: `${T} [redacted]`,
+				values: ["oauth-access-Q8"],
+			},
+			{
+				title: "two holds survive one retire",
+				arrange: (s) => {
+					s.mint(T);
+					s.mint(T);
+					s.retire(T);
+				},
+				text: T,
+				expected: "[redacted]",
+				values: [T],
+			},
+			{
+				title: "two holds end at the second retire; a retire of a value never minted changes nothing",
+				arrange: (s) => {
+					s.mint(T);
+					s.mint(T);
+					s.retire(T);
+					s.retire(T);
+					s.retire("never-minted");
+				},
+				text: T,
+				expected: T,
+				values: [],
+			},
+			{
+				title: "a value both configured and minted stays known after its minted hold is retired",
+				arrange: (s) => {
+					s.set([T]);
+					s.mint(T);
+					s.retire(T);
+				},
+				text: T,
+				expected: "[redacted]",
+				values: [T],
+			},
+			{
+				title: "a two-character value is held and kept out of the whole-log pass",
+				arrange: (s) => {
+					s.mint("ab");
+				},
+				text: "ab",
+				expected: "ab",
+				values: ["ab"],
+			},
+		];
+		for (const { title, arrange, text, expected, values } of cases) {
+			const secrets = new KnownSecrets();
+			arrange(secrets);
+			assert.deepStrictEqual(
+				{ text: secrets.redact(text), values: secrets.values() },
+				{ text: expected, values },
+				title
+			);
+		}
 	});
 
-	test("a minted value is counted per holder: two mints need two retires, and a short one is never minted", () => {
-		// The live client and a draft probe's throwaway client receive the same token from the identity provider; the
-		// probe's retire must not strip the live client's hold.
+	test("redactShort takes every value: the OAuth detail redacts a two-character client secret", () => {
+		// The whole-log pass leaves a short value out before its spellings: "/" is "%2F" percent-encoded, long enough
+		// to match, and would blank every encoded slash in a logged URL.
 		const secrets = new KnownSecrets();
-		secrets.mint("shared-tok-Q7");
-		secrets.mint("shared-tok-Q7");
-		secrets.mint("ab");
-		secrets.retire("shared-tok-Q7");
-		assert.strictEqual(secrets.redact("shared-tok-Q7 ab"), "[redacted] ab");
-		secrets.retire("shared-tok-Q7");
-		secrets.retire("never-minted");
+		secrets.set(["ab", "/"]);
+		secrets.mint("x");
 		assert.deepStrictEqual(
-			{ text: secrets.redact("shared-tok-Q7"), values: secrets.values() },
 			{
-				text: "shared-tok-Q7",
-				values: [],
-			}
+				whole: secrets.redact("rejected ab x at /models?next=a%2Fb"),
+				short: secrets.redactShort("rejected ab x"),
+			},
+			{ whole: "rejected ab x at /models?next=a%2Fb", short: "rejected [redacted] [redacted]" }
 		);
 	});
 
 	test("a refused URL of ten thousand @ yields the capped candidates, and set() takes milliseconds", () => {
-		// 64 "@" positions: 64 whole candidates, "user", and the 61 tails of three or more "@".
+		// 64 "@" positions: 64 whole candidates, "user", and the 63 tails of one or more "@".
 		const urls = [`http://user:${"@".repeat(10000)}host:bad`];
 		const started = performance.now();
 		const values = collectKnownSecretValues([entry({ urls })], []);
@@ -181,7 +263,7 @@ describe("shared/util/knownSecrets", () => {
 		const elapsed = performance.now() - started;
 		assert.deepStrictEqual(
 			{ count: values.length, first: values[0], redacted: secrets.redact("rejected user: again") },
-			{ count: 126, first: "user:", redacted: "rejected [redacted] again" }
+			{ count: 128, first: "user:", redacted: "rejected [redacted] again" }
 		);
 		assert.ok(elapsed < 1000, `took ${elapsed.toFixed(0)} ms`);
 	});

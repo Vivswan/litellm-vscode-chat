@@ -130,6 +130,26 @@ suite("provider/transport/auth", () => {
 			);
 		});
 
+		test("a two-character client secret the parser accepts is redacted from the IdP detail", async () => {
+			// Seen as "rejected ab" once the detail went through the whole-log floor alone.
+			mswServer.use(
+				http.post(TOKEN_URL, () =>
+					HttpResponse.json({ error: "invalid_client", error_description: "rejected ab" }, { status: 401 })
+				)
+			);
+			const source = new OAuthTokenSource(configured("ab"));
+
+			const error = await expectRequestError(
+				source.getToken(oauthConfig({ clientSecret: "ab" }), "discovery", discoveryBudget()),
+				"auth"
+			);
+
+			assert.strictEqual(
+				error.message.split("\n")[1],
+				"OAuth 401 at http://idp.test/oauth2/token: invalid_client: rejected [redacted]"
+			);
+		});
+
 		test("a client secret spelled in the token URL's path is cut from the detail line", async () => {
 			const tokenUrl = "http://idp.test/tenants/secret-1/token";
 			mswServer.use(http.post(tokenUrl, () => HttpResponse.json({ error: "invalid_client" }, { status: 401 })));

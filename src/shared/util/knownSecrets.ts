@@ -24,7 +24,10 @@ import { collapseWhitespace } from "./errorText";
 import { isHeaderScalar, usableHttpText } from "./headers";
 import { isRecord, valueAt } from "./json";
 
-/** A one- or two-character value would blank most of every line ("a" in "chat"); the URL cut still covers it. */
+/**
+ * The whole-log floor: a one- or two-character value would blank most of every line ("a" in "chat"), and the URL cut
+ * still covers it there. A caller whose text is one short detail takes every value through `redactShort`.
+ */
 const MIN_VALUE_LENGTH = 3;
 /**
  * Whole-text passes run in order until one changes nothing, at most this many. A value whose raw or derived spelling
@@ -34,7 +37,7 @@ const MIN_VALUE_LENGTH = 3;
 const MAX_PASSES = 3;
 
 /** The surface a runtime owner of secret values holds; it must be the Logger's instance, never one of its own. */
-export type KnownSecretCustody = Pick<KnownSecrets, "mint" | "retire" | "redact">;
+export type KnownSecretCustody = Pick<KnownSecrets, "mint" | "retire" | "redact" | "redactShort">;
 
 /** What the collector reads of one raw record: every string at its URL, secret, header, and carrier positions. */
 export interface CollectableEntry {
@@ -91,14 +94,14 @@ export function collectableEntries(raw: unknown): CollectableEntry[] {
 	});
 }
 
-/** The known values of the parsed entries plus the stored values read for them; short ones out, deduplicated. */
+/** The known values of the parsed entries plus the stored values read for them; empty ones out, deduplicated. */
 export function collectKnownSecretValues(
 	entries: readonly CollectableEntry[],
 	stored: Iterable<string | undefined>
 ): readonly string[] {
 	const values = new Set<string>();
 	const add = (value: string | undefined): void => {
-		if (value !== undefined && value.length >= MIN_VALUE_LENGTH) {
+		if (value !== undefined && value.length > 0) {
 			values.add(value);
 		}
 	};
@@ -184,6 +187,35 @@ function formPattern(form: string): string {
 
 type Span = [number, number];
 
+interface Matcher {
+	readonly pattern: RegExp | undefined;
+	readonly longestForm: number;
+}
+
+const NO_MATCHER: Matcher = { pattern: undefined, longestForm: 0 };
+
+/** A value under the floor is left out before its spellings: "/" has the three-character spelling "%2F". */
+function compileMatcher(values: Iterable<string>, floor: number): Matcher {
+	const forms = new Set<string>();
+	for (const value of values) {
+		if (value.length < floor) {
+			continue;
+		}
+		for (const spelling of spellingsOf(value)) {
+			if (spelling.length >= floor) {
+				forms.add(spelling);
+			}
+		}
+	}
+	const alternatives = [...forms].sort((a, b) => b.length - a.length);
+	return alternatives.length === 0
+		? NO_MATCHER
+		: {
+				pattern: new RegExp(alternatives.map(formPattern).join("|"), "g"),
+				longestForm: alternatives[0]?.length ?? 0,
+			};
+}
+
 /** Overlapping or adjacent spans merged into disjoint ascending ones, so each is replaced once and no tail survives. */
 function mergedSpans(spans: Span[]): Span[] {
 	spans.sort((a, b) => a[0] - b[0]);
@@ -237,8 +269,8 @@ function redactedSlice(text: string, from: number, to: number, spans: readonly S
 }
 
 /**
- * The live known-value set and its matcher. `set` compiles the spellings once per refresh into one alternation,
- * longest first so the longest form wins where two start together; `redact` is one pass over the ORIGINAL text: the
+ * The live known-value set and its matchers, compiled once per change with the longest form first so it wins where
+ * two start together; `redact` is one pass over the ORIGINAL text: the
  * URL cuts the parser judges on it, and every known-value occurrence found on it, so neither can hide the other's
  * input, and overlapping or adjacent occurrences merge into one marker so no tail survives. The pass repeats while it
  * changes the text, at most MAX_PASSES times; a configuration free of the literal marker in any spelling settles
@@ -254,11 +286,12 @@ function redactedSlice(text: string, from: number, to: number, spans: readonly S
  * cuts a long text (a 1 MB stack) before the pass; a value or URL straddling the cut is redacted whole, never split.
  *
  * `set` replaces the configured values; `mint` and `retire` keep the runtime ones, counted per value so two owners
- * minting the same token (the live client and a draft probe's throwaway one) each retire only their own hold.
+ * minting the same token (the live client and a draft probe's throwaway one) each retire only their own hold. Both
+ * sets feed two matchers over the same values: `redact` at the whole-log floor, `redactShort` with none.
  */
 export class KnownSecrets {
-	private pattern: RegExp | undefined;
-	private longestForm = 0;
+	private whole: Matcher = NO_MATCHER;
+	private short: Matcher = NO_MATCHER;
 	private configured: readonly string[] = [];
 	private readonly minted = new Map<string, number>();
 
@@ -268,12 +301,12 @@ export class KnownSecrets {
 	}
 
 	set(values: readonly string[]): void {
-		this.configured = values.filter((value) => value.length >= MIN_VALUE_LENGTH);
+		this.configured = values.filter((value) => value.length > 0);
 		this.compile();
 	}
 
 	mint(value: string): void {
-		if (value.length < MIN_VALUE_LENGTH) {
+		if (value.length === 0) {
 			return;
 		}
 		const holds = this.minted.get(value) ?? 0;
@@ -298,22 +331,14 @@ export class KnownSecrets {
 	}
 
 	private compile(): void {
-		const forms = new Set<string>();
-		for (const value of this.values()) {
-			for (const spelling of spellingsOf(value)) {
-				if (spelling.length >= MIN_VALUE_LENGTH) {
-					forms.add(spelling);
-				}
-			}
-		}
-		const alternatives = [...forms].sort((a, b) => b.length - a.length);
-		this.longestForm = alternatives[0]?.length ?? 0;
-		this.pattern = alternatives.length === 0 ? undefined : new RegExp(alternatives.map(formPattern).join("|"), "g");
+		const values = this.values();
+		this.whole = compileMatcher(values, MIN_VALUE_LENGTH);
+		this.short = compileMatcher(values, 1);
 	}
 
 	/** Every known-value occurrence in `text` outside the keep markers, merged and ascending. */
-	private spans(text: string, keep: readonly string[]): Span[] {
-		const pattern = this.pattern;
+	private spans(matcher: Matcher, text: string, keep: readonly string[]): Span[] {
+		const pattern = matcher.pattern;
 		if (pattern === undefined) {
 			return [];
 		}
@@ -345,16 +370,28 @@ export class KnownSecrets {
 				pattern.lastIndex = to;
 				next = pattern.exec(text);
 			}
-			pattern.lastIndex = Math.max(from + 1, to - this.longestForm + 1);
+			pattern.lastIndex = Math.max(from + 1, to - matcher.longestForm + 1);
 			match = pattern.exec(text);
 		}
 		return mergedSpans(found);
 	}
 
 	redact(text: string, keep: readonly string[] = [], budget?: number): string {
-		let current = this.redactOnce(text, keep, budget);
+		return this.redactWith(this.whole, text, keep, budget);
+	}
+
+	/**
+	 * Every value, the one- and two-character ones included, for a caller whose text is one short detail it cannot
+	 * blank: an identity provider's error description echoing a two-character client secret.
+	 */
+	redactShort(text: string): string {
+		return this.redactWith(this.short, text, [], undefined);
+	}
+
+	private redactWith(matcher: Matcher, text: string, keep: readonly string[], budget: number | undefined): string {
+		let current = this.redactOnce(matcher, text, keep, budget);
 		for (let pass = 1; pass < MAX_PASSES && current !== text; pass++) {
-			const next = this.redactOnce(current, keep);
+			const next = this.redactOnce(matcher, current, keep);
 			if (next === current) {
 				break;
 			}
@@ -363,14 +400,14 @@ export class KnownSecrets {
 		return current;
 	}
 
-	private redactOnce(text: string, keep: readonly string[], budget?: number): string {
+	private redactOnce(matcher: Matcher, text: string, keep: readonly string[], budget?: number): string {
 		// The window reaches one form and one URL authority past the budget, so a value or a URL split by the budget is
 		// still found whole.
 		const cut = budget !== undefined && text.length > budget;
 		const cutAt = cut ? budget : text.length;
-		const window = cut ? text.slice(0, cutAt + Math.max(this.longestForm, MAX_AUTHORITY_LENGTH)) : text;
+		const window = cut ? text.slice(0, cutAt + Math.max(matcher.longestForm, MAX_AUTHORITY_LENGTH)) : text;
 		const cuts: readonly Cut[] = urlCuts(window);
-		const spans = this.spans(window, keep);
+		const spans = this.spans(matcher, window, keep);
 		if (cuts.length === 0 && spans.length === 0 && !cut) {
 			return text;
 		}
@@ -382,7 +419,12 @@ export class KnownSecrets {
 			}
 			out += redactedSlice(window, cursor, urlCut.from, spans);
 			// The replacement is the scheme and the host of the original: a value inside the host is still a value.
-			out += redactedSlice(urlCut.replacement, 0, urlCut.replacement.length, this.spans(urlCut.replacement, keep));
+			out += redactedSlice(
+				urlCut.replacement,
+				0,
+				urlCut.replacement.length,
+				this.spans(matcher, urlCut.replacement, keep)
+			);
 			cursor = urlCut.resumeAt;
 		}
 		let end = Math.max(cursor, cutAt);

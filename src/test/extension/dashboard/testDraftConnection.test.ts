@@ -5,10 +5,12 @@
  */
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
+import { DashboardValidationError, executeDashboardIntent } from "../../../extension/dashboard/intents";
 import { createDraftConnectionProbe } from "../../../extension/dashboard/testDraftConnection";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
+import { KEEP_ALL, makeEnv, serverPayload } from "./recordedEnv";
 
 const USER_AGENT = "litellm-vscode-chat/0.0.0-test VSCode/test";
 const TOKEN_URL = "http://idp.test/tenants/draft-secret-Q7/token";
@@ -75,6 +77,41 @@ suite("extension/dashboard/testDraftConnection", () => {
 
 		assert.deepStrictEqual(seen, ["key [redacted], header [redacted], token [redacted], pw pw-Q7"]);
 		assert.deepStrictEqual(known.values(), ["configured-Q7"], "the probe's values and its token leave with it");
+	});
+
+	test("the failure the dashboard renders is redacted while the probe still holds the draft's key", async () => {
+		// Reproduced: 'HTTP 403: "key draft-key-Q7 is not allowed"' reached the dashboard verbatim when the probe retired
+		// its holds before the forwarded message was rendered.
+		const known = new KnownSecrets();
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+			http.get(MODELS_URL, () => HttpResponse.json({ error: "key draft-key-Q7 is not allowed" }, { status: 403 }))
+		);
+		const recorded = makeEnv([]);
+		const env = { ...recorded.env, probeDraftConnection: createDraftConnectionProbe(USER_AGENT, known) };
+
+		await assert.rejects(
+			executeDashboardIntent(
+				{
+					method: "testServerDraft",
+					payload: {
+						server: serverPayload({ label: "Draft", baseUrl: TEST_BASE_URL, expectedFailures: ["modelInfo"] }),
+						secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "settings", value: "draft-key-Q7" } },
+					},
+				},
+				env
+			),
+			(error: unknown) => {
+				assert.ok(error instanceof DashboardValidationError);
+				assert.strictEqual(
+					error.message,
+					'The server refused the model-list request.\nHTTP 403: "key [redacted] is not allowed"'
+				);
+				assert.deepStrictEqual(error.classification, { kind: "http", status: 403 });
+				return true;
+			}
+		);
+		assert.deepStrictEqual(known.values(), []);
 	});
 
 	test("the OAuth detail of a draft probe cuts the draft's client secret from the token URL's path", async () => {
