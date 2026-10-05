@@ -1,35 +1,39 @@
 import { afterEach, beforeEach, describe, test } from "bun:test";
 import * as assert from "node:assert";
-import { FUZZ_MODES, freshFuzzSeed, fuzzSeedLine, fuzzSeedPrefix, resolveDockerFuzzSeed } from "../fuzzSeed";
+import {
+	FUZZ_MODES,
+	freshFuzzSeed,
+	fuzzSeedLine,
+	fuzzSeedPrefix,
+	parseLastFuzzSeedLine,
+	resolveDockerFuzzSeed,
+} from "../fuzzSeed";
 
 describe("fuzzSeed contract", () => {
-	// nightly-fuzz.yml's extraction patterns, copied byte-for-byte from the workflow. Emitted shapes that stop
-	// satisfying them ship the nightly issue without a reproduction seed.
-	const workflowLine = /\[fuzz\] seed=[0-9]+[^"]*/;
-	const workflowSeed = /seed=[0-9]+/;
-	const workflowMode = /mode=[a-z-]+/;
-
-	test("the docker line satisfies the workflow greps for every mode", () => {
+	// The emitters and parseLastFuzzSeedLine are written apart; an emitted shape the parser stops reading ships the
+	// nightly issue without a reproduction seed.
+	test("the docker line parses back to its seed and mode for every mode", () => {
 		for (const mode of FUZZ_MODES) {
-			const line = fuzzSeedLine(123456, 10, mode);
-			const matched = line.match(workflowLine)?.[0];
-			assert.strictEqual(matched, line, `grep must capture the whole line for mode=${mode}`);
-			assert.strictEqual(line.match(workflowSeed)?.[0], "seed=123456");
-			assert.strictEqual(line.match(workflowMode)?.[0], `mode=${mode}`);
+			assert.deepStrictEqual(parseLastFuzzSeedLine(fuzzSeedLine(123456, 10, mode)), { seed: 123456, mode });
 		}
 	});
 
-	test("the unit harness prefix satisfies the seed grep on its own", () => {
-		// fuzzStream.ts logs only the prefix (no iterations/mode) into the unit leg's log; the seed extraction must
-		// still work there.
-		const line = fuzzSeedPrefix(987);
-		assert.strictEqual(line.match(workflowLine)?.[0], line);
-		assert.strictEqual(line.match(workflowSeed)?.[0], "seed=987");
+	test("the unit harness prefix parses to its seed with no mode", () => {
+		// fuzzStream.ts logs only the prefix (no iterations/mode) into the unit leg's log.
+		assert.deepStrictEqual(parseLastFuzzSeedLine(fuzzSeedPrefix(987)), { seed: 987, mode: undefined });
 	});
 
-	test("seed 0 keeps its digits in the grep", () => {
-		const line = fuzzSeedLine(0, 1, "proxy");
-		assert.strictEqual(line.match(workflowSeed)?.[0], "seed=0");
+	test("seed 0 keeps its digits", () => {
+		assert.deepStrictEqual(parseLastFuzzSeedLine(fuzzSeedLine(0, 1, "proxy")), { seed: 0, mode: "proxy" });
+	});
+
+	test("the last line of a log wins, and a log without one parses to null", () => {
+		// The orchestrator runs a leg's suites in sequence, so the replay report names the suite that logged last.
+		const log = ["suite output", fuzzSeedLine(11, 10, "proxy"), "more output", fuzzSeedLine(22, 50, "monkey"), ""].join(
+			"\n"
+		);
+		assert.deepStrictEqual(parseLastFuzzSeedLine(log), { seed: 22, mode: "monkey" });
+		assert.strictEqual(parseLastFuzzSeedLine("setup died before any suite ran\n"), null);
 	});
 
 	test("fresh draws stay in the seed range", () => {

@@ -10,16 +10,15 @@ if ! command -v apt-get >/dev/null 2>&1; then
 	exit 0
 fi
 
-as_root() {
-	if [ "$(id -u)" -eq 0 ]; then
-		"$@"
-	else
-		sudo "$@"
-	fi
-}
+# The devcontainer image runs this as root; a plain checkout's user goes through sudo.
+uid="$(id -u)"
+SUDO="sudo"
+if [ "$uid" -eq 0 ]; then
+	SUDO=""
+fi
 
-as_root apt-get update
-as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+$SUDO apt-get update
+$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 	libasound2 \
 	libgbm1 \
 	libgtk-3-0 \
@@ -27,4 +26,4 @@ as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recom
 	libsecret-1-0 \
 	xauth \
 	xvfb
-as_root rm -rf /var/lib/apt/lists/*
+$SUDO rm -rf /var/lib/apt/lists/*

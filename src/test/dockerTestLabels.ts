@@ -38,6 +38,17 @@ export const DOCKER_SKIP_FLAGS: Readonly<Partial<Record<DockerTestLabel, string>
 };
 
 /**
+ * The labels nightly-fuzz.yml's seeded docker legs run under one explicit seed; its unseeded leg runs the complement
+ * through these labels' skip flags (scripts/ci/nightly-fuzz-leg.ts), and checks.yml's fuzz-docker shards restate
+ * them, which stackDrift.test.ts pins.
+ */
+export const SEEDED_FUZZ_LABELS = [
+	"docker-fuzz",
+	"docker-conversation",
+	"docker-monkey",
+] as const satisfies readonly DockerTestLabel[];
+
+/**
  * Unknown and empty labels throw with the known set spelled out: a renamed label must break a CI shard loudly, never
  * degrade it into running nothing.
  */
