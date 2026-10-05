@@ -179,9 +179,7 @@ suite("Docker resolution", () => {
 			await updateGlobal(MODEL_CAPABILITIES_SETTING_KEY, {
 				[DIRECTIVE_ID]: { _openrouter_model: "openai/gpt-4o-mini" },
 			});
-			// Discovery fails on the no-discovery mirror (expectedly, so the
-			// non-silent refresh below serves the declared set instead of
-			// throwing), making the declared IDs the entry's whole serve.
+			// Discovery fails on the no-discovery mirror, making the declared IDs the entry's whole serve.
 			await writeServerEntry(
 				{
 					label: CATALOG_LABEL,

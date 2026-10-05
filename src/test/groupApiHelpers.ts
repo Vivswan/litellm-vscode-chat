@@ -135,10 +135,8 @@ export interface ServerSettingEntry {
 }
 
 /**
- * Drive the real group path for one declared entry through the non-silent test
- * seam and return the host-facing registration surface. Throws like Test
- * Connection on discovery failure, except that an entry with matching
- * expectedFailures and declared models returns the declared set.
+ * Drive the real group path for one declared entry through the non-silent test seam and return the host-facing
+ * registration surface. On a discovery failure it serves the entry's declared models or throws, like Test Connection.
  */
 export async function refreshEntryModels(label: string): Promise<vscode.LanguageModelChatInformation[]> {
 	return (await vscode.commands.executeCommand(

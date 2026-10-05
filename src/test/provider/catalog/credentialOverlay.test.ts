@@ -139,25 +139,29 @@ suite("provider credential overlay", () => {
 	});
 
 	test("an expected model-listing failure does not soften an unresolved-credentials failure", async () => {
-		// The declaration speaks about the listing endpoint. A non-silent serve of an entry declaring it with declared
-		// models normally hands the declared set out under an expected error; a credential failure must not take
-		// that route, or the window reads connected while every request fails before transport.
+		// The declaration speaks about the listing endpoint. A credential failure hands the declared set out like any
+		// failure, but under an UNEXPECTED error, or the window reads connected while every request fails before
+		// transport.
 		const provider = makeProvider(undefined, "unused", undefined, {
 			resolveEntryCredentials: async () => ({ kind: "unavailable", reason: "secretsUnreadable" }),
 			getExpectedFailures: () => ["modelListing"],
 			getEntryDeclaredModels: () => ["declared-model"],
 		});
-		capturingDiscovery();
+		const captured = capturingDiscovery();
 
-		await assert.rejects(
-			provider.provideLanguageModelChatInformation(
-				groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" }, false),
-				cancellation()
-			),
-			(error: unknown) => error instanceof MirroredError && publicErrorText(error) === EXPECTED_CLASSIFICATION
+		const served = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" }, false),
+			cancellation()
 		);
+		assert.deepStrictEqual(
+			served.map((info) => info.id),
+			["declared-model"],
+			"the declared model registers under the credential failure"
+		);
+		assert.deepStrictEqual(captured.headers, [], "no discovery request carries the baked key");
 		const status = provider.getServerSnapshots()[0]?.status;
 		assert.strictEqual(status?.state, "error");
+		assert.strictEqual(status.logSafeError, EXPECTED_CLASSIFICATION, "the failure keeps its classification");
 		assert.strictEqual(status.expected, undefined, "the failure stays unexpected");
 		assert.strictEqual(status.servedModelCount, 1, "the declared model stays listed under the error");
 		assert.strictEqual(classifyOverall([status]), "degraded", "serving under an unexpected error, never connected");

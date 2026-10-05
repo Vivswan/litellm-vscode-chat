@@ -532,7 +532,8 @@ export function registerTestCommands(
 		// silently leaking.
 		//
 		//   the args the engine would build NOW -> can differ from what the add-only host stored at group creation
-		//   non-silent                           -> discovery failures throw like Test Connection
+		//   non-silent                           -> a discovery failure serves the declared set or throws, like Test
+		//                                           Connection
 		vscode.commands.registerCommand("litellm._test.refreshEntryModels", async (label: string) => {
 			const configuration = await syncEngine.resolveGroupArgs(label);
 			if (configuration === undefined) {
