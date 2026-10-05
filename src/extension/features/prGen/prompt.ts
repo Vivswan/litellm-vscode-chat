@@ -2,39 +2,32 @@ import { truncateHeadWithMarker, truncationMarker } from "../../../shared/util/t
 import type { TitleAndDescriptionProvider } from "./githubPullRequestsApi";
 
 /**
- * The PR title-and-description prompt assembly: pure normalization of the
- * GitHub Pull Requests generation context into one model prompt. No vscode
- * imports beyond the vendored API types (erased), no transport, no UI: the
- * provider beside it sends the prompt and parses the one-shot answer.
+ * No vscode imports beyond the vendored API types (erased), no transport, no UI: the provider beside it sends the
+ * prompt and parses the one-shot answer.
  */
 
 /** The GHPR-provided generation context, derived from the vendored provider signature so the two cannot drift. */
 export type TitleAndDescriptionContext = Parameters<TitleAndDescriptionProvider["provideTitleAndDescription"]>[0];
 
-/** Head-truncation bound for the joined patch blocks; everything past it is noise for a title and a short description. */
 export const PATCHES_CHAR_LIMIT = 120_000;
 
 /**
- * How many of the branch's commit messages ride along. An over-long list is
- * thinned from the MIDDLE rather than from one end, so which messages survive
- * does not depend on knowing which end is the recent one - the upstream
- * context's order is inferred, and an inference must not decide content.
+ * An over-long list is thinned from the MIDDLE rather than from one end, so which messages survive does not depend on
+ * knowing which end is the recent one - the upstream context's order is inferred, and an inference must not decide
+ * content.
  */
 export const COMMIT_MESSAGE_COUNT = 20;
 
 /** Head-truncation bound for the joined commit messages (merge-heavy branches carry huge bodies). */
 export const COMMIT_MESSAGES_CHAR_LIMIT = 8_000;
 
-/** Head-truncation bound for the user's PR template. */
 export const TEMPLATE_CHAR_LIMIT = 10_000;
 
-/** Head-truncation bound for the joined referenced-issue blocks. */
 export const ISSUES_CHAR_LIMIT = 10_000;
 
 /**
- * The instruction heading every prompt; the parse module's Title:/Description:
- * grammar is the answer shape this asks for. Model-facing text, so it stays
- * English by policy.
+ * The instruction heading every prompt; the parse module's Title:/Description: grammar is the answer shape this asks
+ * for. Model-facing text, so it stays English by policy.
  */
 export const BUILT_IN_PR_INSTRUCTION = [
 	"Write a pull request title and description for the change in the patches below.",
@@ -47,9 +40,8 @@ export const BUILT_IN_PR_INSTRUCTION = [
 ].join("\n");
 
 /**
- * The longest common directory prefix (through its final slash) of the object
- * patches' URIs; File: headers strip it because the absolute URIs GHPR hands
- * over would ship the user's directory layout to the server.
+ * The longest common directory prefix (through its final slash) of the object patches' URIs; File: headers strip it
+ * because the absolute URIs GHPR hands over would ship the user's directory layout to the server.
  */
 function commonDirPrefix(uris: readonly string[]): string {
 	let prefix = uris[0];
@@ -70,14 +62,13 @@ function commonDirPrefix(uris: readonly string[]): string {
 const DRIVE_SEGMENT = /^[a-z](?::|%3a)$/i;
 
 /**
- * Whether the prefix names a real shared directory rather than a bare URI
- * root or a top-level one: mixed-root patches collapse to "file:///" or
- * "scheme://authority/", and stripping only that would still ship the layout.
- * A single top-level segment does not count either - "file:///Users/" would
- * leave the account name as the first path segment of every File: header, so
- * the shared path must reach at least two segments deep. A Windows drive
- * letter is root metadata rather than one of those segments: counting "C:"
- * would let "file:///C:/Users/" through, which is the same leak.
+ * Whether the prefix names a real shared directory rather than a bare URI root or a top-level one: mixed-root patches
+ * collapse to "file:///" or "scheme://authority/", and stripping only that would still ship the layout. A single
+ * top-level segment does not count either - "file:///Users/" would leave the account name as the first path segment of
+ * every File: header, so the shared path must reach at least two segments deep.
+ *
+ *   counting "C:" would let "file:///C:/Users/" through, which is the same leak
+ *     -> A Windows drive letter is root metadata rather than one of those segments
  */
 function isSharedDirectory(prefix: string): boolean {
 	const schemeEnd = prefix.indexOf("://");
@@ -92,12 +83,6 @@ function baseName(uri: string): string {
 	return segments[segments.length - 1] ?? uri;
 }
 
-/**
- * One text block per patch, across both shapes of the upstream union: plain
- * strings ride verbatim, object patches gain a File: header naming the file
- * (and the previous name when the change is a rename), relativized against
- * the patches' common directory prefix - basenames when there is none.
- */
 function patchBlocks(patches: TitleAndDescriptionContext["patches"]): string[] {
 	const uris = patches.flatMap((entry) =>
 		typeof entry === "string"
@@ -121,12 +106,7 @@ function patchBlocks(patches: TitleAndDescriptionContext["patches"]): string[] {
 	});
 }
 
-/**
- * At most COMMIT_MESSAGE_COUNT messages, thinned from the middle when there
- * are more: both ends of the list survive, so the selection is the same
- * whichever end holds the recent commits. The elision is marked so the model
- * does not read the two halves as consecutive.
- */
+/** The elision is marked so the model does not read the two halves as consecutive. */
 function boundedMessages(messages: readonly string[]): string[] {
 	if (messages.length <= COMMIT_MESSAGE_COUNT) {
 		return [...messages];
@@ -142,23 +122,21 @@ function boundedMessages(messages: readonly string[]): string[] {
 }
 
 /**
- * Spent ACROSS the surviving messages rather than by truncating the joined text, because head-truncating the
- * join keeps whichever end came first and puts the selection back at the mercy of the inferred order the
- * middle thinning above exists to defeat. Caps depend on the multiset of lengths alone, except that rounding
- * leftovers land by position, so reversing the list can move one allocated cap by one UTF-16 unit.
+ * Spent ACROSS the surviving messages rather than by truncating the joined text, because head-truncating the join
+ * keeps whichever end came first and puts the selection back at the mercy of the inferred order the middle thinning
+ * above exists to defeat. Caps depend on the multiset of lengths alone, except that rounding leftovers land by
+ * position, so reversing the list can move one allocated cap by one UTF-16 unit.
  */
 function charBoundedMessages(messages: readonly string[]): string[] {
-	// The blank line between messages is part of the assembled section, so the
-	// budget pays for it too - on BOTH paths, or the limit would bound the
-	// messages on one of them but not the text actually sent.
+	// The blank line between messages is part of the assembled section, so the budget pays for it too - on BOTH paths,
+	// or the limit would bound the messages on one of them but not the text actually sent.
 	const budget = COMMIT_MESSAGES_CHAR_LIMIT - Math.max(0, messages.length - 1) * "\n\n".length;
 	const total = messages.reduce((sum, message) => sum + message.length, 0);
 	if (messages.length === 0 || total <= budget) {
 		return [...messages];
 	}
-	// The marker a cut message carries must fit INSIDE its share, or the limit
-	// would not be the bound this function claims - the shared wrapper enforces
-	// exactly that, so a cut message's stored cap is its whole share.
+	// The marker a cut message carries must fit INSIDE its share, or the limit would not be the bound this function
+	// claims - the shared wrapper enforces exactly that, so a cut message's stored cap is its whole share.
 	const marker = truncationMarker("commit messages");
 	const markerCost = marker.length + "\n".length;
 	const caps = new Array<number>(messages.length).fill(0);
@@ -170,8 +148,6 @@ function charBoundedMessages(messages: readonly string[]): string[] {
 	for (const index of shortestFirst) {
 		const share = Math.floor(left / unassigned);
 		const length = messages[index]?.length ?? 0;
-		// A message that fits its share whole costs exactly itself; one that must
-		// be cut pays for its own marker out of the same share.
 		const take = length <= share ? length : Math.max(0, share - markerCost) + markerCost;
 		caps[index] = take;
 		left -= take;
@@ -180,11 +156,6 @@ function charBoundedMessages(messages: readonly string[]): string[] {
 	return messages.map((message, index) => truncateHeadWithMarker(message, caps[index] ?? 0, marker));
 }
 
-/**
- * Assemble the model prompt from the GHPR context: instruction, the PR
- * template when present, branch name, the bounded commit messages,
- * referenced issues, and the patches. Empty sections stay out.
- */
 export function buildPrPrompt(context: TitleAndDescriptionContext): string {
 	const sections = [BUILT_IN_PR_INSTRUCTION];
 	const template = context.template ?? "";

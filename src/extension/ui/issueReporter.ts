@@ -19,7 +19,10 @@ export interface ErrorContext {
 	message: string;
 	stack?: string | undefined;
 	timestamp: string;
-	/** Classification only - enum ids and a status number, never message text - so triage can read the cause without the body. */
+	/**
+	 * Classification only - enum ids and a status number, never message text - so triage can read the cause without
+	 * the body.
+	 */
 	classification?: TransportErrorClassification | undefined;
 }
 
@@ -36,15 +39,11 @@ export interface DiagnosticsSnapshot {
 	platform: string;
 	connectionState: string;
 	modelCount?: number | undefined;
-	/** "unknown" when no key sits inline in the setting and the groups' reports do not settle it: a SecretStorage key cannot be read here. */
 	apiKeyConfigured: boolean | "unknown";
 	baseUrlConfigured: boolean;
-	/** Every feature's flags, keyed by FeatureId; featureFlagLines renders them, the fingerprint folds them in. */
 	featureFlags: Readonly<Record<FeatureId, FeatureFlagFacts>>;
 	/**
-	 * How many servers entries opt into the MCP publisher. A count, not a list:
-	 * the MCP opt-in is a per-entry field rather than a FeatureId, so it cannot
-	 * ride featureFlags, and labels and URLs never enter a public report.
+	 *   the MCP opt-in is a per-entry field rather than a FeatureId -> it cannot ride featureFlags
 	 */
 	mcpEntryCount: number;
 	latestError?: ErrorContext | undefined;
@@ -52,9 +51,7 @@ export interface DiagnosticsSnapshot {
 }
 
 /**
- * Each feature's prose name in the report body. English by the issue-report
- * policy, and total over FeatureId so a new feature cannot ship without its
- * report line.
+ * English by the issue-report policy, and total over FeatureId so a new feature cannot ship without its report line.
  */
 const FEATURE_PROSE_NAMES: Readonly<Record<FeatureId, string>> = {
 	inlineCompletions: "Inline completions",
@@ -68,12 +65,9 @@ const FEATURE_PROSE_NAMES: Readonly<Record<FeatureId, string>> = {
 };
 
 /**
- * The feature lines of a report body, one loop for every body variant: the
- * enable line always, the model line where the feature has a model key. The
- * two shipped features' lines are pinned byte-for-byte by test against the
- * pre-loop hand-written output. `include` narrows the walk for the compacted
- * clipboard fallback, which exists because even the trimmed body blew the URL
- * bound - features carrying no signal stay out of it.
+ * The feature lines of a report body, one loop for every body variant: the enable line always, the model line where
+ * the feature has a model key. `include` narrows the walk for the compacted clipboard fallback, which exists because
+ * even the trimmed body blew the URL bound - features carrying no signal stay out of it.
  */
 function featureFlagLines(
 	flags: Readonly<Record<FeatureId, FeatureFlagFacts>>,
@@ -100,7 +94,6 @@ function apiKeyConfiguredText(snapshot: DiagnosticsSnapshot): string {
 	return snapshot.apiKeyConfigured ? "yes" : "no";
 }
 
-/** The repeat-report hint's ledger entry: what runReportIssue persists when a report is opened. */
 export interface LastIssueReport {
 	fingerprint: string;
 	/** Epoch milliseconds. */
@@ -108,13 +101,8 @@ export interface LastIssueReport {
 }
 
 /**
- * The diagnostic signature the repeat-report hint compares: the snapshot's
- * enum, count, and flag fields plus the latest error's classification.
- * Deliberately NEVER the error message, stack, source, or log lines - the
- * source strings interpolate server labels and base URLs, and the rest is
- * response-derived - because this string lands in globalState. The feature
- * fields fold in per FEATURE_IDS entry ("v2" versioned the loop's field set,
- * "v3" the MCP entry count beside it).
+ * Deliberately NEVER the error message, stack, source, or log lines - the source strings interpolate server labels and
+ * base URLs, and the rest is response-derived - because this string lands in globalState.
  */
 export function reportFingerprint(snapshot: DiagnosticsSnapshot): string {
 	const classification = snapshot.latestError?.classification;
@@ -153,15 +141,9 @@ export async function rememberIssueReport(state: vscode.Memento, report: LastIss
 	await state.update(LAST_ISSUE_REPORT_KEY, report);
 }
 
-/**
- * Where the full diagnostics land when the issue URL had to be compacted,
- * derived once from the environment's capabilities in openIssue. "unknown" is
- * the plain buildIssueUrl path: nothing gets copied anywhere, so the hint
- * promises nothing.
- */
+/** "unknown" is the plain buildIssueUrl path: nothing gets copied anywhere, so the hint promises nothing. */
 type CompactedDiagnosticsSink = "clipboard" | "clipboard-and-file" | "unknown";
 
-/** What the compacted body tells the reader per sink: where the omitted content went, and what to do with it. */
 const SINK_TEXT: Record<CompactedDiagnosticsSink, { hint: string; action: string }> = {
 	"clipboard-and-file": {
 		hint: "full diagnostics copied to clipboard and saved to a diagnostics file",
@@ -177,11 +159,7 @@ const SINK_TEXT: Record<CompactedDiagnosticsSink, { hint: string; action: string
 	},
 };
 
-/**
- * Which body buildBody renders: the full one, or one of the compaction steps
- * with the sink hint its omission markers quote. "compact-logs" also compacts
- * the stack and always omits at least one line.
- */
+/** "compact-logs" also compacts the stack and always omits at least one line. */
 type BodyVariant =
 	| { kind: "full" }
 	| { kind: "compact-stack"; hint: string }
@@ -260,9 +238,8 @@ export class IssueReporter {
 	}
 
 	recordError(source: string, error: unknown): void {
-		// An http RequestError's message (and the copy V8 prefixes onto the stack)
-		// embeds the response body, so both degrade to its classification; every
-		// other error keeps its text.
+		//   An http RequestError's message (and the copy V8 prefixes onto the stack) embeds the response body -> both
+		//       degrade to its classification
 		const classification = transportClassificationOf(error);
 		this._latestError = {
 			source,
@@ -430,9 +407,8 @@ export class IssueReporter {
 }
 
 /**
- * The Latest-error section's cause line: enum ids and an integer only, English
- * by policy (the issue body is diagnostics text), never anything
- * response-derived.
+ * The Latest-error section's cause line: enum ids and an integer only, English by policy (the issue body is diagnostics
+ * text), never anything response-derived.
  */
 function classificationLine(classification: TransportErrorClassification): string {
 	const status = classification.status !== undefined ? ` ${classification.status}` : "";
@@ -441,9 +417,8 @@ function classificationLine(classification: TransportErrorClassification): strin
 }
 
 /**
- * A multi-line message kept inside one markdown list item: blank lines are
- * dropped and continuation lines indented, because a blank line would end the
- * list and spill the detail out of the bullet.
+ * A multi-line message kept inside one markdown list item: blank lines are dropped and continuation lines indented,
+ * because a blank line would end the list and spill the detail out of the bullet.
  */
 function bulletContinuation(text: string): string {
 	return text
@@ -488,8 +463,7 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, sink: Compact
 		snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
 		`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
 		`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
-		// Signal-bearing features only: this body exists because the full one
-		// blew the URL bound, and eleven all-off lines are not signal.
+		//   the full one blew the URL bound -> Signal-bearing features only
 		...featureFlagLines(snapshot.featureFlags, (facts) => facts.enabled || facts.modelConfigured === true),
 	];
 
@@ -522,15 +496,13 @@ function shortenLine(text: string, maxLength: number): string {
 
 export function redactSecrets(text: string): string {
 	return (
-		// URL-embedded credentials go first, through the one shared scrub
-		// (scheme-agnostic, greedy to the run's last "@"): the host rule below
-		// reparses each URL, and userinfo left in place - or a bracketed marker
-		// put in its place - would split that match and leak the host past
-		// [REDACTED_HOST]. Its localhost carve-out is also why the credential
-		// must already be gone.
+		// URL-embedded credentials go first, through the one shared scrub (scheme-agnostic, greedy to the run's last
+		// "@"): the host rule below reparses each URL, and userinfo left in place - or a bracketed marker put in its
+		// place - would split that match and leak the host past [REDACTED_HOST]. Its localhost carve-out is also why
+		// the credential must already be gone.
 		redactUrlCredentials(text)
-			// JSON-encoded auth headers. The value pattern consumes escaped sequences
-			// so an escaped quote inside the secret cannot end the match early.
+			// JSON-encoded auth headers. The value pattern consumes escaped sequences so an escaped quote inside the
+			// secret cannot end the match early.
 			.replace(/("(?:Authorization|X-API-Key)":\s*")((?:Bearer\s+)?)(?:\\.|[^"\\])*(")/gi, "$1$2[REDACTED]$3")
 			// JSON-encoded OAuth material: "client_secret": "xxx" or "access_token": "xxx"
 			.replace(/("(?:client[_-]?secret|access[_-]?token)":\s*")(?:\\.|[^"\\])*(")/gi, "$1[REDACTED]$2")

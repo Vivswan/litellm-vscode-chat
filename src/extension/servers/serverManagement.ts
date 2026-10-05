@@ -3,18 +3,15 @@ import * as vscode from "vscode";
 import type { CommandId } from "../../shared/config/commandIds";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 
-/** Settings-view filter that narrows to this extension's settings. */
 export const EXTENSION_SETTINGS_FILTER = "@ext:vivswan.litellm-vscode-chat";
 
-/** A hub entry either routes in-module ("servers", "settings") or names the extension command it executes as-is. */
 interface HubItem extends vscode.QuickPickItem {
 	action: "servers" | "settings" | CommandId;
 }
 
 /**
- * Resolved per open: a module-level constant would localize before l10n.config
- * and freeze English. Codicon prefixes stay inside the literals so extraction
- * keys match what the quick pick displays.
+ * Resolved per open: a module-level constant would localize before l10n.config and freeze English. Codicon prefixes
+ * stay inside the literals so extraction keys match what the quick pick displays.
  */
 function hubItems(): readonly HubItem[] {
 	return [
@@ -67,12 +64,8 @@ function hubItems(): readonly HubItem[] {
 }
 
 /**
- * litellm.manage is the extension's front door: a hub quick pick routing to the
- * dashboard's Servers view and the individually registered commands.
- *
- * litellm.manageServers is the direct route for callers that promise
- * configuration and must not land a user on the hub menu. It stays out of
- * package.json's contributes.commands, so the palette shows only the hub.
+ * litellm.manageServers is the direct route for callers that promise configuration and must not land a user on the
+ * hub menu. It stays out of package.json's contributes.commands, so the palette shows only the hub.
  */
 export function registerManageCommand(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(

@@ -1,9 +1,7 @@
 /**
- * The declared-entry join: pairing the servers setting's entries with the live
- * snapshots the provider's status window saw. Shared by the dashboard state
- * builder, the adopt intent's source resolution, and the status surfaces' sync
- * failure overlay, which must all agree on which snapshot a declared entry
- * describes; kept vscode-free so pure consumers stay testable without a host.
+ * Shared by the dashboard state builder, the adopt intent's source resolution, and the status surfaces' sync failure
+ * overlay, which must all agree on which snapshot a declared entry describes; kept vscode-free so pure consumers stay
+ * testable without a host.
  */
 
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
@@ -11,10 +9,8 @@ import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import type { DeclaredServerView } from "../servers/serverSync";
 
 /**
- * Snapshots joined with the display label their server renders under. Labels
- * are not unique (two provider groups can point at one host with different
- * credentials), so colliding labels get a positional suffix; the opaque server
- * IDs stay out of the state because they embed a credential fingerprint.
+ * Labels are not unique (two provider groups can point at one host with different credentials), so colliding labels get
+ * a positional suffix; the opaque server IDs stay out of the state because they embed a credential fingerprint.
  */
 export interface LabeledSnapshot {
 	readonly snapshot: ServerModelsSnapshot;
@@ -22,9 +18,8 @@ export interface LabeledSnapshot {
 }
 
 export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): LabeledSnapshot[] {
-	// The serverId tiebreak keeps the sort total: the status window re-inserts
-	// refreshed entries at the end, so without it two groups on one host would
-	// swap ordinals whenever their insertion order churned.
+	// The serverId tiebreak keeps the sort total: the status window re-inserts refreshed entries at the end, so without
+	// it two groups on one host would swap ordinals whenever their insertion order churned.
 	const sorted = [...snapshots].sort(
 		(a, b) =>
 			a.status.label.localeCompare(b.status.label) ||
@@ -48,22 +43,17 @@ export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): La
 }
 
 /**
- * Which pairing pass joined a declared entry to its snapshot. Only the
- * identity pass proves the serving group carries the entry's label, which is
- * what buildServers flags entries on: any other pass means the entry's own
- * modelParameters may not apply.
+ * Only the identity pass proves the serving group carries the entry's label, which is what buildServers flags entries
+ * on: any other pass means the entry's own modelParameters may not apply.
  */
 export type JoinPass = "identity" | "connection" | "label-url" | "url";
 
 /**
- * Pair declared entries with live snapshots, in four passes: the group client
- * ID (credential-fingerprinted, so entries sharing a base URL with different
- * credentials join exactly), then the label-agnostic connection ID
- * non-exclusively (groups created before entry labels flowed into their
- * configurations report under one shared identity, and every entry mirroring
- * that connection is honestly described by it), then label plus base URL, then
- * base URL alone. Shared by the state builder and the adopt intent's source
- * resolution, which must agree on which snapshots are external.
+ * Pair declared entries with live snapshots, in four passes: the group client ID (credential-fingerprinted, so entries
+ * sharing a base URL with different credentials join exactly), then the label-agnostic connection ID non-exclusively
+ * (groups created before entry labels flowed into their configurations report under one shared identity, and every
+ * entry mirroring that connection is honestly described by it), then label plus base URL, then base URL alone. Shared
+ * by the state builder and the adopt intent's source resolution, which must agree on which snapshots are external.
  */
 export function joinDeclared(
 	labeled: readonly LabeledSnapshot[],
@@ -79,7 +69,9 @@ export function joinDeclared(
 	const passes: readonly {
 		pass: JoinPass;
 		match: (snapshot: ServerModelsSnapshot, view: DeclaredServerView) => boolean;
-		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide (see the doc above). */
+		/**
+		 * A shared pass lets several entries claim one snapshot; only equal join keys can collide (see the doc above).
+		 */
 		shared?: boolean;
 	}[] = [
 		{
@@ -105,7 +97,6 @@ export function joinDeclared(
 		},
 	];
 	for (const pass of passes) {
-		// Snapshots this pass already handed out, still claimable when shared.
 		const claimed = new Set<LabeledSnapshot>();
 		declared.forEach((view, declaredIndex) => {
 			if (matchedByDeclared.has(declaredIndex)) {

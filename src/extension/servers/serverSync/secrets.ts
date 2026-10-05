@@ -5,8 +5,10 @@
  *
  *   dashboard save, palette command, import, adoption -> write the stamp
  *   resolveOwnedSecrets                               -> the one check that admits a stored value into a pairing
- *   field stored before stamping existed              -> no stamp, resolves as before; migrations/stampSecretOwners.ts back-fills declared entries
- *   two windows writing one label at once             -> last-write-wins (no compare-and-swap); a misplaced value is still refused where it lands
+ *   field stored before stamping existed              -> no stamp, resolves as before
+ *   migrations/stampSecretOwners.ts                   -> back-fills declared entries
+ *   two windows writing one label at once             -> last-write-wins (no compare-and-swap)
+ *   a misplaced value                                 -> is still refused where it lands
  */
 
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
@@ -103,13 +105,12 @@ export async function readServerSecretsRecord(secrets: SecretStore, label: strin
 }
 
 /**
- * Per-label write serialization. Every blob write is a read-modify-write of
- * the whole SecretStorage value, and two interleaved writes in one window can
- * resurrect a field the other one cleared, so writes to one label queue behind
- * each other. Keyed by label alone: distinct stores sharing a label (tests)
- * merely serialize, which is harmless. Cross-window writes cannot be
- * serialized here (SecretStorage has no compare-and-swap); see the module
- * comment for why the ownership stamp bounds that residual.
+ * Every blob write is a read-modify-write of the whole SecretStorage value, and two interleaved writes in one window
+ * can resurrect a field the other one cleared, so writes to one label queue behind each other. Cross-window writes
+ * cannot be serialized here (SecretStorage has no compare-and-swap); see the module comment for why the ownership
+ * stamp bounds that residual.
+ *
+ *   Keyed by label alone -> distinct stores sharing a label (tests) merely serialize, which is harmless
  */
 const labelWriteQueues = new Map<string, Promise<unknown>>();
 
@@ -138,11 +139,10 @@ async function writeRecord(secrets: SecretStore, label: string, record: StoredSe
 }
 
 /**
- * Write one secret field of a label's blob; undefined deletes the field (and
- * its stamp), an empty blob deletes the key. `owner` is the ownership stamp
- * for the written value: the destination the caller is pairing it with
- * (secretDestination), or undefined to write it unstamped - only restore
- * paths putting back a recorded pre-write state may do that.
+ * Write one secret field of a label's blob; undefined deletes the field (and its stamp), an empty blob deletes the key.
+ * `owner` is the ownership stamp for the written value: the destination the caller is pairing it with
+ * (secretDestination), or undefined to write it unstamped - only restore paths putting back a recorded pre-write state
+ * may do that.
  */
 export async function updateServerSecret(
 	secrets: SecretStore,
@@ -171,10 +171,8 @@ export async function updateServerSecret(
 }
 
 /**
- * Stamp one already-stored field's ownership without touching its value; a
- * no-op when the field has no value or already carries a stamp. The
- * stampSecretOwners migration's write: back-filling stamps must never
- * overwrite one a deliberate pairing action wrote.
+ * Stamp one already-stored field's ownership without touching its value; a no-op when the field has no value or already
+ * carries a stamp.
  */
 export async function stampServerSecretOwner(
 	secrets: SecretStore,
@@ -231,30 +229,25 @@ export interface OwnedSecretsResolution {
 	/** The stored values this entry may resolve: stamp matches the entry's destination, or predates stamping. */
 	readonly values: StoredServerSecrets;
 	/**
-	 * Stored fields the ownership check refused AND the entry would actually
-	 * have sent: the entry's shape uses the field (entryUsesSecretField, the
-	 * one wire rule) and no inline value shadows it. A refused field means the
-	 * pairing must not proceed; a shadowed or unsent one is dormant and merely
-	 * drops.
+	 *   Stored fields the ownership check refused -> the entry's shape uses the field (entryUsesSecretField, the one
+	 *                                                wire rule) and no inline value shadows it
 	 */
 	readonly refused: readonly SecretFieldId[];
 	/**
-	 * Every stored field the stamp mismatch dropped with nothing standing in
-	 * (no inline value): `refused` plus the inert fields the entry cannot
-	 * send. The with-secrets export reads this superset for its accounting,
-	 * so a value left out of the file is never a silent omission; the pairing
-	 * gates (the sync engine, MCP) read `refused`.
+	 * Every stored field the stamp mismatch dropped with nothing standing in (no inline value): `refused` plus the
+	 * inert fields the entry cannot send. The with-secrets export reads this superset for its accounting, so a value
+	 * left out of the file is never a silent omission; the pairing gates (the sync engine, MCP) read `refused`.
 	 */
 	readonly mismatched: readonly SecretFieldId[];
 }
 
 /**
- * THE ownership check for every consumer that pairs a blob with an entry; the add-only host would make a
- * credential-less group permanent, so `refused` is the verdict a caller may gate the whole pairing on instead
- * of proceeding without the credential (entryConnection.ts names the callers that send anyway).
- *
+ *   THE ownership check -> for every consumer that pairs a blob with an entry
+ *   `refused` -> the verdict a caller may gate the whole pairing on instead of proceeding without the credential
+ *                (entryConnection.ts names the callers that send anyway)
  *   stamp mismatch, entry would send it, no inline winner -> refused
- *   stamp mismatch, entry cannot send it                  -> dropped but kept under its old stamp, so refusal waits until the entry could send it
+ *   stamp mismatch, entry cannot send it                  -> dropped but kept under its old stamp
+ *   kept under its old stamp                              -> refusal waits until the entry could send it
  */
 export function resolveOwnedSecrets(entry: DeclaredServer, record: StoredSecretsRecord): OwnedSecretsResolution {
 	const values: { -readonly [K in SecretFieldId]?: string } = {};
@@ -280,14 +273,14 @@ export function resolveOwnedSecrets(entry: DeclaredServer, record: StoredSecrets
 }
 
 /**
- * The inline (in-settings) secret values of a parsed entry: THE rule for "this
- * field is stored inline in the servers setting", and inline values outrank the
- * label's SecretStorage blob. One home, several consumers, so they cannot
- * drift: buildGroupArgs resolves each secret through it, secretLocations
- * reports "settings" exactly for its keys, the dashboard's edit-form prefill
- * returns exactly it, and the Set Server Secret palette warns about a dormant
- * stored value exactly when it holds the field. Values are secrets: never log
- * or push them.
+ * The inline (in-settings) secret values of a parsed entry: THE rule for "this field is stored inline in the servers
+ * setting", and inline values outrank the label's SecretStorage blob. Values are secrets: never log or push them.
+ *
+ *   One home, several consumers       -> they cannot drift
+ *   buildGroupArgs                    -> resolves each secret through it
+ *   secretLocations                   -> reports "settings" exactly for its keys
+ *   the dashboard's edit-form prefill -> returns exactly it
+ *   the Set Server Secret palette     -> warns about a dormant stored value exactly when it holds the field
  */
 export function inlineSecretValues(entry: DeclaredServer): Readonly<Partial<Record<SecretFieldId, string>>> {
 	const values: { -readonly [K in SecretFieldId]?: string } = {};
@@ -301,12 +294,10 @@ export function inlineSecretValues(entry: DeclaredServer): Readonly<Partial<Reco
 }
 
 /**
- * Where each of an entry's secret fields lives, under the inline-wins rule:
- * "settings" for inlineSecretValues' keys, "secure" for the label's blob
- * fields behind them, "none" otherwise. `stored` is the ownership-resolved
- * view (resolveOwnedSecrets) wherever an entry is in hand, so a refused field
- * reads "none" - the sync engine's views and the save path's displayed-entry
- * identity check read the same derivation.
+ * Where each of an entry's secret fields lives, under the inline-wins rule: "settings" for inlineSecretValues' keys,
+ * "secure" for the label's blob fields behind them, "none" otherwise. `stored` is the ownership-resolved view
+ * (resolveOwnedSecrets) wherever an entry is in hand, so a refused field reads "none" - the sync engine's views and the
+ * save path's displayed-entry identity check read the same derivation.
  */
 export function secretLocations(
 	entry: DeclaredServer,

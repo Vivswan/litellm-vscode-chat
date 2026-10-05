@@ -1,12 +1,9 @@
 /**
- * The credential half of the provider's entry overlay: resolve one declared
- * entry's CURRENT credentials in exactly the rendering a sync pass would bake
- * into its group (the same setting parse, secrets read, ownership check,
- * buildGroupArgs precedence, and parseGroupConfiguration narrowing), so the
- * overlaid connection can never diverge from what a freshly created group
- * would carry. Related but deliberately separate: engine.resolveGroupArgs
- * matches by label alone and silently drops refused fields, which only the
- * internal test command may tolerate.
+ * The credential half of the provider's entry overlay: resolve one declared entry's CURRENT credentials in exactly the
+ * rendering a sync pass would bake into its group (the same setting parse, secrets read, ownership check,
+ * buildGroupArgs precedence, and parseGroupConfiguration narrowing), so the overlaid connection can never diverge from
+ * what a freshly created group would carry. Related but deliberately separate: engine.resolveGroupArgs matches by
+ * label alone and silently drops refused fields, which only the internal test command may tolerate.
  */
 
 import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";

@@ -22,15 +22,13 @@ import { registerOpenSettingKeyCommand } from "../ui/openSettingKey";
 import { StatusBarManager, StatusItem } from "../ui/status";
 
 /**
- * The connection status bar item (through the slot registry's StatusItem) and
- * the refresh notifier; both consume the same aggregated status through
- * wireStatusFanout.
+ * The connection status bar item (through the slot registry's StatusItem) and the refresh notifier; both consume the
+ * same aggregated status through wireStatusFanout.
  */
 export function wireStatusSurfaces(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	hasConfiguredServers: () => boolean,
-	/** The sync engine's declared views, for both surfaces' sync-failure overlay. */
 	getDeclared: () => readonly DeclaredServerView[]
 ): { statusBar: StatusBarManager; notifier: Notifier } {
 	const statusBar = new StatusBarManager(
@@ -47,17 +45,15 @@ export function wireStatusSurfaces(
 		})
 	);
 	const notifier = new Notifier(hasConfiguredServers, getDeclared);
-	// Disposal withdraws an armed no-servers claim, so its deferred toast
-	// cannot fire from a deactivated extension.
+	// Disposal withdraws an armed no-servers claim, so its deferred toast cannot fire from a deactivated extension.
 	context.subscriptions.push(notifier);
 	return { statusBar, notifier };
 }
 
 /**
- * Status bar, refresh notifications, and the dashboard share one status
- * callback, isolated so one consumer's failure cannot starve the others; sync
- * passes re-judge the two overlay consumers, since a sync-only change (a
- * failed upsert, a blocked entry clearing) never fires the status callback.
+ * Status bar, refresh notifications, and the dashboard share one status callback, isolated so one consumer's failure
+ * cannot starve the others; sync passes re-judge the two overlay consumers, since a sync-only change (a failed upsert,
+ * a blocked entry clearing) never fires the status callback.
  */
 export function wireStatusFanout(
 	context: vscode.ExtensionContext,
@@ -88,8 +84,8 @@ export function wireStatusFanout(
 			logger.error("Dashboard refresh failed", error);
 		}
 	});
-	// The dashboard already re-renders per pass (wireDashboard's own onDidSync
-	// subscription); these two read the sync outcome only through the overlay.
+	// The dashboard already re-renders per pass (wireDashboard's own onDidSync subscription); these two read the sync
+	// outcome only through the overlay.
 	context.subscriptions.push(
 		syncEngine.onDidSync(() => {
 			try {
@@ -107,9 +103,7 @@ export function wireStatusFanout(
 }
 
 /**
- * The one-time welcome message. Gated on the declared servers setting only:
- * this runs during activation, before the host has handed over any provider
- * group, so the group latch cannot contribute yet.
+ *   this runs during activation -> Gated on the declared servers setting only
  */
 export async function maybeShowWelcome(
 	context: vscode.ExtensionContext,
@@ -135,11 +129,6 @@ export async function maybeShowWelcome(
 	}
 }
 
-/**
- * The command-palette surfaces: server management, connection testing,
- * model sync, help, the groups-file and settings.json deep links, and the
- * issue reporter.
- */
 export function wireUiCommands(
 	context: vscode.ExtensionContext,
 	logger: Logger,
@@ -153,24 +142,22 @@ export function wireUiCommands(
 		vscodeVersion: string;
 	}
 ): void {
-	// The hub's server entry opens the dashboard's Servers view.
 	registerManageCommand(context);
 
 	registerTestConnectionCommand(context, deps.provider, deps.statusBar, deps.outputChannel, logger);
 
-	// Sync Models Now: a forced server sync first (reconciling groups edited
-	// natively), then a discovery-cache-skipping refetch of every group.
+	//   Sync Models Now -> a forced server sync first (reconciling groups edited natively), then a
+	//       discovery-cache-skipping refetch
 	registerSyncModelsCommand(context, deps.provider, deps.statusBar, deps.outputChannel, logger, () =>
 		deps.syncEngine.syncNow(true)
 	);
 
 	registerHelpAndFeedbackCommand(context);
 
-	// Groups-file deep link: notices about leftover provider groups open the
-	// host's chatLanguageModels.json, the one place a group can be deleted.
+	// Groups-file deep link: notices about leftover provider groups open the host's chatLanguageModels.json, the one
+	// place a group can be deleted.
 	registerOpenGroupsFileCommand(context, logger);
 
-	// Settings.json deep link: the dashboard's per-setting jump (revealSetting).
 	registerOpenSettingKeyCommand(context, logger);
 
 	registerReportIssueCommand(

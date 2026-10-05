@@ -1,13 +1,10 @@
 /**
- * Import planning in two pure steps: planSettingsImport reduces a parsed
- * envelope plus the current servers setting to an ImportPlan, and
- * resolveImportPlan folds the user's collision decisions into an
- * ImportApplication. Nothing here writes; the split keeps every prompt between
- * the two steps fakeable.
+ * Import planning in two pure steps: planSettingsImport reduces a parsed envelope plus the current servers setting to
+ * an ImportPlan, and resolveImportPlan folds the user's collision decisions into an ImportApplication. No direct vscode
+ * usage; the one impurity is the serverSync setting parser, whose module graph reaches vscode at load time in the
+ * host - which is why this core sits in extension/ rather than dashboard/.
  *
- * No direct vscode usage; the one impurity is the serverSync setting parser,
- * whose module graph reaches vscode at load time in the host - which is why
- * this core sits in extension/ rather than dashboard/.
+ *   the split -> keeps every prompt between the two steps fakeable
  */
 
 import {
@@ -43,11 +40,11 @@ export interface SettingWrite {
 export interface SkippedKey {
 	readonly key: string;
 	/**
-	 * The light scalar type gate: a spec'd number/boolean key or the
-	 * enum-string usage.statusBar whose incoming value has the wrong type. The
-	 * other structured keys pass through to their readers' existing leniency.
-	 * One structured exception: a servers value that is not an array cannot
-	 * travel through incomingServers, so it lands here rather than dropping.
+	 * The light scalar type gate: a spec'd number/boolean key or the enum-string usage.statusBar whose incoming value
+	 * has the wrong type. The other structured keys pass through to their readers' existing leniency.
+	 *
+	 *   a servers value that is not an array cannot travel through incomingServers
+	 *     -> it lands here rather than dropping
 	 */
 	readonly reason: "wrong-type";
 }
@@ -55,22 +52,18 @@ export interface SkippedKey {
 /** One entry of the file's servers array, with its acceptance verdict for the preview. */
 export interface IncomingServer {
 	/**
-	 * The entry as the import would write it: the file's entry normalized to
-	 * the current settings shape (the settings-redesign restructure, so a
-	 * pre-redesign flat export lands working entries instead of waiting for
-	 * the next activation's migration), inline secret values still in place.
-	 * It must never cross the webview boundary or reach the log buffer; the
-	 * preview surfaces render the report beside it, not the entry itself.
+	 * The entry as the import would write it: the file's entry normalized to the current settings shape (the
+	 * settings-redesign restructure, so a pre-redesign flat export lands working entries instead of waiting for the
+	 * next activation's migration), inline secret values still in place. It must never cross the webview boundary or
+	 * reach the log buffer; the preview surfaces render the report beside it, not the entry itself.
 	 */
 	readonly raw: unknown;
 	/** The entry's verdict, from the same serverSettingReports pass the dashboard diagnostics run. */
 	readonly report: ServerEntryReport;
 	/**
-	 * True when the entry cannot import at all: no usable label, a reserved one
-	 * (no SecretStorage key is possible for either), or an auth shape the secret
-	 * surgery cannot certify - landing that entry would write presumed credential
-	 * text into the settings file, breaking the secrets-go-to-secure-storage
-	 * promise.
+	 * True when the entry cannot import at all: no usable label, a reserved one (no SecretStorage key is possible for
+	 * either), or an auth shape the secret surgery cannot certify - landing that entry would write presumed credential
+	 * text into the settings file, breaking the secrets-go-to-secure-storage promise.
 	 */
 	readonly skipped: boolean;
 }
@@ -79,25 +72,29 @@ export interface IncomingServer {
 export interface ServerCollision {
 	readonly label: string;
 	/**
-	 * True when the incoming entry changes connection-level fields (baseUrl or
-	 * auth material) against the current entry, so an overwrite follows the sync
-	 * engine's group-update-unavailable path. With storedSecrets provided, the
-	 * current side compares by EFFECTIVE secret material, so a secret merely
-	 * moving between inline and SecretStorage does not flag.
+	 * With storedSecrets provided, the current side compares by EFFECTIVE secret material, so a secret merely moving
+	 * between inline and SecretStorage does not flag.
+	 *
+	 *   the incoming entry changes connection-level fields (baseUrl or auth material) against the current entry
+	 *     -> True
 	 */
 	readonly connectionChanged: boolean;
 }
 
 /** Everything the import preview states and the collision prompts iterate; resolveImportPlan consumes it whole. */
 export interface ImportPlan {
-	/** Non-servers keys to write, in ALL_SETTING_KEYS order; the servers key travels through incomingServers instead. */
+	/**
+	 * Non-servers keys to write, in ALL_SETTING_KEYS order; the servers key travels through incomingServers instead.
+	 */
 	readonly settingsWrites: readonly SettingWrite[];
 	readonly skippedKeys: readonly SkippedKey[];
 	/** The file's servers array, one verdict per entry; empty when the file carries no servers key. */
 	readonly incomingServers: readonly IncomingServer[];
 	/** Importable incoming labels already present in the current setting (vs rawDeclaredLabels), in file order. */
 	readonly collisions: readonly ServerCollision[];
-	/** Inline secret values across the entries that would land (one representative per label; see resolveImportPlan). */
+	/**
+	 * Inline secret values across the entries that would land (one representative per label; see resolveImportPlan).
+	 */
 	readonly secretFieldCount: number;
 	/** The current servers setting's raw user-scope value, carried verbatim for resolveImportPlan's merge. */
 	readonly currentServersRaw: unknown;
@@ -119,11 +116,9 @@ function passesTypeGate(key: string, value: unknown): boolean {
 }
 
 /**
- * One parsed entry's connection-level material: the field set buildGroupArgs
- * emits, with the entry's inline secret values winning over the supplied blob.
- * name, vendor, and label are omitted because a collision's two sides share
- * the label; what remains is baseUrl plus the flat credential fields, in the
- * descriptor order the fingerprint freezes.
+ * One parsed entry's connection-level material: the field set buildGroupArgs emits, with the entry's inline secret
+ * values winning over the supplied blob. name, vendor, and label are omitted because a collision's two sides share the
+ * label; what remains is baseUrl plus the flat credential fields, in the descriptor order the fingerprint freezes.
  */
 function connectionFingerprint(entry: DeclaredServer | undefined, stored: StoredServerSecrets): string | undefined {
 	if (entry === undefined) {
@@ -131,8 +126,8 @@ function connectionFingerprint(entry: DeclaredServer | undefined, stored: Stored
 	}
 	const fields: Record<string, string> = { baseUrl: entry.baseUrl };
 	for (const field of OPTIONAL_ENTRY_FIELDS) {
-		// The parsed entry's secret fields ARE its inline values, so this is
-		// exactly buildGroupArgs's inline-over-stored resolution.
+		// The parsed entry's secret fields ARE its inline values, so this is exactly buildGroupArgs's
+		// inline-over-stored resolution.
 		const value = field.secret ? (entry[field.id] ?? stored[field.id]) : entry[field.id];
 		if (value !== undefined) {
 			fields[field.id] = value;
@@ -142,12 +137,12 @@ function connectionFingerprint(entry: DeclaredServer | undefined, stored: Stored
 }
 
 /**
- * The labels whose connection-level material differs between two raw servers
- * values, each side resolved against its own pre-fetched blobs. The undo flow
- * feeds it the pre-undo state against the snapshot's to say up front which
- * entries the restore reconnects. Same one-side-unparseable convention as the
- * import collisions: one parsed side against an unparseable one flags, two
- * unparseable sides do not.
+ * The labels whose connection-level material differs between two raw servers values, each side resolved against its
+ * own pre-fetched blobs.
+ *
+ *   The undo flow -> feeds it the pre-undo state against the snapshot's
+ *   Same one-side-unparseable convention as the import collisions -> one parsed side against an unparseable one
+ *       flags, two unparseable sides do not
  */
 export function connectionChangedLabels(
 	fromRaw: unknown,
@@ -169,11 +164,10 @@ export function connectionChangedLabels(
 }
 
 /**
- * One raw-array index per incoming label: the entry that would take effect for
- * that label if the array were written, mirroring the parser's claim rule (the
- * first element with a usable label AND baseUrl claims the label; a
- * baseUrl-less fragment claims nothing). When no element claims, the first
- * labeled element stands in, so a lone fragment still imports.
+ * When no element claims, the first labeled element stands in, so a lone fragment still imports.
+ *
+ *   the parser's claim rule -> the first element with a usable label AND baseUrl claims the label; a baseUrl-less
+ *       fragment claims nothing
  */
 function representativeIndices(incomingServers: readonly IncomingServer[]): ReadonlyMap<string, number> {
 	const claimants = new Map<string, number>();
@@ -194,12 +188,11 @@ function representativeIndices(incomingServers: readonly IncomingServer[]): Read
 }
 
 /**
- * Reduce the parsed envelope's settings plus the current raw servers value to
- * an ImportPlan. `storedSecrets` is the host's pre-fetched SecretStorage blobs
- * by label; when provided, each collision's connectionChanged compares the
- * current side's effective secret material instead of inline text alone.
- * Absent, resolution is inline-only. Pure and synchronous either way; the
- * incoming side never has a blob.
+ * `storedSecrets` is the host's pre-fetched SecretStorage blobs by label; when provided, each collision's
+ * connectionChanged compares the current side's effective secret material instead of inline text alone. Pure and
+ * synchronous either way; the incoming side never has a blob.
+ *
+ *   Absent -> resolution is inline-only
  */
 export function planSettingsImport(
 	envelopeSettings: Readonly<Record<string, unknown>>,
@@ -230,9 +223,8 @@ export function planSettingsImport(
 			const reports = serverSettingReports(incoming);
 			incoming.forEach((raw: unknown, index) => {
 				const report = reports[index] ?? { index, problems: [], accepted: false };
-				// An uncertifiable shape must not land in the settings file (its
-				// text is presumed to be a credential); the entry skips with the
-				// reason beside the parser's own problem lines.
+				// An uncertifiable shape must not land in the settings file (its text is presumed to be a credential);
+				// the entry skips with the reason beside the parser's own problem lines.
 				if (isRecord(raw) && stripEntrySecrets(raw).unsanitizable) {
 					incomingServers.push({
 						raw,
@@ -257,9 +249,8 @@ export function planSettingsImport(
 	}
 
 	const currentLabels = rawDeclaredLabels(currentServersRaw);
-	// Skipped entries stay out of the fingerprint parse: a skipped first element
-	// under a label would otherwise shadow the valid same-label element
-	// resolution actually lands, misreading its connection fingerprint.
+	// Skipped entries stay out of the fingerprint parse: a skipped first element under a label would otherwise shadow
+	// the valid same-label element resolution actually lands, misreading its connection fingerprint.
 	const incomingArray = incomingServers.filter((incoming) => !incoming.skipped).map((incoming) => incoming.raw);
 	const representatives = representativeIndices(incomingServers);
 	let secretFieldCount = 0;
@@ -285,10 +276,8 @@ export function planSettingsImport(
 			storedSecrets !== undefined && Object.hasOwn(storedSecrets, label) ? storedSecrets[label] : undefined;
 		const current = connectionFingerprint(acceptedEntry(currentServersRaw, label)?.entry, currentBlob ?? {});
 		const imported = connectionFingerprint(acceptedEntry(incomingArray, label)?.entry, {});
-		// A side neither parses is a side whose connection material is
-		// unknowable: one parsed side against an unparseable one flags (the
-		// overwrite turns a dead entry live or vice versa); two unparseable
-		// sides have no group to churn either way.
+		//   A side neither parses is a side whose connection material is unknowable -> one parsed side against an
+		//       unparseable one flags (the overwrite turns a dead entry live or vice versa)
 		const connectionChanged = current === undefined && imported === undefined ? false : current !== imported;
 		collisions.push({ label, connectionChanged });
 	}
@@ -303,9 +292,8 @@ export type CollisionDecision =
 	| { readonly action: "rename"; readonly newLabel: string };
 
 /**
- * Decisions keyed by colliding label. Every ImportPlan collision label must
- * carry one: the flow aborts the whole import on any dismissed prompt, so a
- * partial decision set never reaches resolveImportPlan.
+ * Decisions keyed by colliding label. Every ImportPlan collision label must carry one: the flow aborts the whole import
+ * on any dismissed prompt, so a partial decision set never reaches resolveImportPlan.
  */
 export type CollisionDecisions = Readonly<Record<string, CollisionDecision>>;
 
@@ -315,11 +303,11 @@ export interface SecretWrite {
 	/** The fields to store; blob fields the label already holds but this record omits are cleared as stale. */
 	readonly secrets: StoredServerSecrets;
 	/**
-	 * The ownership stamp per stored field: the destination the imported entry
-	 * pairs it with (the import IS the deliberate pairing). Derived from the
-	 * written entry as the parser reads it back; an entry the parser rejects
-	 * stamps what its raw text still names, "" where nothing does - fail
-	 * closed, so fixing the entry re-pairs the secret deliberately.
+	 * The ownership stamp per stored field: the destination the imported entry pairs it with (the import IS the
+	 * deliberate pairing).
+	 *
+	 *   Derived from the written entry as the parser reads it back -> fail closed, so fixing the entry re-pairs the
+	 *                                                                 secret deliberately
 	 */
 	readonly owners: StoredSecretOwners;
 }
@@ -329,16 +317,20 @@ export interface ImportApplication {
 	/** The plan's settingsWrites, passed through for the apply loop. */
 	readonly settingsWrites: readonly SettingWrite[];
 	/**
-	 * The full servers array to write LAST, or undefined when the import touches
-	 * no servers. Overwrites replace their entry IN PLACE, so the sync engine's
-	 * removal detector sees an edit rather than a removal; new and renamed
-	 * entries append; existing non-colliding entries are never mutated or
-	 * reordered. Secrets are stripped out of every written entry.
+	 * The full servers array to write LAST, or undefined when the import touches no servers. Secrets are stripped out
+	 * of every written entry.
+	 *
+	 *   Overwrites replace their entry IN PLACE -> the sync engine's removal detector sees an edit rather than a
+	 *                                              removal
+	 *   existing non-colliding entries          -> are never mutated or reordered
 	 */
 	readonly serversValue: readonly unknown[] | undefined;
 	/** Per-label SecretStorage writes, applied entry by entry before the servers write. */
 	readonly secretWrites: readonly SecretWrite[];
-	/** Every label the import writes (overwritten, renamed-to, appended); the pre-import snapshot records their previous blobs. */
+	/**
+	 * Every label the import writes (overwritten, renamed-to, appended); the pre-import snapshot records their previous
+	 * blobs.
+	 */
 	readonly touchedLabels: readonly string[];
 	/** The summary notification's counts. */
 	readonly counts: {
@@ -368,9 +360,8 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 	const secretWrites: SecretWrite[] = [];
 	const touchedLabels: string[] = [];
 	const touched = new Set<string>();
-	// Labels this import has already placed (rename targets included): the
-	// parser's first-entry-wins rule means a second entry under one could never
-	// take effect, so it drops into the skipped count.
+	// Labels this import has already placed (rename targets included): the parser's first-entry-wins rule means a
+	// second entry under one could never take effect, so it drops into the skipped count.
 	const landedLabels = new Set<string>();
 	let imported = 0;
 	let overwritten = 0;
@@ -403,9 +394,8 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 			skipped += 1;
 			continue;
 		}
-		// Only the label's representative lands (the entry the parser would let
-		// take effect); shadowed same-label siblings drop rather than landing
-		// dead weight or clobbering the representative's blob.
+		//   shadowed same-label siblings drop rather than landing dead weight or clobbering the representative's blob
+		//     -> Only the label's representative lands
 		if (representatives.get(label) !== index || landedLabels.has(label)) {
 			skipped += 1;
 			continue;
@@ -437,9 +427,8 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 			overwritten += 1;
 			continue;
 		}
-		// The rename targets the flow already validated; a target it should have
-		// rejected would shadow another entry or clobber its blob, so the safe
-		// reading is skip. The trim mirrors the parser's label rule, keeping the
+		// The rename targets the flow already validated; a target it should have rejected would shadow another entry or
+		// clobber its blob, so the safe reading is skip. The trim mirrors the parser's label rule, keeping the
 		// SecretStorage key and the written entry's label in agreement.
 		const newLabel = typeof decision.newLabel === "string" ? decision.newLabel.trim() : "";
 		if (

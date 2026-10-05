@@ -14,23 +14,21 @@ import { buildFallbackPrompt } from "./query";
  * A command that silently does nothing is worse than one that says why, so only the provider is gated.
  *
  *   code-action provider -> exists ONLY while enabled, so no LiteLLM entry appears in a lightbulb while it is off
- *   command              -> registered unconditionally, because keybindings and executeCommand ignore the enable setting
+ *   keybindings and executeCommand ignore the enable setting -> command registered unconditionally
  */
 
 /**
  * `file` alone, deliberately, because an action that quietly sends no code is worse than no action.
  *
  *   `pattern: "**"` -> a diagnostic can sit on documents this feature cannot act on, a git diff, an output pane
- *   `untitled`      -> the chat view attaches only files that exist, so the model would be asked to fix code it cannot see
+ *   `untitled` -> the chat view attaches only files that exist, so the model would be asked to fix code it cannot see
  */
 const QUICK_FIX_SELECTOR: vscode.DocumentSelector = [{ scheme: "file" }];
 
 /**
- * The probe's fixed sample: a two-line snippet with one unmistakable
- * diagnostic on it, run through the SAME prompt builder the fallback uses, so
- * the Test button proves the whole pipeline and not just connectivity. English
- * by policy, like every model-facing string, and fixed - the probe never sends
- * anything of the user's.
+ * English by policy, like every model-facing string, and fixed - the probe never sends anything of the user's.
+ *
+ *   run through the SAME prompt builder the fallback uses -> the Test button proves the whole pipeline
  */
 function probePrompt(): string {
 	return buildFallbackPrompt({
@@ -50,11 +48,6 @@ function probePrompt(): string {
 	});
 }
 
-/**
- * The dashboard's test-model probe for this feature: the fallback's own send
- * over the fixed sample above. One pipeline, one truth - a green probe means
- * the fallback path works, credentials and surface included.
- */
 export function createQuickFixProbe(
 	secrets: vscode.SecretStorage,
 	oneShot: OneShotClient,

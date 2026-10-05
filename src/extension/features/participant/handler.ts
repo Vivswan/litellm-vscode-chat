@@ -12,11 +12,9 @@ import { type ResolvedReference, withReferences } from "./references";
 import type { SlashCommandRegistry } from "./slashCommands";
 
 /**
- * The participant's request handler as a pure function over injected
- * capability: the wiring adapts the host's ChatRequestHandler signature onto
- * this and owns the logging boundary, mapping a failed outcome's log line to
- * the output channel. No vscode import, so the whole turn logic tests in the
- * bun tree.
+ * The participant's request handler as a pure function over injected capability: the wiring adapts the host's
+ * ChatRequestHandler signature onto this and owns the logging boundary, mapping a failed outcome's log line to the
+ * output channel. No vscode import, so the whole turn logic tests in the bun tree.
  */
 
 /** The current turn, structurally mirroring what the host hands the handler. */
@@ -28,12 +26,10 @@ export interface ParticipantRequest {
 	/** The prior turns from ChatContext.history, passed straight through. */
 	readonly history: readonly HistoryTurn[];
 	/**
-	 * The turn's attachments - the editor selection, the implicitly attached
-	 * open file, every explicit `#file:` - read on demand by the wiring. They
-	 * ride BELOW the user's text rather than replacing it, and deliberately do
-	 * not count toward the empty-prompt test: "@litellm" alone with a file open
-	 * still lists the commands instead of shipping the file nowhere, and that
-	 * path never reads them at all.
+	 * The turn's attachments - the editor selection, the implicitly attached open file, every explicit `#file:` - read
+	 * on demand by the wiring. They ride BELOW the user's text rather than replacing it, and deliberately do not count
+	 * toward the empty-prompt test: "@litellm" alone with a file open still lists the commands instead of shipping the
+	 * file nowhere, and that path never reads them at all.
 	 */
 	attachments?(): Promise<readonly ResolvedReference[]>;
 }
@@ -41,32 +37,26 @@ export interface ParticipantRequest {
 export interface ParticipantDeps {
 	/** Send messages to the request's own model and resolve to its streamed text fragments. */
 	sendRequest(messages: readonly ChatMessage[]): Promise<AsyncIterable<string>>;
-	/** The response stream; report writes markdown. */
 	readonly stream: { report(markdown: string): void };
 	/**
-	 * The provider groups' last known models, for the zero-network answers.
-	 * Handed to a command as-is rather than called here, so only a command that
-	 * answers FROM snapshots reads them: /tests and /docs never look, and a
-	 * plain question never touches them at all. A read that does throw happens
-	 * inside this turn's try, so it surfaces as this turn's failure - one
-	 * friendly text, one classification - rather than as a second failure
-	 * vocabulary beside turnFailedText.
+	 * Handed to a command as-is rather than called here, so only a command that answers FROM snapshots reads them:
+	 * /tests and /docs never look, and a plain question never touches them at all. A read that does throw happens
+	 * inside this turn's try, so it surfaces as this turn's failure - one friendly text, one classification - rather
+	 * than as a second failure vocabulary beside turnFailedText.
 	 */
 	snapshots(): readonly ProviderSnapshot[];
 	readonly commands: SlashCommandRegistry;
 	/**
-	 * Recognize the host's cancellation error, which must ride out uncaught
-	 * and unlogged. The default matches vscode.CancellationError structurally
-	 * (its name is "Canceled"), so the wiring only overrides it when it can
-	 * offer the real instanceof check.
+	 * Recognize the host's cancellation error, which must ride out uncaught and unlogged. The default matches
+	 * vscode.CancellationError structurally (its name is "Canceled"), so the wiring only overrides it when it can offer
+	 * the real instanceof check.
 	 */
 	isCancellation?(error: unknown): boolean;
 }
 
 /**
- * How the turn ended, for the wiring's logging boundary. The log line is a
- * shape-gated classification, never the error's message, because handler
- * errors can wrap response-derived text and logs feed public issue reports.
+ * The log line is a shape-gated classification, never the error's message, because handler errors can wrap
+ * response-derived text and logs feed public issue reports.
  */
 export type ParticipantOutcome = { readonly kind: "completed" } | { readonly kind: "failed"; readonly log: string };
 
@@ -86,12 +76,10 @@ function turnFailedText(): string {
 	);
 }
 
-/** The lead-in above the command listing an empty prompt answers with. */
 function commandListingIntro(): string {
 	return l10n.t("Ask me anything, or pick a command:");
 }
 
-/** The whole answer when no command is registered to list. */
 function noCommandsText(): string {
 	return l10n.t("Ask me anything.");
 }
@@ -105,17 +93,15 @@ export async function handleParticipantTurn(
 	deps: ParticipantDeps
 ): Promise<ParticipantOutcome> {
 	const isCancellation = deps.isCancellation ?? isCanceledError;
-	// One read per turn at most, on the paths that build model content: the
-	// command listing and any command that never asks never open a document.
+	// One read per turn at most, on the paths that build model content: the command listing and any command that never
+	// asks never open a document.
 	const readAttachments = async (): Promise<readonly ResolvedReference[]> =>
 		request.attachments === undefined ? [] : await request.attachments();
-	// The one send boundary: every outgoing array is normalized here, whatever
-	// built it. normalizeForWire can EMPTY a non-empty array - it drops answers
-	// standing before the first user message, so a history of assistant turns
-	// alone normalizes to nothing - and an empty messages array is what reaches
-	// the model in that case. Guarding it here would be the wrong place: a
-	// caller that forwards history alone has a bug the transport's own
-	// empty-request error names better than a silent no-op would.
+	// The one send boundary: every outgoing array is normalized here, whatever built it. Guarding it here would be the
+	// wrong place: a caller that forwards history alone has a bug the transport's own empty-request error names better
+	// than a silent no-op would.
+	//
+	//   normalizeForWire can EMPTY a non-empty array -> an empty messages array is what reaches the model in that case
 	const send = async (messages: readonly ChatMessage[]): Promise<void> => {
 		const fragments = await deps.sendRequest(normalizeForWire(messages));
 		for await (const fragment of fragments) {

@@ -1,14 +1,10 @@
 /**
- * Minimal hand-typed subset of the GitHub Pull Requests extension's exported
- * API, mirrored from the upstream declaration file (src/api/api.d.ts in the
- * microsoft/vscode-pull-request-github repository). Only the members the PR
- * title-and-description flow touches are declared, and member shapes match
- * upstream so a fuller vendored copy would merge as identical declarations,
- * with one deliberate narrowing: `registerTitleAndDescriptionProvider` is
- * declared optional (upstream requires it) because installed builds predating
- * the provider API lack the member, and the wiring feature-detects it with
- * `typeof` before calling. Acquired at runtime via
- * vscode.extensions.getExtension<GitHubPullRequestsApi>("GitHub.vscode-pull-request-github").
+ * Minimal hand-typed subset of the GitHub Pull Requests extension's exported API, mirrored from the upstream
+ * declaration file (src/api/api.d.ts in the microsoft/vscode-pull-request-github repository). Only the members the PR
+ * title-and-description flow touches are declared, and member shapes match upstream so a fuller vendored copy would
+ * merge as identical declarations, with one deliberate narrowing: `registerTitleAndDescriptionProvider` is declared
+ * optional (upstream requires it) because installed builds predating the provider API lack the member, and the wiring
+ * feature-detects it with `typeof` before calling.
  */
 import type { CancellationToken, Disposable } from "vscode";
 

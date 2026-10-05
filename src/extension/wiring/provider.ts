@@ -31,22 +31,16 @@ export interface ProviderWiring {
 	readonly catalogStore: OpenRouterCatalogStore;
 	readonly provider: LiteLLMChatModelProvider;
 	/**
-	 * One debounced notify shared by every configuration-change branch, so a
-	 * multi-setting edit re-resolves models once. A throw must not escape into
-	 * the timer.
+	 * A throw must not escape into the timer.
+	 *
+	 *   One debounced notify -> shared by every configuration-change branch
 	 */
 	readonly notifyModelsChanged: DebouncedAction;
 	readonly hasDeclaredServers: () => boolean;
 	readonly hasConfiguredServers: () => boolean;
 }
 
-/**
- * The provider's wiring: the OpenRouter catalog store, the provider itself
- * with its extension-injected seams, the shared debounced model-change notify,
- * and the configured-servers gates the status surfaces consult. activate()
- * registers the returned provider with the host AFTER awaiting the state
- * migrations.
- */
+/** activate() registers the returned provider with the host AFTER awaiting the state migrations. */
 export function wireProvider(
 	context: vscode.ExtensionContext,
 	logger: Logger,
@@ -55,9 +49,8 @@ export function wireProvider(
 		groupRemovals: GroupRemovalStore;
 	}
 ): ProviderWiring {
-	// Created before the provider because the provider's catalog seam reads its
-	// lookup; the snapshot loads later, and lookups answer not-found until it
-	// lands.
+	// Created before the provider because the provider's catalog seam reads its lookup; the snapshot loads later, and
+	// lookups answer not-found until it lands.
 	const catalogStore = createOpenRouterCatalogStore({
 		extensionUri: context.extensionUri,
 		globalStorageUri: context.globalStorageUri,
@@ -66,8 +59,7 @@ export function wireProvider(
 		isEnabled: isOpenRouterCatalogEnabled,
 	});
 	context.subscriptions.push(catalogStore);
-	// The palette twin of the dashboard row's Refresh button; outcomes report in
-	// the row status, never as a toast.
+	// The palette twin of the dashboard row's Refresh button; outcomes report in the row status, never as a toast.
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.refreshOpenRouterCatalog, () => catalogStore.refreshNow())
 	);
@@ -83,10 +75,9 @@ export function wireProvider(
 		getEntryIncludeModes: readEntryIncludeModes,
 		resolveEntryCredentials: (label, baseUrl) => readEntryCredentials(context.secrets, logger, label, baseUrl),
 		getCatalogLookup: () => catalogStore.lookup,
-		// Two suppressions, one predicate: the user removed the group (tombstone,
-		// keyed by status label), or the entry whose label the group carries now
-		// declares another URL, so the group is the leftover an add-only host
-		// kept (see entrySupersedingBaseUrl; unlabeled groups cannot be that).
+		// Two suppressions, one predicate: the user removed the group (tombstone, keyed by status label), or the entry
+		// whose label the group carries now declares another URL, so the group is the leftover an add-only host kept
+		// (see entrySupersedingBaseUrl; unlabeled groups cannot be that).
 		isGroupSuppressed: (label, baseUrl, entryLabel) =>
 			deps.groupRemovals.isTombstoned(label, baseUrl) ||
 			(entryLabel !== undefined && readEntrySupersedingBaseUrl(entryLabel, baseUrl) !== undefined),
@@ -102,11 +93,8 @@ export function wireProvider(
 	context.subscriptions.push(notifyModelsChanged);
 
 	const hasDeclaredServers = () => currentDeclaredServers().length > 0;
-	// The shared not-configured gate: declared servers-setting entries and live
-	// provider groups both mean "configured" before anything toasts.
-	// hasSeenGroupConfiguration is the cold-start-honest signal: the host's
-	// groupless refresh reports an empty window before it re-resolves each
-	// group, so the live snapshot count alone would wrongly read as empty.
+	// hasSeenGroupConfiguration is the cold-start-honest signal: the host's groupless refresh reports an empty window
+	// before it re-resolves each group, so the live snapshot count alone would wrongly read as empty.
 	const hasConfiguredServers = () =>
 		provider.getServerSnapshots().length > 0 || provider.hasSeenGroupConfiguration() || hasDeclaredServers();
 
@@ -114,9 +102,8 @@ export function wireProvider(
 }
 
 /**
- * Applies chat.tokenEstimation to the shared text-token counter at activation
- * and on configuration change. The controller owns the load policy; this only
- * feeds it the setting, so the mode is read once per change, never per count.
+ * The controller owns the load policy; this only feeds it the setting, so the mode is read once per change, never per
+ * count.
  */
 export function wireTokenCounting(context: vscode.ExtensionContext, logger: Logger): void {
 	const controller = createTokenCountingController({
@@ -145,9 +132,8 @@ export function wireCatalogRefresh(
 	}
 ): void {
 	const { catalogStore, notifyModelsChanged, dashboard } = deps;
-	// A refreshed snapshot must become visible without waiting for an unrelated
-	// refresh: the notify re-attaches models (catalog levels re-resolve at
-	// attach) and the re-push re-renders the inspector's catalog rows.
+	// A refreshed snapshot must become visible without waiting for an unrelated refresh: the notify re-attaches models
+	// (catalog levels re-resolve at attach) and the re-push re-renders the inspector's catalog rows.
 	context.subscriptions.push(
 		catalogStore.onDidUpdate(() => {
 			notifyModelsChanged.schedule();
@@ -158,9 +144,8 @@ export function wireCatalogRefresh(
 			}
 		})
 	);
-	// Load the cached or bundled snapshot off the activation path (never throws),
-	// then notify only when something was installed: a dev build without the
-	// artifact must not fire a spurious re-resolve.
+	// Load the cached or bundled snapshot off the activation path (never throws), then notify only when something was
+	// installed: a dev build without the artifact must not fire a spurious re-resolve.
 	void catalogStore.initialize().then(() => {
 		if (catalogStore.snapshot().models.length > 0) {
 			notifyModelsChanged.schedule();

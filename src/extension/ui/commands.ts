@@ -41,17 +41,12 @@ interface ModelInfoProvider {
 	): Promise<LiteLLMModelInfo[]>;
 }
 
-/**
- * The extra slice the test commands read: the live status window, so suites
- * can observe what the host's per-group calls actually delivered.
- */
 interface StatusSnapshotProvider {
 	getServerSnapshots(): ReadonlyArray<{ readonly status: ServerStatus }>;
 }
 
 /**
- * refreshViaHost drops the provider's discovery cache before asking the host
- * to re-resolve, so every group is fetched over the network.
+ *   refreshViaHost -> drops the provider's discovery cache before asking the host to re-resolve
  */
 interface HostRefreshableProvider {
 	refreshViaHost(): Promise<void>;
@@ -60,12 +55,10 @@ interface HostRefreshableProvider {
 interface ConnectionTestableProvider extends ModelInfoProvider, HostRefreshableProvider {}
 
 /**
- * The toast for the synthetic zero-model verdict, shared by the connection
- * test and the model sync: warning-grade like every other surface of this
- * judgment (bar, hero, notifier), the verdict text already names the cause and
- * the recovery, so the "Connection failed"/"sync failed" framing must not wrap
- * it, and a hidden group earns the Open Dashboard label - the restore lives in
- * the dashboard's server list.
+ *   like every other surface of this judgment (bar, hero, notifier) -> warning-grade
+ *   the verdict text already names the cause and the recovery -> the "Connection failed"/"sync failed" framing must
+ *       not wrap it
+ *   the restore lives in the dashboard's server list -> a hidden group earns the Open Dashboard label
  */
 function showZeroModelOutcomeToast(zero: ZeroModelTexts, outputChannel: vscode.OutputChannel): void {
 	void showActionableMessage("warning", l10n.t("LiteLLM: {0}", zero.display), [
@@ -80,24 +73,20 @@ interface StatusBarLike {
 	updateStatusBar(status?: ConnectionStatus): Promise<void>;
 }
 
-// A second invocation while one test is mid-flight would capture "loading" as
-// the pre-test status and misreport; it is refused instead.
+// A second invocation while one test is mid-flight would capture "loading" as the pre-test status and misreport; it is
+// refused instead.
 let connectionTestRunning = false;
 /**
- * The sync in flight, if any - the PROMISE, not a boolean. A second invocation
- * mid-run must not start a second pass: it would clear the provider's
- * discovery cache under the refresh already running and report a half-settled
- * status. Handing the second caller the first caller's promise refuses the
- * duplicate pass and still tells the truth about when the work finished (the
- * dashboard's Retry waits on the answer).
+ * A second invocation mid-run must not start a second pass: it would clear the provider's discovery cache under the
+ * refresh already running and report a half-settled status. Handing the second caller the first caller's promise
+ * refuses the duplicate pass and still tells the truth about when the work finished (the dashboard's Retry waits on
+ * the answer).
  */
 let modelSyncInFlight: Promise<void> | undefined;
 
 /**
- * Trigger a non-silent refresh, ask the host to re-resolve every provider
- * group, and report from the connection status all of that left behind. The
- * status, not any returned model list, is the source of truth: the host owns
- * the per-group fetches, so the direct refresh alone proves nothing.
+ * The status, not any returned model list, is the source of truth: the host owns the per-group fetches, so the direct
+ * refresh alone proves nothing.
  */
 export async function runConnectionTest(
 	provider: ConnectionTestableProvider,
@@ -136,8 +125,6 @@ export async function runConnectionTest(
 
 		switch (status.state) {
 			case "connected": {
-				// The shared zero-model judgment: connected-with-nothing-to-serve is
-				// a warning here exactly like the bar and the notifier.
 				const zero = zeroModelJudgment(status.serverStatuses, status.totalModels);
 				if (zero !== undefined) {
 					logger.log(`Connection test finished with 0 models: ${zero.logSafe}`);
@@ -156,8 +143,8 @@ export async function runConnectionTest(
 				break;
 			}
 			case "degraded": {
-				// The shared unexpected-failure count: expected failures stay out,
-				// the same reading of the same window as the status bar tooltip.
+				// The shared unexpected-failure count: expected failures stay out, the same reading of the same window
+				// as the status bar tooltip.
 				const failed = unexpectedFailureCount(status.serverStatuses);
 				logger.log(`WARNING: ${failed} server(s) failing`);
 				const total = status.totalModels;
@@ -175,8 +162,8 @@ export async function runConnectionTest(
 				break;
 			}
 			case "error":
-				// The toast carries the transport headline verbatim (it already
-				// says what to do); a classified failure only adds the docs action.
+				// The toast carries the transport headline verbatim (it already says what to do); a classified failure
+				// only adds the docs action.
 				void showActionableMessage(
 					"error",
 					l10n.t("LiteLLM: Connection failed - {0}", statusErrorHeadline(status.error)),
@@ -213,17 +200,16 @@ export function registerTestConnectionCommand(
 		vscode.commands.registerCommand(CMD.testConnection, () =>
 			runConnectionTest(provider, statusBar, outputChannel, logger)
 		),
-		// The dashboard Diagnostics tab's Open-output-log action. Registered here
-		// because this registration already holds the output channel.
+		// The dashboard Diagnostics tab's Open-output-log action. Registered here because this registration already
+		// holds the output channel.
 		vscode.commands.registerCommand(INTERNAL_CMD.openOutput, () => outputChannel.show())
 	);
 }
 
 /**
- * Force-refresh every model list: discovery results are normally cached (see
- * the discovery.cacheTtl setting), and this is the user's way to skip the
- * cache. The outcome is read from the connection status the refresh left
- * behind, like the connection test.
+ * Force-refresh every model list: discovery results are normally cached (see the discovery.cacheTtl setting), and this
+ * is the user's way to skip the cache. The outcome is read from the connection status the refresh left behind, like the
+ * connection test.
  */
 export async function runModelSync(
 	provider: HostRefreshableProvider,
@@ -231,8 +217,6 @@ export async function runModelSync(
 	outputChannel: vscode.OutputChannel,
 	logger: Logger
 ): Promise<void> {
-	// Already running: join it rather than starting a second pass, so this
-	// caller's answer still means "a sync finished".
 	const running = modelSyncInFlight;
 	if (running !== undefined) {
 		logger.log("A model sync is already running; joining it");
@@ -266,7 +250,6 @@ async function runModelSyncPass(
 		const status = statusBar.connectionStatus;
 		switch (status.state) {
 			case "connected": {
-				// The same warning-grade zero-model treatment as the connection test.
 				const zero = zeroModelJudgment(status.serverStatuses, status.totalModels);
 				if (zero !== undefined) {
 					logger.log(`Model sync finished with 0 models: ${zero.logSafe}`);
@@ -285,8 +268,6 @@ async function runModelSyncPass(
 				break;
 			}
 			case "degraded": {
-				// The same shared unexpected-failure count as the connection test's
-				// toast and the status bar tooltip.
 				const failed = unexpectedFailureCount(status.serverStatuses);
 				logger.log(`Model sync finished with issues: ${failed} server(s) failing`);
 				const total = status.totalModels;
@@ -308,9 +289,7 @@ async function runModelSyncPass(
 				break;
 			}
 			case "error":
-				// logSafeError, never error: this line lands in the issue-report
-				// buffer. Same headline-only classification treatment as the
-				// connection test's error toast.
+				// logSafeError, never error: this line lands in the issue-report buffer.
 				logger.log(`Model sync failed: ${status.logSafeError}`);
 				void showActionableMessage(
 					"error",
@@ -355,9 +334,9 @@ export function registerSyncModelsCommand(
 }
 
 /**
- * The snapshot is built before the setup gate so a gated report still shows what the gate judged. Neither
- * dialog is awaited, because the dashboard's executeCommand intent awaits this command inside its serialized
- * message chain, and an unanswered dialog would freeze later messages on that chain.
+ * The snapshot is built before the setup gate so a gated report still shows what the gate judged. Neither dialog is
+ * awaited, because the dashboard's executeCommand intent awaits this command inside its serialized message chain, and
+ * an unanswered dialog would freeze later messages on that chain.
  */
 export async function runReportIssue(
 	getConnectionStatus: () => ConnectionStatus,
@@ -374,8 +353,7 @@ export async function runReportIssue(
 		try {
 			await rememberIssueReport(globalState, { fingerprint, openedAt: Date.now() });
 		} catch {
-			// The ledger is advisory: the issue is already open, and a failed
-			// write only loses the next repeat hint.
+			// The ledger is advisory: the issue is already open, and a failed write only loses the next repeat hint.
 		}
 	};
 	const problem = detectSetupProblem(connectionStatus);
@@ -386,8 +364,8 @@ export async function runReportIssue(
 	const last = readLastIssueReport(globalState);
 	if (last !== undefined && last.fingerprint === fingerprint) {
 		const elapsed = Date.now() - last.openedAt;
-		// Negative elapsed (a clock rollback or corrupt timestamp) counts as
-		// expired: fail open toward reporting rather than prompting forever.
+		// Negative elapsed (a clock rollback or corrupt timestamp) counts as expired: fail open toward reporting rather
+		// than prompting forever.
 		if (elapsed >= 0 && elapsed <= REPEAT_REPORT_WINDOW_MS) {
 			void showRepeatReportHint(elapsed, openIssue);
 			return;
@@ -396,13 +374,11 @@ export async function runReportIssue(
 	await openIssue();
 }
 
-/** How long an opened report's fingerprint keeps triggering the repeat hint. */
 const REPEAT_REPORT_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 /** The repo's open issues carrying the reporter template's label ("bug", see createIssueUrl). */
 const GITHUB_OPEN_BUG_ISSUES_URL = `${GITHUB_REPO_URL}/issues?q=${encodeURIComponent("is:issue is:open label:bug")}`;
 
-/** "{0} hours ago" for the repeat hint; coarse buckets are enough for a 72-hour window. */
 function relativeTimeText(elapsedMs: number): string {
 	const hours = Math.floor(elapsedMs / (60 * 60 * 1000));
 	if (hours < 1) {
@@ -416,11 +392,8 @@ function relativeTimeText(elapsedMs: number): string {
 }
 
 /**
- * The repeat-report hint: modal, because the user is one click from filing a
- * public duplicate. Dismissal aborts silently; Report Anyway proceeds exactly
- * as an unprompted report and refreshes the stored fingerprint. Callers void
- * the returned promise, so a failing report must surface here rather than die
- * as an unhandled rejection.
+ * The repeat-report hint: modal, because the user is one click from filing a public duplicate. Callers void the
+ * returned promise, so a failing report must surface here rather than die as an unhandled rejection.
  */
 async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promise<void>): Promise<void> {
 	const openExisting = l10n.t("Open Existing Issues");
@@ -471,11 +444,11 @@ export function registerReportIssueCommand(
 const GROUPS_FILE_NAME = "chatLanguageModels.json";
 
 /**
- * Extensions have no removal API, so the host's provider-groups JSON is the fallback route for deleting a
- * leftover group beside Manage Language Models; VS Code has no API for this file either, and a profile that
- * inherits its language models keeps it in another profile's directory, so the open is best-effort. The log
- * line stays classification-only because the resolved path embeds the local user name and the log buffer feeds
- * public issue reports.
+ * Extensions have no removal API, so the host's provider-groups JSON is the fallback route for deleting a leftover
+ * group beside Manage Language Models; VS Code has no API for this file either, and a profile that inherits its
+ * language models keeps it in another profile's directory, so the open is best-effort. The log line stays
+ * classification-only because the resolved path embeds the local user name and the log buffer feeds public issue
+ * reports.
  */
 export function registerOpenGroupsFileCommand(context: vscode.ExtensionContext, logger: Logger): void {
 	context.subscriptions.push(
@@ -500,8 +473,7 @@ export function registerOpenGroupsFileCommand(context: vscode.ExtensionContext, 
 export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.helpAndFeedback, async () => {
-			// Each entry carries its own action, so a new entry cannot be added
-			// without saying what it does.
+			// Each entry carries its own action, so a new entry cannot be added without saying what it does.
 			const choice = await vscode.window.showQuickPick(
 				[
 					{ label: l10n.t("$(bug) Report Bug"), run: () => vscode.commands.executeCommand(CMD.reportIssue) },
@@ -528,14 +500,11 @@ export function registerTestCommands(
 	}
 
 	context.subscriptions.push(
-		// Observability commands. getRecentLogs is the production
-		// classification-only buffer that feeds public issue reports.
-		// getDeclaredServers returns the sync engine's views, which carry secret
-		// locations but no secret values by construction.
+		// getDeclaredServers returns the sync engine's views, which carry secret locations but no secret values by
+		// construction.
 		vscode.commands.registerCommand("litellm._test.getRecentLogs", () => issueReporter.getRecentLogs()),
-		// The lossless counterpart for the leak oracles: the rolling window above
-		// can evict a line between two probes, so the secrecy sweeps read the
-		// session tee through a cursor instead.
+		// The lossless counterpart for the leak oracles: the rolling window above can evict a line between two probes,
+		// so the secrecy sweeps read the session tee through a cursor instead.
 		vscode.commands.registerCommand("litellm._test.getSessionLogs", (cursor: unknown) =>
 			sessionLogs.readSince(typeof cursor === "number" && Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0)
 		),
@@ -543,14 +512,12 @@ export function registerTestCommands(
 		vscode.commands.registerCommand(
 			"litellm._test.setServerSecret",
 			(label: string, field: string, value: string | undefined) => {
-				// Loud on junk: a typoed field silently no-oping would let a suite
-				// pass while testing nothing.
+				// Loud on junk: a typoed field silently no-oping would let a suite pass while testing nothing.
 				if (!(SECRET_FIELD_IDS as readonly string[]).includes(field)) {
 					throw new Error(`Unknown secret field: ${field}`);
 				}
-				// Stamped like the palette when the label resolves to a declared
-				// entry; a secret seeded before its entry is declared writes
-				// unstamped and resolves anywhere, like a pre-stamping blob.
+				// Stamped like the palette when the label resolves to a declared entry; a secret seeded before its
+				// entry is declared writes unstamped and resolves anywhere, like a pre-stamping blob.
 				const entry = acceptedEntry(
 					vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
 					label
@@ -560,15 +527,12 @@ export function registerTestCommands(
 			}
 		),
 		vscode.commands.registerCommand("litellm._test.getDeclaredServers", () => syncEngine.getDeclared()),
-		// The group serving path is otherwise host-invoked only. Suites asserting
-		// what a DECLARED entry registers drive it here: the configuration
-		// resolves through the sync engine's own parse and secrets read - the
-		// args the engine would build NOW, which can differ from what the
-		// add-only host stored at group creation - and goes down the real group
-		// path, non-silent so discovery failures throw like Test Connection. The
-		// typed destructure strips the litellm attachment, which embeds the
-		// group's resolved credentials, so a rename of that field breaks the
-		// compile here instead of silently leaking.
+		// The group serving path is otherwise host-invoked only. The typed destructure strips the litellm attachment,
+		// which embeds the group's resolved credentials, so a rename of that field breaks the compile here instead of
+		// silently leaking.
+		//
+		//   the args the engine would build NOW -> can differ from what the add-only host stored at group creation
+		//   non-silent                           -> discovery failures throw like Test Connection
 		vscode.commands.registerCommand("litellm._test.refreshEntryModels", async (label: string) => {
 			const configuration = await syncEngine.resolveGroupArgs(label);
 			if (configuration === undefined) {
@@ -580,33 +544,28 @@ export function registerTestCommands(
 			);
 			return infos.map(({ litellm: _litellm, ...registration }) => registration);
 		}),
-		// The status window's statuses, for suites that must observe what the
-		// host's per-group calls delivered.
+		// The status window's statuses, for suites that must observe what the host's per-group calls delivered.
 		vscode.commands.registerCommand("litellm._test.getServerStatuses", () =>
 			provider.getServerSnapshots().map((snapshot) => snapshot.status)
 		),
-		// The monkey fuzzer's intent injection: the raw payload runs through the
-		// panel's actual webview-message path, validation included.
+		// The monkey fuzzer's intent injection: the raw payload runs through the panel's actual webview-message path,
+		// validation included.
 		vscode.commands.registerCommand("litellm._test.dashboardMessage", async (raw: unknown) => {
 			await vscode.commands.executeCommand(CMD.openDashboard);
 			return dashboard.injectMessageForTest(raw);
 		}),
-		// Every Memento key the extension holds, checked against
-		// shared/config/storageKeys.ts. SecretStorage has no enumeration API, so
-		// secret keys stay out of reach here.
+		// SecretStorage has no enumeration API, so secret keys stay out of reach here.
 		vscode.commands.registerCommand("litellm._test.getStorageKeys", () => [...context.globalState.keys()])
 	);
 }
 
 /**
- * A sequence-numbered tee of the session's issue-report log lines and error
- * snapshots, wrapped around the production recorder in non-production mode
- * only. The production buffer is a small rolling window, so a busy sync burst
- * can evict a line between two probes of a test's leak scan; readSince gives
- * suites a lossless read instead, and reports how many lines a lagging cursor
- * lost to eviction so an overflow fails loudly. MAX_LINES is the load-bearing
- * bound: it caps the LINE COUNT (not bytes) a whole docker-suite session can
- * reach. Eviction retires a chunk at a time so the array shift amortizes.
+ * A sequence-numbered tee of the session's issue-report log lines and error snapshots, wrapped around the production
+ * recorder in non-production mode only. The production buffer is a small rolling window, so a busy sync burst can evict
+ * a line between two probes of a test's leak scan; readSince gives suites a lossless read instead, and reports how many
+ * lines a lagging cursor lost to eviction so an overflow fails loudly.
+ *
+ *   Eviction retires a chunk at a time -> the array shift amortizes
  */
 export class SessionLogTee implements ErrorRecorder {
 	private static readonly MAX_LINES = 250000;
@@ -624,11 +583,9 @@ export class SessionLogTee implements ErrorRecorder {
 
 	recordError(source: string, error: unknown): void {
 		this.inner.recordError(source, error);
-		// The reporter's latest-error slot is last-write-wins, so a snapshot
-		// overwritten between two reads would escape a scan of the slot; every
-		// snapshot's public rendering joins the line stream instead.
-		// Self-contained on purpose - it must not rely on the caller also
-		// having appended a message line.
+		// The reporter's latest-error slot is last-write-wins, so a snapshot overwritten between two reads would escape
+		// a scan of the slot; every snapshot's public rendering joins the line stream instead. Self-contained on
+		// purpose - it must not rely on the caller also having appended a message line.
 		const stack = publicErrorStack(error);
 		this.push(`[error] ${source}: ${publicErrorText(error)}${stack === undefined ? "" : `\n${stack}`}`);
 	}
@@ -642,11 +599,8 @@ export class SessionLogTee implements ErrorRecorder {
 	}
 
 	/**
-	 * Lines at sequence >= cursor, the next cursor, and how many lines the
-	 * cursor missed to eviction. A cursor past the end means the reader
-	 * outlived this tee: everything live is returned and the evicted prefix
-	 * reported, so a stale cursor degrades loudly instead of skipping the new
-	 * tee's early lines.
+	 *   A cursor past the end means the reader outlived this tee -> everything live is returned and the evicted
+	 *       prefix reported
 	 */
 	readSince(cursor: number): { next: number; lines: string[]; dropped: number } {
 		const end = this.firstSeq + this.lines.length;

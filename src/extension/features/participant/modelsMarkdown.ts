@@ -1,8 +1,7 @@
 /**
- * The /models answer: provider snapshots rendered as one markdown document,
- * zero network. The snapshot shape is injected by the wiring (a label per
- * provider group plus each model's ID and a prebuilt capability summary), so
- * the module stays pure and the bun tree can pin its output byte for byte.
+ * The /models answer: provider snapshots rendered as one markdown document, zero network. The snapshot shape is
+ * injected by the wiring (a label per provider group plus each model's ID and a prebuilt capability summary), so the
+ * module stays pure and the bun tree can pin its output byte for byte.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -13,16 +12,14 @@ export interface SnapshotModel {
 	readonly capabilities: string;
 }
 
-/** One provider group's last known models. */
 export interface ProviderSnapshot {
 	readonly label: string;
 	readonly models: readonly SnapshotModel[];
 }
 
 /**
- * A table cell: backslashes escape first so a preexisting one cannot disarm
- * the pipe escape that follows, and every CR or LF flattens to a space, so a
- * value can never break the row grid.
+ * A table cell: backslashes escape first so a preexisting one cannot disarm the pipe escape that follows, and every CR
+ * or LF flattens to a space, so a value can never break the row grid.
  */
 function cell(text: string): string {
 	return text
@@ -59,18 +56,15 @@ function byCodeUnit(a: string, b: string): number {
 }
 
 /**
- * Render the snapshots as markdown: one section per server, one row per
- * model, servers and models sorted by code unit with full-content
- * tie-breakers, so the same snapshots always render the same document
- * whatever order they arrive in. No servers and no models are each a plain
- * sentence instead of an empty grid.
+ * Render the snapshots as markdown: one section per server, one row per model, servers and models sorted by code unit
+ * with full-content tie-breakers, so the same snapshots always render the same document whatever order they arrive in.
  */
 export function modelsMarkdown(snapshots: readonly ProviderSnapshot[]): string {
 	if (snapshots.length === 0) {
 		return l10n.t("No LiteLLM servers are connected. Add one from the LiteLLM dashboard to see its models here.");
 	}
-	// The header cells go through the same escaping every value does: a
-	// translation is user-supplied text as far as the row grid is concerned.
+	// The header cells go through the same escaping every value does: a translation is user-supplied text as far as the
+	// row grid is concerned.
 	const header = `| ${cell(l10n.t("Model"))} | ${cell(l10n.t("Capabilities"))} |`;
 	const sections = snapshots.map((snapshot) => {
 		const heading = `### ${cell(snapshot.label)}`;

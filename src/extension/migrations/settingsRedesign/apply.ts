@@ -1,11 +1,7 @@
 /**
- * The thin applier around the pure pipeline: read the snapshot through the
- * configuration API, run the transform, execute the plan's writes at the User
- * (Global) scope, log the count lines. No SecretStorage access (blob keys and
- * field ids are unchanged and stored values keep working under the new entry
- * shape), no fingerprint touch (a migrated entry's group args are
- * byte-identical, except the wire-inert-fragment exception), and no idempotency
- * ledger (source-key absence is the state signal).
+ * No SecretStorage access (blob keys and field ids are unchanged and stored values keep working under the new entry
+ * shape), no fingerprint touch (a migrated entry's group args are byte-identical, except the wire-inert-fragment
+ * exception), and no idempotency ledger (source-key absence is the state signal).
  */
 
 import * as vscode from "vscode";
@@ -25,7 +21,6 @@ import {
 import { planSettingsRedesign } from "./transform";
 import type { SettingLayers, SettingsSnapshot } from "./types";
 
-/** The slice of WorkspaceConfiguration the migration needs; tests fake it. */
 export interface RedesignSettings {
 	inspect(section: string): SettingLayers | undefined;
 	update(section: string, value: unknown, target: vscode.ConfigurationTarget): Thenable<void>;
@@ -63,10 +58,8 @@ export function readRedesignSnapshot(setting: RedesignSettings): SettingsSnapsho
 }
 
 /**
- * Plan against the current user settings and execute: the writes in plan order
- * (values before deletions) at the Global target, then the count-only log
- * lines. Log lines can accompany a "nothing-to-do" outcome (workspace
- * leftovers, an inert global headers value, a blocked trio merge).
+ * Log lines can accompany a "nothing-to-do" outcome (workspace leftovers, an inert global headers value, a blocked trio
+ * merge).
  */
 export async function applySettingsRedesign(setting: RedesignSettings, logger: Logger): Promise<MigrationOutcome> {
 	const snapshot = readRedesignSnapshot(setting);
@@ -81,14 +74,8 @@ export async function applySettingsRedesign(setting: RedesignSettings, logger: L
 }
 
 /**
- * Migrates away from: the pre-redesign settings namespace of v0.4.4 and
- * earlier - the flat setting names, the flat entry fields, the global headers
- * setting, implicit-prefix record keys, server-URL-scoped global keys, the
- * default* token trio, and the `_declare` directive. Deletable once installs
- * carrying any of that state are judged extinct.
- *
- * Runs before registration so the first registration of a session already sees
- * the new-name settings and the restructured entries.
+ * Runs before registration so the first registration of a session already sees the new-name settings and the
+ * restructured entries.
  */
 export const settingsRedesignMigration: ExtensionMigration<"settings-redesign"> = {
 	state: "settings-redesign",

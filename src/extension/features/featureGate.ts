@@ -13,17 +13,14 @@ import {
  * so a rename fails this compile instead of leaving advice pointing at a dead setting.
  */
 
-/** The full enable-setting ID a disabled-feature hint names and its open-settings action targets. */
 export function featureEnableSettingId(feature: FeatureId): string {
 	return `${CONFIG_SECTION}.${FEATURE_ENABLE_SETTING_KEYS[feature]}`;
 }
 
-/** The full model-setting ID a no-model hint names and its open-settings action targets. */
 export function featureModelSettingId(feature: FeatureModelId): string {
 	return `${CONFIG_SECTION}.${FEATURE_MODEL_SETTING_KEYS[feature]}`;
 }
 
-/** The one disabled-feature sentence, localized; the English mirror is featureDisabledMessageEnglish. */
 export function featureDisabledMessage(feature: FeatureId): string {
 	return l10n.t(
 		'The {0} feature is off. Enable "{1}" in settings to use it.',
@@ -37,7 +34,6 @@ export function featureDisabledMessageEnglish(feature: FeatureId): string {
 	return `The ${featureEnglishName(feature)} feature is off. Enable "${featureEnableSettingId(feature)}" in settings to use it.`;
 }
 
-/** The one no-model sentence, localized; the English mirror is featureNoModelMessageEnglish. */
 export function featureNoModelMessage(feature: FeatureModelId): string {
 	return l10n.t(
 		'No model is configured for the {0} feature. Pick one via the "{1}" setting or the LiteLLM dashboard.',

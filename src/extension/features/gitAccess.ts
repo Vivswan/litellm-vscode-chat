@@ -2,19 +2,14 @@ import * as vscode from "vscode";
 import type { API, GitExtension, Repository } from "./gitApi";
 
 /**
- * The features' shared entry into the built-in Git extension. At the features/
- * root like gitApi.d.ts and featureChatSend.ts, because features may not import
- * each other (Biome-enforced) and every git-backed feature needs the same two
- * things: the API handle, and the repository one invocation targets. Copy per
- * feature is what this exists to prevent - the repository-picking rules
- * (command argument, single repository, quick pick, dismissal) are one
- * behavior, not one per command.
+ * The features' shared entry into the built-in Git extension. At the features/ root like gitApi.d.ts and
+ * featureChatSend.ts, because features may not import each other (Biome-enforced) and every git-backed feature needs
+ * the same two things: the API handle, and the repository one invocation targets.
+ *
+ *   Copy per feature -> what this exists to prevent
  */
 
-/**
- * The built-in Git extension's API, activating the extension when needed.
- * Undefined when it is unavailable or disabled (git.enabled: false).
- */
+/** Undefined when it is unavailable or disabled (git.enabled: false). */
 export async function resolveGitApi(): Promise<API | undefined> {
 	const extension = vscode.extensions.getExtension<GitExtension>("vscode.git");
 	if (extension === undefined) {
@@ -31,9 +26,8 @@ export interface RepositoryPickTexts {
 }
 
 /**
- * The repository the invocation targets: a menu button passes its SourceControl
- * (matched by rootUri), the palette gets the single open repository or a
- * picker. Undefined when there is none; "dismissed" when the user backed out of
+ * The repository the invocation targets: a menu button passes its SourceControl (matched by rootUri), the palette
+ * gets the single open repository or a picker. Undefined when there is none; "dismissed" when the user backed out of
  * the picker (silence, not advice, is the right answer).
  */
 export async function pickRepository(
@@ -68,9 +62,8 @@ export async function pickRepository(
  */
 export function documentLabel(uri: vscode.Uri): string {
 	const relative = vscode.workspace.asRelativePath(uri);
-	// asRelativePath returns the input untouched when nothing contains it; on
-	// Windows that is a drive path, so both separators count. A trailing
-	// separator (a folder URI) must not read as an empty name.
+	// asRelativePath returns the input untouched when nothing contains it; on Windows that is a drive path, so both
+	// separators count. A trailing separator (a folder URI) must not read as an empty name.
 	const outsideWorkspace = relative === uri.fsPath || relative === uri.path;
 	if (!outsideWorkspace) {
 		return relative;

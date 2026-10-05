@@ -20,14 +20,18 @@ import { createTitleAndDescriptionProvider } from "./provider";
  * The GitHub Pull Requests extension may be installed, enabled, or updated after this activation, so the
  * integration re-decides on extensions.onDidChange as well as on configuration changes.
  *
- *   palette command  -> registered unconditionally, the palette entry hides behind the when-clause but executeCommand and keybindings do not
- *   GHPR integration -> ONLY while enabled AND a model is configured, so a half-configured feature never offers a button in that create view
+ *   the palette entry hides behind the when-clause but executeCommand and keybindings do not
+ *     -> registered unconditionally
+ *   GHPR integration -> ONLY while enabled AND a model is configured, so a half-configured feature never offers a
+ *                       button in that create view
  */
 
-/** The GitHub Pull Requests extension's identifier, as published. */
 const GHPR_EXTENSION_ID = "GitHub.vscode-pull-request-github";
 
-/** Sends one assembled prompt to the configured model; the shared seam the command, the provider, and the probe run through. */
+/**
+ * Sends one assembled prompt to the configured model; the shared seam the command, the provider, and the probe run
+ * through.
+ */
 export type PrGenerationModelSend = (
 	model: FeatureModelRef,
 	prompt: string,
@@ -35,10 +39,10 @@ export type PrGenerationModelSend = (
 ) => Promise<string>;
 
 /**
- * The one PR-generation send pipeline: the features' shared send composition
- * (featureChatSend: connection resolution, the prGeneration error surface, the
- * chat timeout) over one user turn. models.parameters records deliberately do
- * NOT apply here - this is not the chat path.
+ * The one PR-generation send pipeline: the features' shared send composition (featureChatSend: connection resolution,
+ * the prGeneration error surface, the chat timeout) over one user turn.
+ *
+ * models.parameters records deliberately do NOT apply here - this is not the chat path.
  */
 function createPrSend(
 	secrets: vscode.SecretStorage,
@@ -50,12 +54,10 @@ function createPrSend(
 }
 
 /**
- * The dashboard's test-model probe: the shared send over a fixed sample branch,
- * through the same prompt assembly and the same lenient parse the real feature
- * runs, so a green probe proves the model can produce a parseable answer rather
- * than merely that it replied. The sample is a tiny two-commit branch with one
- * patch hunk; the probe returns the parsed title, so an unparseable reply
- * surfaces as the empty-answer warning instead of a false success.
+ * The dashboard's test-model probe: the shared send over a fixed sample branch, through the same prompt assembly and
+ * the same lenient parse the real feature runs, so a green probe proves the model can produce a parseable answer
+ * rather than merely that it replied. The sample is a tiny two-commit branch with one patch hunk; the probe returns
+ * the parsed title, so an unparseable reply surfaces as the empty-answer warning instead of a false success.
  */
 export function createPrProbe(send: PrGenerationModelSend): (model: FeatureModelRef) => Promise<string | undefined> {
 	return (model) =>
@@ -67,9 +69,8 @@ export function createPrProbe(send: PrGenerationModelSend): (model: FeatureModel
 }
 
 /**
- * The probe's canned branch: two commit messages and one small patch, enough
- * for any model to produce a title and a sentence. Nothing here is read from
- * the user's repository - a probe must never send a real diff.
+ * The probe's canned branch: two commit messages and one small patch, enough for any model to produce a title and a
+ * sentence. Nothing here is read from the user's repository - a probe must never send a real diff.
  */
 const PROBE_CONTEXT: TitleAndDescriptionContext = {
 	commitMessages: ["feat: add a retry to the upload path", "test: cover the upload retry"],
@@ -88,11 +89,6 @@ const PROBE_CONTEXT: TitleAndDescriptionContext = {
 	compareBranch: "feature/upload-retry",
 };
 
-/**
- * The branch the upstream context names, looked up across the open
- * repositories. Undefined when nothing can name it - no git API, no repository
- * carrying the branch, or no branch name in the context at all.
- */
 async function resolveCompareBranch(
 	compareBranch: string | undefined,
 	resolveGit: () => Promise<API | undefined>
@@ -104,10 +100,9 @@ async function resolveCompareBranch(
 	if (git === undefined) {
 		return undefined;
 	}
-	// A multi-root workspace can carry the same branch name in several
-	// repositories, and only the tracking state of the RIGHT one says anything
-	// about the order. The repository standing on that branch is asked first;
-	// the rest are a fallback, since the upstream context names no repository.
+	// A multi-root workspace can carry the same branch name in several repositories, and only the tracking state of
+	// the RIGHT one says anything about the order. The repository standing on that branch is asked first; the rest are
+	// a fallback, since the upstream context names no repository.
 	const ordered = [...git.repositories].sort((left, right) => {
 		const leftIsHead = left.state.HEAD?.name === compareBranch ? 0 : 1;
 		const rightIsHead = right.state.HEAD?.name === compareBranch ? 0 : 1;
@@ -124,11 +119,10 @@ async function resolveCompareBranch(
 }
 
 /**
- * The provider handed to the GitHub Pull Requests extension: the shared
- * pipeline behind one call-site normalization. That extension builds
- * `commitMessages` oldest-first or newest-first depending on how it collected
- * them, and the prompt reads the list's tail as the recent end, so the order is
- * settled here - before any prompt exists - rather than guessed downstream.
+ * The provider handed to the GitHub Pull Requests extension: the shared pipeline behind one call-site normalization.
+ *
+ *   That extension builds `commitMessages` oldest-first or newest-first depending on how it collected them
+ *     -> the order is settled here - before any prompt exists - rather than guessed downstream
  */
 export function createGhprProvider(
 	send: PrGenerationModelSend,
@@ -138,19 +132,16 @@ export function createGhprProvider(
 ): TitleAndDescriptionProvider {
 	return {
 		async provideTitleAndDescription(context, token) {
-			// Re-read BOTH gates per call, not just the model: the registration is
-			// torn down asynchronously, so a call can arrive after the user turned
-			// the feature off, and no repository content may leave on that call.
+			// Re-read BOTH gates per call, not just the model: the registration is torn down asynchronously, so a call
+			// can arrive after the user turned the feature off, and no repository content may leave on that call.
 			const ref = isFeatureEnabled("prGeneration") ? model() : undefined;
 			if (ref === undefined) {
-				// A settings change racing an in-flight call: answer "could not",
-				// which is the upstream API's own value for it, never a request.
 				return undefined;
 			}
 			try {
 				const branch = await resolveCompareBranch(context.compareBranch, resolveGit);
-				// An unresolvable branch is not a branch without an upstream: leave
-				// the list exactly as it arrived rather than reversing on a guess.
+				// An unresolvable branch is not a branch without an upstream: leave the list exactly as it arrived
+				// rather than reversing on a guess.
 				const order = branch === undefined ? "oldestFirst" : ghprCommitOrder(branch);
 				const normalized: TitleAndDescriptionContext = {
 					...context,
@@ -159,12 +150,10 @@ export function createGhprProvider(
 				const provider = createTitleAndDescriptionProvider((prompt, cancellation) => send(ref, prompt, cancellation));
 				return await provider.provideTitleAndDescription(normalized, token);
 			} catch (error) {
-				// This call arrived from ANOTHER extension, so it is its own logging
-				// boundary: a thrown RequestError carries server-derived text in its
-				// message, and letting it escape would hand that text to that
-				// extension's logger. Only the classification is recorded, and the
-				// upstream API's "could not" value goes back. Cancellation is never
-				// logged.
+				// This call arrived from ANOTHER extension, so it is its own logging boundary: a thrown RequestError
+				// carries server-derived text in its message, and letting it escape would hand that text to that
+				// extension's logger. Only the classification is recorded, and the upstream API's "could not" value
+				// goes back.
 				if (!(error instanceof vscode.CancellationError)) {
 					log(`PR generation: the GitHub Pull Requests generation failed (${errorLabel(error)})`);
 				}
@@ -175,10 +164,10 @@ export function createGhprProvider(
 }
 
 /**
- * Activating the other extension is deliberate and happens only once the user has enabled this feature and
- * picked a model, since its exports are unreadable until it activates. `reportActivationFailure` is the
- * caller's channel-only advisory sink, Logger.advisory, because the decision reruns on every settings and
- * extension change, and a broken install must not evict real history from the small issue-report ring.
+ * Activating the other extension is deliberate and happens only once the user has enabled this feature and picked a
+ * model, since its exports are unreadable until it activates. `reportActivationFailure` is the caller's channel-only
+ * advisory sink, Logger.advisory, because the decision reruns on every settings and extension change, and a broken
+ * install must not evict real history from the small issue-report ring.
  */
 async function resolveGhprApi(
 	reportActivationFailure: (message: string) => void
@@ -191,28 +180,26 @@ async function resolveGhprApi(
 	try {
 		api = extension.isActive ? extension.exports : await extension.activate();
 	} catch (error) {
-		// Another extension failing to activate is its problem, not a failure of
-		// ours: classification only, and the feature simply stays unregistered.
+		// Another extension failing to activate is its problem, not a failure of ours: classification only, and the
+		// feature simply stays unregistered.
 		reportActivationFailure(
 			`PR generation: the GitHub Pull Requests extension failed to activate (${errorLabel(error)})`
 		);
 		return undefined;
 	}
-	// Feature detection, not version detection: builds predating the provider
-	// API have no such member, and a future build could drop it again.
+	// Feature detection, not version detection: builds predating the provider API have no such member, and a future
+	// build could drop it again.
 	return typeof api?.registerTitleAndDescriptionProvider === "function" ? api : undefined;
 }
 
 /**
- * The registration state machine, extracted from the wiring so it can be
- * driven directly: `apply` is re-entrant and re-runs the whole decision, which
- * is what makes it correct to bind to any number of change events. It owns
- * exactly one registration handle, keyed by the API object it was made
- * against - a reinstall of the other extension mints a new object, and the
- * stale handle must be released rather than reused.
+ * The registration state machine, extracted from the wiring so it can be driven directly: `apply` is re-entrant and
+ * re-runs the whole decision, which is what makes it correct to bind to any number of change events. It owns exactly
+ * one registration handle, keyed by the API object it was made against - a reinstall of the other extension mints a
+ * new object, and the stale handle must be released rather than reused.
  */
 export interface GhprRegistrar {
-	/** Re-decide the registration. Safe to call repeatedly and concurrently; the last call wins. */
+	/** Safe to call repeatedly and concurrently; the last call wins. */
 	apply(): Promise<void>;
 	dispose(): void;
 }
@@ -226,12 +213,11 @@ export function createGhprRegistrar(deps: {
 	readonly log: (message: string, data?: unknown) => void;
 }): GhprRegistrar {
 	let registration: vscode.Disposable | undefined;
-	/** The exact API object the live registration was made against. */
 	let registeredApi: GitHubPullRequestsApi | undefined;
 	/** Terminal: once disposed, no apply may register again whatever fires afterwards. */
 	let disposed = false;
-	// Every apply takes a ticket; a continuation whose ticket is stale lost the
-	// race to a later decision and must not act on what it read before its await.
+	// Every apply takes a ticket; a continuation whose ticket is stale lost the race to a later decision and must not
+	// act on what it read before its await.
 	let ticket = 0;
 	const release = (): void => {
 		registration?.dispose();
@@ -239,11 +225,9 @@ export function createGhprRegistrar(deps: {
 		registeredApi = undefined;
 	};
 	/**
-	 * Disposal must also invalidate every in-flight apply: one awaiting the
-	 * other extension's activation would otherwise resume afterwards and
-	 * register a provider nothing will ever dispose - and, since that extension
-	 * hands an unqualified request to the FIRST registered provider, a dead one
-	 * would answer for the rest of the window.
+	 * Disposal must also invalidate every in-flight apply: one awaiting the other extension's activation would
+	 * otherwise resume afterwards and register a provider nothing will ever dispose - and, since that extension hands
+	 * an unqualified request to the FIRST registered provider, a dead one would answer for the rest of the window.
 	 */
 	const dispose = (): void => {
 		disposed = true;
@@ -261,12 +245,12 @@ export function createGhprRegistrar(deps: {
 				return;
 			}
 			if (registration !== undefined && registeredApi === api) {
-				// Already registered against this exact API object; re-registering
-				// would add a second provider to that extension's set.
+				// Already registered against this exact API object; re-registering would add a second provider to that
+				// extension's set.
 				return;
 			}
-			// Anything else - disabled, model cleared, the extension uninstalled or
-			// reactivated - invalidates the handle we hold.
+			// Anything else - disabled, model cleared, the extension uninstalled or reactivated - invalidates the
+			// handle we hold.
 			release();
 			if (api?.registerTitleAndDescriptionProvider === undefined) {
 				return;
@@ -275,8 +259,8 @@ export function createGhprRegistrar(deps: {
 				registration = api.registerTitleAndDescriptionProvider(deps.title(), deps.provider());
 				registeredApi = api;
 			} catch (error) {
-				// A registration refused by the other extension leaves the feature's
-				// own command working; nothing here is worth failing activation over.
+				// A registration refused by the other extension leaves the feature's own command working; nothing here
+				// is worth failing activation over.
 				deps.log(`PR generation: registering with the GitHub Pull Requests extension failed (${errorLabel(error)})`);
 			}
 		},
@@ -285,9 +269,8 @@ export function createGhprRegistrar(deps: {
 }
 
 /**
- * Wire the feature. Returns the send so the dashboard's test-model probe runs
- * the exact pipeline the command and the GitHub integration run (one pipeline,
- * one truth).
+ * Returns the send so the dashboard's test-model probe runs the exact pipeline the command and the GitHub integration
+ * run (one pipeline, one truth).
  */
 export function wirePrGeneration(
 	context: vscode.ExtensionContext,
@@ -310,27 +293,27 @@ export function wirePrGeneration(
 		logger.advisory(message);
 	};
 	const registrar = createGhprRegistrar({
-		// The channel-only advisory sink, because this decision reruns on every
-		// settings change and every extension change: a half-written model ref
-		// stays visible in the output channel without evicting real history from
-		// the 50-entry issue-report ring. A real invocation still reports the
-		// same malformed setting with the buffer-logging sink attached - the
-		// command and the provider both read it that way.
+		// The channel-only advisory sink, because this decision reruns on every settings change and every extension
+		// change: a half-written model ref stays visible in the output channel without evicting real history from the
+		// 50-entry issue-report ring. A real invocation still reports the same malformed setting with the
+		// buffer-logging sink attached - the command and the provider both read it that way.
 		wanted: () =>
 			isFeatureEnabled("prGeneration") &&
 			getFeatureModelRef("prGeneration", (message, data) => {
 				logger.advisory(message, data);
 			}) !== undefined,
 		resolveApi: () => resolveGhprApi(reportActivationFailure),
-		// Never a title containing "Copilot": that extension selects a provider by
-		// case-insensitive substring, and that word is the search term of a slot
-		// this extension has no business answering.
+		// Never a title containing "Copilot": that extension selects a provider by case-insensitive substring, and that
+		// word is the search term of a slot this extension has no business answering.
 		title: prGenerationProviderTitle,
 		// The model is read per call, so a model change needs no re-registration.
 		provider: () => createGhprProvider(prSend, () => getFeatureModelRef("prGeneration", log), log),
 		log,
 	});
-	/** Fire-and-forget with a floor: the decision is best-effort, and a rejection is a log line, never an unhandled one. */
+	/**
+	 * Fire-and-forget with a floor: the decision is best-effort, and a rejection is a log line, never an unhandled
+	 * one.
+	 */
 	const scheduleRegistration = (): void => {
 		void registrar.apply().catch((error: unknown) => {
 			log(`PR generation: deciding the GitHub Pull Requests registration failed (${errorLabel(error)})`);
@@ -344,8 +327,6 @@ export function wirePrGeneration(
 				scheduleRegistration();
 			}
 		}),
-		// The GitHub extension can arrive, leave, or be re-enabled long after
-		// activation; without this the integration would need a window reload.
 		vscode.extensions.onDidChange(scheduleRegistration),
 		new vscode.Disposable(() => {
 			registrar.dispose();

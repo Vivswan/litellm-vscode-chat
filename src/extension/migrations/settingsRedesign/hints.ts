@@ -1,10 +1,7 @@
 /**
- * Dashboard hints for legacy leftovers the redesign migration deliberately
- * leaves in place. DERIVED, never persisted: each hint is recomputed from
- * the live configuration, so it appears exactly while the inert state exists
- * and disappears the moment a later activation's migration pass (or the
- * user) resolves it. Dumb data on purpose - the dashboard (not this module)
- * decides presentation and localization.
+ * Dumb data on purpose - the dashboard (not this module) decides presentation and localization.
+ *
+ *   each hint is recomputed from the live configuration -> DERIVED, never persisted
  */
 
 import { isRecord } from "../../../shared/util/json";
@@ -24,9 +21,7 @@ export interface LegacyHint {
 export interface LegacyHintInput {
 	/** The global `headers` value (the removed setting's leftover), as configured. */
 	readonly globalHeadersValue: unknown;
-	/** The models.parameters setting value, as configured. */
 	readonly modelParametersValue: unknown;
-	/** The models.capabilities setting value, as configured. */
 	readonly modelCapabilitiesValue: unknown;
 }
 
@@ -40,11 +35,7 @@ function scopedKeyHints(value: unknown, settingId: string): LegacyHint[] {
 }
 
 /**
- * Every legacy leftover worth a dashboard hint: server-URL-scoped keys still
- * sitting in a global record (they match no model ID under the new grammar)
- * and a global headers value no entry could receive. Base URLs are user text -
- * the hints are for the local dashboard only and must never reach logs or
- * issue reports.
+ *   Base URLs are user text -> must never reach logs or issue reports
  */
 export function collectLegacyHints(input: LegacyHintInput): LegacyHint[] {
 	const hints = [

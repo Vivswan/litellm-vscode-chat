@@ -14,11 +14,11 @@ import { joinDeclared, labeledSnapshots } from "../dashboard/declaredJoin";
 import type { DeclaredServerView, SyncFailure } from "./serverSync";
 
 /**
- * What a declared entry presents, decided from its live status and its sync
- * failure. A sync failure outranks the live status - even a healthy one, since
- * the group the host serves is the entry's OLD configuration - while the served
- * count stays the live truth (the group keeps serving what it had); an entry
- * with no live status at all has no group behind it, so nothing serves.
+ * What a declared entry presents, decided from its live status and its sync failure.
+ *
+ *   the group the host serves is the entry's OLD configuration
+ *     -> a sync failure outranks the live status - even a healthy one
+ *   the group keeps serving what it had -> the served count stays the live truth
  */
 export type DeclaredPresentation =
 	| { readonly kind: "sync-failed"; readonly servedModelCount: number; readonly failure: SyncFailure }
@@ -36,11 +36,9 @@ export function declaredPresentation(
 }
 
 /**
- * A sync failure as a window-shaped error status. The display text is the
- * engine's classified message; the log rendering is rebuilt from the failure
- * CLASS alone (enum ids, so it stays log-legal by construction even if a
- * future engine text ever embeds entry-derived detail). The failure carries
- * both by construction, so no fallback classification exists here.
+ * The display text is the engine's classified message; the log rendering is rebuilt from the failure CLASS alone (enum
+ * ids, so it stays log-legal by construction even if a future engine text ever embeds entry-derived detail). The
+ * failure carries both by construction, so no fallback classification exists here.
  */
 function syncFailureStatus(
 	identity: Pick<ServerStatus, "serverId" | "label" | "entryLabel" | "baseUrl" | "lastChecked" | "hasApiKey">,
@@ -61,13 +59,15 @@ function syncFailureStatus(
 }
 
 /**
- * Joined by the same passes the dashboard's servers table renders from (joinDeclared), so both surfaces blame
- * one snapshot.
+ * Joined by the same passes the dashboard's servers table renders from (joinDeclared), so both surfaces blame one
+ * snapshot.
  *
- *   upsertFailed, no live status       -> synthetic error serving nothing, so the failed add shows before any group reports
- *   blocked or skipped, no live status -> nothing; a live group may hold the name or keep serving, so absence proves nothing about the group
- *
- * A synthesized dead error there would race the first discovery report red and fire a toast no later report can retract.
+ *   upsertFailed, no live status                   -> synthetic error serving nothing
+ *   synthetic error serving nothing                -> the failed add shows before any group reports
+ *   blocked or skipped, no live status             -> nothing
+ *   a live group may hold the name or keep serving -> absence proves nothing about the group
+ *   A synthesized dead error there                 -> would race the first discovery report red and fire a toast no
+ *                                                     later report can retract
  */
 export function applySyncFailures(
 	statuses: readonly ServerStatus[],
@@ -91,9 +91,8 @@ export function applySyncFailures(
 		} else if (presentation.failure.class === "upsertFailed") {
 			unseen.push(
 				syncFailureStatus(
-					// "" is the established missing-value sentinel for both fields
-					// (restoreServerStatus writes the same), and the empty serverId is
-					// no group client ID, so group-scoped consumers skip the synthetic
+					// "" is the established missing-value sentinel for both fields (restoreServerStatus writes the
+					// same), and the empty serverId is no group client ID, so group-scoped consumers skip the synthetic
 					// status.
 					{ serverId: "", label: view.label, baseUrl: view.baseUrl, lastChecked: "" },
 					presentation

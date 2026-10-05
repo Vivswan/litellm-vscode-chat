@@ -1,15 +1,8 @@
 /**
- * The Resolved-models view builder: the Diagnostics tab's two renderings of
- * the precomputed resolution - the matcher-key inheritance trees and the flat
- * per-model provenance table - computed extension-side from the SAME
- * resolvers the request path and registration run, so what the tab shows is
- * exactly what will be sent.
- *
- * The tree is drawn against the live model set: each record nests under the
- * record that most often precedes it in the per-model matching chains, models
- * leaf under their most specific match, and records no current model matches
- * sit at the root with no leaves. Everything out is serializable data; the
- * view is local to the dashboard and never enters issue reports.
+ * The Resolved-models view builder: the Diagnostics tab's two renderings of the precomputed resolution - the
+ * matcher-key inheritance trees and the flat per-model provenance table - computed extension-side from the SAME
+ * resolvers the request path and registration run, so what the tab shows is exactly what will be sent. Everything out
+ * is serializable data; the view is local to the dashboard and never enters issue reports.
  */
 
 import { formatJsonValue } from "../../dashboard/presenters";
@@ -61,16 +54,14 @@ export interface ResolvedModelsQuery {
 	readonly resolveEntryParameters: (serverId: string) => EntryParametersResolution | undefined;
 	readonly resolveEntryCapabilities: (serverId: string) => EntryCapabilitiesRecord | undefined;
 	/**
-	 * The declared entries' own record maps, straight from the setting: the
-	 * entry TREES draw from these so an entry whose server currently serves
-	 * zero models still renders its records (with empty leaves).
+	 * The declared entries' own record maps, straight from the setting: the entry TREES draw from these so an entry
+	 * whose server currently serves zero models still renders its records (with empty leaves).
 	 */
 	readonly declared: readonly Pick<DeclaredServerView, "label" | "modelParameters" | "modelCapabilities">[];
 	readonly catalog: CapabilityCatalogLookup;
 	readonly resolution?: ModelResolutionTable | undefined;
 }
 
-/** One model as the builder walks it: identity plus the per-server records that apply to it. */
 interface WalkModel {
 	readonly serverId: string;
 	readonly serverLabel: string;
@@ -82,7 +73,6 @@ interface WalkModel {
 	readonly serverDeclared: ServerDeclaredCapabilities;
 }
 
-/** The `_inherit_from` directive's display facts for a tree node. */
 function inheritDisplay(parsed: ParsedRecord): { barrier: boolean; inheritFrom?: string } {
 	switch (parsed.inheritFrom.kind) {
 		case "default":
@@ -98,7 +88,6 @@ function inheritDisplay(parsed: ParsedRecord): { barrier: boolean; inheritFrom?:
 	}
 }
 
-/** One record's own fields with their marks, for a tree node. */
 function nodeFields(parsed: ParsedRecord): RecordTreeNode["fields"] {
 	return Object.entries(parsed.fields).map(([name, value]) => ({
 		name,
@@ -110,10 +99,9 @@ function nodeFields(parsed: ParsedRecord): RecordTreeNode["fields"] {
 }
 
 /**
- * One record map's matching chain for a model, as the inspectors' inheritance
- * figure renders it: matchChain's order (broadest first, the winner last)
- * with each record's inheritance display facts. The read responders reuse
- * this so the figure cannot drift from the Diagnostics trees.
+ * One record map's matching chain for a model, as the inspectors' inheritance figure renders it: matchChain's order
+ * (broadest first, the winner last) with each record's inheritance display facts. The read responders reuse this so the
+ * figure cannot drift from the Diagnostics trees.
  */
 function recordChainLinks(
 	rawId: string,
@@ -130,7 +118,6 @@ function recordChainLinks(
 	});
 }
 
-/** What resolveModelRecordChains reads; panel.ts supplies the same live stores the responders use. */
 export interface ModelRecordChainsQuery {
 	readonly snapshots: readonly ServerModelsSnapshot[];
 	readonly reader: SettingsReader;
@@ -139,11 +126,9 @@ export interface ModelRecordChainsQuery {
 }
 
 /**
- * One model's matching chains for the inspectors' inheritance figure, in the
- * figure's one reading direction - lower precedence first, winner last: the
- * global map's chain above the entry map's, each chain itself broadest first.
- * Maps that match nothing contribute no chain; a stale scope key or a model no
- * longer in its snapshot resolves to none.
+ * One model's matching chains for the inspectors' inheritance figure, in the figure's one reading direction - lower
+ * precedence first, winner last: the global map's chain above the entry map's, each chain itself broadest first. Maps
+ * that match nothing contribute no chain; a stale scope key or a model no longer in its snapshot resolves to none.
  */
 export function resolveModelRecordChains(
 	query: ModelRecordChainsQuery,
@@ -171,8 +156,7 @@ export function resolveModelRecordChains(
 			: ([
 					normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY)),
 					query.resolveEntryCapabilities(serverId),
-					// The capability resolver hands back only the record; the entry's
-					// label is the group's.
+					// The capability resolver hands back only the record; the entry's label is the group's.
 					labeled.snapshot.status.label,
 					(record: Readonly<Record<string, unknown>>) => parseCapabilityRecord(record),
 				] as const);
@@ -190,13 +174,6 @@ export function resolveModelRecordChains(
 	return chains;
 }
 
-/**
- * Build one record map's tree against the models it applies to. Chains order
- * records broadest first; each record's parent is its most frequent
- * immediate predecessor across the chains (records first in every chain, and
- * records matching no model, sit at the root). Leaves land under the model's
- * most specific match, showing the chain's resolved view for that model.
- */
 function buildTree(
 	kind: "parameters" | "capabilities",
 	layer: "global" | "entry",
@@ -209,8 +186,8 @@ function buildTree(
 	const parentVotes = new Map<string, Map<string, number>>();
 	const leavesByKey = new Map<string, { id: string; resolvedText: string }[]>();
 	const unmatched: string[] = [];
-	// Seeded map-wide, not from the visited chains: an invalid key must report
-	// even when no model exists to walk a chain past it.
+	// Seeded map-wide, not from the visited chains: an invalid key must report even when no model exists to walk a
+	// chain past it.
 	const invalidKeys = new Set<string>();
 	for (const key of Object.keys(records)) {
 		if (!parseMatcherKey(key).ok) {
@@ -250,8 +227,6 @@ function buildTree(
 		}
 	}
 
-	// One parent per record: the most-voted immediate predecessor. Records in
-	// no chain (no live model matches them) parent at the root.
 	const parentOf = new Map<string, string>();
 	for (const key of Object.keys(records)) {
 		if (invalidKeys.has(key)) {
@@ -283,8 +258,8 @@ function buildTree(
 	const buildNode = (key: string, seen: ReadonlySet<string>): RecordTreeNode => {
 		const parsed = parse(records[key] ?? {}, key);
 		const inherit = inheritDisplay(parsed);
-		// The vote-based parent map cannot cycle (chains are acyclic per model),
-		// but the guard keeps a future edge case from recursing forever.
+		// The vote-based parent map cannot cycle (chains are acyclic per model), but the guard keeps a future edge case
+		// from recursing forever.
 		const nextSeen = new Set(seen).add(key);
 		return {
 			key,
@@ -329,8 +304,6 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 		}));
 	});
 
-	// The flat table: one row per (server, model), parameters and capabilities
-	// resolved through the shared table when one rides the query.
 	const rows: ResolvedModelRow[] = models.map((model) => {
 		const parameterInputs = {
 			globalParameters,
@@ -398,8 +371,6 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 	});
 	rows.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.rawId.localeCompare(b.rawId));
 
-	// The trees: the two global maps against every model, plus each entry's
-	// own maps against that entry's models.
 	const allModels = models.map((model) => ({ id: model.rawId }));
 	const trees: RecordTreeView[] = [];
 	const parseCapability = (record: Readonly<Record<string, unknown>>) => parseCapabilityRecord(record);
@@ -429,9 +400,6 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 			)
 		);
 	}
-	// Entry trees draw from the DECLARED views, never from the live model set:
-	// an entry whose server serves zero models right now must still render its
-	// records. Its models, when any exist, join by the resolved entry label.
 	let entryRecordCount = 0;
 	for (const view of query.declared) {
 		const entryModels = models.filter((candidate) => candidate.entryLabel === view.label).map((m) => ({ id: m.rawId }));
