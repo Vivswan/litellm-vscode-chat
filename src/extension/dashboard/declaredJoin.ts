@@ -62,8 +62,9 @@ export type JoinPass = "identity" | "connection" | "label-url" | "url";
  * non-exclusively (groups created before entry labels flowed into their
  * configurations report under one shared identity, and every entry mirroring
  * that connection is honestly described by it), then label plus base URL, then
- * base URL alone. Shared by the state builder and the adopt intent's source
- * resolution, which must agree on which snapshots are external.
+ * base URL alone for every identity but a label-bound one. Shared by the state
+ * builder and the adopt intent's source resolution, which must agree on which
+ * snapshots are external.
  */
 export function joinDeclared(
 	labeled: readonly LabeledSnapshot[],
@@ -101,7 +102,8 @@ export function joinDeclared(
 		},
 		{
 			pass: "url",
-			match: (snapshot, view) => normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
+			match: (snapshot, view) =>
+				view.labelBound !== true && normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
 		},
 	];
 	for (const pass of passes) {

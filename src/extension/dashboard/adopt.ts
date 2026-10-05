@@ -53,10 +53,11 @@ export interface ExternalGroupResolution {
  * resolution (ServerSyncEngine.resolveDeclaredIdentities), so a stale or forged handle cannot land on a group the
  * setting declares now, and cannot re-point at another host.
  *
- *   identity matched by an ID pass          -> that group is its own; the rest at its URL stay external
- *   matched by label and URL, by URL alone, -> its own group could be any group at its URL (a reject has no IDs; an
- *   or not at all                              entry whose credentials changed no longer matches its old group), so
- *                                              every unmatched group there stays off limits
+ *   snapshot joinDeclared matched to an identity  -> declared (by ID, else by label and URL; an accepted entry also by
+ *                                                    URL alone, a rejected carrier never)
+ *   snapshot stamped with a declared label        -> that entry's group, past or present (a moved entry leaves one
+ *                                                    behind); never external, whatever its URL
+ *   any other snapshot at a declared entry's URL  -> external: a native group beside a declared one stays adoptable
  */
 function resolveExternalSnapshot(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -65,19 +66,13 @@ function resolveExternalSnapshot(
 	sourceHandle: string
 ): ServerModelsSnapshot | undefined {
 	const labeled = labeledSnapshots(snapshots);
-	const { unmatched, matchedByDeclared } = joinDeclared(labeled, declared);
-	const reserved = new Set<string>();
-	declared.forEach((identity, index) => {
-		const pass = matchedByDeclared.get(index)?.pass;
-		if (pass !== "identity" && pass !== "connection") {
-			reserved.add(normalizeBaseUrl(identity.baseUrl));
-		}
-	});
+	const { unmatched } = joinDeclared(labeled, declared);
+	const declaredLabels = new Set(declared.map((identity) => identity.label));
 	return [...unmatched].find(
 		(entry) =>
 			adoptSourceHandle(entry.snapshot.status.serverId) === sourceHandle &&
 			normalizeBaseUrl(entry.snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl) &&
-			!reserved.has(normalizeBaseUrl(entry.snapshot.status.baseUrl))
+			(entry.snapshot.entryLabel === undefined || !declaredLabels.has(entry.snapshot.entryLabel))
 	)?.snapshot;
 }
 

@@ -25,7 +25,6 @@ import { inlineSecretValues, resolveOwnedSecrets, secretLocations } from "./secr
 import type { DeclaredServer } from "./setting";
 import {
 	acceptedEntry,
-	drawableRejects,
 	parseServersSetting,
 	rawDeclaredLabels,
 	serverSettingReports,
@@ -62,12 +61,16 @@ export interface SyncFailure {
  *
  *   expectedClientId     -> the client ID the entry's resolved configuration produces, the identity the provider stamps on its status snapshots
  *   expectedConnectionId -> the same without the entry label; groups created before labels flowed into the configuration report under it
+ *   labelBound           -> a rejected carrier's identity: no configuration could have created a group for it under
+ *                           another name, so the join claims only the group named by its label at its URL, never one
+ *                           by URL alone
  */
 export interface DeclaredGroupIdentity {
 	readonly label: string;
 	readonly baseUrl: string;
 	readonly expectedClientId?: string | undefined;
 	readonly expectedConnectionId?: string | undefined;
+	readonly labelBound?: true;
 }
 
 /** One consistent reading: the identities and the raw setting value they were derived from (ServerSyncEngine.resolveDeclaredIdentities). */
@@ -453,13 +456,14 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 * A valid earlier shape of a now-rejected entry may have created its group, and the pass still treats a present
 	 * label as declared (stillDeclaredIn; finishPass on a non-array container).
 	 *
-	 *   drawable reject                                          -> a label-and-URL identity, so its group stays declared
-	 *   a label with no URL to join on, or a non-array container -> indeterminate; the reading rejects
+	 *   rejected carrier with a label and a URL, a sibling included -> a label-bound identity; the join claims the group
+	 *                                                                  the host names with that label there, nothing else
+	 *   carrier with a label and no URL, or a non-array container  -> indeterminate; the reading rejects
 	 */
 	private async readDeclaredPair(): Promise<{
 		setting: unknown;
 		entries: { entry: DeclaredServer; stored: StoredServerSecrets }[];
-		rejected: DeclaredEntryIdentity[];
+		rejected: DeclaredGroupIdentity[];
 	}> {
 		const setting: unknown = structuredClone(this.env.readServersSetting());
 		if (!Array.isArray(setting)) {
@@ -469,16 +473,15 @@ export class ServerSyncEngine implements vscode.Disposable {
 		for (const entry of parseServersSetting(setting).entries) {
 			entries.push({ entry, stored: resolveOwnedSecrets(entry, await this.env.readSecrets(entry.label)).values });
 		}
-		const accepted = new Set(entries.map(({ entry }) => entry.label));
-		const rejected = drawableRejects(serverSettingReports(setting), accepted).map(({ label, baseUrl }) => ({
-			label,
-			baseUrl,
-		}));
-		const joinable = new Set([...accepted, ...rejected.map(({ label }) => label)]);
-		for (const label of rawDeclaredLabels(setting)) {
-			if (!joinable.has(label)) {
+		const rejected: DeclaredGroupIdentity[] = [];
+		for (const report of serverSettingReports(setting)) {
+			if (report.accepted || report.label === undefined) {
+				continue;
+			}
+			if (report.baseUrl === undefined) {
 				throw new IndeterminateServersSettingError();
 			}
+			rejected.push({ label: report.label, baseUrl: report.baseUrl, labelBound: true });
 		}
 		return { setting, entries, rejected };
 	}
