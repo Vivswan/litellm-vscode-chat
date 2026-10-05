@@ -14,6 +14,8 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { type FailureSink, logFailure } from "../../../provider/catalog/discoveryLog";
+import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
+import { rejectedCredentialKinds } from "../../../provider/catalog/groupModels";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
@@ -21,7 +23,7 @@ import type { MirroredError } from "../../../shared/mirroredError";
 import { localizedError } from "../../../shared/mirroredError";
 import type { McpOptIn } from "../../../shared/serverEntry";
 import { displayUrl } from "../../../shared/util/displayUrl";
-import type { EntryConnectionRefusal } from "../../servers/entryConnection";
+import type { EntryConnectionRefused } from "../../servers/entryConnection";
 import { entryConnectionFor } from "../../servers/entryConnection";
 import type { DeclaredServer } from "../../servers/serverSync/setting";
 import { parseServersSetting } from "../../servers/serverSync/setting";
@@ -100,21 +102,33 @@ function definitionOf(descriptor: McpDefinitionDescriptor): vscode.McpHttpServer
  *     -> a new member does not compile until it has a case, and localizedError will not take that case without its
  *        English mirror
  */
-type McpRefusal = "not-published" | "stale-secrets" | "secrets-unreadable" | "changed-during-resolve";
+type McpRefusal =
+	| { readonly kind: "not-published" | "stale-secrets" | "secrets-unreadable" | "changed-during-resolve" }
+	| {
+			readonly kind: "refused-credentials";
+			readonly fields: readonly [RejectedCredentialField, ...RejectedCredentialField[]];
+	  };
 
 /** Total over the connection refusals, so a new one does not compile until it says which sentence it gets. */
-const MCP_REFUSAL_FOR: Readonly<Record<EntryConnectionRefusal, McpRefusal>> = {
-	noEntry: "not-published",
-	secretsMismatched: "stale-secrets",
-	secretsUnreadable: "secrets-unreadable",
-};
+function mcpRefusalOf(refusal: EntryConnectionRefused): McpRefusal {
+	switch (refusal.kind) {
+		case "noEntry":
+			return { kind: "not-published" };
+		case "secretsMismatched":
+			return { kind: "stale-secrets" };
+		case "secretsUnreadable":
+			return { kind: "secrets-unreadable" };
+		case "credentialsRefused":
+			return { kind: "refused-credentials", fields: refusal.fields };
+	}
+}
 
 /**
  * English mirrors ride every construction (the message reaches the output channel and public issue reports), and the
  * classification is the enum-only shape those surfaces record.
  */
 function refusalError(reason: McpRefusal, label: string): MirroredError {
-	switch (reason) {
+	switch (reason.kind) {
 		case "not-published":
 			return localizedError(
 				l10n.t('No servers entry publishes an MCP server labeled "{0}", so it cannot be started.', label),
@@ -136,6 +150,18 @@ function refusalError(reason: McpRefusal, label: string): MirroredError {
 				`Reading the stored secrets for "${label}" failed, so its MCP server cannot be started. Try again.`,
 				"Mcp(stored secrets unreadable)"
 			);
+		case "refused-credentials": {
+			const kinds = rejectedCredentialKinds(reason.fields);
+			return localizedError(
+				l10n.t(
+					'The stored {1} for "{0}" cannot be sent as an HTTP header, so its MCP server cannot be started. Enter the value again from the server row on the dashboard.',
+					label,
+					kinds.display
+				),
+				`The stored ${kinds.english} for "${label}" cannot be sent as an HTTP header, so its MCP server cannot be started. Enter the value again from the server row on the dashboard.`,
+				"Mcp(configured credential cannot be sent as a header)"
+			);
+		}
 		case "changed-during-resolve":
 			return localizedError(
 				l10n.t('The servers entry "{0}" changed while its MCP server was starting. Try again.', label),
@@ -178,7 +204,7 @@ export function createMcpServerDefinitionProvider(
 			const refuse: (reason: McpRefusal) => never = (reason) => {
 				refused = true;
 				const error = refusalError(reason, server.label);
-				deps.logError(`MCP resolve refused (${reason})`, error);
+				deps.logError(`MCP resolve refused (${reason.kind})`, error);
 				throw error;
 			};
 			const publishedNow = (): McpDefinitionDescriptor | undefined =>
@@ -186,7 +212,7 @@ export function createMcpServerDefinitionProvider(
 
 			const before = publishedNow();
 			if (before === undefined) {
-				refuse("not-published");
+				refuse({ kind: "not-published" });
 			}
 
 			let headers: Record<string, string>;
@@ -195,10 +221,10 @@ export function createMcpServerDefinitionProvider(
 				const entry = currentMcpEntries().find((candidate) => candidate.label === before.label);
 				const resolved = entry === undefined ? undefined : await entryConnectionFor(deps.secrets, before.label);
 				if (entry === undefined || resolved === undefined) {
-					refuse("not-published");
+					refuse({ kind: "not-published" });
 				}
 				if (resolved.kind !== "resolved") {
-					refuse(MCP_REFUSAL_FOR[resolved.kind]);
+					refuse(mcpRefusalOf(resolved));
 				}
 				baseUrl = entry.baseUrl;
 				headers = sameOrigin(before.uri, baseUrl)
@@ -225,10 +251,10 @@ export function createMcpServerDefinitionProvider(
 			if (after === undefined || entryAfter === undefined) {
 				// Gone rather than moved: "try again" would be false advice, since the retry lands on the not-published
 				// refusal anyway.
-				refuse("not-published");
+				refuse({ kind: "not-published" });
 			}
 			if (after.uri !== before.uri || after.version !== before.version || entryAfter.baseUrl !== baseUrl) {
-				refuse("changed-during-resolve");
+				refuse({ kind: "changed-during-resolve" });
 			}
 			server.uri = vscode.Uri.parse(after.uri);
 			server.version = String(after.version);

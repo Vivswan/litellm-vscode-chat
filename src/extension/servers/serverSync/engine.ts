@@ -7,7 +7,7 @@
 
 import { isDeepStrictEqual } from "node:util";
 import type * as vscode from "vscode";
-import type { CredentialRejection } from "../../../provider/catalog/groupModels";
+import type { CredentialRejection, ParsedGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
@@ -115,18 +115,16 @@ export interface DeclaredServerView extends DeclaredGroupIdentity, NonSecretOpti
 /** One derivation for the join keys (dashboard/declaredJoin.ts), so a pass's views and the live resolution agree. */
 function declaredGroupIdentity(
 	entry: DeclaredServer,
-	args: Readonly<Record<string, string>>,
-	report?: (rejection: CredentialRejection) => void
+	parsed: ParsedGroupConfiguration | undefined
 ): DeclaredGroupIdentity {
-	const groupServer = parseGroupConfiguration(args, report);
-	if (groupServer === undefined) {
+	if (parsed === undefined) {
 		return { label: entry.label, baseUrl: entry.baseUrl };
 	}
-	const { label: _label, ...connection } = groupServer;
+	const { label: _label, ...connection } = parsed.server;
 	return {
 		label: entry.label,
 		baseUrl: entry.baseUrl,
-		expectedClientId: groupClientId(groupServer),
+		expectedClientId: groupClientId(parsed.server),
 		expectedConnectionId: groupClientId(connection),
 	};
 }
@@ -537,7 +535,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				return {
 					setting: current.setting,
 					identities: current.entries.map(({ entry, stored }) =>
-						declaredGroupIdentity(entry, buildGroupArgs(entry, stored))
+						declaredGroupIdentity(entry, parseGroupConfiguration(buildGroupArgs(entry, stored)))
 					),
 					carriers: current.carriers,
 					secretValues: current.secretValues,
@@ -992,11 +990,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 			// The same narrowing the provider applies, collected rather than logged: the dashboard names the dropped
 			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it. A failure the pass
 			// already decided above outranks the refusal; the field detail rides beside either.
-			const rejections: CredentialRejection[] = [];
-			const identity = declaredGroupIdentity(entry, args, (rejection) => rejections.push(rejection));
+			const parsed = parseGroupConfiguration(args);
+			const rejections = parsed?.rejections ?? [];
 			if (rejections.length > 0) {
 				syncFailure ??= syncFailureOf("credentialsRefused");
 			}
+			const identity = declaredGroupIdentity(entry, parsed);
 			views.push({
 				...identity,
 				...pickNonSecretOptionalFields(entry),

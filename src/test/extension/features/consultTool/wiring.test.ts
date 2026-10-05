@@ -289,6 +289,16 @@ suite("extension/features/consultTool wiring", () => {
 			classification: "ConsultTool(stored secrets unreadable)",
 			storedText: "storage-read-sentinel",
 		},
+		{
+			name: "a stored key the header rule refuses",
+			secrets: async () => {
+				const secrets = memorySecretStorage();
+				await updateServerSecret(secrets, "alpha", "apiKey", "sk-a\nb", TEST_BASE_URL);
+				return secrets;
+			},
+			classification: "ConsultTool(configured credential cannot be sent as a header)",
+			storedText: "sk-a",
+		},
 	];
 
 	for (const refusal of SECRET_REFUSALS) {

@@ -714,6 +714,23 @@ suite("extension/servers/usage poller", () => {
 		assert.ok(!h.logs.join("\n").includes("sk-old"), "no log line carries the value");
 	});
 
+	test("a stored key the header rule refuses skips the probes and records the refusal, never a keyless 401", async () => {
+		// The interior newline survives the edge trim; resolving keyless sent /key/info headerless and the server's
+		// 401 became the usage state ("forbidden") while the row said the key was present.
+		const h = makeHarness({
+			intervalMs: 0,
+			readSecrets: async () => ({ values: { apiKey: "sk-a\nb" }, owners: {} }),
+		});
+
+		const outcome = await h.poller.refreshNow();
+
+		assert.strictEqual(h.client.calls.keyInfo, 0, "the refused credential must never ride a probe");
+		assert.strictEqual(outcome?.servers[0]?.credentialsRefused, true);
+		assert.strictEqual(usageRefreshFailureSummary(outcome), "alpha: a configured key cannot be sent as an HTTP header");
+		assert.ok(h.logs.some((line) => line.includes("cannot be sent as an HTTP header")));
+		assert.ok(!h.logs.join("\n").includes("sk-a"), "no log line carries the value");
+	});
+
 	test("dispose cancels the pending tick", () => {
 		const h = makeHarness({ intervalMs: 300_000 });
 		h.poller.start();

@@ -377,6 +377,13 @@ suite("extension/servers/usage spendClient", () => {
 	});
 
 	suite("usageConnectionFor", () => {
+		/** The resolved connection, failing the test on a refusal the case did not expect. */
+		function connectionOf(entry: DeclaredServer, stored: Parameters<typeof usageConnectionFor>[1]): UsageConnection {
+			const resolution = usageConnectionFor(entry, stored);
+			assert.strictEqual(resolution.kind, "resolved", `expected a resolved connection for ${entry.label}`);
+			return resolution.connection;
+		}
+
 		test("inline secrets win, OAuth needs its pair, and a partial virtual key drops", () => {
 			const entry: DeclaredServer = {
 				label: "alpha",
@@ -386,7 +393,7 @@ suite("extension/servers/usage spendClient", () => {
 				virtualKeyHeader: "x-litellm-key",
 			};
 
-			const resolved = usageConnectionFor(entry, {
+			const resolved = connectionOf(entry, {
 				apiKey: "stored-key",
 				oauthClientSecret: "stored-secret",
 			});
@@ -399,7 +406,7 @@ suite("extension/servers/usage spendClient", () => {
 			});
 			assert.strictEqual(resolved.virtualKey, undefined, "a header without a value must not probe half-configured");
 
-			const inlineWins = usageConnectionFor(
+			const inlineWins = connectionOf(
 				{ label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "inline-key" },
 				{
 					apiKey: "stored-key",
@@ -411,44 +418,42 @@ suite("extension/servers/usage spendClient", () => {
 		test('the entry\'s apiVersion rides the connection, with "" kept distinct from absent', () => {
 			// Pins the ...(entry.apiVersion !== undefined) spread: without it the usage URLs silently revert to the
 			// auto rule and the suite stays green.
-			const custom = usageConnectionFor({ label: "a", baseUrl: TEST_BASE_URL, apiVersion: "v2" }, {});
+			const custom = connectionOf({ label: "a", baseUrl: TEST_BASE_URL, apiVersion: "v2" }, {});
 			assert.strictEqual(custom.apiVersion, "v2");
-			const none = usageConnectionFor({ label: "a", baseUrl: TEST_BASE_URL, apiVersion: "" }, {});
+			const none = connectionOf({ label: "a", baseUrl: TEST_BASE_URL, apiVersion: "" }, {});
 			assert.strictEqual(none.apiVersion, "");
-			const auto = usageConnectionFor({ label: "a", baseUrl: TEST_BASE_URL }, {});
+			const auto = connectionOf({ label: "a", baseUrl: TEST_BASE_URL }, {});
 			assert.ok(!("apiVersion" in auto), "auto must omit the key, not carry present-as-undefined");
 		});
 
 		test("normalizes a trailing-slash base URL so endpoint paths cannot double the slash", () => {
-			const resolved = usageConnectionFor({ label: "alpha", baseUrl: `${TEST_BASE_URL}//` }, {});
+			const resolved = connectionOf({ label: "alpha", baseUrl: `${TEST_BASE_URL}//` }, {});
 			assert.strictEqual(resolved.baseUrl, TEST_BASE_URL);
 			// The URL a fetch would really hit: a double slash here would 404 on LiteLLM and misclassify the server as
 			// usage-unsupported.
 			assert.strictEqual(keyInfoUrl(resolved.baseUrl, undefined), KEY_INFO_URL);
 		});
 
-		test("drops a virtual key or API key that cannot be sent as an HTTP header", () => {
+		test("refuses a virtual key or API key that cannot be sent as an HTTP header, naming the field", () => {
+			// The platform's Headers quotes the whole value in its TypeError ('"sk-a\nb" is an invalid header value');
+			// resolving keyless instead sent the probes headerless and rendered the server's 401 as the usage state.
 			const badValue = usageConnectionFor(
 				{ label: "alpha", baseUrl: TEST_BASE_URL, virtualKeyHeader: "x-litellm-key", virtualKeyValue: "bad\nvalue" },
 				{}
 			);
-			assert.strictEqual(badValue.virtualKey, undefined, "an invalid value would make fetch throw it in plaintext");
+			assert.deepStrictEqual(badValue, { kind: "credentialsRefused", fields: ["virtualKeyValue"] });
 
 			const badName = usageConnectionFor(
 				{ label: "alpha", baseUrl: TEST_BASE_URL, virtualKeyHeader: "bad header", virtualKeyValue: "vk-1" },
 				{}
 			);
-			assert.strictEqual(badName.virtualKey, undefined);
+			assert.deepStrictEqual(badName, { kind: "credentialsRefused", fields: ["virtualKeyValue"] });
 
-			// The platform's Headers quotes the whole key in its TypeError ('"sk-a\nb" is an invalid header value'), while
-			// it strips edge whitespace itself, so a pasted trailing newline is trimmed rather than dropped.
 			const badKey = usageConnectionFor({ label: "alpha", baseUrl: TEST_BASE_URL }, { apiKey: "sk-a\nb" });
-			assert.deepStrictEqual(
-				badKey,
-				{ label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "", headers: {} },
-				"an unrepairable key reads as keyless rather than reaching Headers"
-			);
-			const pastedKey = usageConnectionFor({ label: "alpha", baseUrl: TEST_BASE_URL }, { apiKey: "sk-abc\n" });
+			assert.deepStrictEqual(badKey, { kind: "credentialsRefused", fields: ["apiKey"] });
+
+			// Headers strips edge whitespace itself, so a pasted trailing newline is a repair, not a refusal.
+			const pastedKey = connectionOf({ label: "alpha", baseUrl: TEST_BASE_URL }, { apiKey: "sk-abc\n" });
 			assert.deepStrictEqual(pastedKey, { label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "sk-abc", headers: {} });
 		});
 
@@ -457,7 +462,7 @@ suite("extension/servers/usage spendClient", () => {
 			// is the usage path's own no-server refusal: the GET cannot form. An active OAuth unit's token exchange
 			// targets its own absolute token URL first; the poller composes from resolveOwnedSecrets, which drops a
 			// stamp-mismatched value before it gets here.
-			const connection = usageConnectionFor(
+			const connection = connectionOf(
 				{ label: "alpha", baseUrl: "/", virtualKeyHeader: "x-litellm-key" },
 				{ apiKey: "stored-key", virtualKeyValue: "vk-1" }
 			);

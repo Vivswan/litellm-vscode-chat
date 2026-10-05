@@ -34,11 +34,25 @@ const OAUTH_FIELDS = {
 	oauthScopes: "read write",
 };
 
+/** The connection a configuration parses to; the suites below about identity and units read nothing else. */
+function serverOf(configuration: unknown): GroupServer | undefined {
+	return parseGroupConfiguration(configuration)?.server;
+}
+
+/** The serve path's reading: parse, then log the rejections the way provider/index.ts does. */
+function parseLogged(configuration: unknown, log: (message: string, data?: unknown) => void) {
+	const parsed = parseGroupConfiguration(configuration);
+	if (parsed !== undefined) {
+		logCredentialRejections(log, parsed.rejections);
+	}
+	return parsed;
+}
+
 suite("provider/catalog/groupModels", () => {
 	suite("parseGroupConfiguration", () => {
 		test("a full OAuth configuration yields the oauth unit with trimmed fields and the token URL's one spelling", () => {
 			const server = expectDefined(
-				parseGroupConfiguration({
+				serverOf({
 					baseUrl: "http://litellm.test",
 					...OAUTH_FIELDS,
 					oauthTokenUrl: " HTTP://IdP.test/oauth2/token ",
@@ -62,14 +76,14 @@ suite("provider/catalog/groupModels", () => {
 				{ oauthTokenUrl: "http://idp.test/token", oauthClientId: "" },
 			];
 			for (const partial of cases) {
-				const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...partial }));
+				const server = expectDefined(serverOf({ baseUrl: "http://litellm.test", ...partial }));
 				assert.strictEqual(server.oauth, undefined, `expected no oauth unit for ${JSON.stringify(partial)}`);
 			}
 		});
 
 		test("a missing or non-string client secret degrades to the empty secret of a public client", () => {
 			const server = expectDefined(
-				parseGroupConfiguration({
+				serverOf({
 					baseUrl: "http://litellm.test",
 					oauthTokenUrl: "http://idp.test/token",
 					oauthClientId: "client-1",
@@ -81,7 +95,7 @@ suite("provider/catalog/groupModels", () => {
 
 		test("blank scopes are omitted from the oauth unit", () => {
 			const server = expectDefined(
-				parseGroupConfiguration({
+				serverOf({
 					baseUrl: "http://litellm.test",
 					oauthTokenUrl: "http://idp.test/token",
 					oauthClientId: "client-1",
@@ -93,7 +107,7 @@ suite("provider/catalog/groupModels", () => {
 
 		test("the virtual key is present only with both a valid header name and a value", () => {
 			const full = expectDefined(
-				parseGroupConfiguration({
+				serverOf({
 					baseUrl: "http://litellm.test",
 					virtualKeyHeader: "x-litellm-api-key",
 					virtualKeyValue: "vk-1",
@@ -110,14 +124,14 @@ suite("provider/catalog/groupModels", () => {
 				{ virtualKeyHeader: "x-litellm-api-key", virtualKeyValue: 42 },
 			];
 			for (const partial of cases) {
-				const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...partial }));
+				const server = expectDefined(serverOf({ baseUrl: "http://litellm.test", ...partial }));
 				assert.strictEqual(server.virtualKey, undefined, `expected no virtual key for ${JSON.stringify(partial)}`);
 			}
 		});
 
 		test("virtual-key values are trimmed, and interior control characters degrade the key to absent", () => {
 			const trimmed = expectDefined(
-				parseGroupConfiguration({
+				serverOf({
 					baseUrl: "http://litellm.test",
 					virtualKeyHeader: "x-vk",
 					virtualKeyValue: "\r\n vk-1 \r\n",
@@ -130,7 +144,7 @@ suite("provider/catalog/groupModels", () => {
 			);
 			// The one credential trim rule: a Latin-1 non-breaking space is the value's own byte and survives.
 			const padded = expectDefined(
-				parseGroupConfiguration({
+				serverOf({
 					baseUrl: "http://litellm.test",
 					virtualKeyHeader: "x-vk",
 					virtualKeyValue: `${NBSP}vk-1`,
@@ -141,7 +155,7 @@ suite("provider/catalog/groupModels", () => {
 			const invalidValues = ["vk\r\nInjected: x", "vk\n1", "vk\r1", "vk\u00001", "   "];
 			for (const virtualKeyValue of invalidValues) {
 				const server = expectDefined(
-					parseGroupConfiguration({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk", virtualKeyValue })
+					serverOf({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk", virtualKeyValue })
 				);
 				assert.strictEqual(
 					server.virtualKey,
@@ -153,25 +167,21 @@ suite("provider/catalog/groupModels", () => {
 
 		test("a rejected virtual key logs the header name once and never the value; absence stays silent", () => {
 			const lines: string[] = [];
-			const log = logCredentialRejections((message: string, data?: unknown) =>
-				lines.push(`${message} ${JSON.stringify(data ?? null)}`)
-			);
+			const log = (message: string, data?: unknown) => lines.push(`${message} ${JSON.stringify(data ?? null)}`);
 
-			const noKey = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test" }, log));
-			assert.strictEqual(noKey.virtualKey, undefined);
+			const noKey = expectDefined(parseLogged({ baseUrl: "http://litellm.test" }, log));
+			assert.strictEqual(noKey.server.virtualKey, undefined);
 			// A header with no value is a missing secret and a value with no header a dormant one (a stored blob the entry
 			// no longer declares, which buildGroupArgs still sends); the dashboard shows both as such, neither is rejected.
-			const noValue = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk" }, log)
-			);
-			assert.strictEqual(noValue.virtualKey, undefined);
+			const noValue = expectDefined(parseLogged({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk" }, log));
+			assert.strictEqual(noValue.server.virtualKey, undefined);
 			const noHeader = expectDefined(
-				parseGroupConfiguration(
-					{ baseUrl: "http://litellm.test", apiKey: "sk-live", virtualKeyValue: "vk-dormant" },
-					log
-				)
+				parseLogged({ baseUrl: "http://litellm.test", apiKey: "sk-live", virtualKeyValue: "vk-dormant" }, log)
 			);
-			assert.deepStrictEqual(noHeader, { baseUrl: "http://litellm.test", apiKey: "sk-live" });
+			assert.deepStrictEqual(noHeader, {
+				server: { baseUrl: "http://litellm.test", apiKey: "sk-live" },
+				rejections: [],
+			});
 			assert.strictEqual(lines.length, 0, "an unconfigured virtual key must not be logged as rejected");
 
 			const config = {
@@ -179,8 +189,13 @@ suite("provider/catalog/groupModels", () => {
 				virtualKeyHeader: "x-header-with-typo-value",
 				virtualKeyValue: "secret\nvalue",
 			};
-			assert.strictEqual(expectDefined(parseGroupConfiguration(config, log)).virtualKey, undefined);
-			assert.strictEqual(expectDefined(parseGroupConfiguration(config, log)).virtualKey, undefined);
+			const rejected = expectDefined(parseLogged(config, log));
+			assert.strictEqual(rejected.server.virtualKey, undefined);
+			assert.deepStrictEqual(
+				rejected.rejections.map(({ field, header }) => ({ field, header })),
+				[{ field: "virtualKeyValue", header: "x-header-with-typo-value" }]
+			);
+			assert.strictEqual(expectDefined(parseLogged(config, log)).server.virtualKey, undefined);
 
 			const warnings = lines.filter((line) => line.includes("x-header-with-typo-value"));
 			assert.strictEqual(warnings.length, 1, `the rejection must be logged once. Lines: ${lines.join(" | ")}`);
@@ -194,16 +209,14 @@ suite("provider/catalog/groupModels", () => {
 			// Headers.append throws a TypeError quoting the whole value ('"sk-a\nb" is an invalid header value'); the
 			// chat error, the dashboard row, and the output channel would all carry it.
 			const lines: string[] = [];
-			const log = logCredentialRejections((message: string, data?: unknown) =>
-				lines.push(`${message} ${JSON.stringify(data ?? null)}`)
-			);
-			assert.deepStrictEqual(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: " sk-abc\n" }, log), {
+			const log = (message: string, data?: unknown) => lines.push(`${message} ${JSON.stringify(data ?? null)}`);
+			assert.deepStrictEqual(parseLogged({ baseUrl: "http://litellm.test", apiKey: " sk-abc\n" }, log)?.server, {
 				baseUrl: "http://litellm.test",
 				apiKey: "sk-abc",
 			});
 			// Only HTTP whitespace is edge-trimmed: Headers keeps a Latin-1 non-breaking space, so the key does too.
 			assert.deepStrictEqual(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: `${NBSP}sk-abc${NBSP}` }, log),
+				parseLogged({ baseUrl: "http://litellm.test", apiKey: `${NBSP}sk-abc${NBSP}` }, log)?.server,
 				{
 					baseUrl: "http://litellm.test",
 					apiKey: `${NBSP}sk-abc${NBSP}`,
@@ -213,8 +226,13 @@ suite("provider/catalog/groupModels", () => {
 
 			const config = { baseUrl: "http://litellm.test", apiKey: "sk-a\nb" };
 			const keyless = { baseUrl: "http://litellm.test", apiKey: "" };
-			assert.deepStrictEqual(parseGroupConfiguration(config, log), keyless);
-			assert.deepStrictEqual(parseGroupConfiguration(config, log), keyless);
+			const rejected = expectDefined(parseLogged(config, log));
+			assert.deepStrictEqual(rejected.server, keyless);
+			assert.deepStrictEqual(
+				rejected.rejections.map((rejection) => rejection.field),
+				["apiKey"]
+			);
+			assert.deepStrictEqual(parseLogged(config, log)?.server, keyless);
 			assert.deepStrictEqual(lines, [
 				"Ignoring the configured API key: the value cannot be sent as an HTTP header null",
 			]);
@@ -222,38 +240,33 @@ suite("provider/catalog/groupModels", () => {
 
 		test("unknown configuration fields are ignored", () => {
 			const server = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", futureField: { nested: true } })
+				serverOf({ baseUrl: "http://litellm.test", apiKey: "k", futureField: { nested: true } })
 			);
 			assert.deepStrictEqual(server, { baseUrl: "http://litellm.test", apiKey: "k" });
 		});
 
 		test("the entry label is consumed trimmed; junk or blank labels degrade to absent", () => {
-			const labeled = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: " Prod " })
-			);
+			const labeled = expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey: "k", label: " Prod " }));
 			assert.strictEqual(labeled.label, "Prod");
 			for (const label of [42, "", "   ", null]) {
-				const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label }));
+				const server = expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey: "k", label }));
 				assert.strictEqual(server.label, undefined, `expected no label for ${JSON.stringify(label)}`);
 			}
 		});
 
 		test("the base URL reads canonically, whatever spelling created the group; non-string apiKey means keyless", () => {
-			assert.deepStrictEqual(parseGroupConfiguration({ baseUrl: "http://litellm.test//", apiKey: 42 }), {
+			assert.deepStrictEqual(serverOf({ baseUrl: "http://litellm.test//", apiKey: 42 }), {
 				baseUrl: "http://litellm.test",
 				apiKey: "",
 			});
 			// A group an older version created from the user's own text is the entry now declared canonically.
-			assert.strictEqual(
-				parseGroupConfiguration({ baseUrl: "HTTP://LiteLLM.test:80/", apiKey: "k" })?.baseUrl,
-				"http://litellm.test"
-			);
-			assert.strictEqual(parseGroupConfiguration({ apiKey: "k" }), undefined);
+			assert.strictEqual(serverOf({ baseUrl: "HTTP://LiteLLM.test:80/", apiKey: "k" })?.baseUrl, "http://litellm.test");
+			assert.strictEqual(serverOf({ apiKey: "k" }), undefined);
 			// A URL with no canonical spelling is no server, so a stored credential can never ride such a configuration.
-			assert.strictEqual(parseGroupConfiguration({ baseUrl: "/", apiKey: "k" }), undefined);
-			assert.strictEqual(parseGroupConfiguration({ baseUrl: "localhost:4000", apiKey: "k" }), undefined);
-			assert.strictEqual(parseGroupConfiguration("http://litellm.test"), undefined);
-			assert.strictEqual(parseGroupConfiguration(null), undefined);
+			assert.strictEqual(serverOf({ baseUrl: "/", apiKey: "k" }), undefined);
+			assert.strictEqual(serverOf({ baseUrl: "localhost:4000", apiKey: "k" }), undefined);
+			assert.strictEqual(serverOf("http://litellm.test"), undefined);
+			assert.strictEqual(serverOf(null), undefined);
 		});
 	});
 
@@ -263,33 +276,25 @@ suite("provider/catalog/groupModels", () => {
 		test("entries sharing a base URL and every credential get distinct identities from their labels", () => {
 			// Two declared entries, one server, one key. Without the label both
 			// would share one client ID, the dashboard's handle to a group.
-			const prod = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
-			);
-			const staging = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Staging" })
-			);
+			const prod = expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" }));
+			const staging = expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey: "k", label: "Staging" }));
 			assert.notStrictEqual(groupClientId(prod), groupClientId(staging));
 			assert.notStrictEqual(groupClientId(prod), groupClientId(plain), "labeled and unlabeled identities differ");
-			const relabeled = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
-			);
+			const relabeled = expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" }));
 			assert.strictEqual(groupClientId(prod), groupClientId(relabeled), "equal configurations, equal identities");
 		});
 
 		test("a labeled OAuth configuration cannot encode like an unlabeled one", () => {
 			// The label slot is null or a string, so a labeled identity's tuple can never equal an unlabeled one's.
-			const unlabeled = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
-			const labeled = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS, label: "Prod" })
-			);
+			const unlabeled = expectDefined(serverOf({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
+			const labeled = expectDefined(serverOf({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS, label: "Prod" }));
 			assert.notStrictEqual(groupClientId(labeled), groupClientId(unlabeled));
 		});
 
 		test("rotating the client secret mints a new identity", () => {
-			const withOAuth = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
+			const withOAuth = expectDefined(serverOf({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
 			const rotated = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS, oauthClientSecret: "rotated" })
+				serverOf({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS, oauthClientSecret: "rotated" })
 			);
 			assert.notStrictEqual(groupClientId(rotated), groupClientId(withOAuth));
 			assert.notStrictEqual(groupClientId(withOAuth), groupClientId(plain));
@@ -297,21 +302,21 @@ suite("provider/catalog/groupModels", () => {
 
 		test("rotating the virtual key mints a new identity, and no identity embeds the secrets", () => {
 			const withKey = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-1" })
+				serverOf({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-1" })
 			);
 			const rotated = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-2" })
+				serverOf({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-2" })
 			);
 			assert.notStrictEqual(groupClientId(rotated), groupClientId(withKey));
 			assert.ok(!groupClientId(withKey).includes("vk-1"));
 
-			const withOAuth = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
+			const withOAuth = expectDefined(serverOf({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
 			assert.ok(!groupClientId(withOAuth).includes("secret-1"));
 		});
 
 		test("equal configurations map to equal identities", () => {
-			const first = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
-			const second = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
+			const first = expectDefined(serverOf({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
+			const second = expectDefined(serverOf({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
 			assert.strictEqual(groupClientId(first), groupClientId(second));
 		});
 
@@ -328,7 +333,7 @@ suite("provider/catalog/groupModels", () => {
 				virtualKeyHeader: "x-vk",
 				virtualKeyValue: "vk-1",
 			};
-			const baseline = expectDefined(parseGroupConfiguration(base));
+			const baseline = expectDefined(serverOf(base));
 			const rotations: Partial<typeof base>[] = [
 				{ apiKey: "k2" },
 				{ oauthTokenUrl: "https://idp2.test/token" },
@@ -339,7 +344,7 @@ suite("provider/catalog/groupModels", () => {
 				{ virtualKeyValue: "vk-2" },
 			];
 			for (const rotation of rotations) {
-				const rotated = expectDefined(parseGroupConfiguration({ ...base, ...rotation }));
+				const rotated = expectDefined(serverOf({ ...base, ...rotation }));
 				const which = Object.keys(rotation).join(",");
 				assert.notStrictEqual(groupClientId(rotated), groupClientId(baseline), `rotating ${which}`);
 				if (rotated.oauth !== undefined && baseline.oauth !== undefined) {
@@ -354,12 +359,10 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("adding or dropping the whole OAuth or virtual-key unit mints a new identity", () => {
-			const bare = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
-			const withOAuth = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", ...OAUTH_FIELDS })
-			);
+			const bare = expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey: "k" }));
+			const withOAuth = expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey: "k", ...OAUTH_FIELDS }));
 			const withKey = expectDefined(
-				parseGroupConfiguration({
+				serverOf({
 					baseUrl: "http://litellm.test",
 					apiKey: "k",
 					virtualKeyHeader: "x-vk",
@@ -376,12 +379,10 @@ suite("provider/catalog/groupModels", () => {
 			// key can be byte-for-byte the JSON text of another identity's tuple (current format), a retired format's
 			// credential JSON, or raw delimiter material. JSON slot escaping must keep every such key inside its own
 			// slot; a collision would merge status entries and reuse the wrong discovery cache.
-			const genuineLabeled = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
-			);
-			const genuineOAuth = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
+			const genuineLabeled = expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" }));
+			const genuineOAuth = expectDefined(serverOf({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
 			const genuineWithKey = expectDefined(
-				parseGroupConfiguration({
+				serverOf({
 					baseUrl: "http://litellm.test",
 					apiKey: "k",
 					virtualKeyHeader: "x-vk",
@@ -403,7 +404,7 @@ suite("provider/catalog/groupModels", () => {
 				["raw delimiter material", "k\nvirtual-key\nx-vk\nvk-1", genuineWithKey],
 			];
 			for (const [name, apiKey, genuine] of spellings) {
-				const smuggled = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey }));
+				const smuggled = expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey }));
 				assert.notStrictEqual(groupClientId(smuggled), groupClientId(genuine), name);
 			}
 		});
@@ -481,9 +482,7 @@ suite("provider/catalog/groupModels", () => {
 	});
 
 	suite("attachGroup and parseModelMetadata", () => {
-		const server = expectDefined(
-			parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
-		);
+		const server = expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" }));
 		const identity = groupIdentity(server, groupClientId(server));
 
 		test("attachGroup keeps the configuration schema on the model", () => {
@@ -536,7 +535,7 @@ suite("provider/catalog/groupModels", () => {
 	});
 
 	suite("markStale", () => {
-		const server = () => expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
+		const server = () => expectDefined(serverOf({ baseUrl: "http://litellm.test", apiKey: "k" }));
 		const identity = () => groupIdentity(server(), groupClientId(server()));
 
 		test("stamps the warning icon and a connectivity banner on fresh copies, leaving the inputs untouched", () => {

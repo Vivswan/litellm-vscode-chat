@@ -16,7 +16,8 @@
 import * as l10n from "@vscode/l10n";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { DISCOVERY_MAX_RETRIES } from "../../../provider/catalog/discovery";
-import { narrowGroupCredentials } from "../../../provider/catalog/groupModels";
+import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
+import { narrowGroupCredentials, refusedCredentialFields } from "../../../provider/catalog/groupModels";
 import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "../../../provider/transport/auth";
 import { OAuthTokenSource } from "../../../provider/transport/auth";
 import type { AuthOverlayScope } from "../../../provider/transport/authOverlay";
@@ -68,21 +69,39 @@ export interface UsageConnection {
 }
 
 /**
+ * The usage path's answer for an entry's connection: resolved, or refused because a configured key cannot ride its
+ * header. The poller and the one-shot features read the kind before anything is sent, so neither can probe keyless.
+ */
+export type UsageConnectionResolution =
+	| { readonly kind: "resolved"; readonly connection: UsageConnection }
+	| {
+			readonly kind: "credentialsRefused";
+			readonly fields: readonly [RejectedCredentialField, ...RejectedCredentialField[]];
+	  };
+
+/**
  * The base URL is normalized because a doubled slash reaches LiteLLM as `//key/info`, which answers 404 and would
  * misclassify the server as usage-unsupported. The credentials come off the chat path's own narrowing over
- * buildGroupArgs (inline values outrank the stored blob), so a key or virtual key the chat path drops is dropped here
+ * buildGroupArgs (inline values outrank the stored blob), so a key or virtual key the chat path refuses is refused here
  * too, and the sync engine's Diagnostics-tab report covers both.
  */
-export function usageConnectionFor(entry: DeclaredServer, stored: StoredServerSecrets): UsageConnection {
-	const credentials = narrowGroupCredentials(buildGroupArgs(entry, stored));
+export function usageConnectionFor(entry: DeclaredServer, stored: StoredServerSecrets): UsageConnectionResolution {
+	const { credentials, rejections } = narrowGroupCredentials(buildGroupArgs(entry, stored));
+	const refused = refusedCredentialFields(rejections);
+	if (refused !== undefined) {
+		return { kind: "credentialsRefused", fields: refused };
+	}
 	return {
-		label: entry.label,
-		baseUrl: normalizeBaseUrl(entry.baseUrl),
-		...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
-		apiKey: credentials.apiKey,
-		headers: entry.headers ?? {},
-		...(credentials.oauth !== undefined ? { oauth: credentials.oauth } : {}),
-		...(credentials.virtualKey !== undefined ? { virtualKey: credentials.virtualKey } : {}),
+		kind: "resolved",
+		connection: {
+			label: entry.label,
+			baseUrl: normalizeBaseUrl(entry.baseUrl),
+			...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
+			apiKey: credentials.apiKey,
+			headers: entry.headers ?? {},
+			...(credentials.oauth !== undefined ? { oauth: credentials.oauth } : {}),
+			...(credentials.virtualKey !== undefined ? { virtualKey: credentials.virtualKey } : {}),
+		},
 	};
 }
 

@@ -308,19 +308,20 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	/** Model IDs are returned raw and display names unprefixed because the host namespaces group models itself. */
 	private async provideGroupModels(configuration: unknown, silent: boolean): Promise<LiteLLMModelInfo[]> {
-		const parsed = parseGroupConfiguration(
-			configuration,
-			logCredentialRejections((message, data) => this.log(message, data))
-		);
+		const parsed = parseGroupConfiguration(configuration);
 		if (!parsed) {
 			this.log("Ignoring provider-group refresh with malformed configuration (baseUrl must be a URL with a host)");
 			return [];
 		}
+		// The baked copy's rejections are logged, not refused: a declared entry's current copy is judged by the overlay
+		// below, and an external group has no entry to refuse for.
+		logCredentialRejections((message, data) => this.log(message, data), parsed.rejections);
+		const baked = parsed.server;
 		// The serve generation is claimed BEFORE the overlay's secrets read (the overlay never changes label or base
 		// URL, so the pre-overlay parse is a valid claim): a serve that stalls in the resolver while a newer one
 		// completes must yield its record, and only arrival order can decide that.
-		const generation = this._discovery.beginServe(parsed);
-		const overlaid = await overlayEntryCredentials(parsed, this._resolveEntryCredentials);
+		const generation = this._discovery.beginServe(baked);
+		const overlaid = await overlayEntryCredentials(baked, this._resolveEntryCredentials);
 
 		const serverId = groupClientId(overlaid.server);
 		if (this._statusWindow.beginCycleOnReSight(serverId, overlaid.server)) {

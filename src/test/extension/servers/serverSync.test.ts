@@ -458,7 +458,7 @@ suite("extension/servers/serverSync", () => {
 				virtualKeyValue: "vk-1",
 			};
 			const args = buildGroupArgs(entry, {});
-			const server = parseGroupConfiguration(args);
+			const server = parseGroupConfiguration(args)?.server;
 
 			assert.deepStrictEqual(server, {
 				baseUrl: normalizeBaseUrl("http://round.test"),

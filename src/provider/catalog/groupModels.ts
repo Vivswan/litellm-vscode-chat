@@ -161,6 +161,32 @@ const REJECTED_FIELD_KIND: Readonly<
 	virtualKeyValue: { display: () => l10n.t("virtual key"), english: "virtual key" },
 };
 
+/**
+ * The refused fields as every refusal text names them ("API key", "virtual key"), localized and in English, so the
+ * provider, the one-shot features, and the usage surfaces spell the field the same way and none spells the value.
+ */
+export function rejectedCredentialKinds(fields: readonly RejectedCredentialField[]): {
+	readonly display: string;
+	readonly english: string;
+} {
+	const kinds = fields.map((field) => REJECTED_FIELD_KIND[field]);
+	return {
+		display: kinds.map((kind) => kind.display()).join(", "),
+		english: kinds.map((kind) => kind.english).join(", "),
+	};
+}
+
+/**
+ * The refused fields of a narrowing as the non-empty tuple the unavailable states carry, or undefined when nothing was
+ * refused: the one shape every owner (entryCredentials.ts, usage/spendClient.ts) builds its refusal from.
+ */
+export function refusedCredentialFields(
+	rejections: readonly CredentialRejection[]
+): readonly [RejectedCredentialField, ...RejectedCredentialField[]] | undefined {
+	const [first, ...rest] = rejections;
+	return first === undefined ? undefined : [first.field, ...rest.map((rejection) => rejection.field)];
+}
+
 /** The one failure a serve or request raises for a declared entry whose credentials did not resolve. */
 function credentialsUnavailableError(unavailable: CredentialsUnavailable): MirroredError {
 	switch (unavailable.reason) {
@@ -175,13 +201,13 @@ function credentialsUnavailableError(unavailable: CredentialsUnavailable): Mirro
 				`EntryCredentialsUnavailable(${unavailable.reason})`
 			);
 		case "credentialsRefused": {
-			const kinds = unavailable.fields.map((field) => REJECTED_FIELD_KIND[field]);
+			const kinds = rejectedCredentialKinds(unavailable.fields);
 			return localizedError(
 				l10n.t(
 					"This server entry's {0} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.",
-					kinds.map((kind) => kind.display()).join(", ")
+					kinds.display
 				),
-				`This server entry's ${kinds.map((kind) => kind.english).join(", ")} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.`,
+				`This server entry's ${kinds.english} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.`,
 				"EntryCredentialsUnavailable(credentialsRefused)"
 			);
 		}
@@ -302,20 +328,23 @@ export interface CredentialRejection {
 	readonly fingerprint: string;
 }
 
-export type CredentialRejectionReport = (rejection: CredentialRejection) => void;
+type CredentialRejectionReport = (rejection: CredentialRejection) => void;
 
 /** One log line per distinct rejected value, so the host's repeated group refreshes do not spam the log. */
 const loggedRejections = new Set<string>();
 
 /**
- * The serve path's reporter for the host-baked configuration (provider/index.ts): the classification, the virtual key's
+ * The serve path's log for the host-baked configuration (provider/index.ts): the classification, the virtual key's
  * header name for typo hunting, never a value. A declared entry's own copy is judged in entryCredentials.ts instead.
  */
-export function logCredentialRejections(log: (message: string, data?: unknown) => void): CredentialRejectionReport {
-	return (rejection) => {
+export function logCredentialRejections(
+	log: (message: string, data?: unknown) => void,
+	rejections: readonly CredentialRejection[]
+): void {
+	for (const rejection of rejections) {
 		const key = `${rejection.field}:${rejection.fingerprint}`;
 		if (loggedRejections.has(key)) {
-			return;
+			continue;
 		}
 		loggedRejections.add(key);
 		if (rejection.field === "apiKey") {
@@ -325,7 +354,7 @@ export function logCredentialRejections(log: (message: string, data?: unknown) =
 				header: rejection.header,
 			});
 		}
-	};
+	}
 }
 
 /**
@@ -422,7 +451,7 @@ function fillSlot<S extends keyof GroupCredentials>(
 		readonly narrow: (raw: RawOptionalFields, report?: CredentialRejectionReport) => GroupCredentials[S] | undefined;
 	},
 	raw: RawOptionalFields,
-	report?: CredentialRejectionReport
+	report: CredentialRejectionReport
 ): void {
 	const value = unit.narrow(raw, report);
 	if (value !== undefined) {
@@ -431,16 +460,34 @@ function fillSlot<S extends keyof GroupCredentials>(
 }
 
 /**
+ * The narrowing's whole answer: what rides, and the configured units that cannot. Every owner of a declared entry's
+ * connection reads both halves (entryCredentials.ts, usage/spendClient.ts, serverSync/engine.ts, the draft probe), so
+ * none can take the credentials and send without the key the rejections name; provider/index.ts logs the rejections of
+ * a host-baked copy instead, because an external group has no entry to refuse for.
+ */
+export interface NarrowedGroupCredentials {
+	readonly credentials: GroupCredentials;
+	readonly rejections: readonly CredentialRejection[];
+}
+
+/**
  * The credential half of a group server from the raw optional fields (an absent key is the empty string, GroupServer's
  * no-key value). Exported so the usage client (usage/spendClient.ts) narrows by this very table and cannot diverge on
  * which credentials travel.
  */
-export function narrowGroupCredentials(raw: RawOptionalFields, report?: CredentialRejectionReport): GroupCredentials {
+export function narrowGroupCredentials(raw: RawOptionalFields): NarrowedGroupCredentials {
 	const slots: CredentialSlots = {};
+	const rejections: CredentialRejection[] = [];
 	for (const field of SECRET_FIELD_IDS) {
-		fillSlot(slots, CREDENTIAL_UNITS[field], raw, report);
+		fillSlot(slots, CREDENTIAL_UNITS[field], raw, (rejection) => rejections.push(rejection));
 	}
-	return { ...slots, apiKey: slots.apiKey ?? "" };
+	return { credentials: { ...slots, apiKey: slots.apiKey ?? "" }, rejections };
+}
+
+/** A host group configuration as parsed: the connection it describes and the credentials it configured but cannot send. */
+export interface ParsedGroupConfiguration {
+	readonly server: GroupServer;
+	readonly rejections: readonly CredentialRejection[];
 }
 
 /**
@@ -448,10 +495,7 @@ export function narrowGroupCredentials(raw: RawOptionalFields, report?: Credenti
  * forward compatibility. The credentials come off CREDENTIAL_UNITS, so the fields this parser carries are the fields
  * that table claims.
  */
-export function parseGroupConfiguration(
-	configuration: unknown,
-	report?: CredentialRejectionReport
-): GroupServer | undefined {
+export function parseGroupConfiguration(configuration: unknown): ParsedGroupConfiguration | undefined {
 	if (!isRecord(configuration)) {
 		return undefined;
 	}
@@ -469,7 +513,11 @@ export function parseGroupConfiguration(
 	for (const { id } of OPTIONAL_ENTRY_FIELDS) {
 		raw[id] = configuration[id];
 	}
-	return { baseUrl, ...narrowGroupCredentials(raw, report), ...(label !== undefined ? { label } : {}) };
+	const narrowed = narrowGroupCredentials(raw);
+	return {
+		server: { baseUrl, ...narrowed.credentials, ...(label !== undefined ? { label } : {}) },
+		rejections: narrowed.rejections,
+	};
 }
 
 /** `detail` is dropped so the host fills it with the group name. */

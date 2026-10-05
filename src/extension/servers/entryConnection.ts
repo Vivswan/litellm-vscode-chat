@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { RejectedCredentialField } from "../../provider/catalog/groupModels";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { StoredSecretsRecord } from "./serverSync/secrets";
 import { readServerSecretsRecord, resolveOwnedSecrets } from "./serverSync/secrets";
@@ -12,12 +13,20 @@ import { usageConnectionFor } from "./usage/spendClient";
  * secretsMismatched is resolveOwnedSecrets' `refused`: a stored secret the entry would send is stamped for another
  * destination, usually a base URL edited after the secret was stored. secretsUnreadable carries nothing of the read
  * error: its message can hold storage text, and the feature boundaries log and notify with what they are thrown.
+ * credentialsRefused is usageConnectionFor's: a configured key cannot ride its header, and the fields name which.
  */
-export type EntryConnectionRefusal = "noEntry" | "secretsMismatched" | "secretsUnreadable";
+export type EntryConnectionRefusal = "noEntry" | "secretsMismatched" | "secretsUnreadable" | "credentialsRefused";
+
+export type EntryConnectionRefused =
+	| { readonly kind: Exclude<EntryConnectionRefusal, "credentialsRefused"> }
+	| {
+			readonly kind: "credentialsRefused";
+			readonly fields: readonly [RejectedCredentialField, ...RejectedCredentialField[]];
+	  };
 
 export type EntryConnectionResolution =
 	| { readonly kind: "resolved"; readonly entry: DeclaredServer; readonly connection: UsageConnection }
-	| { readonly kind: EntryConnectionRefusal };
+	| EntryConnectionRefused;
 
 /**
  * The one label-to-connection resolution for extension-side features that address a declared servers entry by its
@@ -45,5 +54,9 @@ export async function entryConnectionFor(
 	if (owned.refused.length > 0) {
 		return { kind: "secretsMismatched" };
 	}
-	return { kind: "resolved", entry: found.entry, connection: usageConnectionFor(found.entry, owned.values) };
+	const resolution = usageConnectionFor(found.entry, owned.values);
+	if (resolution.kind === "credentialsRefused") {
+		return resolution;
+	}
+	return { kind: "resolved", entry: found.entry, connection: resolution.connection };
 }

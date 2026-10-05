@@ -28,7 +28,7 @@ export async function featureChatSend(
 ): Promise<string> {
 	const resolved = await entryConnectionFor(deps.secrets, ref.server);
 	if (resolved.kind !== "resolved") {
-		throw configuredServerUnavailable(feature, ref.server, resolved.kind);
+		throw configuredServerUnavailable(feature, ref.server, resolved);
 	}
 	return deps.oneShot.completeChatOnce(
 		resolved.connection,
