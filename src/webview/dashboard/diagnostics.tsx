@@ -11,7 +11,12 @@
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
 import { Fragment, useEffect, useState } from "react";
-import { latestCheckedMs, overallStatusText, serverOutcomeText } from "../../dashboard/presenters";
+import {
+	latestCheckedMs,
+	numberContractSentence,
+	overallStatusText,
+	serverOutcomeText,
+} from "../../dashboard/presenters";
 import type {
 	ConfigDiagnosticSeverity,
 	ConfigDiagnosticView,
@@ -28,13 +33,16 @@ import {
 	formatCostPerMillion,
 } from "../../shared/config/capabilityDisplay";
 import type { RecordDiagnostic } from "../../shared/config/recordResolution";
+import { numberSettingBoundText } from "../../shared/config/settingSpec";
 import { displayUrl } from "../../shared/util/displayUrl";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { DOCS_GETTING_STARTED_URL } from "../../shared/util/links";
 import type { DocsUrl } from "./docsLinks";
 import {
 	DOCS_LINK_AUTHENTICATION,
 	DOCS_LINK_MODEL_MATCHING,
 	DOCS_LINK_RESOLVED_MODELS,
+	DOCS_LINK_SETTINGS,
 	DOCS_LINK_SETTINGS_MIGRATION,
 	DOCS_LINK_USAGE,
 } from "./docsLinks";
@@ -134,6 +142,9 @@ function pageDiagnostic(diagnostic: ConfigDiagnosticView): PageConfigDiagnostic 
 		case "record":
 		case "legacy":
 		case "thresholds":
+		case "number-setting":
+		case "setting-shape":
+		case "credential":
 			return diagnostic;
 		case "entry":
 			return diagnostic.misconfigured && diagnostic.rowOwned ? undefined : diagnostic;
@@ -186,6 +197,15 @@ function problemSeverity(diagnostic: PageConfigDiagnostic): DiagnosticSeverity {
 			return cappedSeverity(diagnostic.severity, "blocking");
 		case "thresholds":
 			return cappedSeverity(diagnostic.severity, "degraded");
+		case "number-setting":
+			// The default applies in place of the written value: part of the configuration is ignored, the rest holds.
+			return cappedSeverity(diagnostic.severity, "degraded");
+		case "setting-shape":
+			// A whole map reads as empty, so nothing in it applies; one refused entry leaves the rest in force.
+			return cappedSeverity(diagnostic.severity, diagnostic.key === undefined ? "blocking" : "degraded");
+		case "credential":
+			// Requests go out without the credential; the entry still serves, so the rest of it holds.
+			return cappedSeverity(diagnostic.severity, "degraded");
 	}
 }
 
@@ -229,6 +249,16 @@ function englishDiagnosticLine(diagnostic: PageConfigDiagnostic): string {
 			})`;
 		case "thresholds":
 			return `${tier} usage.alertThresholds: ${diagnostic.dropped} dropped`;
+		case "number-setting":
+			return `${tier} ${diagnostic.setting}: not a whole number ${numberSettingBoundText(diagnostic.setting)}; default in effect`;
+		case "setting-shape":
+			return diagnostic.key === undefined
+				? `${tier} ${diagnostic.setting}: not an object; reads as empty`
+				: `${tier} ${diagnostic.setting}.${copySafeKey(diagnostic.key)}: ${
+						diagnostic.reason === "reserved-name" ? "reserved name" : "not an object"
+					}; reads as absent`;
+		case "credential":
+			return `${tier} servers entry "${diagnostic.label}": ${diagnostic.path} cannot be sent as an HTTP header; sent without it`;
 	}
 }
 
@@ -378,6 +408,56 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 				actions: [
 					{ kind: "reveal", setting: "usage.alertThresholds", subject: "usage.alertThresholds" },
 					docsAction(DOCS_LINK_USAGE, l10n.t("the usage and budgets guide")),
+				],
+			};
+		case "number-setting":
+			return {
+				key: `number-setting:${diagnostic.setting}`,
+				severity: problemSeverity(diagnostic),
+				headline: `${numberContractSentence(diagnostic.setting)} ${l10n.t("The default is in effect.")}`,
+				where: [diagnostic.setting],
+				actions: [
+					{ kind: "reveal", setting: diagnostic.setting, subject: diagnostic.setting },
+					docsAction(DOCS_LINK_SETTINGS, l10n.t("the settings reference")),
+				],
+			};
+		case "setting-shape":
+			return {
+				key: `setting-shape:${diagnostic.setting}:${diagnostic.key ?? ""}`,
+				severity: problemSeverity(diagnostic),
+				headline:
+					diagnostic.key === undefined
+						? l10n.t("{0} must be an object; remove it to restore the default.", diagnostic.setting)
+						: diagnostic.reason === "reserved-name"
+							? l10n.t(
+									"{0}.{1} is a reserved name and cannot be a model matcher; remove it.",
+									diagnostic.setting,
+									diagnostic.key
+								)
+							: l10n.t(
+									"{0}.{1} must be an object; remove it to restore the default.",
+									diagnostic.setting,
+									diagnostic.key
+								),
+				where: [diagnostic.setting, ...(diagnostic.key === undefined ? [] : [diagnostic.key])],
+				actions: [
+					{ kind: "reveal", setting: diagnostic.setting, subject: `${diagnostic.setting} ${diagnostic.key ?? ""}` },
+					docsAction(DOCS_LINK_SETTINGS, l10n.t("the settings reference")),
+				],
+			};
+		case "credential":
+			return {
+				key: `credential:${diagnostic.label}:${diagnostic.path}`,
+				severity: problemSeverity(diagnostic),
+				headline: l10n.t(
+					"Server entry {0} sends requests without {1}: the stored value cannot be sent as an HTTP header. Enter it again.",
+					`"${diagnostic.label}"`,
+					diagnostic.path
+				),
+				where: ["servers", l10n.t("entry {0}", diagnostic.label)],
+				actions: [
+					{ kind: "reveal", setting: "servers", subject: `${diagnostic.label} ${diagnostic.path}` },
+					docsAction(DOCS_LINK_AUTHENTICATION, l10n.t("the authentication guide")),
 				],
 			};
 	}
@@ -659,7 +739,7 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
 }
 
 function pricingFieldLabel(currencySymbol: string): string {
-	const symbol = currencySymbol.trim();
+	const symbol = trimHttpWhitespace(currencySymbol);
 	return symbol.length === 0 ? l10n.t("Pricing (per M tokens)") : l10n.t("Pricing ({0}/M)", symbol);
 }
 
@@ -774,7 +854,7 @@ function ResolvedModels({
 	}, [active, stateSeq, send]);
 
 	const view = resolved.data?.view;
-	const needle = filter.trim().toLowerCase();
+	const needle = trimHttpWhitespace(filter).toLowerCase();
 	const rows =
 		view === undefined
 			? []

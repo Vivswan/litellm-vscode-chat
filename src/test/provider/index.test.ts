@@ -23,8 +23,9 @@ const SEED = resolveFuzzSeed();
 
 suite("provider", () => {
 	test("hostRefreshDeadlineMs floors at 8s and follows the discovery timeout plus its margin", () => {
-		// The floor: a pathologically low discovery timeout (clamped to 1000) must not make the host pass abandon
-		// almost instantly - the deadline also bounds the host's own re-resolve round trip.
+		// The floor: a discovery timeout at its 1000 ms floor must
+		// not make the host pass abandon almost instantly - the deadline also
+		// bounds the host's own re-resolve round trip.
 		assert.strictEqual(hostRefreshDeadlineMs(1000), 8000);
 		assert.strictEqual(hostRefreshDeadlineMs(30000), 32000);
 		assert.strictEqual(hostRefreshDeadlineMs(120000), 122000);

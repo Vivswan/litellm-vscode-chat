@@ -427,7 +427,7 @@ suite("extension/servers/usage spendClient", () => {
 			assert.strictEqual(keyInfoUrl(resolved.baseUrl, undefined), KEY_INFO_URL);
 		});
 
-		test("drops a virtual key whose header or value cannot be sent as an HTTP header", () => {
+		test("drops a virtual key or API key that cannot be sent as an HTTP header", () => {
 			const badValue = usageConnectionFor(
 				{ label: "alpha", baseUrl: TEST_BASE_URL, virtualKeyHeader: "x-litellm-key", virtualKeyValue: "bad\nvalue" },
 				{}
@@ -439,6 +439,17 @@ suite("extension/servers/usage spendClient", () => {
 				{}
 			);
 			assert.strictEqual(badName.virtualKey, undefined);
+
+			// The platform's Headers quotes the whole key in its TypeError ('"sk-a\nb" is an invalid header value'), while
+			// it strips edge whitespace itself, so a pasted trailing newline is trimmed rather than dropped.
+			const badKey = usageConnectionFor({ label: "alpha", baseUrl: TEST_BASE_URL }, { apiKey: "sk-a\nb" });
+			assert.deepStrictEqual(
+				badKey,
+				{ label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "", headers: {} },
+				"an unrepairable key reads as keyless rather than reaching Headers"
+			);
+			const pastedKey = usageConnectionFor({ label: "alpha", baseUrl: TEST_BASE_URL }, { apiKey: "sk-abc\n" });
+			assert.deepStrictEqual(pastedKey, { label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "sk-abc", headers: {} });
 		});
 
 		test("a base URL normalizing to nothing forms no absolute usage URL while the composer carries the secrets", () => {

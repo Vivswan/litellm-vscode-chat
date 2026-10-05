@@ -281,6 +281,67 @@ suite("extension/dashboard/configDiagnostics", () => {
 		assert.deepStrictEqual(notAnArray, [], "a non-array falls back to the default without a drop report");
 	});
 
+	test("a number setting outside its contract is one diagnostic naming the key and the bound; in-range stays silent", () => {
+		// chat.timeout 4294967296 read as a RangeError in the transport and 2147483648 as a 1 ms timeout; now both read
+		// as the default, and this is where the user learns it.
+		const diagnostics = buildConfigDiagnostics(
+			makeInput({
+				reader: makeReader({
+					"chat.timeout": 4294967296,
+					"chat.maxToolsPerRequest": 2.5,
+					"discovery.timeout": 30000,
+					"usage.pollInterval": 0,
+				}),
+			})
+		);
+		assert.deepStrictEqual(diagnostics, [
+			{ kind: "number-setting", setting: "chat.timeout", severity: "warning" },
+			{ kind: "number-setting", setting: "chat.maxToolsPerRequest", severity: "warning" },
+		]);
+	});
+
+	test("a record setting that is not an object, one entry that is not, and an entry's dropped credential each name their place", () => {
+		// models.parameters "oops" read as {} and {"gpt-4": "oops"} dropped the entry, each showing as "no overrides"
+		// with nothing saying why; a stored key the request path drops left the entry sending keyless with only an
+		// output-channel line. An OAuth entry keeps its key under auth.oauth, so the path follows the entry's own shape.
+		const diagnostics = buildConfigDiagnostics(
+			makeInput({
+				reader: makeReader({
+					"models.parameters": "oops",
+					"models.capabilities": { "gpt-4": "oops", "gpt-4o": {}, constructor: {} },
+				}),
+				declared: [
+					{ label: "Prod", rejectedCredentials: ["apiKey"] },
+					{
+						label: "Team",
+						oauthTokenUrl: "http://idp.test/token",
+						oauthClientId: "client-1",
+						rejectedCredentials: ["virtualKeyValue"],
+					},
+				],
+			})
+		);
+		assert.deepStrictEqual(diagnostics, [
+			{ kind: "setting-shape", setting: "models.parameters", severity: "warning" },
+			{
+				kind: "setting-shape",
+				setting: "models.capabilities",
+				key: "gpt-4",
+				reason: "not-object",
+				severity: "warning",
+			},
+			{
+				kind: "setting-shape",
+				setting: "models.capabilities",
+				key: "constructor",
+				reason: "reserved-name",
+				severity: "warning",
+			},
+			{ kind: "credential", label: "Prod", path: "auth.apiKey", severity: "warning" },
+			{ kind: "credential", label: "Team", path: "auth.oauth.virtualKey.value", severity: "warning" },
+		]);
+	});
+
 	test("hidden groups surface as one diagnostic carrying their labels; none stays silent", () => {
 		// A hidden-only setup otherwise reads as healthy with zero models and no visible cause, so Diagnostics must
 		// name the groups an explicit removal hid.

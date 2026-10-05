@@ -20,8 +20,9 @@ import {
 	sameSecretDestination,
 	secretDestination,
 } from "../shared/serverEntry";
+import { parseDecimalText } from "../shared/util/decimalText";
 import type { HeaderScalar } from "../shared/util/headers";
-import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
+import { isValidHeaderName, sendableHeaderValue, trimHttpWhitespace } from "../shared/util/headers";
 import { isUnsafeRecordKey } from "../shared/util/json";
 import type { ReplacedEntryIdentity, SaveServerPayload, SecretDirective } from "./endpoints";
 import type { CapabilityGroupIssues, GroupHints, GroupProblems, HeaderRow, PrefixGroup } from "./recordDraft";
@@ -194,14 +195,17 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 			return nowText[field] !== wasText[field];
 		}
 		if (field === "label" || field === "baseUrl") {
-			return draft[field].trim() !== baseline[field].trim();
+			return trimHttpWhitespace(draft[field]) !== trimHttpWhitespace(baseline[field]);
 		}
 		if (field === "apiVersion") {
 			// Save reads the custom text only in custom mode, so another mode's leftover text never counts; a mode
 			// switch always does.
 			const now = draft.apiVersion;
 			const was = baseline.apiVersion;
-			return now.mode !== was.mode || (now.mode === "custom" && now.custom.trim() !== was.custom.trim());
+			return (
+				now.mode !== was.mode ||
+				(now.mode === "custom" && trimHttpWhitespace(now.custom) !== trimHttpWhitespace(was.custom))
+			);
 		}
 		if (field === "budget") {
 			return !sameBudget(parseBudgetText(draft.budget), parseBudgetText(baseline.budget));
@@ -268,11 +272,18 @@ interface SecretParse {
 	readonly visibleValue: string | undefined;
 }
 
+/** Whether a secret draft holds nothing after the one credential trim; the field's reveal toggle and keep hint key off this. */
+export function secretDraftIsEmpty(value: string): boolean {
+	return trimHttpWhitespace(value).length === 0;
+}
+
 function parseSecret(draft: SecretFieldDraft): SecretParse {
 	if (draft.clear) {
 		return { directive: { action: "clear" }, resolves: false, visibleValue: undefined };
 	}
-	const value = draft.value.trim();
+	// The one credential trim rule (HTTP whitespace only): a Latin-1 byte at the edge of a key is the key's, and a
+	// prefilled stored value with such a byte compares equal to itself below instead of reading as an edit.
+	const value = trimHttpWhitespace(draft.value);
 	if (value.length === 0) {
 		return { directive: { action: "keep" }, resolves: draft.existing !== "none", visibleValue: undefined };
 	}
@@ -347,10 +358,10 @@ function parseSecrets(draft: ServerFormDraft): Record<SecretFieldId, SecretParse
 function activeOptionalText(draft: ServerFormDraft): Readonly<Record<NonSecretOptionalFieldId, string>> {
 	const active = authFormActivity(draft.authForm);
 	return {
-		oauthTokenUrl: active.oauth ? draft.oauthTokenUrl.trim() : "",
-		oauthClientId: active.oauth ? draft.oauthClientId.trim() : "",
-		oauthScopes: active.oauth ? draft.oauthScopes.trim() : "",
-		virtualKeyHeader: active.virtualKey ? draft.virtualKeyHeader.trim() : "",
+		oauthTokenUrl: active.oauth ? trimHttpWhitespace(draft.oauthTokenUrl) : "",
+		oauthClientId: active.oauth ? trimHttpWhitespace(draft.oauthClientId) : "",
+		oauthScopes: active.oauth ? trimHttpWhitespace(draft.oauthScopes) : "",
+		virtualKeyHeader: active.virtualKey ? trimHttpWhitespace(draft.virtualKeyHeader) : "",
 	};
 }
 
@@ -360,13 +371,13 @@ function activeOptionalText(draft: ServerFormDraft): Readonly<Record<NonSecretOp
  */
 type BudgetParse = { readonly ok: true; readonly value: number | null } | { readonly ok: false; readonly text: string };
 
-function parseBudgetText(text: string): BudgetParse {
-	const trimmed = text.trim();
+export function parseBudgetText(text: string): BudgetParse {
+	const trimmed = trimHttpWhitespace(text);
 	if (trimmed.length === 0) {
 		return { ok: true, value: null };
 	}
-	const value = Number(trimmed);
-	return Number.isFinite(value) && value > 0 ? { ok: true, value } : { ok: false, text: trimmed };
+	const value = parseDecimalText(trimmed);
+	return value !== undefined && value > 0 ? { ok: true, value } : { ok: false, text: trimmed };
 }
 
 function sameBudget(a: BudgetParse, b: BudgetParse): boolean {
@@ -385,7 +396,7 @@ function parseMcpDraft(draft: McpDraft): McpParse {
 	if (!draft.enabled) {
 		return { ok: true, value: null };
 	}
-	const url = draft.url.trim();
+	const url = trimHttpWhitespace(draft.url);
 	if (url.length === 0) {
 		return { ok: true, value: true };
 	}
@@ -413,13 +424,16 @@ export function deriveAuthForm(config: {
 	readonly virtualKeyHeader?: string | undefined;
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 }): AuthFormId {
-	if ((config.oauthTokenUrl ?? "").trim().length > 0 && (config.oauthClientId ?? "").trim().length > 0) {
+	if (
+		trimHttpWhitespace(config.oauthTokenUrl ?? "").length > 0 &&
+		trimHttpWhitespace(config.oauthClientId ?? "").length > 0
+	) {
 		return "oauth";
 	}
 	if (config.secrets.apiKey !== "none") {
 		return "apiKey";
 	}
-	if ((config.virtualKeyHeader ?? "").trim().length > 0 || config.secrets.virtualKeyValue !== "none") {
+	if (trimHttpWhitespace(config.virtualKeyHeader ?? "").length > 0 || config.secrets.virtualKeyValue !== "none") {
 		return "virtualKey";
 	}
 	return "none";
@@ -434,7 +448,7 @@ export function parseDeclaredModelsText(text: string): string[] {
 		...new Set(
 			text
 				.split("\n")
-				.map((line) => line.trim())
+				.map((line) => trimHttpWhitespace(line))
 				.filter((line) => line.length > 0)
 		),
 	];
@@ -587,7 +601,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	const activeText = activeOptionalText(draft);
 
 	const problems: { -readonly [K in ServerFormField]?: string } = {};
-	const label = draft.label.trim();
+	const label = trimHttpWhitespace(draft.label);
 	if (label.length === 0) {
 		problems.label = l10n.t("Enter a label");
 	} else if (isUnsafeRecordKey(label)) {
@@ -601,7 +615,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		// the extension refuses it too (adds keep their replace-by-label upsert).
 		problems.label = l10n.t("An entry with this label already exists");
 	}
-	const baseUrl = draft.baseUrl.trim();
+	const baseUrl = trimHttpWhitespace(draft.baseUrl);
 	if (baseUrl.length === 0) {
 		problems.baseUrl = l10n.t("Enter the server URL");
 	} else if (!isUsableHttpUrl(baseUrl)) {
@@ -616,7 +630,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	if (draft.apiVersion.mode === "none") {
 		apiVersion = "";
 	} else if (draft.apiVersion.mode === "custom") {
-		const custom = draft.apiVersion.custom.trim();
+		const custom = trimHttpWhitespace(draft.apiVersion.custom);
 		if (custom.length === 0) {
 			problems.apiVersion = l10n.t("Enter the version segment, e.g. v2");
 		} else if (custom.includes("/") || /\s/.test(custom)) {
@@ -646,8 +660,17 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		);
 	}
 
-	// The sendability check reads the parsed visible value, so a cleared field's stale text cannot block; on "none" a
-	// kept stored value blocks like the client secret above.
+	// A newly entered key the platform's Headers would refuse does not save: the request path would read it as keyless,
+	// so the form says so here, beside the field (a kept stored key is not visible here; the Diagnostics tab reports
+	// that one). Edge whitespace is tolerated (trimmed on the way out), an interior control character is not.
+	if (secrets.apiKey.visibleValue !== undefined && sendableHeaderValue(secrets.apiKey.visibleValue) === undefined) {
+		problems.apiKey = l10n.t("The value cannot be sent as an HTTP header");
+	}
+
+	// Both-or-neither like OAuth, and must be sendable as an HTTP header: the request path drops a value it cannot
+	// send and reports that drop on the Diagnostics tab, while a missing value shows as a missing secret. The
+	// sendability check reads the parsed visible value, so a cleared field's stale text cannot block; on "none" a kept
+	// stored value blocks like the client secret above.
 	const virtualKey = secrets.virtualKeyValue;
 	if (active.virtualKey) {
 		const header = activeText.virtualKeyHeader;
@@ -658,7 +681,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		}
 		if (header.length > 0 && !virtualKey.resolves) {
 			problems.virtualKeyValue = l10n.t("Enter the key sent in this header");
-		} else if (virtualKey.visibleValue !== undefined && !isValidHeaderValue(virtualKey.visibleValue)) {
+		} else if (virtualKey.visibleValue !== undefined && sendableHeaderValue(virtualKey.visibleValue) === undefined) {
 			problems.virtualKeyValue = l10n.t("The value cannot be sent as an HTTP header");
 		}
 	} else if (virtualKey.resolves) {
@@ -902,7 +925,7 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
  * entry, never replaces one). The extension re-checks the same rules on the intent.
  */
 export function validateAdoptLabel(label: string, takenLabels: readonly string[]): string | undefined {
-	const trimmed = label.trim();
+	const trimmed = trimHttpWhitespace(label);
 	if (trimmed.length === 0) {
 		return l10n.t("Enter a label");
 	}

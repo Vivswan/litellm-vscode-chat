@@ -488,6 +488,22 @@ describe("dashboard/serverForm", () => {
 			assert.deepStrictEqual(problemsOf(edited), {});
 		});
 
+		test("an API key the platform's Headers would refuse blocks Save on its own field; edge whitespace does not", () => {
+			// The request path reads such a key as keyless; the form says so before a save can store it.
+			const base = draft({ authForm: "apiKey", apiKey: secret({ existing: "settings", location: "settings" }) });
+			const broken = applyInlinePrefill(base, { apiKey: "sk-a\nb" });
+			assert.deepStrictEqual(problemsOf(broken), { apiKey: "The value cannot be sent as an HTTP header" });
+			assert.deepStrictEqual(problemsOf(applyInlinePrefill(base, { apiKey: "sk-abc\n" })), {});
+			// Only HTTP whitespace is trimmed: a Latin-1 non-breaking space is the key's own byte, so a prefilled stored
+			// key padded with it still reads as unedited (a keep, not a rewriting set).
+			const nbsp = String.fromCharCode(0xa0);
+			const padded = applyInlinePrefill(base, { apiKey: `${nbsp}sk-abc${nbsp}` });
+			assert.deepStrictEqual(problemsOf(padded), {});
+			const parsed = parseServerForm(padded);
+			assert.ok(parsed.ok);
+			assert.deepStrictEqual(parsed.intent.secrets.apiKey, { action: "keep" });
+		});
+
 		test("relocation race lifecycle: a location flip before the response arrives still relocates once it does", () => {
 			//   The hazard the form's Save gate exists for -> flipping the inline key's radio to secret storage and
 			//                                                 saving before the prefill lands would read the empty

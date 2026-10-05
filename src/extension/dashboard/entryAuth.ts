@@ -14,6 +14,7 @@
 
 import * as l10n from "@vscode/l10n";
 import type { OptionalEntryFields, SecretFieldId } from "../../shared/serverEntry";
+import { usableHttpText } from "../../shared/util/headers";
 
 /**
  * Secret fields known to hold a value even when none rides inline (a SecretStorage side, a directive that resolves):
@@ -28,21 +29,15 @@ export type AssembledEntryAuth =
 	| { readonly auth: Readonly<Record<string, unknown>> | undefined; readonly failure?: undefined }
 	| { readonly auth?: undefined; readonly failure: PairingFailure };
 
-/** The parser's usable-text rule: only non-blank content counts, trimmed. */
-function usable(value: string | undefined): string | undefined {
-	const trimmed = value?.trim();
-	return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
-}
-
 /** Failures come in a fixed order: the OAuth unit (token URL, then client ID), then the virtual key pair. */
 export function assembleEntryAuth(inline: OptionalEntryFields, resolves: SecretResolution = {}): AssembledEntryAuth {
-	const tokenUrl = usable(inline.oauthTokenUrl);
-	const clientId = usable(inline.oauthClientId);
-	const scopes = usable(inline.oauthScopes);
-	const header = usable(inline.virtualKeyHeader);
-	const apiKey = usable(inline.apiKey);
-	const clientSecret = usable(inline.oauthClientSecret);
-	const virtualKeyValue = usable(inline.virtualKeyValue);
+	const tokenUrl = usableHttpText(inline.oauthTokenUrl);
+	const clientId = usableHttpText(inline.oauthClientId);
+	const scopes = usableHttpText(inline.oauthScopes);
+	const header = usableHttpText(inline.virtualKeyHeader);
+	const apiKey = usableHttpText(inline.apiKey);
+	const clientSecret = usableHttpText(inline.oauthClientSecret);
+	const virtualKeyValue = usableHttpText(inline.virtualKeyValue);
 	const secretPresent = (field: SecretFieldId, inlineValue: string | undefined): boolean =>
 		inlineValue !== undefined || resolves[field] === true;
 

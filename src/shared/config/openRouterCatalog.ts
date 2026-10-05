@@ -9,6 +9,7 @@
  *                                                  unchanged, and re-slimming them sheds the pricing keys
  */
 
+import { trimHttpWhitespace } from "../util/headers";
 import { isRecord } from "../util/json";
 import { normalizePositiveNumber } from "../util/numbers";
 import type { CapabilityCatalogLookup, CapabilityFieldValues, CatalogLookupResult } from "./capabilityResolution";
@@ -281,7 +282,7 @@ export function searchCatalogModels(
 	snapshot: OpenRouterCatalogSnapshot,
 	query: string
 ): readonly { readonly id: string; readonly name: string }[] {
-	const needle = query.trim().toLowerCase();
+	const needle = trimHttpWhitespace(query).toLowerCase();
 	if (needle.length === 0) {
 		return [];
 	}

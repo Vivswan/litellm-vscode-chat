@@ -33,7 +33,7 @@ void (planSettingsImport satisfies (
 ) => ImportPlan);
 void (resolveImportPlan satisfies (plan: ImportPlan, decisions: CollisionDecisions) => ImportApplication);
 void (suggestRenamedLabel satisfies (label: string, takenLabels: ReadonlySet<string>) => string);
-void ({ key: "chat.timeout", value: 1 } satisfies SettingWrite);
+void ({ key: "chat.timeout", value: 60000 } satisfies SettingWrite);
 void ({ key: "chat.promptCaching", reason: "wrong-type" } satisfies SkippedKey);
 void ({ action: "rename", newLabel: "B" } satisfies CollisionDecision);
 void ({ label: "A", connectionChanged: false } satisfies ServerCollision);
@@ -66,13 +66,17 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.strictEqual(plan.secretFieldCount, 0);
 		});
 
-		test("the scalar type gate skips wrong-JS-typed spec'd values and out-of-enum statusBar modes", () => {
+		test("the scalar gate skips wrong-JS-typed spec'd values, out-of-contract numbers, and out-of-enum statusBar modes", () => {
+			// chat.maxToolsPerRequest 2.5 and usage.pollInterval 4294967296 are numbers, so the old type-only gate wrote
+			// them; the reader would then read both as the default.
 			const plan = planSettingsImport(
 				{
 					"chat.timeout": "60000",
+					"chat.maxToolsPerRequest": 2.5,
 					"discovery.cacheTtl": null,
 					"chat.promptCaching": 1,
 					"models.openRouterCatalog": true,
+					"usage.pollInterval": 4294967296,
 					"usage.statusBar": "sometimes",
 					"usage.alertThresholds": "not-an-array",
 					"models.capabilities": 42,
@@ -82,8 +86,10 @@ suite("extension/settingsTransfer/importPlan", () => {
 			// Both lists come out in ALL_SETTING_KEYS order, which is the manifest's section order.
 			assert.deepStrictEqual(plan.skippedKeys, [
 				{ key: "chat.timeout", reason: "wrong-type" },
+				{ key: "chat.maxToolsPerRequest", reason: "wrong-type" },
 				{ key: "chat.promptCaching", reason: "wrong-type" },
 				{ key: "discovery.cacheTtl", reason: "wrong-type" },
+				{ key: "usage.pollInterval", reason: "wrong-type" },
 				{ key: "usage.statusBar", reason: "wrong-type" },
 			]);
 			// Structured keys pass through to their readers' existing leniency.
@@ -362,9 +368,9 @@ suite("extension/settingsTransfer/importPlan", () => {
 		});
 
 		test("serversValue is undefined when the file carries no servers key", () => {
-			const application = resolveImportPlan(planSettingsImport({ "chat.timeout": 1 }, [server("A")]), {});
+			const application = resolveImportPlan(planSettingsImport({ "chat.timeout": 60000 }, [server("A")]), {});
 			assert.strictEqual(application.serversValue, undefined);
-			assert.deepStrictEqual(application.settingsWrites, [{ key: "chat.timeout", value: 1 }]);
+			assert.deepStrictEqual(application.settingsWrites, [{ key: "chat.timeout", value: 60000 }]);
 		});
 
 		test("every landing entry is stripped and emits a secret write, empty blobs included", () => {

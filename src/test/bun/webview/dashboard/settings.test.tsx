@@ -3,7 +3,7 @@ import * as fc from "fast-check";
 import { act } from "react";
 import type { RpcRequest } from "../../../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
-import { isBoundViolation, parseNumberDraft } from "../../../../dashboard/presenters";
+import { parseNumberDraft, parseThresholdBox, violatesContract } from "../../../../dashboard/presenters";
 import { formatPercentExact } from "../../../../dashboard/spendFormat";
 import { NUMBER_SETTING_IDS, settingRowPage } from "../../../../dashboard/viewModels";
 import { OPENROUTER_MODEL_DIRECTIVE } from "../../../../shared/config/recordResolution";
@@ -11,7 +11,7 @@ import { TOKEN_ESTIMATION_MODES, UI_ACCENTS } from "../../../../shared/config/se
 import { AnnounceOnceScope } from "../../../../webview/dashboard/announceOnce";
 import { App } from "../../../../webview/dashboard/app";
 import { settingRowHelp } from "../../../../webview/dashboard/helpText";
-import { parseThresholdBox, SettingsSection } from "../../../../webview/dashboard/settingsPage";
+import { SettingsSection } from "../../../../webview/dashboard/settingsPage";
 import { makeSettings } from "../../../dashboardSettingsFixture";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 import { makeState, statePush } from "../fixtures";
@@ -179,16 +179,16 @@ test("a below-minimum draft stays calm until blur reveals it; commit posts nothi
 	const input = settingInput(root, "discovery.timeout");
 
 	fireInput(input, "500");
-	expect(rowOf(input).textContent).not.toContain("Must be at least");
+	expect(rowOf(input).textContent).not.toContain("must be a whole number");
 	expect(input.getAttribute("aria-invalid")).toBe("false");
 	fireBlur(input);
-	expect(rowOf(input).textContent).toContain("Must be at least 1000");
+	expect(rowOf(input).textContent).toContain("must be a whole number between 1000 and 2147483647.");
 	expect(input.getAttribute("aria-invalid")).toBe("true");
 	fireKeyDown(input, "Enter");
 	expect(postedMessages).toEqual([]);
 
 	fireInput(input, "20480");
-	expect(rowOf(input).textContent).not.toContain("Must be at least");
+	expect(rowOf(input).textContent).not.toContain("must be a whole number");
 	fireBlur(input);
 	expect(postedCalls()).toEqual([
 		{ method: "setNumberSetting", payload: { setting: "discovery.timeout", value: 20480 } },
@@ -206,23 +206,25 @@ test("Enter reveals a bound error like blur does; parse errors show live per key
 	const input = settingInput(root, "chat.timeout");
 
 	fireInput(input, "500");
-	expect(rowOf(input).textContent).not.toContain("Must be at least");
+	expect(rowOf(input).textContent).not.toContain("must be a whole number");
 	fireKeyDown(input, "Enter");
-	expect(rowOf(input).textContent).toContain("Must be at least 1000");
+	expect(rowOf(input).textContent).toContain("must be a whole number between 1000 and 2147483647.");
 	expect(postedMessages).toEqual([]);
 	fireInput(input, "999");
-	expect(rowOf(input).textContent).toContain("Must be at least 1000");
+	expect(rowOf(input).textContent).toContain("must be a whole number between 1000 and 2147483647.");
 	fireInput(input, "9999");
-	expect(rowOf(input).textContent).not.toContain("Must be at least");
+	expect(rowOf(input).textContent).not.toContain("must be a whole number");
 
 	const other = settingInput(root, "discovery.timeout");
 	fireInput(other, "");
 	expect(rowOf(other).textContent).toContain("Enter a number");
 });
 
-test("isBoundViolation classifies exactly parseNumberDraft's minimum-bound rejections, for every setting", () => {
+test("violatesContract classifies exactly parseNumberDraft's contract rejections, for every setting", () => {
 	// The drift guard the display gating leans on: both functions read the draft with one grammar (durations on ms
-	// settings), so "invalid because of the minimum" and isBoundViolation must agree on every draft.
+	// settings), so "invalid because the spec refuses the reading" and violatesContract must agree on every draft. The list
+	// covers empties, unparsable text, non-finite numbers, fractions, both sides of every bound, and the duration
+	// grammar's edges.
 	const drafts = [
 		"",
 		"  ",
@@ -258,8 +260,8 @@ test("isBoundViolation classifies exactly parseNumberDraft's minimum-bound rejec
 	for (const id of NUMBER_SETTING_IDS) {
 		for (const draft of drafts) {
 			const parse = parseNumberDraft(id, draft);
-			const boundRejected = parse.kind === "invalid" && parse.problem.startsWith("Must be at least");
-			expect(isBoundViolation(id, draft), `${id} ${JSON.stringify(draft)}`).toBe(boundRejected);
+			const boundRejected = parse.kind === "invalid" && parse.problem.includes("must be a whole number between");
+			expect(violatesContract(id, draft), `${id} ${JSON.stringify(draft)}`).toBe(boundRejected);
 		}
 	}
 });
@@ -275,7 +277,9 @@ test("aria-invalid and the error's aria-describedby wiring follow the displayed 
 	fireBlur(input);
 	expect(input.getAttribute("aria-invalid")).toBe("true");
 	expect(input.getAttribute("aria-describedby")).toBe("setting-chat.timeout-unit setting-chat.timeout-error");
-	expect(root.querySelector("#setting-chat\\.timeout-error")?.textContent).toBe("Must be at least 1000");
+	expect(root.querySelector("#setting-chat\\.timeout-error")?.textContent).toBe(
+		"chat.timeout must be a whole number between 1000 and 2147483647."
+	);
 });
 
 test("Enter commits a valid draft like blur does", () => {
@@ -288,22 +292,25 @@ test("Enter commits a valid draft like blur does", () => {
 	]);
 });
 
-test("the count-unit number input rejects a fractional draft live and commits a whole one", () => {
-	// chat.maxToolsPerRequest is the count-unit setting: type="number", whole values only. "1.5" has no reading under
-	// the count grammar, so the error shows on the keystroke (a parse failure, not a blur-gated bound).
+test("the count-unit number input refuses a fractional draft on blur and commits a whole one", () => {
+	// chat.maxToolsPerRequest is the count-unit setting: type="number", whole values only. "1.5" reads as a fraction the
+	// spec refuses (quiet until blur, like a bound), never as a rounded 1 or 2.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "chat.maxToolsPerRequest");
 	expect(input.type).toBe("number");
 
 	fireInput(input, "1.5");
-	expect(rowOf(input).textContent).toContain("Not a whole number");
+	expect(rowOf(input).textContent).not.toContain("must be a whole number");
+	fireBlur(input);
+	expect(rowOf(input).textContent).toContain(
+		"chat.maxToolsPerRequest must be a whole number between 1 and 9007199254740991."
+	);
 	expect(input.getAttribute("aria-invalid")).toBe("true");
 	fireKeyDown(input, "Enter");
-	fireBlur(input);
 	expect(postedMessages).toEqual([]);
 
 	fireInput(input, "129");
-	expect(rowOf(input).textContent).not.toContain("Not a whole number");
+	expect(rowOf(input).textContent).not.toContain("must be a whole number");
 	fireKeyDown(input, "Enter");
 	expect(postedCalls()).toEqual([
 		{ method: "setNumberSetting", payload: { setting: "chat.maxToolsPerRequest", value: 129 } },
@@ -317,7 +324,7 @@ test("an external state push resyncs a rejected draft and re-arms the calm start
 
 	fireInput(input, "1"); // below MIN_TIMEOUT_MS
 	fireBlur(input);
-	expect(rowOf(input).textContent).toContain("Must be at least");
+	expect(rowOf(input).textContent).toContain("must be a whole number");
 
 	// The push changes only the configured scope (a reset of a value pinned to its default); the stale rejected draft
 	// must resync anyway.
@@ -336,9 +343,11 @@ test("an external state push resyncs a rejected draft and re-arms the calm start
 		)
 	);
 	expect(input.value).toBe("300000");
-	expect(rowOf(input).textContent).not.toContain("Must be at least");
+	expect(rowOf(input).textContent).not.toContain("must be a whole number");
+	// The resync also re-armed the blur latch: a fresh below-minimum draft
+	// stays calm again until the next blur.
 	fireInput(input, "1");
-	expect(rowOf(input).textContent).not.toContain("Must be at least");
+	expect(rowOf(input).textContent).not.toContain("must be a whole number");
 });
 
 test("Reset renders only on configured rows, carries the scope-naming accessible name, and posts resetSetting", () => {
@@ -477,9 +486,9 @@ test("a unit typo reads as a live grammar error; a below-bound duration stays ca
 	// A suffixed value below the bound is an honest mid-typing state ("500ms" on the way to "1500ms"), so it keeps the
 	// blur gate plain numbers get. This runs before any settle: the first blur arms the reveal latch.
 	fireInput(input, "500ms");
-	expect(rowOf(input).textContent).not.toContain("Must be at least");
+	expect(rowOf(input).textContent).not.toContain("must be a whole number");
 	fireBlur(input);
-	expect(rowOf(input).textContent).toContain("Must be at least 1000");
+	expect(rowOf(input).textContent).toContain("must be a whole number between 1000 and 2147483647.");
 	expect(postedMessages).toEqual([]);
 
 	fireInput(input, "5 min");

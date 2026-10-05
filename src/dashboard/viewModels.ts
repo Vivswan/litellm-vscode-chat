@@ -687,7 +687,41 @@ export type ConfigDiagnosticView =
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
-			/** Labels only, never URLs beyond what the hidden-groups line already shows. */
+			/**
+			 * A number setting outside its contract (acceptsNumberSetting); the default is in effect, never a clamped or
+			 * rounded guess. The configured value itself stays out: the key and its spec are the facts.
+			 */
+			readonly kind: "number-setting";
+			readonly setting: NumberSettingId;
+			readonly severity: ConfigDiagnosticSeverity;
+	  }
+	| {
+			/**
+			 * A record setting the normalizer refused: the whole map when `key` is absent (it reads as empty), else the
+			 * one model's entry (it reads as absent) because its value is not an object or its name is reserved.
+			 */
+			readonly kind: "setting-shape";
+			readonly setting: "models.parameters" | "models.capabilities";
+			readonly key?: string | undefined;
+			readonly reason?: "not-object" | "reserved-name" | undefined;
+			readonly severity: ConfigDiagnosticSeverity;
+	  }
+	| {
+			/**
+			 * A declared entry's stored credential the request path drops because the platform's Headers would refuse
+			 * it; requests go out without it until the key is entered again. `path` is the entry field (auth.apiKey),
+			 * never the value.
+			 */
+			readonly kind: "credential";
+			readonly label: string;
+			readonly path: string;
+			readonly severity: ConfigDiagnosticSeverity;
+	  }
+	| {
+			/**
+			 * Provider groups hidden by an explicit user removal. Labels only,
+			 * never URLs beyond what the hidden-groups line already shows.
+			 */
 			readonly kind: "hidden-groups";
 			readonly labels: readonly string[];
 			readonly severity: ConfigDiagnosticSeverity;

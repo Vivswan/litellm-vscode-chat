@@ -20,6 +20,7 @@ import {
 	INHERIT_FROM_DIRECTIVE,
 	INHERITABLE_DIRECTIVE,
 } from "../../shared/config/recordResolution";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { Help } from "./help";
 import { helpFallbackFlag, helpForceFlag, helpForceFlagDisabled, helpInheritableFlag } from "./helpText";
 import { IconAdd, IconTrash } from "./icons";
@@ -341,7 +342,7 @@ export function FieldChipPopover({
 			{valueKind === "boolean" ? (
 				<label className="capability-flag">
 					<Checkbox
-						checked={row.valueText.trim() === "true"}
+						checked={trimHttpWhitespace(row.valueText) === "true"}
 						disabled={disabled}
 						onChange={(event) => patchValue(event.currentTarget.checked ? "true" : "false")}
 					/>
@@ -479,8 +480,10 @@ export function AddFieldPopover({
 	// verbatim (a padded " _fallback" stays the live field the probe judged).
 	const name = resolvedFieldName(kind, key);
 	const problem =
-		key.trim().length === 0 ? undefined : candidateProblem(kind, groups, groupIndex, { key: name, valueText });
-	const canAdd = key.trim().length > 0 && problem === undefined;
+		trimHttpWhitespace(key).length === 0
+			? undefined
+			: candidateProblem(kind, groups, groupIndex, { key: name, valueText });
+	const canAdd = trimHttpWhitespace(key).length > 0 && problem === undefined;
 	const valueKind = kind === "caps" ? capabilityControlKind(name, valueText) : "json";
 	const numberProps = valueKind === "number" || valueKind === "cost" ? numberInputProps(valueKind) : undefined;
 	const setKeyAndSeed = (nextKey: string) => {
@@ -488,7 +491,7 @@ export function AddFieldPopover({
 		if (
 			kind === "caps" &&
 			capabilityValueKind(resolvedFieldName(kind, nextKey)) === "boolean" &&
-			valueText.trim().length === 0
+			trimHttpWhitespace(valueText).length === 0
 		) {
 			setValueText("true");
 		}
@@ -539,7 +542,7 @@ export function AddFieldPopover({
 			{valueKind === "boolean" ? (
 				<label className="capability-flag">
 					<Checkbox
-						checked={valueText.trim() === "true"}
+						checked={trimHttpWhitespace(valueText) === "true"}
 						disabled={disabled}
 						onChange={(event) => setValueText(event.currentTarget.checked ? "true" : "false")}
 					/>
@@ -566,7 +569,7 @@ export function AddFieldPopover({
 					}}
 				/>
 			)}
-			{key.trim().length > 0 && !name.startsWith("_") ? (
+			{trimHttpWhitespace(key).length > 0 && !name.startsWith("_") ? (
 				<div className="chip-popover-flags">
 					{kind === "params" ? (
 						<>

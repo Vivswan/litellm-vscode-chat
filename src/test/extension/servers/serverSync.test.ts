@@ -476,7 +476,7 @@ suite("extension/servers/serverSync", () => {
 	});
 
 	suite("per-entry modelParameters", () => {
-		test("parseServersSetting keeps a usable record; a malformed parameters shape reports, never rejects", () => {
+		test("parseServersSetting keeps a usable record and reports malformed shapes by key without rejecting the entry", () => {
 			const { entries, problems } = parseServersSetting([
 				{
 					label: "Prod",
@@ -494,8 +494,14 @@ suite("extension/servers/serverSync", () => {
 				{ label: "Bare", baseUrl: "http://bare.test" },
 			]);
 
-			assert.deepStrictEqual(problems, ["entry 2 has a models.parameters value that is not an object, ignored"]);
-			assert.strictEqual(entries.length, 4, "a malformed modelParameters shape never rejects the entry");
+			// A malformed shape never rejects the entry, and it is named (the key is user configuration): it used to
+			// read as "no per-entry records" in silence.
+			assert.deepStrictEqual(problems, [
+				'entry 1 has a models.parameters entry "claude" that is not an object, ignored',
+				'entry 1 has a models.parameters entry "__proto__" under a reserved name, ignored',
+				"entry 2 has a models.parameters value that is not an object, ignored",
+			]);
+			assert.strictEqual(entries.length, 4, "every entry is accepted");
 			assert.deepStrictEqual(entries[0]?.modelParameters, { "gpt-4": { temperature: 0.2, stop: ["END"] } });
 			for (const entry of entries.slice(1)) {
 				assert.ok(!("modelParameters" in entry), `"${entry.label}" must read as carrying no entry parameters`);
@@ -589,7 +595,7 @@ suite("extension/servers/serverSync", () => {
 	});
 
 	suite("per-entry modelCapabilities and expectedFailures", () => {
-		test("parseServersSetting keeps usable values and drops malformed shapes without rejecting the entry", () => {
+		test("parseServersSetting keeps usable values and reports malformed shapes without rejecting the entry", () => {
 			const { entries, problems } = parseServersSetting([
 				{
 					label: "Prod",
@@ -619,9 +625,12 @@ suite("extension/servers/serverSync", () => {
 				{ label: "Bare", baseUrl: "http://bare.test" },
 			]);
 
-			// Unknown expectedFailures values are counted, never echoed: the problems are logged and the tokens are
-			// user text.
+			// Unknown expectedFailures values are counted, never echoed: the
+			// problems are logged and the tokens are user text. A malformed
+			// records shape is named by its key, which is user configuration.
 			assert.deepStrictEqual(problems, [
+				'entry 1 has a models.capabilities entry "claude" that is not an object, ignored',
+				'entry 1 has a models.capabilities entry "__proto__" under a reserved name, ignored',
 				"entry 1 lists 2 unknown discovery.expectedFailures value(s), ignored",
 				"entry 1 lists 2 unknown discovery.includeModes value(s), ignored",
 				"entry 2 has a models.capabilities value that is not an object, ignored",

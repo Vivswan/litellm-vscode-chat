@@ -378,6 +378,46 @@ describe("Configuration diagnostics", () => {
 		expect(root.querySelector(".config-diagnostics li")?.className).toBe("row-diagnostic tier-advisory");
 	});
 
+	test("a number setting outside its contract names the key and the bound and reveals that setting", () => {
+		const root = mountConfig([{ kind: "number-setting", setting: "chat.timeout", severity: "warning" }]);
+		expect(sightedText(root.querySelector(".config-diagnostics .row-diagnostic-headline"))).toBe(
+			"chat.timeout must be a whole number between 1000 and 2147483647. The default is in effect."
+		);
+		expect(root.querySelector(".config-diagnostics li")?.className).toBe("row-diagnostic tier-warn");
+		expect(root.querySelector(".row-diagnostic-actions a")?.textContent).toBe("Learn more");
+	});
+
+	test("a non-object record setting or entry and a dropped entry credential each say what is not applied and where", () => {
+		const root = mountConfig([
+			{ kind: "setting-shape", setting: "models.parameters", severity: "warning" },
+			{ kind: "setting-shape", setting: "models.parameters", key: "gpt-4", reason: "not-object", severity: "warning" },
+			{
+				kind: "setting-shape",
+				setting: "models.parameters",
+				key: "constructor",
+				reason: "reserved-name",
+				severity: "warning",
+			},
+			{ kind: "credential", label: "Prod", path: "auth.apiKey", severity: "warning" },
+		]);
+		const headlines = Array.from(root.querySelectorAll(".config-diagnostics .row-diagnostic-headline")).map((el) =>
+			sightedText(el)
+		);
+		expect(headlines).toEqual([
+			"models.parameters must be an object; remove it to restore the default.",
+			"models.parameters.gpt-4 must be an object; remove it to restore the default.",
+			"models.parameters.constructor is a reserved name and cannot be a model matcher; remove it.",
+			'Server entry "Prod" sends requests without auth.apiKey: the stored value cannot be sent as an HTTP header. Enter it again.',
+		]);
+		const tiers = Array.from(root.querySelectorAll(".config-diagnostics li")).map((li) => li.className);
+		expect(tiers).toEqual([
+			"row-diagnostic tier-error",
+			"row-diagnostic tier-warn",
+			"row-diagnostic tier-warn",
+			"row-diagnostic tier-warn",
+		]);
+	});
+
 	test("repeated reveal buttons get accessible names that tell them apart", () => {
 		const root = mountConfig([
 			{

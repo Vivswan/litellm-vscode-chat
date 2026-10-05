@@ -8,6 +8,7 @@ import { useState } from "react";
 import { serverFormFieldLabel, validateAdoptLabel } from "../../dashboard/serverForm";
 import type { ExternalDashboardServer } from "../../dashboard/viewModels";
 import type { SecretFieldId } from "../../shared/serverEntry";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { BackToServers } from "./backToServers";
 import { helpAdoptionSection } from "./helpText";
 import { COMMIT_BAR_CLASS, FieldRow, FieldSpan, FormSection } from "./serverFormFields";
@@ -41,7 +42,7 @@ export function AdoptForm({
 	});
 
 	const problem = validateAdoptLabel(label, declaredLabels);
-	const showProblem = problem !== undefined && (touched || label.trim() !== server.label);
+	const showProblem = problem !== undefined && (touched || trimHttpWhitespace(label) !== server.label);
 
 	const adopt = () => {
 		if (saving) {
@@ -52,7 +53,7 @@ export function AdoptForm({
 			return;
 		}
 		const requestId = sendRequest("adoptServer", {
-			label: label.trim(),
+			label: trimHttpWhitespace(label),
 			baseUrl: server.baseUrl,
 			sourceHandle: server.adoptHandle,
 			secrets: locations,

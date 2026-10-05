@@ -24,6 +24,7 @@ import {
 	OPENROUTER_MODEL_DIRECTIVE,
 	RECORD_TYPE_DIRECTIVES,
 } from "../../shared/config/recordResolution";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { Help } from "./help";
 import {
 	helpCapabilityName,
@@ -301,7 +302,8 @@ export function ParamGroupsFields({
 				    same one-size slot - two spans changed heights and moved the sections below under the typing
 				    hand. */}
 				<span className={cn("matcher-status", problems?.prefix !== undefined && "error")}>
-					{problems?.prefix ?? (group.prefix.trim().length > 0 ? matcherKindLabel(matcherKind(group.prefix)) : null)}
+					{problems?.prefix ??
+						(trimHttpWhitespace(group.prefix).length > 0 ? matcherKindLabel(matcherKind(group.prefix)) : null)}
 				</span>
 			</div>
 			<div className="editor-section">
@@ -334,7 +336,8 @@ export function ParamGroupsFields({
 						}
 						// The label names the field as the record stores it (verbatim here); emptiness is the one
 						// judgment made trimmed, matching the parse's own refusal of a whitespace-only name.
-						const removeLabel = param.key.trim().length > 0 ? l10n.t('Remove "{0}"', param.key) : l10n.t("Remove");
+						const removeLabel =
+							trimHttpWhitespace(param.key).length > 0 ? l10n.t('Remove "{0}"', param.key) : l10n.t("Remove");
 						const rowProblem = problems?.params[paramIndex]?.message;
 						const rowHint = hints?.params[paramIndex];
 						const wrongType = wrongRecordTypeHint("params", param.key);
@@ -392,7 +395,7 @@ export function ParamGroupsFields({
 								{/* The per-row force/inheritable marks in their own fixed column so the boxes align.
 								    Directive rows carry no flag checkboxes (a directive cannot be forced or inherited);
 								    unforceable keys keep the box visible but disabled, the help naming why. */}
-								{param.key.startsWith("_") || param.key.trim().length === 0 ? (
+								{param.key.startsWith("_") || trimHttpWhitespace(param.key).length === 0 ? (
 									wrongType === undefined || wrongTypeId === undefined ? null : (
 										<WrongTypeFlagCell note={wrongType} id={wrongTypeId} />
 									)
@@ -528,7 +531,7 @@ export function SuggestInput({
 	const [active, setActive] = useState(-1);
 	const listId = useId();
 	const listRef = useRef<HTMLDivElement>(null);
-	const needle = value.trim().toLowerCase();
+	const needle = trimHttpWhitespace(value).toLowerCase();
 	const matches =
 		needle.length === 0 ? suggestions : suggestions.filter((candidate) => candidate.toLowerCase().includes(needle));
 	const expanded = open && disabled !== true && matches.length > 0;
@@ -704,7 +707,7 @@ export function capabilityControlKind(key: string, valueText: string): ReturnTyp
 	const kind = capabilityValueKind(key);
 	if (kind === "boolean") {
 		// The checkbox reads trimmed text ("true " still shows checked), so fitting is judged trimmed too.
-		const trimmed = valueText.trim();
+		const trimmed = trimHttpWhitespace(valueText);
 		return trimmed === "" || trimmed === "true" || trimmed === "false" ? kind : "json";
 	}
 	if (kind === "number" || kind === "cost") {
@@ -735,7 +738,7 @@ export function CatalogPicker({
 	// The keyboard cursor over the result list; -1 means nothing highlighted.
 	const [active, setActive] = useState(-1);
 	const listId = useId();
-	const query = value.trim();
+	const query = trimHttpWhitespace(value);
 
 	const { send: searchCatalog, reset: resetCatalog } = catalog;
 	useEffect(() => {
@@ -904,7 +907,8 @@ export function CapabilityGroupsFields({
 				{/* The reserved status line, the parameters editor's rule (see the twin above dashboard.css
 				    .matcher-status). */}
 				<span className={cn("matcher-status", issues?.prefix !== undefined && "error")}>
-					{issues?.prefix ?? (group.prefix.trim().length > 0 ? matcherKindLabel(matcherKind(group.prefix)) : null)}
+					{issues?.prefix ??
+						(trimHttpWhitespace(group.prefix).length > 0 ? matcherKindLabel(matcherKind(group.prefix)) : null)}
 				</span>
 			</div>
 			<div className="editor-section">
@@ -970,7 +974,7 @@ export function CapabilityGroupsFields({
 										onValue={(nextKey) => {
 											const seedsTrue =
 												capabilityValueKind(resolvedFieldName("caps", nextKey)) === "boolean" &&
-												param.valueText.trim().length === 0;
+												trimHttpWhitespace(param.valueText).length === 0;
 											patchRow({ key: nextKey, ...(seedsTrue ? { valueText: "true" } : {}) });
 										}}
 										onEnter={onEnter}
@@ -983,7 +987,7 @@ export function CapabilityGroupsFields({
 								{kind === "boolean" ? (
 									<label className="cell value capability-flag">
 										<Checkbox
-											checked={param.valueText.trim() === "true"}
+											checked={trimHttpWhitespace(param.valueText) === "true"}
 											disabled={inert}
 											onChange={(event) => patchRow({ valueText: event.currentTarget.checked ? "true" : "false" })}
 										/>

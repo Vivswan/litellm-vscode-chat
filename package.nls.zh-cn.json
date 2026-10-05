@@ -133,7 +133,7 @@
 	"litellm.config.discovery.timeout.description": "模型发现请求的超时时间 (毫秒)。默认为 30000ms (30 秒)。",
 	"litellm.config.discovery.cacheTtl.description": "已发现的模型列表在再次询问服务器之前的复用时长 (毫秒)。默认为 3600000 (1 小时)。较大的值可避免 VS Code 突发式重新解析提供程序时的重复发现请求, 但服务器上新增或移除的模型最长需要这么久才会体现; 较小的值能更快感知服务器端变化, 代价是更多请求。设为 0 则每次刷新都询问服务器 (同时发生的刷新仍共享一个请求)。运行「LiteLLM: 立即同步模型」可立即刷新, 不受此设置影响。",
 	"litellm.config.discovery.staleServeWindow.description": "服务器停止响应后, 其最后已知的模型继续提供 (标记为过期) 的时长 (毫秒), 从最后一次成功发现开始计算。默认为 600000 (10 分钟)。若你的服务器会休眠或重启更久, 且希望其间模型仍留在选择器中, 可调大此值; 设为 0 则从不提供过期模型, 刷新失败会立即清空该服务器的模型列表。",
-	"litellm.config.usage.pollInterval.description": "从每个 LiteLLM 服务器刷新各服务器消费和预算数据的频率, 以毫秒计。默认为 300000 (5 分钟)。设为 0 可完全禁用轮询 (不发起后台用量请求, 也不产生预算提醒); 「LiteLLM: 立即刷新用量」命令和仪表板仍可按需获取。",
+	"litellm.config.usage.pollInterval.description": "从每个 LiteLLM 服务器刷新各服务器消费和预算数据的频率, 以毫秒计。默认为 300000 (5 分钟)。设为 0 可完全禁用轮询 (不发起后台用量请求, 也不产生预算提醒); 「LiteLLM: 立即刷新用量」命令和仪表板仍可按需获取。低于 30000 的非零值不被接受, 此时该设置按默认值读取。",
 	"litellm.config.usage.initialRefreshDelay.description": "扩展启动后多久运行首次用量轮询, 以毫秒计。默认为 5000 (5 秒)。",
 	"litellm.config.usage.serversChangeRefreshDelay.description": "servers 设置变更后多久刷新用量数据, 以毫秒计。默认为 2000 (2 秒), 足以合并 settings.json 中的连续按键。",
 	"litellm.config.usage.pollingOffFreshnessWindow.description": "轮询关闭时 (usage.pollInterval 为 0), 按需获取的用量数据算作新鲜的时长, 以毫秒计。默认为 600000 (10 分钟)。轮询开启时, 新鲜窗口改为轮询间隔的两倍。设为 0 则轮询关闭时用量数据从不算新鲜, 用量状态栏项会因此隐藏。",

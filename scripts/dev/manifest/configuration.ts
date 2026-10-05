@@ -135,7 +135,10 @@ export function renderProperty(id: string, shape: SettingShape, presentation: Se
 				...scope(presentation),
 				default: shape.spec.default,
 				...restricted(presentation),
-				minimum: shape.spec.minimum,
+				// The schema admits the off switch as its floor (the settings UI must take 0); the gap up to the real minimum
+				// is the readers' contract, stated by the nls description and the generated docs bounds sentence.
+				minimum: shape.spec.offValue ?? shape.spec.minimum,
+				maximum: shape.spec.maximum,
 				...description(id, presentation),
 			};
 		}

@@ -10,6 +10,7 @@
  *     view, so nothing flows past it), or exactly the named records' literal fields (a list, which bypasses barriers)
  */
 
+import { trimHttpWhitespace } from "../util/headers";
 import type { ModelRecordMap } from "./modelMatcher";
 import { compareSpecificity, matchChain, matcherMatches, parseMatcherKey } from "./modelMatcher";
 
@@ -60,11 +61,12 @@ export type RecordType = keyof typeof RECORD_TYPE_DIRECTIVES;
 
 /**
  * Field identity inside a record, one rule for the parsers and for the settings-redesign migration's record merges:
- * capability keys and list entries are trimmed, matching the editor, which judges and saves keys trimmed, so a
- * hand-padded key means the same field on every surface; parameter keys are taken as written.
+ * capability keys and list entries lose edge HTTP whitespace (the one trim rule, so a U+00A0 stays), matching the
+ * editor, which judges and saves keys the same way, so a hand-padded key means the same field on every surface;
+ * parameter keys are taken as written.
  */
 export function canonicalFieldKey(type: RecordType, key: string): string {
-	return type === "capabilities" ? key.trim() : key;
+	return type === "capabilities" ? trimHttpWhitespace(key) : key;
 }
 
 export function wrongTypeDirectives(own: RecordType): readonly string[] {

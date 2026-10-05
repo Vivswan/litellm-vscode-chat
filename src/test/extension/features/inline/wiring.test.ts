@@ -285,6 +285,29 @@ suite("extension/features/inline wiring", () => {
 		assert.strictEqual(seenBody.suffix, "SUF");
 	});
 
+	test("a malformed models.parameters logs its one line even when ghost text is the only reader", async () => {
+		mswServer.use(http.post(COMPLETIONS_URL, () => completionJsonResponse("native")));
+		const lines: string[] = [];
+		const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
+		await withWiringSpies(async () => {
+			const { fimSend } = await withConfig({ "inlineCompletions.enabled": false, servers: [SERVER_ENTRY] }, () =>
+				wireInlineCompletions(fakeContext(), logger, { oneShot: new OneShotClient({ userAgent: "test-agent" }) })
+			);
+			await withConfig({ servers: [SERVER_ENTRY], "models.parameters": "oops" }, () =>
+				fimSend({
+					modelRef: MODEL_REF,
+					prefix: "PRE",
+					suffix: "SUF",
+					token: new vscode.CancellationTokenSource().token,
+				})
+			);
+		});
+		assert.ok(
+			lines.includes("Invalid models.parameters configuration, reading it as empty"),
+			`the shape problem reaches the log: ${JSON.stringify(lines)}`
+		);
+	});
+
 	test("a label matching no entry throws the classified error, zero fetches", async () => {
 		await withWiringSpies(async () => {
 			const { fimSend } = await withConfig({ "inlineCompletions.enabled": false, servers: [] }, () =>

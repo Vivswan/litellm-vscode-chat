@@ -10,7 +10,6 @@ import {
 	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_MODEL_SETTING_KEY_LIST,
 	isIntegerSetting,
-	MIN_TIMEOUT_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	NUMBER_SETTING_SPECS,
@@ -31,21 +30,24 @@ function readRepoFile(...segments: readonly string[]): string {
 }
 
 describe("shared/config/settingSpec: value invariants", () => {
-	test("an integer spec's default and minimum satisfy the rule they declare", () => {
+	test("an integer spec's default and bounds satisfy the rule they declare", () => {
 		for (const [id, spec] of Object.entries(NUMBER_SETTING_SPECS)) {
 			if (!isIntegerSetting(id as NumberSettingId)) {
 				continue;
 			}
 			assert.ok(spec.default === null || Number.isInteger(spec.default), `${id} default must be an integer`);
 			assert.ok(Number.isInteger(spec.minimum), `${id} minimum must be an integer`);
+			assert.ok(Number.isInteger(spec.maximum), `${id} maximum must be an integer`);
 		}
 	});
 
-	test("every non-null spec default respects its own minimum", () => {
-		// The readers clamp to the minimum, so a below-minimum default could never take effect as written.
+	test("every non-null spec default lies within its own bounds", () => {
+		// readNumberSetting hands back spec.default without judging it, so a default outside its own bounds would reach
+		// consumers unchecked; the spec itself must hold.
 		for (const [id, spec] of Object.entries(NUMBER_SETTING_SPECS)) {
 			if (spec.default !== null) {
 				assert.ok(spec.default >= spec.minimum, `${id} default ${spec.default} is below its minimum ${spec.minimum}`);
+				assert.ok(spec.default <= spec.maximum, `${id} default ${spec.default} is above its maximum ${spec.maximum}`);
 			}
 		}
 	});
@@ -69,12 +71,6 @@ describe("shared/config/settingSpec: prose drift guard", () => {
 			assert.strictEqual(quoted, String(spec.default), `${id} description quotes a stale default: "${description}"`);
 		}
 		assert.ok(checked >= 3, "the timeout and cache TTL descriptions all state their defaults");
-	});
-
-	test("the minimum-timeout prose quotes MIN_TIMEOUT_MS", () => {
-		const quoted = /Minimum (\d+); lower values are clamped/.exec(readRepoFile("docs", "settings.md"))?.[1];
-		assert.ok(quoted, "docs/settings.md states the minimum timeout");
-		assert.strictEqual(quoted, String(MIN_TIMEOUT_MS));
 	});
 
 	test("the max_tokens fallback sentence quotes DEFAULT_MAX_TOKENS_CAP", () => {

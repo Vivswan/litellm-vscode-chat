@@ -51,6 +51,7 @@ import {
 	secretDestination,
 } from "../../shared/serverEntry";
 import { DEFAULT_API_VERSION, mcpEndpointOf } from "../../shared/util/baseUrl";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { AdoptForm } from "./adoptForm";
 import { BackToServers } from "./backToServers";
@@ -235,7 +236,7 @@ function includeModeLabel(mode: NonChatMode, skipped: number | undefined): strin
  * that case falls back to naming the shape instead of interpolating half a URL.
  */
 function derivedMcpHint(baseUrl: string): string {
-	const trimmed = baseUrl.trim();
+	const trimmed = trimHttpWhitespace(baseUrl);
 	// mcpEndpointOf is the publisher's own derivation, so the address named here is the address that gets published -
 	// not a second rendering of the rule.
 	return isUsableHttpUrl(trimmed)
@@ -672,7 +673,7 @@ function ServerForm({
 		...(original !== undefined ? { original } : {}),
 		...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
 	});
-	const label = draft.label.trim();
+	const label = trimHttpWhitespace(draft.label);
 	const renaming = target.kind === "edit" && label !== target.original.label;
 	const collides = target.kind === "add" && declaredLabels.includes(label);
 
@@ -885,7 +886,7 @@ function ServerForm({
 		if (matcherEditor !== undefined) {
 			const list = matcherEditor.kind === "params" ? draft.modelParameters : draft.modelCapabilities;
 			const group = list[matcherEditor.index];
-			if (group !== undefined && group.prefix.trim().length === 0 && group.params.length === 0) {
+			if (group !== undefined && trimHttpWhitespace(group.prefix).length === 0 && group.params.length === 0) {
 				const remaining = list.filter((_, index) => index !== matcherEditor.index);
 				setDraft((current) =>
 					matcherEditor.kind === "params"
@@ -1001,7 +1002,7 @@ function ServerForm({
 				<FieldUnderRow>
 					<Button
 						variant="secondary"
-						disabled={!isUsableHttpUrl(draft.baseUrl.trim()) || testState.kind === "testing" || saving}
+						disabled={!isUsableHttpUrl(trimHttpWhitespace(draft.baseUrl)) || testState.kind === "testing" || saving}
 						onClick={testConnection}
 					>
 						{testState.kind === "testing" ? (
