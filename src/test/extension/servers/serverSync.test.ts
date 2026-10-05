@@ -476,7 +476,7 @@ suite("extension/servers/serverSync", () => {
 	});
 
 	suite("per-entry modelParameters", () => {
-		test("parseServersSetting keeps a usable record and drops malformed shapes silently", () => {
+		test("parseServersSetting keeps a usable record; a malformed parameters shape reports, never rejects", () => {
 			const { entries, problems } = parseServersSetting([
 				{
 					label: "Prod",
@@ -494,7 +494,8 @@ suite("extension/servers/serverSync", () => {
 				{ label: "Bare", baseUrl: "http://bare.test" },
 			]);
 
-			assert.deepStrictEqual(problems, [], "a malformed modelParameters shape never rejects the entry");
+			assert.deepStrictEqual(problems, ["entry 2 has a models.parameters value that is not an object, ignored"]);
+			assert.strictEqual(entries.length, 4, "a malformed modelParameters shape never rejects the entry");
 			assert.deepStrictEqual(entries[0]?.modelParameters, { "gpt-4": { temperature: 0.2, stop: ["END"] } });
 			for (const entry of entries.slice(1)) {
 				assert.ok(!("modelParameters" in entry), `"${entry.label}" must read as carrying no entry parameters`);
@@ -623,6 +624,7 @@ suite("extension/servers/serverSync", () => {
 			assert.deepStrictEqual(problems, [
 				"entry 1 lists 2 unknown discovery.expectedFailures value(s), ignored",
 				"entry 1 lists 2 unknown discovery.includeModes value(s), ignored",
+				"entry 2 has a models.capabilities value that is not an object, ignored",
 			]);
 			assert.deepStrictEqual(entries[0]?.modelCapabilities, {
 				"gpt-4": { context_length: 200000, supports_vision: true },

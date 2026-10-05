@@ -1156,6 +1156,28 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				await reloaded.syncNow();
 				assert.strictEqual(reloaded.getDeclared()[0]?.syncFailure?.class, "blocked", `force=${force}: stays blocked`);
 				assert.strictEqual(hostCalls.count, 1, `force=${force}: one refusal; the unforced follow-up makes no call`);
+				assert.deepStrictEqual(
+					recorded.entryBaseUrls,
+					{ Prod: "http://b.test" },
+					`force=${force}: the ledger names the group the host serves, not the declared URL`
+				);
+
+				recorded.observedGroups = { Prod: ["http://b.test", "http://c.test"] };
+				await reloaded.syncNow();
+				assert.strictEqual(
+					reloaded.getDeclared()[0]?.syncFailure?.class,
+					"blocked",
+					`force=${force}: a second labeled group proves nothing and lifts nothing`
+				);
+				assert.strictEqual(hostCalls.count, 1, `force=${force}: the ambiguous pass makes no call`);
+
+				recorded.setting = [];
+				await reloaded.syncNow();
+				assert.deepStrictEqual(
+					recordedEvents(recorded).at(-1),
+					{ kind: "removed", label: "Prod", baseUrl: "http://b.test" },
+					`force=${force}: the removal tombstones the group the host serves`
+				);
 			}
 		});
 
