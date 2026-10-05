@@ -22,7 +22,10 @@ export interface ChannelAccessScan {
 	readonly refused: readonly ChannelAccess[];
 }
 
-export const CHANNEL_OWNERS: ReadonlySet<string> = new Set(["src/shared/logger.ts", "src/extension.ts"]);
+export const LOGGER_FILE = "src/shared/logger.ts";
+
+/** The wiring site may only create the channel; a write there would skip the Logger like a write anywhere else. */
+export const WIRING_FILE = "src/extension.ts";
 
 /** Default-deny: a member vscode adds later is a write until it is listed here. */
 export const NON_WRITING_MEMBERS: ReadonlySet<string> = new Set([
@@ -159,6 +162,14 @@ function parseConfig(tsconfigPath: string): ts.ParsedCommandLine {
 	return config;
 }
 
+function isAllowed(file: string, member: string): boolean {
+	return (
+		NON_WRITING_MEMBERS.has(member) ||
+		file === LOGGER_FILE ||
+		(file === WIRING_FILE && member === "createOutputChannel")
+	);
+}
+
 export function scanOutputChannelAccess(tsconfigPath: string, fileNames?: readonly string[]): ChannelAccessScan {
 	const config = parseConfig(tsconfigPath);
 	const rootDir = path.dirname(tsconfigPath);
@@ -176,7 +187,7 @@ export function scanOutputChannelAccess(tsconfigPath: string, fileNames?: readon
 		const visit = (node: ts.Node): void => {
 			for (const member of channelMembersAt(checker, node)) {
 				seen += 1;
-				if (!CHANNEL_OWNERS.has(file) && !NON_WRITING_MEMBERS.has(member)) {
+				if (!isAllowed(file, member)) {
 					const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
 					refused.push({ file, line: line + 1, column: character + 1, member });
 				}
