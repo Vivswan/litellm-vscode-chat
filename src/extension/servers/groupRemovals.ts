@@ -14,6 +14,7 @@
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../shared/config/storageKeys";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isRecord } from "../../shared/util/json";
+import type { FingerprintSaltSession } from "../fingerprintSalt";
 
 /** One group identity as the provenance bookkeeping stores it; baseUrl is kept normalized. */
 export interface GroupIdentity {
@@ -33,6 +34,13 @@ export type TombstoneIdentity =
 	| { readonly by: "group"; readonly groupId: string; readonly label: string; readonly baseUrl: string }
 	| { readonly by: "entry"; readonly label: string; readonly baseUrl: string }
 	| { readonly by: "status"; readonly label: string; readonly baseUrl: string };
+
+/**
+ * Whether a recorded tombstone outlives this session. A group-keyed record is minted from a salt-keyed client ID
+ * (shared/util/fingerprint.ts); under a session-only salt no later session could match it, so it is kept in memory
+ * only and the notice says the hide ends with the session. Label-keyed records are salt-independent.
+ */
+export type TombstonePersistence = "durable" | "session-only";
 
 export interface DeclaredGroupClaim {
 	readonly label: string;
@@ -207,6 +215,8 @@ function parseVersionedRecords(raw: unknown): VersionedRecords {
  */
 class VersionedRegion<T> {
 	private records: readonly T[];
+	/** Records that live in memory only: listed and matched like the rest, never written, kept across adoption. */
+	private transient = new Set<T>();
 	private version: bigint;
 	private persisting = false;
 	private lastWrittenBlob: unknown;
@@ -246,7 +256,7 @@ class VersionedRegion<T> {
 		}
 		const stored = parseVersionedRecords(raw);
 		if (stored.version > this.version) {
-			this.records = this.parseRecords(stored.records);
+			this.records = [...this.parseRecords(stored.records), ...this.transient];
 			this.version = stored.version;
 		}
 	}
@@ -259,7 +269,14 @@ class VersionedRegion<T> {
 	/** Replace the in-memory list synchronously; callers observe the new state before any event or persist. */
 	commit(records: readonly T[]): void {
 		this.records = records;
+		this.transient = new Set(records.filter((record) => this.transient.has(record)));
 		this.commitGeneration += 1;
+	}
+
+	/** Append a record this session alone can match: no persist generation, because nothing of it is written. */
+	commitTransient(record: T): void {
+		this.records = [...this.records, record];
+		this.transient.add(record);
 	}
 
 	/** Persists run serialized: an out-of-order write would mark a newer failure's records as persisted. */
@@ -279,7 +296,10 @@ class VersionedRegion<T> {
 		const generation = this.commitGeneration;
 		const stored = parseVersionedRecords(this.memento.get(this.key));
 		const next = (stored.version > this.version ? stored.version : this.version) + 1n;
-		const blob = { version: next.toString(), records: [...this.records] };
+		const blob = {
+			version: next.toString(),
+			records: this.records.filter((record) => !this.transient.has(record)),
+		};
 		this.lastWrittenBlob = blob;
 		this.persisting = true;
 		try {
@@ -327,7 +347,10 @@ export class GroupRemovalStore {
 	private readonly tombstoneRegion: VersionedRegion<TombstoneIdentity>;
 	private readonly provenanceRegion: VersionedRegion<OrphanedGroupRecord>;
 
-	constructor(memento: RemovalMemento) {
+	constructor(
+		memento: RemovalMemento,
+		private readonly salt: Pick<FingerprintSaltSession, "confirmDurable">
+	) {
 		const report = (error: unknown) => this.persistErrorListener?.(error);
 		this.tombstoneRegion = new VersionedRegion(memento, REMOVED_GROUP_TOMBSTONES_KEY, parseTombstoneList, report);
 		this.provenanceRegion = new VersionedRegion(memento, ORPHANED_GROUP_PROVENANCE_KEY, parseProvenanceList, report);
@@ -347,13 +370,24 @@ export class GroupRemovalStore {
 		return this.tombstoneRegion.list().some((record) => sameGroupIdentity(record, { label, baseUrl }));
 	}
 
-	async addTombstone(identity: TombstoneIdentity): Promise<void> {
+	/**
+	 * Record one tombstone; it hides from the commit on. The result says whether a later session will still hold it:
+	 * confirmed at the write, like the sync engine's fingerprints, because the salt can downgrade mid-session.
+	 */
+	async addTombstone(identity: TombstoneIdentity): Promise<TombstonePersistence> {
 		const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
+		const persistence: TombstonePersistence =
+			normalized.by === "group" && (await this.salt.confirmDurable()) !== "durable" ? "session-only" : "durable";
 		const current = this.tombstoneRegion.list();
 		const changed = !current.some((existing) => sameTombstoneIdentity(existing, normalized));
 		if (!changed) {
 			await this.tombstoneRegion.persistCommitted();
-			return;
+			return persistence;
+		}
+		if (persistence === "session-only") {
+			this.tombstoneRegion.commitTransient(normalized);
+			this.didChangeListener?.();
+			return persistence;
 		}
 		this.tombstoneRegion.commit([...current, normalized]);
 		try {
@@ -363,6 +397,7 @@ export class GroupRemovalStore {
 			// storage.
 			await this.tombstoneRegion.persistCommitted();
 		}
+		return persistence;
 	}
 
 	/** Clear every tombstone shown under the identity (the line's row), whatever key each hides by. */

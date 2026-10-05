@@ -47,7 +47,7 @@ import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
-import type { TombstoneIdentity } from "../servers/groupRemovals";
+import type { TombstoneIdentity, TombstonePersistence } from "../servers/groupRemovals";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
@@ -153,8 +153,8 @@ export interface IntentEnvironment {
 	 * same resolution rules, no credential material.
 	 */
 	resolveExternalGroup(baseUrl: string, sourceHandle: string): Promise<ExternalGroupResolution>;
-	/** Persist one removed-group tombstone; the group answers with no models until unhidden. */
-	hideGroup(identity: TombstoneIdentity): Promise<void>;
+	/** Record one removed-group tombstone; the group answers with no models until unhidden. */
+	hideGroup(identity: TombstoneIdentity): Promise<TombstonePersistence>;
 	/** Clear the tombstones shown under this identity. Resolves false when none matched. */
 	unhideGroup(identity: { label: string; baseUrl: string }): Promise<boolean>;
 	/** Whether a removed-group tombstone is shown under this identity right now. */

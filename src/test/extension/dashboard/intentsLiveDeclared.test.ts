@@ -23,7 +23,7 @@ import { groupClientId, groupServerLabel, parseGroupConfiguration } from "../../
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
 import { makeModelInfo } from "../../pureHelpers";
-import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
+import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } from "../../testUtils";
 import { makeSecretStore, makeSyncEnv } from "../servers/serverSyncHelpers";
 import { makeReader } from "./stateHelpers";
 
@@ -139,7 +139,7 @@ function makeFixture(): Fixture {
 	const fixture: Fixture = {
 		host,
 		writes,
-		removals: new GroupRemovalStore(makeExtensionStorage().memento),
+		removals: new GroupRemovalStore(makeExtensionStorage().memento, fakeFingerprintSaltSession()),
 		secretOps: [],
 		currentSetting: effective,
 		secretsSnapshot: () =>

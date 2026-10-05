@@ -1,9 +1,10 @@
 import * as assert from "node:assert";
+import type { FingerprintSaltState } from "../../../extension/fingerprintSalt";
 import type { GroupKey } from "../../../extension/servers/groupRemovals";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../../shared/config/storageKeys";
 import { expectDefined } from "../../pureHelpers";
-import { makeExtensionStorage } from "../../testUtils";
+import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 
 const stamped = (label: string, baseUrl: string): GroupKey => ({
 	groupId: `group:${label}`,
@@ -12,9 +13,9 @@ const stamped = (label: string, baseUrl: string): GroupKey => ({
 	baseUrl,
 });
 
-function makeStore(initial: Record<string, unknown> = {}) {
+function makeStore(initial: Record<string, unknown> = {}, salt: FingerprintSaltState = "durable") {
 	const storage = makeExtensionStorage(initial);
-	const store = new GroupRemovalStore(storage.memento);
+	const store = new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession(salt));
 	const changes: number[] = [];
 	store.onDidChange = () => changes.push(changes.length + 1);
 	return { store, storage, changes };
@@ -22,6 +23,45 @@ function makeStore(initial: Record<string, unknown> = {}) {
 
 suite("extension/servers/groupRemovals", () => {
 	suite("tombstones", () => {
+		test("a group-keyed tombstone under a session-only salt hides for this session and is never persisted", async () => {
+			// The group ID is keyed by the fingerprint salt; a record minted under a session-only salt matches nothing
+			// after restart, so persisting it would hide nothing later while claiming to. Label-keyed records are
+			// salt-independent and persist as before.
+			const { store, storage, changes } = makeStore({}, "session-only");
+			const group = { groupId: "group:x", label: "h.test", entryLabel: undefined, baseUrl: "http://h.test" };
+			assert.strictEqual(
+				await store.addTombstone({ by: "group", groupId: "group:x", label: "h.test", baseUrl: "http://h.test" }),
+				"session-only"
+			);
+			assert.strictEqual(store.isTombstoned(group), true, "the hide applies now");
+			assert.deepStrictEqual(changes, [1], "the provider still re-resolves");
+			assert.strictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), undefined, "nothing reached storage");
+			assert.strictEqual(
+				await store.addTombstone({ by: "entry", label: "Prod", baseUrl: "http://prod.test" }),
+				"durable"
+			);
+			assert.deepStrictEqual(
+				(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { records: unknown[] }).records,
+				[{ by: "entry", label: "Prod", baseUrl: "http://prod.test" }],
+				"a later persist carries the durable record only"
+			);
+			assert.strictEqual(store.isTombstoned(group), true, "the session-local hide survives the persist");
+			const next = new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession("session-only"));
+			assert.deepStrictEqual(next.tombstones(), [{ by: "entry", label: "Prod", baseUrl: "http://prod.test" }]);
+		});
+
+		test("a group-keyed tombstone under a durable salt persists as every other record", async () => {
+			const { store, storage } = makeStore();
+			assert.strictEqual(
+				await store.addTombstone({ by: "group", groupId: "group:x", label: "h.test", baseUrl: "http://h.test" }),
+				"durable"
+			);
+			assert.deepStrictEqual(
+				(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { records: unknown[] }).records,
+				[{ by: "group", groupId: "group:x", label: "h.test", baseUrl: "http://h.test" }]
+			);
+		});
+
 		test("add, match, and explicit removal round-trip; base URLs compare normalized", async () => {
 			const { store, changes } = makeStore();
 			assert.deepStrictEqual(store.tombstones(), []);
@@ -400,7 +440,7 @@ suite("extension/servers/groupRemovals", () => {
 			// The activation wiring re-resolves models synchronously from the change event, so the in-memory list must
 			// already answer with the mutation.
 			const storage = makeExtensionStorage({});
-			const store = new GroupRemovalStore(storage.memento);
+			const store = new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession());
 			const seen: boolean[] = [];
 			store.onDidChange = () => seen.push(store.isTombstoned(stamped("A", "http://host.test")));
 

@@ -14,7 +14,7 @@ import { validatedStringRecord } from "../../../shared/util/json";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import type { MessageAction } from "../../ui/notifier";
 import { showActionableMessage } from "../../ui/notifier";
-import type { GroupKey, GroupRemovalStore, TombstoneIdentity } from "../groupRemovals";
+import type { GroupKey, GroupRemovalStore, TombstoneIdentity, TombstonePersistence } from "../groupRemovals";
 import { tombstoneHides } from "../groupRemovals";
 import { manageLanguageModelsAvailable, openManageLanguageModels } from "../manageLanguageModels";
 import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engine";
@@ -69,16 +69,23 @@ const quoted = (labels: readonly string[]) => labels.map((label) => `"${label}"`
  * Language Models editor (its Delete action) and keeps the models file as the fallback.
  */
 /** What one removal did to the groups the host serves, read from the tombstones it recorded over the live snapshots. */
-export type RemovalOutcome = "hidden" | "shared" | "unreported";
+export type RemovalOutcome = "hidden" | "hidden-session-only" | "shared" | "unreported";
+
+/** A tombstone the reconciliation recorded, with the store's answer on whether it outlives the session. */
+export interface RecordedTombstone {
+	readonly identity: TombstoneIdentity;
+	readonly persistence: TombstonePersistence;
+}
 
 /**
  * Derived from the hide result, never asserted: hidden when a group the host reports is hidden right now by one of
- * the tombstones this removal recorded (an Unhide between the record and this read un-hides it), shared when the
- * group the entry joined is also another present entry's and so was kept, unreported otherwise.
+ * the tombstones this removal recorded (an Unhide between the record and this read un-hides it), for this session
+ * only when every record hiding such a group is one the store could not persist, shared when the group the entry
+ * joined is also another present entry's and so was kept, unreported otherwise.
  */
 export function removalOutcome(
 	event: Extract<RemovedEntryEvent, { kind: "removed" }>,
-	recorded: readonly TombstoneIdentity[],
+	recorded: readonly RecordedTombstone[],
 	snapshots: readonly ServerModelsSnapshot[],
 	isHidden: (group: GroupKey) => boolean
 ): RemovalOutcome {
@@ -88,8 +95,14 @@ export function removalOutcome(
 		entryLabel: snapshot.entryLabel,
 		baseUrl: snapshot.status.baseUrl,
 	}));
-	if (keys.some((key) => isHidden(key) && recorded.some((record) => tombstoneHides(record, key)))) {
-		return "hidden";
+	const hiders = keys
+		.filter((key) => isHidden(key))
+		.map((key) => recorded.filter((record) => tombstoneHides(record.identity, key)))
+		.filter((records) => records.length > 0);
+	if (hiders.length > 0) {
+		return hiders.every((records) => records.some((record) => record.persistence === "durable"))
+			? "hidden"
+			: "hidden-session-only";
 	}
 	return keys.some((key) => event.sharedGroupIds.includes(key.groupId)) ? "shared" : "unreported";
 }
@@ -101,6 +114,7 @@ type NoticeEvent =
 
 async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void> {
 	const hidden: string[] = [];
+	const hiddenThisSession: string[] = [];
 	const shared: string[] = [];
 	const unreported: string[] = [];
 	const untracked: string[] = [];
@@ -112,6 +126,8 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void
 			untracked.push(event.label);
 		} else if (event.outcome === "hidden") {
 			hidden.push(event.label);
+		} else if (event.outcome === "hidden-session-only") {
+			hiddenThisSession.push(event.label);
 		} else if (event.outcome === "shared") {
 			shared.push(event.label);
 		} else {
@@ -155,6 +171,20 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void
 						labels
 					);
 		void showActionableMessage("info", message, await leftoverGroupActions(hidden));
+	}
+	if (hiddenThisSession.length > 0) {
+		const labels = quoted(hiddenThisSession);
+		const message =
+			hiddenThisSession.length === 1
+				? l10n.t(
+						"Removed {0} from the servers setting; its models are hidden for this session only. Secret storage is unavailable, so the hide cannot be kept across restarts. VS Code still keeps a provider group named {0}: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
+						labels
+					)
+				: l10n.t(
+						"Removed {0} from the servers setting; their models are hidden for this session only. Secret storage is unavailable, so the hides cannot be kept across restarts. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
+						labels
+					);
+		void showActionableMessage("info", message, await leftoverGroupActions(hiddenThisSession));
 	}
 	for (const event of renamed) {
 		void showActionableMessage(
@@ -267,12 +297,13 @@ export function createServerSyncEnv(
 						});
 						// A pre-label group carries no stamp: it hides by the identity the removed entry joined it by.
 						const { label, baseUrl } = event;
-						const recorded: TombstoneIdentity[] = [
+						const identities: TombstoneIdentity[] = [
 							{ by: "entry", label, baseUrl },
 							...event.groupIds.map((groupId): TombstoneIdentity => ({ by: "group", groupId, label, baseUrl })),
 						];
-						for (const tombstone of recorded) {
-							await removals.addTombstone(tombstone);
+						const recorded: RecordedTombstone[] = [];
+						for (const identity of identities) {
+							recorded.push({ identity, persistence: await removals.addTombstone(identity) });
 						}
 						noticeEvents.push({
 							...event,

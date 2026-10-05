@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import type * as vscode from "vscode";
+import * as vscode from "vscode";
 import { classifyOverall } from "../../../dashboard/presenters";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import {
@@ -16,7 +16,12 @@ import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engi
 import { removalOutcome } from "../../../extension/servers/serverSync/vscodeEnv";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
 import { groupClientId } from "../../../provider/catalog/groupModels";
-import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
+import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
+import {
+	REMOVED_GROUP_TOMBSTONES_KEY,
+	SERVER_SYNC_FINGERPRINTS_KEY,
+	SYNCED_ENTRY_BASE_URLS_KEY,
+} from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
 import { secretDestination } from "../../../shared/serverEntry";
 import { unexpectedFailureCount } from "../../../shared/servers";
@@ -1818,7 +1823,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 });
 
 suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence", () => {
-	function makeEnv(salt: "durable" | "session-only") {
+	function makeEnv(salt: "durable" | "session-only", snapshots: () => ServerModelsSnapshot[] = () => []) {
 		const storage = makeExtensionStorage({ [SERVER_SYNC_FINGERPRINTS_KEY]: { A: "before" } });
 		const lines: string[] = [];
 		const logger = new Logger({
@@ -1829,16 +1834,9 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 			globalState: storage.memento,
 			secrets: storage.secrets,
 		} as unknown as vscode.ExtensionContext;
-		const removals = new GroupRemovalStore(storage.memento);
+		const removals = new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession(salt));
 		return {
-			env: createServerSyncEnv(
-				context,
-				logger,
-				fakeFingerprintSaltSession(salt),
-				removals,
-				() => [],
-				() => []
-			),
+			env: createServerSyncEnv(context, logger, fakeFingerprintSaltSession(salt), removals, () => [], snapshots),
 			removals,
 			storage,
 			lines,
@@ -1861,7 +1859,10 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 			groupIds: [],
 			sharedGroupIds: [],
 		};
-		const entryRecord = { by: "entry" as const, label: "Old", baseUrl: "http://h.test" };
+		const entryRecord = {
+			identity: { by: "entry" as const, label: "Old", baseUrl: "http://h.test" },
+			persistence: "durable" as const,
+		};
 		const stillHeld = () => true;
 		assert.strictEqual(removalOutcome(removed, [entryRecord], [stamped], stillHeld), "hidden");
 		assert.strictEqual(
@@ -1878,6 +1879,62 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 			removalOutcome({ ...removed, sharedGroupIds: ["group:conn"] }, [entryRecord], [unstamped], stillHeld),
 			"shared"
 		);
+		// A group-keyed record under a session-only salt is the only thing hiding the pre-label group: the notice has
+		// to say the hide ends with the session. The stamped leftover's durable entry record keeps its hide durable.
+		const sessionRecord = {
+			identity: { by: "group" as const, groupId: "group:conn", label: "Old", baseUrl: "http://h.test" },
+			persistence: "session-only" as const,
+		};
+		assert.strictEqual(
+			removalOutcome({ ...removed, groupIds: ["group:conn"] }, [entryRecord, sessionRecord], [unstamped], stillHeld),
+			"hidden-session-only"
+		);
+		assert.strictEqual(
+			removalOutcome({ ...removed, groupIds: ["group:conn"] }, [entryRecord, sessionRecord], [stamped], stillHeld),
+			"hidden"
+		);
+	});
+
+	test("a session-only salt keeps a removed entry's group tombstone for this session and the notice says so", async () => {
+		const live = {
+			status: makeServerStatus({ serverId: "group:l1", label: "h.test", baseUrl: "http://h.test" }),
+			models: [],
+		};
+		const { env, removals, storage } = makeEnv("session-only", () => [live]);
+		const toasts: string[] = [];
+		const original = vscode.window.showInformationMessage;
+		(vscode.window as Record<string, unknown>).showInformationMessage = async (message: string) => {
+			toasts.push(message);
+			return undefined;
+		};
+		try {
+			await env.reconcileEntryIdentities(
+				[],
+				[{ kind: "removed", label: "L1", baseUrl: "http://h.test", groupIds: ["group:l1"], sharedGroupIds: [] }]
+			);
+			for (let i = 0; i < 50 && toasts.length === 0; i++) {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+		} finally {
+			(vscode.window as Record<string, unknown>).showInformationMessage = original;
+		}
+		assert.deepStrictEqual(removals.tombstones(), [
+			{ by: "entry", label: "L1", baseUrl: "http://h.test" },
+			{ by: "group", groupId: "group:l1", label: "L1", baseUrl: "http://h.test" },
+		]);
+		assert.strictEqual(
+			removals.isTombstoned({ groupId: "group:l1", label: "h.test", entryLabel: undefined, baseUrl: "http://h.test" }),
+			true,
+			"the pre-label group hides now"
+		);
+		assert.deepStrictEqual(
+			(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { records: unknown[] }).records,
+			[{ by: "entry", label: "L1", baseUrl: "http://h.test" }],
+			"only the salt-independent record reaches storage"
+		);
+		const toast = toasts[0] ?? "";
+		assert.strictEqual(toasts.length, 1, "one notice");
+		assert.ok(toast.includes("hidden for this session only") && toast.includes("Secret storage is unavailable"), toast);
 	});
 
 	test("a removed entry tombstones its stamped leftover and, by client ID, the pre-label groups the event names", async () => {
@@ -1977,7 +2034,7 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 				state: () => "durable",
 				confirmDurable: async () => answers.shift() ?? "session-only",
 			},
-			new GroupRemovalStore(storage.memento),
+			new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession()),
 			() => [],
 			() => []
 		);

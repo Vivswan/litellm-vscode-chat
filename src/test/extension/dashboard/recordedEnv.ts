@@ -300,6 +300,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			},
 			hideGroup: async (identity) => {
 				recorded.hidden.push({ ...identity });
+				return "durable";
 			},
 			unhideGroup: async (identity) => {
 				recorded.unhidden.push({ ...identity });
