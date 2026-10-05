@@ -13,6 +13,7 @@ import { RequestError } from "../../provider/transport/errorMapping";
 import { Logger, publicErrorText } from "../../shared/logger";
 import { MirroredError } from "../../shared/mirroredError";
 import type { AggregatedStatus } from "../../shared/servers";
+import { KnownSecrets } from "../../shared/util/knownSecrets";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, deploymentShape, expectDefined, makeModelInfo } from "../pureHelpers";
@@ -303,6 +304,31 @@ suite("provider", () => {
 			assert.strictEqual(status.state, "error", "the sweep's outcome stays a truthful error");
 			assert.strictEqual(status.state === "error" && status.expected, true);
 			assert.strictEqual(status.state === "error" && status.declaredModelCount, 1);
+		});
+
+		test("a 403 body quoting the configured key reaches the status row redacted, host and status intact", async () => {
+			// The status row's `error` is what dashboard/state.ts copies onto the wire as the server's error text; before
+			// the provider handed its KnownSecrets to the transport, the body's quote of the key arrived there whole.
+			const body = { error: { message: "key sk-fake-Q7mNp2xR is not allowed at http://litellm.test/v1" } };
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => HttpResponse.json(body, { status: 403 })),
+				http.get(MODELS_URL, () => HttpResponse.json(body, { status: 403 }))
+			);
+			const knownSecrets = new KnownSecrets();
+			knownSecrets.set(["sk-fake-Q7mNp2xR"]);
+			const statuses: AggregatedStatus[] = [];
+			const provider = makeProvider(TEST_BASE_URL, "sk-fake-Q7mNp2xR", undefined, { knownSecrets });
+			provider.setStatusCallback((status) => statuses.push(status));
+
+			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+			const status = expectDefined(expectDefined(statuses.at(-1)).serverStatuses[0]);
+			assert.strictEqual(status.state, "error");
+			assert.ok(status.state === "error");
+			assert.ok(
+				status.error.endsWith("\nLiteLLM 403: key [redacted] is not allowed at http://litellm.test/v1"),
+				status.error
+			);
+			assert.strictEqual(status.logSafeError, "RequestError(http, status 403)");
 		});
 	});
 

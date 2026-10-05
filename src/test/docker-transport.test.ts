@@ -4,6 +4,7 @@ import { createTitleAndDescriptionProvider } from "../extension/features/prGen/p
 import { FIM_MAX_TOKENS, FIM_TIMEOUT_MS } from "../provider/transport/fim";
 import { OneShotClient } from "../provider/transport/oneShotClient";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
+import { KnownSecrets } from "../shared/util/knownSecrets";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import {
@@ -585,7 +586,10 @@ function fimCompletionSuite(): void {
 	suite("Docker FIM completion (proxy end to end)", () => {
 		test("completeFim reaches the completion-mode model through the proxy and nothing extra rides the body", async function () {
 			this.timeout(30000);
-			const client = new OneShotClient({ userAgent: "litellm-vscode-chat-docker-test" });
+			const client = new OneShotClient({
+				userAgent: "litellm-vscode-chat-docker-test",
+				knownSecrets: new KnownSecrets(),
+			});
 			const prompt = "function add(a, b) {\n\treturn ";
 			const suffix = ";\n}\n";
 			const text = await client.completeFim(
@@ -623,7 +627,10 @@ function prGenerationSuite(): void {
 	suite("Docker PR generation (proxy end to end)", () => {
 		test("a generated title and description survive the round trip, and nothing extra rides the body", async function () {
 			this.timeout(30000);
-			const client = new OneShotClient({ userAgent: "litellm-vscode-chat-docker-test" });
+			const client = new OneShotClient({
+				userAgent: "litellm-vscode-chat-docker-test",
+				knownSecrets: new KnownSecrets(),
+			});
 			const provider = createTitleAndDescriptionProvider((prompt, token) =>
 				client.completeChatOnce(
 					{ baseUrl: BASE_URL, apiKey: API_KEY, headers: {} },

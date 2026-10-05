@@ -14,8 +14,9 @@ import {
 	localizedError,
 	MirroredError,
 } from "../../shared/mirroredError";
-import { displayUrl, redactUrlCredentials } from "../../shared/util/displayUrl";
+import { displayUrl, redactUrlCredentials, urlCuts, urlSpans } from "../../shared/util/displayUrl";
 import { collapseWhitespace } from "../../shared/util/errorText";
+import type { KnownSecrets } from "../../shared/util/knownSecrets";
 
 /**
  * The kind union lives in shared (status surfaces and the dashboard protocol may not import this layer); the transport
@@ -120,6 +121,25 @@ export interface MapErrorContext {
 	surface: TransportErrorSurface;
 	baseUrl: string;
 	timeoutMs: number;
+	knownSecrets: KnownSecretRedaction;
+}
+
+/**
+ * The configured secret values the credential exit redacts from response-derived text, in every spelling: the one
+ * KnownSecrets the Logger scrubs with (built in extension.ts), handed down by every transport owner. The URL finder
+ * cuts userinfo on its own, so an instance holding no values still leaves no password in a rendered URL.
+ */
+export type KnownSecretRedaction = Pick<KnownSecrets, "redact" | "occurrences">;
+
+/**
+ * The in-band `data: {"error": {...}}` frame as the stream processor found it. mapSdkError renders it, so the
+ * processor holds neither the redaction list nor the surface copy.
+ */
+export class StreamErrorFrame extends Error {
+	constructor(readonly frame: Record<string, unknown>) {
+		super("in-band stream error frame");
+		this.name = "StreamErrorFrame";
+	}
 }
 
 /**
@@ -128,13 +148,16 @@ export interface MapErrorContext {
  * feature or the platform threw, so both renderings leave through the module's one credential exit, as the status
  * rows, the tooltip, and the feature-failure notifications' only boundary.
  */
-export function statusErrorTexts(reason: unknown): {
+export function statusErrorTexts(
+	reason: unknown,
+	knownSecrets: KnownSecretRedaction
+): {
 	error: string;
 	logSafeError: LogSafeErrorText;
 	classification?: TransportErrorClassification;
 } {
-	const display = credentialFreeText(errorMessageText(reason));
-	const logSafe = credentialFreeText(publicErrorText(reason));
+	const display = credentialFreeText(errorMessageText(reason), knownSecrets);
+	const logSafe = credentialFreeText(publicErrorText(reason), knownSecrets);
 	const classification = transportClassificationOf(reason);
 	return {
 		error: display.length > 0 ? display : l10n.t("Unknown error"),
@@ -273,49 +296,229 @@ function linkText(link: ChainLink | undefined): string {
 	return link.message !== "" ? link.message : (link.code ?? "");
 }
 
-/** Compacted so a multi-line cause cannot break the two-line message shape. */
-function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
+/**
+ * Compacted so a multi-line cause cannot break the two-line message shape. Each link takes the exit before its closing
+ * period is trimmed: a value spelled with a trailing period is only found as written.
+ */
+function chainDetail(chain: ChainLink[], fallbackMessage: string, known: KnownSecretRedaction): string {
 	const fallback = typeof fallbackMessage === "string" ? fallbackMessage : "";
-	const first = chain.length > 0 ? linkText(chain[0]) : fallback;
-	const deepest = linkText(chain.at(-1));
+	const first = credentialFreeText(chain.length > 0 ? linkText(chain[0]) : fallback, known);
+	const deepest = credentialFreeText(linkText(chain.at(-1)), known);
 	const head = first.replace(/\.$/, "");
 	const joined = deepest !== "" && deepest !== first ? `${head} (cause: ${deepest})` : head;
-	return compactText(joined, 300);
+	return compactText(joined, 300, known);
 }
 
 /**
  * The one credential exit for text this module did not write: response bodies, envelope fields, cause-chain messages,
- * arbitrary thrown text, and the status renderings all leave through it. A proxy echoes the URL it was asked for. The
- * parser ignores a tab inside a host ("[::\t1]"), and reads a password split by a line break as one URL, while the
- * shared cut never crosses a line break: hence the second spelling. It is returned only when it carried a credential
- * the written one did not, so a status message keeps the "\n" the dashboard splits on.
+ * arbitrary thrown text, and the status renderings all leave through it. The URL finder judges URL text: userinfo is
+ * cut, and the scheme, host, and path stay visible, written as the parser reads them (a three-character value must not
+ * blank "proxy.dev");
+ * the known-value pass covers everything else, a URL's query and fragment included. The parser ignores a tab inside a
+ * host ("[::\t1]"), and reads a password split by a line break as one URL, while the cut never crosses a line break:
+ * hence the second spelling. It is returned only when it carried a credential the written one did not, so a status
+ * message keeps the "\n" the dashboard splits on.
  */
-function credentialFreeText(text: string): string {
-	const asWritten = redactUrlCredentials(text);
-	const collapsed = collapseWhitespace(asWritten.replace(/\t/g, ""));
-	const collapsedScrubbed = redactUrlCredentials(collapsed);
-	return collapsedScrubbed === collapsed ? asWritten : collapsedScrubbed;
+function credentialFreeText(text: string, known: KnownSecretRedaction): string {
+	const written = userinfoCut(text);
+	const collapsedText = collapseWhitespace(text.replace(/\t/g, ""));
+	const collapsed = userinfoCut(collapsedText);
+	return collapsed.cut === collapseWhitespace(written.cut.replace(/\t/g, ""))
+		? redactKeepingHostAndPath(text, written, known)
+		: redactKeepingHostAndPath(collapsedText, collapsed, known);
+}
+
+/** A text with its userinfo cuts applied, and the original position of each position in the cut text. */
+interface UserinfoCut {
+	readonly cut: string;
+	readonly original: (at: number) => number;
 }
 
 /**
- * The scrub runs before the cap: a cut inside the password would leave its head with no "@" for a later pass to
- * find.
+ * A position inside a cut's replacement ("https://host" for "https://u:pw@host") maps from the start while it lies in
+ * the scheme and slashes, and from the END once it lies in the host, since the replacement's tail is the original
+ * authority's tail as written: a span the finder trims inside it still ends where the host ends.
  */
-function compactText(text: string, cap: number): string {
-	const collapsed = collapseWhitespace(credentialFreeText(text));
+function userinfoCut(text: string): UserinfoCut {
+	const pieces: { cutFrom: number; originalFrom: number; originalTo: number; hostAt: number | undefined }[] = [];
+	let cut = "";
+	let cursor = 0;
+	for (const { from, replacement, resumeAt } of urlCuts(text)) {
+		pieces.push({ cutFrom: cut.length, originalFrom: cursor, originalTo: from, hostAt: undefined });
+		cut += text.slice(cursor, from);
+		pieces.push({
+			cutFrom: cut.length,
+			originalFrom: from,
+			originalTo: resumeAt,
+			hostAt: replacement.indexOf("//") + 2,
+		});
+		cut += replacement;
+		cursor = resumeAt;
+	}
+	pieces.push({ cutFrom: cut.length, originalFrom: cursor, originalTo: text.length, hostAt: undefined });
+	cut += text.slice(cursor);
+	const original = (at: number): number => {
+		// The last piece starting at or before `at`, by binary search: a text of many credentialed URLs has many pieces.
+		let low = 0;
+		let high = pieces.length - 1;
+		while (low < high) {
+			const mid = (low + high + 1) >> 1;
+			if ((pieces[mid] as (typeof pieces)[number]).cutFrom <= at) {
+				low = mid;
+			} else {
+				high = mid - 1;
+			}
+		}
+		const piece = pieces[low] as (typeof pieces)[number];
+		const offset = at - piece.cutFrom;
+		if (piece.hostAt === undefined || offset <= piece.hostAt) {
+			return piece.originalFrom + offset;
+		}
+		const pieceEnd = (pieces[low + 1] as (typeof pieces)[number] | undefined)?.cutFrom ?? cut.length;
+		return Math.max(piece.originalFrom, piece.originalTo - (pieceEnd - at));
+	};
+	return { cut, original };
+}
+
+type Occurrence = readonly [from: number, to: number];
+
+/** The occurrences of the tab-free spelling of `text`, in the positions of `text`: a tab the parser ignores can split a value. */
+function tabFreeOccurrences(text: string, known: KnownSecretRedaction): Occurrence[] {
+	if (!text.includes("\t")) {
+		return [];
+	}
+	const originalIndex: number[] = [];
+	for (let i = 0; i < text.length; i++) {
+		if (text[i] !== "\t") {
+			originalIndex.push(i);
+		}
+	}
+	return known
+		.occurrences(text.replace(/\t/g, ""))
+		.map(([from, to]) => [originalIndex[from] as number, (originalIndex[to - 1] as number) + 1]);
+}
+
+/** Overlapping occurrences merged, adjacent ones kept apart (two values meeting at a boundary are not one across it). */
+function overlappingMerged(found: Occurrence[]): Occurrence[] {
+	found.sort((a, b) => a[0] - b[0]);
+	const merged: [number, number][] = [];
+	for (const [from, to] of found) {
+		const last = merged.at(-1);
+		if (last !== undefined && from < last[1]) {
+			last[1] = Math.max(last[1], to);
+		} else {
+			merged.push([from, to]);
+		}
+	}
+	return merged;
+}
+
+/** Whether `at` lies strictly inside one of the disjoint ascending `occurrences`. */
+function insideOccurrence(occurrences: readonly Occurrence[], at: number): boolean {
+	let low = 0;
+	let high = occurrences.length;
+	while (low < high) {
+		const mid = (low + high) >> 1;
+		if ((occurrences[mid] as Occurrence)[0] < at) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	const before = occurrences[low - 1];
+	return before !== undefined && before[1] > at;
+}
+
+/**
+ * The owner's rule: a URL's scheme, host, and path stay visible; the known-value pass covers the rest, by position.
+ * The occurrences are judged on the original spelling, as the Logger judges them, so a value the userinfo cut or a
+ * tab would otherwise split is still one value. A span the finder reads from a start the userinfo cuts never tried
+ * ("url=http:u:pw@host") loses its userinfo here, and a kept URL is written as the parser reads it (tabs dropped,
+ * other whitespace percent-encoded), so a later pass over the compacted rendering reads the same URL.
+ */
+function redactKeepingHostAndPath(source: string, view: UserinfoCut, known: KnownSecretRedaction): string {
+	const text = view.cut;
+	// A value found only in the tab-free spelling ("sk-\tQ7" in a query) loses the tabs inside it before the pass; a
+	// value found as written keeps its tabs (a registered spelling may carry one), and a tab elsewhere stays as written.
+	const pass = (segment: string): string => {
+		const written = overlappingMerged([...known.occurrences(segment)]);
+		const tabFreeOnly = tabFreeOccurrences(segment, known).filter(
+			([from, to]) => !insideOccurrence(written, from) && !insideOccurrence(written, to - 1)
+		);
+		if (tabFreeOnly.length === 0) {
+			return known.redact(segment);
+		}
+		const inside = overlappingMerged(tabFreeOnly);
+		let prepared = "";
+		for (let i = 0; i < segment.length; i++) {
+			if (!(segment[i] === "\t" && insideOccurrence(inside, i))) {
+				prepared += segment[i];
+			}
+		}
+		return known.redact(prepared);
+	};
+	// A value running across a kept region's edge ("pw!http:Q7" in a password) makes the span prose, not a URL; a
+	// value lying inside the kept region ("dev" in "proxy.dev") stays, by the owner's rule.
+	const occurrences = overlappingMerged([...known.occurrences(source), ...tabFreeOccurrences(source, known)]);
+	const straddles = (cutAt: number): boolean => insideOccurrence(occurrences, view.original(cutAt));
+	const kept = urlSpans(text).flatMap((span) => {
+		const raw = text.slice(span.from, span.to);
+		const queryAt = raw.search(/[?#]/);
+		const end = queryAt === -1 ? span.to : span.from + queryAt;
+		if (straddles(span.from) || straddles(end)) {
+			return [];
+		}
+		const shown = redactUrlCredentials(raw.slice(0, end - span.from)).replace(/\s/g, (ch) =>
+			ch === "\t" ? "" : encodeURIComponent(ch)
+		);
+		return [{ from: span.from, end, shown }];
+	});
+	// The segments between kept regions come from the ORIGINAL spelling, so a value the userinfo cut would split is
+	// one value to the pass, which cuts userinfo on its own; the query and the prose after a URL are one segment, so a
+	// value ending in a closer is seen whole.
+	let out = "";
+	let cursor = 0;
+	for (const [i, region] of kept.entries()) {
+		const from = view.original(region.from);
+		const end = view.original(region.end);
+		const next = kept[i + 1] === undefined ? source.length : view.original((kept[i + 1] as typeof region).from);
+		out += pass(source.slice(cursor, from)) + region.shown + pass(source.slice(end, next));
+		cursor = next;
+	}
+	return out + pass(source.slice(cursor));
+}
+
+/**
+ * A configured URL as the user sees it: the display form, then the exit, since a configured value can sit in its
+ * query. Shared with the discovery module's own error constructors, so every rendered URL takes the same pass.
+ */
+export function userFacingUrl(url: string, known: KnownSecretRedaction): string {
+	return credentialFreeText(displayUrl(url), known);
+}
+
+/**
+ * The scrub runs before the cap: a cut inside a password or a configured value would leave its head for no later pass
+ * to find.
+ */
+function compactText(text: string, cap: number, known: KnownSecretRedaction): string {
+	const collapsed = collapseWhitespace(credentialFreeText(text, known));
 	return collapsed.length > cap ? `${collapsed.slice(0, cap)}...` : collapsed;
 }
 
 /**
- * A compact non-empty string, with LiteLLM's literal "None" counting as absent; capped so a hostile type/code field
- * cannot bloat a detail line.
+ * A compact non-empty string, with LiteLLM's literal "None" counting as absent, judged as sent so the scrub cannot
+ * turn an absent field present; capped so a hostile type/code field cannot bloat a detail line.
  */
-function meaningfulString(value: unknown): string | undefined {
+function meaningfulString(value: unknown, known: KnownSecretRedaction): string | undefined {
 	if (typeof value !== "string") {
 		return undefined;
 	}
-	const compact = compactText(value, 80);
-	return compact !== "" && compact !== "None" ? compact : undefined;
+	const sent = collapseWhitespace(value);
+	if (sent === "" || sent === "None") {
+		return undefined;
+	}
+	const compact = compactText(value, 80, known);
+	return compact !== "" ? compact : undefined;
 }
 
 interface ErrorEnvelope {
@@ -329,15 +532,15 @@ interface ErrorEnvelope {
 	marks: string;
 }
 
-function errorEnvelopeOf(raw: unknown): ErrorEnvelope | undefined {
+function errorEnvelopeOf(raw: unknown, known: KnownSecretRedaction): ErrorEnvelope | undefined {
 	if (typeof raw !== "object" || raw === null) {
 		return undefined;
 	}
 	const { message, type, code } = raw as { message?: unknown; type?: unknown; code?: unknown };
 	const envelope: ErrorEnvelope = {
 		message: typeof message === "string" && message.trim() !== "" ? message : undefined,
-		type: meaningfulString(type),
-		code: typeof code === "number" ? String(code) : meaningfulString(code),
+		type: meaningfulString(type, known),
+		code: meaningfulString(typeof code === "number" ? String(code) : code, known),
 		marks: `${typeof type === "string" ? type : ""} ${typeof code === "string" || typeof code === "number" ? code : ""}`,
 	};
 	// An object body with none of the envelope fields ({}, [], FastAPI's {"detail": ...}) is not LiteLLM's envelope;
@@ -351,10 +554,10 @@ function errorEnvelopeOf(raw: unknown): ErrorEnvelope | undefined {
  * The recovery the old raw-body suffix performed for bodies that did not parse as a JSON envelope: the SDK keeps the
  * raw text in its message behind a "{status} " prefix.
  */
-function recoveredSdkText(status: number, err: APIError, cap: number): string {
+function recoveredSdkText(status: number, err: APIError, cap: number, known: KnownSecretRedaction): string {
 	const prefix = `${status} `;
 	const text = err.message.startsWith(prefix) ? err.message.slice(prefix.length) : err.message;
-	return compactText(text, cap);
+	return compactText(text, cap, known);
 }
 
 /**
@@ -452,7 +655,7 @@ interface NotFoundCopy {
 	readonly headline: (url: string) => LocalizedText;
 	/** Only where the advice is certain (discovery's check-the-base-URL); a hint that can be wrong stays unset. */
 	readonly setupHint?: SetupHintKind;
-	readonly detail: (err: APIError, envelope: ErrorEnvelope | undefined) => string;
+	readonly detail: (err: APIError, envelope: ErrorEnvelope | undefined, known: KnownSecretRedaction) => string;
 }
 
 /** `url` is the display form of the base URL. */
@@ -487,14 +690,21 @@ interface SurfaceCopy {
  *   a non-envelope body recovers the SDK's raw text -> the nginx/wrong-server signature of a mispointed base URL stays
  *     visible
  */
-function standardNotFoundDetail(err: APIError, envelope: ErrorEnvelope | undefined): string {
+function standardNotFoundDetail(
+	err: APIError,
+	envelope: ErrorEnvelope | undefined,
+	known: KnownSecretRedaction
+): string {
 	const kind =
 		envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
 			? ` ${envelope.code}`
 			: envelope?.type !== undefined
 				? ` ${envelope.type}`
 				: "";
-	const text = envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(404, err, 200);
+	const text =
+		envelope?.message !== undefined
+			? compactText(envelope.message, 300, known)
+			: recoveredSdkText(404, err, 200, known);
 	return text !== "" ? `LiteLLM 404${kind}: ${text}` : `LiteLLM 404${kind}`;
 }
 
@@ -502,9 +712,13 @@ function standardNotFoundDetail(err: APIError, envelope: ErrorEnvelope | undefin
  * Discovery's 404 detail renders only when the body parsed as an error envelope with a message; the headline says the
  * rest.
  */
-function discoveryNotFoundDetail(_err: APIError, envelope: ErrorEnvelope | undefined): string {
+function discoveryNotFoundDetail(
+	_err: APIError,
+	envelope: ErrorEnvelope | undefined,
+	known: KnownSecretRedaction
+): string {
 	const typeSeg = envelope?.type !== undefined ? ` ${envelope.type}` : "";
-	return envelope?.message !== undefined ? `LiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
+	return envelope?.message !== undefined ? `LiteLLM 404${typeSeg}: ${compactText(envelope.message, 240, known)}` : "";
 }
 
 function midResponseDroppedDetail(url: string, chainText: string): string {
@@ -882,8 +1096,13 @@ function surfaceCopy(surface: TransportErrorSurface): SurfaceCopy {
  * Free of mapSdkError's socket-signature tokens, and it passes the mapping catch unchanged (mirrored errors are never
  * re-wrapped).
  */
-export function bodylessResponseError(surface: TransportErrorSurface, status: number, baseUrl: string): MirroredError {
-	const url = displayUrl(baseUrl);
+export function bodylessResponseError(
+	surface: TransportErrorSurface,
+	status: number,
+	baseUrl: string,
+	knownSecrets: KnownSecretRedaction
+): MirroredError {
+	const url = userFacingUrl(baseUrl, knownSecrets);
 	const headline: LocalizedText = {
 		display: l10n.t(
 			"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server."
@@ -1045,7 +1264,12 @@ function httpHeadline(surface: TransportErrorSurface, cls: HttpErrorClass): Loca
 }
 
 /** Response-derived, so it rides only in message/englishMessage, never the logClassification. */
-function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
+function chatHttpDetail(
+	status: number,
+	err: APIError,
+	envelope: ErrorEnvelope | undefined,
+	known: KnownSecretRedaction
+): string {
 	const kind =
 		envelope?.type !== undefined
 			? ` ${envelope.type}`
@@ -1053,7 +1277,9 @@ function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope |
 				? ` ${envelope.code}`
 				: "";
 	const text =
-		envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(status, err, 300);
+		envelope?.message !== undefined
+			? compactText(envelope.message, 300, known)
+			: recoveredSdkText(status, err, 300, known);
 	return text !== "" ? `LiteLLM ${status}${kind}: ${text}` : `LiteLLM ${status}${kind}`;
 }
 
@@ -1061,7 +1287,12 @@ function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope |
  * "LiteLLM" brands only bodies that parsed as LiteLLM's envelope - a 502/504 body is often the gateway speaking, and
  * gets the plain HTTP form with the recovered body text.
  */
-function discoveryHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
+function discoveryHttpDetail(
+	status: number,
+	err: APIError,
+	envelope: ErrorEnvelope | undefined,
+	known: KnownSecretRedaction
+): string {
 	if (envelope?.message !== undefined) {
 		const kind =
 			envelope.type !== undefined
@@ -1069,29 +1300,26 @@ function discoveryHttpDetail(status: number, err: APIError, envelope: ErrorEnvel
 				: envelope.code !== undefined && !/^\d+$/.test(envelope.code)
 					? ` ${envelope.code}`
 					: "";
-		return `LiteLLM ${status}${kind}: ${compactText(envelope.message, 300)}`;
+		return `LiteLLM ${status}${kind}: ${compactText(envelope.message, 300, known)}`;
 	}
-	const recovered = recoveredSdkText(status, err, 200);
+	const recovered = recoveredSdkText(status, err, 200, known);
 	return recovered !== "" ? `HTTP ${status}: ${recovered}` : `HTTP ${status}`;
 }
 
 /**
- * Constructed here so the stream processor throws a classified transport error instead of ending the request as a
- * silent truncation. There is no HTTP status - the response was already 200 - so the RequestError carries none, and
- * none may be derived from the envelope's code: a synthesized status 429 would re-map the frame as Blocked.
- *
- *   An in-band error frame -> a streamed `data: {"error": {...}}` payload, the shape LiteLLM emits when an upstream
- *                             dies after the 200
+ * The processor's StreamErrorFrame rendered as a classified transport error, so an in-band frame never ends the
+ * request as a silent truncation. There is no HTTP status - the response was already 200 - so the RequestError carries
+ * none, and none may be derived from the envelope's code: a synthesized status 429 would re-map the frame as Blocked.
  */
-export function streamErrorFrame(error: Record<string, unknown>): RequestError {
-	const envelope = errorEnvelopeOf(error);
+function streamErrorFrame(error: Record<string, unknown>, ctx: MapErrorContext): RequestError {
+	const envelope = errorEnvelopeOf(error, ctx.knownSecrets);
 	// A frame carrying a known failure class gets that class's headline (a budget or context-window frame must not
 	// promise that trying again may work); classified FROM the envelope by the same classifier as the HTTP path, never
 	// quoting it.
 	const knownClass = classifyEnvelope(envelope);
 	const headline: LocalizedText =
 		knownClass !== undefined
-			? httpHeadline("chat", knownClass)
+			? httpHeadline(ctx.surface, knownClass)
 			: {
 					display: l10n.t(
 						"The server reported an error while it was streaming this reply, so the response was interrupted. This is often temporary - trying again may work; if it repeats, the detail below shows what the server said."
@@ -1110,13 +1338,13 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 			detail += ` (${envelope.code})`;
 		}
 		if (envelope.message !== undefined) {
-			detail += `: ${compactText(envelope.message, 300)}`;
+			detail += `: ${compactText(envelope.message, 300, ctx.knownSecrets)}`;
 		}
 	}
 	// The classifier's closed-set token may ride the classification (the same rule as the HTTP path); the response
 	// text itself never does.
 	const token = knownClass === "budget_exceeded" || knownClass === "context_window_exceeded" ? `, ${knownClass}` : "";
-	const texts = twoPartTexts("chat", headline, detail);
+	const texts = twoPartTexts(ctx.surface, headline, detail);
 	return new RequestError(texts.message, "http", {
 		// The detail is response-derived; the distinct classification keeps a mid-stream death recognizable in an
 		// issue.
@@ -1132,10 +1360,11 @@ interface SocketFailureContext {
 	surface: MapErrorContext["surface"];
 	/** The URL the advice names: the server base URL, or the OAuth token endpoint. */
 	url: string;
+	knownSecrets: KnownSecretRedaction;
 }
 
 function expiredCertificateHeadline(ctx: SocketFailureContext): LocalizedText {
-	const url = displayUrl(ctx.url);
+	const url = userFacingUrl(ctx.url, ctx.knownSecrets);
 	if (ctx.endpoint === "oauthToken") {
 		return {
 			display: l10n.t(
@@ -1207,7 +1436,7 @@ function bareLocalhostUrl(url: string): string | undefined {
  *     the headline, leading the sentence
  */
 function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): LocalizedText {
-	const url = displayUrl(ctx.url);
+	const url = userFacingUrl(ctx.url, ctx.knownSecrets);
 	if (ctx.endpoint === "oauthToken") {
 		return {
 			display: l10n.t(
@@ -1237,7 +1466,7 @@ function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): L
 }
 
 function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
-	const url = displayUrl(ctx.url);
+	const url = userFacingUrl(ctx.url, ctx.knownSecrets);
 	if (ctx.endpoint === "oauthToken") {
 		return {
 			display: l10n.t(
@@ -1303,10 +1532,10 @@ export function socketFailureRequestError(
 		const certLink =
 			[...chain].reverse().find((link) => link.message.includes("certificate") || (link.code ?? "").includes("CERT")) ??
 			chain.at(-1);
-		const certMessage = compactText(certLink?.message ?? "", 300);
-		const certCode = certLink?.code !== undefined ? compactText(certLink.code, 80) : "";
+		const certMessage = compactText(certLink?.message ?? "", 300, ctx.knownSecrets);
+		const certCode = certLink?.code !== undefined ? compactText(certLink.code, 80, ctx.knownSecrets) : "";
 		const certText = certMessage !== "" ? `${certMessage}${certCode !== "" ? ` (${certCode})` : ""}` : certCode;
-		const detail = `SSL certificate error for ${displayUrl(ctx.url)}${certText !== "" ? `: ${certText}` : ""}`;
+		const detail = `SSL certificate error for ${userFacingUrl(ctx.url, ctx.knownSecrets)}${certText !== "" ? `: ${certText}` : ""}`;
 		const texts = twoPartTexts(ctx.surface, unverifiedCertificateHeadline(ctx), detail);
 		return new RequestError(texts.message, "certificate", {
 			cause,
@@ -1316,7 +1545,7 @@ export function socketFailureRequestError(
 		});
 	}
 	// An empty cause chain gets no detail line rather than a trailing blank.
-	const detail = chainDetail(chain, "");
+	const detail = chainDetail(chain, "", ctx.knownSecrets);
 	if (haystack.includes("ENOTFOUND") || haystack.includes("ECONNREFUSED")) {
 		// At the token endpoint the stopped process would be the identity provider, not the proxy, and a plain-host
 		// ENOTFOUND is just DNS (the process may run fine behind a mistyped hostname) - so no hint. The correction
@@ -1326,7 +1555,7 @@ export function socketFailureRequestError(
 		//   ECONNREFUSED                              -> it keeps "is the proxy running?" even for the family
 		const suggestedUrl =
 			ctx.endpoint !== "oauthToken" && haystack.includes("ENOTFOUND")
-				? bareLocalhostUrl(displayUrl(ctx.url))
+				? bareLocalhostUrl(userFacingUrl(ctx.url, ctx.knownSecrets))
 				: undefined;
 		const texts = twoPartTexts(ctx.surface, connectionHeadline(ctx, suggestedUrl), detail);
 		const setupHint =
@@ -1352,6 +1581,9 @@ export function socketFailureRequestError(
 
 /** The SDK adds a wrapper level over the socket/TLS error that carries the actionable string. */
 export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
+	if (err instanceof StreamErrorFrame) {
+		return streamErrorFrame(err.frame, ctx);
+	}
 	if (err instanceof APIError && typeof err.status === "number") {
 		if (err.status === 401) {
 			return isUpstreamAuthFailure(err.error)
@@ -1369,10 +1601,14 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 						setupHint: "configure-api-key",
 					});
 		}
-		const envelope = errorEnvelopeOf(err.error);
+		const envelope = errorEnvelopeOf(err.error, ctx.knownSecrets);
 		if (err.status === 404) {
 			const copy = surfaceCopy(ctx.surface).notFound;
-			const texts = twoPartTexts(ctx.surface, copy.headline(displayUrl(ctx.baseUrl)), copy.detail(err, envelope));
+			const texts = twoPartTexts(
+				ctx.surface,
+				copy.headline(userFacingUrl(ctx.baseUrl, ctx.knownSecrets)),
+				copy.detail(err, envelope, ctx.knownSecrets)
+			);
 			return new RequestError(texts.message, "http", {
 				status: 404,
 				cause: err,
@@ -1385,8 +1621,8 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		const headline = httpHeadline(ctx.surface, cls);
 		const detail =
 			surfaceCopy(ctx.surface).httpVocabulary === "modelList"
-				? discoveryHttpDetail(err.status, err, envelope)
-				: chatHttpDetail(err.status, err, envelope);
+				? discoveryHttpDetail(err.status, err, envelope, ctx.knownSecrets)
+				: chatHttpDetail(err.status, err, envelope, ctx.knownSecrets);
 		// The classifier's own closed-set token may ride the classification (classify FROM the body, never quote it);
 		// the response text itself rides only in message/englishMessage.
 		const token = cls === "budget_exceeded" || cls === "context_window_exceeded" ? `, ${cls}` : "";
@@ -1412,7 +1648,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		return socketFailureRequestError(
 			err.cause,
 			err,
-			{ endpoint: ctx.surface, surface: ctx.surface, url: ctx.baseUrl },
+			{ endpoint: ctx.surface, surface: ctx.surface, url: ctx.baseUrl, knownSecrets: ctx.knownSecrets },
 			() => timeoutRequestError(ctx, err)
 		);
 	}
@@ -1428,7 +1664,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		return socketFailureRequestError(
 			err.cause,
 			err,
-			{ endpoint: ctx.surface, surface: ctx.surface, url: ctx.baseUrl },
+			{ endpoint: ctx.surface, surface: ctx.surface, url: ctx.baseUrl, knownSecrets: ctx.knownSecrets },
 			() => timeoutRequestError(ctx, err)
 		);
 	}
@@ -1465,9 +1701,9 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		const topMessage = chain[0]?.message ?? "";
 		const undiciTermination = err instanceof TypeError && topMessage === "terminated";
 		if (socketSignature || undiciTermination) {
-			const chainText = chainDetail(chain, topMessage);
+			const chainText = chainDetail(chain, topMessage, ctx.knownSecrets);
 			const copy = surfaceCopy(ctx.surface).dropped;
-			const url = displayUrl(ctx.baseUrl);
+			const url = userFacingUrl(ctx.baseUrl, ctx.knownSecrets);
 			const texts = twoPartTexts(ctx.surface, copy.headline(url), copy.detail(url, chainText));
 			return new RequestError(texts.message, "network", {
 				cause: err,
@@ -1487,8 +1723,9 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		name = typeof err;
 	}
 	const rawText = errorMessageText(err);
-	const text = compactText(typeof rawText === "string" ? rawText : "", 300);
-	const detail = `Unexpected ${name} during the ${surfaceCopy(ctx.surface).phrase} request to ${displayUrl(ctx.baseUrl)}${text !== "" ? `: ${text}` : ""}`;
+	const text = compactText(typeof rawText === "string" ? rawText : "", 300, ctx.knownSecrets);
+	// The name is identifier-shaped, yet a thrown value chooses it, so the display takes the exit like the message.
+	const detail = `Unexpected ${credentialFreeText(name, ctx.knownSecrets)} during the ${surfaceCopy(ctx.surface).phrase} request to ${userFacingUrl(ctx.baseUrl, ctx.knownSecrets)}${text !== "" ? `: ${text}` : ""}`;
 	const tailHeadline: LocalizedText = {
 		display: l10n.t(
 			"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it."

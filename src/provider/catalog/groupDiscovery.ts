@@ -4,6 +4,7 @@ import { MirroredError } from "../../shared/mirroredError";
 import type { ExpectedFailureCategory, NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { apiRootOf } from "../../shared/util/baseUrl";
 import type { ChatClient, ServerConnection } from "../transport/chatClient";
+import type { KnownSecretRedaction } from "../transport/errorMapping";
 import { statusErrorTexts } from "../transport/errorMapping";
 import type { ExpectedDiscoveryFailures } from "./discovery";
 import type { DiscoveryCache } from "./discoveryCache";
@@ -93,6 +94,7 @@ export interface GroupDiscoveryOptions {
 	getEntryIncludeModes: (label: string, baseUrl: string) => readonly NonChatMode[] | undefined;
 	/** The extension layer's tombstone predicate; see LiteLLMChatModelProviderOptions.isGroupSuppressed. */
 	isGroupSuppressed: (group: SuppressedGroupKey) => boolean;
+	knownSecrets: KnownSecretRedaction;
 	// Facade-bound log callbacks: this module logs only through them, so the provider facade stays the single logging
 	// boundary.
 	log: (message: string, data?: unknown) => void;
@@ -289,7 +291,7 @@ export class GroupDiscovery {
 					: (message, line) => this._options.logFailure(message, line, error)
 			);
 			log("Model discovery failed for provider group", { expected, silent, ...failureKindOf(error) });
-			const texts = statusErrorTexts(error);
+			const texts = statusErrorTexts(error, this._options.knownSecrets);
 			const outcome: FailureServeShape = { state: "error", ...texts, ...(expected ? { expected: true } : {}) };
 			const decorateFailure = (
 				discovered: Pick<DiscoveredGroupModels, "infos" | "discoveredRawIds">

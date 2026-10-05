@@ -6,6 +6,7 @@ import { builtinSlashCommands } from "../../../extension/features/participant/sl
 import { quickFixSlashCommands } from "../../../extension/features/quickFixChatCommands";
 import { wireFeatures } from "../../../extension/wiring/features";
 import { Logger } from "../../../shared/logger";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { REPO_ROOT } from "../../util/repoRoot";
 
 function fakeContext(): vscode.ExtensionContext {
@@ -72,6 +73,7 @@ suite("extension/wiring features", () => {
 				ua: "test-agent",
 				outputChannel,
 				getSnapshots: () => [],
+				knownSecrets: new KnownSecrets(),
 			});
 			// The render fixtures carry their OWN probe list, and a page rendered from a stale one under-represents the
 			// shipped state - visual review then judges a page users never see. Read as TEXT because the host
@@ -99,6 +101,7 @@ suite("extension/wiring features", () => {
 				ua: "test-agent",
 				outputChannel,
 				getSnapshots: () => [],
+				knownSecrets: new KnownSecrets(),
 			});
 			assert.strictEqual(live.chatParticipant.isRegistered(), true, "a wired participant reads as ready");
 		});
@@ -114,6 +117,7 @@ suite("extension/wiring features", () => {
 				ua: "test-agent",
 				outputChannel,
 				getSnapshots: () => [],
+				knownSecrets: new KnownSecrets(),
 			});
 			assert.strictEqual(
 				refused.chatParticipant.isRegistered(),
@@ -133,6 +137,7 @@ suite("extension/wiring features", () => {
 				ua: "test-agent",
 				outputChannel,
 				getSnapshots: () => [],
+				knownSecrets: new KnownSecrets(),
 			});
 			const live = chatParticipant.slashCommands
 				.list()

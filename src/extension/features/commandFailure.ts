@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { KnownSecretRedaction } from "../../provider/transport/errorMapping";
 import { statusErrorTexts } from "../../provider/transport/errorMapping";
 import type { Logger } from "../../shared/logger";
 import { commandErrorActions, showActionableMessage } from "../ui/notifier";
@@ -9,7 +10,11 @@ import { commandErrorActions, showActionableMessage } from "../ui/notifier";
  * chat view that invoked it, and a helper that sometimes rethrows would be two behaviors under one name.
  */
 export async function reportCommandFailure(
-	deps: { readonly logger: Logger; readonly outputChannel: vscode.OutputChannel },
+	deps: {
+		readonly logger: Logger;
+		readonly outputChannel: vscode.OutputChannel;
+		readonly knownSecrets: KnownSecretRedaction;
+	},
 	error: unknown,
 	logLine: string
 ): Promise<void> {
@@ -18,6 +23,6 @@ export async function reportCommandFailure(
 		return;
 	}
 	deps.logger.error(logLine, error);
-	const texts = statusErrorTexts(error);
+	const texts = statusErrorTexts(error, deps.knownSecrets);
 	await showActionableMessage("error", texts.error, commandErrorActions(texts.classification, deps.outputChannel));
 }

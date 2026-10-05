@@ -13,6 +13,7 @@ import type { LiteLLMProvider, ModelInfoFields } from "../../../provider/catalog
 import { supportsTools } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { expectDefined } from "../../pureHelpers";
@@ -149,6 +150,7 @@ suite("provider/discovery expectedFailures retry properties", () => {
 					apiVersion: undefined,
 					discoveryTimeout: 30000,
 					expected,
+					knownSecrets: new KnownSecrets(),
 					log: () => {},
 				});
 				if (infoFails && listingFails) {

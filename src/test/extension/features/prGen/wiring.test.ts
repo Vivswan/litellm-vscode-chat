@@ -22,6 +22,7 @@ import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { CMD, prGenerationProviderTitle } from "../../../../shared/config/commandIds";
 import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
+import { KnownSecrets } from "../../../../shared/util/knownSecrets";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
 import { withDisposalCount } from "../disposalCount";
@@ -253,6 +254,7 @@ suite("extension/features/prGen wiring", () => {
 			await withConfig({ "prGeneration.enabled": false }, () => {
 				wirePrGeneration(fakeContext(), quietLogger(), {
 					oneShot: {} as never,
+					knownSecrets: new KnownSecrets(),
 					outputChannel: { appendLine() {} } as unknown as vscode.OutputChannel,
 				});
 			});
@@ -323,6 +325,7 @@ suite("extension/features/prGen activation-failure logging", () => {
 					),
 					{
 						oneShot: {} as never,
+						knownSecrets: new KnownSecrets(),
 						outputChannel: { appendLine() {} } as unknown as vscode.OutputChannel,
 					}
 				);
@@ -601,7 +604,8 @@ suite("extension/features/prGen send", () => {
 		(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = () => new vscode.Disposable(() => {});
 		try {
 			return wirePrGeneration(fakeContext(), quietLogger(), {
-				oneShot: new OneShotClient({ userAgent: "test-agent" }),
+				oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
+				knownSecrets: new KnownSecrets(),
 				outputChannel: { appendLine() {} } as unknown as vscode.OutputChannel,
 			}).prSend;
 		} finally {

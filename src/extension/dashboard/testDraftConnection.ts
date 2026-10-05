@@ -9,6 +9,7 @@ import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery
 import { parseGroupConfiguration } from "../../provider/catalog/groupModels";
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
 import { ChatClient } from "../../provider/transport/chatClient";
+import type { KnownSecretRedaction } from "../../provider/transport/errorMapping";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import type { NonChatMode, SecretFieldId } from "../../shared/serverEntry";
@@ -202,11 +203,13 @@ const DRAFT_PROBE_SERVER_ID = "dashboard-draft-probe";
  * and response snippets, which feed the public issue-report buffer.
  */
 export function createDraftConnectionProbe(
-	userAgent: string
+	userAgent: string,
+	knownSecrets: KnownSecretRedaction
 ): (connection: DraftConnection) => Promise<readonly string[]> {
 	return async (connection) => {
 		const client = new ChatClient({
 			userAgent,
+			knownSecrets,
 			...(connection.headers !== undefined ? { getEntryHeaders: () => connection.headers } : {}),
 			...(connection.apiVersion !== undefined ? { getEntryApiVersion: () => connection.apiVersion } : {}),
 		});

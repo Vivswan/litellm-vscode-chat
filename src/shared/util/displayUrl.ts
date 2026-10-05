@@ -2,7 +2,10 @@
  * The one URL-credential scrub for every surface that echoes a configured URL: userinfo (user:pass@) is cut from the
  * original text wherever the WHATWG URL parser reads a URL with userinfo, so every spelling the transport would
  * request is caught by the parser the transport uses.
- *   toasts, chat errors, the dashboard, English mirrors -> displayUrl where the message is built
+ *   toasts, chat errors, the dashboard, English mirrors -> credentialFreeText (errorMapping.ts): the cuts, then the
+ *                                                            known values outside every URL span's scheme, host, and
+ *                                                            path (urlSpans)
+ *   the OAuth token-endpoint texts (auth.ts)             -> displayUrl where the message is built
  *   every log line and log data field                   -> KnownSecrets.redact (knownSecrets.ts), which takes the
  *                                                            cuts from urlCuts and the known values in one pass
  *   agent-tool results                                   -> urlScrubbingReplacer with its default, the cuts alone
@@ -364,6 +367,104 @@ export function urlCuts(text: string): Cut[] {
 	}
 	scanCuts(text, cut?.authorityEnd ?? 0, cuts);
 	return cuts;
+}
+
+/** One URL in a text, from its scheme to the end of its run, less the closers the parser refuses. */
+export interface UrlSpan {
+	readonly from: number;
+	readonly to: number;
+}
+
+/**
+ * A scheme at the regex's lastIndex, a tab allowed anywhere since the parser drops it ("h\tttp:" is a scheme to it);
+ * sticky and capped at 64 characters, so every word start in a long token costs one bounded probe.
+ */
+const SCHEME_AT = /[A-Za-z][A-Za-z0-9+.\t-]{0,63}:/y;
+/**
+ * A character a credential is spelled with (base64 and its URL-safe variant, a JWT's dots): a scheme right after one
+ * sits inside a token ("YWJj/https:Q7") and opens no URL, while "URL:https://x" opens one after its colon.
+ */
+const TOKEN_CHAR = /[A-Za-z0-9+/._~-]/;
+/** A run of this many "word:" candidates is prose, not a URL; every candidate costs a parse of the rest of the run. */
+const MAX_SPAN_CANDIDATES = 16;
+/** Each closer peeled costs a parse of the run, so the peeling stops here; a URL in prose rarely carries more. */
+const MAX_SPAN_CLOSERS = 8;
+
+/**
+ * The first scheme in one run the parser reads with a host ("http:" with any slashes the parser takes, backslashes and
+ * none included), at a word start: the run's start, a tab, or a character no credential is spelled with. A bare "//"
+ * opens nothing, since a base64 value can begin with one. The closers prose hangs on a URL come off one at a time from
+ * the whole run, so "[2001:db8::1])" keeps its host's "]" and loses the ")". An opaque "word:" read has no host and is
+ * prose.
+ */
+function spanInRun(run: string): UrlSpan | undefined {
+	let candidates = 0;
+	for (let from = 0; from < run.length && candidates < MAX_SPAN_CANDIDATES; from++) {
+		const before = run[from - 1];
+		const atWordStart = before === undefined || before === "\t" || !TOKEN_CHAR.test(before);
+		if (!atWordStart) {
+			continue;
+		}
+		SCHEME_AT.lastIndex = from;
+		if (!SCHEME_AT.test(run)) {
+			continue;
+		}
+		candidates++;
+		for (let to = run.length; to > from && to > run.length - MAX_SPAN_CLOSERS - 1; to--) {
+			const read = parsedUrl(run.slice(from, to));
+			if (read !== undefined && read.host !== "") {
+				return { from, to };
+			}
+			if (!CLOSERS.has(run[to - 1] as string)) {
+				break;
+			}
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Every run the parser reads as a URL with a host from a scheme at a word start, ascending, for a seam that treats URL
+ * text apart from prose. The same boundaries as the userinfo cuts: a run ends at a space, a line break, or a delimiting
+ * quote. Not read: a bare "//" (a base64 value can begin with one), a scheme past 64 characters, and a run's 17th
+ * "word:" candidate on.
+ *   "at (https://[2001:db8::1]). and key=https://y.test/b"  -> "https://[2001:db8::1]", "https://y.test/b"
+ *   "http:proxy.test/v1 and admin@mail.test"   -> "http:proxy.test/v1"
+ */
+export function urlSpans(text: string): UrlSpan[] {
+	const spans: UrlSpan[] = [];
+	const push = (start: number, stop: number): void => {
+		// The parser trims C0 controls and spaces at both ends of a URL; the span ends where the URL does.
+		let from = start;
+		let to = stop;
+		while (to > from && text.charCodeAt(to - 1) <= 0x20) {
+			to--;
+		}
+		while (from < to && text.charCodeAt(from) <= 0x20) {
+			from++;
+		}
+		spans.push({ from, to });
+	};
+	for (let i = 0; i < text.length; ) {
+		while (i < text.length && isBoundaryAt(text, i)) {
+			i++;
+		}
+		const end = runEndOf(text, i, text.length);
+		const span = spanInRun(text.slice(i, end));
+		if (span !== undefined) {
+			push(i + span.from, i + span.to);
+		}
+		i = end;
+	}
+	// Every URL the userinfo cuts read is a span too (a password may hold spaces, so such a URL crosses runs): the
+	// finder yields everything displayUrl would cut, and the run holding the authority's end carries the URL to its end.
+	for (const cut of urlCuts(text)) {
+		if (!spans.some((span) => span.from <= cut.from && cut.from < span.to)) {
+			push(cut.from, runEndOf(text, Math.max(cut.from, cut.resumeAt - 1), text.length));
+		}
+	}
+	spans.sort((a, b) => a.from - b.from);
+	return spans;
 }
 
 /** Strip URL-embedded credentials from a text: the cuts of urlCuts applied, nothing else. */

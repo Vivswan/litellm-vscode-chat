@@ -1,5 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import type { KnownSecretRedaction } from "../../../provider/transport/errorMapping";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
@@ -26,6 +27,7 @@ import { createTitleAndDescriptionProvider } from "./provider";
 export interface GeneratePrDeps {
 	readonly logger: Logger;
 	readonly outputChannel: vscode.OutputChannel;
+	readonly knownSecrets: KnownSecretRedaction;
 	/**
 	 * Defaults to the system clipboard; injected because vscode.env.clipboard is read-only and a test cannot replace
 	 * it.

@@ -14,6 +14,7 @@ import { updateServerSecret } from "../../../../extension/servers/serverSync/sec
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
+import { KnownSecrets } from "../../../../shared/util/knownSecrets";
 import { COMPLETIONS_URL, completionJsonResponse, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
 import { withDisposalCount } from "../disposalCount";
@@ -158,7 +159,7 @@ suite("extension/features/inline wiring", () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig({ "inlineCompletions.enabled": false }, () => {
 				wireInlineCompletions(fakeContext(), quietLogger(), {
-					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+					oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
 				});
 			});
 			assert.strictEqual(spies.registrations.length, 0);
@@ -173,7 +174,7 @@ suite("extension/features/inline wiring", () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig({ "inlineCompletions.enabled": true }, () => {
 				wireInlineCompletions(fakeContext(), quietLogger(), {
-					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+					oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
 				});
 			});
 			assert.strictEqual(spies.registrations.length, 1);
@@ -203,7 +204,7 @@ suite("extension/features/inline wiring", () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig({ "inlineCompletions.enabled": true }, async () => {
 				wireInlineCompletions(fakeContext(), quietLogger(), {
-					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+					oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
 				});
 				const provider = spies.registrations[0]?.provider;
 				assert.ok(provider !== undefined);
@@ -233,7 +234,9 @@ suite("extension/features/inline wiring", () => {
 		};
 		await withWiringSpies(async () => {
 			const { fimSend } = await withConfig({ "inlineCompletions.enabled": true, servers: [entryWithTemplate] }, () =>
-				wireInlineCompletions(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) })
+				wireInlineCompletions(fakeContext(), quietLogger(), {
+					oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
+				})
 			);
 			const result = await withConfig({ servers: [entryWithTemplate] }, () =>
 				fimSend({
@@ -266,7 +269,9 @@ suite("extension/features/inline wiring", () => {
 		};
 		await withWiringSpies(async () => {
 			const { fimSend } = await withConfig({ "inlineCompletions.enabled": false, servers: [entryWithParams] }, () =>
-				wireInlineCompletions(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) })
+				wireInlineCompletions(fakeContext(), quietLogger(), {
+					oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
+				})
 			);
 			await withConfig({ servers: [entryWithParams] }, () =>
 				fimSend({
@@ -291,7 +296,9 @@ suite("extension/features/inline wiring", () => {
 		const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
 		await withWiringSpies(async () => {
 			const { fimSend } = await withConfig({ "inlineCompletions.enabled": false, servers: [SERVER_ENTRY] }, () =>
-				wireInlineCompletions(fakeContext(), logger, { oneShot: new OneShotClient({ userAgent: "test-agent" }) })
+				wireInlineCompletions(fakeContext(), logger, {
+					oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
+				})
 			);
 			await withConfig({ servers: [SERVER_ENTRY], "models.parameters": "oops" }, () =>
 				fimSend({
@@ -311,7 +318,9 @@ suite("extension/features/inline wiring", () => {
 	test("a label matching no entry throws the classified error, zero fetches", async () => {
 		await withWiringSpies(async () => {
 			const { fimSend } = await withConfig({ "inlineCompletions.enabled": false, servers: [] }, () =>
-				wireInlineCompletions(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) })
+				wireInlineCompletions(fakeContext(), quietLogger(), {
+					oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
+				})
 			);
 			await withConfig({ servers: [] }, () =>
 				assert.rejects(
@@ -346,7 +355,7 @@ suite("extension/features/inline wiring", () => {
 		await withWiringSpies(async () => {
 			const { fimSend } = await withConfig({ "inlineCompletions.enabled": false, servers: [SERVER_ENTRY] }, () =>
 				wireInlineCompletions(fakeContext(secrets), quietLogger(), {
-					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+					oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
 				})
 			);
 			const outcome = await withConfig({ servers: [SERVER_ENTRY] }, () =>

@@ -61,7 +61,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		context,
 		logger,
 		ua,
-		storage
+		{ groupRemovals: storage.groupRemovals, knownSecrets }
 	);
 
 	await storage.runMigrations();
@@ -96,6 +96,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		ua,
 		outputChannel,
 		getSnapshots: () => provider.getServerSnapshots(),
+		knownSecrets,
 	});
 	const dashboard = wireDashboard(context, logger, {
 		provider,
@@ -104,6 +105,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		catalogStore,
 		usagePoller: servers.usagePoller,
 		ua,
+		knownSecrets,
 		featureProbes: features.featureProbes,
 	});
 	// The agent tools are a client of the dashboard controller, so they wire after it; every write they make joins the

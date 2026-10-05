@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { LiteLLMChatModelProvider } from "../../provider";
+import type { KnownSecretRedaction } from "../../provider/transport/errorMapping";
 import { INTERNAL_CMD } from "../../shared/config/commandIds";
 import type { NumberSettingId } from "../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
@@ -41,6 +42,7 @@ export function wireDashboard(
 		usagePoller: UsagePoller;
 		/** The one User-Agent activation composes, for the panel's draft probe. */
 		ua: string;
+		knownSecrets: KnownSecretRedaction;
 		featureProbes: FeatureProbes;
 	}
 ): DashboardController {
@@ -53,6 +55,7 @@ export function wireDashboard(
 		usagePoller: deps.usagePoller,
 		getEntryModelCapabilities: readEntryModelCapabilities,
 		ua: deps.ua,
+		knownSecrets: deps.knownSecrets,
 		featureProbes: deps.featureProbes,
 	});
 	context.subscriptions.push(deps.syncEngine.onDidSync(() => dashboard.refresh()));

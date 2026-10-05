@@ -16,7 +16,7 @@ import {
 import { chatErrorMessage, localizedError } from "../../../shared/mirroredError";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { tryParseJSONObject } from "../../../shared/util/json";
-import { streamErrorFrame } from "../errorMapping";
+import { StreamErrorFrame } from "../errorMapping";
 import type { TextParseResult, TextToolCall } from "../textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "../textToolCallParser";
 import type { ChatCompletionChunk, ChunkAudio, ChunkDelta, ChunkSearchResult, ToolCallBuffer } from "../wire";
@@ -191,7 +191,7 @@ export class StreamProcessor {
 				// LiteLLM streams `data: {"error": {...}}` when an upstream dies after the 200, and swallowing it would
 				// end the request as a silent truncation. This is NOT the log-and-skip path.
 				if (!sawDone && chunk.error && !(chunk.choices && chunk.choices.length > 0)) {
-					throw streamErrorFrame(chunk.error);
+					throw new StreamErrorFrame(chunk.error);
 				}
 				this.processDelta(chunk);
 			}

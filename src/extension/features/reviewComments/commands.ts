@@ -1,5 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import type { KnownSecretRedaction } from "../../../provider/transport/errorMapping";
 import type { OneShotChatMessage, OneShotClient } from "../../../provider/transport/oneShotClient";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
@@ -33,6 +34,7 @@ export interface ReviewCommandDeps {
 	readonly secrets: vscode.SecretStorage;
 	readonly logger: Logger;
 	readonly outputChannel: vscode.OutputChannel;
+	readonly knownSecrets: KnownSecretRedaction;
 	/** The live controller while the feature is enabled; undefined while it is off. */
 	readonly controller: () => ReviewCommentController | undefined;
 	readonly resolveGit?: () => Promise<API | undefined>;

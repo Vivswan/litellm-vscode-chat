@@ -35,6 +35,7 @@ import {
 import type { AuthOverlayScope } from "./authOverlay";
 import { applyAuthOverlay } from "./authOverlay";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
+import type { KnownSecretRedaction } from "./errorMapping";
 import { bodylessResponseError, mapSdkError, timeoutRequestError } from "./errorMapping";
 import type { TransportFetch } from "./nodeHttpFetch";
 import { nodeHttpFetch } from "./nodeHttpFetch";
@@ -67,6 +68,7 @@ export interface ServerConnection extends ServerWithKey {
 export interface ChatClientOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
+	knownSecrets: KnownSecretRedaction;
 	/**
 	 * Resolves a declared server entry's per-entry modelParameters at request time, from the entry's label and the
 	 * group's base URL, and only when both identify the same declared entry. Defaults to none: models served by an
@@ -95,6 +97,7 @@ export interface ChatClientOptions {
 export class ChatClient {
 	private readonly userAgent: string;
 	private readonly logger?: Logger | undefined;
+	private readonly knownSecrets: KnownSecretRedaction;
 	private readonly getEntryModelParameters: (
 		label: string,
 		baseUrl: string
@@ -115,6 +118,7 @@ export class ChatClient {
 	constructor(options: ChatClientOptions) {
 		this.userAgent = options.userAgent;
 		this.logger = options.logger;
+		this.knownSecrets = options.knownSecrets;
 		this.getEntryModelParameters = options.getEntryModelParameters ?? (() => undefined);
 		this.getEntryHeaders = options.getEntryHeaders ?? (() => undefined);
 		this.getEntryApiVersion = options.getEntryApiVersion ?? (() => undefined);
@@ -164,6 +168,7 @@ export class ChatClient {
 				apiVersion,
 				discoveryTimeout,
 				entryLabel: server.entryLabel,
+				knownSecrets: this.knownSecrets,
 				log: this.log,
 				...(expected !== undefined ? { expected } : {}),
 				...(includeModes !== undefined ? { includeModes } : {}),
@@ -311,7 +316,12 @@ export class ChatClient {
 		const cancelListener = token.onCancellationRequested(() => cancelController.abort());
 		const timeoutSignal = AbortSignal.timeout(requestTimeout);
 		const requestSignal = AbortSignal.any([cancelController.signal, timeoutSignal]);
-		const errorContext = { surface: "chat" as const, baseUrl: server.baseUrl, timeoutMs: requestTimeout };
+		const errorContext = {
+			surface: "chat" as const,
+			baseUrl: server.baseUrl,
+			timeoutMs: requestTimeout,
+			knownSecrets: this.knownSecrets,
+		};
 		let auth: AuthOverlayScope | undefined;
 
 		try {
@@ -332,7 +342,7 @@ export class ChatClient {
 				.asResponse();
 
 			if (!response.body) {
-				throw bodylessResponseError("chat", response.status, server.baseUrl);
+				throw bodylessResponseError("chat", response.status, server.baseUrl, this.knownSecrets);
 			}
 
 			// The user-set audio.format parameter (when a modality-audio request declares one) is the only statement of
@@ -360,7 +370,7 @@ export class ChatClient {
 			);
 			await streamProcessor.processStreamingResponse(counted, token);
 			if (bodyBytes === 0) {
-				throw bodylessResponseError("chat", response.status, server.baseUrl);
+				throw bodylessResponseError("chat", response.status, server.baseUrl, this.knownSecrets);
 			}
 		} catch (err) {
 			if (token.isCancellationRequested) {

@@ -125,7 +125,8 @@ function formPattern(form: string): string {
 	);
 }
 
-type Span = [number, number];
+/** One occurrence in a text: `from` inclusive, `to` exclusive. */
+export type Span = [number, number];
 
 /** Overlapping or adjacent spans merged into disjoint ascending ones, so each is replaced once and no tail survives. */
 function mergedSpans(spans: Span[]): Span[] {
@@ -134,6 +135,21 @@ function mergedSpans(spans: Span[]): Span[] {
 	for (const [from, to] of spans) {
 		const last = merged[merged.length - 1];
 		if (last !== undefined && from <= last[1]) {
+			last[1] = Math.max(last[1], to);
+		} else {
+			merged.push([from, to]);
+		}
+	}
+	return merged;
+}
+
+/** Overlapping spans merged, adjacent ones kept apart, ascending. */
+function overlappingMerged(spans: Span[]): Span[] {
+	spans.sort((a, b) => a[0] - b[0]);
+	const merged: Span[] = [];
+	for (const [from, to] of spans) {
+		const last = merged[merged.length - 1];
+		if (last !== undefined && from < last[1]) {
 			last[1] = Math.max(last[1], to);
 		} else {
 			merged.push([from, to]);
@@ -207,6 +223,14 @@ export class KnownSecrets {
 		return this.known;
 	}
 
+	/**
+	 * Every known-value occurrence in `text`, ascending, overlapping ones merged and adjacent ones kept apart, for a seam
+	 * that weighs them against URL spans: two values meeting at a URL's query mark are not one value across it.
+	 */
+	occurrences(text: string): readonly Span[] {
+		return overlappingMerged(this.found(text, []));
+	}
+
 	set(values: readonly string[], options: { readonly minLength?: number } = {}): void {
 		const floor = options.minLength ?? MIN_VALUE_LENGTH;
 		this.known = values.filter((value) => value.length >= floor);
@@ -225,6 +249,11 @@ export class KnownSecrets {
 
 	/** Every known-value occurrence in `text` outside the keep markers, merged and ascending. */
 	private spans(text: string, keep: readonly string[]): Span[] {
+		return mergedSpans(this.found(text, keep));
+	}
+
+	/** The occurrences as matched, in match order, before any merge. */
+	private found(text: string, keep: readonly string[]): Span[] {
 		const pattern = this.pattern;
 		if (pattern === undefined) {
 			return [];
@@ -260,7 +289,7 @@ export class KnownSecrets {
 			pattern.lastIndex = Math.max(from + 1, to - this.longestForm + 1);
 			match = pattern.exec(text);
 		}
-		return mergedSpans(found);
+		return found;
 	}
 
 	redact(text: string, keep: readonly string[] = [], budget?: number): string {

@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { KnownSecretRedaction } from "../../../provider/transport/errorMapping";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION, type FeatureModelRef } from "../../../shared/config/settingSpec";
@@ -75,7 +76,11 @@ export function createReviewProbe(
 export function wireReviewComments(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	deps: { readonly oneShot: OneShotClient; readonly outputChannel: vscode.OutputChannel }
+	deps: {
+		readonly oneShot: OneShotClient;
+		readonly outputChannel: vscode.OutputChannel;
+		readonly knownSecrets: KnownSecretRedaction;
+	}
 ): { readonly reviewSend: (ref: FeatureModelRef, prompt: string, token: vscode.CancellationToken) => Promise<string> } {
 	const log = (message: string, data?: unknown): void => {
 		logger.log(message, data);
@@ -96,6 +101,7 @@ export function wireReviewComments(
 		secrets: context.secrets,
 		logger,
 		outputChannel: deps.outputChannel,
+		knownSecrets: deps.knownSecrets,
 		controller: () => controller,
 	};
 

@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { RequestError } from "../../../provider/transport/errorMapping";
+import { StreamErrorFrame } from "../../../provider/transport/errorMapping";
 import { StreamProcessor } from "../../../provider/transport/streaming/processor";
 import type { ThinkingPartCtor } from "../../../shared/conversion/thinkingPart";
 import { resetThinkingPartLogOnce } from "../../../shared/conversion/thinkingPart";
@@ -25,13 +25,9 @@ suite("provider/streaming end-of-stream policy", () => {
 		await assert.rejects(
 			() => stream.processStreamingResponse(body, token()),
 			(e: unknown) => {
-				assert.ok(e instanceof RequestError, `expected a RequestError, got ${String(e)}`);
-				assert.strictEqual(e.kind, "http");
-				assert.ok(e.message.startsWith("The server reported an error while it was streaming this reply"), e.message);
-				assert.ok(
-					e.message.endsWith("\n\nDetails: LiteLLM stream error (500): upstream exploded"),
-					`the envelope fields ride the compact detail line: ${e.message}`
-				);
+				assert.ok(e instanceof StreamErrorFrame, `expected the frame, got ${String(e)}`);
+				// The envelope travels as sent; chatClient.ts renders it through mapSdkError, where the redaction lives.
+				assert.deepStrictEqual(e.frame, { message: "upstream exploded", code: "500" });
 				return true;
 			}
 		);
@@ -696,7 +692,7 @@ suite("provider/streaming reasoning-only empty responses", () => {
 
 		await assert.rejects(
 			() => stream.processStreamingResponse(body, token()),
-			(e: unknown) => e instanceof RequestError && e.kind === "http"
+			(e: unknown) => e instanceof StreamErrorFrame
 		);
 		const drops = logs.filter((l) => l.msg === DROP_LOG);
 		assert.strictEqual(drops.length, 1);

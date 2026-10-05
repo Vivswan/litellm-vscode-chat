@@ -1,5 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import type { KnownSecretRedaction } from "../../../provider/transport/errorMapping";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
@@ -24,6 +25,7 @@ export interface QuickFixChatDeps {
 	readonly secrets: vscode.SecretStorage;
 	readonly logger: Logger;
 	readonly outputChannel: vscode.OutputChannel;
+	readonly knownSecrets: KnownSecretRedaction;
 	/**
 	 * Whether the @litellm participant can actually answer a turn right now. The chat path submits a turn addressed to
 	 * it, so this is the difference between asking our participant and shouting our prefix at whoever is listening;

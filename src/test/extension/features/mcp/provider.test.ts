@@ -14,6 +14,7 @@ import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { MCP_ENTRY_VERSIONS_KEY, serverSecretsKey } from "../../../../shared/config/storageKeys";
 import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
+import { KnownSecrets } from "../../../../shared/util/knownSecrets";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
 
@@ -76,7 +77,7 @@ function makeProvider(
 	return createMcpServerDefinitionProvider(
 		{
 			secrets: emptySecrets(),
-			oneShot: new OneShotClient({ userAgent: "test-agent" }),
+			oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
 			versions: options.versions ?? new McpVersionCounters(memento()),
 			advisory: (message, data) => options.logged?.push([message, data]),
 			logError: (message, error) => options.logged?.push([message, error]),
@@ -381,7 +382,7 @@ suite("extension/features/mcp", () => {
 			const provider = createMcpServerDefinitionProvider(
 				{
 					secrets: store,
-					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+					oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
 					versions: new McpVersionCounters(memento()),
 					advisory: () => {},
 					logError: () => {},
@@ -427,7 +428,7 @@ suite("extension/features/mcp", () => {
 			const provider = createMcpServerDefinitionProvider(
 				{
 					secrets: store,
-					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+					oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
 					versions: new McpVersionCounters(memento()),
 					advisory: () => {},
 					logError: () => {},
@@ -613,7 +614,9 @@ suite("extension/features/mcp", () => {
 				let ours = { registrations: [0, 0], listeners: [0, 0] };
 				await withConfig({ servers: initialServers }, () => {
 					const from = { registrations: registrations.length, listeners: configListeners.length };
-					wireMcpServers(context, quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+					wireMcpServers(context, quietLogger(), {
+						oneShot: new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() }),
+					});
 					ours = {
 						registrations: [from.registrations, registrations.length],
 						listeners: [from.listeners, configListeners.length],

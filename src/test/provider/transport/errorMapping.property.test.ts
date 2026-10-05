@@ -10,6 +10,7 @@ import {
 	twoPartTexts,
 } from "../../../provider/transport/errorMapping";
 import { manageCommandTitle } from "../../../shared/config/commandIds";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -33,6 +34,7 @@ const ctxArb: fc.Arbitrary<MapErrorContext> = fc.record({
 	surface: fc.constantFrom(...TRANSPORT_ERROR_SURFACES),
 	baseUrl: fc.constantFrom("http://litellm.test", "https://proxy.internal:4000/v1", "http://localhost:4000/"),
 	timeoutMs: fc.integer({ min: 1, max: 3_600_000 }),
+	knownSecrets: fc.constant(new KnownSecrets()),
 });
 
 function auth401(body: unknown): AuthenticationError {

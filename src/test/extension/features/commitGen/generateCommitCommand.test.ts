@@ -7,6 +7,7 @@ import type { API, Change, Commit, Repository } from "../../../../extension/feat
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { serverSecretsKey } from "../../../../shared/config/storageKeys";
 import { Logger } from "../../../../shared/logger";
+import { KnownSecrets } from "../../../../shared/util/knownSecrets";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
@@ -68,12 +69,13 @@ function makeDeps(): GenerateCommitDeps {
 			onDidChange: () => ({ dispose: () => {} }),
 		} as unknown as vscode.SecretStorage,
 		logger: makeLogger().logger,
+		knownSecrets: new KnownSecrets(),
 		outputChannel: { show: () => {}, appendLine: () => {} } as unknown as vscode.OutputChannel,
 	};
 }
 
 function client(): OneShotClient {
-	return new OneShotClient({ userAgent: "test-agent" });
+	return new OneShotClient({ userAgent: "test-agent", knownSecrets: new KnownSecrets() });
 }
 
 suite("extension/features/commitGen generateCommitCommand", () => {

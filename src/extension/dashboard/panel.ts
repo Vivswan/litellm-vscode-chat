@@ -31,6 +31,7 @@ import type {
 } from "../../dashboard/viewModels";
 import type { LiteLLMChatModelProvider } from "../../provider";
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
+import type { KnownSecretRedaction } from "../../provider/transport/errorMapping";
 import type { CapabilityCatalogLookup } from "../../shared/config/capabilityResolution";
 import { CMD } from "../../shared/config/commandIds";
 import { searchCatalogModels } from "../../shared/config/openRouterCatalog";
@@ -828,6 +829,7 @@ export interface RegisterDashboardOptions {
 	readonly getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined;
 	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
 	readonly ua: string;
+	readonly knownSecrets: KnownSecretRedaction;
 	readonly featureProbes: FeatureProbes;
 }
 
@@ -841,6 +843,7 @@ export interface IntentEnvironmentDeps {
 	readonly logger: Pick<Logger, "log">;
 	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
 	readonly ua: string;
+	readonly knownSecrets: KnownSecretRedaction;
 	readonly featureProbes: FeatureProbes;
 	readonly refreshCatalogNow: () => void;
 	readonly refreshUsageNow: () => void;
@@ -912,7 +915,7 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 		// The draft-connection test's probe: one throwaway discovery pass, no
 		// mutation, no caching, and no logger (its discovery chatter would enter
 		// the issue-report buffer).
-		probeDraftConnection: createDraftConnectionProbe(deps.ua),
+		probeDraftConnection: createDraftConnectionProbe(deps.ua, deps.knownSecrets),
 		featureProbes: deps.featureProbes,
 		refreshCatalogNow: deps.refreshCatalogNow,
 		refreshUsageNow: deps.refreshUsageNow,
@@ -931,7 +934,8 @@ export function registerDashboardCommand(
 	context: vscode.ExtensionContext,
 	options: RegisterDashboardOptions
 ): DashboardController {
-	const { provider, logger, syncEngine, removals, catalog, usagePoller, getEntryModelCapabilities, ua } = options;
+	const { provider, logger, syncEngine, removals, catalog, usagePoller, getEntryModelCapabilities, ua, knownSecrets } =
+		options;
 	const serverResolution: ServerResolution = {
 		// The exact resolver chat requests use (activation wires the provider's getEntryModelParameters to the same
 		// readEntryModelParameters).
@@ -955,6 +959,7 @@ export function registerDashboardCommand(
 			secrets: context.secrets,
 			logger,
 			ua,
+			knownSecrets,
 			featureProbes: options.featureProbes,
 			// Fire-and-forget kicks; both push state when they settle. The catalog
 			// row stays toast-free; an explicit usage refresh in which NO server

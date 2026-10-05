@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { KnownSecretRedaction } from "../../../provider/transport/errorMapping";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { INTERNAL_CMD } from "../../../shared/config/commandIds";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
@@ -62,6 +63,7 @@ export function wireQuickFix(
 	deps: {
 		readonly oneShot: OneShotClient;
 		readonly outputChannel: vscode.OutputChannel;
+		readonly knownSecrets: KnownSecretRedaction;
 		/** The participant wiring's own readiness predicate; the chat path is only taken while it says yes. */
 		readonly isParticipantAvailable: () => boolean;
 	}
@@ -88,6 +90,7 @@ export function wireQuickFix(
 					secrets: context.secrets,
 					logger,
 					outputChannel: deps.outputChannel,
+					knownSecrets: deps.knownSecrets,
 					isParticipantAvailable: deps.isParticipantAvailable,
 				},
 				args

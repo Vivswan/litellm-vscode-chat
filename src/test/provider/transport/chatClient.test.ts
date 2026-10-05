@@ -7,6 +7,7 @@ import { ChatClient } from "../../../provider/transport/chatClient";
 import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
 import { convertMessages } from "../../../shared/conversion/messages";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { makeLogger, makeModelInfo } from "../../pureHelpers";
 import { withConfig } from "../../testUtils";
 
@@ -91,6 +92,7 @@ suite("provider/transport/chatClient", () => {
 		const second = controllableStream();
 		const bodies = [first, second];
 		const client = new ChatClient({
+			knownSecrets: new KnownSecrets(),
 			userAgent: "test-agent",
 			fetch: async () => {
 				const body = bodies.shift();
@@ -128,6 +130,7 @@ suite("provider/transport/chatClient", () => {
 		const body = controllableStream();
 		let wireBody: unknown;
 		const client = new ChatClient({
+			knownSecrets: new KnownSecrets(),
 			userAgent: "test-agent",
 			fetch: async (_url, init) => {
 				wireBody = JSON.parse(String(init?.body));
@@ -153,7 +156,11 @@ suite("provider/transport/chatClient", () => {
 
 	test("the request's audio.format reaches the emitted audio DataPart as its mime", async () => {
 		const body = controllableStream();
-		const client = new ChatClient({ userAgent: "test-agent", fetch: async () => sseResponse(body.stream) });
+		const client = new ChatClient({
+			knownSecrets: new KnownSecrets(),
+			userAgent: "test-agent",
+			fetch: async () => sseResponse(body.stream),
+		});
 
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
@@ -206,6 +213,7 @@ suite("provider/transport/chatClient", () => {
 		let fetchCalled = false;
 		const { logger, lines } = makeLogger();
 		const client = new ChatClient({
+			knownSecrets: new KnownSecrets(),
 			userAgent: "test-agent",
 			logger,
 			fetch: async () => {
@@ -224,6 +232,7 @@ suite("provider/transport/chatClient", () => {
 	test("user cancellation aborts the in-flight request and throws CancellationError", async () => {
 		let observedSignal: AbortSignal | undefined;
 		const client = new ChatClient({
+			knownSecrets: new KnownSecrets(),
 			userAgent: "test-agent",
 			fetch: async (_url, init) => {
 				observedSignal = init?.signal ?? undefined;
@@ -252,6 +261,7 @@ suite("provider/transport/chatClient", () => {
 
 	test("request timeout surfaces an actionable error naming the chat.timeout setting", async () => {
 		const client = new ChatClient({
+			knownSecrets: new KnownSecrets(),
 			userAgent: "test-agent",
 			fetch: async () => {
 				throw new DOMException("The operation timed out.", "TimeoutError");
@@ -278,7 +288,11 @@ suite("provider/transport/chatClient", () => {
 			return sseResponse(stream);
 		};
 		await withConfig({ "chat.timeout": 1000 }, async () => {
-			const client = new ChatClient({ userAgent: "test-agent", fetch: stalling });
+			const client = new ChatClient({
+				knownSecrets: new KnownSecrets(),
+				userAgent: "test-agent",
+				fetch: stalling,
+			});
 
 			const startedAt = Date.now();
 			await assert.rejects(client.send(request()), /chat\.timeout/);

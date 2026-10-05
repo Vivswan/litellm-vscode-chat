@@ -7,6 +7,7 @@ import { mapSdkError, statusErrorTexts } from "../../../provider/transport/error
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
 import { publicErrorText } from "../../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../../shared/servers";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import type { Timer } from "../../../shared/util/timer";
 import { expectDefined } from "../../pureHelpers";
 import { createStatusBarManager, RecordingItem } from "./statusBarHarness";
@@ -537,7 +538,12 @@ suite("extension/ui/notifier", () => {
 			// ECONNREFUSED render the same connection headline (the toast line the signature keys on; the cause detail
 			// below it differs and is excluded), but only ECONNREFUSED carries proxy-not-running, so a text-only
 			// signature would suppress the toast offering the docs action.
-			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
+			const ctx = {
+				surface: "discovery" as const,
+				baseUrl: "http://litellm.test",
+				timeoutMs: 5000,
+				knownSecrets: new KnownSecrets(),
+			};
 			const connectionFailure = (deepest: string) =>
 				statusErrorTexts(
 					mapSdkError(
@@ -545,7 +551,8 @@ suite("extension/ui/notifier", () => {
 							cause: Object.assign(new TypeError("fetch failed"), { cause: new Error(deepest) }),
 						}),
 						ctx
-					)
+					),
+					new KnownSecrets()
 				);
 			const headlineOf = (text: string) => text.split("\n")[0];
 			const dns = connectionFailure("getaddrinfo ENOTFOUND litellm.test");

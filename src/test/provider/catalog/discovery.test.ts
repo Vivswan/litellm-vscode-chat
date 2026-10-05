@@ -20,6 +20,7 @@ import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import { CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
 import { publicErrorText } from "../../../shared/logger";
 import type { NonChatMode, SkippedModeCounts } from "../../../shared/serverEntry";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import {
 	discoveryHandlers,
 	emptyErrorResponse,
@@ -47,6 +48,7 @@ function request(log: (message: string, data?: unknown) => void = () => {}, fetc
 		baseUrl: TEST_BASE_URL,
 		apiVersion: undefined,
 		discoveryTimeout: 5000,
+		knownSecrets: new KnownSecrets(),
 		log,
 	};
 }
@@ -1339,6 +1341,34 @@ suite("provider/catalog/discovery", () => {
 					assert.strictEqual(error.logClassification, "RequestError(http, status 405, discovery, no endpoint served)");
 					return true;
 				});
+			});
+
+			test("a configured value in the base URL's path stays visible in the both-refused headline", async () => {
+				// Discovery's own constructors render the configured URL through the shared exit, whose rule is the owner's:
+				// the host and path stay visible, even when a gateway keyed by path puts the configured key there.
+				const key = "sk-fake-Q7mNp2xR"; // gitleaks:allow
+				const baseUrl = `${TEST_BASE_URL}/${key}`;
+				mswServer.use(
+					http.get(`${baseUrl}/v1/model/info`, () => emptyErrorResponse(405)),
+					http.get(`${baseUrl}/v1/models`, () => emptyErrorResponse(405))
+				);
+				const knownSecrets = new KnownSecrets();
+				knownSecrets.set([key]);
+				const client = createServerClient(
+					{ serverId: "srv1", baseUrl, apiKey: key, userAgent: "test-agent", customHeaders: {} },
+					nodeHttpFetch
+				);
+				await assert.rejects(
+					fetchModels({ client, baseUrl, apiVersion: undefined, discoveryTimeout: 5000, knownSecrets, log: () => {} }),
+					(error: unknown) => {
+						assert.ok(error instanceof RequestError);
+						assert.match(
+							error.message,
+							/does not serve either discovery endpoint at http:\/\/litellm\.test\/sk-fake-Q7mNp2xR -/
+						);
+						return true;
+					}
+				);
 			});
 
 			test("a 404 probe beside a 405 listing is still both-refused and takes the served-nothing verdict", async () => {

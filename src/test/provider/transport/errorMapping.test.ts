@@ -9,13 +9,14 @@ import {
 import { CancellationError, LanguageModelError } from "vscode";
 import { OAuthTokenSource, type TimeoutBudget } from "../../../provider/transport/auth";
 import {
+	bodylessResponseError,
 	type MapErrorContext,
 	mapSdkError,
 	RequestError,
 	type RequestErrorKind,
+	StreamErrorFrame,
 	socketFailureRequestError,
 	statusErrorTexts,
-	streamErrorFrame,
 	TRANSPORT_ERROR_SURFACES,
 	timeoutMessage,
 	timeoutRequestError,
@@ -24,11 +25,31 @@ import {
 } from "../../../provider/transport/errorMapping";
 import { localizedError, MirroredError } from "../../../shared/mirroredError";
 import { DEFAULT_API_VERSION } from "../../../shared/util/baseUrl";
+import { urlSpans } from "../../../shared/util/displayUrl";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { assertShows, assertStartsWith } from "../../pureHelpers";
 
-const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
-const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };
-const commitCtx: MapErrorContext = { surface: "commitGeneration", baseUrl: "http://litellm.test", timeoutMs: 5000 };
+/** The empty set: every text still takes the pass, and the URL cut rides in it. */
+const noSecrets = new KnownSecrets();
+
+const chatCtx: MapErrorContext = {
+	surface: "chat",
+	baseUrl: "http://litellm.test",
+	timeoutMs: 5000,
+	knownSecrets: noSecrets,
+};
+const discoveryCtx: MapErrorContext = {
+	surface: "discovery",
+	baseUrl: "http://litellm.test",
+	timeoutMs: 5000,
+	knownSecrets: noSecrets,
+};
+const commitCtx: MapErrorContext = {
+	surface: "commitGeneration",
+	baseUrl: "http://litellm.test",
+	timeoutMs: 5000,
+	knownSecrets: noSecrets,
+};
 
 /**
  * The cause chain the SDK produces for transport failures: its "Connection error." wrapper around undici's TypeError
@@ -38,6 +59,11 @@ function connectionError(deepest: unknown): APIConnectionError {
 	return new APIConnectionError({
 		cause: Object.assign(new TypeError("fetch failed"), { cause: deepest }),
 	});
+}
+
+/** A stream frame rendered the way ChatClient's catch renders it: through mapSdkError. */
+function frameError(envelope: Record<string, unknown>): RequestError {
+	return expectRequestError(mapSdkError(new StreamErrorFrame(envelope), chatCtx), "http");
 }
 
 function expectRequestError(mapped: Error, kind: RequestError["kind"]): RequestError {
@@ -329,7 +355,7 @@ suite("provider/transport/errorMapping", () => {
 
 		suite("*.localhost hosts", () => {
 			function localhostCtx(baseUrl: string): MapErrorContext {
-				return { surface: "chat", baseUrl, timeoutMs: 5000 };
+				return { surface: "chat", baseUrl, timeoutMs: 5000, knownSecrets: noSecrets };
 			}
 			const enotfound = () =>
 				connectionError(Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" }));
@@ -348,13 +374,18 @@ suite("provider/transport/errorMapping", () => {
 				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
 				// The classification rides to the status surfaces (toast actions and the dashboard's draft-test footer
 				// branch on it).
-				assert.strictEqual(statusErrorTexts(mapped).classification?.setupHint, "use-bare-localhost");
+				assert.strictEqual(statusErrorTexts(mapped, noSecrets).classification?.setupHint, "use-bare-localhost");
 				assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
 			});
 
 			test("the discovery surface carries the same suggestion and hint", () => {
 				const mapped = expectRequestError(
-					mapSdkError(enotfound(), { surface: "discovery", baseUrl: "http://www.localhost:8001", timeoutMs: 5000 }),
+					mapSdkError(enotfound(), {
+						surface: "discovery",
+						baseUrl: "http://www.localhost:8001",
+						timeoutMs: 5000,
+						knownSecrets: noSecrets,
+					}),
 					"connection"
 				);
 				assert.ok(mapped.message.includes("Try http://localhost:8001 instead"), mapped.message);
@@ -421,7 +452,7 @@ suite("provider/transport/errorMapping", () => {
 				const mapped = socketFailureRequestError(
 					Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" }),
 					undefined,
-					{ endpoint: "oauthToken", surface: "chat", url: "http://www.localhost:8080/token" },
+					{ endpoint: "oauthToken", surface: "chat", url: "http://www.localhost:8080/token", knownSecrets: noSecrets },
 					() => timeoutRequestError(chatCtx, undefined)
 				);
 				assert.strictEqual(mapped.setupHint, undefined);
@@ -434,7 +465,12 @@ suite("provider/transport/errorMapping", () => {
 			test("a connection error echoes the base URL without its credentials", () => {
 				const err = connectionError(new Error("connect ECONNREFUSED 127.0.0.1:4000"));
 				const mapped = expectRequestError(
-					mapSdkError(err, { surface: "chat", baseUrl: "http://user:sekret@litellm.test:4000", timeoutMs: 5000 }),
+					mapSdkError(err, {
+						surface: "chat",
+						baseUrl: "http://user:sekret@litellm.test:4000",
+						timeoutMs: 5000,
+						knownSecrets: noSecrets,
+					}),
 					"connection"
 				);
 				assert.ok(mapped.message.includes("http://litellm.test:4000"), mapped.message);
@@ -450,7 +486,12 @@ suite("provider/transport/errorMapping", () => {
 					Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" })
 				);
 				const mapped = expectRequestError(
-					mapSdkError(err, { surface: "chat", baseUrl: "http://user:sekret@www.localhost:8001", timeoutMs: 5000 }),
+					mapSdkError(err, {
+						surface: "chat",
+						baseUrl: "http://user:sekret@www.localhost:8001",
+						timeoutMs: 5000,
+						knownSecrets: noSecrets,
+					}),
 					"connection"
 				);
 				assertStartsWith(
@@ -465,7 +506,12 @@ suite("provider/transport/errorMapping", () => {
 			test("the certificate detail line echoes the URL without its credentials", () => {
 				const err = connectionError(new Error("unable to verify the first certificate"));
 				const mapped = expectRequestError(
-					mapSdkError(err, { surface: "chat", baseUrl: "https://user:sekret@litellm.test", timeoutMs: 5000 }),
+					mapSdkError(err, {
+						surface: "chat",
+						baseUrl: "https://user:sekret@litellm.test",
+						timeoutMs: 5000,
+						knownSecrets: noSecrets,
+					}),
 					"certificate"
 				);
 				assert.ok(mapped.message.includes("SSL certificate error for https://litellm.test"), mapped.message);
@@ -476,7 +522,12 @@ suite("provider/transport/errorMapping", () => {
 				const mapped = socketFailureRequestError(
 					new Error("connect ECONNREFUSED 127.0.0.1:8080"),
 					undefined,
-					{ endpoint: "oauthToken", surface: "chat", url: "http://user:sekret@idp.test:8080/token" },
+					{
+						endpoint: "oauthToken",
+						surface: "chat",
+						url: "http://user:sekret@idp.test:8080/token",
+						knownSecrets: noSecrets,
+					},
 					() => timeoutRequestError(chatCtx, undefined)
 				);
 				assert.ok(mapped.message.includes("http://idp.test:8080/token"), mapped.message);
@@ -488,7 +539,12 @@ suite("provider/transport/errorMapping", () => {
 				// must not re-leak what the headline stripped.
 				const err = connectionError(new Error("Failed to parse URL from http://user:sekret@litellm.test:4000/v1"));
 				const mapped = expectRequestError(
-					mapSdkError(err, { surface: "chat", baseUrl: "http://user:sekret@litellm.test:4000", timeoutMs: 5000 }),
+					mapSdkError(err, {
+						surface: "chat",
+						baseUrl: "http://user:sekret@litellm.test:4000",
+						timeoutMs: 5000,
+						knownSecrets: noSecrets,
+					}),
 					"network"
 				);
 				assert.ok(!mapped.message.includes("sekret"), mapped.message);
@@ -500,7 +556,7 @@ suite("provider/transport/errorMapping", () => {
 				// A proxy echoes the URL it was asked for; the headline stripped the userinfo while the detail quoted the
 				// body verbatim into the chat error, the NotFound wrapper, and the status texts. The parser drops a line
 				// break or a tab wherever it sits, so a password or a host split by one is still the configured URL.
-				const base = { baseUrl: "https://user:pass@host.test", timeoutMs: 5000 };
+				const base = { baseUrl: "https://user:pass@host.test", timeoutMs: 5000, knownSecrets: noSecrets };
 				const chatHeadline =
 					"The server did not recognize this request - the model may have been removed from the proxy. " +
 					'Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base ' +
@@ -526,7 +582,7 @@ suite("provider/transport/errorMapping", () => {
 					assert.ok(wrapped instanceof LanguageModelError, String(wrapped));
 					assert.strictEqual(wrapped.code, LanguageModelError.NotFound().code);
 					assert.strictEqual(wrapped.message, chatMessage);
-					const texts = statusErrorTexts(chat);
+					const texts = statusErrorTexts(chat, noSecrets);
 					assert.strictEqual(texts.error, chatMessage);
 					assert.strictEqual(texts.logSafeError, "RequestError(http, status 404, chat)");
 					assert.deepStrictEqual(texts.classification, { kind: "http", status: 404 });
@@ -574,7 +630,7 @@ suite("provider/transport/errorMapping", () => {
 					[new Error("Headline\nDetail line without a URL"), "Headline\nDetail line without a URL"],
 				];
 				for (const [reason, expected] of reasons) {
-					const texts = statusErrorTexts(reason);
+					const texts = statusErrorTexts(reason, noSecrets);
 					assert.strictEqual(texts.error, expected);
 					assert.strictEqual(texts.logSafeError, expected);
 					assert.ok(!("classification" in texts));
@@ -586,6 +642,344 @@ suite("provider/transport/errorMapping", () => {
 				assert.ok(mapped instanceof MirroredError, mapped.message);
 				assert.ok(!mapped.message.includes("sekret"), mapped.message);
 				assert.ok(mapped.message.includes("http://x.test/v1"), mapped.message);
+			});
+		});
+
+		suite("configured values are cut from prose and queries, never from a host or path", () => {
+			// A 403 body quoting the key, or a proxy echoing a header value it was sent, carries no URL shape for the
+			// parser-based cut to find; before the exit took the Logger's KnownSecrets, these texts reached the chat
+			// error, the status row, and the dashboard wire whole. The known-value pass covers every spelling (see
+			// knownSecrets.test.ts); each row here is one exit, with the host and the status left visible.
+			const known = new KnownSecrets();
+			known.set(["sk-fake-Q7mNp2xR", "Bearer hdr-token-Q7mNp2xR"]);
+			const ctx: MapErrorContext = { ...chatCtx, knownSecrets: known };
+			const forbidden = (message: string) => APIError.generate(403, { error: { message } }, undefined, new Headers());
+
+			test("a 403 body quoting the configured key renders with the host and the status intact", () => {
+				const err = forbidden("key sk-fake-Q7mNp2xR rejected for https://host.test/v1");
+				const chat = expectRequestError(mapSdkError(err, ctx), "http");
+				const detail = "LiteLLM 403: key [redacted] rejected for https://host.test/v1";
+				assert.ok(chat.message.endsWith(`\n\nDetails: ${detail}`), chat.message);
+				assert.strictEqual(chat.englishMessage, chat.message);
+				assert.strictEqual(chat.status, 403);
+				assert.strictEqual(chat.logClassification, "RequestError(http, status 403)");
+				const texts = statusErrorTexts(chat, known);
+				assert.strictEqual(texts.error, chat.message);
+				assert.strictEqual(texts.logSafeError, "RequestError(http, status 403)");
+				assert.deepStrictEqual(texts.classification, { kind: "http", status: 403 });
+
+				const discovery = expectRequestError(mapSdkError(err, { ...ctx, surface: "discovery" }), "http");
+				assert.ok(discovery.message.endsWith(`\n${detail}`), discovery.message);
+			});
+
+			test("a key configured as a header value is cut when the proxy echoes its bare token", () => {
+				const err = forbidden("token hdr-token-Q7mNp2xR is not valid");
+				const chat = expectRequestError(mapSdkError(err, ctx), "http");
+				assert.ok(chat.message.endsWith("\n\nDetails: LiteLLM 403: token [redacted] is not valid"), chat.message);
+			});
+
+			test("the 404 wrapper, the stream frame, the cause chain, and the anonymous tail take the same pass", () => {
+				const notFound = APIError.generate(
+					404,
+					{ error: { message: "no route for key sk-fake-Q7mNp2xR" } },
+					undefined,
+					new Headers()
+				);
+				const wrapped = toLanguageModelError(mapSdkError(notFound, ctx));
+				assert.ok(wrapped instanceof LanguageModelError, String(wrapped));
+				assert.ok(wrapped.message.endsWith("\n\nDetails: LiteLLM 404: no route for key [redacted]"), wrapped.message);
+
+				const frame = expectRequestError(
+					mapSdkError(new StreamErrorFrame({ message: "upstream rejected sk-fake-Q7mNp2xR" }), ctx),
+					"http"
+				);
+				assert.ok(
+					frame.message.endsWith("\n\nDetails: LiteLLM stream error: upstream rejected [redacted]"),
+					frame.message
+				);
+
+				const dropped = expectRequestError(
+					mapSdkError(connectionError(new Error("socket closed after sending sk-fake-Q7mNp2xR")), ctx),
+					"network"
+				);
+				assert.ok(dropped.message.includes("socket closed after sending [redacted]"), dropped.message);
+
+				const tail = mapSdkError(new Error("boom with sk-fake-Q7mNp2xR"), ctx);
+				assert.ok(tail instanceof MirroredError, tail.message);
+				assert.ok(tail.message.endsWith("request to http://litellm.test: boom with [redacted]"), tail.message);
+			});
+
+			test("statusErrorTexts cuts a configured value from whatever a feature threw, on both renderings", () => {
+				const texts = statusErrorTexts(new Error("Failed with sk-fake-Q7mNp2xR at https://host.test"), known);
+				assert.strictEqual(texts.error, "Failed with [redacted] at https://host.test");
+				assert.strictEqual(texts.logSafeError, "Failed with [redacted] at https://host.test");
+			});
+
+			test("a value in a numeric envelope code or a thrown error's name is cut too", () => {
+				const digits = new KnownSecrets();
+				digits.set(["123456"]);
+				const numeric = expectRequestError(
+					mapSdkError(new StreamErrorFrame({ message: "rejected", code: 123456 }), { ...ctx, knownSecrets: digits }),
+					"http"
+				);
+				assert.ok(
+					numeric.message.endsWith("\n\nDetails: LiteLLM stream error ([redacted]): rejected"),
+					numeric.message
+				);
+
+				const named = mapSdkError(Object.assign(new Error("boom"), { name: "sk_live_Q7mNp2xR" }), {
+					...ctx,
+					knownSecrets: (() => {
+						const k = new KnownSecrets();
+						k.set(["sk_live_Q7mNp2xR"]);
+						return k;
+					})(),
+				});
+				assert.ok(named.message.includes("Unexpected [redacted] during the chat request"), named.message);
+
+				// The scrub must not turn LiteLLM's absent-marker into a present type: the 403 split keys on presence.
+				const none = new KnownSecrets();
+				none.set(["None"]);
+				const forbiddenNone = APIError.generate(403, { error: { type: "None" } }, undefined, new Headers());
+				const headlineOf = (text: string) => text.split("\n")[0];
+				assert.strictEqual(
+					headlineOf(mapSdkError(forbiddenNone, { ...ctx, knownSecrets: none }).message),
+					headlineOf(mapSdkError(forbiddenNone, ctx).message)
+				);
+			});
+
+			test("URL-span boundary classes: the finder's spans and the exit's rendering, one row per class", () => {
+				// Column two is what urlSpans reads in the input; column three is the exit's rendering, where every URL's
+				// scheme, host, and path stay visible and every configured value elsewhere is cut.
+				const dev = new KnownSecrets();
+				dev.set([
+					"dev",
+					"db8",
+					"proxy.dev",
+					"sk-fake-Q7.",
+					"sk-fake  Q7",
+					"YWJj//Q7mNp2xR",
+					"YWJj/https:Q7mNp2xR",
+					"//Q7mNp2xA==",
+					"sk-fake-Q7mNp2xR",
+					"pw!http:Q7mNp2xR",
+					"?key=Q7mNp2xR",
+					"sk-fake-%09Zz9Aa",
+					"sk/fake+Q7mNp2xR",
+				]);
+				const rows: [kind: string, text: string, spans: string[], shown: string][] = [
+					[
+						"plain",
+						"key dev rejected for https://proxy.dev/v1/devices?key=sk-fake-Q7mNp2xR",
+						["https://proxy.dev/v1/devices?key=sk-fake-Q7mNp2xR"],
+						"key [redacted] rejected for https://proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"userinfo",
+						"key dev at https://u:pw@proxy.dev/v1/devices?key=sk-fake-Q7mNp2xR",
+						["https://u:pw@proxy.dev/v1/devices?key=sk-fake-Q7mNp2xR"],
+						"key [redacted] at https://proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"userinfo with spaces",
+						"at http://user:pass a b c d e@proxy.dev now dev",
+						["http://user:pass a b c d e@proxy.dev"],
+						"at http://proxy.dev now [redacted]",
+					],
+					[
+						"userinfo split by a line break",
+						"Failed https://u:\npw@proxy.dev/v1/devices?key=dev",
+						["https://u:"],
+						"Failed https://proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"glued slashless userinfo",
+						"url=http:user:sk-fake-Q7mNp2xR@proxy.dev/v1/devices?key=dev",
+						["http:user:sk-fake-Q7mNp2xR@proxy.dev/v1/devices?key=dev"],
+						"url=http://proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"query value",
+						"rejected https://proxy.test/v1?key=sk-fake-Q7.",
+						["https://proxy.test/v1?key=sk-fake-Q7."],
+						"rejected https://proxy.test/v1?key=[redacted]",
+					],
+					[
+						"fragment value",
+						"at https://proxy.dev/v1#sk-fake-Q7mNp2xR",
+						["https://proxy.dev/v1#sk-fake-Q7mNp2xR"],
+						"at https://proxy.dev/v1#[redacted]",
+					],
+					[
+						"percent-encoded spelling",
+						"at https://proxy.dev/v1?key=sk%2Ffake%2BQ7mNp2xR",
+						["https://proxy.dev/v1?key=sk%2Ffake%2BQ7mNp2xR"],
+						"at https://proxy.dev/v1?key=[redacted]",
+					],
+					[
+						"host-like value in the query",
+						"at https://proxy.dev/x?ref=proxy.dev",
+						["https://proxy.dev/x?ref=proxy.dev"],
+						"at https://proxy.dev/x?ref=[redacted]",
+					],
+					[
+						"two values meeting at the query mark",
+						"at https://proxy.dev?key=Q7mNp2xR",
+						["https://proxy.dev?key=Q7mNp2xR"],
+						"at https://proxy.dev[redacted]",
+					],
+					[
+						"slashless scheme",
+						"Failed http:proxy.dev/v1/devices?key=dev",
+						["http:proxy.dev/v1/devices?key=dev"],
+						"Failed http:proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"colon-prefixed scheme",
+						"URL:https://proxy.dev/v1/devices?key=dev",
+						["https://proxy.dev/v1/devices?key=dev"],
+						"URL:https://proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"IPv6 host",
+						"Failed https://[2001:db8::1]/v1?k=db8",
+						["https://[2001:db8::1]/v1?k=db8"],
+						"Failed https://[2001:db8::1]/v1?k=[redacted]",
+					],
+					[
+						"IPv6 host before prose closers",
+						"Failed (https://[2001:db8::1]).",
+						["https://[2001:db8::1]"],
+						"Failed (https://[2001:db8::1]).",
+					],
+					[
+						"trailing control after the host",
+						"at https://u:pw@proxy.dev\f",
+						["https://u:pw@proxy.dev"],
+						"at https://proxy.dev\f",
+					],
+					[
+						"tab inside the scheme",
+						"Failed h\tttp:proxy.dev/v1/devices?key=dev",
+						["h\tttp:proxy.dev/v1/devices?key=dev"],
+						"Failed http:proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"tab before the scheme",
+						"Failed \thttps://proxy.dev/v1/devices?key=dev",
+						["https://proxy.dev/v1/devices?key=dev"],
+						"Failed \thttps://proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"tab as the separator",
+						"key\thttp:proxy.dev/v1/devices?key=dev",
+						["http:proxy.dev/v1/devices?key=dev"],
+						"key\thttp:proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"tab inside a query value",
+						"key rejected at https://proxy.dev/v1/devices?key=sk-fake-\tQ7mNp2xR",
+						["https://proxy.dev/v1/devices?key=sk-fake-\tQ7mNp2xR"],
+						"key rejected at https://proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"tab inside a prose value beside a separator tab",
+						"key sk-fake-\tQ7mNp2xR before\thttp:proxy.dev/v1/devices?key=dev",
+						["http:proxy.dev/v1/devices?key=dev"],
+						"key [redacted] before\thttp:proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"a registered spelling carrying a tab",
+						"at https://proxy.test/v1?key=sk-fake-\tZz9Aa",
+						["https://proxy.test/v1?key=sk-fake-\tZz9Aa"],
+						"at https://proxy.test/v1?key=[redacted]",
+					],
+					["value with a run of spaces", "Rejected key sk-fake  Q7 twice", [], "Rejected key [redacted] twice"],
+					["token with a double slash", "key YWJj//Q7mNp2xR rejected", [], "key [redacted] rejected"],
+					["token beginning with a double slash", "key //Q7mNp2xA== rejected", [], "key [redacted] rejected"],
+					["token with a scheme after a slash", "key YWJj/https:Q7mNp2xR rejected", [], "key [redacted] rejected"],
+					[
+						"value straddling a URL start",
+						"key pw!http:Q7mNp2xR rejected",
+						["http:Q7mNp2xR"],
+						"key [redacted] rejected",
+					],
+					[
+						"value straddling a URL start, tab inside",
+						"key pw!h\tttp:Q7mNp2xR rejected",
+						["h\tttp:Q7mNp2xR"],
+						"key [redacted] rejected",
+					],
+					[
+						"two lines, two URLs",
+						"Failed https://user:pass@one.test/v1\nhttps://other:secret@two.test/v1",
+						["https://user:pass@one.test/v1", "https://other:secret@two.test/v1"],
+						"Failed https://one.test/v1\nhttps://two.test/v1",
+					],
+					[
+						"tab inside an IPv6 host with userinfo",
+						"Failed https://user:pass@[::\t1]/v1",
+						["https://user:pass@[::\t1]/v1"],
+						"Failed https://[::1]/v1",
+					],
+					["prose tab", "col1\tcol2 sk-fake-Q7mNp2xR", [], "col1\tcol2 [redacted]"],
+					["no URL", "Headline\nDetail line without a URL", [], "Headline\nDetail line without a URL"],
+				];
+				for (const [kind, text, spans, shown] of rows) {
+					assert.deepStrictEqual(
+						urlSpans(text).map((span) => text.slice(span.from, span.to)),
+						spans,
+						kind
+					);
+					assert.strictEqual(statusErrorTexts(new Error(text), dev).error, shown, kind);
+				}
+				// A value that itself spells a credentialed URL takes the instance's own one-pass rendering: no fragment survives.
+				const spelled = statusErrorTexts(new Error("key pw!http://u:pw@proxy.dev/Q7 rejected"), dev).error;
+				for (const fragment of ["pw!", "u:pw", "Q7", "proxy.dev"]) {
+					assert.ok(!spelled.includes(fragment), spelled);
+				}
+				// The status row renders the chat error a second time, after compaction: a kept URL must still read as one,
+				// whatever whitespace it carried (a tab drops, a nonbreaking space percent-encodes, a trailing control goes).
+				const rendered: [body: string, detail: string][] = [
+					[
+						"key dev at h\tttp:proxy.dev/v1/devices?key=dev",
+						"key [redacted] at http:proxy.dev/v1/devices?key=[redacted]",
+					],
+					[
+						"at https://proxy.dev/v1/devices\u00a0/devices?key=dev",
+						"at https://proxy.dev/v1/devices%C2%A0/devices?key=[redacted]",
+					],
+					["at https://proxy.dev\f", "at https://proxy.dev"],
+					[
+						"key dev rejected for https://u:pw@proxy.dev/v1/devices?key=sk-fake-Q7mNp2xR",
+						"key [redacted] rejected for https://proxy.dev/v1/devices?key=[redacted]",
+					],
+				];
+				for (const [body, detail] of rendered) {
+					const chat = mapSdkError(forbidden(body), { ...ctx, knownSecrets: dev });
+					assert.ok(chat.message.endsWith(`\n\nDetails: LiteLLM 403: ${detail}`), chat.message);
+					assert.ok(
+						statusErrorTexts(chat, dev).error.endsWith(`Details: LiteLLM 403: ${detail}`),
+						statusErrorTexts(chat, dev).error
+					);
+				}
+				const bodyless = bodylessResponseError(
+					"chat",
+					200,
+					"https://u:pw@proxy.dev/v1/devices?key=sk-fake-Q7mNp2xR",
+					dev
+				);
+				assert.ok(bodyless.message.endsWith("(https://proxy.dev/v1/devices?key=[redacted])"), bodyless.message);
+			});
+
+			test("a value spelled with a trailing period is cut from the cause chain before the period is trimmed", () => {
+				const dotted = new KnownSecrets();
+				dotted.set(["sk-secret-Q7."]);
+				const dropped = expectRequestError(
+					mapSdkError(new Error("other side closed after sk-secret-Q7."), { ...ctx, knownSecrets: dotted }),
+					"network"
+				);
+				assert.ok(dropped.message.endsWith("closed mid-response: other side closed after [redacted]"), dropped.message);
 			});
 		});
 
@@ -1065,9 +1459,9 @@ suite("provider/transport/errorMapping", () => {
 			assert.ok(mapped.message.includes("[object Object]"), mapped.message);
 		});
 
-		test("streamErrorFrame renders the envelope fields on a compact detail line and carries no HTTP status", () => {
+		test("a stream error frame renders the envelope fields on a compact detail line and carries no HTTP status", () => {
 			const envelope = { message: "upstream died mid-stream", code: "500" };
-			const err = streamErrorFrame(envelope);
+			const err = frameError(envelope);
 			assert.strictEqual(err.kind, "http");
 			assert.strictEqual(err.status, undefined, "the response was already 200; there is no status to carry");
 			assert.ok(err.message.startsWith("The server reported an error while it was streaming this reply"), err.message);
@@ -1078,7 +1472,7 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("a message-less stream error frame still surfaces its type and code", () => {
-			const err = streamErrorFrame({ type: "rate_limit_error", code: 429 });
+			const err = frameError({ type: "rate_limit_error", code: 429 });
 			// A known class swaps in that class's headline: "trying again may work" would be wrong advice for a rate
 			// limit or a blown budget.
 			assert.ok(err.message.startsWith("The server is handling too many requests"), err.message);
@@ -1087,7 +1481,7 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("an empty stream error frame says the server provided no detail", () => {
-			const err = streamErrorFrame({});
+			const err = frameError({});
 			assert.ok(
 				err.message.endsWith("\n\nDetails: LiteLLM stream error (no detail provided by the server)"),
 				err.message
@@ -1104,11 +1498,15 @@ suite("provider/transport/errorMapping", () => {
 	suite("classification for status surfaces", () => {
 		test("statusErrorTexts carries a RequestError's classification, present fields only", () => {
 			const withHint = statusErrorTexts(
-				new RequestError("guidance", "http", { status: 404, setupHint: "check-base-url", englishMessage: "guidance" })
+				new RequestError("guidance", "http", { status: 404, setupHint: "check-base-url", englishMessage: "guidance" }),
+				noSecrets
 			);
 			assert.deepStrictEqual(withHint.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
 
-			const bare = statusErrorTexts(new RequestError("timed out", "timeout", { englishMessage: "timed out" }));
+			const bare = statusErrorTexts(
+				new RequestError("timed out", "timeout", { englishMessage: "timed out" }),
+				noSecrets
+			);
 			assert.deepStrictEqual(bare.classification, { kind: "timeout" });
 			assert.ok(
 				!("status" in (bare.classification ?? {})) && !("setupHint" in (bare.classification ?? {})),
@@ -1117,7 +1515,7 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("statusErrorTexts omits the classification for a plain Error", () => {
-			const texts = statusErrorTexts(new Error("boom"));
+			const texts = statusErrorTexts(new Error("boom"), noSecrets);
 			assert.strictEqual(texts.error, "boom");
 			assert.ok(!("classification" in texts), "unclassified errors must render exactly today's status shape");
 		});
@@ -1182,7 +1580,7 @@ suite("provider/transport/errorMapping", () => {
 				assert.strictEqual(http.logClassification, `RequestError(http, status ${c.status}${c.token})`);
 				assert.strictEqual(http.englishMessage, http.message, "English fallback: the two renderings coincide");
 
-				const frame = streamErrorFrame(c.envelope);
+				const frame = frameError(c.envelope);
 				assertStartsWith(frame.message, c.headline);
 				assert.strictEqual(frame.status, undefined, "no status may be derived from the envelope");
 				assert.strictEqual(frame.logClassification, `RequestError(http, in-band stream error frame${c.token})`);
@@ -1191,7 +1589,7 @@ suite("provider/transport/errorMapping", () => {
 		}
 
 		test("a mid-stream context-window frame gives the conversation-too-long advice, never the generic retry advice", () => {
-			const frame = streamErrorFrame({
+			const frame = frameError({
 				message: "litellm.ContextWindowExceededError: input is too long",
 				type: "context_window_exceeded",
 			});
@@ -1202,7 +1600,7 @@ suite("provider/transport/errorMapping", () => {
 		test("a statusless frame merely mentioning the context window keeps the generic interrupted-stream headline", () => {
 			// No status vouches for the frame, so a bare mention proves nothing: "trim the conversation" would be wrong
 			// advice for an upstream that died for another reason while talking about its context window.
-			const frame = streamErrorFrame({
+			const frame = frameError({
 				message: "The upstream provider failed while preparing the model's context window",
 			});
 			assertStartsWith(frame.message, "The server reported an error while it was streaming this reply");
@@ -1212,7 +1610,7 @@ suite("provider/transport/errorMapping", () => {
 		test("a statusless frame naming the maximum context length without a limit figure stays generic too", () => {
 			// The signature is the exceedance, not the word "maximum": a message describing the limit without
 			// overrunning it proves nothing.
-			const frame = streamErrorFrame({
+			const frame = frameError({
 				message: "The upstream failed while reading the model's maximum context length",
 			});
 			assertStartsWith(frame.message, "The server reported an error while it was streaming this reply");
@@ -1220,7 +1618,7 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("a statusless frame whose message proves the exceedance classifies without the structured marks", () => {
-			const frame = streamErrorFrame({
+			const frame = frameError({
 				message: "This model's maximum context length is 8192 tokens. However, your messages resulted in 9021 tokens.",
 			});
 			assertStartsWith(frame.message, "The conversation is too long for this model");
@@ -1339,7 +1737,7 @@ suite("provider/transport/errorMapping", () => {
 					}),
 					commitCtx
 				),
-				streamErrorFrame({ message: "upstream died" }),
+				frameError({ message: "upstream died" }),
 			];
 			for (const mapped of cases) {
 				const mirrored = mapped as Error & { englishMessage?: string };

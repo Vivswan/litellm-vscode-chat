@@ -16,6 +16,7 @@ import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/t
 import { HAS_SHOWN_WELCOME_KEY, LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
 import { SETUP_HINT_KINDS, type SetupHintKind } from "../../../shared/errorClassification";
 import { Logger, markLogSafe, recordedError } from "../../../shared/logger";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { DOCS_GETTING_STARTED_URL, GITHUB_REPO_URL, SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
 import { expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
@@ -347,7 +348,12 @@ suite("extension/ui/commands", () => {
 		// Docs deep link. Keyed by SETUP_HINT_KINDS and walked from that registry, so a new hint id without a coverage
 		// row here fails typecheck instead of shipping untested.
 		suite("classified error toasts composed from real transport mappings", () => {
-			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
+			const ctx = {
+				surface: "discovery" as const,
+				baseUrl: "http://litellm.test",
+				timeoutMs: 5000,
+				knownSecrets: new KnownSecrets(),
+			};
 			const causes: Record<SetupHintKind, { label: string; buildError: () => Error }> = {
 				"check-base-url": {
 					label: "a discovery 404",
@@ -388,7 +394,7 @@ suite("extension/ui/commands", () => {
 			function providerLeavingError(statusBar: ReturnType<typeof makeStatusBar>, mapped: Error) {
 				return {
 					provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
-						await statusBar.updateStatusBar({ state: "error", ...statusErrorTexts(mapped) });
+						await statusBar.updateStatusBar({ state: "error", ...statusErrorTexts(mapped, new KnownSecrets()) });
 						return [];
 					},
 					refreshViaHost: async () => {},
@@ -399,7 +405,7 @@ suite("extension/ui/commands", () => {
 				const { label, buildError } = causes[setupHint];
 				test(`${label} keeps the exact transport headline and adds the docs action`, async () => {
 					const mapped = buildError();
-					assert.strictEqual(statusErrorTexts(mapped).classification?.setupHint, setupHint);
+					assert.strictEqual(statusErrorTexts(mapped, new KnownSecrets()).classification?.setupHint, setupHint);
 					const statusBar = makeStatusBar({ state: "not-configured" });
 
 					const toasts = await withToasts(() =>
@@ -696,12 +702,17 @@ suite("extension/ui/commands", () => {
 					surface: "discovery",
 					baseUrl: "http://litellm.test",
 					timeoutMs: 5000,
+					knownSecrets: new KnownSecrets(),
 				}
 			);
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
 				refreshViaHost: async () => {
-					await statusBar.updateStatusBar({ state: "error", ...statusErrorTexts(mapped), totalModels: 0 });
+					await statusBar.updateStatusBar({
+						state: "error",
+						...statusErrorTexts(mapped, new KnownSecrets()),
+						totalModels: 0,
+					});
 				},
 			};
 
@@ -1006,6 +1017,7 @@ suite("extension/ui/commands", () => {
 						surface: "discovery",
 						baseUrl: "http://litellm.test",
 						timeoutMs: 5000,
+						knownSecrets: new KnownSecrets(),
 					})
 				)
 			);

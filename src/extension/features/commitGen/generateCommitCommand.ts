@@ -1,5 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import type { KnownSecretRedaction } from "../../../provider/transport/errorMapping";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { getCommitGenerationPrompt, getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
@@ -21,6 +22,7 @@ export interface GenerateCommitDeps {
 	readonly secrets: vscode.SecretStorage;
 	readonly logger: Logger;
 	readonly outputChannel: vscode.OutputChannel;
+	readonly knownSecrets: KnownSecretRedaction;
 }
 
 /**

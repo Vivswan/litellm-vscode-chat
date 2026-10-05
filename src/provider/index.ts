@@ -37,6 +37,7 @@ import { GroupStatusReporter } from "./catalog/statusReporting";
 import type { ServerModelsSnapshot } from "./catalog/statusWindow";
 import { StatusWindow } from "./catalog/statusWindow";
 import { ChatClient } from "./transport/chatClient";
+import type { KnownSecretRedaction } from "./transport/errorMapping";
 import { toLanguageModelError } from "./transport/errorMapping";
 import type { TransportFetch } from "./transport/nodeHttpFetch";
 
@@ -69,6 +70,7 @@ export function defaultHostRefreshDeadlineMs(log?: (message: string, data?: unkn
 export interface LiteLLMChatModelProviderOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
+	knownSecrets: KnownSecretRedaction;
 	/** Request-time resolver for a declared entry's per-entry modelParameters; see ChatClientOptions. */
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
@@ -179,6 +181,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this._client = new ChatClient({
 			userAgent: options.userAgent,
 			logger: options.logger,
+			knownSecrets: options.knownSecrets,
 			getEntryModelParameters: options.getEntryModelParameters,
 			getEntryHeaders: options.getEntryHeaders,
 			getEntryApiVersion: options.getEntryApiVersion,
@@ -212,6 +215,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			getExpectedFailures: options.getExpectedFailures ?? (() => undefined),
 			getEntryIncludeModes: options.getEntryIncludeModes ?? (() => undefined),
 			isGroupSuppressed: options.isGroupSuppressed ?? (() => false),
+			knownSecrets: options.knownSecrets,
 			log: (message, data) => this.log(message, data),
 			logFailure: (message, data, error) => this.logger?.failure(message, data, error),
 		});

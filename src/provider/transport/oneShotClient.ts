@@ -6,7 +6,7 @@ import { OAuthTokenSource } from "./auth";
 import type { AuthOverlayScope } from "./authOverlay";
 import { applyAuthOverlay, plainFetchBaseHeaders, setOwnedHeader } from "./authOverlay";
 import { chatCompletionsUrl, completionsUrl } from "./clients";
-import type { MapErrorContext, TransportErrorSurface } from "./errorMapping";
+import type { KnownSecretRedaction, MapErrorContext, TransportErrorSurface } from "./errorMapping";
 import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
 import { parseCompletionText } from "./fim";
 import type { TransportFetch } from "./nodeHttpFetch";
@@ -66,6 +66,7 @@ export interface OneShotConnection {
 
 export interface OneShotClientOptions {
 	readonly userAgent: string;
+	readonly knownSecrets: KnownSecretRedaction;
 	/** The HTTP transport; tests inject a fake here. */
 	readonly fetch?: TransportFetch | undefined;
 }
@@ -212,7 +213,12 @@ export class OneShotClient {
 			}
 			throw err instanceof RequestError
 				? err
-				: mapSdkError(err, { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeout.ms });
+				: mapSdkError(err, {
+						surface,
+						baseUrl: connection.baseUrl,
+						timeoutMs: opts.timeout.ms,
+						knownSecrets: this.options.knownSecrets,
+					});
 		} finally {
 			cancelListener.dispose();
 		}
@@ -235,7 +241,12 @@ export class OneShotClient {
 		const cancelListener = opts.token.onCancellationRequested(() => cancelController.abort());
 		const timeoutSignal = AbortSignal.timeout(opts.timeout.ms);
 		const requestSignal = AbortSignal.any([cancelController.signal, timeoutSignal]);
-		const errorContext: MapErrorContext = { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeout.ms };
+		const errorContext: MapErrorContext = {
+			surface,
+			baseUrl: connection.baseUrl,
+			timeoutMs: opts.timeout.ms,
+			knownSecrets: this.options.knownSecrets,
+		};
 		let auth: AuthOverlayScope | undefined;
 
 		try {

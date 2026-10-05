@@ -480,8 +480,12 @@ async function exchangeClientCredentials(
 	}
 	const failure = lastFailure;
 	throw new OAuthExchangeFailure((surface, budget) =>
-		socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
-			timeoutError(config.tokenUrl, budget, failure)
+		socketFailureRequestError(
+			failure,
+			failure,
+			// A socket failure carries no response text, so only the URL cut applies at the token endpoint.
+			{ endpoint: "oauthToken", surface, url: config.tokenUrl, knownSecrets: new KnownSecrets() },
+			() => timeoutError(config.tokenUrl, budget, failure)
 		)
 	);
 }

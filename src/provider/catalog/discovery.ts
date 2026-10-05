@@ -6,11 +6,11 @@ import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
 import type { NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { isNonChatMode } from "../../shared/serverEntry";
-import { displayUrl } from "../../shared/util/displayUrl";
 import { isRecord, recordFromKeys } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
-import { mapSdkError, RequestError, timeoutRequestError } from "../transport/errorMapping";
+import type { KnownSecretRedaction } from "../transport/errorMapping";
+import { mapSdkError, RequestError, timeoutRequestError, userFacingUrl } from "../transport/errorMapping";
 import { retryIdempotent } from "../transport/retry";
 import type { DiscoveryLog } from "./discoveryLog";
 import { discoveryLineWriter, failureKindOf, parseWire } from "./discoveryLog";
@@ -323,6 +323,7 @@ export interface FetchModelsRequest {
 	entryLabel?: string | undefined;
 	/** Per-request headers resolved by the caller, e.g. a freshly exchanged OAuth bearer token. */
 	headers?: Record<string, string>;
+	knownSecrets: KnownSecretRedaction;
 	/** Receives only what discoveryLineWriter lets through. */
 	log: (message: string, data?: unknown) => void;
 }
@@ -335,8 +336,8 @@ function parseFailureText(error: unknown): string {
 	return error instanceof SyntaxError ? "SyntaxError" : "parse error";
 }
 
-function unparseableModelsResponse(endpointUrl: string, cause: unknown): RequestError {
-	const detail = `Unparseable response from ${displayUrl(endpointUrl)}: ${parseFailureText(cause)}`;
+function unparseableModelsResponse(endpointUrl: string, cause: unknown, known: KnownSecretRedaction): RequestError {
+	const detail = `Unparseable response from ${userFacingUrl(endpointUrl, known)}: ${parseFailureText(cause)}`;
 	return new RequestError(
 		`${l10n.t(
 			"The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2; LiteLLM's default port is 4000."
@@ -354,11 +355,11 @@ function unparseableModelsResponse(endpointUrl: string, cause: unknown): Request
 }
 
 /** The content type is never consulted: servers mislabel JSON, so every non-empty body takes this one parse. */
-function parseJsonBody(text: string, endpointUrl: string): unknown {
+function parseJsonBody(text: string, endpointUrl: string, known: KnownSecretRedaction): unknown {
 	try {
 		return JSON.parse(text);
 	} catch (error) {
-		throw unparseableModelsResponse(endpointUrl, error);
+		throw unparseableModelsResponse(endpointUrl, error, known);
 	}
 }
 
@@ -376,6 +377,7 @@ async function getJson(
 		readonly timeoutMs: number;
 		readonly maxRetries: number;
 		readonly headers: FetchModelsRequest["headers"];
+		readonly knownSecrets: KnownSecretRedaction;
 	}
 ): Promise<unknown> {
 	return retryIdempotent(
@@ -394,7 +396,7 @@ async function getJson(
 				throw new APIConnectionError({ cause: readError instanceof Error ? readError : undefined });
 			}
 			// An empty body, a 204 or a bare 200, is an empty listing, not a parse failure.
-			return text === "" ? null : parseJsonBody(text, endpointUrl);
+			return text === "" ? null : parseJsonBody(text, endpointUrl, options.knownSecrets);
 		},
 		{ maxRetries: options.maxRetries, signal: options.signal }
 	);
@@ -448,6 +450,7 @@ interface ModelsFailureContext {
 	baseUrl: string;
 	apiVersion: string | undefined;
 	timeoutMs: number;
+	knownSecrets: KnownSecretRedaction;
 }
 
 /**
@@ -473,7 +476,7 @@ function modelListingUnservedError(mapped: Error, evidence: EndpointFailureEvide
 		namedEntry !== undefined
 			? `The models listing failed, but this server answers. If it never serves the models listing, declare that on the "${namedEntry}" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`
 			: `The models listing failed, but this server answers. If it never serves the models listing, add an entry for it in the "${CONFIG_SECTION}.servers" setting declaring "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`;
-	const detail = `GET ${displayUrl(modelsUrl(ctx.baseUrl, ctx.apiVersion))} ${evidenceText(evidence, ctx.timeoutMs)}; model info ${
+	const detail = `GET ${userFacingUrl(modelsUrl(ctx.baseUrl, ctx.apiVersion), ctx.knownSecrets)} ${evidenceText(evidence, ctx.timeoutMs)}; model info ${
 		ctx.modelInfo.answered ? "answered" : "is declared an expected failure"
 	}`;
 	return new RequestError(`${headline}\n${detail}`, kind, {
@@ -496,7 +499,7 @@ function noEndpointServedError(
 	ctx: ModelsFailureContext
 ) {
 	const { kind: errorKind, status, token } = evidenceKind(evidence);
-	const baseUrl = displayUrl(ctx.baseUrl);
+	const baseUrl = userFacingUrl(ctx.baseUrl, ctx.knownSecrets);
 	// The caller guarantees both evidences share a kind, so the headline must match the detail line right below it,
 	// which names what each GET did.
 	const headline =
@@ -669,7 +672,8 @@ function narrowModelInfoData(
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { client, baseUrl, apiVersion, discoveryTimeout, expected, includeModes, entryLabel, headers } = request;
+	const { client, baseUrl, apiVersion, discoveryTimeout, expected, includeModes, entryLabel, headers, knownSecrets } =
+		request;
 	const log = discoveryLineWriter(request.log);
 
 	log("Fetching models", { endpoint: MODEL_INFO_PATH });
@@ -685,6 +689,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			timeoutMs: discoveryTimeout,
 			maxRetries: expected?.modelInfo === true ? 0 : DISCOVERY_MAX_RETRIES,
 			headers,
+			knownSecrets,
 		});
 		// An unparseable body throws above and proves nothing about endpoint support.
 		modelInfo.answered = true;
@@ -711,7 +716,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// Response-derived text can echo credentials into the issue-report buffer, so the log carries only the
 		// classification. This is discovery's one expected-failure log seam, because a /model/info failure is nonfatal
 		// and never reaches the provider boundary.
-		const mapped = mapSdkError(error, { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout });
+		const mapped = mapSdkError(error, { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout, knownSecrets });
 		// The signal firing IS the timeout evidence even when the mapped error is not classified as one
 		// (AbortSignal.timeout's TimeoutError maps to the unhandled tail).
 		modelInfo.evidence = infoSignal.aborted ? { kind: "timeout" } : unservedEvidenceOf(mapped);
@@ -723,7 +728,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 
 	log("Fetching models", { endpoint: MODELS_PATH });
 	const timeoutSignal = AbortSignal.timeout(discoveryTimeout);
-	const errorContext = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout };
+	const errorContext = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout, knownSecrets };
 	const failureContext: ModelsFailureContext = {
 		modelInfo,
 		expected,
@@ -731,6 +736,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		baseUrl,
 		apiVersion,
 		timeoutMs: discoveryTimeout,
+		knownSecrets,
 	};
 	let parsed: unknown;
 	try {
@@ -739,6 +745,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			timeoutMs: discoveryTimeout,
 			maxRetries: expected?.modelListing === true ? 0 : DISCOVERY_MAX_RETRIES,
 			headers,
+			knownSecrets,
 		});
 	} catch (error) {
 		if (timeoutSignal.aborted) {

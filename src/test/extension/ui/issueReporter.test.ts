@@ -11,6 +11,7 @@ import {
 } from "../../../extension/ui/issueReporter";
 import { mapSdkError, RequestError } from "../../../provider/transport/errorMapping";
 import { recordedError } from "../../../shared/logger";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { GITHUB_REPO_URL } from "../../../shared/util/links";
 import { assertContains, assertOmits, assertStartsWith, expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage } from "../../testUtils";
@@ -193,7 +194,12 @@ suite("IssueReporter", () => {
 			"422 BODY-MARKER-422\n\tat com.example.Foo.bar(Foo.java:1)",
 			new Headers()
 		);
-		const mapped = mapSdkError(sdkError, { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 });
+		const mapped = mapSdkError(sdkError, {
+			surface: "chat",
+			baseUrl: "http://litellm.test",
+			timeoutMs: 5000,
+			knownSecrets: new KnownSecrets(),
+		});
 		reporter.recordError("Chat request failed", recordedError(mapped));
 		const snapshot = makeSnapshot({ latestError: reporter.getLatestError() });
 
@@ -229,6 +235,7 @@ suite("IssueReporter", () => {
 			surface: "discovery",
 			baseUrl: "http://litellm.test",
 			timeoutMs: 5000,
+			knownSecrets: new KnownSecrets(),
 		});
 		reporter.recordError("discovery", recordedError(mapped));
 		assert.deepStrictEqual(expectDefined(reporter.getLatestError()).classification, {

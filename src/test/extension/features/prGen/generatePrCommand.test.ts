@@ -6,6 +6,7 @@ import {
 	type GeneratePrDeps,
 	runGeneratePrDescription,
 } from "../../../../extension/features/prGen/generatePrCommand";
+import { KnownSecrets } from "../../../../shared/util/knownSecrets";
 import { makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
 
@@ -62,6 +63,7 @@ let cancelProgress = false;
 function makeDeps(): GeneratePrDeps {
 	return {
 		logger: makeLogger().logger,
+		knownSecrets: new KnownSecrets(),
 		outputChannel: { show: () => {}, appendLine: () => {} } as unknown as vscode.OutputChannel,
 		copy: (text: string) => {
 			copied = text;

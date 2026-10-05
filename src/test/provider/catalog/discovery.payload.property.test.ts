@@ -18,6 +18,7 @@ import { createServerClient } from "../../../provider/transport/clients";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import type { CostCapabilityField } from "../../../shared/config/capabilityResolution";
 import { consumedFieldsOfKind } from "../../../shared/config/capabilityResolution";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import { normalizeCostPerToken } from "../../../shared/util/numbers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
@@ -232,7 +233,14 @@ suite("provider/discovery fetchModels payload properties", () => {
 			},
 			nodeHttpFetch
 		);
-		return { client, baseUrl: TEST_BASE_URL, apiVersion: undefined, discoveryTimeout: 5000, log: noLog };
+		return {
+			client,
+			baseUrl: TEST_BASE_URL,
+			apiVersion: undefined,
+			discoveryTimeout: 5000,
+			knownSecrets: new KnownSecrets(),
+			log: noLog,
+		};
 	}
 
 	test("no usable unblocked model is ever dropped, and blocked-only payloads yield an empty list", async function () {

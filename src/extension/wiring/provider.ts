@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../provider";
+import type { KnownSecretRedaction } from "../../provider/transport/errorMapping";
 import { CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION, TOKEN_ESTIMATION_SETTING_KEY } from "../../shared/config/settingSpec";
 import { getTokenEstimationMode, isOpenRouterCatalogEnabled } from "../../shared/config/settings";
@@ -47,6 +48,7 @@ export function wireProvider(
 	userAgent: string,
 	deps: {
 		groupRemovals: GroupRemovalStore;
+		knownSecrets: KnownSecretRedaction;
 	}
 ): ProviderWiring {
 	// Created before the provider because the provider's catalog seam reads its lookup; the snapshot loads later, and
@@ -66,6 +68,7 @@ export function wireProvider(
 	const provider = new LiteLLMChatModelProvider({
 		userAgent,
 		logger,
+		knownSecrets: deps.knownSecrets,
 		getEntryModelParameters: readEntryModelParameters,
 		getEntryModelCapabilities: readEntryModelCapabilities,
 		getEntryHeaders: readEntryHeaders,

@@ -1,4 +1,5 @@
 import type * as vscode from "vscode";
+import type { KnownSecretRedaction } from "../../provider/transport/errorMapping";
 import { OneShotClient } from "../../provider/transport/oneShotClient";
 import type { Logger } from "../../shared/logger";
 import type { FeatureProbes } from "../dashboard/intents";
@@ -31,22 +32,36 @@ export function wireFeatures(
 		readonly ua: string;
 		readonly outputChannel: vscode.OutputChannel;
 		readonly getSnapshots: () => readonly SnapshotSource[];
+		readonly knownSecrets: KnownSecretRedaction;
 	}
 ): { readonly featureProbes: FeatureProbes; readonly chatParticipant: ChatParticipantWiring } {
-	const oneShot = new OneShotClient({ userAgent: deps.ua });
+	const oneShot = new OneShotClient({ userAgent: deps.ua, knownSecrets: deps.knownSecrets });
 	const log = (message: string, data?: unknown): void => {
 		logger.log(message, data);
 	};
 	const inline = wireInlineCompletions(context, logger, { oneShot });
-	wireCommitGeneration(context, logger, { oneShot, outputChannel: deps.outputChannel });
+	wireCommitGeneration(context, logger, {
+		oneShot,
+		outputChannel: deps.outputChannel,
+		knownSecrets: deps.knownSecrets,
+	});
 	const consult = wireConsultTool(context, logger, { oneShot });
 	wireMcpServers(context, logger, { oneShot });
-	const prGen = wirePrGeneration(context, logger, { oneShot, outputChannel: deps.outputChannel });
-	const review = wireReviewComments(context, logger, { oneShot, outputChannel: deps.outputChannel });
+	const prGen = wirePrGeneration(context, logger, {
+		oneShot,
+		outputChannel: deps.outputChannel,
+		knownSecrets: deps.knownSecrets,
+	});
+	const review = wireReviewComments(context, logger, {
+		oneShot,
+		outputChannel: deps.outputChannel,
+		knownSecrets: deps.knownSecrets,
+	});
 	const chatParticipant = wireChatParticipant(context, logger, { getSnapshots: deps.getSnapshots });
 	wireQuickFix(context, logger, {
 		oneShot,
 		outputChannel: deps.outputChannel,
+		knownSecrets: deps.knownSecrets,
 		// Read per invocation, never captured: the participant comes and goes with its setting and with what the host
 		// accepted.
 		isParticipantAvailable: () => chatParticipant.isRegistered(),

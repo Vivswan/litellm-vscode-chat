@@ -13,6 +13,7 @@ import { convertMessages } from "../../../shared/conversion/messages";
 import { estimateWireMessagesTokens } from "../../../shared/conversion/tokenEstimation";
 import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { KnownSecrets } from "../../../shared/util/knownSecrets";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,
@@ -1377,7 +1378,7 @@ suite("provider/request contract", () => {
 		}
 
 		test("more tools than the cap rejects with the mirrored tools-cap message", async () => {
-			const client = new ChatClient({ userAgent: "test" });
+			const client = new ChatClient({ userAgent: "test", knownSecrets: new KnownSecrets() });
 			const model = makeModelInfo();
 			const tools = Array.from({ length: 129 }, (_, i) => ({ name: `tool_${i}`, description: "a tool" }));
 			await assert.rejects(
@@ -1398,7 +1399,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("an over-limit prompt rejects with the mirrored token-limit message", async () => {
-			const client = new ChatClient({ userAgent: "test" });
+			const client = new ChatClient({ userAgent: "test", knownSecrets: new KnownSecrets() });
 			const model = makeModelInfo({ maxInputTokens: 10 });
 			await assert.rejects(send(client, model, undefined, [userMessage("x".repeat(4000))]), (e: unknown) => {
 				assert.ok(e instanceof Error);
@@ -1421,7 +1422,7 @@ suite("provider/request contract", () => {
 
 		test("an empty 200 body rejects with the mirrored no-response-body message", async () => {
 			mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => new HttpResponse(null, { status: 200 })));
-			const client = new ChatClient({ userAgent: "test" });
+			const client = new ChatClient({ userAgent: "test", knownSecrets: new KnownSecrets() });
 			const model = makeModelInfo();
 			await expectMirroredRejection(
 				send(client, model),

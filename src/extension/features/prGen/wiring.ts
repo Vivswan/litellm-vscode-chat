@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { KnownSecretRedaction } from "../../../provider/transport/errorMapping";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CMD, prGenerationProviderTitle } from "../../../shared/config/commandIds";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
@@ -275,7 +276,11 @@ export function createGhprRegistrar(deps: {
 export function wirePrGeneration(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	deps: { readonly oneShot: OneShotClient; readonly outputChannel: vscode.OutputChannel }
+	deps: {
+		readonly oneShot: OneShotClient;
+		readonly outputChannel: vscode.OutputChannel;
+		readonly knownSecrets: KnownSecretRedaction;
+	}
 ): { readonly prSend: PrGenerationModelSend } {
 	const log = (message: string, data?: unknown): void => {
 		logger.log(message, data);
@@ -284,7 +289,11 @@ export function wirePrGeneration(
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.generatePrDescription, (commandArg?: unknown) =>
-			runGeneratePrDescription(prSend, { logger, outputChannel: deps.outputChannel }, commandArg)
+			runGeneratePrDescription(
+				prSend,
+				{ logger, outputChannel: deps.outputChannel, knownSecrets: deps.knownSecrets },
+				commandArg
+			)
 		)
 	);
 

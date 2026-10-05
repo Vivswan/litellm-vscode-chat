@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { KnownSecretRedaction } from "../../../provider/transport/errorMapping";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CMD } from "../../../shared/config/commandIds";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
@@ -18,13 +19,17 @@ import { runGenerateCommitMessage, sendCommitPrompt } from "./generateCommitComm
 export function wireCommitGeneration(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	deps: { readonly oneShot: OneShotClient; readonly outputChannel: vscode.OutputChannel }
+	deps: {
+		readonly oneShot: OneShotClient;
+		readonly outputChannel: vscode.OutputChannel;
+		readonly knownSecrets: KnownSecretRedaction;
+	}
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.generateCommitMessage, (commandArg?: unknown) =>
 			runGenerateCommitMessage(
 				deps.oneShot,
-				{ secrets: context.secrets, logger, outputChannel: deps.outputChannel },
+				{ secrets: context.secrets, logger, outputChannel: deps.outputChannel, knownSecrets: deps.knownSecrets },
 				commandArg
 			)
 		)
