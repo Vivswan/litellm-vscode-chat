@@ -9,12 +9,8 @@ import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_UR
 import { DEFAULT_DISCOVERY_PAYLOAD, makeLogger } from "../../pureHelpers";
 import { makeProvider } from "../../testUtils";
 
-/**
- * The unresolved-credentials failure's two log renderings: the classification (status window, issue-report buffer)
- * and the English mirror (output channel).
- */
+/** The unresolved-credentials failure's log rendering, in the status window and the issue report's latest error. */
 const EXPECTED_CLASSIFICATION = "EntryCredentialsUnavailable(secretsUnreadable)";
-const EXPECTED_ENGLISH = "entry credentials unavailable";
 
 /** The host passes the group configuration structurally; stable typings only declare `silent`. */
 function groupOptions(configuration: unknown, silent = true): { silent: boolean } {
@@ -132,10 +128,12 @@ suite("provider credential overlay", () => {
 			assert.strictEqual(classifyOverall(statuses), "error", `${name}: the window is not connected`);
 			assert.strictEqual(
 				lines.filter(
-					(line) => line.includes("Failed to fetch models for provider group") && line.includes(EXPECTED_ENGLISH)
+					(line) =>
+						line.startsWith("ERROR: Model discovery failed for provider group") &&
+						line.includes('"kind": "unclassified"')
 				).length,
 				2,
-				`${name}: the facade logs each failed serve once, with the English mirror on the channel`
+				`${name}: the facade logs each failed serve once, at error level, with no transport kind to name`
 			);
 		}
 	});

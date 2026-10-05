@@ -525,17 +525,17 @@ function wrongMasterKeySuite(): void {
 			const logs = await sessionLogLines();
 			// Pinned from observation: the pinned stack (LiteLLM in its database flavor) rejects an unknown master key
 			// with an HTTP 401 (seen on both /v1/model/info and /v1/models on v1.93; the 401 classification this
-			// asserts holds on v1.99.1 too), so the refresh failure logs the AUTH_MESSAGE template (englishMessage; the
-			// buffer is English-only). The DB-LESS v1.93 proxy answered 400 instead (a BadRequestError wrapping an
-			// auth_error body); if a stack change resurfaces that shape, repin this to the "RequestError(http, status
-			// 400)" classification.
+			// asserts holds on v1.99.1 too), so the refresh failure logs the auth kind with status 401. The DB-LESS
+			// v1.93 proxy answered 400 instead (a BadRequestError wrapping an auth_error body); if a stack change
+			// resurfaces that shape, repin this to kind "http" with status 400.
 			assert.ok(
 				logs.some(
 					(line) =>
-						line.includes("Failed to fetch models for provider group") &&
-						line.includes("Authentication failed: Your LiteLLM server requires an API key")
+						line.includes("Model discovery failed for provider group") &&
+						line.includes('"kind": "auth"') &&
+						line.includes('"status": 401')
 				),
-				"the gate's 401 must land in the buffer as the English auth template"
+				"the gate's 401 must land in the buffer as the auth classification"
 			);
 			for (const line of logs) {
 				assert.ok(!line.includes(WRONG_MASTER_KEY), "the buffer leaked the rejected key");

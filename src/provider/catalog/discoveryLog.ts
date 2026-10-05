@@ -53,6 +53,12 @@ interface DiscoveryLogLines {
 	"model/info returned data but no usable models; falling back": { dataLength: number };
 	"model/info response has no data array; falling back": { rejection: Classification };
 	"model/info failed; falling back to the models listing": { expected: boolean; kind: FailureKind; status?: number };
+	"Model discovery failed for provider group": {
+		expected: boolean;
+		silent: boolean;
+		kind: FailureKind;
+		status?: number;
+	};
 }
 
 type DiscoveryLogMessage = keyof DiscoveryLogLines;
@@ -101,6 +107,12 @@ const LINE_SHAPES: {
 		kind: "failureKind",
 		status: "number",
 	},
+	"Model discovery failed for provider group": {
+		expected: "boolean",
+		silent: "boolean",
+		kind: "failureKind",
+		status: "number",
+	},
 };
 
 /** The one path from a discovery line to the host's logger. */
@@ -138,7 +150,7 @@ export function parseWire<T extends z.ZodType>(schema: T, value: unknown): WireP
 }
 
 /**
- * What a model/info failure may say about itself: its transport kind and status, and only when it is this
+ * What a discovery failure may say about itself: its transport kind and status, and only when it is this
  * repository's own error class, because a `kind` or `logClassification` read off an arbitrary throw is text the
  * thrower chose. Anything else is unclassified.
  */
