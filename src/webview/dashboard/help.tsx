@@ -1,7 +1,6 @@
 /**
- * The dashboard's "?" help affordance. Native title tooltips do not reliably render inside
- * VS Code's webview host and never show on keyboard focus, so the ui/tip.tsx primitive
- * renders the tip, wired to the trigger button as its accessible description.
+ * Native title tooltips do not reliably render inside VS Code's webview host and never show on keyboard focus, so the
+ * ui/tip.tsx primitive renders the tip, wired to the trigger button as its accessible description.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -12,9 +11,9 @@ import { cn } from "./ui/cn";
 import { TipBubble, useTip } from "./ui/tip";
 
 /**
- * A "learn more" docs anchor. The href type admits only the docsLinks constants, so no call
- * site can pass a built string; the webview host opens plain anchors externally. The icon-only
- * form is marked so dashboard.css can seat it with the "?" glyph's rule (beside .help-wrap).
+ * The href type admits only the docsLinks constants, so no call site can pass a built string; the webview host opens
+ * plain anchors externally. The icon-only form is marked so dashboard.css can seat it with the "?" glyph's rule
+ * (beside .help-wrap).
  */
 export function DocsLink({ href, label, children }: { href: DocsUrl; label: string; children?: ReactNode }) {
 	return (
@@ -26,9 +25,9 @@ export function DocsLink({ href, label, children }: { href: DocsUrl; label: stri
 }
 
 /**
- * Glues a trailing atomic inline (the "?" glyph, an icon-only link) to the word before it.
- * The NBSP rides INSIDE the nowrap span because Chrome breaks before an atomic inline even
- * directly after a no-break space, orphaning the glyph alone on the next line.
+ * Glues a trailing atomic inline (the "?" glyph, an icon-only link) to the word before it. The NBSP rides INSIDE the
+ * nowrap span because Chrome breaks before an atomic inline even directly after a no-break space, orphaning the glyph
+ * alone on the next line.
  */
 export function NoBreakTail({ children }: { children: ReactNode }) {
 	return (
@@ -39,14 +38,9 @@ export function NoBreakTail({ children }: { children: ReactNode }) {
 	);
 }
 
-/**
- * A tip over non-interactive inline content. The wrapper joins the Tab order and names the
- * tip as its accessible description, so keyboards and assistive tech reach what hover shows.
- */
 export function HoverTip({ tip, children }: { tip: string; children: ReactNode }) {
 	const bubble = useTip("above");
 	return (
-		// The tip text renders nowhere else, so this tab stop is the keyboard's only route to it.
 		// biome-ignore lint/a11y/noNoninteractiveTabindex: the keyboard's only route to the tip
 		<span className="tip-wrap" tabIndex={0} aria-describedby={bubble.id} {...bubble.triggerProps}>
 			{children}

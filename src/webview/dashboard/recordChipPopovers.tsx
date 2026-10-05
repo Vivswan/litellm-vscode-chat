@@ -1,7 +1,3 @@
-/**
- * A record row's chips: the inherits summary, the chip-row layout and its field
- * addresses, and the field and add-field popovers a chip opens.
- */
 import * as l10n from "@vscode/l10n";
 import { cva } from "class-variance-authority";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -72,12 +68,11 @@ export function openFieldAddress(
 	return undefined;
 }
 
-/** The inherits column's cell chrome, one spelling for every branch below. */
 const INHERIT_CELL = "inherit-cell shrink-0 text-[11px] text-muted-foreground";
 
 /**
- * A row's short reading of its `_inherit_from` state; nothing where the group takes the
- * default - the mark appears exactly where a choice was made.
+ * A row's short reading of its `_inherit_from` state; nothing where the group takes the default - the mark appears
+ * exactly where a choice was made.
  */
 export function InheritsSummary({ kind, group }: { kind: RecordEditorKind; group: PrefixGroup }) {
 	const choice = inheritFromChoice(kind, group);
@@ -100,11 +95,8 @@ export function InheritsSummary({ kind, group }: { kind: RecordEditorKind; group
 }
 
 /**
- * The row indices a group renders as chips: everything except directive rows the table's
- * own surfaces fully represent (directiveRowAbsorbed; a directive the controls cannot
- * fully show keeps a raw chip). A row the open popover edits stays pinned, so absorption
- * can never unmount the popover mid-keystroke. Omission hides no problem: absorbed
- * implies valid, so every problem row has a chip to carry its mark.
+ * A row the open popover edits stays pinned, so absorption can never unmount the popover mid-keystroke. Omission hides
+ * no problem: absorbed implies valid, so every problem row has a chip to carry its mark.
  */
 export function chipRowIndices(
 	kind: RecordEditorKind,
@@ -128,18 +120,16 @@ export function chipRowIndices(
 }
 
 /**
- * A never-persisted simulation row (the add popover's candidate, the parse
- * probes): the fixed id is safe because probe rows are appended to a COPY of
- * the group for one computation and never rendered or stored.
+ * A never-persisted simulation row (the add popover's candidate, the parse probes): the fixed id is safe because probe
+ * rows are appended to a COPY of the group for one computation and never rendered or stored.
  */
 function probeRow(key: string, valueText: string): ParamRow {
 	return { id: "probe", key, valueText };
 }
 
 /**
- * The add popover's live verdict on its candidate row: append it to the
- * group and read the same parse that will judge it after the commit, so the
- * popover can never accept a row the editor then flags as blocking.
+ * The add popover's live verdict on its candidate row: append it to the group and read the same parse that will judge
+ * it after the commit, so the popover can never accept a row the editor then flags as blocking.
  */
 function candidateProblem(
 	kind: RecordEditorKind,
@@ -162,23 +152,19 @@ function candidateProblem(
 const POPOVER_GAP_PX = 4;
 
 /**
- * The field chip's states as one variant table (ui/button.tsx's idiom), so the
- * precedence between them is declaration order rather than call-site prose:
- * cn resolves conflicts last-wins, and `mark` is declared after `open` because
- * reversed, the open chip's border-border swallowed the invalid border. No
- * forced-colors border suppression, deliberately: a FILLED chip's fill is
- * exactly what forced colours flatten into the page, so the repainted
- * transparent border is the only thing keeping "two chips" from reading as one
- * run of words.
+ * The field chip's states as one variant table (ui/button.tsx's idiom), so the precedence between them is declaration
+ * order rather than call-site prose: cn resolves conflicts last-wins, and `mark` is declared after `open` because
+ * reversed, the open chip's border-border swallowed the invalid border. No forced-colors border suppression,
+ * deliberately: a FILLED chip's fill is exactly what forced colours flatten into the page, so the repainted
+ * transparent border is the only thing keeping "two chips" from reading as one run of words.
  */
 export const chipVariants = cva(
 	"chip-field inline-flex flex-wrap items-baseline gap-1.5 rounded-(--radius-chip) border border-transparent bg-chip px-1 font-mono text-[12px] text-muted-foreground",
 	{
 		variants: {
-			// Filled at rest - the frame makes these a bounded region and the fill
-			// is what says "these are the fields"; the hairline and the input fill
-			// still arrive with the pointer or with focus, which is the moment the
-			// row has to prove it is editable.
+			// Filled at rest - the frame makes these a bounded region and the fill is what says "these are the fields";
+			// the hairline and the input fill still arrive with the pointer or with focus, which is the moment the row
+			// has to prove it is editable.
 			editable: {
 				true: [
 					"cursor-pointer group-hover/row:border-border group-hover/row:bg-input-background",
@@ -196,15 +182,12 @@ export const chipVariants = cva(
 				true: "border-border bg-input-background text-foreground",
 				false: "",
 			},
-			// One mark at a time, worst first (a row may carry a problem AND a
-			// hint; the problem wins this variant's shape). The mark restates the row's
-			// hover/focus-within reveal variants - separate merge groups the plain
-			// utility cannot beat, which repainted the mark grey when the pointer
-			// arrived. The border IS the whole mark - the child spans re-colour
-			// every glyph, so no text tint would paint. Invalid takes the fill
-			// tier, not --input-invalid: a 1px hairline is a graphical mark needing
-			// 3:1, and the host's validation border measures 1.33:1 on the dark
-			// chip fill.
+			// The mark restates the row's hover/focus-within reveal variants - separate merge groups the plain utility
+			// cannot beat, which repainted the mark grey when the pointer arrived. Invalid takes the fill tier, not
+			// --input-invalid: a 1px hairline is a graphical mark needing 3:1, and the host's validation border
+			// measures 1.33:1 on the dark chip fill.
+			//
+			//   the child spans re-colour every glyph, so no text tint would paint -> The border IS the whole mark
 			mark: {
 				none: "",
 				hint: "hinted border-warn group-hover/row:border-warn group-focus-within/row:border-warn",
@@ -215,10 +198,7 @@ export const chipVariants = cva(
 );
 
 /**
- * The chip popovers' shared shell: anchored under its chip, focus moved in on open and
- * returned on close, Escape and outside presses closing. Escape stops propagating so a
- * popover inside an overlay closes only itself; it flips above rather than hang past
- * the viewport's bottom edge.
+ *   Escape stops propagating -> a popover inside an overlay closes only itself
  */
 function PopoverShell({
 	label,
@@ -235,9 +215,8 @@ function PopoverShell({
 	const ref = useRef<HTMLDivElement>(null);
 	const closeRef = useRef(onClose);
 	closeRef.current = onClose;
-	// Flip decided by measurement (ui/popoverFlip.ts), not at click time: the height is
-	// unknown until render, and both it and the room under it change while open - a
-	// popover that opened on-screen can end up over the edge.
+	// Flip decided by measurement (ui/popoverFlip.ts), not at click time: the height is unknown until render, and both
+	// it and the room under it change while open - a popover that opened on-screen can end up over the edge.
 	const [above, setAbove] = useState(false);
 	useLayoutEffect(() => {
 		const popover = ref.current;
@@ -248,16 +227,14 @@ function PopoverShell({
 	}, []);
 	useEffect(() => {
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-		// Captured now for the close path: Remove field deletes the opening
-		// chip, and focus must land on a neighbor (the row's [+] chip) instead
-		// of falling back to the document.
+		// Captured now for the close path: Remove field deletes the opening chip, and focus must land on a neighbor
+		// (the row's [+] chip) instead of falling back to the document.
 		const chipList = opener?.closest(".chip-list") ?? undefined;
 		const first = ref.current?.querySelector<HTMLElement>("input, select, textarea, button");
 		first?.focus();
 		const onPress = (event: MouseEvent) => {
-			// Containment is checked against the chip anchor (the popover's
-			// parent), not the popover alone: a press on the open chip itself is
-			// the chip's own toggle, and closing here first would reopen it.
+			// Containment is checked against the chip anchor (the popover's parent), not the popover alone: a press on
+			// the open chip itself is the chip's own toggle, and closing here first would reopen it.
 			const anchor = ref.current?.parentElement;
 			if (anchor !== null && anchor !== undefined && event.target instanceof Node && !anchor.contains(event.target)) {
 				closeRef.current();
@@ -266,15 +243,11 @@ function PopoverShell({
 		document.addEventListener("mousedown", onPress);
 		return () => {
 			document.removeEventListener("mousedown", onPress);
-			// Deferred past the commit that unmounted the popover: Remove field
-			// deletes the opening chip in the SAME commit, and a synchronous
-			// restore would land on it a beat before its removal drops focus to
-			// the body.
+			// Deferred past the commit that unmounted the popover: Remove field deletes the opening chip in the SAME
+			// commit, and a synchronous restore would land on it a beat before its removal drops focus to the body.
 			setTimeout(() => {
-				// Something else already owns focus (say, the popover a click on
-				// ANOTHER chip opened): restoring now would steal it. Only a
-				// focus that fell to the body - the closed popover's input going
-				// away - is ours to restore.
+				// Something else already owns focus (say, the popover a click on ANOTHER chip opened): restoring now
+				// would steal it.
 				const active = document.activeElement;
 				if (active instanceof HTMLElement && active !== document.body && active.isConnected) {
 					return;
@@ -308,12 +281,6 @@ function PopoverShell({
 	);
 }
 
-/**
- * The small anchored editor behind a field chip; edits write straight into the draft
- * (the owner's Apply/Save remains the only write path). Addressed by the row's KEY, so
- * a flag toggle that inserts or removes a directive row can never shift it onto
- * another field.
- */
 export function FieldChipPopover({
 	kind,
 	groups,
@@ -337,15 +304,12 @@ export function FieldChipPopover({
 }) {
 	const group = groups[groupIndex];
 	const row = group?.params[rowIndex];
-	// The status slot's id, so the value input can point at the verdict
-	// (aria-describedby): the slot renders after the actions for layout, and
-	// the association keeps DOM order irrelevant to assistive tech.
+	// The status slot's id, so the value input can point at the verdict (aria-describedby): the slot renders after the
+	// actions for layout, and the association keeps DOM order irrelevant to assistive tech.
 	const statusId = useId();
 	if (group === undefined || row === undefined) {
 		return null;
 	}
-	// The key in the resolver's reading: trimmed for capability records,
-	// verbatim for parameters records (a padded key is its own live field).
 	const key = resolvedFieldName(kind, row.key);
 	const patchValue = (valueText: string) =>
 		onChange(
@@ -362,8 +326,8 @@ export function FieldChipPopover({
 	const valueKind = kind === "caps" ? capabilityControlKind(key, row.valueText) : "json";
 	const numberProps = valueKind === "number" || valueKind === "cost" ? numberInputProps(valueKind) : undefined;
 	const valueInvalid = issue?.problem?.field === "value";
-	// Enter closes the popover once the value is typed - the draft already
-	// holds every keystroke, so there is nothing else to commit here.
+	// Enter closes the popover once the value is typed - the draft already holds every keystroke, so there is nothing
+	// else to commit here.
 	const onValueKeyDown = (event: KeyboardEvent) => {
 		if (event.key === "Enter") {
 			onClose();
@@ -458,9 +422,9 @@ export function FieldChipPopover({
 					/>
 				</div>
 			) : null}
-			{/* The one status line, in reserved space AFTER the actions: the verdict re-renders per
-			    keystroke and must not move Remove field under the pointer (the charter's transients
-			    clause). Worst first, one message at a time (chip-popover-status is one line). */}
+			{/* The one status line, in reserved space AFTER the actions: the verdict re-renders per keystroke and must
+			    not move Remove field under the pointer (the charter's transients clause). Worst first, one message at a
+			    time (chip-popover-status is one line). */}
 			<div className="chip-popover-actions">
 				<Button variant="danger" size="compact" disabled={disabled} onClick={removeRow}>
 					<IconTrash /> {l10n.t("Remove field")}
@@ -478,9 +442,8 @@ export function FieldChipPopover({
 }
 
 /**
- * The [+] chip's popover: a complete field assembled locally and landed as ONE commit,
- * so half-typed rows never leak into the table. The target parser runs over the
- * candidate per keystroke - the popover cannot accept what the editor would block.
+ * The [+] chip's popover: a complete field assembled locally and landed as ONE commit, so half-typed rows never leak
+ * into the table.
  */
 export function AddFieldPopover({
 	kind,
@@ -503,19 +466,16 @@ export function AddFieldPopover({
 }) {
 	const [key, setKey] = useState("");
 	const [valueText, setValueText] = useState("");
-	// The user's explicit flag choices only; unset means "whatever the group's
-	// directive rows already say about this key" (a literal `_force: true`
-	// covers the new field the moment it lands, and the box must show that).
+	// The user's explicit flag choices only; unset means "whatever the group's directive rows already say about this
+	// key" (a literal `_force: true` covers the new field the moment it lands, and the box must show that).
 	const [flagOverrides, setFlagOverrides] = useState<Partial<Record<FieldDirective, boolean>>>({});
-	// The status slot's id, the edit popover's aria-describedby rule.
 	const statusId = useId();
 	const group = groups[groupIndex];
 	if (group === undefined) {
 		return null;
 	}
-	// ONE reading of the typed key - the resolver's - shared by the validation
-	// probe, the flag simulation, and the commit, so the popover can never
-	// judge one row and land another: for a parameters record the key commits
+	// ONE reading of the typed key - the resolver's - shared by the validation probe, the flag simulation, and the
+	// commit, so the popover can never judge one row and land another: for a parameters record the key commits
 	// verbatim (a padded " _fallback" stays the live field the probe judged).
 	const name = resolvedFieldName(kind, key);
 	const problem =
@@ -525,8 +485,6 @@ export function AddFieldPopover({
 	const numberProps = valueKind === "number" || valueKind === "cost" ? numberInputProps(valueKind) : undefined;
 	const setKeyAndSeed = (nextKey: string) => {
 		setKey(nextKey);
-		// A key switched onto a support flag means "turn it on" (the row grid's
-		// seeding rule, so the checkbox and the parse agree without a click).
 		if (
 			kind === "caps" &&
 			capabilityValueKind(resolvedFieldName(kind, nextKey)) === "boolean" &&
@@ -535,9 +493,8 @@ export function AddFieldPopover({
 			setValueText("true");
 		}
 	};
-	// What the group's directive rows would already mark on the candidate once
-	// its row lands (simulated with a probe row appended, so a literal true's
-	// expansion sees the new key; the commit mints the real row).
+	// What the group's directive rows would already mark on the candidate once its row lands (simulated with a probe
+	// row appended, so a literal true's expansion sees the new key; the commit mints the real row).
 	const withCandidate: PrefixGroup = { ...group, params: [...group.params, probeRow(name, valueText)] };
 	const impliedFlag = (flag: FieldDirective): boolean => directiveMarkedFields(kind, withCandidate, flag).has(name);
 	const flagChecked = (flag: FieldDirective): boolean => flagOverrides[flag] ?? impliedFlag(flag);
@@ -548,9 +505,8 @@ export function AddFieldPopover({
 			return;
 		}
 		let next: PrefixGroup = { ...group, params: [...group.params, newParamRow(name, valueText)] };
-		// Only explicit choices touch the directive rows, and only when they
-		// change what the rows already say: an untouched box over a literal
-		// `true` must never explode it into a list.
+		// Only explicit choices touch the directive rows, and only when they change what the rows already say: an
+		// untouched box over a literal `true` must never explode it into a list.
 		for (const flag of [FORCE_DIRECTIVE, FALLBACK_DIRECTIVE, INHERITABLE_DIRECTIVE] as const) {
 			const desired = flagOverrides[flag];
 			if (desired === undefined || !directiveEligible(flag, name)) {
@@ -653,9 +609,8 @@ export function AddFieldPopover({
 					<Help text={helpInheritableFlag()} />
 				</div>
 			) : null}
-			{/* The edit popover's reserved status line, in the same after-the-actions
-			    slot: the candidate verdict also re-renders per keystroke, and Add
-			    field must not walk away from the pointer while the row is typed. */}
+			{/* The edit popover's reserved status line, in the same after-the-actions slot: the candidate verdict also
+			    re-renders per keystroke, and Add field must not walk away from the pointer while the row is typed. */}
 			<div className="chip-popover-actions">
 				<Button disabled={disabled || !canAdd} onClick={commit}>
 					<IconAdd /> {l10n.t("Add field")}
@@ -669,10 +624,9 @@ export function AddFieldPopover({
 }
 
 /**
- * The open chip popover, addressed by the group's MATCHER KEY and the row's FIELD KEY,
- * never by index - a push or flag toggle may reorder the arrays under it. Keys compare
- * RAW (the resolver's grammar trims nothing, and trimmed identity would transfer
- * between "gpt-4" and "gpt-4 "); ordinals disambiguate exact duplicates.
+ * The open chip popover, addressed by the group's MATCHER KEY and the row's FIELD KEY, never by index - a push or flag
+ * toggle may reorder the arrays under it. Keys compare RAW (the resolver's grammar trims nothing, and trimmed identity
+ * would transfer between "gpt-4" and "gpt-4 "); ordinals disambiguate exact duplicates.
  */
 export type ChipPopoverTarget =
 	| {

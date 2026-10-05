@@ -2,10 +2,10 @@ import type { ComponentProps } from "react";
 import { cn } from "./cn";
 
 /**
- * A native checkbox with the theme's accent: geometry and checkmark stay the
- * platform widget's, the fill color follows the host theme. Label wiring stays
- * at the call site (the forms wrap their checkboxes in labels). The UA-margin
- * reset lives in theme.css's base layer with the other preflight-lite rules.
+ * A native checkbox with the theme's accent: geometry and checkmark stay the platform widget's, the fill color follows
+ * the host theme. The UA-margin reset lives in theme.css's base layer with the other preflight-lite rules.
+ *
+ *   the forms wrap their checkboxes in labels -> Label wiring stays at the call site
  */
 export function Checkbox({ className, ...props }: Omit<ComponentProps<"input">, "type">) {
 	return (

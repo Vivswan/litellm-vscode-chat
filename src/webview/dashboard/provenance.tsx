@@ -1,10 +1,8 @@
 /**
- * THE provenance vocabulary: every resolution level and layer maps to its words here, in
- * two registers - the inspectors' badge-plus-mark, and the diagnostics table's compact
- * phrase, derived from the badge register so the two panels cannot drift. Badges are
- * deliberately colorless - provenance is not severity, and painting the source column in
- * the trouble palette would teach the reader to read calm configuration as a problem.
- * Marks use the SAME directive words the record editors write.
+ * THE provenance vocabulary: every resolution level and layer maps to its words here, in two registers - the
+ * inspectors' badge-plus-mark, and the diagnostics table's compact phrase, derived from the badge register so the two
+ * panels cannot drift. Badges are deliberately colorless - provenance is not severity, and painting the source column
+ * in the trouble palette would teach the reader to read calm configuration as a problem.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -14,8 +12,8 @@ import { OPENROUTER_MODEL_DIRECTIVE } from "../../shared/config/recordResolution
 import { HoverTip } from "./help";
 
 /**
- * One provenance badge's content: the scope word, the record key or catalog id, and -
- * for scopes a reader cannot infer from the word - the sentence behind a focusable tip.
+ * One provenance badge's content: the scope word, the record key or catalog id, and - for scopes a reader cannot infer
+ * from the word - the sentence behind a focusable tip.
  */
 export interface ProvenanceView {
 	readonly scope: string;
@@ -24,9 +22,8 @@ export interface ProvenanceView {
 }
 
 /**
- * An approximate rendered width in ch: code points beyond Latin-1 count double, erring
- * toward MORE tips - clipped text with no tip is unreachable without a pointer. Shared
- * by the badge and the value cells, which clip the same way.
+ * An approximate rendered width in ch: code points beyond Latin-1 count double, erring toward MORE tips - clipped text
+ * with no tip is unreachable without a pointer.
  */
 export function approxWidthCh(text: string): number {
 	let width = 0;
@@ -37,9 +34,8 @@ export function approxWidthCh(text: string): number {
 }
 
 /**
- * Where the badge's own ellipsis can start biting: the width of the longest badge the
- * panel renders unclipped, because a tip repeating on-screen text is a Tab stop bought
- * for nothing.
+ * Where the badge's own ellipsis can start biting: the width of the longest badge the panel renders unclipped, because
+ * a tip repeating on-screen text is a Tab stop bought for nothing.
  */
 const BADGE_CLIP_CH = 36;
 
@@ -51,13 +47,10 @@ export interface MarkView {
 	readonly mono?: boolean | undefined;
 }
 
-/**
- * The scope words, resolved at call time. Badge text: short and lower case, read as one
- * token beside the value it explains.
- */
+/** Badge text: short and lower case, read as one token beside the value it explains. */
 export function settingsScope(): string {
-	// Bare t(), like the server form's own "settings": one message is one key,
-	// and l10n:check fails the build if the same word is minted twice.
+	// Bare t(), like the server form's own "settings": one message is one key, and l10n:check fails the build if the
+	// same word is minted twice.
 	return l10n.t("settings");
 }
 
@@ -73,10 +66,9 @@ function serverScope(): string {
 }
 
 /**
- * The force and fallback marks: the SAME directive words the record editors' chips write.
- * The t() forms below are therefore identical to the editors', comment included: a
- * message minted under two keys is a build failure (l10n:check), and translators must
- * not be asked to translate the same word twice.
+ * The force and fallback marks: the SAME directive words the record editors' chips write. The t() forms below are
+ * therefore identical to the editors', comment included: a message minted under two keys is a build failure
+ * (l10n:check), and translators must not be asked to translate the same word twice.
  */
 export function forceWord(): string {
 	return l10n.t({
@@ -92,7 +84,6 @@ export function fallbackWord(): string {
 	});
 }
 
-/** The inherited mark's word; the winning record that inherited the value renders beside it, in the monospace register. */
 function inheritedWord(): string {
 	return l10n.t({
 		message: "inherited by",
@@ -108,7 +99,6 @@ export function inheritableWord(): string {
 	});
 }
 
-/** The parameter layers as a badge: the scope that set the value plus its winning record key. */
 export function parameterProvenance(source: {
 	readonly layer: "entry" | "global";
 	readonly key: string;
@@ -117,9 +107,8 @@ export function parameterProvenance(source: {
 }
 
 /**
- * The capability walk's levels as a badge plus, where a directive did the work, its
- * mark: a `_fallback` fill is a record wearing a directive, not a level of its own, so
- * the badge names the source and the mark names the directive.
+ * The capability walk's levels as a badge plus, where a directive did the work, its mark: a `_fallback` fill is a
+ * record wearing a directive, not a level of its own, so the badge names the source and the mark names the directive.
  */
 export function capabilityProvenance(
 	level: CapabilityLevel,
@@ -130,18 +119,17 @@ export function capabilityProvenance(
 			return { source: { scope: entryScope(), recordKey: key } };
 		case "global":
 			return { source: { scope: settingsScope(), recordKey: key } };
-		// The one mark that INVERTS the badge: an ordinary entry or settings
-		// record beats the server's report, a `_fallback` fill loses to it. The
-		// word cannot carry that, so the sentence rides its tip.
+		// The one mark that INVERTS the badge: an ordinary entry or settings record beats the server's report, a
+		// `_fallback` fill loses to it. The word cannot carry that, so the sentence rides its tip.
 		case "entry-fallback":
 			return { source: { scope: entryScope(), recordKey: key }, mark: fallbackMark() };
 		case "global-fallback":
 			return { source: { scope: settingsScope(), recordKey: key }, mark: fallbackMark() };
 		case "server":
 			return { source: { scope: serverScope() } };
-		// The two catalog marks say exactly how the level was chosen, so neither carries a tip:
-		// a tip here would be one Tab stop per row repeating identical text, and every field of
-		// a server that reports nothing can land on these levels at once.
+		// The two catalog marks say exactly how the level was chosen, so neither carries a tip: a tip here would be one
+		// Tab stop per row repeating identical text, and every field of a server that reports nothing can land on these
+		// levels at once.
 		case "directive":
 			return {
 				source: { scope: "OpenRouter", recordKey: key },
@@ -174,7 +162,6 @@ export function capabilityProvenance(
 	}
 }
 
-/** The `_fallback` mark and the precedence rule the word alone cannot state. */
 function fallbackMark(): MarkView {
 	return {
 		word: fallbackWord(),
@@ -185,16 +172,14 @@ function fallbackMark(): MarkView {
 }
 
 /**
- * One mark of a cell's provenance run: the word (with its rule one tip away)
- * and, for the inherited mark, the record key it points at - data beside the
- * word, never inside the tip.
+ * One mark of a cell's provenance run: the word (with its rule one tip away) and, for the inherited mark, the record
+ * key it points at - data beside the word, never inside the tip.
  */
 export interface CellMark {
 	readonly mark: MarkView;
 	readonly operand?: string | undefined;
 }
 
-/** The `_force` mark and the precedence rule the word alone cannot state. */
 function forcedCellMark(): CellMark {
 	return {
 		mark: {
@@ -205,16 +190,14 @@ function forcedCellMark(): CellMark {
 }
 
 /**
- * The inherited mark: names the layer's winning record, which pulled the value
- * from the badge's record instead of writing it. No tip - like the catalog
- * marks, the word and the key state the whole fact, and a tip would buy a Tab
+ * The inherited mark: names the layer's winning record, which pulled the value from the badge's record instead of
+ * writing it. No tip - like the catalog marks, the word and the key state the whole fact, and a tip would buy a Tab
  * stop per inherited row for text the row already shows.
  */
 function inheritedCellMark(inheritedBy: string): CellMark {
 	return { mark: { word: inheritedWord() }, operand: inheritedBy };
 }
 
-/** A parameter cell's provenance-bearing fields, as both registers read them. */
 export interface ParameterCellProvenance {
 	readonly layer: "entry" | "global";
 	readonly key: string;
@@ -222,7 +205,6 @@ export interface ParameterCellProvenance {
 	readonly inheritedBy?: string | undefined;
 }
 
-/** A capability cell's provenance-bearing fields, as both registers read them. */
 export interface CapabilityCellProvenance {
 	readonly level: CapabilityLevel;
 	readonly key?: string | undefined;
@@ -230,10 +212,9 @@ export interface CapabilityCellProvenance {
 }
 
 /**
- * THE parameter cell derivation, shared by both registers: the inspectors
- * render this badge and mark list, and the phrase register words the same
- * list, so the two panels cannot disagree about which marks a cell wears or
- * which keys they name.
+ * THE parameter cell derivation, shared by both registers: the inspectors render this badge and mark list, and the
+ * phrase register words the same list, so the two panels cannot disagree about which marks a cell wears or which keys
+ * they name.
  */
 export function parameterCellProvenance(cell: ParameterCellProvenance): {
 	readonly source: ProvenanceView;
@@ -263,7 +244,6 @@ export function capabilityCellProvenance(cell: CapabilityCellProvenance): {
 	};
 }
 
-/** A mark in the compact-phrase register: the word plus the key it points at. */
 function markPhrase(cellMark: CellMark): string {
 	return cellMark.operand === undefined ? cellMark.mark.word : `${cellMark.mark.word} ${cellMark.operand}`;
 }
@@ -280,16 +260,15 @@ export function parameterProvenancePhrase(cell: ParameterCellProvenance): string
 	return provenancePhrase(source, marks.map(markPhrase));
 }
 
-/** A capability cell's provenance in the compact-phrase register, from the same derivation as the badges. */
 export function capabilityProvenancePhrase(cell: CapabilityCellProvenance): string {
 	const { source, marks } = capabilityCellProvenance(cell);
 	return provenancePhrase(source, marks.map(markPhrase));
 }
 
 /**
- * One provenance badge: neutral outline, never a severity color. The tip covers two
- * failures of a compact token - an uninferable scope word (`derived`) and an ellipsized
- * key - so the badge joins the Tab order only when it is hiding something.
+ * One provenance badge: neutral outline, never a severity color. The tip covers two failures of a compact token - an
+ * uninferable scope word (`derived`) and an ellipsized key - so the badge joins the Tab order only when it is hiding
+ * something.
  */
 export function Provenance({ source }: { source: ProvenanceView }) {
 	const full = provenancePhrase(source, []);
@@ -308,10 +287,7 @@ export function Provenance({ source }: { source: ProvenanceView }) {
 	return tip === undefined ? badge : <HoverTip tip={tip}>{badge}</HoverTip>;
 }
 
-/**
- * One directive mark; a rule-carrying mark gets a focusable tip. `children` is the key a
- * mark points at, outside the tip because it is data, not explanation.
- */
+/** `children` is the key a mark points at, outside the tip because it is data, not explanation. */
 export function Mark({ mark, children }: { mark: MarkView; children?: ReactNode }) {
 	const body = (
 		<span className="mark">
@@ -322,17 +298,12 @@ export function Mark({ mark, children }: { mark: MarkView; children?: ReactNode 
 	return mark.detail === undefined ? body : <HoverTip tip={mark.detail}>{body}</HoverTip>;
 }
 
-/**
- * A cell's marks in the badge register, exactly the list the phrase register
- * words: the inspectors' source cells render their cell derivation through
- * here, so the two registers stay one vocabulary by construction.
- */
 export function CellMarks({ marks }: { marks: readonly CellMark[] }) {
 	return (
 		<>
 			{marks.map((cellMark, index) => (
-				// Positional key: the list is derived per render and never reordered,
-				// and keying by the word would rest on translations never colliding.
+				// Positional key: the list is derived per render and never reordered, and keying by the word would rest
+				// on translations never colliding.
 				// biome-ignore lint/suspicious/noArrayIndexKey: see above
 				<Fragment key={index}>
 					{index > 0 ? " " : null}

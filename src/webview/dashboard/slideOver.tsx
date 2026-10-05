@@ -1,13 +1,12 @@
 /**
- * The right-side slide-over the dashboard's overlay panels open in. Closing is a REQUEST:
- * the owning section decides what it means, so keyboard, scrim, and X share one policy.
- * Radix Dialog supplies the focus trap, the nesting-aware Esc stack, and aria-hidden on
- * the page; two departures forced by the webview: no Dialog.Overlay (the only place
- * Radix mounts react-remove-scroll, whose injected <style> the CSP refuses - the scrim
- * is the backdrop, and body scroll was never locked) and no Dialog.Portal (the panel
- * keeps its place in the section's DOM). Dialog.Root gets no onOpenChange: open is
- * always true and every close travels through onRequestClose, or a dismissal would have
- * two routes to one request.
+ * Closing is a REQUEST: the owning section decides what it means, so keyboard, scrim, and X share one policy. Radix
+ * Dialog supplies the focus trap, the nesting-aware Esc stack, and aria-hidden on the page; two departures forced by
+ * the webview: no Dialog.Overlay (the only place Radix mounts react-remove-scroll, whose injected <style> the CSP
+ * refuses - the scrim is the backdrop, and body scroll was never locked) and no Dialog.Portal (the panel keeps its
+ * place in the section's DOM).
+ *
+ *   open is always true and every close travels through onRequestClose, or a dismissal would have two routes to one
+ *   request -> Dialog.Root gets no onOpenChange
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
@@ -18,8 +17,8 @@ import { IconClose } from "./icons";
 import { Button } from "./ui/button";
 
 /**
- * Where initial focus lands when the panel has no field to type into; Radix owns the Tab
- * trap, so this only names a sensible first stop.
+ * Where initial focus lands when the panel has no field to type into; Radix owns the Tab trap, so this only names a
+ * sensible first stop.
  */
 const FOCUSABLE =
 	"a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -39,10 +38,9 @@ export function SlideOver({
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);
 
-	// Focus moves in on open (the first field, so typing starts immediately) and returns to
-	// the opener on close - or to the stable fallback when the panel's own action removed
-	// the opener. Radix's autofocus is declined so this stays the one policy, making the
-	// fallback load-bearing: a field-less panel would otherwise strand focus on an element
+	// Focus moves in on open (the first field, so typing starts immediately) and returns to the opener on close - or to
+	// the stable fallback when the panel's own action removed the opener. Radix's autofocus is declined so this stays
+	// the one policy, making the fallback load-bearing: a field-less panel would otherwise strand focus on an element
 	// the dialog just hid from assistive tech.
 	useEffect(() => {
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -69,9 +67,8 @@ export function SlideOver({
 			<button type="button" className="scrim" tabIndex={-1} aria-hidden="true" onClick={onRequestClose} />
 			<Dialog.Content
 				className="slide-over"
-				// Radix leans on aria-hidden over the rest of the page rather than
-				// this attribute, but assistive tech that reads one and not the
-				// other should still get the modal semantics.
+				// Radix leans on aria-hidden over the rest of the page rather than this attribute, but assistive tech
+				// that reads one and not the other should still get the modal semantics.
 				aria-modal="true"
 				aria-labelledby={labelledBy}
 				ref={panelRef}
@@ -87,9 +84,8 @@ export function SlideOver({
 						return;
 					}
 					event.preventDefault();
-					// Nothing nests slide-overs today, but the key still stops
-					// here so an Esc that closed this panel can never also reach
-					// an ancestor's handler and close something beneath it.
+					// Nothing nests slide-overs today, but the key still stops here so an Esc that closed this panel
+					// can never also reach an ancestor's handler and close something beneath it.
 					event.stopPropagation();
 					onRequestClose();
 				}}

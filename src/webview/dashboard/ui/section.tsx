@@ -1,9 +1,10 @@
 /**
- * A page section and its header line: title, help, docs, meta, actions as SIBLINGS on
- * one flex row (.section-head; without it they stack). `Section` owns id, tabIndex,
- * aria-labelledby, and scroll margin together because they are one contract: an
- * in-page jump names a section, moves focus to it, and must not park it under whatever
- * sticks to the viewport top. A DOM id is document-wide: pick unused names.
+ * A page section and its header line: title, help, docs, meta, actions as SIBLINGS on one flex row (.section-head;
+ * without it they stack). `Section` owns id, tabIndex, aria-labelledby, and scroll margin together because they are
+ * one contract: an in-page jump names a section, moves focus to it, and must not park it under whatever sticks to the
+ * viewport top.
+ *
+ *   A DOM id is document-wide -> pick unused names
  */
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
@@ -16,8 +17,8 @@ export interface SectionHeaderProps {
 	titleId?: string;
 	title: string;
 	/**
-	 * Heading level; the replaced surfaces use h2-h4, and 5 is the server form's
-	 * Companions sub-head, one step under its h4 sections.
+	 * Heading level; the replaced surfaces use h2-h4, and 5 is the server form's Companions sub-head, one step under
+	 * its h4 sections.
 	 */
 	level?: 2 | 3 | 4 | 5;
 	/** Help tip text; renders the "?" affordance when present. */

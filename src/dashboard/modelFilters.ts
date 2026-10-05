@@ -1,23 +1,20 @@
 /**
- * The models list's filters. Pure (no vscode, no React) so the semantics pin
- * in the bun tree, and shared by the row renderers and the pills so the two
- * cannot disagree. Composition: dimensions compose AND, the pills of one
- * dimension compose OR - except capabilities, where each pill is its own
- * dimension ("tools" and "vision" together mean a model that has both).
+ * Pure (no vscode, no React) so the semantics pin in the bun tree, and shared by the row renderers and the pills so
+ * the two cannot disagree. Composition: dimensions compose AND, the pills of one dimension compose OR - except
+ * capabilities, where each pill is its own dimension ("tools" and "vision" together mean a model that has both).
  */
 import * as l10n from "@vscode/l10n";
 import type { DashboardModel } from "./viewModels";
 
 /**
- * Every capability with its answer, paired with the wire key that names it, in
- * the fixed order the row's detail prints them; the single source the
- * capability pills derive from. The row at rest prints only the true ones (a
- * strikethrough means SUPERSEDED everywhere in this dashboard), so absence
- * carries "cannot" on the row and the detail answers explicitly.
+ * Every capability with its answer, paired with the wire key that names it, in the fixed order the row's detail prints
+ * them; the single source the capability pills derive from. The row at rest prints only the true ones (a
+ * strikethrough means SUPERSEDED everywhere in this dashboard), so absence carries "cannot" on the row and the detail
+ * answers explicitly.
  */
 export const CAPABILITY_FLAGS = [
-	// A key of its own, apart from the max-tools count suffix "tools": a chip
-	// label may translate differently from a suffix after a number.
+	// A key of its own, apart from the max-tools count suffix "tools": a chip label may translate differently from a
+	// suffix after a number.
 	[
 		"supports_function_calling",
 		"toolCalling",
@@ -30,35 +27,30 @@ export const CAPABILITY_FLAGS = [
 
 export type CapabilityFilterKey = (typeof CAPABILITY_FLAGS)[number][1];
 
-/**
- * What the model CAN do, in words: the row's spec line, and the chips in the
- * inspector's header. Empty when it can do none of them.
- */
 export function capabilityList(model: DashboardModel): readonly string[] {
 	return CAPABILITY_FLAGS.filter(([, property]) => model[property] === true).map(([, , label]) => label());
 }
 
 export type PriceFilterKey = "priced" | "unpriced";
 
-/** The two price pills' words. The row prints nothing for an unpriced model; the pill cannot, so it names the class. */
+/** The row prints nothing for an unpriced model; the pill cannot, so it names the class. */
 export function priceFilterLabel(price: PriceFilterKey): string {
 	return price === "priced" ? l10n.t("priced") : l10n.t("price unknown");
 }
 
 /**
- * Whether the list shows a price for this model: the same question the row's
- * second line answers, so the "priced" pill selects exactly the rows that
- * print a price.
+ * Whether the list shows a price for this model: the same question the row's second line answers, so the "priced" pill
+ * selects exactly the rows that print a price.
  */
 export function isPriced(model: DashboardModel): boolean {
 	return model.inputCost !== undefined || model.outputCost !== undefined;
 }
 
 /**
- * The pills' state. Session-local by design: never persisted or pushed.
- * Servers are keyed by scopeKey, never by label: two provider groups can
- * carry the same label, and a label-keyed pill would silently select both.
- * The label rides along because it is what the pill displays.
+ * Session-local by design: never persisted or pushed. The label rides along because it is what the pill displays.
+ *
+ *   two provider groups can carry the same label, and a label-keyed pill would silently select both
+ *     -> Servers are keyed by scopeKey, never by label
  */
 export interface ModelFilter {
 	readonly families: ReadonlySet<string>;
@@ -140,10 +132,8 @@ function matchesQuery(model: DashboardModel, needle: string): boolean {
 }
 
 /**
- * Pills and the text filter together, one more AND: a model shows when every
- * active pill dimension admits it AND the query matches it. The query is taken
- * raw from the input; normalization (trim, case) happens here so every caller
- * means the same thing by "matches".
+ * The query is taken raw from the input; normalization (trim, case) happens here so every caller means the same thing
+ * by "matches".
  */
 export function filterModels(
 	models: readonly DashboardModel[],
@@ -178,10 +168,9 @@ export interface ModelFilterOptions {
 const PRICE_KEYS: readonly PriceFilterKey[] = ["priced", "unpriced"];
 
 /**
- * Server options in display order, duplicate labels numbered "(1)" onward in
- * the sorted order. The ordinal is a DISPLAY transform only, recomputed every
- * time: identity stays the scopeKey and filter state stores the raw label - a
- * stored numbered label would collide again when the numbering shifts.
+ * Server options in display order, duplicate labels numbered "(1)" onward in the sorted order. The ordinal is a DISPLAY
+ * transform only, recomputed every time: identity stays the scopeKey and filter state stores the raw label - a stored
+ * numbered label would collide again when the numbering shifts.
  */
 function serverOptions(servers: ReadonlyMap<string, string>): readonly ServerFilterOption[] {
 	const sorted = [...servers]
@@ -203,10 +192,9 @@ function serverOptions(servers: ReadonlyMap<string, string>): readonly ServerFil
 }
 
 /**
- * Which pills to offer. One rule per dimension: a pill renders where it can
- * change the result (the list disagrees on the dimension) or where it is
- * already active, because an active pill must stay clearable even after the
- * models that justified it left the list. Orders are fixed.
+ * One rule per dimension: a pill renders where it can change the result (the list disagrees on the dimension) or where
+ * it is already active, because an active pill must stay clearable even after the models that justified it left the
+ * list. Orders are fixed.
  */
 export function modelFilterOptions(models: readonly DashboardModel[], active: ModelFilter): ModelFilterOptions {
 	const families = new Set(models.map((model) => model.family));

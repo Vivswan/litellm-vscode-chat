@@ -1,7 +1,6 @@
 /**
- * The webview's posting seam: acquireVsCodeApi (callable exactly once per page) wrapped
- * as one typed request sender; the fresh correlation id returns to the caller so hooks
- * can match the envelope that echoes it.
+ * The webview's posting seam: acquireVsCodeApi (callable exactly once per page) wrapped as one typed request sender;
+ * the fresh correlation id returns to the caller so hooks can match the envelope that echoes it.
  */
 
 import type { DashboardMethod, RequestPayload, RpcRequest } from "../../dashboard/endpoints";
@@ -23,7 +22,6 @@ function newRequestId(): string {
 	return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-/** Post one typed request to the extension; returns the minted correlation id. */
 export function sendRequest<K extends DashboardMethod>(method: K, payload: RequestPayload<K>): string {
 	const id = newRequestId();
 	const request: RpcRequest<K> = { kind: "request", id, method, payload };

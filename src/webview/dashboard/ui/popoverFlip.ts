@@ -1,7 +1,6 @@
 /**
- * The above/below flip for an anchored popover, extracted so the decision is a
- * pure function and the subscription a testable unit. The popover flips above
- * its anchor rather than hang past the viewport's bottom edge.
+ * The above/below flip for an anchored popover, extracted so the decision is a pure function and the subscription a
+ * testable unit.
  */
 
 /** Everything the flip decision reads, as plain numbers so tests need no layout. */
@@ -18,12 +17,10 @@ export interface FlipMeasurement {
 }
 
 /**
- * Whether the popover belongs ABOVE its anchor. Judged from where it WOULD end
- * up hanging below, not where it sits now: a flipped popover no longer
- * overflows, so measuring its current bottom would clear the flip the instant
- * it worked and leave the popover flicking over the edge and back on every
- * change. And only when there is more room the other way: flipping something
- * that overflows both edges just moves the clipped part.
+ * Judged from where it WOULD end up hanging below, not where it sits now: a flipped popover no longer overflows, so
+ * measuring its current bottom would clear the flip the instant it worked and leave the popover flicking over the edge
+ * and back on every change. And only when there is more room the other way: flipping something that overflows both
+ * edges just moves the clipped part.
  */
 export function shouldFlipAbove(measured: FlipMeasurement): boolean {
 	const bottomIfBelow = measured.hostBottom + measured.gapPx + measured.popoverHeight;

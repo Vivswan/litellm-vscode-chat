@@ -29,10 +29,7 @@ import { Reveal } from "./ui/reveal";
 import { Textarea } from "./ui/textarea";
 import { sendRequest } from "./vscodeApi";
 
-/**
- * The editor's heading, exported so the settings form's filter matches the editor by
- * exactly the title it renders. Zero-arg so the localized text resolves at call time.
- */
+/** The editor's heading, exported so the settings form's filter matches the editor by exactly the title it renders. */
 export function modelParametersTitle(): string {
 	return l10n.t("Model parameters");
 }
@@ -43,11 +40,9 @@ export function modelCapabilitiesTitle(): string {
 }
 
 /**
- * The record editors' settings.json jump, directly after the heading it opens. The
- * heading LINE is the hover band, not the h3 (a button inside a heading folds into its
- * accessible name); the jump reveals through the shared Reveal idiom (ui/reveal.tsx),
- * stays in the Tab order via opacity, and stays painted below 560px where hover does
- * not exist.
+ * The heading LINE is the hover band, not the h3 (a button inside a heading folds into its accessible name); the jump
+ * reveals through the shared Reveal idiom (ui/reveal.tsx), stays in the Tab order via opacity, and stays painted below
+ * 560px where hover does not exist.
  */
 function HeadingRevealButton({
 	title,
@@ -75,9 +70,7 @@ function HeadingRevealButton({
 const SAVED_NOTICE_MS = 4000;
 
 /**
- * Where a draft is in its apply lifecycle. "applying" is the window between
- * Apply and its correlated ack; "saved" is the transient confirmation the
- * ack starts.
+ *   "saved" -> is the transient confirmation the ack starts
  */
 type DraftPhase = "idle" | "dirty" | "applying" | "saved";
 
@@ -88,11 +81,11 @@ type DraftState<T> =
 	| { readonly kind: "acked"; readonly rows: T; readonly externalAtAck: string };
 
 /**
- * Both editors follow one draft-and-apply model: rows edited locally, validated per
- * keystroke, written back only through Apply, so the object settings never pass through
- * an invalid shape. Apply waits for its own correlated outcome (ok resolves, fail
- * returns the draft dirty). An acked draft keeps rendering until the store push arrives
- * - dropping it at the ack would flash the pre-apply value for one frame.
+ * Both editors follow one draft-and-apply model: rows edited locally, validated per keystroke, written back only
+ * through Apply, so the object settings never pass through an invalid shape.
+ *
+ * An acked draft keeps rendering until the store push arrives - dropping it at the ack would flash the pre-apply value
+ * for one frame.
  */
 function useDraftRows<T>(
 	external: T,
@@ -109,10 +102,9 @@ function useDraftRows<T>(
 	apply: (requestId: string) => void;
 	reset: () => void;
 } {
-	// Value identity, id-stripped: the caller re-derives `external` per render
-	// and each derivation mints fresh row ids, so the LAST value-distinct
-	// external is the one that renders - stable row ids at rest, new ids only
-	// when the store value actually changed.
+	// Value identity, id-stripped: the caller re-derives `external` per render and each derivation mints fresh row
+	// ids, so the LAST value-distinct external is the one that renders - stable row ids at rest, new ids only when the
+	// store value actually changed.
 	const externalKey = draftRowsKey(external);
 	const externalRef = useRef({ key: externalKey, rows: external });
 	if (externalRef.current.key !== externalKey) {
@@ -120,14 +112,10 @@ function useDraftRows<T>(
 	}
 	const [draft, setDraft] = useState<DraftState<T> | undefined>(undefined);
 	const [saved, setSaved] = useState(false);
-	// The last Apply's correlation ID, kept past the failure transition (the
-	// failure note must name the write the still-open draft came from) and
-	// dropped with the draft on Discard.
+	// The last Apply's correlation ID, kept past the failure transition (the failure note must name the write the
+	// still-open draft came from) and dropped with the draft on Discard.
 	const [appliedRequestId, setAppliedRequestId] = useState<string | undefined>(undefined);
 
-	// This draft's own ack: the write landed, so the phase resolves. The rows
-	// keep rendering until the store visibly reflects the write, unless they
-	// already match it.
 	const ackedId = outcome?.result === "ok" ? outcome.id : undefined;
 	useEffect(() => {
 		if (draft?.kind !== "applying" || draft.requestId !== ackedId) {
@@ -141,8 +129,6 @@ function useDraftRows<T>(
 		);
 	}, [draft, ackedId, externalKey]);
 
-	// The reflecting push: the store moved past its at-ack value, so the fresh
-	// store rows take over from the acked draft.
 	useEffect(() => {
 		setDraft((current) => (current?.kind === "acked" && externalKey !== current.externalAtAck ? undefined : current));
 	}, [externalKey]);
@@ -155,7 +141,6 @@ function useDraftRows<T>(
 		return () => clearTimeout(timer);
 	}, [saved]);
 
-	// This draft's own reported write failure re-opens it for editing.
 	const failure = outcome?.result === "fail" ? outcome : undefined;
 	const failureId = failure?.id;
 	const failureSeq = failure?.seq;
@@ -177,9 +162,9 @@ function useDraftRows<T>(
 		failure: failure !== undefined && failure.id === appliedRequestId ? failure : undefined,
 		update: (next) => {
 			setSaved(false);
-			// Rows edited exactly back onto the store value drop the draft: a pinned value-equal
-			// draft would swallow every later store push with Discard disabled. Textual equality
-			// only; the correlation ID goes with it, so an old failure cannot haunt the NEXT draft.
+			// Rows edited exactly back onto the store value drop the draft: a pinned value-equal draft would swallow
+			// every later store push with Discard disabled. Textual equality only; the correlation ID goes with it, so
+			// an old failure cannot haunt the NEXT draft.
 			if (draftRowsKey(next) === externalKey) {
 				setAppliedRequestId(undefined);
 				setDraft(undefined);
@@ -202,9 +187,8 @@ function useDraftRows<T>(
 }
 
 /**
- * The inspectors' configure-jump into an editor: focus the record carrying `key`, or
- * with `create` append a fresh draft group (drafts only land on Apply). `seq` keys
- * re-delivery so repeating the same jump re-focuses.
+ * The inspectors' configure-jump into an editor: focus the record carrying `key`, or with `create` append a fresh
+ * draft group (drafts only land on Apply). `seq` keys re-delivery so repeating the same jump re-focuses.
  */
 export interface ExternalRecordEdit {
 	readonly seq: number;
@@ -212,13 +196,14 @@ export interface ExternalRecordEdit {
 	readonly create: boolean;
 }
 
-/** The fail arm of a hook outcome: what the editors' failure surfaces render. */
 export type IntentFailureOutcome = Extract<IntentOutcome, { result: "fail" }>;
 
 function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undefined; dirty: boolean }) {
-	// Always mounted, speaking or not (dashboard.css .editor-status): the refusal lands
-	// async and must not move the action bar. Headline only, full message in title and a
-	// visually-hidden span; role="alert" needs the element to pre-exist. Text stays webview-only.
+	// Always mounted, speaking or not (dashboard.css .editor-status): the refusal lands async and must not move the
+	// action bar.
+	//
+	//   Text         -> stays webview-only
+	//   role="alert" -> needs the element to pre-exist
 	const spoken = dirty ? failure : undefined;
 	const detail = spoken !== undefined ? statusErrorDetail(spoken.message) : undefined;
 	return (
@@ -236,9 +221,8 @@ function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undef
 }
 
 /**
- * The Apply outcome beside the commit pair it reports on. The status element
- * is always mounted (empty between phases) so the live region exists before
- * the announcement lands in it.
+ * The status element is always mounted (empty between phases) so the live region exists before the announcement lands
+ * in it.
  */
 function ApplyStatus({ phase }: { phase: DraftPhase }) {
 	return (
@@ -248,14 +232,13 @@ function ApplyStatus({ phase }: { phase: DraftPhase }) {
 	);
 }
 
-/** The other-scope records, rendered as the same disabled grid the edit scope uses, never as prose. */
 function OtherScopeNote({ scope }: { scope: SettingScope }) {
 	return <p className="hint">{l10n.t("Set in {0} settings - edit there.", settingScopeLabel(scope))}</p>;
 }
 
 /**
- * The Edit-as-JSON side door's textarea state: the text being edited plus the
- * snapshot it started from, so "changed at all" needs no re-parse.
+ * The Edit-as-JSON side door's textarea state: the text being edited plus the snapshot it started from, so "changed at
+ * all" needs no re-parse.
  */
 interface JsonDraft {
 	readonly text: string;
@@ -268,9 +251,8 @@ function seededJson(value: unknown): JsonDraft {
 }
 
 /**
- * JSON.stringify with object keys sorted at every level (by code unit - a
- * total order, unlike locale collation), so records that differ only in key
- * order compare equal. Gates Apply on a real value change.
+ * JSON.stringify with object keys sorted at every level (by code unit - a total order, unlike locale collation), so
+ * records that differ only in key order compare equal.
  */
 function canonicalKey(value: unknown): string {
 	return (
@@ -285,9 +267,8 @@ function canonicalKey(value: unknown): string {
 }
 
 /**
- * Hand-curated, mirroring docs/models.md#where-parameters-come-from: the extension has
- * no canonical parameter inventory (pass-through by design), so these are suggestions,
- * never a restriction.
+ * Hand-curated, mirroring docs/models.md#where-parameters-come-from: the extension has no canonical parameter inventory
+ * (pass-through by design), so these are suggestions, never a restriction.
  */
 const COMMON_PARAMETER_NAMES = [
 	"max_tokens",
@@ -302,17 +283,14 @@ const COMMON_PARAMETER_NAMES = [
 ] as const;
 
 /**
- * The card's one validation verdict: the worst problem in draft order, named by its
- * matcher, skipping the field an open popover already states. Card-scoped because a row
- * cannot hold this line - see dashboard.css .editor-status.
+ * The card's one validation verdict: the worst problem in draft order, named by its matcher, skipping the field an open
+ * popover already states. Card-scoped because a row cannot hold this line - see dashboard.css .editor-status.
  */
 function recordVerdict(
 	groups: readonly PrefixGroup[],
 	issues: readonly GroupIssueView[],
 	openField: string | undefined
 ): { readonly matcher: string; readonly message: string; readonly others: number } | undefined {
-	// Every standing problem in draft order, minus the one an open popover is
-	// already stating: the first is the line, the rest are its count.
 	const standing: { matcher: string; message: string }[] = [];
 	for (const [index, group] of groups.entries()) {
 		const issue = issues[index];
@@ -330,7 +308,6 @@ function recordVerdict(
 	return worst === undefined ? undefined : { ...worst, others: standing.length - 1 };
 }
 
-/** The verdict as the status slot's message line; it yields the slot to the refusal while one stands. */
 function RecordVerdictLine({
 	groups,
 	issues,
@@ -344,13 +321,12 @@ function RecordVerdictLine({
 	if (verdict === undefined) {
 		return null;
 	}
-	// The count keeps the others from being dropped silently; fixing the worst
-	// promotes the next into the line.
+	// The count keeps the others from being dropped silently; fixing the worst promotes the next into the line.
 	const more =
 		verdict.others === 0 ? "" : verdict.others === 1 ? l10n.t("(+1 more)") : l10n.t("(+{0} more)", verdict.others);
 	const spoken = `${verdict.matcher}: ${verdict.message}${more === "" ? "" : ` ${more}`}`;
-	// The line clips visually where the slot runs short; the text stays whole
-	// in the DOM (and in the title for pointer readers), so nothing is lost.
+	// The line clips visually where the slot runs short; the text stays whole in the DOM (and in the title for pointer
+	// readers), so nothing is lost.
 	return (
 		<p className="record-verdict error" title={spoken}>
 			<code className="font-mono">{verdict.matcher}</code>
@@ -361,10 +337,8 @@ function RecordVerdictLine({
 }
 
 /**
- * The record frames' one message slot: an always-mounted flex item over the footer row's
- * free space (dashboard.css .editor-status), so a message mounting never changes wrap
- * points or moves the buttons. Two voices, one cell: the async write refusal
- * (role="alert", mounted before it speaks) outranks the validation verdict.
+ * Two voices, one cell: the async write refusal (role="alert", mounted before it speaks) outranks the validation
+ * verdict.
  */
 export function RecordStatusSlot({
 	groups,
@@ -389,17 +363,16 @@ export function RecordStatusSlot({
 }
 
 /**
- * Whether any standing problem would give the verdict a voice. The read-only frames
- * mount their message row only then: their problems are static per push, so a
- * conditional row cannot shift geometry under a live edit.
+ * Whether any standing problem would give the verdict a voice. The read-only frames mount their message row only then:
+ * their problems are static per push, so a conditional row cannot shift geometry under a live edit.
  */
 export function anyRecordProblem(issues: readonly GroupIssueView[]): boolean {
 	return issues.some((issue) => issue.prefix !== undefined || issue.rows.some((row) => row.problem !== undefined));
 }
 
 /**
- * Structured editor for litellm-vscode-chat.models.parameters, the object-of-objects the
- * native Settings GUI cannot edit. Edits apply to one scope; others render read-only.
+ * Structured editor for litellm-vscode-chat.models.parameters, the object-of-objects the native Settings GUI cannot
+ * edit. Edits apply to one scope; others render read-only.
  */
 export function ModelParametersEditor({
 	scoped,
@@ -418,9 +391,8 @@ export function ModelParametersEditor({
 	const intent = useIntentOutcome("setModelParameters");
 	const draft = useDraftRows(toGroups(scoped.value), intent.outcome);
 	const groups = draft.rows;
-	// One parse per keystroke: the row problems, the Apply gate, and the
-	// assembled record are the same verdict, so a draft that renders clean can
-	// never assemble differently.
+	//   the row problems, the Apply gate, and the assembled record -> are the same verdict
+	//   a draft that renders clean                                 -> can never assemble differently
 	const parse = parseGroups(groups);
 	const problems = parse.ok ? [] : parse.problems;
 	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
@@ -429,11 +401,9 @@ export function ModelParametersEditor({
 	const jsonParse = json === undefined ? undefined : groupsFromJsonText(json.text);
 	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
 
-	// A JSON view without a live draft follows the store like the rows do.
-	// Any draft - dirty, in flight, or acked - pins it: a dirty one because
-	// the text is (or seeded) the user's, the others because resyncing before
-	// the reflecting push would flash the pre-apply value back into the
-	// textarea.
+	// A JSON view without a live draft follows the store like the rows do. Any draft - dirty, in flight, or acked -
+	// pins it: a dirty one because the text is (or seeded) the user's, the others because resyncing before the
+	// reflecting push would flash the pre-apply value back into the textarea.
 	const externalJsonText = JSON.stringify(scoped.value, null, 2) ?? "{}";
 	const draftPinned = draft.pinned;
 	useEffect(() => {
@@ -447,9 +417,8 @@ export function ModelParametersEditor({
 		);
 	}, [externalJsonText, draftPinned]);
 
-	// Apply needs a real value change on top of a dirty draft: rows can differ
-	// in spelling ("1e1" vs "10") while assembling to the record already stored
-	// (the scalar rows' unchanged-posts-nothing rule).
+	// Apply needs a real value change on top of a dirty draft: rows can differ in spelling ("1e1" vs "10") while
+	// assembling to the record already stored (the scalar rows' unchanged-posts-nothing rule).
 	const changed = parse.ok && canonicalKey(parse.value) !== canonicalKey(scoped.value);
 	const canApply = draft.dirty && changed && !jsonBlocked;
 	const apply = () => {
@@ -470,12 +439,10 @@ export function ModelParametersEditor({
 
 	const modelIds = Array.from(new Set(models.map((model) => model.id)));
 	const issueViews = paramIssueViews(groups, problems, parse.hints);
-	// The full matcher editor overlay, re-anchored by matcher key on pushes.
 	const { editingIndex, openEditor, trackRename, closeEditing } = useMatcherEditing(groups);
-	// A removal that lands the rows back on the store value resets the draft
-	// inside useDraftRows.update itself; every path below simply updates.
-	// Closing the overlay sweeps up a still-pristine new matcher (no key, no
-	// fields): keeping it would strand an invalid empty row in the table.
+	// A removal that lands the rows back on the store value resets the draft inside useDraftRows.update itself; every
+	// path below simply updates. Closing the overlay sweeps up a still-pristine new matcher (no key, no fields):
+	// keeping it would strand an invalid empty row in the table.
 	const closeEditor = () => {
 		if (editingIndex !== undefined) {
 			const group = groups[editingIndex];
@@ -485,12 +452,11 @@ export function ModelParametersEditor({
 		}
 		closeEditing();
 	};
-	// The inspectors' configure-jump lands in the overlay: the existing record
-	// opens directly, a create request appends the draft group first. Matcher
-	// keys compare RAW on both sides - the request carries the stored record key
-	// and the draft holds the stored prefix, and the grammar trims neither. Inert
-	// while the JSON view is open (rewriting a JSON draft would lose text).
-	// Keyed on the request's seq so repeating the same jump re-opens.
+	// Matcher keys compare RAW on both sides - the request carries the stored record key and the draft holds the
+	// stored prefix, and the grammar trims neither. Inert while the JSON view is open (rewriting a JSON draft would
+	// lose text).
+	//
+	//   Keyed on the request's seq -> repeating the same jump re-opens
 	const externalSeq = external?.seq;
 	const jsonOpen = json !== undefined;
 	// The draft, groups, and editor are read at fire time, not watched.
@@ -512,23 +478,20 @@ export function ModelParametersEditor({
 	}, [externalSeq]);
 	return (
 		<section hidden={hidden}>
-			{/* A contained heading sits a step quieter than the group heading
-			    above it: same muted tone, one size down, and no rule of its own.
-			    At the surrounding group's weight and the page's foreground it
-			    out-shouted its own container. */}
+			{/* A contained heading sits a step quieter than the group heading above it: same muted tone, one size down,
+			    and no rule of its own. At the surrounding group's weight and the page's foreground it out-shouted its
+			    own container. */}
 			<div className="section-head group/head mb-1">
 				<h3 className="m-0 font-semibold text-[0.9em] text-muted-foreground">{modelParametersTitle()}</h3>
 				<HeadingRevealButton title={modelParametersTitle()} settingId="models.parameters" />
 				<Help text={helpModelParametersSection()} name={l10n.t("Help: {0}", modelParametersTitle())} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
 			</div>
-			{/* The frame bounds the draft: the matcher rows (or the JSON side
-			    door), the failure note, and the action bar that commits them are
-			    one region, so "what does Apply apply" has a visible answer. */}
+			{/* The frame bounds the draft: the matcher rows (or the JSON side door), the failure note, and the action
+			    bar that commits them are one region, so "what does Apply apply" has a visible answer. */}
 			<div className="record-frame">
-				{/* Where Apply writes, said only when it is news: the write-scope
-				    rule sends edits to a scope that already sets the record, and
-				    "not your User settings" is the one case worth a line. */}
+				{/* Where Apply writes, said only when it is news: the write-scope rule sends edits to a scope that
+				    already sets the record, and "not your User settings" is the one case worth a line. */}
 				{scoped.editScope !== "global" ? (
 					<p className="hint editor-scope-note">
 						{l10n.t(
@@ -554,10 +517,9 @@ export function ModelParametersEditor({
 								}
 							}}
 						/>
-						{/* The side door's reserved status line (dashboard.css
-						    .json-status): the parse verdict lands per keystroke, and
-						    mounted only alongside a problem it pushed the mode buttons
-						    and the commit bar down on the first bad character. */}
+						{/* The side door's reserved status line (dashboard.css .json-status): the parse verdict lands
+						    per keystroke, and mounted only alongside a problem it pushed the mode buttons and the
+						    commit bar down on the first bad character. */}
 						<p className={cn("json-status", jsonParse !== undefined && !jsonParse.ok && "error")}>
 							{jsonParse !== undefined && !jsonParse.ok ? jsonParse.problem : null}
 						</p>
@@ -611,18 +573,17 @@ export function ModelParametersEditor({
 							{l10n.t("Edit as rows")}
 						</Button>
 					)}
-					{/* The bar's one message slot rides its free space, between the mode
-					    actions and the commit trio: the refusal and the validation
-					    verdict speak here, one at a time, without moving either group. */}
+					{/* The bar's one message slot rides its free space, between the mode actions and the commit trio:
+					    the refusal and the validation verdict speak here, one at a time, without moving either
+					    group. */}
 					<RecordStatusSlot
 						groups={groups}
 						issues={issueViews}
 						openField={openField}
 						refusal={{ failure: draft.failure, dirty: draft.dirty }}
 					/>
-					{/* The commit trio is ONE flex group so a narrow pane wraps it as a
-				    unit - a bare ms-auto on the status once let Apply wrap onto a
-				    line of its own, left-aligned under the mode actions. */}
+					{/* The commit trio is ONE flex group so a narrow pane wraps it as a unit - a bare ms-auto on the
+					    status once let Apply wrap onto a line of its own, left-aligned under the mode actions. */}
 					<span className="editor-commit ms-auto flex flex-wrap items-center gap-2">
 						<ApplyStatus phase={draft.phase} />
 						{/* Discard stays available while a write is in flight: a lost ack
@@ -635,9 +596,8 @@ export function ModelParametersEditor({
 						>
 							{l10n.t("Discard")}
 						</Button>
-						{/* Last in the bar, first in rank: the accent `default` rank is
-					    the dashboard's primary, and the trailing slot is where a
-					    region's commit lives. */}
+						{/* Last in the bar, first in rank: the accent `default` rank is the dashboard's primary, and
+						    the trailing slot is where a region's commit lives. */}
 						<Button disabled={!canApply} onClick={apply}>
 							{l10n.t("Apply")}
 						</Button>
@@ -645,9 +605,8 @@ export function ModelParametersEditor({
 				</div>
 			</div>
 			{scoped.otherScopes.map((other) => {
-				// The static table judges its rows with the same parse as the edit
-				// scope: absorption reads the hints, and a directive the badges
-				// cannot faithfully summarize must keep its raw chip here too.
+				// The static table judges its rows with the same parse as the edit scope: absorption reads the hints,
+				// and a directive the badges cannot faithfully summarize must keep its raw chip here too.
 				const otherGroups = toGroups(other.value);
 				const otherParse = parseGroups(otherGroups);
 				const otherIssues = paramIssueViews(otherGroups, otherParse.ok ? [] : otherParse.problems, otherParse.hints);
@@ -656,10 +615,9 @@ export function ModelParametersEditor({
 						<OtherScopeNote scope={other.scope} />
 						<div className="record-frame">
 							<RecordMatcherTable kind="params" groups={otherGroups} issues={otherIssues} readOnly />
-							{/* A read-only chip's mark is a border with no popover behind
-							    it, so the frame's own message row says what stands - the
-							    footer-position line, message alone (no write path, no
-							    buttons), mounted only while a problem does. */}
+							{/* A read-only chip's mark is a border with no popover behind it, so the frame's own
+							    message row says what stands - the footer-position line, message alone (no write path,
+							    no buttons), mounted only while a problem does. */}
 							{anyRecordProblem(otherIssues) ? (
 								<div className="toolbar editor-actions">
 									<RecordStatusSlot groups={otherGroups} issues={otherIssues} />
@@ -698,11 +656,6 @@ export function ModelParametersEditor({
 	);
 }
 
-/**
- * Structured editor for litellm-vscode-chat.models.capabilities, the parameters editor's
- * typed sibling (two-management-paths parity). Same draft-and-apply model; edits land
- * through the setModelCapabilities intent.
- */
 export function ModelCapabilitiesEditor({
 	scoped,
 	models,
@@ -714,10 +667,9 @@ export function ModelCapabilitiesEditor({
 	/** The discovered models, feeding the matcher input's suggestions. */
 	models: readonly DashboardModel[];
 	/**
-	 * The cross-server union of observed /model/info keys: the unknown-key hints' evidence
-	 * AND the server half of the key autocomplete (the global records scope over every
-	 * server, so the union fits both). Absent or empty means no evidence - hints suppressed,
-	 * suggestions fall back to the static vocabulary.
+	 * The cross-server union of observed /model/info keys: the unknown-key hints' evidence AND the server half of the
+	 * key autocomplete (the global records scope over every server, so the union fits both). Absent or empty means no
+	 * evidence - hints suppressed, suggestions fall back to the static vocabulary.
 	 */
 	observedKeys?: readonly string[] | undefined;
 	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
@@ -729,11 +681,7 @@ export function ModelCapabilitiesEditor({
 	const draft = useDraftRows(toCapabilityGroups(scoped.value), intent.outcome);
 	const groups = draft.rows;
 	const recognizedKeys = observedKeys === undefined ? undefined : new Set(observedKeys);
-	// The key autocomplete over the same evidence: the consumed vocabulary
-	// extended by what THIS scope's servers actually report.
 	const keySuggestions = capabilityKeySuggestions(observedKeys);
-	// One parse per keystroke, like the parameters editor: the row issues, the
-	// Apply gate, and the assembled record are the same verdict.
 	const parse = parseCapabilityGroups(groups, recognizedKeys);
 	const issues = parse.issues;
 	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
@@ -774,9 +722,6 @@ export function ModelCapabilitiesEditor({
 
 	const modelIds = Array.from(new Set(models.map((model) => model.id)));
 	const issueViews = capabilityIssueViews(groups, issues);
-	// The full matcher editor overlay, re-anchored by matcher key on pushes;
-	// see the parameters editor's twin block for the close-sweep and
-	// external-jump contracts.
 	const { editingIndex, openEditor, trackRename, closeEditing } = useMatcherEditing(groups);
 	const closeEditor = () => {
 		if (editingIndex !== undefined) {
@@ -818,8 +763,7 @@ export function ModelCapabilitiesEditor({
 			</div>
 			{/* The parameters editor's frame, on this editor's own parse. */}
 			<div className="record-frame">
-				{/* The write scope, said only when it is news (the parameters
-				    editor's rule). */}
+				{/* The write scope, said only when it is news (the parameters editor's rule). */}
 				{scoped.editScope !== "global" ? (
 					<p className="hint editor-scope-note">
 						{l10n.t(
@@ -845,8 +789,8 @@ export function ModelCapabilitiesEditor({
 								}
 							}}
 						/>
-						{/* The reserved status line, the parameters door's rule (see the
-						    twin above dashboard.css .json-status). */}
+						{/* The reserved status line, the parameters door's rule (see the twin above dashboard.css
+						    .json-status). */}
 						<p className={cn("json-status", jsonParse !== undefined && !jsonParse.ok && "error")}>
 							{jsonParse !== undefined && !jsonParse.ok ? jsonParse.problem : null}
 						</p>
@@ -900,8 +844,8 @@ export function ModelCapabilitiesEditor({
 							{l10n.t("Edit as rows")}
 						</Button>
 					)}
-					{/* The bar's one message slot in its free space; the params editor
-					    above states the two-speaker rule. */}
+					{/* The bar's one message slot in its free space; the params editor above states the two-speaker
+					    rule. */}
 					<RecordStatusSlot
 						groups={groups}
 						issues={issueViews}
@@ -928,8 +872,8 @@ export function ModelCapabilitiesEditor({
 				</div>
 			</div>
 			{scoped.otherScopes.map((other) => {
-				// The same-parse rule as the parameters editor's static tables,
-				// with the same evidence: other scopes still hold global records.
+				// The same-parse rule as the parameters editor's static tables, with the same evidence: other scopes
+				// still hold global records.
 				const otherGroups = toCapabilityGroups(other.value);
 				const otherParse = parseCapabilityGroups(otherGroups, recognizedKeys);
 				const otherIssues = capabilityIssueViews(otherGroups, otherParse.issues);
@@ -938,8 +882,8 @@ export function ModelCapabilitiesEditor({
 						<OtherScopeNote scope={other.scope} />
 						<div className="record-frame">
 							<RecordMatcherTable kind="caps" groups={otherGroups} issues={otherIssues} readOnly />
-							{/* The params frames' rule above: a standing problem gets the
-							    frame's own message row, and a quiet frame closes flush. */}
+							{/* The params frames' rule above: a standing problem gets the frame's own message row, and
+							    a quiet frame closes flush. */}
 							{anyRecordProblem(otherIssues) ? (
 								<div className="toolbar editor-actions">
 									<RecordStatusSlot groups={otherGroups} issues={otherIssues} />

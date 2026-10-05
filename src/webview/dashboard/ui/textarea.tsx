@@ -2,9 +2,8 @@ import type { ComponentProps } from "react";
 import { cn } from "./cn";
 
 /**
- * The dashboard's textarea on the same VS Code input tokens as Input, so the
- * multiline fields (commit prompt, declared models, the record editors' JSON
- * side doors) share ONE chrome instead of four copies; validation state rides
+ * The dashboard's textarea on the same VS Code input tokens as Input, so the multiline fields (commit prompt, declared
+ * models, the record editors' JSON side doors) share ONE chrome instead of four copies; validation state rides
  * aria-invalid like the Input's.
  */
 export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
