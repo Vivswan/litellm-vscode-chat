@@ -20,7 +20,6 @@ import type {
 	ConsumedCapabilityField,
 	EffectiveCapabilityField,
 	EffectiveCapabilityFields,
-	EffectiveOutputLimitSource,
 	ModelCapabilitiesRecord,
 	NumberCapabilityField,
 	ResolvedCapabilityOverrideField,
@@ -152,8 +151,10 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 const serverDeclaredArb: fc.Arbitrary<ServerDeclaredCapabilities> = fc.oneof(
 	fc.constant<ServerDeclaredCapabilities>({ kind: "declared" }),
 	fc
-		.record({ values: serverValuesArb, outputDeclared: fc.boolean() })
-		.map(({ values, outputDeclared }): ServerDeclaredCapabilities => ({ kind: "discovered", values, outputDeclared }))
+		.record({ values: serverValuesArb, defaultMaxTokens: fc.integer({ min: 1, max: 500000 }) })
+		.map(
+			({ values, defaultMaxTokens }): ServerDeclaredCapabilities => ({ kind: "discovered", values, defaultMaxTokens })
+		)
 );
 
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
@@ -375,7 +376,7 @@ interface FrozenCandidate {
  */
 function frozenResolve(input: ResolveModelCapabilitiesInput): {
 	fields: Record<string, EffectiveCapabilityField>;
-	outputLimitSource: EffectiveOutputLimitSource;
+	defaultMaxTokens: number;
 	directive: { kind: "applied" | "not-found"; id: string } | undefined;
 } {
 	const entry = resolveRecordChain(input.rawModelId, input.entryCapabilities ?? {}, frozenParse);
@@ -482,12 +483,13 @@ function frozenResolve(input: ResolveModelCapabilitiesInput): {
 		fields[name] = settle(name, { level: "floor", value: CAPABILITY_FLOOR[name] });
 	}
 	const outputLevel = maxOutputTokens.level;
-	const outputLimitSource: EffectiveOutputLimitSource = USER_SET_LEVELS.some((level) => level === outputLevel)
-		? "user"
-		: outputLevel === "server" && input.serverDeclared.kind === "discovered" && input.serverDeclared.outputDeclared
-			? "provider"
-			: "defaults";
-	return { fields, outputLimitSource, directive };
+	const outputValue = maxOutputTokens.value as number;
+	const defaultMaxTokens = USER_SET_LEVELS.some((level) => level === outputLevel)
+		? outputValue
+		: outputLevel === "server" && input.serverDeclared.kind === "discovered"
+			? input.serverDeclared.defaultMaxTokens
+			: Math.min(4096, outputValue);
+	return { fields, defaultMaxTokens, directive };
 }
 
 function coreOnlyRecords(records: ModelCapabilitiesRecord | undefined): ModelCapabilitiesRecord | undefined {
@@ -513,7 +515,7 @@ function coreOnlyServer(serverDeclared: ServerDeclaredCapabilities): ServerDecla
 		values: Object.fromEntries(
 			Object.entries(serverDeclared.values).filter(([name]) => Object.hasOwn(CAPABILITY_FIELDS, name))
 		) as Partial<ServerCapabilityValues>,
-		outputDeclared: serverDeclared.outputDeclared,
+		defaultMaxTokens: serverDeclared.defaultMaxTokens,
 	};
 }
 
@@ -573,16 +575,12 @@ describe("shared/config capabilityResolution properties", () => {
 					}
 				}
 
-				const expectedSource: EffectiveOutputLimitSource = USER_SET_LEVELS.some(
-					(level) => level === max_output_tokens.level
-				)
-					? "user"
-					: max_output_tokens.level === "server" &&
-							input.serverDeclared.kind === "discovered" &&
-							input.serverDeclared.outputDeclared
-						? "provider"
-						: "defaults";
-				assert.strictEqual(effective.outputLimitSource, expectedSource);
+				const expectedDefault = USER_SET_LEVELS.some((level) => level === max_output_tokens.level)
+					? max_output_tokens.value
+					: max_output_tokens.level === "server" && input.serverDeclared.kind === "discovered"
+						? input.serverDeclared.defaultMaxTokens
+						: Math.min(4096, max_output_tokens.value);
+				assert.strictEqual(effective.defaultMaxTokens, expectedDefault);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
@@ -672,7 +670,7 @@ describe("shared/config capabilityResolution properties", () => {
 				const live = resolveModelCapabilities(restricted);
 				const frozen = frozenResolve(restricted);
 				assert.deepStrictEqual(coreProjection(live.fields), frozen.fields);
-				assert.strictEqual(live.outputLimitSource, frozen.outputLimitSource);
+				assert.strictEqual(live.defaultMaxTokens, frozen.defaultMaxTokens);
 				assert.deepStrictEqual(live.directive, frozen.directive);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
@@ -699,7 +697,7 @@ describe("shared/config capabilityResolution properties", () => {
 					entryCapabilities: withExtras(input.entryCapabilities),
 				});
 				assert.deepStrictEqual(coreProjection(noisy.fields), coreProjection(base.fields));
-				assert.strictEqual(noisy.outputLimitSource, base.outputLimitSource);
+				assert.strictEqual(noisy.defaultMaxTokens, base.defaultMaxTokens);
 				assert.deepStrictEqual(noisy.directive, base.directive);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

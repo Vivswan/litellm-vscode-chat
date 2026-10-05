@@ -35,7 +35,7 @@ const fixture: RenderFixture = {
 							shadowed: [],
 						},
 					],
-					maxTokens: { source: "declared", value: 16384 },
+					maxTokens: { source: "limit", value: 16384 },
 					diagnostics: [],
 				},
 			},
@@ -49,7 +49,7 @@ const fixture: RenderFixture = {
 					// scientific values and the 27-entry params list are what the inspector's capability table has to
 					// stay readable against.
 					fields: worstCaseCapabilityFields(),
-					outputLimitSource: "provider",
+					defaultMaxTokens: 16384,
 					diagnostics: [],
 				},
 			},

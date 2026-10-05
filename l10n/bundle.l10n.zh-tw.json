@@ -1318,7 +1318,7 @@
 	"the key does not report a reset date": "金鑰未回報重設日期",
 	"the last check failed; it retries automatically with increasing delay": "上次檢查失敗; 將自動重試, 且持續失敗時重試間隔會逐漸加長",
 	"the last check failed; use Refresh now to try again": "上次檢查失敗; 請使用「立即重新整理」重試",
-	"the model's declared output limit": "模型宣告的輸出上限",
+	"the model's output limit": "模型的輸出上限",
 	"the model-matching guide": "模型比對指南",
 	"the output limit cut 1 tool call off mid-arguments": "輸出上限在引數途中截斷了 1 個工具呼叫",
 	"the output limit cut {0} tool calls off mid-arguments": "輸出上限在引數途中截斷了 {0} 個工具呼叫",

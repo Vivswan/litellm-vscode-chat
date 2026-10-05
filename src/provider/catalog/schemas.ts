@@ -10,9 +10,6 @@ import { recordFromKeys } from "../../shared/util/json";
  *   unknown keys       -> pass through everywhere
  */
 
-/** Server-declared (safe to send as-is) or filled from the defaults (a guess, so requests stay under the cap). */
-export type OutputLimitSource = "provider" | "defaults";
-
 /**
  * A cost field under this prefix is discovery's long-context tier of the wire cost field it prefixes: LiteLLM
  * reports tiers as `<wire field>_above_<N>k_tokens` keys, never under the tier's own name.
@@ -45,10 +42,10 @@ export type DeclaredPerTokenCosts = { [K in keyof PerTokenCosts]: number };
 
 /**
  * A single underlying provider (e.g. together, groq) for a model: capability metadata read from the LiteLLM API - what
- * the model CAN do, not what we ask it to do. Only `provider` is validated on the wire; discovery authors the internal
- * markers and narrows the four token-limit fields (positive numbers or undefined, by construction) and the cost fields
- * (under the zero-pair no-pricing rule; the long-context tiers never pass through raw), and the remaining fields are
- * typed reads of the passed-through entry.
+ * the model CAN do, not what we ask it to do. Only `provider` is validated on the wire; discovery authors
+ * reasoning_effort_levels and narrows the four token-limit fields (positive numbers or undefined, by construction) and
+ * the cost fields (under the zero-pair no-pricing rule; the long-context tiers never pass through raw), and the
+ * remaining fields are typed reads of the passed-through entry.
  */
 export interface LiteLLMProvider extends PerTokenCosts {
 	provider: string;
@@ -64,12 +61,6 @@ export interface LiteLLMProvider extends PerTokenCosts {
 	max_tokens?: number | undefined;
 	max_input_tokens?: number | undefined;
 	max_output_tokens?: number | undefined;
-	/**
-	 * Set by deployment merging, which stores effective (possibly defaults-derived) limits back into
-	 * max_tokens/max_output_tokens; they count as server-declared only when every merged deployment declared its own.
-	 * Absent on unmerged providers, whose limit fields are the server's.
-	 */
-	output_limit_source?: OutputLimitSource | undefined;
 	supports_prompt_caching?: boolean | null | undefined;
 	supports_response_schema?: boolean | null | undefined;
 	supports_reasoning?: boolean | null | undefined;
@@ -87,8 +78,33 @@ export interface LiteLLMArchitecture {
 	output_modalities?: string[];
 }
 
+/** Which limits some contributor reported; the capability baseline stores a limit only when its flag is on. */
+interface ReportedLimits {
+	readonly context: boolean;
+	readonly input: boolean;
+	readonly output: boolean;
+	/** Any of the three: the input limit is server-grounded whenever anything numeric was reported. */
+	readonly any: boolean;
+}
+
+export interface TokenConstraints {
+	readonly maxOutputTokens: number;
+	/**
+	 * The request's max_tokens when nothing configures one. A declared limit is sent whole; a floor fill is a guess, so
+	 * requests stay under DEFAULT_MAX_TOKENS_CAP while the advertised limit keeps the floor.
+	 */
+	readonly defaultMaxTokens: number;
+	readonly contextLength: number;
+	readonly maxInputTokens: number;
+	readonly reported: ReportedLimits;
+}
+
+/**
+ * A merged deployment set's provider is the deployments' flag and cost merge; its limits are the collapse of every
+ * deployment's own, which that merged record cannot express, so they ride beside it.
+ */
 export type ModelShape =
-	| { readonly kind: "deployment"; readonly provider: LiteLLMProvider }
+	| { readonly kind: "deployment"; readonly provider: LiteLLMProvider; readonly limits: TokenConstraints }
 	| { readonly kind: "bare" }
 	| { readonly kind: "group"; readonly providers: readonly [LiteLLMProvider, ...LiteLLMProvider[]] };
 

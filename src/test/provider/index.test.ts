@@ -15,7 +15,7 @@ import { MirroredError } from "../../shared/mirroredError";
 import type { AggregatedStatus } from "../../shared/servers";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeModelInfo } from "../pureHelpers";
+import { DEFAULT_DISCOVERY_PAYLOAD, deploymentShape, expectDefined, makeModelInfo } from "../pureHelpers";
 import { makeProvider, testGroupServer, userMessage, withConfig } from "../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
@@ -418,7 +418,11 @@ suite("provider", () => {
 			assert.strictEqual(info.family, "perplexity", "display identity still follows the first provider");
 			assert.strictEqual(info.maxOutputTokens, 8000, "the base entry stands for the whole group, so limits collapse");
 			assert.strictEqual(info.maxInputTokens, 64000);
-			assert.strictEqual(info.litellm.outputLimitSource, "provider", "every provider declared its output limit");
+			assert.strictEqual(
+				info.litellm.defaultMaxTokens,
+				8000,
+				"every provider declared a limit, so the collapse is sent whole"
+			);
 			assert.strictEqual(
 				info.litellm.supportsPromptCaching,
 				false,
@@ -431,39 +435,32 @@ suite("provider", () => {
 				[
 					{
 						id: "sole",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0.000003,
-								output_cost_per_token: 0.000015,
-								cache_read_input_token_cost: 0.0000003,
-								cache_creation_input_token_cost: 0.00000375,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 0.000003,
+							output_cost_per_token: 0.000015,
+							cache_read_input_token_cost: 0.0000003,
+							cache_creation_input_token_cost: 0.00000375,
+						}),
 					},
 					{ id: "bare", shape: { kind: "bare" } },
 					{
 						id: "free",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0,
-								output_cost_per_token: 1e308,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 0,
+							output_cost_per_token: 1e308,
+						}),
 					},
 					{
 						// The stamp must arrive through the production /model/info ingest: discovery maps a raw 0/0
 						// pair (and every cost beside it, tiered keys included) to undefined, so registration prices
 						// nothing.
 						id: "stamped",
-						shape: {
-							kind: "deployment",
-							provider: mapModelInfoEntry(
+						shape: deploymentShape(
+							mapModelInfoEntry(
 								expectDefined(
 									parseModelInfoItem({
 										model_name: "stamped",
@@ -476,8 +473,8 @@ suite("provider", () => {
 										},
 									})
 								)
-							).provider,
-						},
+							).provider
+						),
 					},
 					{
 						id: "multi",
@@ -590,32 +587,26 @@ suite("provider", () => {
 				[
 					{
 						id: "tiered",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "anthropic",
-								status: "ok",
-								input_cost_per_token: 0.000003,
-								output_cost_per_token: 0.000015,
-								cache_read_input_token_cost: 0.0000003,
-								long_context_input_cost_per_token: 0.000006,
-								long_context_output_cost_per_token: 0.0000225,
-								long_context_cache_read_input_token_cost: 0.0000003,
-								long_context_cache_creation_input_token_cost: 0.00000375,
-							},
-						},
+						shape: deploymentShape({
+							provider: "anthropic",
+							status: "ok",
+							input_cost_per_token: 0.000003,
+							output_cost_per_token: 0.000015,
+							cache_read_input_token_cost: 0.0000003,
+							long_context_input_cost_per_token: 0.000006,
+							long_context_output_cost_per_token: 0.0000225,
+							long_context_cache_read_input_token_cost: 0.0000003,
+							long_context_cache_creation_input_token_cost: 0.00000375,
+						}),
 					},
 					{
 						id: "overflow",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0.000003,
-								long_context_input_cost_per_token: 1e308,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 0.000003,
+							long_context_input_cost_per_token: 1e308,
+						}),
 					},
 					{
 						id: "multi",
@@ -734,16 +725,15 @@ suite("provider", () => {
 				[
 					{
 						id: "sole",
-						shape: { kind: "deployment", provider: { ...groq, provider: "openai" } },
+						shape: deploymentShape({ ...groq, provider: "openai" }),
 						architecture: { input_modalities: ["text", "image", "pdf"] },
 					},
 					{
 						// Built through the production ingest: the wire 0/0 stamp maps to undefined costs before
 						// registration ever sees the provider.
 						id: "stamped",
-						shape: {
-							kind: "deployment",
-							provider: mapModelInfoEntry(
+						shape: deploymentShape(
+							mapModelInfoEntry(
 								expectDefined(
 									parseModelInfoItem({
 										model_name: "stamped",
@@ -759,15 +749,12 @@ suite("provider", () => {
 										},
 									})
 								)
-							).provider,
-						},
+							).provider
+						),
 					},
 					{
 						id: "negzero",
-						shape: {
-							kind: "deployment",
-							provider: { ...groq, provider: "openai", input_cost_per_token: -0 },
-						},
+						shape: deploymentShape({ ...groq, provider: "openai", input_cost_per_token: -0 }),
 					},
 					{ id: "multi", shape: { kind: "group", providers: [groq, together] } },
 				],
@@ -876,18 +863,15 @@ suite("provider", () => {
 			const { infos } = buildModelInfos(
 				boundaries.map(([perMillion]) => ({
 					id: `m-${perMillion}`,
-					shape: {
-						kind: "deployment" as const,
-						provider: {
-							provider: "openai",
-							status: "ok",
-							input_cost_per_token: perMillion / 1_000_000,
-							output_cost_per_token: perMillion / 1_000_000,
-							// The tier price describes an opt-in regime; it must not move the band.
-							long_context_input_cost_per_token: 1,
-							long_context_output_cost_per_token: 1,
-						},
-					},
+					shape: deploymentShape({
+						provider: "openai",
+						status: "ok",
+						input_cost_per_token: perMillion / 1_000_000,
+						output_cost_per_token: perMillion / 1_000_000,
+						// The tier price describes an opt-in regime; it must not move the band.
+						long_context_input_cost_per_token: 1,
+						long_context_output_cost_per_token: 1,
+					}),
 				})),
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
@@ -910,54 +894,42 @@ suite("provider", () => {
 					// any other mix.
 					{
 						id: "output-heavy",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0,
-								output_cost_per_token: 3.9 / 1_000_000,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 0,
+							output_cost_per_token: 3.9 / 1_000_000,
+						}),
 					},
 					{
 						id: "input-heavy",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 3.9 / 1_000_000,
-								output_cost_per_token: 0,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 3.9 / 1_000_000,
+							output_cost_per_token: 0,
+						}),
 					},
 					{
 						id: "sub-unit",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								// Rounds to 0 in the six-decimal per-million unit.
-								input_cost_per_token: 1e-13,
-								output_cost_per_token: 0.000003,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							// Rounds to 0 in the six-decimal per-million unit.
+							input_cost_per_token: 1e-13,
+							output_cost_per_token: 0.000003,
+						}),
 					},
 					{
 						id: "dust",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								// BOTH sides are sub-unit dust: positive raw costs that slip the 0/0 undeclared check
-								// but round to 0/0.
-								input_cost_per_token: 1e-15,
-								output_cost_per_token: 1e-15,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							// BOTH sides are sub-unit dust: positive raw costs that slip the 0/0 undeclared check
+							// but round to 0/0.
+							input_cost_per_token: 1e-15,
+							output_cost_per_token: 1e-15,
+						}),
 					},
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
@@ -995,15 +967,12 @@ suite("provider", () => {
 				[
 					{
 						id: "free",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0,
-								output_cost_per_token: 0,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 0,
+							output_cost_per_token: 0,
+						}),
 					},
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
@@ -1028,15 +997,12 @@ suite("provider", () => {
 						[
 							{
 								id: "m",
-								shape: {
-									kind: "deployment",
-									provider: {
-										provider: "openai",
-										status: "ok",
-										input_cost_per_token: inputPerToken,
-										output_cost_per_token: outputPerToken,
-									},
-								},
+								shape: deploymentShape({
+									provider: "openai",
+									status: "ok",
+									input_cost_per_token: inputPerToken,
+									output_cost_per_token: outputPerToken,
+								}),
 							},
 						],
 						{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },

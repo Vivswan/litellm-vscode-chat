@@ -5,8 +5,15 @@
  */
 import * as assert from "node:assert";
 import type { PreAttachModelInfo } from "../provider/catalog/groupModels";
+import { deriveTokenConstraints } from "../provider/catalog/modelCatalog";
+import type { LiteLLMProvider, ModelShape } from "../provider/catalog/schemas";
 import { Logger } from "../shared/logger";
 
+export function deploymentShape(provider: LiteLLMProvider): ModelShape {
+	return { kind: "deployment", provider, limits: deriveTokenConstraints(provider) };
+}
+
+/** A Logger over a recording sink: `lines` collects info lines and `ERROR: `-prefixed error lines. */
 export function makeLogger(): { logger: Logger; lines: string[] } {
 	const lines: string[] = [];
 	const logger = new Logger({
@@ -96,8 +103,8 @@ export function makeModelInfo(overrides: Partial<PreAttachModelInfo> = {}): PreA
 		litellm: {
 			rawModelId: id,
 			supportsPromptCaching: false,
-			outputLimitSource: "defaults",
-			serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+			defaultMaxTokens: 4096,
+			serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 4096 },
 		},
 		...overrides,
 	};

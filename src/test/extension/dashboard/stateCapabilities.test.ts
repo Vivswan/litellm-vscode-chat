@@ -242,7 +242,7 @@ suite("extension/dashboard/state: capabilities", () => {
 								litellm: {
 									rawModelId: "my-model",
 									supportsPromptCaching: false,
-									outputLimitSource: "defaults",
+									defaultMaxTokens: 4096,
 									declared: true,
 									serverDeclared: { kind: "declared" },
 								},
@@ -391,7 +391,7 @@ suite("extension/dashboard/state: capabilities", () => {
 				[["global", 111]]
 			);
 			assert.strictEqual(capabilities.fields.supports_vision.level, "floor");
-			assert.strictEqual(capabilities.outputLimitSource, "defaults");
+			assert.strictEqual(capabilities.defaultMaxTokens, 4096, "the floor's output limit is a capped guess");
 		});
 
 		test("a server baseline riding the model metadata resolves at the server level", () => {
@@ -405,11 +405,11 @@ suite("extension/dashboard/state: capabilities", () => {
 							litellm: {
 								rawModelId: "gpt-4",
 								supportsPromptCaching: false,
-								outputLimitSource: "provider",
+								defaultMaxTokens: 500,
 								serverDeclared: {
 									kind: "discovered",
 									values: { context_length: 999, max_output_tokens: 500 },
-									outputDeclared: true,
+									defaultMaxTokens: 500,
 								},
 							},
 						}),
@@ -429,7 +429,7 @@ suite("extension/dashboard/state: capabilities", () => {
 			assert.ok(capabilities !== undefined);
 			assert.strictEqual(capabilities.fields.context_length.value, 999);
 			assert.strictEqual(capabilities.fields.context_length.level, "server");
-			assert.strictEqual(capabilities.outputLimitSource, "provider");
+			assert.strictEqual(capabilities.defaultMaxTokens, 500, "the server level's default is the baseline's");
 		});
 
 		test("a claimed snapshot whose entry label differs from the group's still resolves its models", () => {

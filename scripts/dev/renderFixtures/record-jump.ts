@@ -13,7 +13,7 @@ const fixture: RenderFixture = {
 			payload: {
 				projection: {
 					rows: [],
-					maxTokens: { source: "capped-default", value: 4096 },
+					maxTokens: { source: "capped", value: 4096 },
 					diagnostics: [],
 				},
 			},

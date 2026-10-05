@@ -161,22 +161,20 @@ suite("provider/discovery /v1/models normalization properties", () => {
 		.tuple(
 			fc.dictionary(fc.string({ maxLength: 16 }), fc.jsonValue({ maxDepth: 1 }), { maxKeys: 5 }),
 			fc.dictionary(fc.constantFrom(...WIRE_COST_FIELDS), costValue, { maxKeys: 4 }),
-			fc.constantFrom(undefined, "provider", "defaults", "forged", 42),
 			fc.constantFrom<string | number>("some-provider", 42)
 		)
-		.map(([noise, costs, forgedSource, provider]) => ({
+		.map(([noise, costs, provider]) => ({
 			...noise,
 			...costs,
 			provider,
 			status: "active",
-			...(forgedSource !== undefined ? { output_limit_source: forgedSource } : {}),
 		}));
 
 	const rawModelArb: fc.Arbitrary<RawModelItem> = fc
 		.tuple(fc.string({ minLength: 1, maxLength: 24 }), fc.array(wireProviderArb, { maxLength: 4 }))
 		.map(([id, providers]) => ({ id, providers }));
 
-	test("output_limit_source is unforgeable from the wire and cost fields re-narrow", () => {
+	test("cost fields re-narrow to usable or absent under arbitrary pass-through noise", () => {
 		fc.assert(
 			fc.property(rawModelArb, (raw) => {
 				const model = normalizeModelItem(raw, noLog);
@@ -185,7 +183,6 @@ suite("provider/discovery /v1/models normalization properties", () => {
 					return;
 				}
 				for (const provider of model.shape.providers) {
-					assert.strictEqual(provider.output_limit_source, undefined, "a wire entry must never forge the marker");
 					for (const field of COST_FIELDS) {
 						assertCostFieldUsableOrAbsent(provider, field);
 					}

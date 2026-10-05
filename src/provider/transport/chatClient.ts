@@ -273,7 +273,7 @@ export class ChatClient {
 			runtimeMaxTokens: options.modelOptions?.max_tokens,
 			configuredMaxTokens: modelParams.max_tokens,
 			maxOutputTokens: metadata.maxOutputTokens,
-			outputLimitDeclared: metadata.outputLimitSource !== "defaults",
+			defaultMaxTokens: metadata.defaultMaxTokens,
 		});
 
 		const requestBody = buildRequestBody({

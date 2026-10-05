@@ -116,26 +116,31 @@ suite("provider/request full-pipeline pass-through properties", () => {
 		);
 	});
 
-	test("max_tokens resolves options over parameters over min(4096, model max)", async function () {
+	test("max_tokens resolves options over parameters over the model's request default", async function () {
 		this.timeout(180000);
 		await fc.assert(
 			fc.asyncProperty(
 				fc.option(fc.integer({ min: 1, max: 30000 }), { nil: undefined }),
 				fc.option(fc.integer({ min: 1, max: 30000 }), { nil: undefined }),
 				fc.integer({ min: 100, max: 50000 }),
-				async (optionsMax, paramsMax, modelMax) => {
+				async (optionsMax, paramsMax, modelDefault) => {
 					mswServer.resetHandlers();
+					const base = makeModelInfo();
 					const body = await withConfig(
 						{ "models.parameters": { "test-model": paramsMax !== undefined ? { max_tokens: paramsMax } : {} } },
 						() =>
-							captureRequestBody(createConfiguredProvider(), makeModelInfo({ maxOutputTokens: modelMax }), {
-								toolMode: vscode.LanguageModelChatToolMode.Auto,
-								...(optionsMax !== undefined ? { modelOptions: { max_tokens: optionsMax } } : {}),
-							})
+							captureRequestBody(
+								createConfiguredProvider(),
+								makeModelInfo({ litellm: { ...base.litellm, defaultMaxTokens: modelDefault } }),
+								{
+									toolMode: vscode.LanguageModelChatToolMode.Auto,
+									...(optionsMax !== undefined ? { modelOptions: { max_tokens: optionsMax } } : {}),
+								}
+							)
 					);
-					// The hand-built model info carries no server-declared output limit, so the fallback stays under
-					// the 4096 cap; the declared-uncapped arm is pinned by requestContract.test.ts.
-					const expected = optionsMax ?? paramsMax ?? Math.min(4096, modelMax);
+					// The hand-built model info carries its stamped request default as-is; where that number comes from
+					// (a declared limit, or the cap under a guessed one) is requestContract.test.ts's case table.
+					const expected = optionsMax ?? paramsMax ?? modelDefault;
 					assert.strictEqual(body.max_tokens, expected);
 				}
 			),

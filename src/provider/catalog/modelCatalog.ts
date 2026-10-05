@@ -3,9 +3,10 @@ import {
 	consumedFieldsOfKind,
 	FLOOR_CONTEXT_LENGTH,
 	FLOOR_MAX_OUTPUT_TOKENS,
+	guessedMaxTokensDefault,
 } from "../../shared/config/capabilityResolution";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
-import type { DeclaredPerTokenCosts, LiteLLMProvider, OutputLimitSource, PerTokenCosts } from "./schemas";
+import type { DeclaredPerTokenCosts, LiteLLMProvider, PerTokenCosts, TokenConstraints } from "./schemas";
 
 export function buildExposedModelId(rawModelId: string, serverId: string, serverCount: number): string {
 	if (serverCount <= 1) {
@@ -14,87 +15,50 @@ export function buildExposedModelId(rawModelId: string, serverId: string, server
 	return `${serverId}/${rawModelId}`;
 }
 
-export interface TokenConstraints {
-	maxOutputTokens: number;
-	/** Provenance of maxOutputTokens; only "provider" values may be sent to the server uncapped. */
-	outputLimitSource: OutputLimitSource;
-	contextLength: number;
-	maxInputTokens: number;
-}
-
-/**
- * A minimum taken over several constraints is server-declared only when every contributing limit was: one floor-filled
- * contributor can supply the minimum itself, and its true limit is unknown either way. No contributors at all also
- * means a floor fill, so the helper can never fail open on vacuous input.
- */
-function combinedOutputLimitSource(constraints: readonly TokenConstraints[]): OutputLimitSource {
-	return constraints.length > 0 && constraints.every((c) => c.outputLimitSource === "provider")
-		? "provider"
-		: "defaults";
-}
-
 /**
  * The single home of the fallback rules: an unreported limit falls back to the built-in floor (the same FLOOR_*
- * literals the capability walk floors to), and a missing input limit derives from context minus output. The limit
- * fields are read as-is: discovery narrowed them to positive numbers or undefined at the mapping sites, so no per-read
- * re-normalization exists here.
+ * literals the capability walk floors to), a missing input limit derives from context minus output, and the request
+ * default is decided here, at the floor fill, so no later layer needs to know which number was a guess. The limit
+ * fields are read as-is: discovery narrowed them to positive numbers or undefined at the mapping sites.
  */
 export function deriveTokenConstraints(provider: LiteLLMProvider | undefined): TokenConstraints {
 	const declaredOutputTokens = provider?.max_output_tokens ?? provider?.max_tokens;
 	const maxOutputTokens = declaredOutputTokens ?? FLOOR_MAX_OUTPUT_TOKENS;
-	// Only an exact "defaults" marker demotes, so a passed-through wire field can never promote a floor-derived limit
-	// to server-declared.
-	const outputLimitSource: OutputLimitSource =
-		declaredOutputTokens !== undefined && provider?.output_limit_source !== "defaults" ? "provider" : "defaults";
-
+	const defaultMaxTokens = declaredOutputTokens ?? guessedMaxTokensDefault(FLOOR_MAX_OUTPUT_TOKENS);
 	const contextLength = provider?.context_length ?? FLOOR_CONTEXT_LENGTH;
-
 	const maxInputTokens = provider?.max_input_tokens ?? Math.max(1, contextLength - maxOutputTokens);
-
-	return { maxOutputTokens, outputLimitSource, contextLength, maxInputTokens };
+	const reported = {
+		context: provider?.context_length !== undefined,
+		input: provider?.max_input_tokens !== undefined,
+		output: declaredOutputTokens !== undefined,
+	};
+	return {
+		maxOutputTokens,
+		defaultMaxTokens,
+		contextLength,
+		maxInputTokens,
+		reported: { ...reported, any: reported.context || reported.input || reported.output },
+	};
 }
 
 /**
  * The one home of the min-collapse rule: deployment merging and registration's cheapest/fastest aggregates both
- * advertise through it, so neither can advertise more input than the strictest contributor accepts.
+ * advertise through it, so neither can advertise more input than the strictest contributor accepts. The request
+ * default collapses the same way, which is how one floor-filled contributor keeps the whole set under the cap.
  */
-export function collapseTokenConstraints(
-	contributors: readonly [LiteLLMProvider, ...LiteLLMProvider[]]
-): TokenConstraints {
-	const standalone = contributors.map((provider) => deriveTokenConstraints(provider));
-	return {
-		maxOutputTokens: Math.min(...standalone.map((c) => c.maxOutputTokens)),
-		outputLimitSource: combinedOutputLimitSource(standalone),
-		contextLength: Math.min(...standalone.map((c) => c.contextLength)),
-		maxInputTokens: Math.min(...standalone.map((c) => c.maxInputTokens)),
+export function collapseTokenLimits(limits: readonly [TokenConstraints, ...TokenConstraints[]]): TokenConstraints {
+	const reported = {
+		context: limits.some((c) => c.reported.context),
+		input: limits.some((c) => c.reported.input),
+		output: limits.some((c) => c.reported.output),
 	};
-}
-
-/** Before any floor fill; the same field priority deriveTokenConstraints uses. */
-function reportedOutputTokens(provider: LiteLLMProvider): number | undefined {
-	return provider.max_output_tokens ?? provider.max_tokens;
-}
-
-export interface ReportedLimits {
-	readonly context: boolean;
-	readonly input: boolean;
-	readonly output: boolean;
-	/**
-	 * Any of the three: the input limit is server-grounded whenever anything numeric was reported (see the baseline
-	 * doc).
-	 */
-	readonly any: boolean;
-}
-
-/**
- * The reported-vs-floor-filled judgment for a set of contributors, shared by deployment merging and the capability
- * baseline so the two can never classify one field differently.
- */
-export function reportedLimits(providers: readonly LiteLLMProvider[]): ReportedLimits {
-	const context = providers.some((p) => p.context_length !== undefined);
-	const input = providers.some((p) => p.max_input_tokens !== undefined);
-	const output = providers.some((p) => reportedOutputTokens(p) !== undefined);
-	return { context, input, output, any: context || input || output };
+	return {
+		maxOutputTokens: Math.min(...limits.map((c) => c.maxOutputTokens)),
+		defaultMaxTokens: Math.min(...limits.map((c) => c.defaultMaxTokens)),
+		contextLength: Math.min(...limits.map((c) => c.contextLength)),
+		maxInputTokens: Math.min(...limits.map((c) => c.maxInputTokens)),
+		reported: { ...reported, any: reported.context || reported.input || reported.output },
+	};
 }
 
 const COST_FIELDS = consumedFieldsOfKind("cost");
@@ -149,6 +113,8 @@ export function reportedReasoningLevels(providers: readonly LiteLLMProvider[]): 
 export interface DiscoveredBaselineInput {
 	/** The provider entries backing this registered entry; empty for bare /v1/models entries. */
 	readonly providers: readonly LiteLLMProvider[];
+	/** The limits this entry advertises, as registration derived them for its shape. */
+	readonly limits: TokenConstraints;
 	/** The input modalities exactly when the server supplied the array; undefined means unreported. */
 	readonly modalities: readonly string[] | undefined;
 	/** The toolCalling capability this entry advertises (registration's answer for its shape). */
@@ -169,10 +135,8 @@ export interface DiscoveredBaselineInput {
  * max_input_tokens counts as reported whenever ANY limit was, since re-deriving it from the collapse can overstate it.
  */
 export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): ServerDeclaredCapabilities {
-	const { providers, modalities, toolCalling, reasoning } = input;
-	const [first, ...rest] = providers;
-	const constraints = first === undefined ? undefined : collapseTokenConstraints([first, ...rest]);
-	const reported = reportedLimits(providers);
+	const { providers, limits, modalities, toolCalling, reasoning } = input;
+	const reported = limits.reported;
 	const toolsReported = providers.some((p) => typeof p.supports_tools === "boolean");
 	const reasoningReported = providers.some(
 		(p) => typeof p.supports_reasoning === "boolean" || Array.isArray(p.supported_openai_params)
@@ -182,9 +146,9 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 	const supportedParams = intersectReportedParams(providers);
 	const reasoningLevels = reportedReasoningLevels(providers);
 	const values: Partial<ServerCapabilityValues> = {
-		...(constraints !== undefined && reported.context ? { context_length: constraints.contextLength } : {}),
-		...(constraints !== undefined && reported.any ? { max_input_tokens: constraints.maxInputTokens } : {}),
-		...(constraints !== undefined && reported.output ? { max_output_tokens: constraints.maxOutputTokens } : {}),
+		...(reported.context ? { context_length: limits.contextLength } : {}),
+		...(reported.any ? { max_input_tokens: limits.maxInputTokens } : {}),
+		...(reported.output ? { max_output_tokens: limits.maxOutputTokens } : {}),
 		...(toolsReported ? { supports_function_calling: toolCalling } : {}),
 		...(reasoningReported ? { supports_reasoning: reasoning } : {}),
 		...(modalities !== undefined
@@ -204,5 +168,5 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 		...(reasoningLevels !== undefined ? { reasoning_effort_levels: reasoningLevels } : {}),
 		...(input.costs !== undefined ? serverCostValues(input.costs) : {}),
 	};
-	return { kind: "discovered", values, outputDeclared: constraints?.outputLimitSource === "provider" };
+	return { kind: "discovered", values, defaultMaxTokens: limits.defaultMaxTokens };
 }

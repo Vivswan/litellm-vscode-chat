@@ -114,11 +114,13 @@ function detailFields(
 		{ label: l10n.t("Server"), value: model.serverLabel },
 		{ label: fieldLabel("max_input_tokens"), value: formatTokens(model.maxInputTokens), mono: true },
 		{
-			//   An undeclared limit is a number the extension picked -> worth saying so where the number is read
+			//   A limit the request default sits under is a guess the extension capped -> worth saying so where the
+			//   number is read
 			label: fieldLabel("max_output_tokens"),
-			value: model.outputLimitDeclared
-				? formatTokens(model.maxOutputTokens)
-				: l10n.t("{0} (assumed)", formatTokens(model.maxOutputTokens)),
+			value:
+				model.defaultMaxTokens < model.maxOutputTokens
+					? l10n.t("{0} (assumed)", formatTokens(model.maxOutputTokens))
+					: formatTokens(model.maxOutputTokens),
 			mono: true,
 		},
 	];

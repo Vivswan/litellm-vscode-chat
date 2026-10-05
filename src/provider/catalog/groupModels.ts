@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import type { LanguageModelChatInformation } from "vscode";
 import { ThemeIcon } from "vscode";
-import type { EffectiveOutputLimitSource, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
+import { guessedMaxTokensDefault, type ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
 import { localizedError, type MirroredError } from "../../shared/mirroredError";
 import type {
 	NonSecretOptionalFieldId,
@@ -58,11 +58,10 @@ interface LiteLLMModelMetadataBase {
 	readonly rawModelId: string;
 	readonly supportsPromptCaching: boolean;
 	/**
-	 * Where maxOutputTokens came from.
-	 *   server-declared ("provider") and user-set ("user") -> values escape the request-side cap
-	 *   only "defaults"                                    -> keeps it, because a guessed limit must not be sent as-is
+	 * The request's max_tokens when nothing configures one, decided where the limit was derived (registration, or the
+	 * capability walk on a rebuild); the chat path reads it and applies no cap of its own.
 	 */
-	readonly outputLimitSource: EffectiveOutputLimitSource;
+	readonly defaultMaxTokens: number;
 	/**
 	 * Gates the input_audio message conversion. Optional because model objects round-trip through the host and older
 	 * metadata lacks it (absent reads as false).
@@ -384,7 +383,7 @@ export function attachGroup(info: PreAttachModelInfo, group: string): AttachedMo
 		litellm: {
 			rawModelId: info.litellm.rawModelId,
 			supportsPromptCaching: modelSupportsPromptCaching(info),
-			outputLimitSource: modelOutputLimitSource(info),
+			defaultMaxTokens: modelDefaultMaxTokens(info),
 			supportsAudioInput: modelSupportsAudioInput(info),
 			...(info.litellm.declared === true ? { declared: true } : {}),
 			group,
@@ -430,11 +429,8 @@ export interface ParsedModelMetadata {
 	readonly supportsAudioInput: boolean;
 	/** The registered imageInput capability, re-narrowed like the litellm fields; gates image message conversion. */
 	readonly imageInput: boolean;
-	/**
-	 * Anything but an exact "provider" or "user" (a missing field, an older extension's metadata) keeps the
-	 * conservative cap.
-	 */
-	readonly outputLimitSource: EffectiveOutputLimitSource;
+	/** See LiteLLMModelMetadataBase.defaultMaxTokens. */
+	readonly defaultMaxTokens: number;
 }
 
 /** The group identity is compared with the window's, never derived from, so any usable string is taken as-is. */
@@ -448,7 +444,7 @@ export function parseModelMetadata(model: LiteLLMModelInfo): ParsedModelMetadata
 		supportsPromptCaching: modelSupportsPromptCaching(model),
 		supportsAudioInput: modelSupportsAudioInput(model),
 		imageInput: model.capabilities?.imageInput === true,
-		outputLimitSource: modelOutputLimitSource(model),
+		defaultMaxTokens: modelDefaultMaxTokens(model),
 	};
 }
 
@@ -461,9 +457,18 @@ function modelSupportsAudioInput(model: LiteLLMModelInfo): boolean {
 	return model.litellm?.supportsAudioInput === true;
 }
 
-function modelOutputLimitSource(model: LiteLLMModelInfo): EffectiveOutputLimitSource {
-	const source: unknown = model.litellm?.outputLimitSource;
-	return source === "provider" || source === "user" ? source : "defaults";
+function modelDefaultMaxTokens(model: LiteLLMModelInfo): number {
+	const stamped: unknown = model.litellm?.defaultMaxTokens;
+	if (typeof stamped === "number" && stamped > 0) {
+		return stamped;
+	}
+	// Metadata minted before the stamp existed carries the word the cap decision used to read instead.
+	//   "provider", "user" -> was sent whole
+	//   anything else      -> was capped as a guess
+	const legacy: unknown = isRecord(model.litellm) ? model.litellm.outputLimitSource : undefined;
+	return legacy === "provider" || legacy === "user"
+		? model.maxOutputTokens
+		: guessedMaxTokensDefault(model.maxOutputTokens);
 }
 
 /** The host never hands the group NAME to the extension, so the URL host stands in. */

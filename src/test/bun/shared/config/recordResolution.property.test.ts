@@ -400,15 +400,15 @@ describe("shared/config resolutionTable equivalence", () => {
 			.record({
 				context_length: fc.option(fc.integer({ min: 1, max: 500000 }), { nil: undefined }),
 				max_output_tokens: fc.option(fc.integer({ min: 1, max: 500000 }), { nil: undefined }),
-				outputDeclared: fc.boolean(),
+				defaultMaxTokens: fc.integer({ min: 1, max: 500000 }),
 			})
-			.map(({ context_length, max_output_tokens, outputDeclared }) => ({
+			.map(({ context_length, max_output_tokens, defaultMaxTokens }) => ({
 				kind: "discovered" as const,
 				values: {
 					...(context_length !== undefined ? { context_length } : {}),
 					...(max_output_tokens !== undefined ? { max_output_tokens } : {}),
 				},
-				outputDeclared,
+				defaultMaxTokens,
 			}))
 	);
 

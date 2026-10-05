@@ -54,15 +54,19 @@ suite("provider/discovery deployment merge properties", () => {
 				);
 				const first = expectDefined(deployments[0]);
 				const merged = mergeModelDeployments([first, ...deployments.slice(1)]);
-				const mergedConstraints = deriveTokenConstraints(merged.provider);
+				const mergedConstraints = merged.limits;
 
 				for (const [index, deployment] of deployments.entries()) {
-					const standalone = deriveTokenConstraints(deployment.provider);
+					const standalone = deployment.limits;
 					const detail = `deployment ${index}: merged ${JSON.stringify(mergedConstraints)} vs standalone ${JSON.stringify(standalone)}`;
 					assert.ok(mergedConstraints.maxInputTokens <= standalone.maxInputTokens, `maxInputTokens exceeds ${detail}`);
 					assert.ok(
 						mergedConstraints.maxOutputTokens <= standalone.maxOutputTokens,
 						`maxOutputTokens exceeds ${detail}`
+					);
+					assert.ok(
+						mergedConstraints.defaultMaxTokens <= standalone.defaultMaxTokens,
+						`defaultMaxTokens exceeds ${detail}`
 					);
 					assert.ok(mergedConstraints.contextLength <= standalone.contextLength, `contextLength exceeds ${detail}`);
 				}
@@ -72,8 +76,8 @@ suite("provider/discovery deployment merge properties", () => {
 	});
 
 	test("group entries never advertise more than the relevant providers' standalone constraints", () => {
-		// Registration aggregates and the untooled base entry collapse through the same collapseTokenConstraints home
-		// as deployment merging, so an inline formula (the shipped context-minus-output bug) fails here.
+		// Registration aggregates and the untooled base entry collapse through the same collapseTokenLimits home as
+		// deployment merging, so an inline formula (the shipped context-minus-output bug) fails here.
 		fc.assert(
 			fc.property(fc.array(providerArb, { minLength: 1, maxLength: 5 }), (providers) => {
 				const first = expectDefined(providers[0]);
