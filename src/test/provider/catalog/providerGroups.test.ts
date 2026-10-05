@@ -1449,13 +1449,19 @@ suite("provider groups: capability overrides and declared models", () => {
 			"an unexpected non-silent failure serves the declared set too"
 		);
 		const status = expectDefined(expectDefined(statuses.at(-1)).serverStatuses[0]);
-		assert.strictEqual(status.state, "error", "the failure is still recorded");
-		assert.strictEqual(status.state === "error" && status.expected, undefined, "and stays unexpected");
-		assert.strictEqual(status.state === "error" && status.declaredModelCount, 2);
+		assert.ok(status.state === "error", "the failure is still recorded");
+		assert.strictEqual(status.expected, undefined, "and stays unexpected");
+		assert.strictEqual(status.classification?.kind, "http");
+		assert.strictEqual(status.classification?.status, 500, "the record carries the HTTP 500 classification");
+		assert.strictEqual(status.declaredModelCount, 2);
 		assert.strictEqual(status.servedModelCount, 2, "recorded is what is served");
 
 		state.declared = [];
-		await assert.rejects(serve(), (e: unknown) => e instanceof Error, "with nothing declared the failure throws");
+		await assert.rejects(
+			serve(),
+			(e: unknown) => e instanceof RequestError && e.status === 500 && publicErrorText(e) === status.logSafeError,
+			"with nothing declared the same classified failure throws"
+		);
 	});
 
 	test("a non-silent expected failure with a stale anchor records exactly the declared set it returns", async () => {
