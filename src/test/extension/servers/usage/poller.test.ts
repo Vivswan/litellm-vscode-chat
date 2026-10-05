@@ -581,6 +581,39 @@ suite("extension/servers/usage poller", () => {
 		assert.ok(last?.kind === "updated" && last.newlyCrossedThresholds.includes(0.5));
 	});
 
+	test("a pass that carries the key forward never alerts: a threshold edit waits for the next fetch", async () => {
+		// Cached spend 80 of 100 with 0.5 and 0.75 crossed; the user adds 0.79 and the next pass cannot read the
+		// secrets. The carried key crossed the new threshold against the stored list and the alert toasted without
+		// a fetch, the shape applyConfiguration exists to prevent.
+		let secretsReadable = true;
+		const h = makeHarness({
+			intervalMs: 0,
+			readSecrets: () =>
+				secretsReadable ? Promise.resolve({ values: {}, owners: {} }) : Promise.reject(new Error("store broken")),
+		});
+		h.setThresholds([0.5, 0.75]);
+		h.client.keyInfoResult = { ...KEY_OK, spend: 80, maxBudget: 100 };
+		await h.poller.refreshNow();
+		assert.deepStrictEqual(stateOf(h, "alpha").budget.crossedThresholds, [0.5, 0.75]);
+
+		h.setThresholds([0.5, 0.75, 0.79]);
+		h.poller.applyConfiguration();
+		secretsReadable = false;
+		const fetchesBefore = h.client.calls.keyInfo;
+		await h.poller.refreshNow();
+		assert.strictEqual(h.client.calls.keyInfo, fetchesBefore, "the pass skipped the key fetch");
+		const carried = h.events.at(-1);
+		assert.ok(carried?.kind === "updated");
+		assert.deepStrictEqual([...carried.newlyCrossedThresholds], [], "no fetch, no alert");
+		assert.deepStrictEqual(carried.state.budget.crossedThresholds, [0.5, 0.75], "the stored crossings wait");
+
+		secretsReadable = true;
+		await h.poller.refreshNow();
+		const fetched = h.events.at(-1);
+		assert.ok(fetched?.kind === "updated");
+		assert.deepStrictEqual([...fetched.newlyCrossedThresholds], [0.79], "the fetch after the edit alerts once");
+	});
+
 	test("applyServersChange prunes removed servers and re-probes the rest when polling is on", async () => {
 		const h = makeHarness({
 			intervalMs: 300_000,

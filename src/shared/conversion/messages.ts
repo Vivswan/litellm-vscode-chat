@@ -104,7 +104,7 @@ interface ToolResultContent {
 function collectToolResultContent(
 	pr: vscode.LanguageModelToolResultPart,
 	gates: DataPartWireGates,
-	log?: LogFn
+	logDrop: LogFn
 ): ToolResultContent {
 	const images: OpenAIChatImageUrlContentBlock[] = [];
 	let text = "";
@@ -118,12 +118,12 @@ function collectToolResultContent(
 			} else if (wire.form === "image") {
 				images.push(imageDataPartToBlock(c));
 			} else if (isImageMimeType(c.mimeType)) {
-				log?.("Tool returned image data which cannot be forwarded as tool result text");
+				logDrop("Tool returned image data which cannot be forwarded as tool result text");
 			} else {
-				// PDF and audio blocks exist only on user messages, so the drop must stay observable like the
-				// non-vision image case above. The mime is tool-controlled and this log feeds the issue-report buffer,
-				// so it is allowlisted by shape.
-				log?.("Tool returned media with no tool-result wire mapping", {
+				// PDF and audio blocks exist only on user messages, so the drop is logged like the non-vision image case
+				// above (through the caller's once-per-conversion flag). The mime is tool-controlled and this log feeds the
+				// issue-report buffer, so it is allowlisted by shape.
+				logDrop("Tool returned media with no tool-result wire mapping", {
 					mimeType: isSafeMimeType(c.mimeType) ? c.mimeType : "unparseable",
 				});
 			}
@@ -269,8 +269,15 @@ export function convertMessages(
 			}
 		}
 	};
-	// A media-heavy history would otherwise evict the whole issue-report buffer on every turn.
+	// A media-heavy history would otherwise evict the whole issue-report buffer on every turn: one drop log per
+	// conversion, whether the part rode a tool result or a turn of its own.
 	let loggedDroppedDataPart = false;
+	const logDroppedDataPart: LogFn = (message, data) => {
+		if (!loggedDroppedDataPart) {
+			loggedDroppedDataPart = true;
+			log?.(message, data);
+		}
+	};
 	// One pairing decides every wire id; validation rejects on the same analysis, so both halves of a pair always ship
 	// the same id.
 	const pairing = pairToolCallIds(messages);
@@ -300,7 +307,7 @@ export function convertMessages(
 			} else if (isToolResultPart(part)) {
 				toolResults.push({
 					callId: pairing.wireIds.get(wireIdKey(messageIndex, partIndex)) ?? part.callId,
-					content: collectToolResultContent(part, gates, log),
+					content: collectToolResultContent(part, gates, logDroppedDataPart),
 				});
 			} else if (part instanceof vscode.LanguageModelDataPart) {
 				// Only user messages carry binary content blocks on the wire, so assistant-side media resolves to
@@ -321,13 +328,10 @@ export function convertMessages(
 					} else {
 						// The mime is model-controlled on assistant turns and this log feeds the issue-report buffer,
 						// so it is allowlisted by shape.
-						if (!loggedDroppedDataPart) {
-							loggedDroppedDataPart = true;
-							log?.("Skipping LanguageModelDataPart with no wire mapping", {
-								role,
-								mimeType: isSafeMimeType(part.mimeType) ? part.mimeType : "unparseable",
-							});
-						}
+						logDroppedDataPart("Skipping LanguageModelDataPart with no wire mapping", {
+							role,
+							mimeType: isSafeMimeType(part.mimeType) ? part.mimeType : "unparseable",
+						});
 					}
 				}
 			} else if (part instanceof vscode.LanguageModelPromptTsxPart) {

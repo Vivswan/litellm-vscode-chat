@@ -441,6 +441,7 @@ export class UsagePoller {
 		// explicit re-probe of a still-broken server does not re-log its classification.
 		const logBaseline: UsageEndpointStates = sameServer ? previous.endpoints : UNPROBED_ENDPOINTS;
 		let key: KeyUsage | undefined = sameServer ? previous.key : undefined;
+		let keyFetched = false;
 		let daily: DailyUsage | undefined = sameServer ? previous.daily : undefined;
 		let user: UserUsage | undefined = sameServer ? previous.user : undefined;
 		let lastUpdatedAt = sameServer ? previous.lastUpdatedAt : undefined;
@@ -490,6 +491,7 @@ export class UsagePoller {
 			if (this.shouldAttempt(entry.label, "keyInfo", endpoints.keyInfo)) {
 				try {
 					key = await this.env.client.fetchKeyInfo(connection, this.abort.signal);
+					keyFetched = true;
 					endpoints.keyInfo = { kind: "ok" };
 					succeededAny = true;
 					this.clearStreak(entry.label, "keyInfo");
@@ -576,17 +578,22 @@ export class UsagePoller {
 		if (!stillDeclaredIn(this.env.readServersSetting())(entry.label)) {
 			return undefined;
 		}
-		const budget = resolveBudget({
+		const resolved = resolveBudget({
 			entryBudget: entry.budget,
 			keyBudget: key?.maxBudget,
 			spend: key?.spend,
 			budgetResetAt: key?.budgetResetAt,
 			thresholds,
 		});
-		// A re-pointed entry compares against a clean slate: its previous crossings belong to another server, and an
-		// also-over-budget new server must still alert.
-		const crossedBefore = sameServer && previous !== undefined ? previous.budget.crossedThresholds : [];
-		const newly = newlyCrossedThresholds(crossedBefore, budget.crossedThresholds);
+		// Alerts evaluate on fetches only (docs/usage.md), the contract applyConfiguration keeps by leaving stored
+		// crossings alone, so a threshold edit toasts on the next fetch and never from cached data.
+		//   key fetched       -> diff against the stored crossings
+		//   key carried       -> crossings kept, nothing newly crossed (unreadable secrets, backoff, a failed call)
+		//   re-pointed entry  -> clean slate: the old crossings belong to another server
+		const budget =
+			keyFetched || !sameServer ? resolved : { ...resolved, crossedThresholds: previous.budget.crossedThresholds };
+		const crossedBefore = sameServer ? previous.budget.crossedThresholds : [];
+		const newly = keyFetched ? newlyCrossedThresholds(crossedBefore, budget.crossedThresholds) : [];
 		// Reset or all-failed standings can compute "unknown", which would silently drop a card the user was looking
 		// at. Once this server proved availability, only a permanent both-endpoints-unavailable verdict may hide it
 		// again.
