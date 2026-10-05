@@ -1417,36 +1417,45 @@ suite("provider groups: capability overrides and declared models", () => {
 		);
 	});
 
-	test("a non-silent expected failure returns the declared set instead of throwing; unexpected still throws", async () => {
-		const expectIt = { value: true };
+	test("a non-silent discovery failure serves the declared set, expected or not; only an empty set throws", async () => {
+		// The docs/servers.md declared-models contract: a declared model registers through any discovery failure.
+		const state = { expected: true, declared: ["gw-model", "gw-model-2"] as readonly string[] };
 		const provider = makeProvider(undefined, "test-key", undefined, {
-			getExpectedFailures: () => (expectIt.value ? ["modelInfo", "modelListing"] : undefined),
-			getEntryDeclaredModels: () => ["gw-model"],
+			getExpectedFailures: () => (state.expected ? ["modelInfo", "modelListing"] : undefined),
+			getEntryDeclaredModels: () => state.declared,
 		});
+		const statuses: AggregatedStatus[] = [];
+		provider.setStatusCallback((status) => statuses.push(status));
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => emptyErrorResponse(500)),
 			http.get(MODELS_URL, () => emptyErrorResponse(500))
 		);
-
-		const served = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" }, false),
-			cancellation()
-		);
-		assert.deepStrictEqual(
-			served.map((info) => info.id),
-			["gw-model"],
-			"Test Connection on an expected failure serves the declared set"
-		);
-
-		expectIt.value = false;
-		await assert.rejects(
+		const serve = () =>
 			provider.provideLanguageModelChatInformation(
 				groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" }, false),
 				cancellation()
-			),
-			(e: unknown) => e instanceof Error,
-			"an unexpected non-silent failure still throws"
+			);
+
+		assert.deepStrictEqual(
+			(await serve()).map((info) => info.id),
+			["gw-model", "gw-model-2"],
+			"Test Connection on an expected failure serves the declared set"
 		);
+
+		state.expected = false;
+		assert.deepStrictEqual(
+			(await serve()).map((info) => info.id),
+			["gw-model", "gw-model-2"],
+			"an unexpected non-silent failure serves the declared set too"
+		);
+		const status = expectDefined(expectDefined(statuses.at(-1)).serverStatuses[0]);
+		assert.strictEqual(status.state, "error", "the failure is still recorded");
+		assert.strictEqual(status.state === "error" && status.expected, undefined, "and stays unexpected");
+		assert.strictEqual(status.state === "error" && status.declaredModelCount, 2);
+		assert.strictEqual(status.servedModelCount, 2, "recorded is what is served");
+
+		state.declared = [];
+		await assert.rejects(serve(), (e: unknown) => e instanceof Error, "with nothing declared the failure throws");
 	});
 
 	test("a non-silent expected failure with a stale anchor records exactly the declared set it returns", async () => {
