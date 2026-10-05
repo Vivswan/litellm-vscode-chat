@@ -80,6 +80,20 @@ function usableString(value: unknown): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/** A wrong-shaped slot is a diagnostic, never a rejection: the entry stays usable, like apiVersion and budget. */
+function objectSlot(
+	record: Record<string, unknown>,
+	key: "headers" | "models" | "discovery",
+	report: (what: string) => void
+): Record<string, unknown> | undefined {
+	const value = record[key];
+	if (value === undefined || isRecord(value)) {
+		return value;
+	}
+	report(`has a ${key} value that is not an object, ignored`);
+	return undefined;
+}
+
 /** An entry's manual usage budget in USD: finite and above zero (a zero budget could only read as fully spent). */
 function usableBudget(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
@@ -470,45 +484,43 @@ function acceptEntries(
 			}
 		}
 
-		if (record.headers !== undefined) {
+		const headers = objectSlot(record, "headers", report);
+		if (headers !== undefined) {
 			// Header names are structural configuration (the same class the request-path narrowing logs); values never
 			// enter the report.
-			const headers = normalizeCustomHeaders(record.headers, (message, data) => {
+			const normalized = normalizeCustomHeaders(headers, (message, data) => {
 				const name = isRecord(data) && typeof data.name === "string" ? ` ("${data.name}")` : "";
 				report(`headers: ${message}${name}`);
 			});
-			if (Object.keys(headers).length > 0) {
-				entry.headers = headers;
+			if (Object.keys(normalized).length > 0) {
+				entry.headers = normalized;
 			}
 		}
 
-		// The models records are lenient like the global settings' own normalization: non-record values and malformed
-		// sub-entries drop silently, and an empty result reads as absent. The capability vocabulary is enforced
-		// downstream by parseCapabilityRecord.
-		if (record.models !== undefined && !isRecord(record.models)) {
-			report("has a models value that is not an object, ignored");
-		} else if (isRecord(record.models)) {
+		// The models records are lenient like the global settings' own normalization: a wrong-shaped parameters or
+		// capabilities value and malformed sub-entries drop silently, and an empty result reads as absent. The
+		// capability vocabulary is enforced downstream by parseCapabilityRecord.
+		const models = objectSlot(record, "models", report);
+		if (models !== undefined) {
 			// Named on purpose, like the unknown auth keys: a typo silently reading as "no per-entry records" would be
 			// invisible.
-			for (const key of Object.keys(record.models)) {
+			for (const key of Object.keys(models)) {
 				if (key !== "parameters" && key !== "capabilities") {
 					report(`has an unknown models key "${key}", ignored`);
 				}
 			}
-			const modelParameters = normalizeModelParameters(record.models.parameters);
+			const modelParameters = normalizeModelParameters(models.parameters);
 			if (Object.keys(modelParameters).length > 0) {
 				entry.modelParameters = modelParameters;
 			}
-			const modelCapabilities = normalizeModelCapabilities(record.models.capabilities);
+			const modelCapabilities = normalizeModelCapabilities(models.capabilities);
 			if (Object.keys(modelCapabilities).length > 0) {
 				entry.modelCapabilities = modelCapabilities;
 			}
 		}
 
-		if (record.discovery !== undefined && !isRecord(record.discovery)) {
-			report("has a discovery value that is not an object, ignored");
-		} else if (isRecord(record.discovery)) {
-			const discovery = record.discovery;
+		const discovery = objectSlot(record, "discovery", report);
+		if (discovery !== undefined) {
 			// Named on purpose: a typo silently reading as "no expected failures", "nothing declared", or "nothing
 			// included" would be invisible.
 			for (const key of Object.keys(discovery)) {

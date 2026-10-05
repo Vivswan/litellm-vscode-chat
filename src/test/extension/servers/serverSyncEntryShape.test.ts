@@ -234,6 +234,20 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 			);
 		});
 
+		test("a headers, models, or discovery slot that is not an object is reported under one rule and applies nothing", () => {
+			const cases: { slot: string; field: keyof DeclaredServer }[] = [
+				{ slot: "headers", field: "headers" },
+				{ slot: "models", field: "modelParameters" },
+				{ slot: "discovery", field: "declaredModels" },
+			];
+			for (const { slot, field } of cases) {
+				const { entries, problems } = parseOne({ [slot]: "oops" });
+				assert.strictEqual(entries.length, 1, `${slot}: a wrong-shaped slot is a diagnostic, not a rejection`);
+				assert.ok(!(field in (entries[0] ?? {})), `${slot}: nothing from the slot applies`);
+				assert.deepStrictEqual(problems, [`entry 1 has a ${slot} value that is not an object, ignored`]);
+			}
+		});
+
 		test("discovery.declared keeps usable exact IDs, deduplicated; junk entries are counted", () => {
 			const { entries, problems } = parseOne({
 				discovery: { declared: ["deepseek-r1", "deepseek-r1", "  ", 42, "qwen"] },

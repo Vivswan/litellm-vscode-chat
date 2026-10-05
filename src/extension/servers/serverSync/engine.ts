@@ -623,11 +623,17 @@ export class ServerSyncEngine implements vscode.Disposable {
 			const retryState = this.retry.get(entry.label);
 			// The host serving the label's one group at the entry's own URL proves that group IS this entry's identity
 			// (groupIdentityArgs covers nothing else; credentials overlay at serve time), so a duplicate refusal with
-			// no matching record is the add-only steady state, not a conflict (#398).
+			// no matching record is the add-only steady state, not a conflict (#398). Served at another URL, the same
+			// observation outranks a matching record: the record pins the add this window made under the name, and a
+			// group re-pointed natively in chatLanguageModels.json keeps the name while it serves elsewhere.
 			//
-			//   entry removed, then re-added  -> the removal pruned its records while the hidden group kept serving
-			//   records lost (new profile)    -> same evidence, same verdict
-			const servedAsDeclared = this.soleObservedBaseUrl(entry.label) === normalizeBaseUrl(entry.baseUrl);
+			//   entry removed, then re-added               -> its records were pruned while the hidden group kept serving
+			//   records lost (new profile)                 -> same evidence, same verdict
+			//   record matches, group seen at another URL  -> blocked, not in sync
+			const observed = this.soleObservedBaseUrl(entry.label);
+			const servedAsDeclared = observed === normalizeBaseUrl(entry.baseUrl);
+			const recordConfirms = (record: string | undefined) =>
+				record === printed && (observed === undefined || servedAsDeclared);
 			if (secretsUnreadable) {
 				//   no host call and no retry bookkeeping (the stored retry state stays put on purpose)
 				//     -> last-known-good carries
@@ -650,7 +656,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else if (
 				!force &&
-				previous[entry.label] === printed &&
+				recordConfirms(previous[entry.label]) &&
 				!(retryState?.kind === "upsertFailed" && retryState.fingerprint === printed)
 			) {
 				next[entry.label] = printed;
@@ -706,7 +712,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 						//   a stale read can only UNDER-report, never invent a matching fingerprint
 						//     -> the asymmetry is load-bearing
 						const storeRecord = this.env.getFingerprints()[entry.label];
-						const confirmed = previous[entry.label] === printed || storeRecord === printed || servedAsDeclared;
+						const confirmed = recordConfirms(previous[entry.label]) || recordConfirms(storeRecord) || servedAsDeclared;
 						if (confirmed) {
 							// Not logged for that reason.
 							//

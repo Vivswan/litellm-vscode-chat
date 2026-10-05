@@ -1131,6 +1131,34 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			}
 		});
 
+		test("a natively re-pointed group reads as blocked: the record proves the add, not the served group", async () => {
+			// Prod synced at a.test; the user edits chatLanguageModels.json (the file the blocked message names) to point
+			// Prod at b.test and reloads. The entry is unchanged, so its fingerprint still matches the record while the
+			// host serves the label elsewhere, and both reload passes must read the observation over the record.
+			//
+			//   activation          -> forced pass
+			//   the group's report  -> unforced pass
+			for (const force of [true, false]) {
+				const entry = { label: "Prod", baseUrl: "http://a.test" };
+				const recorded = makeSyncEnv([entry]);
+				await new ServerSyncEngine(recorded.env).syncNow();
+				recorded.duplicateLabels.add("Prod");
+				recorded.observedGroups = { Prod: ["http://b.test"] };
+				const hostCalls = countHostCalls(recorded);
+
+				const reloaded = new ServerSyncEngine(recorded.env);
+				await reloaded.syncNow(force);
+				assert.deepStrictEqual(
+					reloaded.getDeclared()[0]?.syncFailure,
+					{ class: "blocked", message: GROUP_UPDATE_UNAVAILABLE_MESSAGE },
+					`force=${force}: the host's duplicate answer is a conflict while the group serves another URL`
+				);
+				await reloaded.syncNow();
+				assert.strictEqual(reloaded.getDeclared()[0]?.syncFailure?.class, "blocked", `force=${force}: stays blocked`);
+				assert.strictEqual(hostCalls.count, 1, `force=${force}: one refusal; the unforced follow-up makes no call`);
+			}
+		});
+
 		test("a stale fingerprint re-read cannot misclassify the engine's own group as a name conflict", async () => {
 			// The engine's session map is in-memory and the persisted map only seeds the first pass: a stale re-read
 			// must not make the engine re-add its own group and read the duplicate rejection as a foreign name
