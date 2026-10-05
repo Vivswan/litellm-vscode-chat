@@ -130,14 +130,8 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - name: Set up development environment (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: bun run setup-env:pwsh
-
-      - name: Set up development environment (Unix)
-        if: runner.os != 'Windows'
-        run: bash scripts/env/setup-env.sh
+      - name: Set up development environment
+        run: bun scripts/env/setup-env.ts
 
       - name: Lint
         run: bun run lint

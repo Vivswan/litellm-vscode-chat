@@ -99,7 +99,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Set up development environment
-        run: bash scripts/env/setup-env.sh
+        run: bun scripts/env/setup-env.ts
 
       - name: Cache the VS Code build
         uses: ./.github/actions/vscode-test-cache
@@ -136,7 +136,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Set up development environment
-        run: bash scripts/env/setup-env.sh
+        run: bun scripts/env/setup-env.ts
 
       - name: Cache the VS Code build
         uses: ./.github/actions/vscode-test-cache
@@ -170,7 +170,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Set up development environment
-        run: bash scripts/env/setup-env.sh
+        run: bun scripts/env/setup-env.ts
 
       - name: Sweep the render fixtures for horizontal overflow
         env:
@@ -200,7 +200,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Set up development environment
-        run: bash scripts/env/setup-env.sh
+        run: bun scripts/env/setup-env.ts
 
       - name: Sweep the state pairs for geometry drift
         env:
@@ -301,7 +301,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Set up development environment
-        run: bash scripts/env/setup-env.sh
+        run: bun scripts/env/setup-env.ts
 
       - name: Typecheck all four tsconfig projects
         run: bun run typecheck

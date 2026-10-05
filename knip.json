@@ -25,7 +25,6 @@
 		"tailwindcss"
 	],
 	"ignoreBinaries": [
-		"pwsh",
 		"down",
 		"logs"
 	]

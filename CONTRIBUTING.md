@@ -32,20 +32,12 @@ Participation in this project is governed by the [Contributor Covenant](https://
 
 ## Setup
 
-On macOS, Linux, or any shell with Bash available:
+One script on every OS; it installs the pinned dependencies (`--verify` also compiles and lints, `--full` also tests):
 
 ```bash
 git clone https://github.com/<your-fork>/litellm-vscode-chat.git
 cd litellm-vscode-chat
 bun run setup-env
-```
-
-On Windows without Bash, use PowerShell instead:
-
-```powershell
-git clone https://github.com/<your-fork>/litellm-vscode-chat.git
-cd litellm-vscode-chat
-bun run setup-env:pwsh
 ```
 
 ## Running checks

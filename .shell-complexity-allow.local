@@ -1,5 +1,0 @@
-# Paths exempt from the check-shell-complexity action, one per line, relative to the repository root, each with a
-# `# reason` on the same line. Repo-owned: sync never touches this file. An entry whose file has no refused construct
-# left fails the check as stale.
-scripts/env/setup-env.sh # the dependency bootstrap every workflow and the devcontainer run before bun install; it is what reports a missing bun
-scripts/env/setup-env.ps1 # the Windows twin of setup-env.sh, same bootstrap role
