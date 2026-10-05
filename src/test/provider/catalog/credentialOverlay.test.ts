@@ -126,14 +126,19 @@ suite("provider credential overlay", () => {
 			assert.strictEqual(statuses[0]?.logSafeError, EXPECTED_CLASSIFICATION, `${name}: the log rendering`);
 			assert.strictEqual(statuses[0]?.servedModelCount, 0);
 			assert.strictEqual(classifyOverall(statuses), "error", `${name}: the window is not connected`);
-			assert.strictEqual(
-				lines.filter(
-					(line) =>
-						line.startsWith("ERROR: Model discovery failed for provider group") &&
-						line.includes('"kind": "unclassified"')
-				).length,
-				2,
-				`${name}: the facade logs each failed serve once, at error level, with no transport kind to name`
+			// The silent serve, then the throwing one: each logs the whole failure line once, at error level, with no
+			// transport kind to name.
+			assert.deepStrictEqual(
+				lines.filter((line) => line.startsWith("ERROR: ")),
+				[true, false].map(
+					(silent) =>
+						`ERROR: Model discovery failed for provider group: ${JSON.stringify(
+							{ expected: false, silent, kind: "unclassified" },
+							null,
+							2
+						)}`
+				),
+				`${name}: the facade's failure lines`
 			);
 		}
 	});

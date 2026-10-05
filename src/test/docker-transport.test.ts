@@ -528,13 +528,18 @@ function wrongMasterKeySuite(): void {
 			// asserts holds on v1.99.1 too), so the refresh failure logs the auth kind with status 401. The DB-LESS
 			// v1.93 proxy answered 400 instead (a BadRequestError wrapping an auth_error body); if a stack change
 			// resurfaces that shape, repin this to kind "http" with status 400.
+			// The whole line, bar the serve mode: the host decides which refresh
+			// pass meets the gate first.
+			const authLines = [true, false].map(
+				(silent) =>
+					`ERROR: Model discovery failed for provider group: ${JSON.stringify(
+						{ expected: false, silent, kind: "auth", status: 401 },
+						null,
+						2
+					)}`
+			);
 			assert.ok(
-				logs.some(
-					(line) =>
-						line.includes("Model discovery failed for provider group") &&
-						line.includes('"kind": "auth"') &&
-						line.includes('"status": 401')
-				),
+				logs.some((line) => authLines.some((authLine) => line.endsWith(authLine))),
 				"the gate's 401 must land in the buffer as the auth classification"
 			);
 			for (const line of logs) {

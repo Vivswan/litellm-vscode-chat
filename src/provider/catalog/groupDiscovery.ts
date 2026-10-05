@@ -88,7 +88,10 @@ export interface GroupDiscoveryOptions {
 	// Facade-bound log callbacks: this module logs only through them, so the provider facade stays the single logging
 	// boundary.
 	log: (message: string, data?: unknown) => void;
-	/** The error-level line for an unexpected failure: `data` is what the channel shows, `error` what the report records. */
+	/**
+	 * The error-level line for an unexpected failure: `data` is what the channel shows, `error` what the report
+	 * records.
+	 */
 	logFailure: (message: string, data: unknown, error: unknown) => void;
 }
 
