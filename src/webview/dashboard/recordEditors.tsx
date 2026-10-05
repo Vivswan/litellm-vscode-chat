@@ -251,13 +251,14 @@ function seededJson(value: unknown): JsonDraft {
 }
 
 /**
- * JSON.stringify with object keys sorted at every level (by code unit - a total order, unlike locale collation), so
- * records that differ only in key order compare equal.
+ * Field order inside a record is no change, so those keys sort (by code unit - a total order, unlike locale
+ * collation); the matcher map keeps its order, because a later regex key beats an earlier one
+ * (src/shared/config/modelMatcher.ts compareSpecificity). The root is told by identity: a nested field may be named "".
  */
 function canonicalKey(value: unknown): string {
 	return (
 		JSON.stringify(value, (_key, inner: unknown) =>
-			inner !== null && typeof inner === "object" && !Array.isArray(inner)
+			inner !== value && inner !== null && typeof inner === "object" && !Array.isArray(inner)
 				? Object.fromEntries(
 						Object.entries(inner as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 					)

@@ -757,9 +757,13 @@ export function ModelInspector({
 						onEditRecord("capabilities", key, false);
 					}
 				};
-	//   A configured max_tokens -> is real configuration even though it renders on the derivation line
+	// A configured or forced max_tokens is real configuration even though it renders on the derivation line, not as a
+	// row.
 	const paramsEmpty =
-		projection !== undefined && projection.rows.length === 0 && projection.maxTokens.source !== "configured";
+		projection !== undefined &&
+		projection.rows.length === 0 &&
+		projection.maxTokens.source !== "configured" &&
+		projection.maxTokens.source !== "forced";
 	const sentCount = projection === undefined ? 0 : projection.rows.filter((row) => row.sent).length;
 	const maxTokens = projection === undefined ? undefined : maxTokensParts(projection.maxTokens);
 

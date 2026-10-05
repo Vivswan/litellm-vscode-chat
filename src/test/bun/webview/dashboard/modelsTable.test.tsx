@@ -437,6 +437,25 @@ test("two provider groups sharing a label keep separate rows: opening one does n
 	expect(rows[0]?.querySelector("button.model-disclosure")?.getAttribute("aria-expanded")).toBe("false");
 });
 
+test("a label and a model ID that concatenate alike keep separate rows: open and copy flash hit the clicked row", () => {
+	const models = [
+		makeModel({ id: "openai/gpt-4", name: "First", serverLabel: "prod", scopeKey: "s1" }),
+		makeModel({ id: "gpt-4", name: "Second", serverLabel: "prod/openai", scopeKey: "s1" }),
+	];
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />);
+	const rows = Array.from(root.querySelectorAll("li.model-row"));
+	expect(rows.length).toBe(2);
+
+	fireClick(rows[1]?.querySelector("button.model-disclosure") as HTMLElement);
+	expect(rows[1]?.querySelector(".model-detail")).not.toBeNull();
+	expect(rows[0]?.querySelector(".model-detail")).toBeNull();
+
+	const copyButton = (row: Element | undefined) => row?.querySelector(".model-row-actions button") as HTMLButtonElement;
+	const iconPath = (row: Element | undefined) => copyButton(row).querySelector("svg path")?.getAttribute("d") ?? "";
+	fireClick(copyButton(rows[1]));
+	expect(iconPath(rows[0])).not.toBe(iconPath(rows[1]));
+});
+
 test("the row's copy action writes the model ID to the clipboard and flashes a check", async () => {
 	const written: string[] = [];
 	const clipboard = {

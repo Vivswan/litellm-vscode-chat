@@ -622,6 +622,12 @@ test("a forced max_tokens reports the forced derivation with its attribution", (
 	);
 });
 
+test("a record whose only field is a forced max_tokens is configuration, not an empty match", () => {
+	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { max_tokens: 2222, _force: true } } });
+	expect(normOf(root, ".max-tokens")).toContain("max_tokens 2,222 settings gpt-4* force");
+	expect(root.querySelector(".absent")).toBeNull();
+});
+
 test("the runtime caveat always renders; the picker caveat only on reasoning models", () => {
 	const plain = mountParamsAnswered({});
 	expect(plain.textContent).toContain("Runtime options");

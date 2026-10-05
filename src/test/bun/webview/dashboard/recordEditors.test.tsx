@@ -1823,14 +1823,21 @@ test("rows that assemble to the stored record cannot be applied, even under a di
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 	expect((buttonByText(section(), "Discard") as HTMLButtonElement).disabled).toBe(false);
 
-	// Key order is not a value change either: a reordered JSON paste stays unappliable.
 	const settings = makeSettings({
-		modelParameters: { editScope: "global", value: { a: { x: 1 }, b: { y: 2 } }, otherScopes: [], effective: {} },
+		modelParameters: {
+			editScope: "global",
+			value: { a: { response_format: { "": { x: 1, y: 2 } } } },
+			otherScopes: [],
+			effective: {},
+		},
 	});
 	pushToWebview(statePush(makeState({ settings })));
 	const params = () => sectionByHeading(root, "Model parameters");
 	fireClick(buttonByText(params(), "Edit as JSON"));
-	fireInput(params().querySelector("textarea") as HTMLTextAreaElement, '{"b": {"y": 2}, "a": {"x": 1}}');
+	fireInput(
+		params().querySelector("textarea") as HTMLTextAreaElement,
+		'{"a": {"response_format": {"": {"y": 2, "x": 1}}}}'
+	);
 	expect((buttonByText(params(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 });
 
@@ -2166,6 +2173,24 @@ test("Edit as JSON: the textarea seeds from the record, and a valid edit applies
 		{ type: "setModelParameters", value: { "gpt-4": { temperature: 1 }, claude: { max_tokens: 100 } } },
 	]);
 	expect(section().querySelector(".apply-status")?.textContent).toBe("Applying...");
+});
+
+test("Edit as JSON: swapping two regex matchers is a change, because later regexes win", () => {
+	const root = mount(<App />);
+	const stored = { "/^gpt-4.*/": { temperature: 0.1 }, "/^gpt-.*/": { temperature: 0.9 } };
+	pushToWebview(statePush(makeState({ settings: settingsWithParams(stored) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	fireClick(buttonByText(section(), "Edit as JSON"));
+	const textarea = () => section().querySelector("textarea") as HTMLTextAreaElement;
+	const apply = () => buttonByText(section(), "Apply") as HTMLButtonElement;
+
+	fireInput(textarea(), JSON.stringify({ "/^gpt-.*/": stored["/^gpt-.*/"], "/^gpt-4.*/": stored["/^gpt-4.*/"] }));
+	expect(apply().disabled).toBe(false);
+	resetPosted();
+	fireClick(apply());
+	expect(postedRecordWrites().map((write) => Object.keys(write.value as object))).toEqual([
+		["/^gpt-.*/", "/^gpt-4.*/"],
+	]);
 });
 
 test("Edit as JSON: invalid input blocks Apply and the way back to rows, with the row parsers' own strictness", () => {
