@@ -15,7 +15,7 @@ import { usageConnectionFor } from "./usage/spendClient";
  * error: its message can hold storage text, and the feature boundaries log and notify with what they are thrown.
  * credentialsRefused is usageConnectionFor's: a configured key cannot ride its header, and the fields name which.
  */
-export type EntryConnectionRefusal = "noEntry" | "secretsMismatched" | "secretsUnreadable" | "credentialsRefused";
+type EntryConnectionRefusal = "noEntry" | "secretsMismatched" | "secretsUnreadable" | "credentialsRefused";
 
 export type EntryConnectionRefused =
 	| { readonly kind: Exclude<EntryConnectionRefusal, "credentialsRefused"> }
