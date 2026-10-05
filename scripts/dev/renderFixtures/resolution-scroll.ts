@@ -1,18 +1,17 @@
 /**
- * The resolution table's pinned Inspect column, held by throwing steps at a
- * width where the table genuinely overflows its scrollport: the row's one action
- * must sit at the scrollport's right edge at rest, mid-scroll, and at the far
- * end. The overflow sweep accepts a scrollport by design and the geometry sweep
- * never scrolls one, so this claim lives here or nowhere. The overflow guard
- * fails closed: a table that starts fitting here reads as never-ran, not a pass.
+ * The resolution table's pinned Inspect column, held by throwing steps at a width where the table genuinely overflows
+ * its scrollport: the row's one action must sit at the scrollport's right edge at rest, mid-scroll, and at the far end.
+ * The overflow sweep accepts a scrollport by design and the geometry sweep never scrolls one, so this claim lives here
+ * or nowhere.
+ *
+ *   The overflow guard fails closed -> a table that starts fitting here reads as never-ran, not a pass
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import base from "./diagnostics.ts";
 
 const fixture: RenderFixture = {
 	...base,
-	// 700px window: past the rail's collapse, a ~651px pane, where the resolved
-	// table's columns outrun the scrollport.
+	// 700px window: past the rail's collapse, a ~651px pane, where the resolved table's columns outrun the scrollport.
 	viewport: { width: 700, height: 2300 },
 	steps: [
 		...(base.steps ?? []),

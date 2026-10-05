@@ -1,15 +1,14 @@
 /**
- * The stacked band's floor, pane 560px (a 657px window: the collapsed rail's
- * 49px plus the pane's 48px of padding), where the two-column settings row
- * has the least room: the title's auto track against the control track's
- * 1fr auto-minimum. The step ASSERTS the layout's load-bearing claim at this
- * width - no control content under the row's absolutely pinned actions
- * corner - because the failure is an overlap, not an overflow: the page
- * still scrolls nowhere, so check-overflow reads a broken band as green.
- * A minmax(0,1fr) control track shipped exactly that way once: a long title
- * absorbed its max-content first and pushed a 144px input under Reset and
- * the settings.json jump. The step runs at this fixture's own width (steps
- * run once, before the width sweep), which is the band's worst case.
+ * The stacked band's floor, pane 560px (a 657px window: the collapsed rail's 49px plus the pane's 48px of padding),
+ * where the two-column settings row has the least room: the title's auto track against the control track's 1fr
+ * auto-minimum. The step ASSERTS the layout's load-bearing claim at this width - no control content under the row's
+ * absolutely pinned actions corner - because the failure is an overlap, not an overflow: the page still scrolls
+ * nowhere, so check-overflow reads a broken band as green.
+ *
+ *   A minmax(0,1fr) control track shipped exactly that way once -> a long title absorbed its max-content first and
+ *                                                                  pushed a 144px input under Reset and the
+ *                                                                  settings.json jump
+ *   this fixture's own width -> the band's worst case; the step runs at it (steps run once, before the width sweep)
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

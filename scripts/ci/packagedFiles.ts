@@ -52,7 +52,8 @@ export interface SizeBound {
  *   dist/extension.js          561,000 bytes (2026-08-13)  -> ceiling: each encoding's ranks alone are 1-2 MB
  *   dist/chunks/*_base.js      the rank data itself        -> floors: the ranks shipped
  *   dist/webview/dashboard.js  487,104 bytes (2026-08-13)  -> floor: a truncated emit; ceiling: zod once quadrupled it
- *   dist/webview/dashboard.css  80,769 bytes (2026-08-13)  -> floor: a truncated emit or a missing leg; ceiling: a scan gone wide
+ *   dist/webview/dashboard.css  80,769 bytes (2026-08-13)  -> floor: a truncated emit or a missing leg; ceiling: a scan
+ *                                                             gone wide
  */
 export const SIZE_BOUNDS: readonly SizeBound[] = [
 	{

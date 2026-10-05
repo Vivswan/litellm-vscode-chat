@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
-// The OpenAI-compatible fake backend for the docker LiteLLM stack; the model id routes nothing, so one grammar serves every fake upstream.
-// A "%" command on the last user message's last non-empty line selects the response (grammar in src/test/fakeStack/commands.ts);
-// the OAuth fixture is src/test/fakeStack/oauth.ts and the blanked discovery routes are src/test/fakeStack/noDiscovery.ts.
+// The OpenAI-compatible fake backend for the docker LiteLLM stack; the model id routes nothing, so one grammar serves
+// every fake upstream.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
@@ -55,9 +54,8 @@ interface BoundedBody {
 }
 
 /**
- * Read a request body, giving up as soon as it exceeds maxBytes. The remainder
- * is drained rather than the socket destroyed, because fetch clients cannot
- * read an early response over a killed connection - the 413 would surface as a
+ * Read a request body, giving up as soon as it exceeds maxBytes. The remainder is drained rather than the socket
+ * destroyed, because fetch clients cannot read an early response over a killed connection - the 413 would surface as a
  * network error instead of a status.
  */
 function readBodyBounded(req: IncomingMessage, maxBytes: number): Promise<BoundedBody> {
@@ -102,10 +100,9 @@ function playResult(res: ServerResponse, result: CommandResult, stream: boolean)
 }
 
 /**
- * One line per chat completion in the container log, carrying the exact line
- * the grammar dispatched on: the debugging surface for "I typed %help and got
- * the fallback", where a host that appends context after the typed text, or
- * indents it, shows up.
+ * One line per chat completion in the container log, carrying the exact line the grammar dispatched on: the debugging
+ * surface for "I typed %help and got the fallback", where a host that appends context after the typed text, or indents
+ * it, shows up.
  */
 function logChatRequest(context: CommandContext, stream: boolean, dispatched: boolean): void {
 	const rawModel = context.request.model;
@@ -117,11 +114,9 @@ function logChatRequest(context: CommandContext, stream: boolean, dispatched: bo
 }
 
 /**
- * Verbose exchange logging for the dev launcher: the full inbound messages
- * array and the full outbound reply, one JSON line each so the ./logs/ tee
- * stays greppable. Streamed requests log the raw chunk list, non-streaming
- * ones the collapsed body they receive. Never enabled by the test
- * orchestrator - the fuzz suites would multiply megabytes into the log.
+ * Verbose exchange logging for the dev launcher: the full inbound messages array and the full outbound reply, one JSON
+ * line each so the ./logs/ tee stays greppable. Never enabled by the test orchestrator - the fuzz suites would multiply
+ * megabytes into the log.
  */
 function logChatExchange(context: CommandContext, result: CommandResult, stream: boolean): void {
 	console.log(`chat-request ${JSON.stringify(context.request.messages ?? [])}`);
@@ -139,11 +134,10 @@ function logChatExchange(context: CommandContext, result: CommandResult, stream:
 }
 
 /**
- * The text-completions (FIM) reply: a pure echo of the context nearest the
- * cursor, so identical requests always get identical bytes and every
- * assertion can derive the expected text from the request alone. Deliberately
- * grammar-free (the chat command grammar routes nothing here) and free of
- * clocks and randomness - a pure function of the prompt needs no seed at all.
+ * The text-completions (FIM) reply: a pure echo of the context nearest the cursor, so identical requests always get
+ * identical bytes and every assertion can derive the expected text from the request alone.
+ *
+ *   the chat command grammar routes nothing here -> Deliberately grammar-free
  */
 function fimCompletionText(prompt: string, suffix: string): string {
 	const head = prompt.slice(-24);
@@ -152,10 +146,9 @@ function fimCompletionText(prompt: string, suffix: string): string {
 
 const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
 	const rawUrl = req.url || "/";
-	// Checked on the RAW request line, before URL parsing: new URL() folds
-	// dot segments away, so "/authed/../v1/models" (or a percent-encoded
-	// spelling) would otherwise dodge the /authed guard below. No served
-	// route contains ".." or "%2e", so the blanket rejection is total.
+	// Checked on the RAW request line, before URL parsing: new URL() folds dot segments away, so "/authed/../v1/models"
+	// (or a percent-encoded spelling) would otherwise dodge the /authed guard below. No served route contains ".." or
+	// "%2e", so the blanket rejection is total.
 	if (hasDotSegmentBypass(rawUrl)) {
 		return sendJson(res, 404, { error: { message: "Not found" } });
 	}
@@ -183,17 +176,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 		return sendJson(res, 200, noDiscoveryStats(noDiscoveryState));
 	}
 
-	// The /authed prefix is the bearer-guarded mirror of every route below: a
-	// live token strips the prefix and dispatches to the normal handlers, so the
-	// OAuth suites drive real discovery and chat over a real socket without a
-	// second port. Anything else gets the LiteLLM-shaped 401 the extension's
-	// error mapping classifies as an auth failure.
+	// The /authed prefix is the bearer-guarded mirror of every route below: a live token strips the prefix and
+	// dispatches to the normal handlers, so the OAuth suites drive real discovery and chat over a real socket without a
+	// second port. Anything else gets the LiteLLM-shaped 401 the extension's error mapping classifies as an auth
+	// failure.
 	let pathname = url.pathname;
 	if (pathname === "/authed" || pathname.startsWith("/authed/")) {
 		if (req.method === "POST" && pathname === "/authed/v1/chat/completions") {
-			// Every wire attempt counts, auth outcome included: the suite's
-			// no-retry assertions read this as "how many times did the client
-			// actually hit the guarded chat endpoint".
+			// Every wire attempt counts, auth outcome included: the suite's no-retry assertions read this as "how many
+			// times did the client actually hit the guarded chat endpoint".
 			oauthState.authedChatRequests += 1;
 		}
 		if (!isLiveBearer(oauthState, req.headers.authorization)) {
@@ -202,17 +193,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 		pathname = pathname.slice("/authed".length) || "/";
 	}
 
-	// The /nodiscovery prefix is the discovery-less mirror: a gateway that
-	// serves chat but cannot list models. Its discovery GETs answer 404 while
-	// every other route (chat completions above all) dispatches normally.
+	// The /nodiscovery prefix is the discovery-less mirror: a gateway that serves chat but cannot list models.
 	const routed = stripNoDiscoveryPrefix(pathname);
 	pathname = routed.pathname;
 	if (routed.noDiscovery && req.method === "GET" && isDiscoveryRoute(pathname)) {
 		recordDiscoveryAttempt(noDiscoveryState, pathname, req.headers.authorization);
-		// The OpenAI SDK never retries a plain 404, which would make the
-		// expectedFailures no-retry assertions vacuous; x-should-retry: true
-		// overrides its policy, so only a zeroed retry budget yields one
-		// attempt against the counters above.
+		// The OpenAI SDK never retries a plain 404, which would make the expectedFailures no-retry assertions vacuous;
+		// x-should-retry: true overrides its policy, so only a zeroed retry budget yields one attempt against the
+		// counters above.
 		res.setHeader("x-should-retry", "true");
 		return sendJson(res, 404, { error: { message: "Not found" } });
 	}
@@ -222,9 +210,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 	}
 
 	if (req.method === "GET" && pathname === "/v1/models") {
-		// The consolidated fake- upstream ids only; blocked deployments are
-		// excluded exactly as a real provider would not list a decommissioned
-		// model. Scenarios are not models - they are %play targets.
+		// The consolidated fake- upstream ids only; blocked deployments are excluded exactly as a real provider would
+		// not list a decommissioned model. Scenarios are not models - they are %play targets.
 		return sendJson(res, 200, {
 			object: "list",
 			data: FAKE_MODEL_UPSTREAM_IDS.map((id) => ({ id, object: "model", created: 0, owned_by: "fake-openai" })),
@@ -241,9 +228,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 
 	if (req.method === "PUT" && pathname === "/_test/custom-scenario") {
 		const oversized = { error: { message: "Custom scenario body exceeds 1 MiB" } };
-		// Fast path on the declared length; the bounded read below still guards
-		// chunked or lying senders. resume() drains the unread remainder so the
-		// client can complete its upload and read the 413.
+		// Fast path on the declared length; the bounded read below still guards chunked or lying senders. resume()
+		// drains the unread remainder so the client can complete its upload and read the 413.
 		const declared = Number(req.headers["content-length"]);
 		if (Number.isFinite(declared) && declared > MAX_CUSTOM_SCENARIO_BYTES) {
 			req.resume();
@@ -280,18 +266,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 		} catch {
 			return sendJson(res, 400, { error: { message: "Invalid JSON" } });
 		}
-		// The completions-side observation point: the docker suites' only proof
-		// of what actually reached the wire (no injected params, no underscore
-		// directives, stream: false).
+		// The completions-side observation point: the docker suites' only proof of what actually reached the wire (no
+		// injected params, no underscore directives, stream: false).
 		lastCompletionRequest = body;
 		const prompt = typeof body.prompt === "string" ? body.prompt : "";
 		const suffix = typeof body.suffix === "string" ? body.suffix : "";
 		const text = fimCompletionText(prompt, suffix);
 		const promptTokens = Math.max(1, Math.ceil((prompt.length + suffix.length) / 4));
 		const completionTokens = Math.max(1, Math.ceil(text.length / 4));
-		// Always a plain JSON body: the extension's FIM requests are
-		// non-streaming by contract, so a stream flag is ignored rather than
-		// answered with a second SSE grammar.
+		// Always a plain JSON body: the extension's FIM requests are non-streaming by contract, so a stream flag is
+		// ignored rather than answered with a second SSE grammar.
 		return sendJson(res, 200, {
 			id: "cmpl-fake",
 			object: "text_completion",

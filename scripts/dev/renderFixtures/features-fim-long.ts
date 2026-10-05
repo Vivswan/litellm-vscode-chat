@@ -1,11 +1,9 @@
 /**
- * The covered slot under LONG text: the commit row's vanished-server warning
- * carries a long label, and the inline row lands a long two-part probe
- * FAILURE whose Details disclosure the steps open. Both covers must render
- * one truncated line (never overrunning the reserved description height),
- * with the full selectable text in the opened detail block. Swept at every
- * declared width, so the truncation and the open block are priced at the
- * narrow tiers.
+ * The covered slot under LONG text: the commit row's vanished-server warning carries a long label, and the inline row
+ * lands a long two-part probe FAILURE whose Details disclosure the steps open. Both covers must render one truncated
+ * line (never overrunning the reserved description height), with the full selectable text in the opened detail block.
+ *
+ *   Swept at every declared width -> the truncation and the open block are priced at the narrow tiers
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

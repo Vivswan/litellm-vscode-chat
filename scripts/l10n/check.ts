@@ -1,7 +1,5 @@
 /**
- * The l10n gate (pre-commit, and CI's format-check job). Every file is parsed
- * through a zod schema (nothing is cast), and one bad file records its failure
- * and lets the rest of the run continue. It fails when:
+ * The l10n gate (pre-commit, and CI's format-check job). It fails when:
  *
  * - the committed English bundle is not byte-identical to a fresh extraction;
  * - one message is minted under two different bundle keys (a forked comment);
@@ -26,8 +24,6 @@ import { z } from "zod";
 import { bannedTypography, placeholderCounts } from "../../src/test/util/l10n";
 import { LAZY_L10N_HELPERS } from "./census";
 import { defaultExportOffenses } from "./defaultExportRule";
-// Shared with the guard suites; they live under src/test because the
-// extension-host tsconfig cannot compile imports from scripts/.
 import { DEFAULT_EXPORT_FIXTURES } from "./fixtures/defaultExport";
 import { GUARD_FIXTURES } from "./fixtures/moduleScope";
 import { REVERSE_CENSUS_FIXTURES } from "./fixtures/reverseCensus";
@@ -66,7 +62,6 @@ function describeParseError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-/** Parse one file's text through a schema; a failure records itself and returns undefined so the run continues. */
 function parseTable<T>(file: string, text: string, schema: z.ZodType<T>): T | undefined {
 	try {
 		return schema.parse(JSON.parse(text));
@@ -76,7 +71,6 @@ function parseTable<T>(file: string, text: string, schema: z.ZodType<T>): T | un
 	}
 }
 
-/** Read and parse one file; undefined (with a recorded failure) on any read or shape problem. */
 async function readTable<T>(file: string, schema: z.ZodType<T>): Promise<T | undefined> {
 	let text: string;
 	try {
@@ -140,14 +134,13 @@ function byName(left: { readonly name: string }, right: { readonly name: string 
 
 /** The lazy-catalog guard: no module-scope localization call the census's name-following walks can see. */
 function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
-	// The census only guards what it can find: an entry naming a deleted or
-	// renamed helper is a silently disarmed guard, so every entry must still
-	// resolve to a top-level declaration through the AST - a name in a comment
-	// or a string is not a declaration.
+	// The census only guards what it can find: an entry naming a deleted or renamed helper is a silently disarmed
+	// guard, so every entry must still resolve to a top-level declaration through the AST - a name in a comment or a
+	// string is not a declaration.
 	const declared = new Set<string>();
 	for (const { file, contents } of sources) {
-		// A substring pre-filter keeps the parse off files that cannot declare a
-		// census name; the AST decides for the candidates.
+		// A substring pre-filter keeps the parse off files that cannot declare a census name; the AST decides for the
+		// candidates.
 		if (!LAZY_L10N_HELPERS.some((helper) => contents.includes(helper))) {
 			continue;
 		}
@@ -160,8 +153,8 @@ function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
 			fail(`LAZY_L10N_HELPERS names "${helper}", which no shipped source declares; rename or remove the entry.`);
 		}
 	}
-	// The reverse direction: a top-level helper resolving l10n.t at call time
-	// that never joined the census leaves its module-scope call sites unguarded.
+	// The reverse direction: a top-level helper resolving l10n.t at call time that never joined the census leaves its
+	// module-scope call sites unguarded.
 	for (const fixture of REVERSE_CENSUS_FIXTURES) {
 		const findings = [...uncensusedLazyHelpers(fixture.sources, fixture.census)].sort(byName);
 		const found = findings.map((finding) => finding.name);
@@ -186,8 +179,8 @@ function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
 				"LAZY_L10N_HELPERS (scripts/l10n/census.ts); add it so the module-scope guard covers its call sites."
 		);
 	}
-	// Default exports break both walks' name-following, so the gate keeps the
-	// shape out of shipped source - its own teeth first.
+	// Default exports break both walks' name-following, so the gate keeps the shape out of shipped source - its own
+	// teeth first.
 	for (const fixture of DEFAULT_EXPORT_FIXTURES) {
 		const flagged = defaultExportOffenses(fixture.source, "fixture.ts").length > 0;
 		if (flagged !== fixture.flagged) {
@@ -225,9 +218,8 @@ const BUNDLE_READ_FILES = new Set(
 );
 
 /**
- * The constructor-probe files pass the vscode module object into Reflect
- * probes; that value use carries no localization. Everything else in them stays
- * under the rule.
+ * The constructor-probe files pass the vscode module object into Reflect probes; that value use carries no
+ * localization. Everything else in them stays under the rule.
  */
 const VSCODE_VALUE_USE_FILES = new Set(
 	["src/shared/conversion/dataPart.ts", "src/shared/conversion/thinkingPart.ts"].map((file) =>
@@ -263,11 +255,9 @@ function checkVscodeL10nUsage(sources: readonly SourceFile[]): void {
 }
 
 /**
- * Non-prose token families beyond the {N} placeholders that a translated value
- * must carry verbatim, compared as multisets: $(icon) codicons, command:<id>
- * occurrences, and markdown link TARGETS including percent-encoded ones (a
- * reworded target breaks deep-links). The /g literals are consumed only through
- * matchAll, which iterates over a clone.
+ * Non-prose token families beyond the {N} placeholders that a translated value must carry verbatim, compared as
+ * multisets: $(icon) codicons, command:<id> occurrences, and markdown link TARGETS including percent-encoded ones (a
+ * reworded target breaks deep-links). The /g literals are consumed only through matchAll, which iterates over a clone.
  */
 const PRESERVED_TOKENS: readonly { readonly what: string; readonly pattern: RegExp }[] = [
 	{ what: "$(codicon) tokens", pattern: /\$\(([a-z0-9~-]+)\)/g },
@@ -276,9 +266,8 @@ const PRESERVED_TOKENS: readonly { readonly what: string; readonly pattern: RegE
 ];
 
 /**
- * A bare key may never coexist with composite keys for the same base message: a
- * repeated message either uses the identical plain t() form everywhere (one
- * bare key) or carries a distinguishing comment at every call site. The mix
+ * A bare key may never coexist with composite keys for the same base message: a repeated message either uses the
+ * identical plain t() form everywhere (one bare key) or carries a distinguishing comment at every call site. The mix
  * forks a key silently, surfacing only as an untranslated string at runtime.
  */
 function checkBaseMessageCollisions(bundle: BundleFile): void {
@@ -303,7 +292,6 @@ function checkBaseMessageCollisions(bundle: BundleFile): void {
 	}
 }
 
-/** The multiset of one token family's occurrences in one message. */
 function tokenCounts(message: string, pattern: RegExp): Map<string, number> {
 	const counts = new Map<string, number>();
 	for (const match of message.matchAll(pattern)) {
@@ -312,7 +300,6 @@ function tokenCounts(message: string, pattern: RegExp): Map<string, number> {
 	return counts;
 }
 
-/** (b) + (c) One translation file against its English reference: equal key sets, matching placeholders and preserved tokens. */
 function checkAgainstReference(
 	file: string,
 	translated: Record<string, string>,
@@ -362,12 +349,10 @@ function checkTypography(file: string, table: Record<string, string>): void {
 	}
 }
 
-/** Message texts of a bundle file, for reference comparisons. */
 function bundleMessages(bundle: BundleFile): Record<string, string> {
 	return Object.fromEntries(Object.entries(bundle).map(([key, value]) => [key, bundleMessage(value)]));
 }
 
-/** The locale of a translation file name, per the family's pattern. */
 function localesOf(names: readonly string[], pattern: RegExp): Set<string> {
 	const locales = new Set<string>();
 	for (const name of names) {
@@ -390,9 +375,8 @@ async function checkTranslationFiles(
 		: [];
 	for (const name of bundleFiles) {
 		const file = path.join(l10nDir, name);
-		// Strings only: the webview bootstrap drops a bundle with any non-string
-		// value, so a {message, comment} object here would revert the dashboard to
-		// English while the host stays translated.
+		// Strings only: the webview bootstrap drops a bundle with any non-string value, so a {message, comment} object
+		// here would revert the dashboard to English while the host stays translated.
 		const translated = await readTable(file, nlsSchema);
 		if (translated === undefined) {
 			continue;
@@ -419,7 +403,6 @@ async function checkTranslationFiles(
 		checkTypography(file, translated);
 	}
 
-	// Cross-family locale parity: a locale ships both files or neither.
 	const bundleLocales = localesOf(bundleFiles, /^bundle\.l10n\.([\w-]+)\.json$/);
 	const nlsLocales = localesOf(nlsFiles, /^package\.nls\.([\w-]+)\.json$/);
 	for (const locale of bundleLocales) {
@@ -434,7 +417,6 @@ async function checkTranslationFiles(
 	}
 }
 
-/** Every string value of the form %key% anywhere in the manifest. */
 function collectNlsReferences(node: unknown, into: Set<string>): void {
 	if (typeof node === "string") {
 		const match = /^%(.+)%$/.exec(node);
@@ -480,7 +462,6 @@ async function resolveManifestNlsState(): Promise<ManifestNlsState> {
 	return { kind: "externalized", references, nls };
 }
 
-/** (e) package.json's %key% references and package.nls.json must name the same key set. */
 function checkManifestCoverage(state: ManifestNlsState): void {
 	switch (state.kind) {
 		case "not-externalized":

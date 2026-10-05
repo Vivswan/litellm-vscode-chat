@@ -1,27 +1,23 @@
 /**
- * The rail's coverage claim, held by a throwing step rather than a screenshot:
- * the rail column paints to the BOTTOM of both the viewport and the document,
- * whatever the content height and wherever the page is scrolled.
+ * The rail's coverage claim, held by a throwing step rather than a screenshot: the rail column paints to the BOTTOM of
+ * both the viewport and the document, whatever the content height and wherever the page is scrolled. This file
+ * measures the EXPANDED rail; rail-coverage-collapsed.ts runs the same steps below the collapse, because the icon rail
+ * swaps the column's basis and inner geometry and neither state's coverage implies the other's.
  *
- * Both content heights are legs, because neither implies the other. SHORT pins
- * .rail-inner's 100vh, the only rule reaching the bottom edge where the document
- * does not scroll. TALL pulls the two bottoms apart, so .rail's stretch has to
- * reach them; asserted at the top, middle, and bottom of the scroll, with the
- * spacer growing the PANE the way real content grows the shell.
- *
- * This file measures the EXPANDED rail; rail-coverage-collapsed.ts runs the
- * same steps below the collapse, because the icon rail swaps the column's
- * basis and inner geometry and neither state's coverage implies the other's.
+ *   neither implies the other -> Both content heights are legs
+ *   SHORT -> pins .rail-inner's 100vh
+ *   .rail-inner's 100vh -> the only rule reaching the bottom edge where the document does not scroll
+ *   TALL  -> pulls the two bottoms apart, so .rail's stretch has to reach them; asserted at the top, middle, and bottom
+ *            of the scroll, with the spacer growing the PANE the way real content grows the shell
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import base from "./diagnostics-empty.ts";
 
 /**
- * Each fixture opens by proving the rail is in the state it claims to measure,
- * so a moved collapse threshold fails the claim instead of silently pointing
- * both fixtures at one state. 100 splits the two boxes: 49px collapsed and
- * 217px expanded (.rail's flex basis plus its 1px right border, which is its
- * whole width because nothing sets box-sizing on .rail and there is no preflight).
+ * Each fixture opens by proving the rail is in the state it claims to measure, so a moved collapse threshold fails the
+ * claim instead of silently pointing both fixtures at one state. 100 splits the two boxes: 49px collapsed and 217px
+ * expanded (.rail's flex basis plus its 1px right border, which is its whole width because nothing sets box-sizing on
+ * .rail and there is no preflight).
  */
 const railStateGuard = (state: "expanded" | "collapsed") => `(() => {
 	const rail = document.querySelector(".rail");
@@ -37,7 +33,6 @@ const railStateGuard = (state: "expanded" | "collapsed") => `(() => {
 	}
 })()`;
 
-/** The measurement both legs run: the rail's box against the viewport and document bottoms. */
 const assertCovers = `(label) => {
 	const rail = document.querySelector(".rail");
 	if (rail === null) {
@@ -62,7 +57,6 @@ const assertCovers = `(label) => {
 	}
 }`;
 
-/** The whole run for one rail state, shared with the collapsed fixture: guard, base setup, both coverage legs. */
 export const coverageSteps = (state: "expanded" | "collapsed"): readonly string[] => [
 	railStateGuard(state),
 	...(base.steps ?? []),
@@ -120,8 +114,7 @@ export const coverageSteps = (state: "expanded" | "collapsed"): readonly string[
 
 const fixture: RenderFixture = {
 	...base,
-	// Tall and past the rail's 1000px collapse threshold, so the EXPANDED rail
-	// is what must reach the bottom.
+	// Tall and past the rail's 1000px collapse threshold, so the EXPANDED rail is what must reach the bottom.
 	viewport: { width: 1100, height: 1500 },
 	clipViewport: true,
 	steps: coverageSteps("expanded"),

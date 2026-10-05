@@ -1,12 +1,11 @@
 /**
- * The glyph-seat guard: the "?" help glyph and the icon-only docs link share one
- * seat (the glyph-seat rule beside dashboard.css's .help-wrap), ASSERTED rather
- * than photographed, because the two boxes drifted a descent apart per-site
- * before the rule existed and a screenshot cannot fail. The step measures every
- * adjacent pair at this fixture's OWN width, since the harness runs steps once,
- * before the width sweep. Pairs a layout wraps onto different lines stop being
- * adjacent and are skipped. Fail-closed: fewer than two measured pairs means the
+ * The glyph-seat guard: the "?" help glyph and the icon-only docs link share one seat (the glyph-seat rule beside
+ * dashboard.css's .help-wrap), ASSERTED rather than photographed, because the two boxes drifted a descent apart
+ * per-site before the rule existed and a screenshot cannot fail. Fail-closed: fewer than two measured pairs means the
  * page under the probe is not the page this fixture thinks it shows.
+ *
+ *   the harness runs steps once, before the width sweep -> The step measures every adjacent pair at this fixture's OWN
+ *                                                          width
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

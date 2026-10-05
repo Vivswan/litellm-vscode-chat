@@ -1,9 +1,7 @@
 /**
- * The inline-completions model row with the CUSTOM-ENTRY editor open and a
- * deliberately long typed model ID: the two-line editor state (inputs above,
- * ranked actions below) that the picker's select alone never shows. Swept at
- * every declared width, so the editor's fit is priced at the narrow tiers
- * with long values, not just at the build width.
+ * The inline-completions model row with the CUSTOM-ENTRY editor open and a deliberately long typed model ID: the
+ * two-line editor state (inputs above, ranked actions below) that the picker's select alone never shows. Swept at every
+ * declared width, so the editor's fit is priced at the narrow tiers with long values, not just at the build width.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

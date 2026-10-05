@@ -9,7 +9,6 @@ import { z } from "zod";
 import { AGENT_TOOL_INPUT_SCHEMAS } from "../../../src/extension/features/agentTools/inputSchema";
 import type { AgentToolId } from "../../../src/shared/config/commandIds";
 
-/** Every JSON type: what an unknown-valued field admits. */
 const ANY_JSON_TYPE = [
 	"string",
 	"number",
@@ -19,7 +18,6 @@ const ANY_JSON_TYPE = [
 	"null",
 ] as const satisfies readonly z.core.JSONSchema.SchemaType[];
 
-/** One tool's inputSchema exactly as the manifest carries it. */
 export function manifestInputSchema(id: AgentToolId): Record<string, unknown> {
 	const { $schema: _draft, ...schema } = z.toJSONSchema(AGENT_TOOL_INPUT_SCHEMAS[id], {
 		io: "input",

@@ -1,19 +1,17 @@
-// scripts/dev/seedDemoUsage.ts
+// Dev-only demonstration spend: three virtual keys in visibly different budget states, so `bun run dev` opens on a
+// populated Servers page. The spend is real: each key fires deterministic streaming completions through the proxy,
+// LiteLLM prices them off the generated config, and once the async spend flush lands the key's max_budget is pinned to
+// a fraction of the measured spend.
 //
-// Dev-only demonstration spend: three virtual keys in visibly different budget
-// states, so `bun run dev` opens on a populated Servers page. The dev launcher
-// is the only caller; the test fixture key (src/test/fakeStack/usage.ts) is
-// never touched here.
-//
-// The spend is real: each key fires deterministic streaming completions through
-// the proxy, LiteLLM prices them off the generated config, and once the async
-// spend flush lands the key's max_budget is pinned to a fraction of the measured
-// spend. Reruns add spend (spend IS the demo) and re-pin to the same fractions;
-// a stack recreate starts from zero and the next dev run rebuilds them.
+//   the test fixture key (src/test/fakeStack/usage.ts) -> never touched here
+//   Reruns                                            -> add spend
+//   spend IS the demo                                 -> add spend
+//   Reruns                                            -> re-pin to the same fractions
+//   a stack recreate                                  -> starts from zero and the next dev run rebuilds them
 
 import type { FakeModelAlias } from "../../src/test/fakeStack/models";
 
-/** One demo key's identity and target budget state. Every value is a deliberately obvious local fixture. */
+/** Every value is a deliberately obvious local fixture. */
 export interface DemoUsageKeySpec {
 	/** The literal bearer token; /key/generate accepts a caller-chosen value. */
 	readonly key: string;
@@ -26,13 +24,13 @@ export interface DemoUsageKeySpec {
 	/** The spend fraction the KEY's max_budget is pinned to produce (spend / budget). */
 	readonly keyBudgetRatio: number;
 	/**
-	 * When set, the seeded entry carries a manual `budget` pinned to this
-	 * fraction instead: the entry-over-key override demo.
+	 * When set, the seeded entry carries a manual `budget` pinned to this fraction instead: the entry-over-key override
+	 * demo.
 	 */
 	readonly entryBudgetRatio?: number;
 	/**
-	 * The fake model the demo completions run against (pricing varies the
-	 * spend); catalog-typed, so a rename fails typecheck.
+	 * The fake model the demo completions run against (pricing varies the spend); catalog-typed, so a rename fails
+	 * typecheck.
 	 */
 	readonly model: FakeModelAlias;
 }
@@ -47,9 +45,8 @@ export const DEMO_USAGE_KEYS: readonly DemoUsageKeySpec[] = [
 		model: "claude-opus-4-5",
 	},
 	{
-		// The warning state comes from the ENTRY's budget (85%, over the 0.8
-		// default threshold) while the key itself reports a laxer cap (60%):
-		// the personal-alert-line-below-the-server-cap story from docs/usage.md.
+		// The warning state comes from the ENTRY's budget (85%, over the 0.8 default threshold) while the key itself
+		// reports a laxer cap (60%): the personal-alert-line-below-the-server-cap story from docs/usage.md.
 		key: "sk-dev-usage-warning",
 		alias: "dev-usage-warning",
 		userId: "dev-usage-warning-user",
@@ -85,13 +82,11 @@ const UNBLOCK_BUDGET_USD = 1_000_000;
 const FLUSH_TIMEOUT_MS = 120_000;
 const FLUSH_POLL_MS = 2_000;
 /**
- * Consecutive equal readings after the first rise before a key counts as
- * flushed: LiteLLM's batch writer lands queued spend roughly every 10s, so the
- * stability window must exceed one batch interval - settling on the first rise
- * could measure a partial batch and pin the budgets off-target.
+ * Consecutive equal readings after the first rise before a key counts as flushed: LiteLLM's batch writer lands queued
+ * spend roughly every 10s, so the stability window must exceed one batch interval - settling on the first rise could
+ * measure a partial batch and pin the budgets off-target.
  */
 const FLUSH_STABLE_POLLS = 6;
-/** Whole-call bound on each admin request and spend read. */
 const ADMIN_TIMEOUT_MS = 30_000;
 /** Whole-call bound on one demo completion (a few thousand streamed words). */
 const CHAT_TIMEOUT_MS = 120_000;
@@ -134,14 +129,12 @@ async function adminPost(baseUrl: string, masterKey: string, route: string, body
 	}
 }
 
-/** The key's current spend via GET /key/info (master auth), or undefined when the key does not exist yet. */
 async function readSpend(baseUrl: string, masterKey: string, key: string): Promise<number | undefined> {
 	const response = await fetch(`${baseUrl}/key/info?key=${encodeURIComponent(key)}`, {
 		headers: { Authorization: `Bearer ${masterKey}` },
 		signal: AbortSignal.timeout(ADMIN_TIMEOUT_MS),
 	});
-	// v1.93 answers a missing key with HTTP 404; tolerate the 400 some
-	// versions use for "key not found" too. Anything else is a real failure.
+	// v1.93 answers a missing key with HTTP 404; tolerate the 400 some versions use for "key not found" too.
 	if (response.status === 400 || response.status === 404) {
 		return undefined;
 	}
@@ -154,10 +147,9 @@ async function readSpend(baseUrl: string, masterKey: string, key: string): Promi
 }
 
 /**
- * Ensure the key exists with its declared identity and an unblocking budget,
- * mirroring scripts/stack/seedUsage.ts: a surviving key gets every declared
- * field re-pinned (never its spend), a missing one is created. Returns the
- * key's current spend, the baseline the flush wait measures against.
+ * Ensure the key exists with its declared identity and an unblocking budget, mirroring scripts/stack/seedUsage.ts: a
+ * surviving key gets every declared field re-pinned (never its spend), a missing one is created. Returns the key's
+ * current spend, the baseline the flush wait measures against.
  */
 async function ensureKeyUnblocked(baseUrl: string, masterKey: string, spec: DemoUsageKeySpec): Promise<number> {
 	const declaredFields = {
@@ -176,9 +168,8 @@ async function ensureKeyUnblocked(baseUrl: string, masterKey: string, spec: Demo
 }
 
 /**
- * How many demo chats a key fires this run: 2-4, varied by the UTC
- * day-of-month and the key's position so the cards read lived-in without any
- * randomness (the same day seeds the same counts).
+ * How many demo chats a key fires this run: 2-4, varied by the UTC day-of-month and the key's position so the cards
+ * read lived-in without any randomness (the same day seeds the same counts).
  */
 function chatCount(keyIndex: number): number {
 	return 2 + ((new Date().getUTCDate() + keyIndex) % 3);
@@ -205,10 +196,9 @@ async function fireChat(baseUrl: string, spec: DemoUsageKeySpec, words: number):
 }
 
 /**
- * Poll /key/info until every key's spend has risen above its pre-chat
- * baseline AND held steady for FLUSH_STABLE_POLLS consecutive readings:
- * risen means the async flush started landing, steady means no partial
- * batch is still queued behind it.
+ * Poll /key/info until every key's spend has risen above its pre-chat baseline AND held steady for FLUSH_STABLE_POLLS
+ * consecutive readings: risen means the async flush started landing, steady means no partial batch is still queued
+ * behind it.
  */
 async function awaitSpendFlush(baseUrl: string, masterKey: string, baselines: Map<string, number>): Promise<void> {
 	const deadline = Date.now() + FLUSH_TIMEOUT_MS;
@@ -237,7 +227,6 @@ async function awaitSpendFlush(baseUrl: string, masterKey: string, baselines: Ma
 	}
 }
 
-/** Pin one key's max_budget to spend / keyBudgetRatio; the returned number is what /key/info will report. */
 async function pinKeyBudget(
 	baseUrl: string,
 	masterKey: string,
@@ -250,10 +239,8 @@ async function pinKeyBudget(
 }
 
 /**
- * Best-effort recovery when seeding dies between the unblock and the final
- * pinning: any key left at the interim ceiling would read as ~0% spent. Re-pin
- * every key with readable spend to its target fraction; keys with none keep the
- * ceiling, and new errors are swallowed so the original failure stays reported.
+ * Best-effort recovery when seeding dies between the unblock and the final pinning: any key left at the interim ceiling
+ * would read as ~0% spent.
  */
 async function restoreBudgetsBestEffort(baseUrl: string, masterKey: string): Promise<void> {
 	for (const spec of DEMO_USAGE_KEYS) {
@@ -269,16 +256,11 @@ async function restoreBudgetsBestEffort(baseUrl: string, masterKey: string): Pro
 }
 
 /**
- * Seed the three demo keys: ensure each exists unblocked, fire its chats, wait
- * for the spend flush, then pin each key's max_budget to spend / keyBudgetRatio.
- * Any failure after the unblock re-pins whatever it can before rethrowing;
- * callers treat a throw as "the usage demo is unavailable", never as a failed
- * stack start.
+ * Any failure after the unblock re-pins whatever it can before rethrowing; callers treat a throw as "the usage demo is
+ * unavailable", never as a failed stack start.
  */
 export async function seedDemoUsage(baseUrl: string, masterKey: string): Promise<SeededDemoUsage[]> {
 	await waitForProxy(baseUrl);
-	// The unblock loop sits inside the recovery try too: a failure on the
-	// second key must still re-pin the first one off the interim ceiling.
 	try {
 		const baselines = new Map<string, number>();
 		for (const spec of DEMO_USAGE_KEYS) {

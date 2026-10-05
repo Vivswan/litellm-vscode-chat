@@ -1,9 +1,6 @@
 /**
- * The Diagnostics tab with the merged inspector open IN PLACE: the
- * Resolved-models flat table's Inspect action opens the model panel
- * without leaving the tab, anchored on its Parameters section. The respond
- * map answers the resolved-models read and both of the inspector's own reads
- * (chains included).
+ * The Diagnostics tab with the merged inspector open IN PLACE: the Resolved-models flat table's Inspect action opens
+ * the model panel without leaving the tab, anchored on its Parameters section.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, RESOLVED_VIEW, worstCaseCapabilityFields } from "./shared.ts";
@@ -48,10 +45,9 @@ const fixture: RenderFixture = {
 			payload: {
 				globalRecordKey: "gpt-5*",
 				capabilities: {
-					// The shared worst case, not a hand-rolled subset: the full
-					// eight-field cost family with sub-micro scientific values and
-					// the 27-entry params list are what the inspector's capability
-					// table has to stay readable against.
+					// The shared worst case, not a hand-rolled subset: the full eight-field cost family with sub-micro
+					// scientific values and the 27-entry params list are what the inspector's capability table has to
+					// stay readable against.
 					fields: worstCaseCapabilityFields(),
 					outputLimitSource: "provider",
 					diagnostics: [],

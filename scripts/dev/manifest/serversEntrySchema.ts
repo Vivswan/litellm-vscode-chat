@@ -1,9 +1,10 @@
 /**
- * The `servers` setting's items schema as package.json contributes it. This is a second statement of the parser's shape
- * (src/extension/servers/serverSync/ setting.ts) and stays one until that parser is rewritten as a schema; the three
- * enums are spliced from the shared constants so the manifest cannot offer a category, mode, or header type the code
- * never learned, and the leaf-path map below is asserted at generation time to cover every extension-side entry field.
  * Lives in scripts/ because nothing at runtime reads it.
+ *
+ *   This is a second statement of the parser's shape (src/extension/servers/serverSync/ setting.ts)
+ *     -> stays one until that parser is rewritten as a schema
+ *   the three enums are spliced from the shared constants -> the manifest cannot offer a category, mode, or header type
+ *                                                            the code never learned
  */
 import { ENTRY_VIEW_FIELD_IDS, EXPECTED_FAILURE_CATEGORIES, NON_CHAT_MODES } from "../../../src/shared/serverEntry";
 import { HEADER_SCALAR_TYPES } from "../../../src/shared/util/headers";
@@ -11,12 +12,10 @@ import { HEADER_SCALAR_TYPES } from "../../../src/shared/util/headers";
 export type JsonObject = { readonly [key: string]: JsonValue };
 export type JsonValue = string | number | boolean | null | JsonObject | readonly JsonValue[];
 
-/** The nls key of one nested servers property, by its dotted path under the entry. */
 function nls(path: string): string {
 	return `%litellm.config.servers.${path}.description%`;
 }
 
-/** A virtual-key header pair; the prose keys are shared by the two places the shape appears. */
 function virtualKeySchema(descriptionKey: "description" | "markdownDescription", path: string): JsonObject {
 	return {
 		type: "object",
@@ -122,8 +121,8 @@ export const SERVERS_ENTRY_SCHEMA: JsonObject = {
 };
 
 /**
- * Where each extension-side entry field lives in the schema, as a dotted property path. The parser's field ids and the
- * manifest's property names differ for the nested ones, so the map is explicit rather than derived.
+ * The parser's field ids and the manifest's property names differ for the nested ones, so the map is explicit rather
+ * than derived.
  */
 const ENTRY_VIEW_FIELD_PATHS: Readonly<Record<(typeof ENTRY_VIEW_FIELD_IDS)[number], string>> = {
 	apiVersion: "apiVersion",
@@ -137,14 +136,12 @@ const ENTRY_VIEW_FIELD_PATHS: Readonly<Record<(typeof ENTRY_VIEW_FIELD_IDS)[numb
 	mcp: "mcp",
 };
 
-/** An object node of the schema, or undefined for a scalar, an array, or a missing value. */
 function objectNode(value: JsonValue | undefined): JsonObject | undefined {
 	return value !== undefined && value !== null && typeof value === "object" && !Array.isArray(value)
 		? (value as JsonObject)
 		: undefined;
 }
 
-/** The schema node at a dotted property path, or undefined when a segment is missing. */
 function schemaAt(root: JsonObject, dotted: string): JsonValue | undefined {
 	let node: JsonValue | undefined = root;
 	for (const segment of dotted.split(".")) {
@@ -154,7 +151,6 @@ function schemaAt(root: JsonObject, dotted: string): JsonValue | undefined {
 	return node;
 }
 
-/** Refuses a schema that lost one of the parser's fields; the generator calls this before rendering. */
 export function assertServersSchemaCoversEntryFields(schema: JsonObject = SERVERS_ENTRY_SCHEMA): void {
 	const missing = ENTRY_VIEW_FIELD_IDS.filter((field) => schemaAt(schema, ENTRY_VIEW_FIELD_PATHS[field]) === undefined);
 	if (missing.length > 0) {

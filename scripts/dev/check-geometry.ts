@@ -1,19 +1,22 @@
 /**
- * check-overflow.ts proves "the page fits"; this sweep proves "a state change does not move what it marks", plus a width
- * leg proving each registered surface reaches the pane's content edge at 2000px. THE REGISTRIES (geometryRegistry.ts) ARE
- * THE COVERAGE CLAIM, and every case measures under the pinned faces (render-dashboard.ts), so a green sweep here predicts
- * the Linux-only gate.
+ * check-overflow.ts proves "the page fits"; this sweep proves "a state change does not move what it marks", plus a
+ * width leg proving each registered surface reaches the pane's content edge at 2000px. THE REGISTRIES
+ * (geometryRegistry.ts) ARE THE COVERAGE CLAIM, and every case measures under the pinned faces (render-dashboard.ts),
+ * so a green sweep here predicts the Linux-only gate.
  *
  *   an element gaining a mark, reveal, error, or overlay without moving -> STATE_PAIRS entry
  *   a new destination or structural container                           -> WIDTH_SURFACES entry
- *   a text-bearing slot                                                 -> also names itself in metricProbe; its height must survive divergent fonts
- *   disclosure                                                          -> deliberately no pair; open-vs-closed EXISTS to move geometry
+ *   a text-bearing slot                                                 -> also names itself in metricProbe
+ *   its height must survive divergent fonts                             -> also names itself in metricProbe
+ *   disclosure                                                          -> deliberately no pair
+ *   open-vs-closed EXISTS to move geometry                              -> deliberately no pair
  *
- * A stale entry is its own failure, never a green. A case that never ran (vanished selector, inert toggle, baseline already
- * toggled) or an expectedDrift marker whose drift is gone exits 2, apart from the exit 1 of moved geometry.
+ *   moved geometry                              -> exit 1
+ *   A case that never ran (vanished selector, inert toggle, baseline already toggled) -> exits 2
+ *   an expectedDrift marker whose drift is gone -> exits 2
+ *   a stale entry                               -> its own failure, never a green
  *
- * Usage:
- *   bun scripts/dev/check-geometry.ts [--only <substring>] [--jobs 4]
+ *   Usage: bun scripts/dev/check-geometry.ts [--only <substring>] [--jobs 4]
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -35,8 +38,8 @@ const FIXTURE_DIR = path.join(REPO_ROOT, "scripts/dev/renderFixtures");
 const HARNESS = path.join(REPO_ROOT, "scripts/dev/render-dashboard.ts");
 
 /**
- * Sub-pixel slack for antialiased layout: two paints of the same box can differ
- * by a rounding step without any rule having moved. Past half a pixel is a rule.
+ * Sub-pixel slack for antialiased layout: two paints of the same box can differ by a rounding step without any rule
+ * having moved. Past half a pixel is a rule.
  */
 const TOLERANCE_PX = 0.5;
 
@@ -51,9 +54,8 @@ function stepsDigest(steps: readonly string[]): string {
 }
 
 /**
- * Whether a step contains a real throw STATEMENT, by parsing it: a substring
- * test is satisfied by the word in a comment or a string literal, and a guard
- * leg that can be met by prose is met by prose eventually.
+ * Whether a step contains a real throw STATEMENT, by parsing it: a substring test is satisfied by the word in a comment
+ * or a string literal, and a guard leg that can be met by prose is met by prose eventually.
  */
 function stepThrows(step: string): boolean {
 	let found = false;
@@ -71,9 +73,8 @@ function stepThrows(step: string): boolean {
 }
 
 /**
- * The static guard sweep, over each fixture's EXPORTED shape rather than its
- * text: steps arrive by spread and import as well as by literal, and the
- * assertion has to live in the steps that actually run.
+ * The static guard sweep, over each fixture's EXPORTED shape rather than its text: steps arrive by spread and import as
+ * well as by literal, and the assertion has to live in the steps that actually run.
  */
 async function fixtureGuardFindings(): Promise<string[]> {
 	const findings: string[] = [];
@@ -157,10 +158,9 @@ function compareStep(pair: StatePair): string {
 		}
 		hold("next sibling of " + ${JSON.stringify(pair.siblingOf)}, "y", [],
 			window.__geometryBaseline.siblingTop, anchor.nextElementSibling.getBoundingClientRect().top);`;
-	// With an expectedDrift marker the probe decides between "the named drifts
-	// still stand within their bound" (XDRIFT, green), "a drift outside the
-	// list or past the bound" (DRIFT, which a known defect must not hide), and
-	// "no drift at all" (STALE).
+	// With an expectedDrift marker the probe decides between "the named drifts still stand within their bound" (XDRIFT,
+	// green), "a drift outside the list or past the bound" (DRIFT, which a known defect must not hide), and "no drift
+	// at all" (STALE).
 	const verdict =
 		pair.expectedDrift === undefined
 			? `if (drifts.length > 0) {
@@ -234,13 +234,11 @@ function intendedByTarget(pair: StatePair): readonly (readonly Dim[])[] {
 }
 
 /**
- * The font-metric divergence probe, run in the toggled state after the pair
- * held: re-measures each named slot with the divergent faces swapped in
- * through ALL FOUR font tokens - the host pair and Tailwind's --font-sans/
- * --font-mono, so a slot rendering through a font-mono utility diverges too -
- * and fails when a height moves. The harness has already proven both face
- * sets loaded with their declared metrics, so a height that holds here holds
- * under ANY platform's fonts.
+ * The font-metric divergence probe, run in the toggled state after the pair held: re-measures each named slot with the
+ * divergent faces swapped in through ALL FOUR font tokens - the host pair and Tailwind's --font-sans/--font-mono, so a
+ * slot rendering through a font-mono utility diverges too - and fails when a height moves. The harness has already
+ * proven both face sets loaded with their declared metrics, so a height that holds here holds under ANY platform's
+ * fonts.
  */
 function metricProbeStep(pair: StatePair, selectors: readonly string[]): string {
 	return `(async () => {
@@ -327,7 +325,6 @@ interface SweepCase {
 	readonly name: string;
 	readonly fixture: string;
 	readonly steps: readonly string[];
-	/** A viewport width forced onto the fixture; pairs without one keep the fixture's own. */
 	readonly viewportWidth?: number;
 	/** Whether the case carries an expectedDrift marker (its probe then never exits green). */
 	readonly expectsDrift: boolean;
@@ -361,10 +358,9 @@ function widthCase(surface: WidthSurface): SweepCase {
 }
 
 /**
- * The generated fixture: the real one plus this case's steps, so the harness
- * runs the probes exactly as it runs any fixture's own steps. Generated under
- * tmp and imported by absolute path, so the base fixture's relative imports
- * still resolve at its real location.
+ * The generated fixture: the real one plus this case's steps, so the harness runs the probes exactly as it runs any
+ * fixture's own steps. Generated under tmp and imported by absolute path, so the base fixture's relative imports still
+ * resolve at its real location.
  */
 async function writeCaseFixture(dir: string, sweep: SweepCase, index: number): Promise<string> {
 	const basePath = path.join(FIXTURE_DIR, sweep.fixture);
@@ -391,10 +387,9 @@ interface Result {
 }
 
 /**
- * One case through the harness. --widths "" puts it in measurement-only mode
- * (no PNG) while the steps and the own-width overflow assertion still run; a
- * probe's throw surfaces as exit 1 with its runtime-assembled marker in the
- * output, which is the whole wire protocol between the two scripts.
+ * --widths "" puts it in measurement-only mode (no PNG) while the steps and the own-width overflow assertion still run;
+ * a probe's throw surfaces as exit 1 with its runtime-assembled marker in the output, which is the whole wire protocol
+ * between the two scripts.
  */
 async function run(sweep: SweepCase, fixtureFile: string): Promise<Result> {
 	const child = spawn(process.execPath, [HARNESS, "--fixture", fixtureFile, "--widths", ""], {
@@ -411,9 +406,8 @@ async function run(sweep: SweepCase, fixtureFile: string): Promise<Result> {
 	const code = await new Promise<number>((resolve) => child.on("close", (status) => resolve(status ?? 1)));
 	let outcome: Outcome;
 	if (code === 0) {
-		// A green exit under an expectedDrift marker cannot happen through the
-		// probe (it always throws one of its three verdicts), so reaching it means
-		// the compare step never ran: a stale entry, not a pass.
+		// A green exit under an expectedDrift marker cannot happen through the probe (it always throws one of its three
+		// verdicts), so reaching it means the compare step never ran: a stale entry, not a pass.
 		outcome = sweep.expectsDrift ? "stale-expectation" : "held";
 	} else if (output.includes("GEOMETRY-XDRIFT")) {
 		outcome = "expected-drift";
@@ -439,8 +433,8 @@ async function main(): Promise<void> {
 	if (cases.length === 0) {
 		throw new Error(`No pairs matched ${values.only ?? "(everything)"}`);
 	}
-	// Always swept, --only or not: the guard leg is static and instant, and a
-	// filtered run that silently skipped it would be a green nobody earned.
+	// Always swept, --only or not: the guard leg is static and instant, and a filtered run that silently skipped it
+	// would be a green nobody earned.
 	const unguarded = await fixtureGuardFindings();
 	for (const finding of unguarded) {
 		console.log(`GUARD ${finding}`);
@@ -448,9 +442,8 @@ async function main(): Promise<void> {
 	const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "check-geometry-"));
 	try {
 		const results: Result[] = [];
-		// A case whose base fixture is gone never ran: the renamed-fixture failure
-		// belongs to exit 2's vocabulary, not to a runner crash that would take
-		// the rest of the sweep with it.
+		// A case whose base fixture is gone never ran: the renamed-fixture failure belongs to exit 2's vocabulary, not
+		// to a runner crash that would take the rest of the sweep with it.
 		const queue: { sweep: SweepCase; file: string }[] = [];
 		for (const [index, sweep] of cases.entries()) {
 			try {
@@ -466,9 +459,8 @@ async function main(): Promise<void> {
 		console.log(
 			`sweeping ${cases.length} case(s): ${STATE_PAIRS.length} state pair(s), ${WIDTH_SURFACES.length} width surface(s) registered`
 		);
-		// The same pool and stagger as check-overflow.ts, for the same reason:
-		// each run launches its own Chrome, and cold-starting them all at once
-		// starves the harness's DevTools deadline on a busy runner.
+		// The same pool and stagger as check-overflow.ts, for the same reason: each run launches its own Chrome, and
+		// cold-starting them all at once starves the harness's DevTools deadline on a busy runner.
 		await Promise.all(
 			Array.from({ length: Math.min(jobs, queue.length) }, async (_, worker) => {
 				await delay(worker * 400);

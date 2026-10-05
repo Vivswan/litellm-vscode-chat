@@ -1,7 +1,6 @@
 /**
- * A read-only other-scope frame with a standing problem: the workspace record
- * stores a `_force` value the directive grammar rejects, so the frame mounts
- * its footer-position message row - the editors' status slot, message alone -
+ * A read-only other-scope frame with a standing problem: the workspace record stores a `_force` value the directive
+ * grammar rejects, so the frame mounts its footer-position message row - the editors' status slot, message alone -
  * under the plain chips, naming the matcher and the problem.
  */
 import type { RenderFixture } from "../render-dashboard.ts";

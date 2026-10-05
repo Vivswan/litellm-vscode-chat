@@ -1,8 +1,7 @@
 /**
- * The Settings tab: scalar groups, the Usage rows (thresholds list + status
- * bar mode), the catalog row with a standing failure, and both record editors
- * with directive controls (force/inheritable marks, the inherit-from select,
- * fallback marks and the _openrouter_model row).
+ * The Settings tab: scalar groups, the Usage rows (thresholds list + status bar mode), the catalog row with a standing
+ * failure, and both record editors with directive controls (force/inheritable marks, the inherit-from select, fallback
+ * marks and the _openrouter_model row).
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, minutesAgoMs } from "./shared.ts";

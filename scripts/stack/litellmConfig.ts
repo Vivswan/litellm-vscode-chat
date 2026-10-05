@@ -1,20 +1,14 @@
 // scripts/stack/litellmConfig.ts
 //
-// IO wrapper for the runtime LiteLLM proxy config: the pure emission lives
-// in src/test/fakeStack/proxyConfig.ts (source of truth:
-// src/test/fakeStack/models.ts); this module adds the .env-aware wildcard
-// lookup and the atomic write to docker/.generated/ (gitignored). Both
-// stack-starting paths regenerate the file first - scripts/stack/compose.ts
-// on its `up` subcommand and scripts/docker-test.ts - so no start can see a
-// stale or missing config. Other compose subcommands do not regenerate.
+// Both stack-starting paths regenerate the file first - scripts/stack/compose.ts on its `up` subcommand and
+// scripts/docker-test.ts - so no start can see a stale or missing config. The docker test orchestrator generates with
+// realProviders: false, so test runs see the same fake-only model list everywhere regardless of local keys.
 //
-// Wildcard routes to real providers are key-conditional: openai/* or
-// anthropic/* is emitted only when the matching API key is non-empty at
-// generation time (compose precedence: a set shell variable is authoritative
-// even when empty, .env fills in only unset ones), and the bare "*"
-// passthrough only with LITELLM_WILDCARD_ALL=1. The docker test orchestrator
-// generates with realProviders: false, so test runs see the same fake-only
-// model list everywhere regardless of local keys.
+//   the pure emission        -> lives in src/test/fakeStack/proxyConfig.ts (source of truth:
+//                               src/test/fakeStack/models.ts)
+//   openai/* or anthropic/*  -> is emitted only when the matching API key is non-empty at generation time
+//   compose precedence       -> a set shell variable is authoritative even when empty, .env fills in only unset ones
+//   the bare "*" passthrough -> only with LITELLM_WILDCARD_ALL=1
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -30,11 +24,9 @@ export type { GenerateOptions };
 export { COPILOT_TOKEN_DIR, composeSetting, STACK_DEFAULTS };
 
 /**
- * The well-known first-party Copilot editor client id (with the matching
- * Editor-Version/Copilot-Integration-Id headers below) that third-party
- * tools reuse to reach the Copilot API. GitHub's Copilot terms can treat
- * use outside a supported client as unauthorized; running copilot-login is
- * the account owner's deliberate acceptance of that risk.
+ * The well-known first-party Copilot editor client id (with the matching Editor-Version/Copilot-Integration-Id headers
+ * below) that third-party tools reuse to reach the Copilot API. GitHub's Copilot terms can treat use outside a
+ * supported client as unauthorized; running copilot-login is the account owner's deliberate acceptance of that risk.
  */
 export const COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 
@@ -95,9 +87,8 @@ export async function fetchCopilotModels(): Promise<CopilotModel[]> {
 }
 
 /**
- * Read and parse the stack's .env file with the compose-conformant grammar in
- * src/test/envFile.ts (which also names what is deliberately not supported).
- * The one shared .env reader for scripts/.
+ * Read and parse the stack's .env file with the compose-conformant grammar in src/test/envFile.ts (which also names
+ * what is deliberately not supported). The one shared .env reader for scripts/.
  */
 export function readEnvFile(): Record<string, string> {
 	const envPath = path.join(process.cwd(), ".env");
@@ -117,19 +108,17 @@ export interface GeneratedConfig {
 	/** Absolute path of the generated file. */
 	path: string;
 	/**
-	 * Whether this call changed the file's content (or created it). A running
-	 * litellm container never re-reads its config, so a content change means
-	 * the caller must recreate the service for the new config to apply.
+	 * A running litellm container never re-reads its config, so a content change means the caller must recreate the
+	 * service for the new config to apply.
 	 */
 	changed: boolean;
 }
 
 /**
- * Write the runtime config to docker/.generated/litellm-config.yaml, creating
- * the directory if needed (gitignored, so a fresh clone starts without it).
- * The write is skipped when the content is already on disk, and goes through
- * a same-directory temp file plus rename otherwise, so a concurrently
- * starting container can never read a half-written config.
+ * The write is skipped when the content is already on disk, and goes through a same-directory temp file plus rename
+ * otherwise, so a concurrently starting container can never read a half-written config.
+ *
+ *   docker/.generated/litellm-config.yaml -> gitignored, so a fresh clone starts without it
  */
 export function ensureGeneratedConfig(options: GenerateOptions): GeneratedConfig {
 	const configPath = path.join(process.cwd(), "docker", ".generated", "litellm-config.yaml");

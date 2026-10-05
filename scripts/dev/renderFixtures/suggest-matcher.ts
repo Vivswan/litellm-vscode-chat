@@ -1,8 +1,6 @@
 /**
- * The matcher-key input's suggestion listbox open: the discovered model IDs
- * under the matcher editor overlay's prefix input, in the shared dropdown
- * chrome. The steps add a fresh matcher (which opens the overlay) and focus
- * its empty prefix input.
+ * The matcher-key input's suggestion listbox open: the discovered model IDs under the matcher editor overlay's prefix
+ * input, in the shared dropdown chrome.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

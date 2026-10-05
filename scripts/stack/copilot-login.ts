@@ -1,13 +1,11 @@
 #!/usr/bin/env bun
 // scripts/stack/copilot-login.ts
 //
-// One-time GitHub device-flow login for the stack's github_copilot routes.
-// Writes the OAuth access token into docker/.copilot-token/, which
-// docker-compose mounts into the litellm container and which the config
-// generator reads to fetch the live Copilot model catalog. Delete the
-// access-token file to sign out; the directory itself is a tracked compose
-// mountpoint - keep it. Requires an account with a Copilot seat: a plain PAT
-// cannot reach the Copilot token exchange.
+// Writes the OAuth access token into docker/.copilot-token/, which docker-compose mounts into the litellm container and
+// which the config generator reads to fetch the live Copilot model catalog. Delete the access-token file to sign out;
+// the directory itself is a tracked compose mountpoint - keep it.
+//
+//   a plain PAT cannot reach the Copilot token exchange -> Requires an account with a Copilot seat
 
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -48,8 +46,7 @@ async function main(): Promise<void> {
 	console.log(`[copilot-login] waiting for authorization (expires in ${device.expires_in}s)...`);
 
 	const deadline = Date.now() + (device.expires_in ?? 900) * 1000;
-	// The device-flow spec: poll no faster than `interval`, and add five
-	// seconds whenever GitHub answers slow_down.
+	// The device-flow spec: poll no faster than `interval`, and add five seconds whenever GitHub answers slow_down.
 	let intervalMs = ((device.interval ?? 5) + 1) * 1000;
 	let accessToken: string | undefined;
 	while (Date.now() < deadline) {
@@ -83,8 +80,8 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	// Owner-only on both the directory and the file, chmod'd even when they
-	// already exist: the token is a long-lived credential.
+	// Owner-only on both the directory and the file, chmod'd even when they already exist: the token is a long-lived
+	// credential.
 	const tokenDir = path.join(process.cwd(), COPILOT_TOKEN_DIR);
 	mkdirSync(tokenDir, { recursive: true, mode: 0o700 });
 	chmodSync(tokenDir, 0o700);

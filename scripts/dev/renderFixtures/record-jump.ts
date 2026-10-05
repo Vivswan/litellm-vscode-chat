@@ -1,8 +1,6 @@
 /**
- * The configure-jump's landing: no record matches DeepSeek R1, so the
- * inspector's button creates a fresh draft group keyed by the exact model ID
- * and opens its matcher editor overlay over the Settings tab, unapplied. The
- * first step opens R1's params inspector, the second clicks Configure.
+ * The configure-jump's landing: no record matches DeepSeek R1, so the inspector's button creates a fresh draft group
+ * keyed by the exact model ID and opens its matcher editor overlay over the Settings tab, unapplied.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

@@ -1,13 +1,8 @@
 /**
- * Dev-only visual render harness: screenshots the dashboard webview through
- * headless Chrome without launching VS Code (see usage() for the flags,
- * CHROME_BIN for Chrome discovery). Deliberately no pixel baseline. What it
- * does enforce: the page runs under the shell's real CSP and any violation
- * fails the render, the scroll offset is pinned before a full-page capture so
- * renders reproduce, and every run asserts the page does not scroll sideways at
- * the width it was shot at. When the harness and the editor disagree about how
- * the page is assembled, fix the harness FIRST: what this file emulates is a
- * claim about the editor, and a wrong claim certifies bugs absent.
+ * Deliberately no pixel baseline.
+ *
+ * When the harness and the editor disagree about how the page is assembled, fix the harness FIRST: what this file
+ * emulates is a claim about the editor, and a wrong claim certifies bugs absent.
  */
 import { type ChildProcess, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
@@ -69,54 +64,41 @@ import {
 
 /** What a fixture module default-exports; `messages` are ExtensionToWebviewMessage objects. */
 export interface RenderFixture {
-	/** Delivered to the page as window "message" events once it posts its ready request. */
 	readonly messages: readonly unknown[];
-	/** JS expressions evaluated in the page after the messages settle (awaited when they return promises). */
 	readonly steps?: readonly string[];
 	readonly viewport?: { readonly width: number; readonly height: number };
 	/**
-	 * Capture the viewport alone, as `--clip-viewport` does. Required when the
-	 * fixture's subject IS the viewport edge - anything measuring against it or
-	 * flipping away from it - because a full-page capture expands the viewport
-	 * until the edge is not there.
+	 * Required when the fixture's subject IS the viewport edge - anything measuring against it or flipping away from
+	 * it - because a full-page capture expands the viewport until the edge is not there.
 	 */
 	readonly clipViewport?: boolean;
-	/** How long to wait after the ready handshake before steps and capture; default 300. */
 	readonly settleMs?: number;
 	/**
-	 * Opts the fixture out of the width sweep, keeping the assertion at its own
-	 * width. For a fixture whose state was MEASURED when it was built: a chip
-	 * popover picks its side by measuring its anchor at open time, so narrowing
-	 * afterwards leaves it on a side the component would never have chosen.
-	 * Narrow behaviour belongs to a fixture opened AT the narrow width.
+	 * For a fixture whose state was MEASURED when it was built: a chip popover picks its side by measuring its anchor
+	 * at open time, so narrowing afterwards leaves it on a side the component would never have chosen. Narrow
+	 * behaviour belongs to a fixture opened AT the narrow width.
 	 */
 	readonly measuredAtOwnWidth?: boolean;
 	/**
-	 * The host theme the page emulates: the token set in harness.css plus the
-	 * body class VS Code stamps. The two high-contrast kinds raise
-	 * prefers-contrast; "forced-colors" adds forced-colors: active on top of HC
-	 * dark, the way an OS high-contrast mode overrides author colors.
+	 * The two high-contrast kinds raise prefers-contrast; "forced-colors" adds forced-colors: active on top of HC dark,
+	 * the way an OS high-contrast mode overrides author colors.
 	 */
 	readonly hostTheme?: HostTheme;
 	/**
-	 * Canned answers for posted requests: a request whose `method` matches a key
-	 * gets the mapped envelope template dispatched back with its `id` and
-	 * `method` filled in (the correlation the real extension performs). One
-	 * template per method.
+	 * Canned answers for posted requests: a request whose `method` matches a key gets the mapped envelope template
+	 * dispatched back with its `id` and `method` filled in (the correlation the real extension performs).
 	 */
 	readonly respond?: Readonly<Record<string, unknown>>;
 	/**
-	 * Launch Chrome without --hide-scrollbars, as the --show-scrollbars flag
-	 * does: the webview's classic scrollbars take space and paint bands the
-	 * default render can never show. Fixture-level so a scrollbar-state guard
-	 * keeps its bars when the sweeps run it without flags.
+	 * Launch Chrome without --hide-scrollbars, as the --show-scrollbars flag does: the webview's classic scrollbars
+	 * take space and paint bands the default render can never show. Fixture-level so a scrollbar-state guard keeps its
+	 * bars when the sweeps run it without flags.
 	 */
 	readonly showScrollbars?: boolean;
 	/**
-	 * The fixture's width sits under the shell's min-width floor, where the page
-	 * scrolls sideways BY DESIGN. The harness inverts its overflow assertion:
-	 * the sideways scroll must be PRESENT (it is the state such a fixture exists
-	 * to photograph), and the width must really be under the floor.
+	 * The fixture's width sits under the shell's min-width floor, where the page scrolls sideways BY DESIGN. The
+	 * harness inverts its overflow assertion: the sideways scroll must be PRESENT (it is the state such a fixture
+	 * exists to photograph), and the width must really be under the floor.
 	 */
 	readonly belowFloor?: boolean;
 }
@@ -150,10 +132,8 @@ async function loadFixture(fixturePath: string): Promise<RenderFixture> {
 }
 
 /**
- * Whether the built bundle predates any source it is built from. A stale bundle
- * makes the render evidence about the code as it WAS, silently and with
- * byte-identical output across a real change. Directories count as roots too,
- * because a deletion touches the parent and nothing else.
+ * A stale bundle makes the render evidence about the code as it WAS, silently and with byte-identical output across a
+ * real change. Directories count as roots too, because a deletion touches the parent and nothing else.
  */
 function bundleIsStale(bundlePath: string, stylesheetPath: string): boolean {
 	const built = Math.min(mtimeOf(bundlePath), mtimeOf(stylesheetPath));
@@ -226,8 +206,7 @@ async function main(): Promise<void> {
 	if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
 		throw new Error(`Viewport must be positive integers; got ${width}x${height}`);
 	}
-	// Sub-2px strokes snap differently per display density, so reviewing them
-	// needs the same page at 1x and 2x.
+	// Sub-2px strokes snap differently per display density, so reviewing them needs the same page at 1x and 2x.
 	const dpr = values.dpr === undefined ? 1 : Number(values.dpr);
 	if (!Number.isFinite(dpr) || dpr <= 0) {
 		throw new Error(`--dpr takes a positive number; got ${values.dpr}`);
@@ -235,8 +214,8 @@ async function main(): Promise<void> {
 	if (values["contrast-large"] === true && values.contrast === undefined) {
 		throw new Error("--contrast-large only adjusts the --contrast threshold; pass --contrast <selector> too");
 	}
-	// --widths makes --out optional: measuring every fixture at every breakpoint
-	// boundary should not also cost a full-page screenshot each.
+	// --widths makes --out optional: measuring every fixture at every breakpoint boundary should not also cost a
+	// full-page screenshot each.
 	const positiveIntegers = (list: string | undefined, flag: string): number[] =>
 		(list ?? "")
 			.split(",")
@@ -252,9 +231,8 @@ async function main(): Promise<void> {
 	const sweepWidths = positiveIntegers(values.widths, "--widths");
 	const paneWidths = positiveIntegers(values["pane-widths"], "--pane-widths");
 	const outPath = values.out === undefined ? undefined : path.resolve(values.out);
-	// The state probes run against the captured page, after the width sweep has
-	// restored the fixture's own width; a measurement-only run returns before
-	// that point, so accepting a probe there would exit 0 having never run it.
+	// The state probes run against the captured page, after the width sweep has restored the fixture's own width; a
+	// measurement-only run returns before that point, so accepting a probe there would exit 0 having never run it.
 	const probes = (["hover", "focus", "contrast"] as const).filter((flag) => values[flag] !== undefined);
 	if (outPath === undefined && probes.length > 0) {
 		throw new Error(
@@ -276,9 +254,8 @@ async function main(): Promise<void> {
 		throw new Error(`--accent must be one of ${UI_ACCENTS.join(", ")}; got ${values.accent}`);
 	}
 	const accent: Accent = values.accent ?? "blue";
-	// --theme names the HOST theme being emulated; --app-theme names the reader's
-	// own ui.theme setting. The default stays "auto" because that is what almost
-	// everyone runs, so it should not be reachable only by a flag.
+	// --theme names the HOST theme being emulated; --app-theme names the reader's own ui.theme setting. The default
+	// stays "auto" because that is what almost everyone runs, so it should not be reachable only by a flag.
 	const isAppTheme = (value: string): value is AppTheme => (UI_THEMES as readonly string[]).includes(value);
 	if (values["app-theme"] !== undefined && !isAppTheme(values["app-theme"])) {
 		throw new Error(`--app-theme must be one of ${UI_THEMES.join(", ")}; got ${values["app-theme"]}`);
@@ -297,9 +274,8 @@ async function main(): Promise<void> {
 	if (hostTheme === "dark" || hostTheme === "light") {
 		assertThemeCoversStylesheet(await fs.readFile(stylesheetPath, "utf8"), tokensCss, hostTheme);
 	}
-	// Any measurement run measures the pinned faces, --out beside it or not: a
-	// PNG rendered while measuring photographs the pinned stack on purpose, so
-	// a sweep failure can be reproduced with the same fonts it measured.
+	// Any measurement run measures the pinned faces, --out beside it or not: a PNG rendered while measuring photographs
+	// the pinned stack on purpose, so a sweep failure can be reproduced with the same fonts it measured.
 	const pinFonts = measuring;
 	if (pinFonts) {
 		assertPinCoversStylesheet(await fs.readFile(stylesheetPath, "utf8"));
@@ -321,12 +297,10 @@ async function main(): Promise<void> {
 	const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "render-dashboard-"));
 	let chrome: ChildProcess | undefined;
 	let cdp: CdpConnection | undefined;
-	// One memoized cleanup for every way out, awaited by the finally below and by
-	// the signal path. A detached Chrome left the terminal's process group, so
-	// terminal-generated signals now end this process alone; the handlers forward
-	// the termination, stay installed until the cleanup has finished so a signal
-	// cannot land in an unguarded window, and share the one promise so a repeated
-	// signal joins the cleanup already running instead of cutting it short.
+	// One memoized cleanup for every way out, awaited by the finally below and by the signal path. A detached Chrome
+	// left the terminal's process group, so terminal-generated signals now end this process alone; the handlers forward
+	// the termination, stay installed until the cleanup has finished so a signal cannot land in an unguarded window,
+	// and share the one promise so a repeated signal joins the cleanup already running instead of cutting it short.
 	let cleanedUp: Promise<void> | undefined;
 	const cleanup = (): Promise<void> => {
 		cleanedUp ??= (async () => {
@@ -342,9 +316,8 @@ async function main(): Promise<void> {
 		terminating = true;
 		void cleanup().finally(() => process.exit(1));
 	};
-	// Every terminal-generated termination, not just Ctrl-C: SIGHUP (a closed
-	// window, a dropped ssh session) and SIGQUIT would otherwise kill this
-	// process by default action and orphan a detached Chrome.
+	// Every terminal-generated termination, not just Ctrl-C: SIGHUP (a closed window, a dropped ssh session) and
+	// SIGQUIT would otherwise kill this process by default action and orphan a detached Chrome.
 	const TERMINATION_SIGNALS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
 	for (const signal of TERMINATION_SIGNALS) {
 		process.on(signal, onTermination);
@@ -359,14 +332,12 @@ async function main(): Promise<void> {
 	await fs.writeFile(indexHtml, html);
 	const pageUrl = pathToFileURL(indexHtml).href;
 
-	// TZ and --lang pin the locale-dependent date strings; CHROME_EXTRA_FLAGS
-	// carries environment-specific launch flags (a CI runner typically passes
-	// --no-sandbox, since its image restricts the unprivileged user namespaces
-	// the Chrome sandbox needs).
+	// TZ and --lang pin the locale-dependent date strings; CHROME_EXTRA_FLAGS carries environment-specific launch flags
+	// (a CI runner typically passes --no-sandbox, since its image restricts the unprivileged user namespaces the Chrome
+	// sandbox needs).
 	const extraFlags = (process.env.CHROME_EXTRA_FLAGS ?? "").split(" ").filter((flag) => flag.length > 0);
-	// Hidden by default so measurements and shots stay platform-independent;
-	// --show-scrollbars (or the fixture's showScrollbars) keeps the bars for the
-	// states only a classic scrollbar can produce, e.g. the band under the rail
+	// Hidden by default so measurements and shots stay platform-independent; --show-scrollbars (or the fixture's
+	// showScrollbars) keeps the bars for the states only a classic scrollbar can produce, e.g. the band under the rail
 	// when a sub-floor page scrolls sideways.
 	const showScrollbars = values["show-scrollbars"] === true || fixture.showScrollbars === true;
 	const launchFlags = [
@@ -391,9 +362,8 @@ async function main(): Promise<void> {
 			() => terminating
 		);
 		cdp = await CdpConnection.connect(await findPageTargetUrl(launched.port, pageUrl, READY_TIMEOUT_MS));
-		// Emulated for every theme, dark included: skipping it left dark renders
-		// on whatever Chrome's host preferred, so the one theme that never
-		// declared its scheme was the default one.
+		// Emulated for every theme, dark included: skipping it left dark renders on whatever Chrome's host preferred,
+		// so the one theme that never declared its scheme was the default one.
 		const light = LIGHT_HOST_THEMES.has(hostTheme);
 		await cdp.send("Emulation.setEmulatedMedia", {
 			features: [
@@ -485,31 +455,25 @@ async function main(): Promise<void> {
 			console.log(`fonts: pinned for measurement (normal line box ${PINNED_CONTROL_PX}px at 100px font size)`);
 		}
 
-		// The fixture's width is applied BEFORE its steps, not only before the
-		// capture: --window-size is a request a platform may refuse (macOS clamps
-		// windows to ~500px wide), so without the override a narrow fixture's
-		// steps run at whatever width the platform allowed and only the capture
-		// sees the declared one - a step that arms, measures, or asserts against
-		// the fixture's own state would be doing it at a width the fixture never
-		// named.
+		// The fixture's width is applied BEFORE its steps, not only before the capture: --window-size is a request a
+		// platform may refuse (macOS clamps windows to ~500px wide), so without the override a narrow fixture's steps
+		// run at whatever width the platform allowed and only the capture sees the declared one - a step that arms,
+		// measures, or asserts against the fixture's own state would be doing it at a width the fixture never named.
 		await setWidth(cdp, width, height, dpr);
 		for (const step of fixture.steps ?? []) {
 			await evaluate(cdp, step, true);
 			await delay(200);
 		}
 
-		// The page runs under the shell's real CSP; a violation means some code
-		// needs what the webview never grants, so the render fails loudly instead
-		// of capturing a page that only works with the policy off.
+		// The page runs under the shell's real CSP; a violation means some code needs what the webview never grants, so
+		// the render fails loudly instead of capturing a page that only works with the policy off.
 		const violations = (await evaluate(cdp, "window.__cspViolations")) as readonly string[];
 		if (violations.length > 0) {
 			throw new Error(`Content-Security-Policy violations:\n  ${violations.join("\n  ")}`);
 		}
-		// And the policy must not have cost the page its stylesheets: the Tailwind
-		// theme block defines --radius as a literal (--primary and friends can
-		// compute to guaranteed-invalid where a host token is deliberately null)
-		// and the dashboard stylesheet zeroes the body margin, so both gone means
-		// a css load was blocked.
+		// And the policy must not have cost the page its stylesheets: the Tailwind theme block defines --radius as a
+		// literal (--primary and friends can compute to guaranteed-invalid where a host token is deliberately null) and
+		// the dashboard stylesheet zeroes the body margin, so both gone means a css load was blocked.
 		const stylesApplied = (await evaluate(
 			cdp,
 			`getComputedStyle(document.documentElement).getPropertyValue("--radius") !== "" &&
@@ -525,13 +489,10 @@ async function main(): Promise<void> {
 			console.warn("warning: no <main> h1 found; the page is likely still on the loading skeleton");
 		}
 
-		// Every render is also an overflow assertion. A page that scrolls sideways
-		// is broken outright rather than a matter of taste, it is invisible in a
-		// full-page capture (which photographs the overflow as though it were the
-		// page), and it has shipped twice. Through an explicit width override
-		// rather than whatever --window-size left: a platform with a minimum
-		// window width gives back a wider viewport than was asked for, so the
-		// number in a failure would not be the number under test.
+		// A page that scrolls sideways is broken outright rather than a matter of taste, it is invisible in a full-page
+		// capture (which photographs the overflow as though it were the page), and it has shipped twice. Through an
+		// explicit width override rather than whatever --window-size left: a platform with a minimum window width gives
+		// back a wider viewport than was asked for, so the number in a failure would not be the number under test.
 		await setWidth(cdp, width, height, dpr);
 		if (fixture.belowFloor === true) {
 			await assertBelowFloorSideways(cdp, width);
@@ -562,8 +523,8 @@ async function main(): Promise<void> {
 			try {
 				await assertNoHorizontalOverflow(cdp, at.window);
 			} catch (error) {
-				// Collected rather than thrown: one report naming every width
-				// that fails beats a bisect through the list one run at a time.
+				// Collected rather than thrown: one report naming every width that fails beats a bisect through the
+				// list one run at a time.
 				const where = at.pane === undefined ? "" : ` (aimed at a ${at.pane}px pane)`;
 				failures.push((error instanceof Error ? error.message : String(error)) + where);
 			}
@@ -582,19 +543,16 @@ async function main(): Promise<void> {
 		const captureBeyondViewport = values["clip-viewport"] !== true && fixture.clipViewport !== true;
 		await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
 		if (captureBeyondViewport) {
-			// Pin the scroll offset, then let two frames settle. A full-page
-			// capture photographs the whole document through the fixture's small
-			// viewport, and a position: sticky element paints where the CURRENT
-			// offset puts it - an offset layout is still settling around, so the
-			// same bytes photograph differently run to run. At offset 0 a sticky
-			// element is unstuck and coincides with its flow position, which no
-			// later relayout can move. Only the full-page path wants this:
-			// --clip-viewport exists to photograph what the fixture scrolled to.
+			// A full-page capture photographs the whole document through the fixture's small viewport, and a position:
+			// sticky element paints where the CURRENT offset puts it - an offset layout is still settling around, so
+			// the same bytes photograph differently run to run. At offset 0 a sticky element is unstuck and coincides
+			// with its flow position, which no later relayout can move.
+			//
+			//   --clip-viewport exists to photograph what the fixture scrolled to -> Only the full-page path wants this
 			await evaluate(cdp, "window.scrollTo(0, 0)");
 			await evaluate(cdp, "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))", true);
-			// The pin only reaches the document scroller. An inner one left
-			// scrolled (a windowed table, a slide-over) would keep its own sticky
-			// children racing, so fail loudly rather than photograph a surprise.
+			// The pin only reaches the document scroller. An inner one left scrolled (a windowed table, a slide-over)
+			// would keep its own sticky children racing, so fail loudly rather than photograph a surprise.
 			const stray = (await evaluate(
 				cdp,
 				`(() => {
@@ -609,11 +567,10 @@ async function main(): Promise<void> {
 				throw new Error(`Scroll offset survived the pre-capture pin (${stray}); the render would not be reproducible`);
 			}
 		}
-		// Hover after the scroll pin, because it is the one state a later scroll
-		// destroys: :hover answers to the real input pipeline alone, tracks
-		// VIEWPORT coordinates, and Chrome re-runs hit-testing after a scroll.
-		// Dispatching before the pin produced a PNG byte-identical to the
-		// unhovered one while the page still reported the element hovered.
+		// Hover after the scroll pin, because it is the one state a later scroll destroys: :hover answers to the real
+		// input pipeline alone, tracks VIEWPORT coordinates, and Chrome re-runs hit-testing after a scroll. Dispatching
+		// before the pin produced a PNG byte-identical to the unhovered one while the page still reported the element
+		// hovered.
 		if (values.hover !== undefined) {
 			const target = (await evaluate(
 				cdp,
@@ -639,14 +596,12 @@ async function main(): Promise<void> {
 			if (target === null) {
 				throw new Error(`--hover matched no element: ${values.hover}`);
 			}
-			// A collapsed or display:none target hovers the document at (0, 0)
-			// and reports success, which is the same lie in a smaller costume.
+			//   A collapsed or display:none target -> hovers the document at (0, 0) and reports success
 			if (target.width === 0 || target.height === 0) {
 				throw new Error(`--hover matched a zero-sized element (${values.hover}); nothing would be hovered`);
 			}
-			// A full-page capture photographs the whole document but the pointer
-			// only reaches the viewport, so an element below the fold cannot be
-			// hovered at all. Say so rather than write an unhovered PNG.
+			// A full-page capture photographs the whole document but the pointer only reaches the viewport, so an
+			// element below the fold cannot be hovered at all.
 			const offscreen =
 				target.x < 0 || target.y < 0 || target.x > target.viewport.width || target.y > target.viewport.height;
 			if (offscreen) {
@@ -657,10 +612,9 @@ async function main(): Promise<void> {
 			}
 			await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, buttons: 0 });
 			await delay(150);
-			// Steps run before this, so the h1 channel can only report the resting
-			// state - which would leave the hovered colours visible in the PNG and
-			// measurable nowhere. Confirm from the page that :hover matched rather
-			// than trusting that the coordinates were good.
+			// Steps run before this, so the h1 channel can only report the resting state - which would leave the
+			// hovered colours visible in the PNG and measurable nowhere. Confirm from the page that :hover matched
+			// rather than trusting that the coordinates were good.
 			const hovered = await evaluate(
 				cdp,
 				`(() => {
@@ -680,11 +634,9 @@ async function main(): Promise<void> {
 			}
 		}
 
-		// Focus after hover, because :focus-visible is a claim about input
-		// modality: Chrome grants a programmatic focus() the ring only while it
-		// believes the last interaction was keyboard, and --hover's mouse move
-		// flips that belief. Hover survives this ordering, since focus does not
-		// move the pointer.
+		// Hover survives this ordering, since focus does not move the pointer.
+		//
+		//   :focus-visible is a claim about input modality -> Focus after hover
 		if (values.focus !== undefined) {
 			const focusSelector = JSON.stringify(values.focus);
 			const target = (await evaluate(
@@ -741,12 +693,10 @@ async function main(): Promise<void> {
 			}
 			let report = JSON.parse((await evaluate(cdp, attempt)) as string) as FocusReport;
 			if (!report.ring) {
-				// A real Tab through the input pipeline restores keyboard modality,
-				// and the refocus then earns the ring. Tab moves focus first and the
-				// browser may scroll its landing into view - the document OR any
-				// inner scroller - so every scroll position is snapshotted, restored
-				// and VERIFIED: a capture whose scroll drifted photographs a page
-				// the viewport validation above never saw.
+				// A real Tab through the input pipeline restores keyboard modality, and the refocus then earns the
+				// ring. Tab moves focus first and the browser may scroll its landing into view - the document OR any
+				// inner scroller - so every scroll position is snapshotted, restored and VERIFIED: a capture whose
+				// scroll drifted photographs a page the viewport validation above never saw.
 				await evaluate(
 					cdp,
 					`(() => {
@@ -799,9 +749,7 @@ async function main(): Promise<void> {
 			if (!report.focused) {
 				throw new Error(`--focus could not move focus to ${values.focus}; it does not appear to be focusable`);
 			}
-			// A programmatic focus() that never earned :focus-visible paints NO
-			// ring, and a reviewer must never photograph a missing focus ring that
-			// is actually a harness artifact.
+			//   a reviewer -> must never photograph a missing focus ring that is actually a harness artifact
 			if (!report.ring) {
 				throw new Error(
 					`--focus put focus on ${values.focus} but it never matched :focus-visible, even after the Tab fallback;` +
@@ -810,8 +758,8 @@ async function main(): Promise<void> {
 			}
 		}
 
-		// The contrast probe reads the FINAL state, hover and focus included, so
-		// a hover fill or a focused control can be measured as it will be shot.
+		// The contrast probe reads the FINAL state, hover and focus included, so a hover fill or a focused control can
+		// be measured as it will be shot.
 		if (values.contrast !== undefined) {
 			const threshold = values["contrast-large"] === true ? 3 : 4.5;
 			const raw = (await evaluate(cdp, contrastProbe(values.contrast))) as string | null;
@@ -857,8 +805,8 @@ async function main(): Promise<void> {
 	} finally {
 		cdp?.close();
 		await cleanup();
-		// Only after the cleanup: removed any earlier, a signal in the gap
-		// would end the process with Chrome still running.
+		// Only after the cleanup: removed any earlier, a signal in the gap would end the process with Chrome still
+		// running.
 		for (const signal of TERMINATION_SIGNALS) {
 			process.removeListener(signal, onTermination);
 		}

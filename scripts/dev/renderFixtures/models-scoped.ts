@@ -1,16 +1,12 @@
 /**
- * The Models destination scoped to one server, the only state that paints the
- * scope chip.
+ * The Models destination scoped to one server, the only state that paints the scope chip. The X should be inset from
+ * the border the way the label is on the other side, with the pill's outline unbroken.
  *
- * The chip is the one place where a button sits inside a bordered container's
- * own padding, so the container's numbers are measured against the clear
- * button's INK rather than its box: the Button primitive hands its horizontal
- * padding back to the layout. The X should be inset from the border the way the
- * label is on the other side, with the pill's outline unbroken.
- *
- * Reached the way a reader reaches it - the count link on a server row - because
- * the chip and the scope are the same navigation, and a fixture that faked one
- * would photograph a page the dashboard cannot produce.
+ *   the Button primitive hands its horizontal padding back to the layout -> the container's numbers are measured
+ *                                                                           against the clear button's INK rather than
+ *                                                                           its box
+ *   the chip and the scope are the same navigation, and a fixture that faked one would photograph a page the dashboard
+ *   cannot produce -> Reached the way a reader reaches it - the count link on a server row
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, GATEWAY_SERVER, MODELS, PROD_SERVER } from "./shared.ts";
@@ -27,9 +23,8 @@ const fixture: RenderFixture = {
 		{ kind: "focusSection", section: "overview" },
 	],
 	steps: [
-		// The count link lives in the row's own detail, so the row opens first.
-		// Two steps, not one: React commits the click's state on its own
-		// schedule, so the link is only there after the harness's settle.
+		// The count link lives in the row's own detail, so the row opens first. Two steps, not one: React commits the
+		// click's state on its own schedule, so the link is only there after the harness's settle.
 		`(() => {
 			const line = Array.from(document.querySelectorAll("button.server-line")).find(
 				(candidate) => candidate.querySelector(".server-label-text")?.textContent?.trim() === "prod"
@@ -37,8 +32,8 @@ const fixture: RenderFixture = {
 			if (!line) { throw new Error("no server row named prod"); }
 			line.click();
 		})()`,
-		// Throw rather than photograph an unscoped Models page claiming to be the
-		// scoped one: without the chip this fixture has no subject.
+		// Throw rather than photograph an unscoped Models page claiming to be the scoped one: without the chip this
+		// fixture has no subject.
 		`(() => {
 			const link = document.querySelector("button.count-link");
 			if (!link) { throw new Error("no server count link to navigate from"); }

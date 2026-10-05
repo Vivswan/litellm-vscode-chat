@@ -1,19 +1,18 @@
 /**
  * A server whose label outgrows the old fixed name track, on a wide pane.
  *
- * The name column must spend the row's free space (the URL track's slack)
- * before it truncates: at this fixture's own width the label renders whole,
- * every URL stays on one line, and nothing scrolls sideways. The folded tiers
- * may still ellipsize the label - there the drawer's Label fact is the
- * full-text path - which the sweep proves fits at every declared width. The
- * SAME tier out of slack, with the URL parked on its 12ch floor, is
- * servers-long-label-squeeze.ts's subject.
+ * The name column must spend the row's free space (the URL track's slack) before it truncates: at this fixture's own
+ * width the label renders whole, every URL stays on one line, and nothing scrolls sideways.
  *
- * Usage joins the rows by LABEL (servers-floor's trap), so the rename below
- * renames the row's usage card too. Steps run ONCE, at this fixture's own
- * viewport (the sweep resizes afterwards without replaying them), so the pane
- * width the whole-label and wbr-rule assertions need is asserted outright
- * rather than tested: a check that skips itself is not forward-defense.
+ *   The folded tiers may still ellipsize the label -> there the drawer's Label fact is the full-text path - which the
+ *                                                     sweep proves fits at every declared width
+ *   The SAME tier out of slack, with the URL parked on its 12ch floor -> servers-long-label-squeeze.ts's subject
+ *
+ *   Usage joins the rows by LABEL (servers-floor's trap) -> the rename below renames the row's usage card too
+ *   Steps run ONCE, at this fixture's own viewport (the sweep resizes afterwards without replaying them) -> the pane
+ *     width the whole-label and wbr-rule assertions need is asserted outright rather than tested
+ *   a check that skips itself is not forward-defense -> the pane width the whole-label and wbr-rule assertions need is
+ *     asserted outright rather than tested
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, EXTERNAL_SERVER, GATEWAY_SERVER, MISCONFIGURED_SERVER, PROD_SERVER, USAGE } from "./shared.ts";

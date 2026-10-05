@@ -1,7 +1,6 @@
 /**
- * Builds and stamps each locale's settings-reference table. Two inputs, each owning one thing: the setting spec
- * (through the manifest renderer, so the row order and defaults are exactly what package.json contributes) and
- * settingsReferenceProse.ts the per-locale behavior column.
+ * Two inputs, each owning one thing: the setting spec (through the manifest renderer, so the row order and defaults are
+ * exactly what package.json contributes) and settingsReferenceProse.ts the per-locale behavior column.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -13,7 +12,6 @@ export const DOC_LOCALES = ["en", "zhCn", "zhTw"] as const;
 
 export type DocLocale = (typeof DOC_LOCALES)[number];
 
-/** Each locale's settings doc, relative to the repo root. */
 export const SETTINGS_DOC_PATHS: Record<DocLocale, string> = {
 	en: "docs/settings.md",
 	zhCn: "docs/zh-cn/settings.md",
@@ -86,7 +84,10 @@ function renderJsonDefault(value: unknown): string {
 	return JSON.stringify(value);
 }
 
-/** The default column renders inside a backtick code span, so a backtick, pipe, or line break in it would break the row. */
+/**
+ * The default column renders inside a backtick code span, so a backtick, pipe, or line break in it would break the
+ * row.
+ */
 function assertDefaultCell(id: string, rendered: string): void {
 	if (/[`|\r\n]/.test(rendered)) {
 		throw new Error(`setting ${id}'s default ${JSON.stringify(rendered)} cannot render inside a table code span`);
@@ -109,9 +110,8 @@ function assertProseCell(id: string, locale: DocLocale, text: string): void {
 }
 
 /**
- * Both directions are collected before either throws, so a renamed setting
- * reports the obsolete entry AND the undocumented key in one run. Returning the
- * pairs keeps the caller's loop total.
+ * Both directions are collected before either throws, so a renamed setting reports the obsolete entry AND the
+ * undocumented key in one run.
  */
 function validatedRows(
 	settings: SpecSettings,
@@ -149,7 +149,6 @@ function validatedRows(
 	return rows;
 }
 
-/** One locale's table: header, separator, and one row per contributed setting in manifest order. */
 export function buildReferenceTable(
 	locale: DocLocale,
 	settings: SpecSettings,
@@ -173,9 +172,8 @@ export function buildReferenceTable(
 }
 
 /**
- * With a marker region present the body is replaced, which is what makes
- * regeneration idempotent; without one the table found in place is wrapped,
- * which is how a hand-written doc becomes a generated one exactly once.
+ * With a marker region present the body is replaced, which is what makes regeneration idempotent; without one the
+ * table found in place is wrapped, which is how a hand-written doc becomes a generated one exactly once.
  */
 export function applyReferenceTable(content: string, locale: DocLocale, table: string): string {
 	const region = `${BEGIN_MARKER}\n${table}\n${END_MARKER}`;
@@ -227,8 +225,8 @@ function markerCount(content: string, marker: string): number {
 }
 
 /**
- * Every locale's doc under `root` with its table regenerated. All three render before any is returned, so one
- * locale's refusal (a malformed marker region, a setting without prose) leaves the caller nothing to write.
+ * All three render before any is returned, so one locale's refusal (a malformed marker region, a setting without
+ * prose) leaves the caller nothing to write.
  */
 export function renderSettingsReference(root: string): { readonly relativePath: string; readonly next: string }[] {
 	const settings = readSpecSettings();

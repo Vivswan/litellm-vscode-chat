@@ -1,12 +1,10 @@
 #!/usr/bin/env bun
-// scripts/dev/seed-demo-usage.ts
-//
-// CLI over seedDemoUsage.ts for callers that cannot await an import directly:
-// the dev launcher runs its legs synchronously. `--out <path>` writes the
-// measured results as JSON for the launcher; without it the script is a
-// standalone re-seeder against the running stack. Caveat standalone: the
-// warning entry's `budget` lives in the dev profile's settings and only a full
+// CLI over seedDemoUsage.ts for callers that cannot await an import directly: the dev launcher runs its legs
+// synchronously. Caveat standalone: the warning entry's `budget` lives in the dev profile's settings and only a full
 // `bun run dev` re-pins it, so that card drifts until the next launch.
+//
+//   `--out <path>` -> writes the measured results as JSON for the launcher
+//   without it     -> the script is a standalone re-seeder against the running stack
 
 import { writeFileSync } from "node:fs";
 import { composeSetting, readEnvFile, STACK_DEFAULTS } from "../stack/litellmConfig";

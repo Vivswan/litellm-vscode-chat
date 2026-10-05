@@ -1,22 +1,18 @@
-/**
- * What the harness proves about a rendered page: the sideways-overflow
- * assertions (and their below-floor inverse), the pane-width search, and the
- * contrast probe.
- */
 import { OVERFLOW_SIDEWAYS_MARKER } from "../overflowMarkers.ts";
 import { type CdpConnection, evaluate, setWidth } from "./chrome.ts";
 
 /**
- * Where a --pane-widths search starts, from each side of the rail's collapse.
- * Starting points only - the search corrects itself from what it measures.
+ * Where a --pane-widths search starts, from each side of the rail's collapse. Starting points only - the search
+ * corrects itself from what it measures.
  */
 const NARROW_PROBE_WIDTH = 320;
 
 const WIDE_PROBE_WIDTH = 1920;
 
 /**
- * The page-level number is the whole claim; the names under it are a diagnostic from two questions that fail in opposite directions.
- * Anything inside a scroller is skipped in both, since a deliberate overflow-x adds nothing to the document's own scroll.
+ * The page-level number is the whole claim; the names under it are a diagnostic from two questions that fail in
+ * opposite directions. Anything inside a scroller is skipped in both, since a deliberate overflow-x adds nothing to the
+ * document's own scroll.
  *
  *   boxes reaching past the edge -> miss an unbreakable text run inside a block that stays in bounds
  *   boxes overflowing THEMSELVES -> catch that run, plus the min-width ancestor the deepest-offender filter drops
@@ -66,7 +62,6 @@ const OVERFLOW_PROBE = `(() => {
 	return JSON.stringify({ overflow, clientWidth: root.clientWidth, culprits });
 })()`;
 
-/** Throws when the page scrolls sideways at the width it is currently set to. */
 export async function assertNoHorizontalOverflow(cdp: CdpConnection, width: number): Promise<void> {
 	const found = (await evaluate(cdp, OVERFLOW_PROBE)) as string | null;
 	if (found === null) {
@@ -77,8 +72,7 @@ export async function assertNoHorizontalOverflow(cdp: CdpConnection, width: numb
 		clientWidth: number;
 		culprits: readonly string[];
 	};
-	// The marker is the machine channel check-overflow greps; the prose after
-	// it is for humans and free to change.
+	// The marker is the machine channel check-overflow greps; the prose after it is for humans and free to change.
 	throw new Error(
 		`${OVERFLOW_SIDEWAYS_MARKER} The page scrolls sideways at ${width}px: ` +
 			`${overflow}px past a ${clientWidth}px viewport.\n  ${culprits.join("\n  ")}`
@@ -86,10 +80,8 @@ export async function assertNoHorizontalOverflow(cdp: CdpConnection, width: numb
 }
 
 /**
- * The belowFloor inversion: proves the width really sits under the shell's own
- * min-width floor, and that the sideways scroll is PRESENT - the state such a
- * fixture exists to photograph. A page that fits here means the floor moved or
- * the width was mistyped, and the fixture would guard a state not on screen.
+ * A page that fits here means the floor moved or the width was mistyped, and the fixture would guard a state not on
+ * screen.
  */
 export async function assertBelowFloorSideways(cdp: CdpConnection, width: number): Promise<void> {
 	const floor = (await evaluate(
@@ -114,11 +106,9 @@ export async function assertBelowFloorSideways(cdp: CdpConnection, width: number
 				" the below-floor scrollbar state this fixture guards is not on screen"
 		);
 	}
-	// Bounded, not merely present: below the floor the shell's min-width is the
-	// document's only legitimate widener, so a document wider than the floor
-	// itself is a real overflow bug hiding behind the designed one - and it
-	// carries the sideways marker, so the sweep counts it as a page that does
-	// not fit rather than a fixture that never ran.
+	// Bounded, not merely present: below the floor the shell's min-width is the document's only legitimate widener, so
+	// a document wider than the floor itself is a real overflow bug hiding behind the designed one - and it carries the
+	// sideways marker, so the sweep counts it as a page that does not fit rather than a fixture that never ran.
 	const wide = (await evaluate(cdp, "document.documentElement.scrollWidth")) as number;
 	if (wide > floor + 0.5) {
 		throw new Error(
@@ -129,10 +119,9 @@ export async function assertBelowFloorSideways(cdp: CdpConnection, width: number
 }
 
 /**
- * The pane's width as its container queries see it: the CONTENT box.
- * `container-type: inline-size` asks about the content box and the pane holds
- * 24px of padding on each side, so a border-box measurement would aim every
- * sweep 48px away from the breakpoint it meant to test.
+ * The pane's width as its container queries see it: the CONTENT box. `container-type: inline-size` asks about the
+ * content box and the pane holds 24px of padding on each side, so a border-box measurement would aim every sweep 48px
+ * away from the breakpoint it meant to test.
  */
 async function measurePane(cdp: CdpConnection): Promise<number> {
 	const measured = await evaluate(
@@ -150,10 +139,10 @@ async function measurePane(cdp: CdpConnection): Promise<number> {
 }
 
 /**
- * The breakpoints are container queries on the pane, so a window set to a pane threshold tests a width no breakpoint cares
- * about; each target is SOLVED by measuring rather than modelled from the layout, and a capped or discontinuous relation is
- * reported, not guessed. The rail's collapse takes about 170px of the offset with it, so solving from both ends reaches the
- * pane widths only one side can produce.
+ * The breakpoints are container queries on the pane, so a window set to a pane threshold tests a width no breakpoint
+ * cares about; each target is SOLVED by measuring rather than modelled from the layout, and a capped or discontinuous
+ * relation is reported, not guessed. The rail's collapse takes about 170px of the offset with it, so solving from both
+ * ends reaches the pane widths only one side can produce.
  */
 export async function windowWidthsForPanes(
 	cdp: CdpConnection,
@@ -191,14 +180,11 @@ export async function windowWidthsForPanes(
 }
 
 /**
- * The in-page WCAG contrast probe behind --contrast: reads the element's
- * computed color and its EFFECTIVE background, compositing translucent
- * backgrounds up the ancestor chain until an opaque one. Colors are normalized
- * through a 1x1 canvas rather than a regex, because the theme derives its tones
- * with color-mix in oklab and a parser that only speaks rgb() would fail on
- * exactly those. Anything the probe cannot honestly composite is an error, not
- * a guess. One stated non-claim: pseudo-element overlays are invisible to every
- * element scan, so the occlusion guarantee covers elements only.
+ * Colors are normalized through a 1x1 canvas rather than a regex, because the theme derives its tones with color-mix in
+ * oklab and a parser that only speaks rgb() would fail on exactly those. One stated non-claim: pseudo-element overlays
+ * are invisible to every element scan, so the occlusion guarantee covers elements only.
+ *
+ *   Anything the probe cannot honestly composite -> an error, not a guess
  */
 export function contrastProbe(selector: string): string {
 	return `(() => {

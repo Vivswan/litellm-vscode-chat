@@ -3,14 +3,13 @@ import path from "node:path";
 
 const DEFAULT_FLOOR = 85;
 
-/** Per-file line-hit sets: line number -> hit at least once. */
+/** line number -> hit at least once. */
 type FileLines = Map<number, boolean>;
 
 /**
- * The two coverage runs and, for each, a source file only that runner can
- * load. The sentinels are drift guards: path-form or filter drift in either
- * report must fail loudly, never shrink the floor's denominator to whichever
- * report still parses.
+ * The two coverage runs and, for each, a source file only that runner can load. The sentinels are drift guards:
+ * path-form or filter drift in either report must fail loudly, never shrink the floor's denominator to whichever report
+ * still parses.
  */
 const REPORTS = [
 	{ lcovPath: path.join("coverage", "lcov.info"), sentinel: "src/extension.ts" },
@@ -18,10 +17,8 @@ const REPORTS = [
 ];
 
 /**
- * Repo-relative path with forward slashes. Both runners emit repo-relative
- * lcov today; the absolute branch keeps a reporter that emits absolute paths
- * from slipping past the src/ filter unstripped. Slashes normalize first so a
- * Windows path in either form strips the same.
+ * Both runners emit repo-relative lcov today; the absolute branch keeps a reporter that emits absolute paths from
+ * slipping past the src/ filter unstripped. Slashes normalize first so a Windows path in either form strips the same.
  */
 function normalizePath(file: string): string {
 	const normalized = file.replaceAll("\\", "/");
@@ -64,9 +61,8 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	// A line counts as covered when either run hit it: line-level union is the
-	// only sound merge across runners, since two 50% summaries can cover
-	// disjoint halves or the same half.
+	// A line counts as covered when either run hit it: line-level union is the only sound merge across runners, since
+	// two 50% summaries can cover disjoint halves or the same half.
 	const merged = new Map<string, FileLines>();
 	for (const { lcovPath, sentinel } of REPORTS) {
 		let text: string;
@@ -78,8 +74,8 @@ async function main(): Promise<void> {
 			return;
 		}
 		const files = parseLcov(text);
-		// Line data, not mere presence: an SF header with no DA records would
-		// pass a presence check while shrinking the floor's denominator.
+		// Line data, not mere presence: an SF header with no DA records would pass a presence check while shrinking the
+		// floor's denominator.
 		if ((files.get(sentinel)?.size ?? 0) === 0) {
 			console.error(`${lcovPath} has no line data for ${sentinel}; its paths or filters have drifted.`);
 			process.exitCode = 1;
@@ -94,10 +90,9 @@ async function main(): Promise<void> {
 		}
 	}
 
-	// The floor is over the repository's own non-test source files only: the
-	// host runner's filters apply before sourcemap remapping, so covering the
-	// dist bundle drags remapped node_modules sources in, and the bun run
-	// covers the test harness files themselves.
+	// The floor is over the repository's own non-test source files only: the host runner's filters apply before
+	// sourcemap remapping, so covering the dist bundle drags remapped node_modules sources in, and the bun run covers
+	// the test harness files themselves.
 	let total = 0;
 	let covered = 0;
 	let fileCount = 0;

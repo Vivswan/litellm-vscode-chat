@@ -1,13 +1,10 @@
 /**
- * The merged Servers page with a row in every spend state: healthy under budget
- * (prod, 42%), warning (gateway, 87%), over budget AND stale with a failed
- * refresh (research, 112%), spend with no budget (sandbox), a denied key
- * (locked-down, the user-ruled DEGRADED diagnostic), an external row with no
- * usage join, and a misconfigured entry.
+ * The merged Servers page with a row in every spend state: healthy under budget (prod, 42%), warning (gateway, 87%),
+ * over budget AND stale with a failed refresh (research, 112%), spend with no budget (sandbox), a denied key
+ * (locked-down, the user-ruled DEGRADED diagnostic), an external row with no usage join, and a misconfigured entry.
  *
- * In frame: the spend units' percent-over-meter shape lined up down the page,
- * the empty spend cells on the external and misconfigured rows, the header meta
- * counting the one list, and the diagnostic tiers ranked under their rows.
+ * In frame: the spend units' percent-over-meter shape lined up down the page, the empty spend cells on the external and
+ * misconfigured rows, the header meta counting the one list, and the diagnostic tiers ranked under their rows.
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

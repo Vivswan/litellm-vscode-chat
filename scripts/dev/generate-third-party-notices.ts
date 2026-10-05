@@ -5,7 +5,6 @@ interface BundleMeta {
 	moduleIds: string[];
 }
 
-/** Extracts the unique npm package names that the bundler actually bundled, from its module list. */
 function bundledPackages(meta: BundleMeta): string[] {
 	const packages = new Set<string>();
 	for (const id of meta.moduleIds) {
@@ -40,8 +39,8 @@ async function main(): Promise<void> {
 	}
 	const deps = bundledPackages(meta);
 
-	// A silently empty or partial module list would ship a legally wrong
-	// notices file: every runtime dependency must have reached a bundle.
+	// A silently empty or partial module list would ship a legally wrong notices file: every runtime dependency must
+	// have reached a bundle.
 	const declared = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")) as {
 		dependencies?: Record<string, string>;
 	};
