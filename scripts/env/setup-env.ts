@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // Children run on process.execPath, the bun already running this file, so no PATH lookup and nothing differs per OS.
 import { spawnSync } from "node:child_process";
+import os from "node:os";
 import { join } from "node:path";
 
 const USAGE = `Usage: bun scripts/env/setup-env.ts [--verify] [--full] [--no-hooks]
@@ -52,7 +53,8 @@ function run(args: readonly string[]): void {
 		process.exit(1);
 	}
 	if (result.status !== 0) {
-		process.exit(result.status ?? 1);
+		// A signal-ended child leaves no status; 128 plus the signal is what the shell carried out of a failed step.
+		process.exit(result.status ?? 128 + (result.signal === null ? 0 : os.constants.signals[result.signal]));
 	}
 }
 
