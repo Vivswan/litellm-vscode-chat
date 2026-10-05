@@ -1,7 +1,6 @@
 /**
- * The read-only other-scope table: workspace-scoped records render under the
- * editable global table as the same matcher table without edit affordances -
- * plain chips (flag badges included), no popovers, no add chip, no pencil.
+ * The read-only other-scope table: workspace-scoped records render under the editable global table as the same matcher
+ * table without edit affordances - plain chips (flag badges included), no popovers, no add chip, no pencil.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

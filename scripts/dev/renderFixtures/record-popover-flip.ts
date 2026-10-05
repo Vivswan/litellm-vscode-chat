@@ -1,14 +1,12 @@
 /**
- * A chip popover that would hang past the viewport's bottom edge, flipped above
- * its chip instead. The sequence matters: the popover opens at a comfortable
- * spot (the browser scrolls its input into view on focus), the reader THEN
- * scrolls it down to the edge, and only then does its content change - nothing
- * re-focuses, so nothing scrolls it back. That is the case the mount measurement
- * alone cannot see and the size observer can.
+ * A chip popover that would hang past the viewport's bottom edge, flipped above its chip instead. That is the case the
+ * mount measurement alone cannot see and the size observer can.
  *
- * It captures the viewport alone (clipViewport): the flip is a question about
- * the bottom edge, and a full-page capture expands the viewport until there is
- * no edge left to overflow.
+ *   the browser scrolls its input into view on focus -> the popover opens at a comfortable spot
+ *   the reader THEN scrolls it down to the edge      -> only then does its content change
+ *   nothing re-focuses                               -> nothing scrolls it back
+ *   the flip is a question about the bottom edge, and a full-page capture expands the viewport until there is no edge
+ *   left to overflow -> It captures the viewport alone (clipViewport)
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
@@ -39,9 +37,8 @@ const fixture: RenderFixture = {
 	viewport: { width: 1300, height: 620 },
 	clipViewport: true,
 	settleMs: 400,
-	// Opened by a step that MEASURED its anchor, so the side it hangs on
-	// belongs to this width; a sweep that narrowed the viewport afterwards
-	// would judge a page the dashboard never builds.
+	// Opened by a step that MEASURED its anchor, so the side it hangs on belongs to this width; a sweep that narrowed
+	// the viewport afterwards would judge a page the dashboard never builds.
 	measuredAtOwnWidth: true,
 };
 

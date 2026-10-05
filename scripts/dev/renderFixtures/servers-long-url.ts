@@ -1,15 +1,11 @@
 /**
- * A narrow pane holding a server whose URL is longer than the row's own line.
+ * Every other fixture's hosts are short, which hid two failures of the folded row that broke the WHOLE list rather than
+ * the one row, because the row's columns belong to the list: as nowrap text a URL is a single unbreakable token, so its
+ * intrinsic width was charged to every track the second line spans. Every server name should stay intact, with no
+ * horizontal overflow and the long URL wrapped onto a second line inside its own row.
  *
- * Every other fixture's hosts are short, which hid two failures of the folded
- * row that broke the WHOLE list rather than the one row, because the row's
- * columns belong to the list: as nowrap text a URL is a single unbreakable
- * token, so its intrinsic width was charged to every track the second line
- * spans. It carries the overview's full cast, so the misconfigured row - the
- * only action cluster wider than two short buttons - is in it too.
- *
- * Every server name should stay intact, with no horizontal overflow and the
- * long URL wrapped onto a second line inside its own row.
+ *   It carries the overview's full cast -> the misconfigured row - the only action cluster wider than two short
+ *                                          buttons - is in it too
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import overview from "./overview.ts";

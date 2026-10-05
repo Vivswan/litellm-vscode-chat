@@ -1,10 +1,8 @@
 /**
- * The global capabilities editor over an open-vocabulary record at full density:
- * a genuinely LONG regex matcher key carries the shared worst case (the
- * eight-field cost family with sub-micro scientific values, the 27-entry
- * supported_openai_params JSON-list input) plus an unknown field hinted against
- * the observed /model/info union, opened in the matcher editor overlay so the
- * typed value controls, the hint, and the open-field fallback checkboxes are all
+ * The global capabilities editor over an open-vocabulary record at full density: a genuinely LONG regex matcher key
+ * carries the shared worst case (the eight-field cost family with sub-micro scientific values, the 27-entry
+ * supported_openai_params JSON-list input) plus an unknown field hinted against the observed /model/info union, opened
+ * in the matcher editor overlay so the typed value controls, the hint, and the open-field fallback checkboxes are all
  * on screen. The shorter gpt-5.6 record stays behind it for both key lengths.
  */
 import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
@@ -27,8 +25,8 @@ const capabilitiesValue = {
 const base = baseState();
 const state: DashboardState = {
 	...base,
-	// The cross-server union of observed /model/info keys: the evidence behind
-	// the unknown-key hint on supports_web_search (the union does not name it).
+	// The cross-server union of observed /model/info keys: the evidence behind the unknown-key hint on
+	// supports_web_search (the union does not name it).
 	observedModelInfoKeys: [
 		"context_length",
 		"input_cost_per_token",
@@ -54,9 +52,8 @@ const fixture: RenderFixture = {
 		{ kind: "focusSection", section: "settings" },
 	],
 	steps: [
-		// The long key holds backslashes and quotes no attribute selector
-		// survives, so the opener is found by scanning and THROWS when absent -
-		// a step that opens nothing must not exit 0 behind a large PNG.
+		//   a step that opens nothing must not exit 0 behind a large PNG
+		//     -> the opener is found by scanning and THROWS when absent
 		`(() => {
 			const opener = [...document.querySelectorAll("button")].find((button) =>
 				(button.getAttribute("aria-label") ?? "").includes('Open the full editor for "/^(openrouter')

@@ -115,7 +115,9 @@ function isChannelMember(checker: ts.TypeChecker, receiver: ts.Type, key: string
 	);
 }
 
-/** Reflection reaches every member by name at runtime, so a channel handed to Reflect is a write whatever the member. */
+/**
+ * Reflection reaches every member by name at runtime, so a channel handed to Reflect is a write whatever the member.
+ */
 function reflectedOn(checker: ts.TypeChecker, node: ts.Node): string | undefined {
 	if (!ts.isCallExpression(node)) {
 		return undefined;

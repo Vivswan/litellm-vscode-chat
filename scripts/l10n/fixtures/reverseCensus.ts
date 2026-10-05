@@ -1,7 +1,6 @@
 /**
- * The reverse census walk's own teeth: each fixture's expected findings are the
- * exact set the walk must produce. expectedLines pins WHERE a finding points,
- * in the same name-sorted order as expected.
+ * The reverse census walk's own teeth: each fixture's expected findings are the exact set the walk must produce.
+ * expectedLines pins WHERE a finding points, in the same name-sorted order as expected.
  */
 export const REVERSE_CENSUS_FIXTURES: readonly {
 	readonly name: string;
@@ -90,8 +89,8 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 		expected: [],
 	},
 	{
-		// The parameter name `title` still binds a value in flight and is never
-		// followed; the ARGUMENT reference is the binding's own edge now.
+		// The parameter name `title` still binds a value in flight and is never followed; the ARGUMENT reference is the
+		// binding's own edge now.
 		name: "an argument-position helper taints the binding it feeds (the parameter name stays unfollowed)",
 		sources: [{ file: "a.ts", contents: "export const wraps = ((title) => () => title())(manageCommandTitle);\n" }],
 		census: ["manageCommandTitle"],
@@ -338,8 +337,8 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 		expected: ["Derived"],
 	},
 	{
-		// Matching is by spelling, the guard's own rule: a scalar parameter
-		// sharing a census name taints its helper. Deliberate over-inclusion.
+		// Matching is by spelling, the guard's own rule: a scalar parameter sharing a census name taints its helper.
+		// Deliberate over-inclusion.
 		name: "an argument sharing a census spelling taints its helper (syntactic matching, pinned intentional)",
 		sources: [
 			{
@@ -576,10 +575,9 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 		census: [],
 		expected: [],
 	},
-	// The two shapes the real registered classes have: neither runs l10n.t at
-	// `new`, and both are obligations because the roots `new` DOES evaluate are
-	// walked whole. Tightening that walk to skip nested function literals would
-	// drop DashboardController and UsageAlerts with no other fixture noticing.
+	// The two shapes the real registered classes have: neither runs l10n.t at `new`, and both are obligations because
+	// the roots `new` DOES evaluate are walked whole. Tightening that walk to skip nested function literals would drop
+	// DashboardController and UsageAlerts with no other fixture noticing.
 	{
 		name: "a class whose only evidence is a deferred thunk-table property is an obligation",
 		sources: [
@@ -626,8 +624,8 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 		census: ["DashboardController"],
 		expected: ["RenamedBase", "boots"],
 	},
-	// An alias is exempt only where its own spelling AND its target agree.
-	// Every direction, for each of the three aliasing shapes.
+	// An alias is exempt only where its own spelling AND its target agree. Every direction, for each of the three
+	// aliasing shapes.
 	{
 		name: "an UPPERCASE import alias of an uppercase component inherits its exemption",
 		sources: [

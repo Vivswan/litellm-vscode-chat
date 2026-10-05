@@ -1,13 +1,15 @@
 /**
- * Calling one of these at module scope defeats its laziness exactly like a direct t() call, so the module-scope guard bans
- * them alongside l10n.t and vscode.l10n.t. l10n:check (scripts/l10n/lib.ts, uncensusedLazyHelpers) enforces the list both
- * ways, since a rename would otherwise disarm a guard silently and an unregistered helper would never be caught.
+ * Calling one of these at module scope defeats its laziness exactly like a direct t() call, so the module-scope guard
+ * bans them alongside l10n.t and vscode.l10n.t. l10n:check (scripts/l10n/lib.ts, uncensusedLazyHelpers) enforces the
+ * list both ways, since a rename would otherwise disarm a guard silently and an unregistered helper would never be
+ * caught.
  *
- *   every top-level lowercase function in shipped src/ resolving l10n.t -> listed; default parameters and transitive calls count
- *   every CLASS doing the same                                          -> listed; the roots `new` evaluates are walked whole
- *   a helper the reverse walk cannot see                                -> listed by hand (inactiveSurfacesText, a thunk table's PROPERTY call)
- *   over-inclusion                                                      -> harmless; none of these is ever legal at module scope
- *   matching                                                            -> by call-site name, so one entry covers same-named helpers
+ *   every top-level lowercase function in shipped src/ resolving l10n.t
+ *                                        -> listed; default parameters and transitive calls count
+ *   every CLASS doing the same           -> listed; the roots `new` evaluates are walked whole
+ *   a helper the reverse walk cannot see -> listed by hand (inactiveSurfacesText, a thunk table's PROPERTY call)
+ *   over-inclusion                       -> harmless; none of these is ever legal at module scope
+ *   matching                             -> by call-site name, so one entry covers same-named helpers
  */
 export const LAZY_L10N_HELPERS: readonly string[] = [
 	"configureNowLabel",
@@ -66,8 +68,8 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"createPrSend",
 	"wirePrGeneration",
 	"runGeneratePrDescription",
-	// src/extension/features/modelSettingError (the features' one no-such-server sentence)
-	// and the shared send composition that throws it.
+	// src/extension/features/modelSettingError (the features' one no-such-server sentence) and the shared send
+	// composition that throws it.
 	"noEntryForConfiguredServer",
 	"featureChatSend",
 	"createCommitProbe",
@@ -221,8 +223,8 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"openUsageAction",
 	"serverTooltipLines",
 	"renderUsageStatus",
-	// The rest of the census: flows, wiring, prompts, and IO that resolve
-	// l10n.t on the way. Never legal at module scope either.
+	// The rest of the census: flows, wiring, prompts, and IO that resolve l10n.t on the way. Never legal at module
+	// scope either.
 	"activate",
 	"applyAdoptServer",
 	"executeDashboardIntent",
@@ -266,9 +268,8 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"registerDashboardCommand",
 	"fetchModels",
 	"exchangeClientCredentials",
-	// Neither localizes AT construction: both localize from deferred members
-	// the walk sees because the roots `new` evaluates - constructor body,
-	// instance property initializers - are walked whole. The census's stated
+	// Neither localizes AT construction: both localize from deferred members the walk sees because the roots `new`
+	// evaluates - constructor body, instance property initializers - are walked whole. The census's stated
 	// over-inclusion, and resolving at use time is always available.
 	"DashboardController",
 	"UsageAlerts",

@@ -1,23 +1,12 @@
-// scripts/dev/openRouterCatalogFetch.ts
+// The classification is the whole point - CI operators triage from the message alone, and a body that stalls at a CDN
+// edge (headers 200, bytes never finishing) used to surface as "the response body is not JSON" because the abort
+// landed inside a discarded catch.
 //
-// The network half of fetch-openrouter-catalog.ts: one bounded GET of the
-// OpenRouter models endpoint, retried under the rule the runtime refresh
-// shares, with every failure class named as what it is. The classification is
-// the whole point - CI operators triage from the message alone, and a body
-// that stalls at a CDN edge (headers 200, bytes never finishing) used to
-// surface as "the response body is not JSON" because the abort landed inside
-// a discarded catch.
-//
-// Every failure here is an UnreachableError - OpenRouter did not hand over a
-// catalog - carrying the OpenRouterFetchFailure reason both fetchers share:
-// the connect/headers phase timing out or failing, a non-2xx status, the body
-// read timing out or breaking, and a completed body that is not JSON.
-// Whether a failure earns another attempt is isRetryableOpenRouterFailure's
-// call, not this module's: a timeout, a connection failure, or a 408/409/429/
-// 5xx retries; any other 4xx and a non-JSON 200 (a CDN interstitial) are the
-// server's settled answer within this run's budget and exit after one attempt
-// with the same evidence. Schema drift is the caller's judgement over the
-// parsed payload, never made here.
+//   Whether a failure earns another attempt                  -> isRetryableOpenRouterFailure's call, not this module's
+//   a timeout, a connection failure, or a 408/409/429/ 5xx  -> retries
+//   any other 4xx and a non-JSON 200 (a CDN interstitial)   -> the server's settled answer within this run's budget
+//   Schema drift                                             -> the caller's judgement over the parsed payload, never
+//                                                               made here
 
 import {
 	isRetryableOpenRouterFailure,
@@ -26,15 +15,14 @@ import {
 } from "../../src/shared/config/openRouterCatalog";
 
 /**
- * Per-attempt budget covering the connect, the headers, and the whole body
- * read; one signal carries it through every phase so a stall anywhere trips
- * the same clock.
+ * Per-attempt budget covering the connect, the headers, and the whole body read; one signal carries it through every
+ * phase so a stall anywhere trips the same clock.
  */
 export const FETCH_TIMEOUT_MS = 20_000;
 
 /**
- * Retryable failures (idempotent GET; CI runners hit rate limits) get this
- * many attempts; settled answers and schema drift get one.
+ * Retryable failures (idempotent GET; CI runners hit rate limits) get this many attempts; settled answers and schema
+ * drift get one.
  */
 export const FETCH_ATTEMPTS = 3;
 
@@ -53,7 +41,6 @@ export function worstCaseWallTimeMs(): number {
 	return total;
 }
 
-/** OpenRouter did not hand over a catalog; `reason` is the shared classification the retry loop consults. */
 export class UnreachableError extends Error {
 	constructor(
 		readonly reason: OpenRouterFetchFailure,
@@ -64,11 +51,10 @@ export class UnreachableError extends Error {
 }
 
 /**
- * The operator-facing words for an UnreachableError, read from the shared
- * retry rule and nowhere else: `headline` prefixes the evidence in both the
- * lenient ::warning:: line and the fatal stderr line, `advice` is the fatal
- * path's second line. A retryable reason says transient; a settled answer (a
- * 404, an interstitial 200) says so, never the other way round.
+ * The operator-facing words for an UnreachableError, read from the shared retry rule and nowhere else: `headline`
+ * prefixes the evidence in both the lenient ::warning:: line and the fatal stderr line, `advice` is the fatal path's
+ * second line. A retryable reason says transient; a settled answer (a 404, an interstitial 200) says so, never the
+ * other way round.
  */
 export function unreachableVerdict(error: UnreachableError): { readonly headline: string; readonly advice: string } {
 	return isRetryableOpenRouterFailure(error.reason)
@@ -85,14 +71,8 @@ export function unreachableVerdict(error: UnreachableError): { readonly headline
 }
 
 /**
- * How the fetch script exits on a failure. Anything that is not an
- * UnreachableError - schema drift above all - is fatal in every mode. An
- * UnreachableError is fatal by default; under `unreachableIsWarning` it is one
- * GitHub `::warning::` line carrying the evidence and exit 0, whatever its
- * reason, headlined by unreachableVerdict. Push-to-main builds opt in, so a
- * third-party outage does not block landing; pull request runs, manual
- * dispatch, and the release build's own fetch stay fatal, so
- * an outage is still caught loudly where a re-run is cheap.
+ * Push-to-main builds opt in, so a third-party outage does not block landing; pull request runs, manual dispatch, and
+ * the release build's own fetch stay fatal, so an outage is still caught loudly where a re-run is cheap.
  */
 export type FailureExit = { readonly exitCode: 0; readonly warning: string } | { readonly exitCode: 1 };
 
@@ -138,19 +118,15 @@ function concat(chunks: readonly Uint8Array[]): Uint8Array {
 	return out;
 }
 
-/**
- * Read the body chunk by chunk under the attempt's signal. The bytes received
- * before an abort are kept: they are the evidence that names a stall.
- */
+/** The bytes received before an abort are kept: they are the evidence that names a stall. */
 async function readBody(response: Response, signal: AbortSignal): Promise<{ bytes: Uint8Array; error?: unknown }> {
 	const chunks: Uint8Array[] = [];
 	if (!response.body) {
 		return { bytes: new Uint8Array() };
 	}
 	const reader = response.body.getReader();
-	// A body the runtime did not wire to the signal (or one the runtime aborts a
-	// tick late) needs the reader released by hand; cancel() resolves the pending
-	// read as done, and signal.aborted then says what really happened.
+	// A body the runtime did not wire to the signal (or one the runtime aborts a tick late) needs the reader released
+	// by hand; cancel() resolves the pending read as done, and signal.aborted then says what really happened.
 	const release = () => void reader.cancel().catch(() => undefined);
 	if (signal.aborted) {
 		release();
@@ -177,7 +153,6 @@ function errorText(error: unknown): string {
 	return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
-/** One attempt; every failure is an UnreachableError whose reason names the phase and whose message is the evidence. */
 export async function fetchOnce(options: Pick<CatalogFetchOptions, "fetch" | "timeoutMs">): Promise<unknown> {
 	const signal = AbortSignal.timeout(options.timeoutMs);
 	let response: Response;
@@ -224,11 +199,6 @@ export async function fetchOnce(options: Pick<CatalogFetchOptions, "fetch" | "ti
 	}
 }
 
-/**
- * A non-UnreachableError escapes at once (nothing here is a schema judgement),
- * and so does an UnreachableError the shared rule calls settled: only a
- * retryable reason spends another attempt and a backoff sleep.
- */
 export async function fetchLivePayload(options: CatalogFetchOptions): Promise<unknown> {
 	for (let attempt = 1; ; attempt += 1) {
 		try {

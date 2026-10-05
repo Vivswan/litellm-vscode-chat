@@ -1,9 +1,8 @@
 /**
- * The expanded drawer listing the entry's own model records: the settings
- * editors' matcher vocabulary on a reading surface, read-only - editing stays in
- * the edit page and the setting. prod carries both record kinds (parameters with
- * a forced field, capabilities with a fallback mark); sandbox carries none, so
- * its drawer ends at its facts with no records heading at all.
+ * The expanded drawer listing the entry's own model records: the settings editors' matcher vocabulary on a reading
+ * surface, read-only - editing stays in the edit page and the setting. prod carries both record kinds (parameters with
+ * a forced field, capabilities with a fallback mark); sandbox carries none, so its drawer ends at its facts with no
+ * records heading at all.
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
@@ -44,9 +43,8 @@ const SANDBOX_SERVER: DashboardServer = {
 const fixture: RenderFixture = {
 	messages: [{ kind: "push", state: baseState({ servers: [RECORDS_SERVER, SANDBOX_SERVER] }) }],
 	steps: [
-		// Two steps, not one: React commits the click's state on its own
-		// schedule, so the records assertion runs a step later, after the
-		// harness's settle.
+		// Two steps, not one: React commits the click's state on its own schedule, so the records assertion runs a step
+		// later, after the harness's settle.
 		`(() => {
 			for (const label of ["prod", "sandbox"]) {
 				const line = Array.from(document.querySelectorAll("button.server-line")).find(

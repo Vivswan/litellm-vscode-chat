@@ -1,9 +1,7 @@
 /**
- * The inline-completions model row with a LANDED test-completion probe: the
- * steps click the probe button and answer its posted request with a canned
- * ack, so the screenshot shows the outcome in the row's covered description
- * slot (SettingRow's notice tenant). The fixture proves its own subject by
- * throwing when the outcome never appears.
+ * The inline-completions model row with a LANDED test-completion probe: the steps click the probe button and answer its
+ * posted request with a canned ack, so the screenshot shows the outcome in the row's covered description slot
+ * (SettingRow's notice tenant).
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

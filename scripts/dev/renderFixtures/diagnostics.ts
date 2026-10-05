@@ -1,12 +1,10 @@
 /**
- * The Diagnostics destination: the Configuration section ranking record lints,
- * legacy leftovers, an accepted entry's ignored pieces and a dropped threshold
- * across the three severity tiers, the Resolution tree + flat table (answered
- * through the harness's canned respond map), and the support tools.
+ * Two diagnostics are deliberately NOT rendered - the misconfigured entry and the hidden groups, both reported by a
+ * Servers row instead.
  *
- * Two diagnostics are deliberately NOT rendered - the misconfigured entry and
- * the hidden groups, both reported by a Servers row instead. They stay in the
- * fixture so a render shows that the page refuses to repeat them.
+ *   The Diagnostics destination -> the Configuration section ranking record lints, legacy leftovers, an accepted
+ *                                  entry's ignored pieces and a dropped threshold
+ *   They stay in the fixture    -> a render shows that the page refuses to repeat them
  */
 import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

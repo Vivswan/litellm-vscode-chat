@@ -1,9 +1,8 @@
 /**
- * Tells a VS Code test host that stalled on the runner apart from a test verdict. Electron's
- * watchdog logs "CodeWindow: detected unresponsive" and the host exits before mocha prints a
- * line; four nightly and CI legs died that way in two days with no code change behind them,
- * all but one on docker legs sharing one runner with the compose stack. Only that exact shape
- * earns a relaunch: any mocha output means the tests ran and the exit is their verdict.
+ * Electron's watchdog logs "CodeWindow: detected unresponsive" and the host exits before mocha prints a line; four
+ * nightly and CI legs died that way in two days with no code change behind them, all but one on docker legs sharing one
+ * runner with the compose stack. Only that exact shape earns a relaunch: any mocha output means the tests ran and the
+ * exit is their verdict.
  */
 
 import { StringDecoder } from "node:string_decoder";
@@ -14,11 +13,12 @@ export const HOST_STALL_MARKER = "CodeWindow: detected unresponsive";
 const ANSI = /\u001b\[[0-9;]*m/g;
 
 /**
- * A line mocha's spec reporter has printed: it indents everything, suite titles included, by at
- * least two spaces (a suite title precedes suiteSetup, so a stall after it may already have run
- * state-mutating setup), and its summary stands alone. vscode-test's own progress ("✔ Validated
- * version", "- Downloading") and VS Code's "[main ...]" lines start at column 0. Judged per
- * complete line, so indentation is read only where the line's start is known.
+ * A line mocha's spec reporter has printed: it indents everything, suite titles included, by at least two spaces (a
+ * suite title precedes suiteSetup, so a stall after it may already have run state-mutating setup), and its summary
+ * stands alone. Judged per complete line, so indentation is read only where the line's start is known.
+ *
+ *   vscode-test's own progress   -> start at column 0
+ *   VS Code's "[main ...]" lines -> start at column 0
  */
 const MOCHA_LINE = /^[ \t]{2,}\S|^[ \t]*\d+ (?:passing|failing|pending)\b/;
 
@@ -66,7 +66,6 @@ export class HostStallDetector {
 	}
 }
 
-/** True only for a non-zero exit after the stall marker and before any test output, across every pipe watched. */
 export function stalledBeforeTests(status: number | null, ...pipes: readonly HostStallDetector[]): boolean {
 	return status !== 0 && pipes.some((pipe) => pipe.sawMarker) && !pipes.some((pipe) => pipe.sawTests);
 }

@@ -1,7 +1,6 @@
 /**
- * The per-entry record tables inside the server edit form: prod's entry
- * carries model parameters AND capabilities, so both disclosures open with
- * their compact matcher tables (chips wrap in the narrow panel).
+ * The per-entry record tables inside the server edit form: prod's entry carries model parameters AND capabilities, so
+ * both disclosures open with their compact matcher tables (chips wrap in the narrow panel).
  */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
@@ -33,12 +32,13 @@ const fixture: RenderFixture = {
 	messages: [{ kind: "push", state }],
 	steps: [
 		`Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "Edit").click()`,
-		// The subject guard, plus the form's two alignment claims. One label edge:
-		// each FormSection owns its grid, kept uniform by the flat 10rem gutter,
-		// and a content-sized track would drift per section under longer translated
-		// labels the English-only harness can never render. One right edge: a
-		// help-less wide row spans through the glyph track, so each record table
-		// ends on the field rows' help-glyph column.
+		// The subject guard, plus the form's two alignment claims.
+		//
+		//   each FormSection owns its grid, kept uniform by the flat 10rem gutter -> One label edge
+		//   a content-sized track would drift per section under longer translated labels the English-only harness can
+		//   never render -> kept uniform by the flat 10rem gutter
+		//   a help-less wide row spans through the glyph track, so each record table ends on the field rows' help-glyph
+		//   column -> One right edge
 		`(() => {
 			const labels = [...document.querySelectorAll("#server-edit-page .label-row")];
 			if (labels.length < 10) {

@@ -1,7 +1,6 @@
 /**
- * The server form switched to None over a STORED API key, after a Save
- * attempt: the block-and-tell appearance - warn line, Remove checkbox, and
- * the problem line naming the way out - must all render together.
+ * The server form switched to None over a STORED API key, after a Save attempt: the block-and-tell appearance - warn
+ * line, Remove checkbox, and the problem line naming the way out - must all render together.
  */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
@@ -25,9 +24,8 @@ const fixture: RenderFixture = {
 		`Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "Edit").click()`,
 		`Array.from(document.querySelectorAll(".auth-selector label")).find((l) => l.textContent.trim() === "None").querySelector("input").click()`,
 		`Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "Save").click()`,
-		// The shot's own subject, asserted: the refusal must stand in the stored
-		// key's covered hint slot with its Remove checkbox reachable beside it,
-		// or the render exits green while photographing an unblocked form.
+		// The shot's own subject, asserted: the refusal must stand in the stored key's covered hint slot with its
+		// Remove checkbox reachable beside it, or the render exits green while photographing an unblocked form.
 		`(() => {
 			const problem = document.querySelector('[id="server-apiKey-error"] .error');
 			if (problem === null || problem.textContent.length === 0) {

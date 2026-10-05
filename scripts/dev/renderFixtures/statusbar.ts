@@ -1,7 +1,6 @@
 /**
- * A MOCK of the two status bar items in their states, rendered as a strip inside
- * the panel context: the real items are vscode StatusBarItems the webview cannot
- * host, and the visual-review mandate allows mocking them here. Mirrors
+ * A MOCK of the two status bar items in their states, rendered as a strip inside the panel context: the real items are
+ * vscode StatusBarItems the webview cannot host, and the visual-review mandate allows mocking them here. Mirrors
  * src/extension/ui/status.ts + usageStatusItem.ts renderings.
  */
 import type { RenderFixture } from "../render-dashboard.ts";

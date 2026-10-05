@@ -1,11 +1,7 @@
 /**
- * Every chip family the dashboard speaks, side by side: the status pill, the
- * soft-fill Badge, the filter pill toggle, the provenance chip, and the record
- * editors' field chip. For vocabulary-distinguishability review - five different
- * "small labelled box" registers must read as five, not one - and built by
- * CLONING the live page's own chips (every tab panel stays mounted, merely
- * hidden), so each specimen is the product's exact markup. Any host theme is
- * reachable via --theme; the harvest step THROWS on any missing chip.
+ * For vocabulary-distinguishability review - five different "small labelled box" registers must read as five, not one
+ * - and built by CLONING the live page's own chips (every tab panel stays mounted, merely hidden), so each specimen is
+ * the product's exact markup. Any host theme is reachable via --theme; the harvest step THROWS on any missing chip.
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
@@ -29,8 +25,8 @@ const fixture: RenderFixture = {
 			kind: "push",
 			state: baseState({ servers: [PROD_SERVER, GATEWAY_SERVER, EXTERNAL_SERVER, UNCHECKED_SERVER] }),
 		},
-		// Diagnostics is the active tab because its resolution table only loads
-		// while visible, and it is the one place provenance chips render.
+		// Diagnostics is the active tab because its resolution table only loads while visible, and it is the one place
+		// provenance chips render.
 		{ kind: "focusSection", section: "diagnostics" },
 	],
 	respond: {

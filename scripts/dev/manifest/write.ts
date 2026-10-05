@@ -10,9 +10,7 @@ interface Manifest {
 }
 
 export interface ManifestRegeneration {
-	/** The manifest text with every generated block replaced. */
 	readonly next: string;
-	/** The contributes keys whose stored block differed from the generated one. */
 	readonly drifted: readonly string[];
 }
 
@@ -21,7 +19,6 @@ export function serializeManifest(manifest: unknown): string {
 	return `${JSON.stringify(manifest, null, "\t")}\n`;
 }
 
-/** Replace each `contributes.<key>` with its generated block; a key the manifest does not contribute is an error. */
 export function applyContributes(
 	manifestText: string,
 	blocks: Readonly<Record<string, unknown>>

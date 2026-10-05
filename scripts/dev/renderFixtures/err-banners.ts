@@ -1,9 +1,8 @@
 /**
- * The overview tab's two failure banners under the redesigned two-part
- * errors: the classified-failures banner mixing a two-part entry (headline +
- * dimmed detail + Troubleshoot link) with a single-line one (the "; " join
- * seam), and the expected-failures banner mixing a two-part and a
- * single-line expected error (the "(expected)" frame carries the headline).
+ * The overview tab's two failure banners under the redesigned two-part errors: the classified-failures banner mixing a
+ * two-part entry (headline + dimmed detail + Troubleshoot link) with a single-line one (the "; " join seam), and the
+ * expected-failures banner mixing a two-part and a single-line expected error (the "(expected)" frame carries the
+ * headline).
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

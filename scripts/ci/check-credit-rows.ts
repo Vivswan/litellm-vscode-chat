@@ -1,11 +1,8 @@
 /**
- * Crediting-convention gate: when a subject carries "(#N, thanks @login)",
- * the ACKNOWLEDGMENTS.md being committed must have a row for every credited
- * login. Two callers: .husky/commit-msg passes the message file path (the
- * history guard in src/test/creditConvention.test.ts only sees committed
- * subjects), and the checks.yml PR-title job passes `--subject <title>`
- * (squash-merge makes the PR title the landing subject, which no local hook
- * ever sees).
+ * Crediting-convention gate: when a subject carries "(#N, thanks @login)", the ACKNOWLEDGMENTS.md being committed must
+ * have a row for every credited login. Two callers: .husky/commit-msg passes the message file path (the history guard
+ * in src/test/creditConvention.test.ts only sees committed subjects), and the checks.yml PR-title job passes
+ * `--subject <title>` (squash-merge makes the PR title the landing subject, which no local hook ever sees).
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -22,8 +19,8 @@ function main(): void {
 	if (argument === "--subject") {
 		subject = process.argv[3] ?? "";
 	} else {
-		// The subject is the first content line; commit-msg can still see the
-		// editor template's leading comments under the default cleanup mode.
+		// The subject is the first content line; commit-msg can still see the editor template's leading comments under
+		// the default cleanup mode.
 		let commentChar = "#";
 		try {
 			const configured = execFileSync("git", ["config", "core.commentChar"], { encoding: "utf8" }).trim();
@@ -42,8 +39,8 @@ function main(): void {
 	if (credits.length === 0) {
 		return;
 	}
-	// The staged copy is what this commit will contain. Fail closed when it is
-	// unreadable - falling back to HEAD would wave a staged deletion through.
+	// The staged copy is what this commit will contain. Fail closed when it is unreadable - falling back to HEAD would
+	// wave a staged deletion through.
 	let acknowledgments: string;
 	try {
 		acknowledgments = execFileSync("git", ["show", `:${ACKNOWLEDGMENTS_FILE}`], {

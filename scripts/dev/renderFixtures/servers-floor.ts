@@ -1,16 +1,12 @@
 /**
- * The narrowest supported pane, holding the two states that broke it.
+ * 320px is the width the shell promises to reflow at, and two states took the page into a horizontal scrollbar there,
+ * each because an unbreakable run of text was charged to tracks the whole list shares: a long server LABEL, and the
+ * two-step confirm, which covers its own row out of flow and must fit inside the row's width at the floor. Usage joins
+ * the rows by LABEL, so the rename below renames the row's usage card too, or the floor tier's spend cell would
+ * silently vanish from the shot.
  *
- * 320px is the width the shell promises to reflow at, and two states took the
- * page into a horizontal scrollbar there, each because an unbreakable run of
- * text was charged to tracks the whole list shares: a long server LABEL, and the
- * two-step confirm, which covers its own row out of flow and must fit inside the
- * row's width at the floor. The steps arm the first row, so both are in one shot
- * alongside the overview's full cast (the misconfigured row is the only one
- * whose action cluster is wider than two short buttons).
- *
- * Usage joins the rows by LABEL, so the rename below renames the row's usage
- * card too, or the floor tier's spend cell would silently vanish from the shot.
+ *   The steps arm the first row -> both are in one shot alongside the overview's full cast
+ *   the misconfigured row       -> the only one whose action cluster is wider than two short buttons
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import overview from "./overview.ts";
@@ -49,9 +45,8 @@ const fixture: RenderFixture = {
 	}),
 	steps: [
 		`Array.from(document.querySelectorAll(".server-actions button")).find((b) => b.textContent.trim() === "Remove")?.click()`,
-		// The relabeled row must still carry its spend unit: an empty cell here
-		// means the label rename severed the usage join and the shot no longer
-		// photographs the floor tier's spend presentation at all.
+		// The relabeled row must still carry its spend unit: an empty cell here means the label rename severed the
+		// usage join and the shot no longer photographs the floor tier's spend presentation at all.
 		`(() => {
 			const row = Array.from(document.querySelectorAll(".server-item")).find((item) =>
 				item.querySelector(".server-label-text")?.textContent?.includes("production-eu-west")

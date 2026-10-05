@@ -1,7 +1,6 @@
 /**
- * The full matcher editor overlay over the Settings tab: the gpt-5* record's
- * pencil opened into the slide-over editor - matcher input, Inherits control,
- * field rows with their flag checkboxes, Add parameter, Remove matcher.
+ * The full matcher editor overlay over the Settings tab: the gpt-5* record's pencil opened into the slide-over editor -
+ * matcher input, Inherits control, field rows with their flag checkboxes, Add parameter, Remove matcher.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

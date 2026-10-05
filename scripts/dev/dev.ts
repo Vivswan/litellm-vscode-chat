@@ -1,9 +1,7 @@
 #!/usr/bin/env bun
-// Launches an Extension Development Host preconfigured against the local
-// fake LiteLLM stack: starts the docker proxy + fake OpenAI backend, builds
-// the dev bundle, drops a one-shot seed file the extension consumes on its
-// next development-mode activation (src/extension/devSeed.ts), and opens a
-// new VS Code window in extension-development mode.
+// Launches an Extension Development Host preconfigured against the local fake LiteLLM stack: starts the docker proxy +
+// fake OpenAI backend, builds the dev bundle, drops a one-shot seed file the extension consumes on its next
+// development-mode activation (src/extension/devSeed.ts), and opens a new VS Code window in extension-development mode.
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -31,9 +29,8 @@ import { DEMO_USAGE_KEYS, type SeededDemoUsage } from "./seedDemoUsage";
 
 const root = process.cwd();
 
-// The seed must agree with what docker-compose resolves, so it uses the same
-// ${VAR:-fallback} semantics: shell env wins even when empty, .env fills in
-// only unset variables, and an empty result takes the compose default.
+// The seed must agree with what docker-compose resolves, so it uses the same ${VAR:-fallback} semantics: shell env wins
+// even when empty, .env fills in only unset variables, and an empty result takes the compose default.
 const envFile = readEnvFile();
 const port = composeSetting("LITELLM_PORT", STACK_DEFAULTS.LITELLM_PORT, envFile);
 const apiKey = composeSetting("LITELLM_MASTER_KEY", STACK_DEFAULTS.LITELLM_MASTER_KEY, envFile);
@@ -46,8 +43,8 @@ function run(label: string, cmd: string[], extraEnv?: Record<string, string>): v
 		env: extraEnv === undefined ? process.env : { ...process.env, ...extraEnv },
 	});
 	if (result.signal === "SIGINT" || result.signal === "SIGTERM") {
-		// The signal handler cannot dispatch while spawnSync blocks; honor the
-		// interrupt here so an already-started stack still comes down.
+		// The signal handler cannot dispatch while spawnSync blocks; honor the interrupt here so an already-started
+		// stack still comes down.
 		onSignal(result.signal);
 	}
 	if (result.error !== undefined) {
@@ -65,17 +62,18 @@ function run(label: string, cmd: string[], extraEnv?: Record<string, string>): v
 	}
 }
 
-// ── Teardown on signal ───────────────────────────────────────────────────────
-// Installed before the stack starts, so Ctrl+C at any later point (bundling,
-// the host launch, the log follow) tears the stack down instead of leaving it
-// running. The handler is upgraded once log-following starts.
+// ---- Teardown on signal ----
+// Installed before the stack starts, so Ctrl+C at any later point (bundling, the host launch, the log follow) tears the
+// stack down instead of leaving it running.
+//
+//   The handler -> is upgraded once log-following starts
 const composeCli = join(root, "scripts", "stack", "compose.ts");
 function composeDownExitCode(): number {
 	console.log("\n[dev] stopping the fake stack");
 	const down = spawnSync("bun", [composeCli, "down"], { stdio: "inherit", cwd: root });
 	if (down.signal !== null) {
-		// A second Ctrl+C lands on the compose child directly while spawnSync
-		// blocks signal dispatch here; honor it as an interrupt.
+		// A second Ctrl+C lands on the compose child directly while spawnSync blocks signal dispatch here; honor it as
+		// an interrupt.
 		console.error("[dev] teardown interrupted; the stack may still be up - run: bun run docker:down");
 		return 130;
 	}
@@ -93,10 +91,10 @@ let shutdown = (): void => {
 function onSignal(signal: NodeJS.Signals): void {
 	const now = Date.now();
 	if (shuttingDown) {
-		// One terminal Ctrl+C arrives here TWICE: the process-group delivery
-		// plus the `bun run` wrapper forwarding the same signal. Only a
-		// deliberate later press may abort a hung teardown - without the
-		// window, the duplicate killed the teardown before it started.
+		// One terminal Ctrl+C arrives here TWICE: the process-group delivery plus the `bun run` wrapper forwarding the
+		// same signal.
+		//
+		//   without the window -> the duplicate killed the teardown before it started
 		if (now - firstSignalAt > 1000) {
 			console.error("[dev] aborted during teardown; the stack may still be up - run: bun run docker:down");
 			process.exit(signal === "SIGTERM" ? 143 : 130);
@@ -111,10 +109,9 @@ process.on("SIGINT", onSignal);
 process.on("SIGTERM", onSignal);
 
 /**
- * The main entry's group identity, known before the stack starts. It joins the
- * usage and error entries' identities in the profile fingerprint - together
- * they shape the host's provider groups; the full seed is assembled after the
- * stack is up.
+ * The main entry's group identity, known before the stack starts. It joins the usage and error entries' identities in
+ * the profile fingerprint - together they shape the host's provider groups; the full seed is assembled after the stack
+ * is up.
  */
 const seedIdentity = {
 	label: "Fake LiteLLM",
@@ -122,19 +119,17 @@ const seedIdentity = {
 	apiKey,
 } as const;
 
-// ── Demo model records ───────────────────────────────────────────────────────
-// Seeded as the global models.parameters / models.capabilities settings (owning
-// exactly these keys; other keys survive verbatim) plus one entry-level record,
-// so the Resolved models view and both inspectors show inheritance, a barrier, a
-// forced field, a fallback, an OpenRouter derivation, and entry-over-global at
-// once. docs/models.md is the grammar these demonstrate.
+// ---- Demo model records ----
+// Seeded as the global models.parameters / models.capabilities settings (owning exactly these keys; other keys survive
+// verbatim) plus one entry-level record, so the Resolved models view and both inspectors show inheritance, a barrier, a
+// forced field, a fallback, an OpenRouter derivation, and entry-over-global at once. docs/models.md is the grammar
+// these demonstrate.
 const DEMO_GLOBAL_RECORDS: DevSeedModels = {
 	parameters: {
 		// Inheritable house defaults; every model without a better match shows them.
 		"*": { _inheritable: true, temperature: 0.7, top_p: 0.9 },
-		// Glob over the gpt-5.2 family: a forced temperature (beats runtime
-		// options) that travels to gpt-5.2-mini via inheritance, and a barrier
-		// that stops the catch-all's top_p at this record.
+		// Glob over the gpt-5.2 family: a forced temperature (beats runtime options) that travels to gpt-5.2-mini via
+		// inheritance, and a barrier that stops the catch-all's top_p at this record.
 		"gpt-5*": { _inheritable: true, _inherit_from: false, _force: ["temperature"], temperature: 1 },
 		// Exact ID beside the glob: its own field plus the inherited forced one.
 		"gpt-5.2-mini": { max_tokens: 8192 },
@@ -142,44 +137,40 @@ const DEMO_GLOBAL_RECORDS: DevSeedModels = {
 		"/deepseek.*/i": { reasoning_effort: "high" },
 	},
 	capabilities: {
-		// A fallback fill that WINS somewhere: llama-4-scout declares no limits,
-		// and a fallback outranks its implicit catalog match.
+		// A fallback fill that WINS somewhere: llama-4-scout declares no limits, and a fallback outranks its implicit
+		// catalog match.
 		"*": { _inheritable: true, _fallback: ["context_length"], context_length: 131072 },
-		// Catalog derivation, ranked above the server's report: the Caps inspector
-		// shows deepseek-r2's reported limits shadowed beneath the catalog entry.
+		// Catalog derivation, ranked above the server's report: the Caps inspector shows deepseek-r2's reported limits
+		// shadowed beneath the catalog entry.
 		"deepseek-r2": { _openrouter_model: "deepseek/deepseek-r1" },
 	},
 };
-// Entry-over-global on gpt-5.2-mini: the entry's max_tokens beats the global
-// exact record's 8192, while its temperature stays shadowed by the global
-// gpt-5* record's forced value - both visible in the Params inspector.
+// Entry-over-global on gpt-5.2-mini: the entry's max_tokens beats the global exact record's 8192, while its temperature
+// stays shadowed by the global gpt-5* record's forced value - both visible in the Params inspector.
 const DEMO_MAIN_ENTRY_MODELS: DevSeedModels = {
 	parameters: { "gpt-5.2-mini": { max_tokens: 4000, temperature: 0.2 } },
 };
 
-// ── Demo error servers ───────────────────────────────────────────────────────
-// Error-state entries, seeded verbatim (nothing to measure), so the Servers
-// page always shows failure presentation beside the healthy demos.
+// ---- Demo error servers ----
+// Error-state entries, seeded verbatim (nothing to measure), so the Servers page always shows failure presentation
+// beside the healthy demos.
 const DEMO_ERROR_ENTRIES: readonly DevSeedEntry[] = [
 	{
-		// Port 4 is IANA-unassigned, outside every OS ephemeral range, and
-		// privileged on Unix-likes, so nothing plausibly listens there: discovery
-		// fails fast (instant connection refusal on the row), not a timeout wait.
+		//   Port 4 -> IANA-unassigned, outside every OS ephemeral range, and privileged on Unix-likes
 		label: "Dev Error (unreachable)",
 		baseUrl: "http://localhost:4",
 		apiKey: "sk-dev-error-unreachable",
 	},
 	{
-		// The real proxy with a key it never issued: LiteLLM answers 401, which
-		// classifies as an auth error (never retried, never re-wrapped).
+		// The real proxy with a key it never issued: LiteLLM answers 401, which classifies as an auth error (never
+		// retried, never re-wrapped).
 		label: "Dev Error (bad key)",
 		baseUrl: seedIdentity.baseUrl,
 		apiKey: "sk-dev-error-bad-key",
 	},
 	{
-		// A healthy server whose entry records are broken: an invalid regex
-		// matcher (warning) plus a misspelled capability field the observed
-		// /model/info keys expose as a likely typo (advisory), both on Diagnostics.
+		// A healthy server whose entry records are broken: an invalid regex matcher (warning) plus a misspelled
+		// capability field the observed /model/info keys expose as a likely typo (advisory), both on Diagnostics.
 		label: "Dev Error (misconfigured)",
 		baseUrl: seedIdentity.baseUrl,
 		apiKey,
@@ -190,26 +181,26 @@ const DEMO_ERROR_ENTRIES: readonly DevSeedEntry[] = [
 	},
 ];
 
-// DEV_NO_ERROR_SEED=1 drops the error zoo for a clean Servers page (e.g.
-// healthy-state presentation work). The fingerprint below tracks the choice,
-// so flipping the flag resets the profile and removes the other mode's entries.
+// DEV_NO_ERROR_SEED=1 drops the error zoo for a clean Servers page (e.g. healthy-state presentation work). The
+// fingerprint below tracks the choice, so flipping the flag resets the profile and removes the other mode's entries.
 const errorEntries: readonly DevSeedEntry[] = process.env.DEV_NO_ERROR_SEED === "1" ? [] : DEMO_ERROR_ENTRIES;
 
-// Profile preflight, before anything starts or gets written, so a refusal exits
-// with no stack to tear down and no seed on disk. The host's provider-group
-// command is add-only, so a group left by an earlier run with a different port,
-// key, or label could never be brought up to date; a marker in the profile
-// records the seed configuration that populated it, and any change wipes the
-// profile before launch - refusing when a host is still running on it. The wipe
-// discards the Copilot Chat sign-in, so the next run signs in again. F5's "Run
-// Extension" shares this profile, and VS Code allows one instance per
-// user-data-dir, so `bun run dev` under a live F5 host hands it the arguments.
+// Profile preflight, before anything starts or gets written, so a refusal exits with no stack to tear down and no seed
+// on disk.
+//
+//   The host's provider-group command is add-only -> a group left by an earlier run with a different port, key, or
+//                                                     label could never be brought up to date
+//   a marker in the profile records the seed configuration that populated it -> any change wipes the profile before
+//                                                                                 launch
+//   The wipe              -> discards the Copilot Chat sign-in, so the next run signs in again
+//   F5's "Run Extension"  -> shares this profile
+//   VS Code allows one instance per user-data-dir -> `bun run dev` under a live F5 host hands it the arguments
 const profileDir = join(root, ".dev-profile");
-// rmSync below is destructive, so the root must be this repository before it
-// runs: a wrong cwd must not let it delete an unrelated .dev-profile.
+// rmSync below is destructive, so the root must be this repository before it runs: a wrong cwd must not let it delete
+// an unrelated .dev-profile.
 const rootPackageJson = join(root, "package.json");
-// A malformed package.json must produce the refusal below, not a raw
-// SyntaxError, so the parse failure reads as "not this repository".
+// A malformed package.json must produce the refusal below, not a raw SyntaxError, so the parse failure reads as "not
+// this repository".
 let packageMeta: { name?: string; publisher?: string } = {};
 try {
 	if (existsSync(rootPackageJson)) {
@@ -224,16 +215,15 @@ if (!rootIsThisRepo) {
 	process.exit(1);
 }
 const markerFile = join(profileDir, "seed-fingerprint");
-// The fingerprint covers exactly what shapes the host's provider groups. The
-// demo budgets and records stay out on purpose: they are measured or tuned per
-// run, land as plain settings the seed upserts freely, and must not wipe the
+// The fingerprint covers exactly what shapes the host's provider groups. The demo budgets and records stay out on
+// purpose: they are measured or tuned per run, land as plain settings the seed upserts freely, and must not wipe the
 // profile (with its Copilot Chat sign-in) when they change.
 const seedGroupIdentity = [
 	seedIdentity,
 	...DEMO_USAGE_KEYS.map((spec) => ({ label: spec.label, baseUrl: seedIdentity.baseUrl, apiKey: spec.key })),
 	...errorEntries.map(({ label, baseUrl, apiKey: entryKey }) => ({ label, baseUrl, apiKey: entryKey })),
 ];
-// codeql[js/insufficient-password-hash] -- not password storage: a change-detection fingerprint of the dev seed (well-known local test keys)
+// codeql[js/insufficient-password-hash] -- not password storage: a change-detection fingerprint of the dev seed
 const seedFingerprint = createHash("sha256").update(JSON.stringify(seedGroupIdentity)).digest("hex");
 const previousFingerprint = existsSync(markerFile) ? readFileSync(markerFile, "utf8").trim() : undefined;
 
@@ -246,24 +236,16 @@ function readProfileFile(...relative: string[]): string | undefined {
 }
 
 /**
- * settings.json is JSONC, and either extension would make a strict parse read a
- * seeded profile as unseeded. This reduces exactly those two: a comment outside
- * strings becomes one space (whitespace, not a deletion, so a comment lodged
- * mid-token cannot weld the fragments around it into a valid literal), and a
- * comma is dropped only when it follows the end of a value and the next
- * meaningful character closes an array or object (so "[,]" stays invalid).
+ * settings.json is JSONC, and either extension would make a strict parse read a seeded profile as unseeded.
  * String-aware, so a comma or slash inside a value never changes it.
+ *
+ *   whitespace, not a deletion -> a comment lodged mid-token cannot weld the fragments around it into a valid literal
+ *   "[,]"                      -> stays invalid
  */
 function stripJsoncExtensions(text: string): string {
 	const out: string[] = [];
 	let inString = false;
-	// The last meaningful character emitted outside strings: a comma may only
-	// trail a finished value (closing quote or bracket, or a literal/number
-	// character).
 	let prev = "";
-	// Index in `out` of a trailing-candidate comma that only whitespace or
-	// comments has followed so far; a closing bracket drops it, anything else
-	// clears it.
 	let danglingComma = -1;
 	for (let i = 0; i < text.length; i++) {
 		const ch = text[i] as string;
@@ -288,8 +270,8 @@ function stripJsoncExtensions(text: string): string {
 		if (ch === "/" && text[i + 1] === "*") {
 			const end = text.indexOf("*/", i + 2);
 			if (end < 0) {
-				// Unterminated: malformed, not strippable. The unmodified text
-				// makes JSON.parse reject it, and the caller keeps the profile.
+				// Unterminated: malformed, not strippable. The unmodified text makes JSON.parse reject it, and the
+				// caller keeps the profile.
 				return text;
 			}
 			out.push(" ");
@@ -330,13 +312,11 @@ function stripJsoncExtensions(text: string): string {
 const serversSettingKey = `${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`;
 
 /**
- * Whether a previous run's host actually consumed the seed: applying it writes a
- * servers entry with the seed's label into the profile's User/settings.json.
- * The marker cannot answer this - it is written BEFORE the host launches - so
- * "marker present, group absent" also describes a host that never activated,
- * and wiping on that would reset the profile every run. An unreadable or
- * malformed settings file keeps the profile: the failure mode is a skipped
- * reset, never a wipe.
+ * The marker cannot answer this - it is written BEFORE the host launches - so "marker present, group absent" also
+ * describes a host that never activated, and wiping on that would reset the profile every run. An unreadable or
+ * malformed settings file keeps the profile: the failure mode is a skipped reset, never a wipe.
+ *
+ *   applying it -> writes a servers entry with the seed's label into the profile's User/settings.json
  */
 function profileConsumedSeed(): boolean {
 	const raw = readProfileFile("User", "settings.json");
@@ -367,10 +347,8 @@ function profileConsumedSeed(): boolean {
 }
 
 /**
- * Whether the seeded group is still in the host's group store,
- * User/chatLanguageModels.json. Absent, unparsable, or group-less all count as
- * gone - the caller only asks after profileConsumedSeed() proved the group was
- * once created.
+ * Whether the seeded group is still in the host's group store, User/chatLanguageModels.json. Absent, unparsable, or
+ * group-less all count as gone - the caller only asks after profileConsumedSeed() proved the group was once created.
  */
 function profileHasSeededGroup(): boolean {
 	const raw = readProfileFile("User", "chatLanguageModels.json");
@@ -395,12 +373,10 @@ function profileHasSeededGroup(): boolean {
 	);
 }
 
-// A matching fingerprint only promises the profile was seeded for this
-// configuration; a developer can still delete the group by hand, which re-seeds
-// the same way a configuration change does. One reset per loss, tracked by a
-// breadcrumb: while it is present a still-missing group logs instead of wiping
-// again, because the group add itself is failing and wiping every run would
-// pile sign-in loss on top of that bug. Seeing the group back removes it.
+// A matching fingerprint only promises the profile was seeded for this configuration; a developer can still delete the
+// group by hand, which re-seeds the same way a configuration change does. One reset per loss, tracked by a breadcrumb:
+// while it is present a still-missing group logs instead of wiping again, because the group add itself is failing and
+// wiping every run would pile sign-in loss on top of that bug.
 const reseedBreadcrumb = join(profileDir, "seed-reseeded");
 let wipeReason: string | undefined;
 let missingGroupReset = false;
@@ -420,9 +396,8 @@ if (previousFingerprint !== seedFingerprint) {
 }
 if (wipeReason !== undefined) {
 	if (existsSync(profileDir)) {
-		// Wiping under a live host would yank its state out from under it, so a
-		// visible host blocks the launch. Best effort, not a lock: when ps is
-		// unavailable or misses the host (see findDevHostPid), the wipe proceeds.
+		// Wiping under a live host would yank its state out from under it, so a visible host blocks the launch. Best
+		// effort, not a lock: when ps is unavailable or misses the host (see findDevHostPid), the wipe proceeds.
 		if (findDevHostPid() !== undefined) {
 			console.error(
 				"[dev] the dev profile is in use by a running Extension Development Host; close that window and re-run"
@@ -439,21 +414,18 @@ if (missingGroupReset) {
 	writeFileSync(reseedBreadcrumb, "");
 }
 
-// Verbose by default in the dev stack (and only there): the fake backend logs
-// every chat request and response body into ./logs/fake-openai.log. Explicit
-// env wins.
+// Explicit env wins.
+//
+//   Verbose by default -> in the dev stack (and only there)
 run("starting the fake LiteLLM stack", ["bun", "scripts/stack/compose.ts", "up", "-d", "--wait"], {
 	FAKE_VERBOSE: process.env.FAKE_VERBOSE ?? "1",
 });
 
-// Demo usage state, dev-path only: real spend accrued through deterministic
-// completions, budgets pinned to the healthy / warning / over fractions. Run as
-// a child script because this file is CommonJS (no top-level await), with the
-// measured results coming back through a JSON file. A failure costs the usage
-// demo, never the run; DEV_NO_USAGE_SEED=1 skips it for a faster launch.
+// Run as a child script because this file is CommonJS (no top-level await), with the measured results coming back
+// through a JSON file. A failure costs the usage demo, never the run; DEV_NO_USAGE_SEED=1 skips it for a faster launch.
 const demoResultsPath = join(root, "docker", ".generated", "dev-demo-usage.json");
-// Absolute path like composeCli above: knip's literal-argv scan must not try
-// to resolve the script path relative to this file.
+// Absolute path like composeCli above: knip's literal-argv scan must not try to resolve the script path relative to
+// this file.
 const demoUsageCli = join(root, "scripts", "dev", "seed-demo-usage.ts");
 let demoUsage: SeededDemoUsage[] = [];
 if (process.env.DEV_NO_USAGE_SEED === "1") {
@@ -502,8 +474,8 @@ const seed: DevSeed = {
 };
 writeFileSync(join(root, DEV_SEED_FILENAME), `${JSON.stringify(seed, null, "\t")}\n`);
 console.log(`[dev] seed written for ${seed.baseUrl}`);
-// Loud on purpose: the demo parameter records ride every dev-host request,
-// which would otherwise read as a pass-through regression while debugging.
+// Loud on purpose: the demo parameter records ride every dev-host request, which would otherwise read as a pass-through
+// regression while debugging.
 console.log(
 	"[dev] demo model records are active (temperature/top_p defaults; gpt-5* forces temperature=1) - delete .dev-profile to reset"
 );
@@ -516,10 +488,7 @@ if (errorEntries.length > 0) {
 	console.log("[dev] DEV_NO_ERROR_SEED=1: skipping the error-state demo servers");
 }
 
-// ── Live log follow ──────────────────────────────────────────────────────────
-// The terminal stays attached: both container logs and the extension's output
-// channel stream here, each teed into logs/ for later reading (truncated per
-// run). Ctrl+C tears the stack down and closes the dev window.
+// ---- Live log follow ----
 const logsDir = join(root, "logs");
 mkdirSync(logsDir, { recursive: true });
 const logSinks: WriteStream[] = [];
@@ -581,14 +550,12 @@ function forwardLines(label: string, sink: WriteStream): LineForwarder {
 function followComposeService(service: string, label: string): void {
 	const sink = createWriteStream(join(logsDir, `${service}.log`));
 	logSinks.push(sink);
-	// No --no-log-prefix: podman-compose does not accept it, and this repo
-	// supports both runtimes. detached puts the compose child in its own
-	// process group so teardown can kill the real `docker compose logs -f`
-	// grandchild, not just the bun wrapper.
+	// No --no-log-prefix: podman-compose does not accept it, and this repo supports both runtimes. detached puts the
+	// compose child in its own process group so teardown can kill the real `docker compose logs -f` grandchild, not
+	// just the bun wrapper.
 	const child = spawn("bun", [composeCli, "logs", "-f", service], { cwd: root, detached: true });
 	logChildren.push(child);
-	// One forwarder per stream: stdout and stderr chunks must not share a
-	// partial-line buffer.
+	// One forwarder per stream: stdout and stderr chunks must not share a partial-line buffer.
 	const stdoutForward = forwardLines(label, sink);
 	const stderrForward = forwardLines(label, sink);
 	child.stdout?.on("data", (chunk: Buffer) => stdoutForward.push(chunk));
@@ -614,8 +581,8 @@ function followComposeService(service: string, label: string): void {
 function killLogChildren(): void {
 	for (const child of logChildren) {
 		if (child.pid !== undefined) {
-			// Negative pid = the whole detached process group, so the real
-			// compose process dies too, not only the bun wrapper.
+			// Negative pid = the whole detached process group, so the real compose process dies too, not only the bun
+			// wrapper.
 			try {
 				process.kill(-child.pid, "SIGTERM");
 				continue;
@@ -627,11 +594,10 @@ function killLogChildren(): void {
 	}
 }
 
-// The extension's output channel is backed by files under the dev profile.
-// Offsets are primed from a snapshot taken BEFORE the host launches: everything
-// already in a channel file is history, everything appended afterwards streams,
-// including appends to a session directory that predates this launch (which
-// happens when the single-instance hand-off routes the new window into one).
+// The extension's output channel is backed by files under the dev profile. Offsets are primed from a snapshot taken
+// BEFORE the host launches: everything already in a channel file is history, everything appended afterwards streams,
+// including appends to a session directory that predates this launch (which happens when the single-instance hand-off
+// routes the new window into one).
 const extensionLogId = `${packageMeta.publisher ?? ""}.${packageMeta.name ?? ""}`;
 const tailOffsets = new Map<string, number>();
 const vscodeSink = createWriteStream(join(logsDir, "vscode-extension.log"));
@@ -698,9 +664,8 @@ function tailExtensionLogsOnce(): void {
 	}
 }
 
-// Snapshot BEFORE the host launches so its very first log lines stream (a
-// post-launch snapshot would either skip them or replay a pre-existing
-// session file's whole history).
+// Snapshot BEFORE the host launches so its very first log lines stream (a post-launch snapshot would either skip them
+// or replay a pre-existing session file's whole history).
 for (const file of extensionLogFiles()) {
 	try {
 		tailOffsets.set(file, statSync(file).size);
@@ -709,10 +674,9 @@ for (const file of extensionLogFiles()) {
 	}
 }
 
-// Anything after the script name is handed to the `code` invocation, so
-// `bun run dev -- --locale=zh-cn` launches a localized dev host (--locale needs
-// the matching language pack in the real extensions directory; without it the
-// host stays English). A leading literal "--" surviving forwarding is dropped.
+// Anything after the script name is handed to the `code` invocation, so `bun run dev -- --locale=zh-cn` launches a
+// localized dev host (--locale needs the matching language pack in the real extensions directory; without it the host
+// stays English).
 const passthroughArgs = process.argv.slice(2);
 if (passthroughArgs[0] === "--") {
 	passthroughArgs.shift();
@@ -727,10 +691,10 @@ run("opening the Extension Development Host", [
 ]);
 console.log("[dev] window launched; the seed configures the server on activation");
 
-// The dev host uses the DEFAULT extensions dir and cannot see profile-scoped
-// extensions. Without GitHub Copilot Chat installed there the dev extension
-// still activates but has no chat surface, which reads as "does nothing". Warn
-// loudly; never auto-install.
+// Warn loudly; never auto-install.
+//
+//   Without GitHub Copilot Chat installed there -> the dev extension still activates but has no chat surface, which
+//                                                  reads as "does nothing"
 const defaultExtensionsDir = join(homedir(), ".vscode", "extensions");
 const hasCopilotChat = (() => {
 	try {
@@ -753,17 +717,16 @@ if (!hasCopilotChat) {
 const tailTimer = setInterval(tailExtensionLogsOnce, 1000);
 
 /**
- * The dev host's Electron MAIN process pid, found by argv: the exact
- * --user-data-dir element for this profile, excluding Chromium helpers by their
- * --type= argument. VS Code keeps no SingletonLock on any platform, and its own
- * code.lock is undocumented, while argv is observable everywhere ps exists. The
- * whole-element match keeps a sibling profile like "<profileDir>-other" from
- * matching. Where an old and a new host briefly overlap, the youngest wins.
+ * The dev host's Electron MAIN process pid, found by argv: the exact --user-data-dir element for this profile,
+ * excluding Chromium helpers by their --type= argument. VS Code keeps no SingletonLock on any platform, and its own
+ * code.lock is undocumented, while argv is observable everywhere ps exists.
+ *
+ *   The whole-element match                      -> keeps a sibling profile like "<profileDir>-other" from matching
+ *   Where an old and a new host briefly overlap  -> the youngest wins
  */
 function findDevHostPid(): number | undefined {
-	// -ww: GNU ps truncates command= to COLUMNS otherwise, which would silently
-	// hide a long profile path; macOS accepts the flag as a no-op. etime is the
-	// POSIX-portable elapsed-time keyword ([[dd-]hh:]mm:ss).
+	// -ww: GNU ps truncates command= to COLUMNS otherwise, which would silently hide a long profile path; macOS accepts
+	// the flag as a no-op. etime is the POSIX-portable elapsed-time keyword ([[dd-]hh:]mm:ss).
 	const ps = spawnSync("ps", ["-axww", "-o", "pid=,etime=,command="], { encoding: "utf8" });
 	if (ps.status !== 0) {
 		return undefined;
@@ -785,9 +748,8 @@ function findDevHostPid(): number | undefined {
 		if (!Number.isInteger(pid) || pid <= 0) {
 			continue;
 		}
-		// An unparsable elapsed field counts as infinitely old; equal ages keep
-		// the later line, so a ps whose etime column is unusable degrades to
-		// last-match instead of finding nothing.
+		// An unparsable elapsed field counts as infinitely old; equal ages keep the later line, so a ps whose etime
+		// column is unusable degrades to last-match instead of finding nothing.
 		const elapsed = parseEtimeSeconds(fields[2] as string) ?? Number.POSITIVE_INFINITY;
 		if (elapsed <= foundElapsed) {
 			found = pid;
@@ -808,9 +770,8 @@ function parseEtimeSeconds(etime: string): number | undefined {
 }
 
 /**
- * Close the Extension Development Host with the stack. The main process hosts
- * every window on this profile, so an F5-launched host sharing it closes too:
- * Ctrl+C here means the stack it depends on is going away.
+ * The main process hosts every window on this profile, so an F5-launched host sharing it closes too: Ctrl+C here means
+ * the stack it depends on is going away.
  */
 function closeDevHost(): void {
 	const pid = findDevHostPid();
@@ -828,19 +789,17 @@ function closeDevHost(): void {
 shutdown = (): void => {
 	void (async (): Promise<void> => {
 		clearInterval(tailTimer);
-		// A final pass so extension log lines from the last polling interval are
-		// not lost, then flush the partial-line buffers.
+		// A final pass so extension log lines from the last polling interval are not lost, then flush the partial-line
+		// buffers.
 		tailExtensionLogsOnce();
 		forwardVscode.flush();
 		killLogChildren();
 		closeDevHost();
-		// The children's final data/close callbacks must drain BEFORE anything
-		// blocks the event loop or the sinks close; a hung child forfeits its
-		// tail after the timeout.
+		// The children's final data/close callbacks must drain BEFORE anything blocks the event loop or the sinks
+		// close; a hung child forfeits its tail after the timeout.
 		await Promise.race([Promise.all(logChildrenClosed), delay(1500)]);
 		const exitCode = composeDownExitCode();
-		// end() flushes asynchronously; the timeout is the backstop against a
-		// sink that never finishes.
+		// end() flushes asynchronously; the timeout is the backstop against a sink that never finishes.
 		await Promise.race([endSinks(), delay(2000)]);
 		process.exit(exitCode);
 	})();

@@ -1,7 +1,6 @@
 /**
- * The Models destination filtered to nothing: a pressed family pill plus a
- * text needle from another family, so the shot shows the one-sentence empty
- * state with its clear-filters action beside it.
+ * The Models destination filtered to nothing: a pressed family pill plus a text needle from another family, so the shot
+ * shows the one-sentence empty state with its clear-filters action beside it.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, GATEWAY_SERVER, MODELS, PROD_SERVER } from "./shared.ts";

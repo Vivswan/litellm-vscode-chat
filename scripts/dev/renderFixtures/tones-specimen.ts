@@ -1,13 +1,11 @@
 /**
- * The four pill tones side by side at BOTH sizes the product renders them: the
- * 8px row dot and the 11px collapsed-rail dot. The tone-parity specimen - one
- * shape per tone, so the vocabulary survives a reader who cannot separate the
- * hues - and the fixture --dpr runs against, because the shapes' strokes and
- * clips are where display densities disagree.
+ * The four pill tones side by side at BOTH sizes the product renders them: the 8px row dot and the 11px collapsed-rail
+ * dot. The tone-parity specimen - one shape per tone, so the vocabulary survives a reader who cannot separate the
+ * hues - and the fixture --dpr runs against, because the shapes' strokes and clips are where display densities
+ * disagree.
  *
- * The window is 900px ON PURPOSE: the 11px size exists only inside the
- * collapsed-rail media query, so a wider render would photograph two identical
- * 8px rows. The step ASSERTS both computed dot sizes.
+ *   The window is 900px ON PURPOSE: the 11px size exists only inside the collapsed-rail media query -> a wider render
+ *     would photograph two identical 8px rows
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
