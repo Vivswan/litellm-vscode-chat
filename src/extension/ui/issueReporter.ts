@@ -535,6 +535,15 @@ const JSON_PAIR =
  */
 const BARE_NAME = /(?<=^|[\s,;{}()[\]"])([^\s:"{}()[\],;]+)[ \t]*:[ \t]*/gm;
 
+/** The header name a JSON property spells, escapes decoded: "Authorizatio\u006e" names the Authorization header. */
+function decodedJsonName(raw: string): string {
+	try {
+		return JSON.parse(`"${raw}"`);
+	} catch {
+		return raw;
+	}
+}
+
 /**
  * Every header value whose name isCredentialHeader (the fixed names plus the configured carriers), bare and
  * JSON-encoded. The bare form takes the rest of the line: a Basic value is "scheme token" and a Cookie value is
@@ -542,7 +551,7 @@ const BARE_NAME = /(?<=^|[\s,;{}()[\]"])([^\s:"{}()[\],;]+)[ \t]*:[ \t]*/gm;
  */
 function redactHeaderValues(text: string, virtualKeyHeaders: readonly string[]): string {
 	const json = text.replace(JSON_PAIR, (match, prefix: string, name: string, bearer: string | undefined) =>
-		isCredentialHeader(name, virtualKeyHeaders) ? `${prefix}"${bearer ?? ""}[REDACTED]"` : match
+		isCredentialHeader(decodedJsonName(name), virtualKeyHeaders) ? `${prefix}"${bearer ?? ""}[REDACTED]"` : match
 	);
 	let out = "";
 	let cursor = 0;

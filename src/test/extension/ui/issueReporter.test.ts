@@ -689,6 +689,10 @@ suite("IssueReporter", () => {
 			redactSecrets('{"X-API-Key":42,"X-Flag": true,"X-Neg":-1.5e3,"port":4000,"debug":false}', ["X-Flag", "X-Neg"]),
 			'{"X-API-Key":"[REDACTED]","X-Flag": "[REDACTED]","X-Neg":"[REDACTED]","port":4000,"debug":false}'
 		);
+		assert.equal(
+			redactSecrets('{"Authorizatio\\u006e":"Basic proxy-marker","X-Priv\\u0061te":"pm"}', ["X-Private"]),
+			'{"Authorizatio\\u006e":"[REDACTED]","X-Priv\\u0061te":"[REDACTED]"}'
+		);
 	});
 
 	test("redactSecrets removes sk- prefixed keys", () => {
