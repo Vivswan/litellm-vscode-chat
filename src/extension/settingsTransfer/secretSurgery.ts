@@ -21,7 +21,7 @@ import {
 	SECRET_FIELD_IDS,
 	virtualKeyHeaderNames,
 } from "../../shared/serverEntry";
-import { displayUrl } from "../../shared/util/displayUrl";
+import { configuredUserinfo, displayUrl } from "../../shared/util/displayUrl";
 import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { StoredServerSecrets } from "../servers/serverSync/secrets";
@@ -220,19 +220,9 @@ const OAUTH_URL_KEYS: readonly string[] = URI_ENTRY_FIELDS.map((field) => field.
 const MCP_URL_KEYS: readonly string[] = ["url"];
 
 /**
- * Whether displayUrl hides part of this URL: its display form differs beyond the tabs and newlines the parser drops
- * wherever they sit. Judged against displayUrl itself, so every form it withholds (userinfo the parser reads, a cut
- * inside the text such as a credentialed URL in a query parameter, the fail-closed tail of a refused value with an
- * "@") counts, and a tab alone does not.
- */
-function carriesCredential(url: string): boolean {
-	return displayUrl(url) !== url.replace(/[\t\n\r]/g, "");
-}
-
-/**
- * Every URL position of the raw entry, rebuilt through displayUrl when it carries a credential: a `user:password@`
- * written into a URL is one the no-secrets export must not carry, and one the with-secrets export counts. A URL
- * without one rides as written, tabs and all; a rewrite there would count a secret that is not one.
+ * Every URL position of the raw entry, rebuilt through displayUrl when the shared finder reads a credential in it: a
+ * `user:password@` written into a URL is one the no-secrets export must not carry, and one the with-secrets export
+ * counts. A URL without one rides as written, tabs and all.
  */
 export function stripUrlUserinfo(rawEntry: Readonly<Record<string, unknown>>): StrippedUrls {
 	let removed = 0;
@@ -247,7 +237,7 @@ export function stripUrlUserinfo(rawEntry: Readonly<Record<string, unknown>>): S
 					unsanitizable ||= typeof value === "object" && value !== null;
 					return [key, value];
 				}
-				if (!carriesCredential(value)) {
+				if (configuredUserinfo(value).length === 0) {
 					return [key, value];
 				}
 				removed += 1;
@@ -260,6 +250,10 @@ export function stripUrlUserinfo(rawEntry: Readonly<Record<string, unknown>>): S
 	}
 	if (isRecord(rawEntry.mcp)) {
 		entry.mcp = rebuilt(rawEntry.mcp, MCP_URL_KEYS);
+	} else if (!textless(rawEntry.mcp)) {
+		// An mcp slot the walk cannot enter (an array, text) could hold a credentialed URL, like an unwalkable headers
+		// shape; the boolean opt-in is textless and rides.
+		unsanitizable = true;
 	}
 	if (unsanitizable) {
 		return { unsanitizable, removed };

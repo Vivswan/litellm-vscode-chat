@@ -441,7 +441,6 @@ function shownAs(raw: unknown, scrubbed: unknown, preview: Redactor): Parts {
 		: [...rendered, ` ${l10n.t("(carries text the card does not show, such as URL credentials)")}`];
 }
 
-/** The two value labels padded to one code-unit length; in English the values that follow start in one column. */
 function valueLabels(): { readonly before: string; readonly after: string } {
 	const before = l10n.t("before:");
 	const after = l10n.t("after:");

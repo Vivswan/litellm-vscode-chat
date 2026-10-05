@@ -1,5 +1,6 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
+import { configuredUserinfo, displayUrl } from "../../../../shared/util/displayUrl";
 import { type CollectableEntry, collectKnownSecretValues, KnownSecrets } from "../../../../shared/util/knownSecrets";
 
 /** A parsed entry as the collector sees it, with the fields a row leaves out empty. */
@@ -24,18 +25,31 @@ describe("shared/util/knownSecrets", () => {
 				expected: ["inline-test-Q7", "cs-Q7", "stored-test-Q7"],
 			},
 			{
-				title: "the userinfo of every configured URL the parser accepts: as the parser reads it and as written",
+				title:
+					"the userinfo of every configured URL the parser accepts, edge whitespace aside: as the parser reads it and as written",
 				entries: [
 					entry({
 						urls: [
 							"http://user:base-pass@one.test",
 							"http://u:flat%20pass@idp.test",
 							"http://u:mcp%20pass@one.test/mcp",
+							" //user:p a$Q7@host.test ",
 						],
 					}),
 				],
 				stored: [],
-				expected: ["user", "base-pass", "user:base-pass", "flat%20pass", "u:flat%20pass", "mcp%20pass", "u:mcp%20pass"],
+				expected: [
+					"user",
+					"base-pass",
+					"user:base-pass",
+					"flat%20pass",
+					"u:flat%20pass",
+					"mcp%20pass",
+					"u:mcp%20pass",
+					"p%20a$Q7",
+					"user:p a$Q7",
+					"p a$Q7",
+				],
 			},
 			{
 				title:
@@ -67,15 +81,37 @@ describe("shared/util/knownSecrets", () => {
 			},
 			{
 				title: "a newline inside a password: the parser drops it, the as-written spelling is a value too",
-				entries: [entry({ urls: ["https://u:sec\nret@host.test"] })],
+				entries: [entry({ urls: ["https://u:sec\nret@host.test", "\t//sk-cred\nential-Q7:pw@host.test"] })],
 				stored: [],
-				expected: ["secret", "u:sec\nret", "sec\nret"],
+				expected: [
+					"secret",
+					"u:sec\nret",
+					"sec\nret",
+					"sk-credential-Q7",
+					"sk-cred\nential-Q7:pw",
+					"sk-cred\nential-Q7",
+				],
 			},
 			{
 				title: "an opaque URL has no userinfo to the parser, so the word before its @ is no credential",
 				entries: [entry({ urls: ["mailto:admin@example.test"] })],
 				stored: [],
 				expected: [],
+			},
+			{
+				title:
+					"what displayUrl hides is a value: a URL embedded in a query parameter, a scheme-less value@host spelling, and a protocol-relative URL behind whitespace the parser keeps",
+				entries: [
+					entry({
+						urls: [
+							"https://a.test/?next=https://u:query-pw@b.test",
+							"sk-credential-Q7@a.test:443",
+							"\u00a0//sk-credential-Q7:@a.test",
+						],
+					}),
+				],
+				stored: [],
+				expected: ["query-pw", "u:query-pw", "sk-credential-Q7", "sk-credential-Q7:"],
 			},
 			{
 				title: "credential headers by the one predicate (whole words, trimmed) and the entry's carrier",
@@ -104,9 +140,70 @@ describe("shared/util/knownSecrets", () => {
 				stored: ["x"],
 				expected: ["dev", "a:bb"],
 			},
+			{
+				title:
+					"a refused URL keeps its scheme word under edge whitespace or a space before the colon, so the candidates start after it",
+				entries: [entry({ urls: [" http://user:secret-Q7@host:bad ", "http ://user:secret-Q7@host"] })],
+				stored: [],
+				expected: ["user:secret-Q7", "user", "secret-Q7"],
+			},
+			{
+				title: "empty userinfo after a separator is no value, whatever the word before the separator spells",
+				entries: [entry({ urls: ["@a.test", "http://@host:bad", "sk-credential-Q7 :@a.test:443"] })],
+				stored: [],
+				expected: [],
+			},
 		];
 		for (const { title, entries, stored, expected } of cases) {
 			assert.deepStrictEqual(collectKnownSecretValues(entries, stored), expected, title);
+		}
+		// Collected, the hidden text is redacted wherever a line echoes it bare, not only inside the URL.
+		const known = new KnownSecrets();
+		known.set(
+			collectKnownSecretValues(
+				[entry({ urls: ["https://a.test/?next=https://u:query-pw@b.test", "sk-credential-Q7@a.test:443"] })],
+				[]
+			)
+		);
+		assert.strictEqual(
+			known.redact("Denied query-pw for sk-credential-Q7 at a.test:443"),
+			"Denied [redacted] for [redacted] at a.test:443"
+		);
+	});
+
+	// Drifts silently: the finder feeds the known-value collector and the export's secret count, displayUrl the shown
+	// text; a value one hides and the other does not find is a credential echoed bare or counted as a secret that is
+	// not one. The one exception is empty userinfo ("@a.test", "http://@host:bad"): displayUrl drops the "@" and what
+	// precedes it, the finder has no text.
+	test("configuredUserinfo finds a value wherever displayUrl hides text, tabs and newlines aside", () => {
+		for (const value of [
+			"http://user:pass@host",
+			"http://a.test\t/v1",
+			"https://u:sec\nret@host.test",
+			"\t//sk-cred\nential-Q7:pw@host.test",
+			"https://a.test/?next=https://u:query-pw@b.test",
+			"http://user:pa?ss/extra@x@host:4000 note",
+			"//user:pass@",
+			"sk-credential-Q7@a.test:443",
+			"admin@example.test",
+			"mailto:admin@example.test",
+			"u:p@host",
+			"\u00a0mailto:admin@example.test",
+			"mailto:https://u:secret-Q7@b.test\u00a0",
+			" http://u:pw@host ",
+			" http://user:secret-Q7@host:bad ",
+			"http ://user:secret-Q7@host",
+			"\u0001http://user:secret-Q7@host:bad",
+			"\u0001//a.test/path:secret-Q7@b.test",
+			"\u0001//user:pass@host",
+			"\u00a0//sk-credential-Q7:@a.test",
+			"\ufeff//sk-credential-Q7:@a.test",
+		]) {
+			assert.strictEqual(
+				configuredUserinfo(value).length > 0,
+				displayUrl(value) !== value.replace(/[\t\n\r]/g, ""),
+				JSON.stringify(value)
+			);
 		}
 	});
 

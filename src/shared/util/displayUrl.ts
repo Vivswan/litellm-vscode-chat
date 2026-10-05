@@ -5,7 +5,8 @@
  *   toasts, chat errors, the dashboard, English mirrors -> displayUrl where the message is built
  *   every log line and log data field                   -> KnownSecrets.redact (knownSecrets.ts), which takes the
  *                                                            cuts from urlCuts and the known values in one pass
- *   agent-tool results                                   -> urlScrubbingReplacer with its default, the cuts alone
+ *   agent-tool results and confirmation cards            -> modelFacing (agentTools/render.ts), the cuts and the known
+ *                                                            values in one pass per piece
  *   the issue report                                     -> redactSecrets, which starts from redactUrlCredentials
  *   the known-value collector                            -> configuredUserinfo, the same finder and parser
  */
@@ -32,9 +33,19 @@ const OPENERS = new Set(["(", "[", "<", "{"]);
 /** The parser drops these wherever they sit in a URL. */
 const IGNORED = /[\t\n\r]/g;
 
+/** How many C0 controls and spaces lead a value; the parser strips them before reading anything, so "//" may follow. */
+function leadingParserSpace(text: string): number {
+	let lead = 0;
+	while (lead < text.length && text.charCodeAt(lead) <= 0x20) {
+		lead++;
+	}
+	return lead;
+}
+
 function parsedUrl(text: string): URL | undefined {
+	const lead = leadingParserSpace(text);
 	try {
-		return new URL(text.startsWith("//") ? `http:${text}` : text);
+		return new URL(text.startsWith("//", lead) ? `http:${text.slice(lead)}` : text);
 	} catch {
 		return undefined;
 	}
@@ -95,13 +106,17 @@ function runEndOf(text: string, index: number, ceiling: number): number {
  * ends at the first path, query, or fragment delimiter, and the userinfo at the authority's last "@" (-1 when none).
  */
 function authorityOf(span: string): { scheme: number; start: number; end: number; at: number } {
-	const scheme = span.startsWith("//") ? 0 : span.indexOf(":") + 1;
-	const schemeName = span
-		.slice(0, Math.max(scheme - 1, 0))
-		.replace(IGNORED, "")
-		.trim()
-		.toLowerCase();
-	const special = scheme === 0 || SPECIAL_SCHEMES.has(schemeName);
+	const lead = leadingParserSpace(span);
+	const relative = span.startsWith("//", lead);
+	const scheme = relative ? lead : span.indexOf(":") + 1;
+	const schemeName = relative
+		? ""
+		: span
+				.slice(0, Math.max(scheme - 1, 0))
+				.replace(IGNORED, "")
+				.trim()
+				.toLowerCase();
+	const special = relative || SPECIAL_SCHEMES.has(schemeName);
 	const slashes = special ? "/\\\t\n\r" : "/\t\n\r";
 	const delimiters = special ? "/\\?#" : "/?#";
 	let start = scheme;
@@ -126,33 +141,63 @@ function userinfoCandidates(userinfo: string): string[] {
 	return [userinfo, ...split].filter((part) => part !== "");
 }
 
+/** A value without the C0 controls and spaces at its edges, which the parser strips before reading anything. */
+function parserTrim(text: string): string {
+	let to = text.length;
+	while (to > 0 && text.charCodeAt(to - 1) <= 0x20) {
+		to--;
+	}
+	return text.slice(Math.min(leadingParserSpace(text), to), to);
+}
+
+function writtenUserinfo(text: string): string {
+	const { start, at } = authorityOf(text);
+	return at === -1 ? "" : text.slice(start, at);
+}
+
+function userinfoOf(span: string, written: string): string[] {
+	const read = parsedUrl(span);
+	const parts = read === undefined ? [] : [read.username, read.password].filter((part) => part !== "");
+	return [...parts, ...userinfoCandidates(written)];
+}
+
 /**
- * The userinfo of one configured URL as a line may echo it (the spellings are the matcher's). Read by the parser,
- * with the leading and trailing whitespace and the tabs and newlines it drops: the user and the password as it reads
- * them, plus as written in the setting. Refused by the parser ("http://user:pa?ss/extra@host"), no request carries
- * the text, but a message quoting the setting does: the text from the scheme separator up to EACH "@" before the end
- * of the value is a candidate, whole and split (whitespace and quotes are part of a typed value), deduplicated and
- * capped at MAX_USERINFO_CANDIDATES. An opaque URL ("mailto:admin@example.test") has no userinfo to the parser and
- * yields nothing.
+ * The credential text of one configured URL as a line may echo it, agreeing with displayUrl by construction over the
+ * same text: each cut it makes yields that URL's userinfo as the parser reads it (the value's own authority as written
+ * in the setting too), and a value it fails closed on yields the text before each "@". knownSecrets.ts collects these
+ * for every URL field.
+ *   "http://user:pass@host"                        -> user, pass, user:pass
+ *   "https://a.test/?next=https://u:pw@b.test"     -> u, pw, u:pw (the embedded URL displayUrl cuts)
+ *   "http://user:pa?ss/extra@host" (refused)       -> user:pa?ss/extra, user, pa?ss/extra
+ *   "sk-credential-Q7@a.test:443" (no scheme word) -> sk-credential-Q7 (displayUrl shows the tail alone)
+ *   "mailto:admin@example.test" (opaque)           -> nothing, as displayUrl leaves it
+ *   "@a.test", "http://@host:bad"                  -> nothing: empty userinfo, though displayUrl drops the "@"
  */
 export function configuredUserinfo(url: string): string[] {
-	const text = url.trim();
-	const whole = parsedUrl(text.replace(IGNORED, ""));
-	const { scheme, start, at } = authorityOf(text);
-	if (whole !== undefined) {
-		if (whole.username === "" && whole.password === "") {
-			return [];
-		}
-		const read = [whole.username, whole.password].filter((part) => part !== "");
-		return [...read, ...(at === -1 ? [] : userinfoCandidates(text.slice(start, at)))];
-	}
-	if (scheme === 0 && !text.startsWith("//")) {
-		return [];
-	}
+	const trimmed = parserTrim(url);
+	const stripped = trimmed.replace(IGNORED, "");
 	const parts = new Set<string>();
-	let mark = text.indexOf("@", start);
+	if (parsedUrl(stripped) !== undefined) {
+		for (const cut of urlCuts(stripped)) {
+			const span = stripped.slice(cut.from, cut.resumeAt);
+			// The URL's own authority is spelled from the original text, so a tab or newline inside the password is a
+			// value as written; an embedded URL's is read from the span.
+			for (const part of userinfoOf(span, writtenUserinfo(cut.from === 0 ? trimmed : span))) {
+				parts.add(part);
+			}
+		}
+		return [...parts];
+	}
+	// displayUrl shows only what follows the last "@" of a refused value. The candidates run from the scheme separator,
+	// or from the start of a value whose first "@" precedes any ":" ("sk-credential-Q7@a.test:443"): the word before a
+	// separator is a scheme to the reader of a URL, whatever it spells. Read as a reader sees the value, without the
+	// edge whitespace the parser keeps (U+00A0, U+FEFF) either.
+	const text = url.trim();
+	const { scheme, start } = authorityOf(text);
+	const from = scheme !== 0 && scheme - 1 > text.indexOf("@") ? 0 : start;
+	let mark = text.indexOf("@", from);
 	for (let candidates = 0; mark !== -1 && candidates < MAX_USERINFO_CANDIDATES; candidates++) {
-		for (const part of userinfoCandidates(text.slice(start, mark))) {
+		for (const part of userinfoCandidates(text.slice(from, mark))) {
 			parts.add(part);
 		}
 		mark = text.indexOf("@", mark + 1);

@@ -146,9 +146,7 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 				entryWith({ virtualKey: { header: "x-key", name: "sk-ish" } }),
 				// A container at a known text position could hold text too.
 				entryWith({ oauth: { tokenUrl: ["sk"], clientId: "c" } }),
-				// Keys that name inherited members or the prototype. A walk that indexed the recursion table with the raw
-				// key certified toString (Object.prototype.toString returned truthy text) and threw on hasOwnProperty (an
-				// unbound call); the unsafe-key guard refuses constructor and __proto__ before any read.
+				// auth: { constructor: "sk" } certified clean through a raw-key index into the recursion table.
 				entryWith({ toString: "sk-at-an-inherited-name" }),
 				entryWith({ constructor: "sk-at-the-constructor-key" }),
 				entryWith({ hasOwnProperty: "sk-at-a-method-name" }),
@@ -374,6 +372,13 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 				"a URL spelling at a key the grammar does not read (mcp.tokenUrl) is not a URL position",
 				{ mcp: { url: "http://a.test/mcp", tokenUrl: [] } },
 				{ mcp: { url: "http://a.test/mcp", tokenUrl: [] } },
+				0,
+			],
+			["the boolean mcp opt-in is textless and rides", { mcp: true }, { mcp: true }, 0],
+			[
+				"an mcp slot the walk cannot enter could hold a credentialed URL, so the entry is unsanitizable",
+				{ mcp: ["http://u:array-pw@a.test/mcp"] },
+				undefined,
 				0,
 			],
 		])("%s", (_name, fields, stripped, removed) => {
