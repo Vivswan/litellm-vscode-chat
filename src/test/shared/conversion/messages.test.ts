@@ -366,9 +366,30 @@ suite("shared/conversion/messages", () => {
 		];
 		const history = [turn("one"), turn("two"), turn("three"), ...toolTurn("call_1"), ...toolTurn("call_2")];
 		const out = convertMessages(history, { log: (message, data) => logged.push({ message, data }) });
-		assert.equal(out.length, 7, "every turn keeps its text");
-		assert.equal(logged.length, 1, "eight dropped parts must produce one log, not evict the issue buffer");
-		assert.ok(expectDefined(logged[0]).message.includes("Skipping LanguageModelDataPart"));
+		const screenshot = (id: string) => ({
+			role: "assistant",
+			tool_calls: [{ id, type: "function", function: { name: "screenshot", arguments: "{}" } }],
+		});
+		// JSON round-trip drops the undefined-valued keys the wire never carries.
+		assert.deepStrictEqual(JSON.parse(JSON.stringify(out)), [
+			{ role: "assistant", content: "one" },
+			{ role: "assistant", content: "two" },
+			{ role: "assistant", content: "three" },
+			screenshot("call_1"),
+			{ role: "tool", tool_call_id: "call_1", content: "" },
+			screenshot("call_2"),
+			{ role: "tool", tool_call_id: "call_2", content: "" },
+		]);
+		assert.deepStrictEqual(
+			logged,
+			[
+				{
+					message: "Skipping LanguageModelDataPart with no wire mapping",
+					data: { role: "assistant", mimeType: "image/png" },
+				},
+			],
+			"eight dropped parts must produce one log, not evict the issue buffer"
+		);
 	});
 
 	test("a model-controlled mime never reaches the skip log unless it is a safe type/subtype", () => {

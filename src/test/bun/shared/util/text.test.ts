@@ -39,8 +39,7 @@ describe("shared/util/text stripMarkdownFences", () => {
 			reply: "```\nfeat: add thing\n```\n\nThis commit adds a thing.",
 			expected: "feat: add thing\n\nThis commit adds a thing.",
 		},
-		// A four-backtick pair; a three-backtick regex ate one backtick from each line and returned "`" instead of
-		// the empty answer.
+		// A longer pair must strip to nothing; a three-backtick match left a stray backtick here.
 		{ name: "a longer all-fence reply", reply: "````\n````", expected: "" },
 		{
 			name: "a four-backtick wrapper around a three-backtick block",
