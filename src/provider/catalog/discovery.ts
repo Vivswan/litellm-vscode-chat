@@ -368,7 +368,7 @@ function unparseableModelsResponse(endpointUrl: string, reason: string, cause: u
 	);
 }
 
-/** The content type is never consulted: servers mislabel JSON, so every body takes this one parse. */
+/** The content type is never consulted: servers mislabel JSON, so every non-empty body takes this one parse. */
 function parseJsonBody(text: string, endpointUrl: string): unknown {
 	try {
 		return JSON.parse(text);
@@ -398,9 +398,6 @@ async function getJson(
 			const response = await client
 				.get(path, { signal: options.signal, timeout: options.timeoutMs, maxRetries: 0, headers: options.headers })
 				.asResponse();
-			if (response.status === 204) {
-				return null;
-			}
 			let text: string;
 			try {
 				text = await response.text();
@@ -411,7 +408,8 @@ async function getJson(
 				// A socket death mid-body classifies like one before the headers.
 				throw new APIConnectionError({ cause: readError instanceof Error ? readError : undefined });
 			}
-			return parseJsonBody(text, endpointUrl);
+			// An empty body, a 204 or a bare 200, is an empty listing, not a parse failure.
+			return text === "" ? null : parseJsonBody(text, endpointUrl);
 		},
 		{ maxRetries: options.maxRetries, signal: options.signal }
 	);

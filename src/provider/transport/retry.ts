@@ -35,7 +35,7 @@ function isRetryableSdkFailure(error: unknown): boolean {
 	return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
-/** The server's `retry-after-ms` or `retry-after` (seconds or an HTTP date) when it names a wait the SDK would honor. */
+/** The server's `retry-after-ms` or `retry-after` (seconds or an HTTP date), when it names a wait the SDK honors. */
 function serverRetryDelayMs(error: unknown): number | undefined {
 	if (!(error instanceof APIError)) {
 		return undefined;

@@ -1336,6 +1336,19 @@ suite("provider/catalog/discovery", () => {
 			});
 		});
 
+		test("an empty 200 body lists no models instead of failing discovery", async () => {
+			mswServer.use(
+				http.get(
+					MODEL_INFO_URL,
+					() => new HttpResponse("", { status: 200, headers: { "Content-Type": "application/json" } })
+				),
+				http.get(MODELS_URL, () => new HttpResponse("", { status: 200, headers: { "Content-Length": "0" } }))
+			);
+
+			const { models } = await fetchModels(request());
+			assert.deepStrictEqual(models, [], "an empty body is an empty listing, like a 204");
+		});
+
 		test("JSON served without a JSON content type is still parsed", async () => {
 			const asPlainText = (payload: unknown) =>
 				new HttpResponse(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "text/plain" } });
