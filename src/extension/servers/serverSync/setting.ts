@@ -37,7 +37,7 @@ import {
 } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { HEADER_NAME_PATTERN, isHeaderScalar, trimHttpWhitespace, usableHttpText } from "../../../shared/util/headers";
-import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
+import { isRecord, isUnsafeRecordKey, objectSlot } from "../../../shared/util/json";
 import type { CollectableEntry } from "../../../shared/util/knownSecrets";
 import { sameGroupIdentity } from "../groupRemovals";
 
@@ -75,23 +75,14 @@ export function nonSecretIdentityMatches(
 }
 
 /**
- * The one "is this slot an object" judgment; what a wrong shape costs is the slot's policy, and the report says so.
+ * How an entry report spells a wrong-shaped slot (the judgment itself is objectSlot); what the shape costs is the
+ * slot's policy, and the sentence says so.
  *
- *   ignored  -> the slot reads as absent and the entry stays usable (headers, models and its records, discovery, mcp)
+ *   ignored  -> the slot reads as absent and the entry stays usable (models, discovery, mcp)
  *   rejects  -> the caller returns its problems; a wrong-shaped auth form has no repair
  */
-function objectSlot(
-	value: unknown,
-	noun: string,
-	policy: "ignored" | "rejects",
-	report: (what: string) => void,
-	legalShapes = "an object"
-): Record<string, unknown> | undefined {
-	if (isRecord(value)) {
-		return value;
-	}
-	report(`has ${noun} that is not ${legalShapes}${policy === "ignored" ? ", ignored" : ""}`);
-	return undefined;
+function notAnObject(noun: string, policy: "ignored" | "rejects", legalShapes = "an object"): string {
+	return `has ${noun} that is not ${legalShapes}${policy === "ignored" ? ", ignored" : ""}`;
 }
 
 function listSlot(value: unknown, path: string, report: (what: string) => void): readonly unknown[] | undefined {
@@ -107,7 +98,7 @@ function optionalSlot(
 	path: string,
 	report: (what: string) => void
 ): Record<string, unknown> | undefined {
-	return value === undefined ? undefined : objectSlot(value, `a ${path} value`, "ignored", report);
+	return value === undefined ? undefined : objectSlot(value, notAnObject(`a ${path} value`, "ignored"), report);
 }
 
 /** An entry's manual usage budget in USD: finite and above zero (a zero budget could only read as fully spent). */
@@ -131,7 +122,7 @@ function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn |
 	if (raw === false) {
 		return undefined;
 	}
-	const mcp = objectSlot(raw, "an mcp value", "ignored", report, "true, false, or an object");
+	const mcp = objectSlot(raw, notAnObject("an mcp value", "ignored", "true, false, or an object"), report);
 	if (mcp === undefined) {
 		return undefined;
 	}
@@ -158,7 +149,7 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 		return { fields };
 	}
 	const problems: string[] = [];
-	const auth = objectSlot(raw, "an auth value", "rejects", (what) => problems.push(what));
+	const auth = objectSlot(raw, notAnObject("an auth value", "rejects"), (what) => problems.push(what));
 	if (auth === undefined) {
 		return { problems };
 	}
@@ -281,7 +272,7 @@ export function collectableEntries(raw: unknown): CollectableEntry[] {
 
 function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 	const problems: string[] = [];
-	const form = objectSlot(raw, "an auth.oauth value", "rejects", (what) => problems.push(what));
+	const form = objectSlot(raw, notAnObject("an auth.oauth value", "rejects"), (what) => problems.push(what));
 	if (form === undefined) {
 		return problems;
 	}
@@ -333,7 +324,7 @@ function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
  */
 function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFields } | { problems: string[] } {
 	const problems: string[] = [];
-	const object = objectSlot(raw, `an ${path} value`, "rejects", (what) => problems.push(what));
+	const object = objectSlot(raw, notAnObject(`an ${path} value`, "rejects"), (what) => problems.push(what));
 	if (object === undefined) {
 		return { problems };
 	}
@@ -577,21 +568,18 @@ function acceptEntries(
 			}
 		}
 
-		const headers = optionalSlot(record.headers, "headers", report);
-		if (headers !== undefined) {
-			// Header names are structural configuration (the same class the request-path narrowing logs); values never
-			// enter the report.
-			const normalized = normalizeCustomHeaders(headers, (message, data) => {
-				const name = isRecord(data) && typeof data.name === "string" ? ` ("${data.name}")` : "";
-				report(`headers: ${message}${name}`);
-			});
-			if (Object.keys(normalized).length > 0) {
-				entry.headers = normalized;
-			}
+		// Header names are structural configuration (the same class the request-path narrowing logs); values never
+		// enter the report.
+		const headers = normalizeCustomHeaders(record.headers, (message, data) => {
+			const name = isRecord(data) && typeof data.name === "string" ? ` ("${data.name}")` : "";
+			report(`headers: ${message}${name}`);
+		});
+		if (Object.keys(headers).length > 0) {
+			entry.headers = headers;
 		}
 
-		// The models records are lenient like the global settings' own normalization: malformed sub-entries drop silently
-		// and an empty result reads as absent. The capability vocabulary is enforced downstream by parseCapabilityRecord.
+		// An empty models result reads as absent. The capability vocabulary is enforced downstream by
+		// parseCapabilityRecord.
 		const models = optionalSlot(record.models, "models", report);
 		if (models !== undefined) {
 			// Named on purpose, like the unknown auth keys: a typo silently reading as "no per-entry records" would be
@@ -608,7 +596,7 @@ function acceptEntries(
 				(problem) => {
 					switch (problem.kind) {
 						case "map":
-							report(`has a models.${slot} that is not an object, ignored`);
+							report(`has a models.${slot} value that is not an object, ignored`);
 							break;
 						case "entry":
 							report(`has a models.${slot} entry "${problem.key}" that is not an object, ignored`);
@@ -618,15 +606,11 @@ function acceptEntries(
 							break;
 					}
 				};
-			const parameters = optionalSlot(models.parameters, "models.parameters", report);
-			const modelParameters =
-				parameters === undefined ? {} : normalizeModelParameters(parameters, shapeReport("parameters"));
+			const modelParameters = normalizeModelParameters(models.parameters, shapeReport("parameters"));
 			if (Object.keys(modelParameters).length > 0) {
 				entry.modelParameters = modelParameters;
 			}
-			const capabilities = optionalSlot(models.capabilities, "models.capabilities", report);
-			const modelCapabilities =
-				capabilities === undefined ? {} : normalizeModelCapabilities(capabilities, shapeReport("capabilities"));
+			const modelCapabilities = normalizeModelCapabilities(models.capabilities, shapeReport("capabilities"));
 			if (Object.keys(modelCapabilities).length > 0) {
 				entry.modelCapabilities = modelCapabilities;
 			}

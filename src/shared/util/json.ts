@@ -2,6 +2,19 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** The one "is this slot an object" judgment: a wrong shape is reported on the caller's channel and reads as absent. */
+export function objectSlot<Problem>(
+	value: unknown,
+	problem: Problem,
+	report: (problem: Problem) => void
+): Record<string, unknown> | undefined {
+	if (isRecord(value)) {
+		return value;
+	}
+	report(problem);
+	return undefined;
+}
+
 /**
  * The path of the first non-finite number under `root`, or undefined when there is none: JSON.parse reads an
  * overflowing literal ("1e999") as Infinity, which JSON.stringify then writes as null, so the refusal names where.

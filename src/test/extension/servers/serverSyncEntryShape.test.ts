@@ -235,18 +235,35 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 		});
 
 		test("an optional slot that is not an object is reported under one rule and applies nothing", () => {
-			const cases: { raw: Record<string, unknown>; slot: string; field: keyof DeclaredServer }[] = [
-				{ raw: { headers: "oops" }, slot: "headers", field: "headers" },
-				{ raw: { models: "oops" }, slot: "models", field: "modelParameters" },
-				{ raw: { models: { parameters: "oops" } }, slot: "models.parameters", field: "modelParameters" },
-				{ raw: { models: { capabilities: "oops" } }, slot: "models.capabilities", field: "modelCapabilities" },
-				{ raw: { discovery: "oops" }, slot: "discovery", field: "declaredModels" },
+			const notAnObject = (slot: string) => `entry 1 has a ${slot} value that is not an object, ignored`;
+			const cases: { raw: Record<string, unknown>; slot: string; field: keyof DeclaredServer; problem: string }[] = [
+				// The headers normalizer judges its own map and speaks through the entry's headers line.
+				{
+					raw: { headers: "oops" },
+					slot: "headers",
+					field: "headers",
+					problem: "entry 1 headers: Ignoring custom headers that are not an object",
+				},
+				{ raw: { models: "oops" }, slot: "models", field: "modelParameters", problem: notAnObject("models") },
+				{
+					raw: { models: { parameters: "oops" } },
+					slot: "models.parameters",
+					field: "modelParameters",
+					problem: notAnObject("models.parameters"),
+				},
+				{
+					raw: { models: { capabilities: "oops" } },
+					slot: "models.capabilities",
+					field: "modelCapabilities",
+					problem: notAnObject("models.capabilities"),
+				},
+				{ raw: { discovery: "oops" }, slot: "discovery", field: "declaredModels", problem: notAnObject("discovery") },
 			];
-			for (const { raw, slot, field } of cases) {
+			for (const { raw, slot, field, problem } of cases) {
 				const { entries, problems } = parseOne(raw);
 				assert.strictEqual(entries.length, 1, `${slot}: a wrong-shaped slot is a diagnostic, not a rejection`);
 				assert.ok(!(field in (entries[0] ?? {})), `${slot}: nothing from the slot applies`);
-				assert.deepStrictEqual(problems, [`entry 1 has a ${slot} value that is not an object, ignored`]);
+				assert.deepStrictEqual(problems, [problem]);
 			}
 		});
 

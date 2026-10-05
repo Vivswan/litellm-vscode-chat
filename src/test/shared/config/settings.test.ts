@@ -231,6 +231,32 @@ suite("shared/config/settings normalizeCustomHeaders", () => {
 		assert.deepStrictEqual(normalizeCustomHeaders("not a record"), {});
 		assert.deepStrictEqual(normalizeCustomHeaders(undefined), {});
 	});
+
+	test("a headers slot that is not an object is reported once and reads as empty; an object passes unchanged", () => {
+		// A string where the map belongs used to read as {} with nothing logged; only an absent slot is silent.
+		const cases: { raw: unknown; reported: boolean }[] = [
+			{ raw: "oops", reported: true },
+			{ raw: ["x-team: ops"], reported: true },
+			{ raw: null, reported: true },
+			{ raw: undefined, reported: false },
+		];
+		for (const { raw, reported } of cases) {
+			const logged: { message: string; data?: unknown }[] = [];
+			const headers = normalizeCustomHeaders(raw, (message, data) => logged.push({ message, data }));
+			assert.deepStrictEqual(headers, {}, `${JSON.stringify(raw)}: the slot reads as empty`);
+			assert.deepStrictEqual(
+				logged,
+				reported
+					? [{ message: "Ignoring custom headers that are not an object", data: { configured: typeof raw } }]
+					: [],
+				`${JSON.stringify(raw)}: reported exactly when the slot is present and wrong-shaped`
+			);
+		}
+		assert.deepStrictEqual(
+			normalizeCustomHeaders({ "x-team": "ops" }, () => assert.fail("a well-shaped map reports nothing")),
+			{ "x-team": "ops" }
+		);
+	});
 });
 
 suite("shared/config/settings normalizeModelCapabilities", () => {
