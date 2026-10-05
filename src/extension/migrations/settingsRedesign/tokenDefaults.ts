@@ -14,9 +14,10 @@
  *                                             unmarked; later fields lose auto-marking
  */
 
+import { canonicalFieldKey } from "../../../shared/config/recordResolution";
 import { isRecord } from "../../../shared/util/json";
 import { normalizePositiveNumber } from "../../../shared/util/numbers";
-import { canonicalFieldName, canonicalFieldNames, directiveKey, fallbackMarksUnderTrue } from "./entries";
+import { canonicalFieldNames, directiveKey, fallbackMarksUnderTrue } from "./entries";
 import { REMOVED_TOKEN_DEFAULTS } from "./legacyIds";
 import type { SettingsSnapshot } from "./types";
 
@@ -120,7 +121,7 @@ export function mergeTokenDefaults(capabilitiesValue: unknown, snapshot: Setting
 		}
 	} else {
 		const base = (Array.isArray(fallback.value) ? fallback.value : []).filter(
-			(name) => typeof name !== "string" || !overrideAdditions.includes(canonicalFieldName("capabilities", name))
+			(name) => typeof name !== "string" || !overrideAdditions.includes(canonicalFieldKey("capabilities", name))
 		);
 		const baseNames = names(base);
 		const additions = fallbackAdditions.filter((field) => !baseNames.has(field));

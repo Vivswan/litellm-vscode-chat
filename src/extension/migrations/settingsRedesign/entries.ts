@@ -13,6 +13,7 @@
 
 import { parseCapabilityRecord } from "../../../shared/config/capabilityResolution";
 import { parseParameterRecord } from "../../../shared/config/parameterResolution";
+import { canonicalFieldKey } from "../../../shared/config/recordResolution";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
@@ -305,17 +306,9 @@ export function restructureServers(raw: unknown): { value: unknown; counts: Entr
 	return { value, counts };
 }
 
-/**
- * Field identity inside a record, as the parser that reads the record judges it: parseCapabilityRecord trims field
- * keys and list entries alike, parseParameterRecord takes keys as written.
- */
-export function canonicalFieldName(kind: RecordKind, key: string): string {
-	return kind === "capabilities" ? key.trim() : key;
-}
-
 export function canonicalFieldNames(kind: RecordKind, keys: readonly unknown[]): Set<string> {
 	return new Set(
-		keys.filter((key): key is string => typeof key === "string").map((key) => canonicalFieldName(kind, key))
+		keys.filter((key): key is string => typeof key === "string").map((key) => canonicalFieldKey(kind, key))
 	);
 }
 
@@ -324,14 +317,14 @@ export function canonicalFieldNames(kind: RecordKind, keys: readonly unknown[]):
  * keeps the last spelling, so does this. Absent, the directive's name.
  */
 export function directiveKey(kind: RecordKind, record: Record<string, unknown>, directive: string): string {
-	const spellings = Object.keys(record).filter((key) => canonicalFieldName(kind, key) === directive);
+	const spellings = Object.keys(record).filter((key) => canonicalFieldKey(kind, key) === directive);
 	return spellings.length > 0 ? (spellings[spellings.length - 1] as string) : directive;
 }
 
 /** The record's own keys a `_fallback: true` marks, as the live parser reads it, under the record's own spelling. */
 export function fallbackMarksUnderTrue(record: Record<string, unknown>): string[] {
 	const marked = parseCapabilityRecord(record).fallback;
-	return Object.keys(record).filter((key) => marked.has(canonicalFieldName("capabilities", key)));
+	return Object.keys(record).filter((key) => marked.has(canonicalFieldKey("capabilities", key)));
 }
 
 /** Old forceability is settled upstream: records.ts rewrites a migrated `_force` before any merge. */
@@ -360,7 +353,7 @@ function mergeCollidingRecords(
 	addition: Record<string, unknown>,
 	kind: RecordKind
 ): Record<string, unknown> | undefined {
-	const canonical = (key: string): string => canonicalFieldName(kind, key);
+	const canonical = (key: string): string => canonicalFieldKey(kind, key);
 	const existingNames = canonicalFieldNames(kind, Object.keys(existing));
 	const newPlain = Object.entries(addition).filter(
 		([name]) => !LIST_DIRECTIVE_NAMES.includes(canonical(name)) && !existingNames.has(canonical(name))
