@@ -625,24 +625,27 @@ suite("IssueReporter", () => {
 		assert.ok(expectDefined(logs[49]).includes("line 59"));
 	});
 
-	test("recordError captures message and stack", () => {
+	test("recordError captures an unclassified error as the word and its frames, never its message", () => {
+		// The latest error prefills public issues: a plain throw's message (localized text, a response body) stays
+		// off it.
 		const reporter = new IssueReporter();
 		const err = new Error("test failure");
 		reporter.recordError("testSource", recordedError(err));
 		const latest = reporter.getLatestError();
 		assert.ok(latest);
 		assert.equal(latest.source, "testSource");
-		assert.equal(latest.message, "test failure");
-		assert.ok(latest.stack?.includes("test failure"));
+		assert.equal(latest.message, "unclassified");
+		assert.ok(latest.stack?.startsWith("unclassified\n"), latest.stack ?? "no stack");
+		assert.ok(latest.stack?.includes("test failure") !== true, "the message line is off the recorded stack");
 		assert.ok(latest.timestamp);
 	});
 
-	test("recordError handles string errors", () => {
+	test("recordError handles string errors as unclassified, with no stack", () => {
 		const reporter = new IssueReporter();
 		reporter.recordError("src", recordedError("plain string error"));
 		const latest = reporter.getLatestError();
 		assert.ok(latest);
-		assert.equal(latest.message, "plain string error");
+		assert.equal(latest.message, "unclassified");
 		assert.equal(latest.stack, undefined);
 	});
 

@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import { failureTexts } from "../../shared/failureCause";
 import type { AggregatedStatus } from "../../shared/servers";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { expectDefined } from "../pureHelpers";
@@ -68,8 +69,9 @@ suite("provider/diagnostics", () => {
 
 		assert.ok(callbackStatus);
 		assert.equal(expectDefined(callbackStatus).totalModels, 0);
-		assert.ok(expectDefined(callbackStatus).serverStatuses.some((s) => s.state === "error"));
-		assert.ok(expectDefined(callbackStatus).serverStatuses.some((s) => s.error?.includes("Could not reach")));
+		const failed = expectDefined(callbackStatus).serverStatuses.find((s) => s.state === "error");
+		assert.ok(failed !== undefined && failed.state === "error", "the one server reports the failure");
+		assert.deepStrictEqual(failed.cause, { kind: "transport", classification: { kind: "network" } });
 	});
 
 	// Injects the transport: msw cannot produce a rejection with an empty message.
@@ -88,8 +90,8 @@ suite("provider/diagnostics", () => {
 		assert.ok(callbackStatus);
 		const failure = expectDefined(callbackStatus).serverStatuses.find((s) => s.state === "error");
 		assert.ok(
-			expectDefined(failure).error.length > 0,
-			"the error variant's message renders directly, so it must never be empty"
+			failureTexts(expectDefined(failure).cause, expectDefined(failure).baseUrl).display.length > 0,
+			"the error variant's cause renders directly, so its text must never be empty"
 		);
 	});
 

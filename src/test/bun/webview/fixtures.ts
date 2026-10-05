@@ -12,8 +12,10 @@ import type {
 	UsageServerView,
 } from "../../../dashboard/viewModels";
 import type { EffectiveCapabilities } from "../../../shared/config/capabilityResolution";
+import type { FailureCause } from "../../../shared/failureCause";
 import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
 import { makeSettings } from "../../dashboardSettingsFixture";
+import { verdictRowsOf } from "../../dashboardVerdictFixture";
 
 export function makeCapabilities(overrides: Partial<EffectiveCapabilities> = {}): EffectiveCapabilities {
 	return {
@@ -32,22 +34,25 @@ export function makeCapabilities(overrides: Partial<EffectiveCapabilities> = {})
 	};
 }
 
+/** Failure causes as the rows carry them (keys, never text); the tests render them through failureTexts. */
+export const CAUSE = {
+	connection: { kind: "transport", classification: { kind: "connection", setupHint: "proxy-not-running" } },
+	http404: { kind: "transport", classification: { kind: "http", status: 404, setupHint: "check-base-url" } },
+	http500: { kind: "transport", classification: { kind: "http", status: 500 } },
+	listing404: { kind: "transport", classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" } },
+	upsertFailed: { kind: "sync", failureClass: "upsertFailed" },
+	unclassified: { kind: "unclassified" },
+} as const satisfies Record<string, FailureCause>;
+
 type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
 type ExternalServer = Extract<DashboardServer, { origin: "external" }>;
 
 /** The state cluster's keys: the fields that must move together when an override changes `state`. */
-type ServerStateKey =
-	| "state"
-	| "error"
-	| "errorEnglish"
-	| "classification"
-	| "expected"
-	| "declaredModelCount"
-	| "modelInfoUnsupported";
+type ServerStateKey = "state" | "cause" | "expected" | "declaredModelCount" | "modelInfoUnsupported";
 
 /**
  * Per-variant overrides for a builder whose base sits in the "ok" cluster: row fields override freely, but the state
- * cluster rides its variant's own shape - `state: "error"` without its `error` fails to typecheck, and an "ok" override
+ * cluster rides its variant's own shape - `state: "error"` without its `cause` fails to typecheck, and an "ok" override
  * cannot smuggle error-only companions.
  */
 type ServerOverrides<V extends DashboardServer> = Partial<Omit<V, ServerStateKey>> &
@@ -123,6 +128,7 @@ export function makeDeclaredServer(overrides: ServerOverrides<DeclaredServer> = 
 		servedModelCount: 0,
 		credentials: "absent",
 		hasOAuth: false,
+		hasVirtualKey: false,
 		state: "ok",
 		config: { secrets: provenSecrets() },
 	};
@@ -157,6 +163,7 @@ export function makeExternalServer(overrides: ServerOverrides<ExternalServer> = 
 		servedModelCount: 2,
 		credentials: "present",
 		hasOAuth: false,
+		hasVirtualKey: false,
 		state: "ok",
 		adoptHandle: "handle-abc123",
 	};
@@ -183,12 +190,13 @@ export function makeModel(overrides: Partial<DashboardModel> = {}): DashboardMod
 }
 
 export function makeState(overrides: Partial<DashboardState> = {}): DashboardState {
-	// Derived like production's builder (the rows' served sum), so component tests build states the real builder could
-	// produce; an explicit override still wins for the deliberately inconsistent cases.
+	// Derived like production's builder (the rows' served sum and one verdict row per row), so component tests build
+	// states the real builder could produce; an explicit override still wins for the deliberately inconsistent cases.
 	const servers = overrides.servers ?? [];
 	return {
 		servers,
 		hiddenGroups: [],
+		verdictRows: verdictRowsOf(servers),
 		servedModelCount: servers.reduce((sum, server) => sum + server.servedModelCount, 0),
 		models: [],
 		settings: makeSettings(),
@@ -231,7 +239,7 @@ export function poisonedStatePush(sentinel: string): ExtensionToWebviewMessage {
 type MisconfiguredServer = Extract<DashboardServer, { origin: "misconfigured" }>;
 
 /**
- * A misconfigured row's overrides, base cluster "error": no "unchecked" arm, because the base's `error` would survive
+ * A misconfigured row's overrides, base cluster "error": no "unchecked" arm, because the base's `cause` would survive
  * the spread and the unchecked variant forbids carrying one.
  */
 type MisconfiguredOverrides = Partial<Omit<MisconfiguredServer, ServerStateKey>> &
@@ -249,8 +257,9 @@ export function makeMisconfiguredServer(overrides: MisconfiguredOverrides = {}):
 		servedModelCount: 0,
 		credentials: "absent",
 		hasOAuth: false,
+		hasVirtualKey: false,
 		state: "error",
-		error: "auth configures more than one form",
+		cause: { kind: "misconfiguredEntry" },
 		problems: ["auth: configures more than one form (oauth beside apiKey)"],
 	};
 	return { ...base, ...overrides } as MisconfiguredServer;

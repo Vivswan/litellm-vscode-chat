@@ -18,8 +18,8 @@ import {
 	resolveImportPlan,
 	suggestRenamedLabel,
 } from "../../../extension/settingsTransfer/importPlan";
-import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
 import { SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
+import type { RejectedCredentialField } from "../../../shared/serverEntry";
 
 function server(label: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
 	return { label, baseUrl: `http://${label.toLowerCase()}.test`, ...extra };

@@ -361,13 +361,17 @@ export function ServerDrawer({
 					</span>
 				</Fact>
 				<Fact label={l10n.t("Authentication")}>
-					{/* The credential KIND, never a value; OAuth stays English by policy. "unknown" is the
-					    pre-proof window: denying a key nobody read would be a guess, so the fact goes absent with
-					    the reason instead. */}
-					{server.hasOAuth ? (
-						"OAuth"
-					) : server.credentials === "present" ? (
-						l10n.t("API key")
+					{/* The credential KIND, never a value, and only beside a present credential; OAuth stays English by
+					    policy. "unknown" is the pre-proof window: denying a key nobody read would be a guess, so the
+					    fact goes absent with the reason instead. */}
+					{server.credentials === "present" ? (
+						server.hasOAuth ? (
+							"OAuth"
+						) : server.hasVirtualKey ? (
+							l10n.t("Virtual key header")
+						) : (
+							l10n.t("API key")
+						)
 					) : server.credentials === "absent" ? (
 						l10n.t("none")
 					) : (

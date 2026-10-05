@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../provider/catalog/groupModels";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
+import { failureClassification, failureTexts } from "../../shared/failureCause";
 import type { ErrorRecorder, Logger, RecordedError } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
@@ -11,7 +12,7 @@ import { unexpectedFailureCount } from "../../shared/servers";
 import { DOCS_GETTING_STARTED_URL, GITHUB_FEATURE_REQUEST_URL, GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { DashboardController } from "../dashboard/panel";
-import type { ServerSyncEngine } from "../servers/serverSync";
+import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
 import { updateServerSecret } from "../servers/serverSync";
 import { secretDestination } from "../servers/serverSync/secrets";
 import { acceptedEntry } from "../servers/serverSync/setting";
@@ -25,13 +26,12 @@ import {
 	reconfigureAction,
 	reportIssueAction,
 	showActionableMessage,
-	statusErrorHeadline,
 	viewOutputAction,
 } from "./notifier";
 import { profileUserFileUri } from "./profilePath";
 import { detectSetupProblem, showSetupProblemGate } from "./setupGate";
-import type { ConnectionStatus, ZeroModelTexts } from "./status";
-import { zeroModelJudgment } from "./status";
+import type { ConnectionStatus, ZeroModelJudgment } from "./status";
+import { zeroModelTexts } from "./status";
 
 interface ModelInfoProvider {
 	provideLanguageModelChatInformation(
@@ -45,13 +45,49 @@ interface StatusSnapshotProvider {
 }
 
 /**
- *   refreshViaHost -> drops the provider's discovery cache before asking the host to re-resolve
+ * refreshGroups resolves once every group it knows has reported this pass, so the status read after it is this
+ * pass's; `refreshedGroups` is how many group reports landed during it, zero when it had no group to probe.
  */
-interface HostRefreshableProvider {
-	refreshViaHost(): Promise<void>;
+interface GroupRefreshingProvider {
+	refreshGroups(): Promise<{ readonly refreshedGroups: number }>;
 }
 
-interface ConnectionTestableProvider extends ModelInfoProvider, HostRefreshableProvider {}
+/**
+ * A refresh in which no report landed (no group in the status window), or that threw before reporting, leaves no
+ * fresh status to read: the bar may still show a state restored from the last session or the pre-refresh count,
+ * which must not toast as this pass's. One verdict is still this pass's own: the error the forced server sync just
+ * judged (a refused group upsert, a refused entry), which exists before any group reports and so leaves nothing for
+ * the refresh to probe. The live configured-servers gate decides what remains to say: nothing configured anywhere,
+ * or nothing reporting.
+ */
+function freshStatus(
+	status: ConnectionStatus,
+	refreshedGroups: number | undefined,
+	hasConfiguredServers: () => boolean,
+	syncVerdict?: ConnectionStatus
+): ConnectionStatus | undefined {
+	if (refreshedGroups !== undefined && refreshedGroups > 0) {
+		return status;
+	}
+	if (isSyncJudgedError(syncVerdict) && hasConfiguredServers()) {
+		return syncVerdict;
+	}
+	return hasConfiguredServers() ? undefined : { state: "not-configured" };
+}
+
+/**
+ * An error only a sync pass produces: its cause is the sync engine's class or a parser-refused entry, never a
+ * transport failure (which needs a group report this pass did not get, so a transport error here is a restore).
+ */
+function isSyncJudgedError(status: ConnectionStatus | undefined): status is ConnectionStatus & { state: "error" } {
+	return status?.state === "error" && (status.cause.kind === "sync" || status.cause.kind === "misconfiguredEntry");
+}
+
+function showStatusUnavailableToast(outputChannel: vscode.OutputChannel): void {
+	void showActionableMessage("warning", l10n.t("LiteLLM: Connection status is unavailable; try again in a moment."), [
+		viewOutputAction(outputChannel),
+	]);
+}
 
 /**
  *   like every other surface of this judgment (bar, hero, notifier) -> warning-grade
@@ -59,8 +95,8 @@ interface ConnectionTestableProvider extends ModelInfoProvider, HostRefreshableP
  *       not wrap it
  *   the restore lives in the dashboard's server list -> a hidden group earns the Open Dashboard label
  */
-function showZeroModelOutcomeToast(zero: ZeroModelTexts, outputChannel: vscode.OutputChannel): void {
-	void showActionableMessage("warning", l10n.t("LiteLLM: {0}", zero.display), [
+function showZeroModelOutcomeToast(zero: ZeroModelJudgment, outputChannel: vscode.OutputChannel): void {
+	void showActionableMessage("warning", l10n.t("LiteLLM: {0}", zeroModelTexts(zero).display), [
 		viewOutputAction(outputChannel),
 		zero.hiddenCount > 0 ? reconfigureAction(l10n.t("Open Dashboard")) : reconfigureAction(),
 		reportIssueAction(),
@@ -76,10 +112,9 @@ interface StatusBarLike {
 // refused instead.
 let connectionTestRunning = false;
 /**
- * A second invocation mid-run must not start a second pass: it would clear the provider's discovery cache under the
- * refresh already running and report a half-settled status. Handing the second caller the first caller's promise
- * refuses the duplicate pass and still tells the truth about when the work finished (the dashboard's Retry waits on
- * the answer).
+ * A second invocation mid-run joins the running pass instead of starting its own: one outcome, one toast, and a
+ * truthful answer about when the work finished (the dashboard's Retry waits on it). The provider's refreshGroups is
+ * single-flight too; this guard owns the command's outcome, not the network.
  */
 let modelSyncInFlight: Promise<void> | undefined;
 
@@ -88,10 +123,12 @@ let modelSyncInFlight: Promise<void> | undefined;
  * refresh alone proves nothing.
  */
 export async function runConnectionTest(
-	provider: ConnectionTestableProvider,
+	provider: GroupRefreshingProvider,
 	statusBar: StatusBarLike,
 	outputChannel: vscode.OutputChannel,
-	logger: Logger
+	logger: Logger,
+	/** The shared configured-servers gate (wiring/provider.ts), read when the refresh had no group to probe. */
+	hasConfiguredServers: () => boolean
 ): Promise<void> {
 	if (connectionTestRunning) {
 		logger.log("A connection test is already running");
@@ -103,17 +140,15 @@ export async function runConnectionTest(
 		outputChannel.show(true);
 
 		const previous = statusBar.connectionStatus;
+		await statusBar.updateStatusBar({ state: "loading" });
+		// The probe pass alone: a group-agnostic call here would serve nothing and only open a new window cycle, taking
+		// the groups the host served out of the probe set.
+		let refreshedGroups: number | undefined;
 		try {
-			await statusBar.updateStatusBar({ state: "loading" });
-			await provider.provideLanguageModelChatInformation({ silent: false }, new vscode.CancellationTokenSource().token);
+			refreshedGroups = (await provider.refreshGroups()).refreshedGroups;
 		} catch (error) {
-			// The failing refresh already reported an error status; the toast below reads it.
+			// The failing probes already reported their error statuses; the toast below reads them.
 			logger.error("Connection test failed", error);
-		}
-		try {
-			await provider.refreshViaHost();
-		} catch (error) {
-			logger.error("Provider-group connection test failed", error);
 		}
 
 		let status = statusBar.connectionStatus;
@@ -121,16 +156,20 @@ export async function runConnectionTest(
 			await statusBar.updateStatusBar(previous);
 			status = previous;
 		}
+		const outcome = freshStatus(status, refreshedGroups, hasConfiguredServers);
+		if (outcome === undefined) {
+			logger.log("Connection test landed no group report: no group known to probe");
+		}
 
-		switch (status.state) {
+		switch (outcome?.state) {
 			case "connected": {
-				const zero = zeroModelJudgment(status.serverStatuses, status.totalModels);
+				const zero = outcome.zeroModel;
 				if (zero !== undefined) {
-					logger.log(`Connection test finished with 0 models: ${zero.logSafe}`);
+					logger.log(`Connection test finished with 0 models: ${zeroModelTexts(zero).logSafe}`);
 					showZeroModelOutcomeToast(zero, outputChannel);
 					break;
 				}
-				const count = status.totalModels;
+				const count = outcome.totalModels;
 				logger.log(`SUCCESS: ${count} models available`);
 				void showActionableMessage(
 					"info",
@@ -144,9 +183,9 @@ export async function runConnectionTest(
 			case "degraded": {
 				// The shared unexpected-failure count: expected failures stay out, the same reading of the same window
 				// as the status bar tooltip.
-				const failed = unexpectedFailureCount(status.serverStatuses);
+				const failed = unexpectedFailureCount(outcome.serverStatuses);
 				logger.log(`WARNING: ${failed} server(s) failing`);
-				const total = status.totalModels;
+				const total = outcome.totalModels;
 				void showActionableMessage(
 					"warning",
 					total === 1
@@ -165,8 +204,8 @@ export async function runConnectionTest(
 				// only adds the docs action.
 				void showActionableMessage(
 					"error",
-					l10n.t("LiteLLM: Connection failed - {0}", statusErrorHeadline(status.error)),
-					commandErrorActions(status.classification, outputChannel)
+					l10n.t("LiteLLM: Connection failed - {0}", failureTexts(outcome.cause, outcome.baseUrl ?? "").display),
+					commandErrorActions(failureClassification(outcome.cause), outputChannel)
 				);
 				break;
 			case "not-configured":
@@ -177,11 +216,7 @@ export async function runConnectionTest(
 				);
 				break;
 			default:
-				void showActionableMessage(
-					"warning",
-					l10n.t("LiteLLM: Connection status is unavailable; try again in a moment."),
-					[viewOutputAction(outputChannel)]
-				);
+				showStatusUnavailableToast(outputChannel);
 		}
 	} finally {
 		connectionTestRunning = false;
@@ -190,14 +225,15 @@ export async function runConnectionTest(
 
 export function registerTestConnectionCommand(
 	context: vscode.ExtensionContext,
-	provider: ConnectionTestableProvider,
+	provider: GroupRefreshingProvider,
 	statusBar: StatusBarLike,
 	outputChannel: vscode.OutputChannel,
-	logger: Logger
+	logger: Logger,
+	hasConfiguredServers: () => boolean
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.testConnection, () =>
-			runConnectionTest(provider, statusBar, outputChannel, logger)
+			runConnectionTest(provider, statusBar, outputChannel, logger, hasConfiguredServers)
 		),
 		// The dashboard Diagnostics tab's Open-output-log action. Registered here because this registration already
 		// holds the output channel.
@@ -211,17 +247,20 @@ export function registerTestConnectionCommand(
  * connection test.
  */
 export async function runModelSync(
-	provider: HostRefreshableProvider,
+	provider: GroupRefreshingProvider,
 	statusBar: StatusBarLike,
 	outputChannel: vscode.OutputChannel,
-	logger: Logger
+	logger: Logger,
+	hasConfiguredServers: () => boolean,
+	/** The bar's verdict right after the forced server sync, when the command ran one (registerSyncModelsCommand). */
+	syncVerdict?: ConnectionStatus
 ): Promise<void> {
 	const running = modelSyncInFlight;
 	if (running !== undefined) {
 		logger.log("A model sync is already running; joining it");
 		return running;
 	}
-	const pass = runModelSyncPass(provider, statusBar, outputChannel, logger);
+	const pass = runModelSyncPass(provider, statusBar, outputChannel, logger, hasConfiguredServers, syncVerdict);
 	modelSyncInFlight = pass;
 	try {
 		await pass;
@@ -232,30 +271,36 @@ export async function runModelSync(
 
 /** One sync pass, without the re-entrancy guard: every caller reaches it through runModelSync. */
 async function runModelSyncPass(
-	provider: HostRefreshableProvider,
+	provider: GroupRefreshingProvider,
 	statusBar: StatusBarLike,
 	outputChannel: vscode.OutputChannel,
-	logger: Logger
+	logger: Logger,
+	hasConfiguredServers: () => boolean,
+	syncVerdict?: ConnectionStatus
 ): Promise<void> {
 	{
 		logger.log("Syncing models: refreshing every provider group over the network");
+		let refreshedGroups: number | undefined;
 		try {
-			await provider.refreshViaHost();
+			refreshedGroups = (await provider.refreshGroups()).refreshedGroups;
 		} catch (error) {
 			// The failing refresh already reported an error status; the toast below reads it.
 			logger.error("Model sync failed", error);
 		}
 
-		const status = statusBar.connectionStatus;
-		switch (status.state) {
+		const outcome = freshStatus(statusBar.connectionStatus, refreshedGroups, hasConfiguredServers, syncVerdict);
+		if (outcome === undefined) {
+			logger.log("Model sync landed no group report: no group known to probe");
+		}
+		switch (outcome?.state) {
 			case "connected": {
-				const zero = zeroModelJudgment(status.serverStatuses, status.totalModels);
+				const zero = outcome.zeroModel;
 				if (zero !== undefined) {
-					logger.log(`Model sync finished with 0 models: ${zero.logSafe}`);
+					logger.log(`Model sync finished with 0 models: ${zeroModelTexts(zero).logSafe}`);
 					showZeroModelOutcomeToast(zero, outputChannel);
 					break;
 				}
-				const count = status.totalModels;
+				const count = outcome.totalModels;
 				logger.log(`Model sync finished: ${count} models available`);
 				void showActionableMessage(
 					"info",
@@ -267,9 +312,9 @@ async function runModelSyncPass(
 				break;
 			}
 			case "degraded": {
-				const failed = unexpectedFailureCount(status.serverStatuses);
+				const failed = unexpectedFailureCount(outcome.serverStatuses);
 				logger.log(`Model sync finished with issues: ${failed} server(s) failing`);
-				const total = status.totalModels;
+				const total = outcome.totalModels;
 				void showActionableMessage(
 					"warning",
 					total === 1
@@ -289,11 +334,11 @@ async function runModelSyncPass(
 			}
 			case "error":
 				// logSafeError, never error: this line lands in the issue-report buffer.
-				logger.log(`Model sync failed: ${status.logSafeError}`);
+				logger.log(`Model sync failed: ${outcome.logSafeError}`);
 				void showActionableMessage(
 					"error",
-					l10n.t("LiteLLM: Model sync failed - {0}", statusErrorHeadline(status.error)),
-					commandErrorActions(status.classification, outputChannel)
+					l10n.t("LiteLLM: Model sync failed - {0}", failureTexts(outcome.cause, outcome.baseUrl ?? "").display),
+					commandErrorActions(failureClassification(outcome.cause), outputChannel)
 				);
 				break;
 			case "not-configured":
@@ -306,28 +351,29 @@ async function runModelSyncPass(
 				break;
 			default:
 				logger.log("Model sync finished without a settled connection status");
-				void showActionableMessage(
-					"warning",
-					l10n.t("LiteLLM: Connection status is unavailable; try again in a moment."),
-					[viewOutputAction(outputChannel)]
-				);
+				showStatusUnavailableToast(outputChannel);
 		}
 	}
 }
 
 export function registerSyncModelsCommand(
 	context: vscode.ExtensionContext,
-	provider: HostRefreshableProvider,
+	provider: GroupRefreshingProvider,
 	statusBar: StatusBarLike,
 	outputChannel: vscode.OutputChannel,
 	logger: Logger,
+	hasConfiguredServers: () => boolean,
 	/** Runs before the model refresh; the server sync engine reconciles provider groups here. */
 	beforeSync?: () => Promise<void>
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.syncModels, async () => {
 			await beforeSync?.();
-			return runModelSync(provider, statusBar, outputChannel, logger);
+			// The bar re-judges the owner's rows as the engine publishes (statusFanout), so this is the forced sync's
+			// own verdict: with only a refused upsert or a refused entry, no group ever reports and the refresh below
+			// probes nothing, yet the error is this pass's and the toast must carry it.
+			const syncVerdict = beforeSync === undefined ? undefined : statusBar.connectionStatus;
+			return runModelSync(provider, statusBar, outputChannel, logger, hasConfiguredServers, syncVerdict);
 		})
 	);
 }
@@ -339,13 +385,15 @@ export function registerSyncModelsCommand(
  */
 export async function runReportIssue(
 	getConnectionStatus: () => ConnectionStatus,
+	/** The sync engine's declared views: the owner's credential reading the snapshot reports (diagnostics.ts). */
+	getDeclared: () => readonly DeclaredServerView[],
 	extVersion: string,
 	vscodeVersion: string,
 	issueReporter: IssueReporter,
 	globalState: vscode.Memento
 ): Promise<void> {
 	const connectionStatus = getConnectionStatus();
-	const snapshot = buildDiagnosticsSnapshot(connectionStatus, extVersion, vscodeVersion, issueReporter);
+	const snapshot = buildDiagnosticsSnapshot(connectionStatus, getDeclared(), extVersion, vscodeVersion, issueReporter);
 	const fingerprint = reportFingerprint(snapshot);
 	const openIssue = async () => {
 		await issueReporter.openIssue(snapshot);
@@ -428,13 +476,14 @@ async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promi
 export function registerReportIssueCommand(
 	context: vscode.ExtensionContext,
 	getConnectionStatus: () => ConnectionStatus,
+	getDeclared: () => readonly DeclaredServerView[],
 	extVersion: string,
 	vscodeVersion: string,
 	issueReporter: IssueReporter
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.reportIssue, () =>
-			runReportIssue(getConnectionStatus, extVersion, vscodeVersion, issueReporter, context.globalState)
+			runReportIssue(getConnectionStatus, getDeclared, extVersion, vscodeVersion, issueReporter, context.globalState)
 		)
 	);
 }

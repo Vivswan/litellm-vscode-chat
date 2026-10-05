@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { App } from "../../../../webview/dashboard/app";
 import { FailureText } from "../../../../webview/dashboard/failureText";
 import { ServersSection } from "../../../../webview/dashboard/servers";
-import { makeDeclaredServer, makeState, statePush } from "../fixtures";
+import { CAUSE, makeDeclaredServer, makeState, statePush } from "../fixtures";
 import { cleanup, mount, pushToWebview, resetPosted, textOf } from "../harness";
 
 beforeEach(resetPosted);
@@ -84,46 +84,21 @@ test("a two-part server failure banner renders the framed headline plus a detail
 	expect(banner?.querySelector(".failure-detail")?.textContent).toBe("settings.json is read-only");
 });
 
-test("a two-part error keeps its technical half on its own line, under its own row", () => {
+test("a row's failure renders from its cause as one line: no detail half, no separator", () => {
+	// The rows carry a cause key (never text), rendered here in the webview's locale; the one-line rendering has no
+	// dimmed detail line to own.
 	const root = mountServers([
-		makeDeclaredServer({
-			label: "Prod",
-			state: "error",
-			error: "The server could not be reached.\nGET http://prod.test/v1/models: ETIMEDOUT",
-		}),
-		makeDeclaredServer({ label: "Beta", baseUrl: "http://beta.test", state: "error", error: "bang" }),
+		makeDeclaredServer({ label: "Prod", state: "error", cause: CAUSE.connection }),
+		makeDeclaredServer({ label: "Beta", baseUrl: "http://beta.test", state: "error", cause: CAUSE.http500 }),
 	]);
 	const lines = [...root.querySelectorAll(".row-diagnostic")];
 	expect(lines.length).toBe(2);
-	// The readable half leads; the wire detail sits beneath it, dimmed, still selectable for an issue report.
 	expect(lines[0]?.querySelector(".row-diagnostic-headline")?.textContent).toContain(
-		"The server could not be reached."
+		"Could not connect to http://localhost:4000"
 	);
-	expect(lines[0]?.querySelector(".row-diagnostic-detail")?.textContent).toBe(
-		"GET http://prod.test/v1/models: ETIMEDOUT"
-	);
+	expect(lines[0]?.querySelector(".row-diagnostic-detail")).toBeNull();
 	// Each row owns its line, so there are no separators left to dangle.
 	expect(root.textContent).not.toContain("; Beta");
-	expect(lines[1]?.textContent).toContain("bang");
+	expect(lines[1]?.textContent).toContain("The server at http://beta.test answered 500");
 	expect(lines[1]?.querySelector(".row-diagnostic-detail")).toBeNull();
-});
-
-test("an expected two-part failure keeps its detail beneath its own headline", () => {
-	const root = mountServers([
-		makeDeclaredServer({
-			label: "Alpha",
-			state: "error",
-			error: "Discovery is declared unavailable.\nGET http://alpha.test/v1/models: 404",
-			expected: true,
-		}),
-		makeDeclaredServer({ label: "Beta", baseUrl: "http://beta.test", state: "error", error: "quiet", expected: true }),
-	]);
-	const lines = [...root.querySelectorAll(".row-diagnostic")];
-	expect(lines.length).toBe(2);
-	// An expected failure still says what the server said - the reader who configured this months ago should not have
-	// to remember why.
-	expect(lines[0]?.textContent).toContain("Discovery is declared unavailable.");
-	expect(lines[0]?.querySelector(".row-diagnostic-detail")?.textContent).toBe("GET http://alpha.test/v1/models: 404");
-	expect(root.textContent).not.toContain("; Beta");
-	expect(lines[1]?.textContent).toContain("quiet");
 });

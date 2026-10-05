@@ -16,6 +16,7 @@ import type { UsageStatusBarOptions } from "../../../extension/ui/usageStatusIte
 import { UsageStatusBar } from "../../../extension/ui/usageStatusItem";
 import { Logger } from "../../../shared/logger";
 import { countOccurrences, shippedSources } from "../../sourceScan";
+import { windowVerdict } from "./verdictHarness";
 
 /**
  * A second creation point bypasses the surface's ownership: a status item outside the slot registry escapes the
@@ -118,7 +119,7 @@ suite("extension/ui statusItemRegistry", () => {
 				context,
 				logger,
 				() => false,
-				() => [],
+				windowVerdict().verdict,
 				new StatusItem({
 					slot: "connection",
 					alignment: vscode.StatusBarAlignment.Right,

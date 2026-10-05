@@ -2,14 +2,23 @@ import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { z } from "zod";
 import { classifyOverall, zeroModelEnglishDetail, zeroModelExplanation } from "../../dashboard/presenters";
+import type { VerdictRow } from "../../dashboard/viewModels";
 import { LAST_CONNECTION_STATUS_KEY } from "../../shared/config/storageKeys";
-import type { TransportErrorClassification } from "../../shared/errorClassification";
+import type { TransportErrorClassification, UnservedEndpointEvidence } from "../../shared/errorClassification";
 import { SETUP_HINT_KINDS, TRANSPORT_ERROR_KINDS } from "../../shared/errorClassification";
+import type { FailureCause } from "../../shared/failureCause";
+import {
+	CREDENTIALS_UNAVAILABLE_REASONS,
+	failureTexts,
+	MISCONFIGURED_ENTRY_TEXT,
+	SYNC_ERROR_CLASSES,
+} from "../../shared/failureCause";
 import type { Logger, LogSafeErrorText } from "../../shared/logger";
 import { markLogSafe } from "../../shared/logger";
+import { HEADER_BORNE_SECRET_FIELDS } from "../../shared/serverEntry";
 import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
-import { isHiddenGroupServerStatus, unexpectedFailureCount, unexpectedServerFailures } from "../../shared/servers";
-import type { DeclaredServerView } from "../servers/serverSync";
+import { unexpectedFailureCount, unexpectedServerFailures } from "../../shared/servers";
+import type { ServerVerdict } from "../servers/syncFailureOverlay";
 import { applySyncFailures } from "../servers/syncFailureOverlay";
 
 /**
@@ -25,15 +34,23 @@ export type ConnectionStatus =
 			state: "connected" | "degraded";
 			totalModels: number;
 			serverStatuses: readonly ServerStatus[];
+			/**
+			 * The zero-model judgment made once over the owner's verdict rows when this connected status was judged;
+			 * the renderer and the command toasts present it, never re-deriving it. A degraded status never carries one.
+			 */
+			zeroModel?: ZeroModelJudgment | undefined;
 			lastChecked?: string | undefined;
 	  }
 	| {
 			state: "error";
-			/** Display-only; log lines must use logSafeError (see ServerStatusError for the split's rationale). */
-			error: string;
+			/**
+			 * The headline's key (shared/failureCause.ts): the first unexpected failure's cause, or misconfiguredEntry
+			 * when every entry the parser refused and nothing reports. Rendered at display time, never stored as text.
+			 */
+			cause: FailureCause;
+			/** The failing server's URL, where the cause's text names it. */
+			baseUrl?: string | undefined;
 			logSafeError: LogSafeErrorText;
-			/** Classification only, no message text (see ServerStatusError); absent renders exactly today's UI. */
-			classification?: TransportErrorClassification | undefined;
 			totalModels?: number | undefined;
 			serverStatuses?: readonly ServerStatus[] | undefined;
 			lastChecked?: string | undefined;
@@ -62,45 +79,175 @@ export function statusTotalModels(status: ConnectionStatus): number | undefined 
 	}
 }
 
-export interface ZeroModelTexts {
-	display: string;
-	logSafe: LogSafeErrorText;
-	hiddenCount: number;
+/** The zero-model verdict as a key: the two counts its text names, rendered at display time (zeroModelTexts). */
+export interface ZeroModelJudgment {
+	readonly hiddenCount: number;
+	readonly answeredCount: number;
 }
 
 /**
- * The one zero-model judgment, shared by the status bar and every notifier zero-model branch so the toast and the
- * tooltip cannot disagree.
+ * The one zero-model judgment over the owner's published verdict rows (ServerVerdict.rows), shared by the status bar
+ * and the notifier so the toast and the tooltip cannot disagree; the bar carries the result on its connected status
+ * for the renderer and the command toasts.
  *
- *   It derives its own verdict -> no caller can hand it a stale one
  *   Every other verdict already tells its own story - failures, needs-declare, waiting -> a zero-model claim beside
  *       it would contradict the surface users are told to check
  */
-export function zeroModelJudgment(
-	serverStatuses: readonly ServerStatus[],
-	totalModels: number
-): ZeroModelTexts | undefined {
-	if (totalModels !== 0 || classifyOverall(serverStatuses) !== "connected") {
+export function zeroModelJudgment(rows: readonly VerdictRow[], totalModels: number): ZeroModelJudgment | undefined {
+	if (totalModels !== 0 || classifyOverall(rows) !== "connected") {
 		return undefined;
 	}
-	return zeroModelStatusTexts(serverStatuses);
+	return zeroModelCounts(rows);
+}
+
+function zeroModelCounts(rows: readonly VerdictRow[]): ZeroModelJudgment {
+	return {
+		hiddenCount: rows.filter((row) => row.hiddenByRemoval === true).length,
+		answeredCount: rows.filter((row) => row.state === "ok" && row.hiddenByRemoval !== true).length,
+	};
 }
 
 /**
- * The zero-model verdict's two renderings, reached only through zeroModelJudgment so no surface can mint its own
- * zero-model prose: the shared localized explanation (zeroModelExplanation, which the dashboard's surfaces consume
- * too), and the English log rendering (a classification, never response-derived text) for the issue-report buffer.
+ * The zero-model verdict's two renderings, reached only through the judgment so no surface can mint its own zero-model
+ * prose: the shared localized explanation (zeroModelExplanation, which the dashboard's surfaces consume too), in the
+ * current locale at display time, and the English log rendering (a classification, never response-derived text) for
+ * the issue-report buffer.
  */
-function zeroModelStatusTexts(serverStatuses: readonly ServerStatus[]): ZeroModelTexts {
-	const hiddenCount = serverStatuses.filter(isHiddenGroupServerStatus).length;
-	const answeredCount = serverStatuses.filter(
-		(status) => status.state === "ok" && status.hiddenByRemoval !== true
-	).length;
+export function zeroModelTexts(zero: ZeroModelJudgment): {
+	readonly display: string;
+	readonly logSafe: LogSafeErrorText;
+} {
 	return {
-		display: zeroModelExplanation(hiddenCount, answeredCount),
-		logSafe: markLogSafe(`Servers returned 0 models (${zeroModelEnglishDetail(hiddenCount, answeredCount)})`),
-		hiddenCount,
+		display: zeroModelExplanation(zero.hiddenCount, zero.answeredCount),
+		logSafe: markLogSafe(`Servers returned 0 models (${zeroModelEnglishDetail(zero.hiddenCount, zero.answeredCount)})`),
 	};
+}
+
+/**
+ * The persisted status store: the live shapes field for field, with a failing status's cause as the key the restore
+ * renders from (shared/failureCause.ts). The persisted types have no field for rendered text, so a status cannot
+ * spread display text into the store, and the writer below names every live field through restoreTotal's total
+ * mapping.
+ */
+interface PersistedOkElement {
+	readonly state: "ok";
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly servedModelCount: number;
+	readonly hiddenByRemoval?: boolean | undefined;
+	readonly modelInfoUnsupported?: UnservedEndpointEvidence | undefined;
+	readonly serverId?: string | undefined;
+	readonly entryLabel?: string | undefined;
+	readonly lastChecked?: string | undefined;
+	readonly hasApiKey?: boolean | undefined;
+	readonly hasOAuth?: boolean | undefined;
+	readonly hasVirtualKey?: boolean | undefined;
+}
+
+interface PersistedErrorElement {
+	readonly state: "error";
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly servedModelCount: number;
+	readonly logSafeError: string;
+	readonly cause: FailureCause;
+	readonly expected?: boolean | undefined;
+	readonly declaredModelCount?: number | undefined;
+	readonly serverId?: string | undefined;
+	readonly entryLabel?: string | undefined;
+	readonly lastChecked?: string | undefined;
+	readonly hasApiKey?: boolean | undefined;
+	readonly hasOAuth?: boolean | undefined;
+	readonly hasVirtualKey?: boolean | undefined;
+}
+
+type PersistedElement = PersistedOkElement | PersistedErrorElement;
+
+type PersistedStatus =
+	| { readonly state: "not-configured"; readonly lastChecked?: string | undefined }
+	| { readonly state: "loading"; readonly lastChecked?: string | undefined }
+	| { readonly state: "connecting"; readonly lastChecked?: string | undefined }
+	| {
+			readonly state: "connected" | "degraded";
+			readonly totalModels: number;
+			readonly serverStatuses: readonly PersistedElement[];
+			readonly zeroModel?: true | undefined;
+			readonly lastChecked?: string | undefined;
+	  }
+	| {
+			readonly state: "error";
+			readonly cause: FailureCause;
+			readonly baseUrl?: string | undefined;
+			readonly logSafeError: string;
+			readonly serverStatuses: readonly PersistedElement[];
+			readonly totalModels?: number | undefined;
+			readonly lastChecked?: string | undefined;
+	  };
+
+function persistedElement(element: ServerStatus): PersistedElement {
+	if (element.state === "ok") {
+		return restoreTotal<PersistedOkElement>({
+			state: "ok",
+			label: element.label,
+			baseUrl: element.baseUrl,
+			servedModelCount: element.servedModelCount,
+			hiddenByRemoval: element.hiddenByRemoval,
+			modelInfoUnsupported: element.modelInfoUnsupported,
+			serverId: element.serverId,
+			entryLabel: element.entryLabel,
+			lastChecked: element.lastChecked,
+			hasApiKey: element.hasApiKey,
+			hasOAuth: element.hasOAuth,
+			hasVirtualKey: element.hasVirtualKey,
+		});
+	}
+	return restoreTotal<PersistedErrorElement>({
+		state: "error",
+		label: element.label,
+		baseUrl: element.baseUrl,
+		servedModelCount: element.servedModelCount,
+		logSafeError: element.logSafeError,
+		cause: element.cause,
+		expected: element.expected,
+		declaredModelCount: element.declaredModelCount,
+		serverId: element.serverId,
+		entryLabel: element.entryLabel,
+		lastChecked: element.lastChecked,
+		hasApiKey: element.hasApiKey,
+		hasOAuth: element.hasOAuth,
+		hasVirtualKey: element.hasVirtualKey,
+	});
+}
+
+function persistedStatus(status: ConnectionStatus): PersistedStatus {
+	switch (status.state) {
+		case "not-configured":
+		case "loading":
+		case "connecting":
+			return restoreTotal<Extract<PersistedStatus, { state: typeof status.state }>>({
+				state: status.state,
+				lastChecked: status.lastChecked,
+			});
+		case "connected":
+		case "degraded":
+			return restoreTotal<Extract<PersistedStatus, { state: "connected" | "degraded" }>>({
+				state: status.state,
+				totalModels: status.totalModels,
+				serverStatuses: status.serverStatuses.map(persistedElement),
+				zeroModel: status.zeroModel !== undefined ? true : undefined,
+				lastChecked: status.lastChecked,
+			});
+		case "error":
+			return restoreTotal<Extract<PersistedStatus, { state: "error" }>>({
+				state: "error",
+				cause: status.cause,
+				baseUrl: status.baseUrl,
+				logSafeError: status.logSafeError,
+				serverStatuses: (status.serverStatuses ?? []).map(persistedElement),
+				totalModels: status.totalModels,
+				lastChecked: status.lastChecked,
+			});
+	}
 }
 
 /**
@@ -152,7 +299,7 @@ function restoredClassification(
 /**
  * One persisted status-window element, the current ServerStatus shape field for field (the key census below fails
  * closed on drift). Loose, so an extra field never poisons an element; discriminated, so an "ok" without its served
- * count or an "error" without its two message slots is malformed rather than half-usable.
+ * count or an "error" without its cause and log rendering is malformed rather than half-usable.
  */
 const persistedOkElementSchema = z.looseObject({
 	state: z.literal("ok"),
@@ -168,18 +315,45 @@ const persistedOkElementSchema = z.looseObject({
 	lastChecked: z.string().optional().catch(undefined),
 	hasApiKey: z.boolean().optional().catch(undefined),
 	hasOAuth: z.boolean().optional().catch(undefined),
+	hasVirtualKey: z.boolean().optional().catch(undefined),
 });
+
+/** The cause as written: a junk arm is not the current shape, so its element (or status) drops rather than guess. */
+const persistedCauseSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("transport"), classification: persistedClassificationFields }),
+	z.object({ kind: z.literal("sync"), failureClass: z.enum(SYNC_ERROR_CLASSES) }),
+	z.object({ kind: z.literal("credentials"), reason: z.enum(CREDENTIALS_UNAVAILABLE_REASONS) }),
+	z.object({ kind: z.literal("credentialsRefused"), fields: z.array(z.enum(HEADER_BORNE_SECRET_FIELDS)).min(1) }),
+	z.object({ kind: z.literal("misconfiguredEntry") }),
+	z.object({ kind: z.literal("unclassified") }),
+]);
+
+function restoredCause(parsed: z.infer<typeof persistedCauseSchema>): FailureCause {
+	switch (parsed.kind) {
+		case "transport":
+			return { kind: "transport", classification: restoredClassification(parsed.classification) };
+		case "credentialsRefused": {
+			const [first, ...rest] = parsed.fields;
+			// The schema's min(1) guarantees the head; the tuple type cannot read that off an array.
+			return first === undefined ? { kind: "unclassified" } : { kind: "credentialsRefused", fields: [first, ...rest] };
+		}
+		case "sync":
+		case "credentials":
+		case "misconfiguredEntry":
+		case "unclassified":
+			return parsed;
+	}
+}
 
 const persistedErrorElementSchema = z.looseObject({
 	state: z.literal("error"),
 	label: z.string(),
 	baseUrl: z.string(),
-	// A message-less (or empty) error element cannot render honestly, and the log rendering may never be rebuilt from
-	// display text, so both message slots and the served count are required; junk in any of them drops the whole
-	// element, junk in an optional field only drops that field.
-	error: z.string().min(1),
+	// The cause is the key every surface renders from; the log rendering may never be rebuilt from display text. Both
+	// and the served count are required: junk in any of them drops the whole element, junk in an optional field only
+	// drops that field.
+	cause: persistedCauseSchema,
 	logSafeError: z.string().min(1),
-	classification: persistedClassificationSchema,
 	expected: z.boolean().optional().catch(undefined),
 	servedModelCount: z.number().int().nonnegative(),
 	declaredModelCount: z.number().int().nonnegative().optional().catch(undefined),
@@ -188,6 +362,7 @@ const persistedErrorElementSchema = z.looseObject({
 	lastChecked: z.string().optional().catch(undefined),
 	hasApiKey: z.boolean().optional().catch(undefined),
 	hasOAuth: z.boolean().optional().catch(undefined),
+	hasVirtualKey: z.boolean().optional().catch(undefined),
 });
 
 const persistedServerStatusSchema = z.discriminatedUnion("state", [
@@ -195,18 +370,21 @@ const persistedServerStatusSchema = z.discriminatedUnion("state", [
 	persistedErrorElementSchema,
 ]);
 
-// Fail-closed key census, checked both ways at compile time: every field of the live ServerStatus variants and of
-// TransportErrorClassification has a schema field, and the schemas carry no key the types lack, so a new or renamed
-// field fails here until the schema (and restoreServerStatus) learn it instead of being silently dropped on restore.
-// The ok variant's `error?: undefined` never-marker exists only to discriminate the union and is the one exclusion.
-const _persistedShapesMatchLiveTypes: [
-	Exclude<keyof Extract<ServerStatus, { state: "ok" }>, keyof typeof persistedOkElementSchema.shape | "error">,
-	Exclude<keyof typeof persistedOkElementSchema.shape, keyof Extract<ServerStatus, { state: "ok" }>>,
-	Exclude<keyof Extract<ServerStatus, { state: "error" }>, keyof typeof persistedErrorElementSchema.shape>,
-	Exclude<keyof typeof persistedErrorElementSchema.shape, keyof Extract<ServerStatus, { state: "error" }>>,
+// Fail-closed key census, checked both ways at compile time: every field of the persisted element types (what the
+// writer produces) has a schema field, every cause kind has a schema arm, and the schemas carry nothing the types
+// lack, so a new or renamed field or cause fails here until the schema (and the restore) learn it. The live fields are
+// covered on the other side: the writer and the restore both go through restoreTotal, which names every field of its
+// target.
+const _persistedShapesMatchSchemas: [
+	Exclude<keyof PersistedOkElement, keyof typeof persistedOkElementSchema.shape>,
+	Exclude<keyof typeof persistedOkElementSchema.shape, keyof PersistedOkElement>,
+	Exclude<keyof PersistedErrorElement, keyof typeof persistedErrorElementSchema.shape>,
+	Exclude<keyof typeof persistedErrorElementSchema.shape, keyof PersistedErrorElement>,
+	Exclude<FailureCause["kind"], z.infer<typeof persistedCauseSchema>["kind"]>,
+	Exclude<z.infer<typeof persistedCauseSchema>["kind"], FailureCause["kind"]>,
 	Exclude<keyof TransportErrorClassification, keyof typeof persistedClassificationFields.shape>,
 	Exclude<keyof typeof persistedClassificationFields.shape, keyof TransportErrorClassification>,
-] extends [never, never, never, never, never, never]
+] extends [never, never, never, never, never, never, never, never]
 	? true
 	: never = true;
 
@@ -220,9 +398,9 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 		return undefined;
 	}
 	const element = parsed.data;
-	if (element.state === "ok") {
-		return restoreTotal<Extract<ServerStatus, { state: "ok" }>>({
-			state: "ok",
+	if (element.state === "error") {
+		return restoreTotal<Extract<ServerStatus, { state: "error" }>>({
+			state: "error",
 			serverId: element.serverId ?? "",
 			label: element.label,
 			entryLabel: element.entryLabel,
@@ -231,14 +409,16 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 			servedModelCount: element.servedModelCount,
 			hasApiKey: element.hasApiKey,
 			hasOAuth: element.hasOAuth,
-			hiddenByRemoval: element.hiddenByRemoval,
-			modelInfoUnsupported: element.modelInfoUnsupported,
-			// The union's discriminating never-marker; never a value.
-			error: undefined,
+			hasVirtualKey: element.hasVirtualKey,
+			cause: restoredCause(element.cause),
+			// Written by publicErrorText last session, so re-branding it is sound.
+			logSafeError: markLogSafe(element.logSafeError),
+			expected: element.expected,
+			declaredModelCount: element.declaredModelCount,
 		});
 	}
-	return restoreTotal<Extract<ServerStatus, { state: "error" }>>({
-		state: "error",
+	return restoreTotal<Extract<ServerStatus, { state: "ok" }>>({
+		state: "ok",
 		serverId: element.serverId ?? "",
 		label: element.label,
 		entryLabel: element.entryLabel,
@@ -247,12 +427,11 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 		servedModelCount: element.servedModelCount,
 		hasApiKey: element.hasApiKey,
 		hasOAuth: element.hasOAuth,
-		error: element.error,
-		// Written by publicErrorText last session, so re-branding it is sound.
-		logSafeError: markLogSafe(element.logSafeError),
-		classification: element.classification !== undefined ? restoredClassification(element.classification) : undefined,
-		expected: element.expected,
-		declaredModelCount: element.declaredModelCount,
+		hasVirtualKey: element.hasVirtualKey,
+		hiddenByRemoval: element.hiddenByRemoval,
+		modelInfoUnsupported: element.modelInfoUnsupported,
+		// The union's discriminating never-marker; never a value.
+		error: undefined,
 	});
 }
 
@@ -264,7 +443,7 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
  *       not-configured (or connecting, once servers are seen) until the first provider report rewrites the blob,
  *       seconds after activation
  */
-const PERSISTED_STATUS_VERSION = 2;
+const PERSISTED_STATUS_VERSION = 7;
 
 const persistedStatusSchema = z.discriminatedUnion("state", [
 	z.looseObject({ state: z.literal("not-configured"), lastChecked: z.string().optional() }),
@@ -274,15 +453,15 @@ const persistedStatusSchema = z.discriminatedUnion("state", [
 		state: z.enum(["connected", "degraded"]),
 		totalModels: z.number(),
 		serverStatuses: z.array(z.unknown()),
+		zeroModel: z.literal(true).optional().catch(undefined),
 		lastChecked: z.string().optional(),
 	}),
 	z.looseObject({
 		state: z.literal("error"),
-		// An empty message (or an empty log rendering) cannot render honestly, so it is not the current shape and fails
-		// the whole restore.
-		error: z.string().min(1),
+		// The cause is the headline's key; an empty log rendering is not the current shape and fails the whole restore.
+		cause: persistedCauseSchema,
+		baseUrl: z.string().optional().catch(undefined),
 		logSafeError: z.string().min(1),
-		classification: persistedClassificationSchema,
 		totalModels: z.number().optional(),
 		serverStatuses: z.array(z.unknown()).optional(),
 		lastChecked: z.string().optional(),
@@ -335,20 +514,25 @@ function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 				lastChecked: raw.lastChecked,
 			});
 		case "connected":
-		case "degraded":
+		case "degraded": {
+			const serverStatuses = restoreServerStatuses(raw.serverStatuses);
 			return restoreTotal<Extract<ConnectionStatus, { state: "connected" | "degraded" }>>({
 				state: raw.state,
 				totalModels: raw.totalModels,
-				serverStatuses: restoreServerStatuses(raw.serverStatuses),
+				serverStatuses,
+				// The texts rebuild from the restored statuses (the hidden and answered counts live there), so a restore
+				// into another locale reads in that locale.
+				zeroModel: raw.zeroModel === true ? zeroModelCounts(serverStatuses) : undefined,
 				lastChecked: raw.lastChecked,
 			});
+		}
 		case "error":
 			return restoreTotal<Extract<ConnectionStatus, { state: "error" }>>({
 				state: "error",
-				error: raw.error,
+				cause: restoredCause(raw.cause),
+				baseUrl: raw.baseUrl,
 				// Written by publicErrorText last session, so re-branding it is sound.
 				logSafeError: markLogSafe(raw.logSafeError),
-				classification: raw.classification !== undefined ? restoredClassification(raw.classification) : undefined,
 				serverStatuses: restoreServerStatuses(raw.serverStatuses ?? []),
 				totalModels: raw.totalModels,
 				lastChecked: raw.lastChecked,
@@ -532,10 +716,10 @@ export class StatusBarManager {
 		 */
 		private readonly hasConfiguredServers: () => boolean,
 		/**
-		 * The declared entries as of the last sync pass, for the sync-failure overlay: sync failures never enter the
-		 * provider's status window, so the bar reads them from here (applySyncFailures).
+		 * The one owner of the verdict rows the bar classifies and of the declared set its sync-failure overlay reads
+		 * (applySyncFailures): sync failures never enter the provider's status window.
 		 */
-		private readonly getDeclared: () => readonly DeclaredServerView[],
+		private readonly verdict: Pick<ServerVerdict, "declared" | "rows">,
 		/**
 		 * (Duplicate real items have twice accumulated in the shared test host from a defaulted construction.)
 		 *
@@ -584,7 +768,12 @@ export class StatusBarManager {
 						? this.lastConnectingAttention
 						: false;
 			this._connectionStatus = status;
-			await this.context.globalState.update(LAST_CONNECTION_STATUS_KEY, { v: PERSISTED_STATUS_VERSION, status });
+			// Keys, not rendered text (persistedStatus): every explanation renders again at restore time, in the
+			// locale the window restores into.
+			await this.context.globalState.update(LAST_CONNECTION_STATUS_KEY, {
+				v: PERSISTED_STATUS_VERSION,
+				status: persistedStatus(status),
+			});
 		}
 
 		const current = this._connectionStatus;
@@ -621,13 +810,14 @@ export class StatusBarManager {
 				});
 				break;
 			case "connected": {
-				// The shared zero-model judgment: connected-with-nothing-to-serve is ONE consistently rendered warning
-				// (bar, hero, notifier, Test Connection all warning-grade), never a red connection failure.
-				const zero = zeroModelJudgment(current.serverStatuses, current.totalModels);
+				// The judgment handleAggregatedStatus carried onto the status: connected-with-nothing-to-serve is ONE
+				// consistently rendered warning (bar, hero, notifier, Test Connection all warning-grade), never a red
+				// connection failure.
+				const zero = current.zeroModel;
 				if (zero !== undefined) {
 					this._statusBarItem.render({
 						text: l10n.t("$(warning) LiteLLM"),
-						tooltip: l10n.t("No models available\n{0}\nClick for details", zero.display),
+						tooltip: l10n.t("No models available\n{0}\nClick for details", zeroModelTexts(zero).display),
 						severity: "warning",
 					});
 					break;
@@ -668,7 +858,10 @@ export class StatusBarManager {
 			case "error":
 				this._statusBarItem.render({
 					text: l10n.t("$(error) LiteLLM"),
-					tooltip: l10n.t("Connection failed\n{0}\nClick for details", current.error),
+					tooltip: l10n.t(
+						"Connection failed\n{0}\nClick for details",
+						failureTexts(current.cause, current.baseUrl ?? "").display
+					),
 					severity: "error",
 				});
 				break;
@@ -681,13 +874,22 @@ export class StatusBarManager {
 		const now = new Date().toISOString();
 		//   a failed upsert has no group to report, and a blocked group keeps reporting its old configuration as
 		//       healthy -> the bar judges the overlaid window - the same precedence the dashboard rows render
-		const serverStatuses = applySyncFailures(aggStatus.serverStatuses, this.getDeclared());
-		this.lastJudgedOverlay = JSON.stringify(serverStatuses);
+		const serverStatuses = applySyncFailures(aggStatus.serverStatuses, this.verdict.declared().views);
+		// The owner's published set (the dashboard hero and the notifier classify the same one).
+		const rows = this.verdict.rows();
+		this.lastJudgedOverlay = JSON.stringify([serverStatuses, rows]);
 		const { totalModels } = aggStatus;
 
-		if (serverStatuses.length === 0) {
-			// The empty window is only a not-configured verdict when nothing else proves servers exist; at cold start
-			// the groupless refresh reports empty before the per-group refreshes arrive.
+		// This method only maps verdicts onto status-bar states.
+		//
+		//   The one verdict pipeline -> classifyOverall owns the branch rules (red only when EVERY server failed
+		//       unexpectedly, degraded on any unexpected failure, needs-declare when everything failed expectedly with
+		//       nothing declared), shared with the dashboard headline and the notifier
+		const verdict = classifyOverall(rows);
+		if (rows.length === 0 || verdict === "waiting") {
+			// Nothing has reported: no row at all, or only declared entries awaiting their first report. A not-configured
+			// verdict needs nothing else to prove servers exist; at cold start the groupless refresh reports empty before
+			// the per-group refreshes arrive.
 			if (this.hasConfiguredServers()) {
 				const previous = this._connectionStatus;
 				this.logger.log("No server statuses yet; configured servers have not reported");
@@ -703,12 +905,6 @@ export class StatusBarManager {
 			return;
 		}
 
-		// This method only maps verdicts onto status-bar states.
-		//
-		//   The one verdict pipeline -> classifyOverall owns the branch rules (red only when EVERY server failed
-		//       unexpectedly, degraded on any unexpected failure, needs-declare when everything failed expectedly with
-		//       nothing declared), shared with the dashboard headline and the notifier
-		const verdict = classifyOverall(serverStatuses);
 		const firstFailure = unexpectedServerFailures(serverStatuses)[0];
 		// Serving means serving on ANY state: a failed server still serving its stale-window or declared models counts
 		// in the log lines.
@@ -716,13 +912,21 @@ export class StatusBarManager {
 
 		switch (verdict) {
 			case "not-configured":
-				// Unreachable: the empty window returned above. Render it honestly.
+				// Unreachable: an empty row set returned above. Rendered honestly all the same.
 				void this.updateStatusBar({ state: "not-configured", lastChecked: now });
 				return;
 			case "error": {
 				if (firstFailure === undefined) {
-					// Unreachable: a status window carries no misconfigured rows, so the error verdict guarantees an
-					// unexpected failure.
+					// Every row is a parser-refused entry: nothing reports, so the error has no transport failure to name.
+					this.logger.log("All servers failed: every entry is misconfigured");
+					void this.updateStatusBar({
+						state: "error",
+						cause: { kind: "misconfiguredEntry" },
+						logSafeError: markLogSafe(MISCONFIGURED_ENTRY_TEXT),
+						serverStatuses,
+						totalModels: 0,
+						lastChecked: now,
+					});
 					return;
 				}
 				// The error verdict now proves nothing serves (a serving failure reads degraded), so the zero count is
@@ -730,9 +934,9 @@ export class StatusBarManager {
 				this.logger.log(`All servers failed: ${firstFailure.logSafeError}`);
 				void this.updateStatusBar({
 					state: "error",
-					error: firstFailure.error,
+					cause: firstFailure.cause,
+					baseUrl: firstFailure.baseUrl,
 					logSafeError: firstFailure.logSafeError,
-					...(firstFailure.classification !== undefined ? { classification: firstFailure.classification } : {}),
 					serverStatuses,
 					totalModels: 0,
 					lastChecked: now,
@@ -756,17 +960,12 @@ export class StatusBarManager {
 				this.logger.log("All discovery failures are expected and no models are declared");
 				void this.updateStatusBar({ state: "connecting", attention: true, lastChecked: now });
 				return;
-			case "waiting":
-				// Unreachable: a status window has no unchecked rows. The spinner is the honest rendering of a
-				// checked-nothing verdict.
-				void this.updateStatusBar({ state: "connecting", attention: false, lastChecked: now });
-				return;
 			case "connected": {
-				const zero = zeroModelJudgment(serverStatuses, totalModels);
+				const zero = zeroModelJudgment(rows, totalModels);
 				if (zero !== undefined) {
-					// The connected renderer derives the same judgment and presents it as a warning, never a connection
-					// failure.
-					this.logger.log(`Warning: ${zero.logSafe}`);
+					// Carried on the status: the renderer and the command toasts present this judgment as a warning,
+					// never a connection failure, without deriving their own.
+					this.logger.log(`Warning: ${zeroModelTexts(zero).logSafe}`);
 				} else {
 					this.logger.log(`Successfully fetched ${totalModels} models from ${servingCount} server(s)`);
 				}
@@ -774,6 +973,7 @@ export class StatusBarManager {
 					state: "connected",
 					serverStatuses,
 					totalModels,
+					...(zero !== undefined ? { zeroModel: zero } : {}),
 					lastChecked: now,
 				});
 			}
@@ -790,11 +990,15 @@ export class StatusBarManager {
 	 */
 	refreshFromSync(): void {
 		const base = this.lastAggregated ?? { serverStatuses: [], totalModels: 0, silent: true };
-		const overlaid = applySyncFailures(base.serverStatuses, this.getDeclared());
-		if (this.lastAggregated === undefined && overlaid.length === 0) {
+		const overlaid = applySyncFailures(base.serverStatuses, this.verdict.declared().views);
+		// Before any report, news is a non-empty overlay or a non-empty row set (a refused entry is a row with no
+		// overlay); a restored status says neither.
+		if (this.lastAggregated === undefined && overlaid.length === 0 && this.verdict.rows().length === 0) {
 			return;
 		}
-		if (JSON.stringify(overlaid) === this.lastJudgedOverlay) {
+		// The same key handleAggregatedStatus judged by: an entry leaving or entering the awaiting set changes the
+		// verdict rows without changing one overlaid status.
+		if (JSON.stringify([overlaid, this.verdict.rows()]) === this.lastJudgedOverlay) {
 			return;
 		}
 		this.handleAggregatedStatus(base);

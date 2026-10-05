@@ -16,7 +16,6 @@
 import * as l10n from "@vscode/l10n";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { DISCOVERY_MAX_RETRIES } from "../../../provider/catalog/discovery";
-import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
 import { narrowGroupCredentials, refusedCredentialFields } from "../../../provider/catalog/groupModels";
 import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "../../../provider/transport/auth";
 import { OAuthTokenSource } from "../../../provider/transport/auth";
@@ -25,6 +24,7 @@ import { applyAuthOverlay, plainFetchBaseHeaders } from "../../../provider/trans
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
+import type { RejectedCredentialField } from "../../../shared/serverEntry";
 import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import type { HeaderValue } from "../../../shared/util/headers";

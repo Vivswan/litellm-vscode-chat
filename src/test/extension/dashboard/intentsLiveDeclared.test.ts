@@ -8,10 +8,11 @@ import type { RequestPayload } from "../../../dashboard/endpoints";
 import type { DashboardServer, DashboardState } from "../../../dashboard/viewModels";
 import { adoptSourceHandle, modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import { secretValueHolders } from "../../../extension/dashboard/declaredJoin";
+import type { DeclaredServersInput } from "../../../extension/dashboard/declaredServers";
+import { declaredViewsFromSetting } from "../../../extension/dashboard/declaredServers";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import { DashboardValidationError, executeDashboardIntent } from "../../../extension/dashboard/intents";
-import { createIntentEnvironment, declaredViewsFromSetting } from "../../../extension/dashboard/panel";
-import type { DeclaredServersInput } from "../../../extension/dashboard/state";
+import { createIntentEnvironment } from "../../../extension/dashboard/panel";
 import { buildDashboardState } from "../../../extension/dashboard/state";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import type { SecretStore } from "../../../extension/servers/serverSync";
@@ -306,6 +307,7 @@ const L1_FALLBACK_ROW: DashboardServer = {
 	config: { secrets: { kind: "unproven" } },
 	credentials: "present",
 	hasOAuth: false,
+	hasVirtualKey: false,
 	label: "L1",
 	lastChecked: undefined,
 	origin: "declared",

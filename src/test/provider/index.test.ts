@@ -2,7 +2,6 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { defaultHostRefreshDeadlineMs, hostRefreshDeadlineMs } from "../../provider";
 import { mapModelInfoEntry, parseModelInfoItem } from "../../provider/catalog/discovery";
 import { DiscoveryCache } from "../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../provider/catalog/groupDiscovery";
@@ -10,7 +9,7 @@ import { attachGroup, groupClientId } from "../../provider/catalog/groupModels";
 import { buildModelInfos } from "../../provider/catalog/registration";
 import { groupIdentity } from "../../provider/catalog/statusWindow";
 import { RequestError } from "../../provider/transport/errorMapping";
-import { Logger, publicErrorText } from "../../shared/logger";
+import { Logger, publicErrorText, type RecordedError } from "../../shared/logger";
 import { MirroredError } from "../../shared/mirroredError";
 import type { AggregatedStatus } from "../../shared/servers";
 import { fixedHeaderValue } from "../../shared/util/headers";
@@ -23,26 +22,6 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
 
 suite("provider", () => {
-	test("hostRefreshDeadlineMs floors at 8s and follows the discovery timeout plus its margin", () => {
-		// The floor: a discovery timeout at its 1000 ms floor must
-		// not make the host pass abandon almost instantly - the deadline also
-		// bounds the host's own re-resolve round trip.
-		assert.strictEqual(hostRefreshDeadlineMs(1000), 8000);
-		assert.strictEqual(hostRefreshDeadlineMs(30000), 32000);
-		assert.strictEqual(hostRefreshDeadlineMs(120000), 122000);
-	});
-
-	test("the default refresh deadline follows discovery.timeout, never chat.timeout", async () => {
-		// refreshViaHost's default branch reads the DISCOVERY timeout. A swap to the chat timeout would pass every
-		// other test, which all supply explicit deadlines.
-		await withConfig({ "discovery.timeout": 45000, "chat.timeout": 1000 }, async () => {
-			assert.strictEqual(defaultHostRefreshDeadlineMs(), 47000);
-		});
-		await withConfig({ "discovery.timeout": 1000, "chat.timeout": 999999 }, async () => {
-			assert.strictEqual(defaultHostRefreshDeadlineMs(), 8000, "the floor holds however low the timeout goes");
-		});
-	});
-
 	test("provideLanguageModelChatInformation returns empty array with no configured servers", async () => {
 		const provider = makeProvider();
 
@@ -228,9 +207,10 @@ suite("provider", () => {
 			);
 		});
 
-		test("a non-Error failure reason is rebuilt with the log-safe rendering as its English mirror", async () => {
-			// Rejected from inside the group serve's try without ever being an Error: the rebuild must keep the display
-			// rendering for the UI and the log-safe rendering for every public log surface.
+		test("a non-Error failure reason is rebuilt from its cause with the log-safe rendering as its English mirror", async () => {
+			// Rejected from inside the group serve's try without ever being an Error: the rebuild renders the cause for the
+			// UI (the thrown object's text, which may carry a response body, never reaches it) and keeps the log-safe
+			// rendering for every public log surface.
 			const hostile = {
 				toString: () => "display text with RESPONSE-BODY-MARKER",
 				logClassification: "InjectedFailure(non-Error)",
@@ -243,7 +223,11 @@ suite("provider", () => {
 				provider.provideLanguageModelChatInformation({ silent: false }, new vscode.CancellationTokenSource().token),
 				(error: unknown) => {
 					assert.ok(error instanceof MirroredError, `expected a MirroredError rebuild, got ${String(error)}`);
-					assert.ok(error.message.includes("RESPONSE-BODY-MARKER"), "the display rendering keeps the text");
+					assert.strictEqual(
+						error.message,
+						"Model discovery failed; the output log has the details",
+						"the display rendering is the unclassified cause's, never the thrown object's text"
+					);
 					assert.strictEqual(
 						publicErrorText(error),
 						"InjectedFailure(non-Error)",
@@ -251,6 +235,50 @@ suite("provider", () => {
 					);
 					return true;
 				}
+			);
+		});
+
+		test("an unclassified throw's message reaches the private channel and no status, buffer, snapshot, or rebuilt error", async () => {
+			// A plain Error thrown inside the serve (a platform failure, possibly localized): the status carries the
+			// unclassified cause and the word, the public sinks (the issue-report buffer and the latest-error snapshot)
+			// the kind and the word, and the non-silent rebuild renders the cause. The output channel alone keeps the
+			// message, so the user can diagnose what "the output log has the details" points at.
+			const failingCache = new DiscoveryCache<DiscoveredGroupModels>();
+			failingCache.fetch = () => Promise.reject(new Error("一次性错误"));
+			const channel: string[] = [];
+			const buffer: string[] = [];
+			const recorded: RecordedError[] = [];
+			const logger = new Logger(
+				{ info: (line) => channel.push(line), error: (line) => channel.push(`ERROR: ${line}`) },
+				{ appendLog: (line) => buffer.push(line), recordError: (_source, error) => recorded.push(error) }
+			);
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, { discoveryCache: failingCache, logger });
+
+			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+			const status = expectDefined(provider.getServerSnapshots()[0]).status;
+			assert.ok(status.state === "error");
+			assert.deepStrictEqual(status.cause, { kind: "unclassified" });
+			assert.strictEqual(status.logSafeError, "unclassified");
+			assert.ok(!JSON.stringify(status).includes("一次性"), JSON.stringify(status));
+
+			await assert.rejects(
+				provider.provideLanguageModelChatInformation({ silent: false }, new vscode.CancellationTokenSource().token),
+				(error: unknown) => {
+					// An Error rethrows as itself (the chat surface shows its message once); its public rendering is the word.
+					assert.ok(error instanceof Error);
+					assert.strictEqual(publicErrorText(error), "unclassified");
+					return true;
+				}
+			);
+			assert.ok(
+				channel.some((line) => line.includes("一次性错误")),
+				`the private channel keeps the message: ${channel.join(" | ")}`
+			);
+			assert.ok(buffer.length > 0 && buffer.every((line) => !line.includes("一次性")), buffer.join(" | "));
+			assert.ok(recorded.length > 0 && !JSON.stringify(recorded).includes("一次性"), JSON.stringify(recorded));
+			assert.ok(
+				recorded.every((entry) => entry.message === "unclassified"),
+				"the snapshot carries the word"
 			);
 		});
 

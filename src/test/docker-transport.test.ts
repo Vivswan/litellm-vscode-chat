@@ -4,6 +4,7 @@ import { createTitleAndDescriptionProvider } from "../extension/features/prGen/p
 import { FIM_MAX_TOKENS, FIM_TIMEOUT_MS } from "../provider/transport/fim";
 import { OneShotClient } from "../provider/transport/oneShotClient";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
+import { statusClassification } from "../shared/servers";
 import { fixedHeaderValue } from "../shared/util/headers";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
@@ -501,8 +502,8 @@ function wrongMasterKeySuite(): void {
 			await writeServerEntry({ label, baseUrl: BASE_URL, auth: { apiKey: WRONG_MASTER_KEY } }, 60000);
 			const status = await waitForGroupStatus(label, (candidate) => candidate.state === "error", 30000);
 			assert.ok(status.state === "error", "narrowed by the wait");
-			assert.strictEqual(status.classification?.kind, "auth", "the gate's rejection classifies as auth");
-			assert.strictEqual(status.classification?.status, 401, "a 401 is never re-wrapped as a network error");
+			assert.strictEqual(statusClassification(status)?.kind, "auth", "the gate's rejection classifies as auth");
+			assert.strictEqual(statusClassification(status)?.status, 401, "a 401 is never re-wrapped as a network error");
 			// Asserted across a settle window: the host ingests model lists asynchronously, so one clean sample could
 			// be a transient. Bounded above only - a healthy sibling's refresh dip must not be blamed on the rejected
 			// group; only GROWTH would prove it served.

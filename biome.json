@@ -338,6 +338,7 @@
 											"!**/shared/config/recordResolution",
 											"!**/shared/config/settingSpec",
 											"!**/shared/errorClassification",
+											"!**/shared/failureCause",
 											"!**/shared/serverEntry",
 											"!**/shared/util/baseUrl",
 							"!**/shared/util/decimalText",

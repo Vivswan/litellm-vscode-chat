@@ -12,7 +12,6 @@ import { buildDashboardState } from "../../../extension/dashboard/state";
 import type { TombstoneIdentity } from "../../../extension/servers/groupRemovals";
 import { GroupRemovalStore, tombstoneHides } from "../../../extension/servers/groupRemovals";
 import { createServerSyncEnv, ServerSyncEngine } from "../../../extension/servers/serverSync";
-import { GROUP_UPDATE_UNAVAILABLE_MESSAGE } from "../../../extension/servers/serverSync/engine";
 import type { GroupServer } from "../../../provider/catalog/groupModels";
 import { groupClientId, groupServerLabel, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { StatusWindow } from "../../../provider/catalog/statusWindow";
@@ -217,8 +216,9 @@ suite("extension/servers the observation event schedules the pass that acts on t
 					baseUrl: H,
 					config: INLINE_KEY_PROVEN,
 					credentials: "present",
-					error: GROUP_UPDATE_UNAVAILABLE_MESSAGE,
+					cause: { kind: "sync", failureClass: "blocked" },
 					hasOAuth: false,
+					hasVirtualKey: false,
 					label: "L1",
 					lastChecked: undefined,
 					origin: "declared",
@@ -255,8 +255,9 @@ suite("extension/servers the observation event schedules the pass that acts on t
 					config: INLINE_KEY_PROVEN,
 					credentials: "present",
 					entryFieldsInactive: true,
-					error: GROUP_UPDATE_UNAVAILABLE_MESSAGE,
+					cause: { kind: "sync", failureClass: "blocked" },
 					hasOAuth: false,
+					hasVirtualKey: false,
 					label: "L1",
 					lastChecked: Date.parse(LAST_CHECKED),
 					origin: "declared",
@@ -293,6 +294,7 @@ suite("extension/servers the observation event schedules the pass that acts on t
 					config: INLINE_KEY_PROVEN,
 					credentials: "present",
 					hasOAuth: false,
+					hasVirtualKey: false,
 					label: "L1",
 					lastChecked: Date.parse(LAST_CHECKED),
 					origin: "declared",

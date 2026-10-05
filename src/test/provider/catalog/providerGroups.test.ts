@@ -9,6 +9,7 @@ import { RequestError } from "../../../provider/transport/errorMapping";
 import { publicErrorText } from "../../../shared/logger";
 import { MirroredError } from "../../../shared/mirroredError";
 import type { AggregatedStatus } from "../../../shared/servers";
+import { statusClassification } from "../../../shared/servers";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,
@@ -851,9 +852,10 @@ suite("provider groups", () => {
 		});
 	});
 
-	test("a non-Error group failure is rebuilt with the log-safe rendering as its English mirror", async () => {
-		// Rejected from inside the group serve's try without ever being an Error: the rebuild must keep the display
-		// rendering for the UI and the log-safe rendering for every public log surface.
+	test("a non-Error group failure is rebuilt from its cause with the log-safe rendering as its English mirror", async () => {
+		// Rejected from inside the group serve's try without ever being an Error: the rebuild renders the cause for the
+		// UI (the thrown object's text, which may carry a response body, never reaches it) and keeps the log-safe
+		// rendering for every public log surface.
 		const hostile = {
 			toString: () => "display text with RESPONSE-BODY-MARKER",
 			logClassification: "InjectedFailure(non-Error)",
@@ -866,7 +868,11 @@ suite("provider groups", () => {
 			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }, false), cancellation()),
 			(error: unknown) => {
 				assert.ok(error instanceof MirroredError, `expected a MirroredError rebuild, got ${String(error)}`);
-				assert.ok(error.message.includes("RESPONSE-BODY-MARKER"), "the display rendering keeps the text");
+				assert.strictEqual(
+					error.message,
+					"Model discovery failed; the output log has the details",
+					"the display rendering is the unclassified cause's, never the thrown object's text"
+				);
 				assert.strictEqual(
 					publicErrorText(error),
 					"InjectedFailure(non-Error)",
@@ -1125,7 +1131,7 @@ suite("provider groups", () => {
 		assert.strictEqual(expectDefined(last.serverStatuses[0]).baseUrl, TEST_BASE_URL);
 	});
 
-	test("testKnownGroupConnections re-fetches every observed group server over the network", async () => {
+	test("refreshGroups re-fetches every observed group server over the network and reports it", async () => {
 		const provider = makeProvider();
 		let discoveryHits = 0;
 		mswServer.use(
@@ -1144,80 +1150,205 @@ suite("provider groups", () => {
 
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
-		await provider.testKnownGroupConnections();
+		let changeEvents = 0;
+		provider.onDidChangeLanguageModelChatInformation(() => {
+			changeEvents += 1;
+		});
+		await provider.refreshGroups();
 
-		assert.strictEqual(discoveryHits, hitsBefore + 1, "the connection test must hit the group server for real");
+		assert.strictEqual(discoveryHits, hitsBefore + 1, "the refresh must hit the group server for real");
 		const last = expectDefined(statuses.at(-1));
 		assert.strictEqual(expectDefined(last.serverStatuses[0]).state, "ok");
+		// Nothing a group serves changed, so the host is not asked to re-resolve: for a still-failing group that
+		// re-resolve would be a second discovery attempt (failed loads are never cached).
+		assert.strictEqual(changeEvents, 0);
 	});
 
-	test("refreshViaHost falls back to direct group probes when the host does not react", async () => {
+	test("a host sweep that served nothing leaves refreshGroups nothing to probe: the last deleted group is not revived", async () => {
+		// After the user deletes the only group, the host's next sweep is the group-agnostic call alone; the group sits
+		// in the window's grace, and a probe would record it fresh.
 		const provider = makeProvider();
-		let discoveryHits = 0;
+		let probes = 0;
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => {
-				discoveryHits += 1;
+				probes += 1;
 				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
 			}),
 			http.get(MODELS_URL, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
 		);
+		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
-		const before = discoveryHits;
+		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+		const probesBefore = probes;
 
-		// This provider instance is not registered with the host, so the change event goes nowhere and the bounded wait
-		// must fall back.
-		await provider.refreshViaHost(300, 50);
+		const { refreshedGroups } = await provider.refreshGroups();
 
-		assert.strictEqual(discoveryHits, before + 1, "the fallback must probe the observed group server");
+		assert.strictEqual(probes, probesBefore, "the deleted group is not probed");
+		assert.strictEqual(refreshedGroups, 0);
 	});
 
-	test("refreshViaHost falls back when the host only makes the group-agnostic call", async () => {
+	test("a group the host deleted is not probed by refreshGroups and ages out on the host's next cycle", async () => {
+		// The deleted group sits in the window's one-cycle grace when Sync Models Now runs; probing it would record it
+		// fresh and keep it on every surface for as long as the user keeps syncing.
+		const DELETED_BASE_URL = "http://litellm.test:8080";
 		const provider = makeProvider();
-		let discoveryHits = 0;
+		let deletedProbes = 0;
 		mswServer.use(
-			http.get(MODEL_INFO_URL, () => {
-				discoveryHits += 1;
+			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
+			http.get(`${DELETED_BASE_URL}/v1/model/info`, () => {
+				deletedProbes += 1;
 				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
 			}),
-			http.get(MODELS_URL, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
+			http.get(`${DELETED_BASE_URL}/v1/models`, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
+		);
+		// The host's sweep serves both groups.
+		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: DELETED_BASE_URL }), cancellation());
+		assert.strictEqual(provider.getServerSnapshots().length, 2);
+		// The user deletes the second group in Manage Language Models: the host's next sweep serves the first alone.
+		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+		const probesBefore = deletedProbes;
+
+		const { refreshedGroups } = await provider.refreshGroups();
+
+		assert.strictEqual(deletedProbes, probesBefore, "the deleted group is not probed");
+		assert.strictEqual(refreshedGroups, 1, "one group served this cycle, one report landed");
+		// The host's next sweep evicts it, exactly as without the refresh.
+		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+		assert.deepStrictEqual(
+			provider.getServerSnapshots().map((snapshot) => snapshot.status.baseUrl),
+			[TEST_BASE_URL],
+			"the deleted group left the window"
+		);
+	});
+
+	test("refreshGroups asks the host to re-resolve when only a group's failure reading changed", async () => {
+		// Same state, same served count, same (empty) models: the outcome rides beside the models in the served key
+		// (servedModelsKey), so a group whose failure now reads differently is a changed serve. The first serve answers
+		// 404 (the not-a-LiteLLM-endpoint reading, never retried); the refresh answers 500 (the server-error reading,
+		// retried, so a per-probe counter could not tell the two serves apart).
+		const provider = makeProvider();
+		let refreshing = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => emptyErrorResponse(refreshing ? 500 : 404)),
+			http.get(MODELS_URL, () => emptyErrorResponse(refreshing ? 500 : 404))
 		);
 		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
-		const before = discoveryHits;
-
-		// A host that reacts with only the group-agnostic call produces zero per-group reports; the groupless report
-		// must not arm the settle wait.
+		const before = expectDefined(provider.getServerSnapshots()[0]).status;
+		let changeEvents = 0;
 		provider.onDidChangeLanguageModelChatInformation(() => {
-			void provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+			changeEvents += 1;
 		});
 
-		await provider.refreshViaHost(400, 50);
+		refreshing = true;
+		await provider.refreshGroups();
 
-		assert.strictEqual(discoveryHits, before + 1, "zero group reports by the deadline must trigger the fallback");
+		const after = expectDefined(provider.getServerSnapshots()[0]).status;
+		assert.strictEqual(before.state, "error");
+		assert.strictEqual(after.state, "error");
+		assert.strictEqual(after.servedModelCount, before.servedModelCount);
+		assert.notDeepStrictEqual(after.cause, before.cause, "the 500 must read differently from the 404 for this pin");
+		assert.strictEqual(changeEvents, 1, "a changed failure reading is a changed serve");
 	});
 
-	test("refreshViaHost resolves once host-driven reports settle, without a fallback probe", async () => {
+	test("refreshGroups resolves only after the slowest group reported, however the host paces its own serves", async () => {
+		// Two servers 700 ms apart, with a host that re-resolves both on the change event: the pass resolves when the
+		// slow group has reported, not when reports have gone quiet for a while.
+		const SLOW_BASE_URL = "http://litellm.test:8080";
+		const CHANGED_PAYLOAD = {
+			data: [...DEFAULT_DISCOVERY_PAYLOAD.data, { model_name: "second-model", model_info: { id: "second-model" } }],
+		};
 		const provider = makeProvider();
-		let discoveryHits = 0;
+		let slowHits = 0;
 		mswServer.use(
-			http.get(MODEL_INFO_URL, () => {
-				discoveryHits += 1;
-				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
+			http.get(`${SLOW_BASE_URL}/v1/model/info`, async () => {
+				slowHits += 1;
+				if (slowHits === 1) {
+					return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+				}
+				await new Promise((resolve) => setTimeout(resolve, 700));
+				return HttpResponse.json(CHANGED_PAYLOAD);
 			}),
-			http.get(MODELS_URL, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
+			http.get(`${SLOW_BASE_URL}/v1/models`, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
 		);
 		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
-		const before = discoveryHits;
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: SLOW_BASE_URL }), cancellation());
+		const slowBefore = expectDefined(
+			provider.getServerSnapshots().find((snapshot) => snapshot.status.baseUrl === SLOW_BASE_URL)
+		).status.lastChecked;
 
+		let hostServes: Promise<unknown> | undefined;
 		provider.onDidChangeLanguageModelChatInformation(() => {
-			void (async () => {
-				await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
-				await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
-			})();
+			hostServes = Promise.all([
+				provider.provideLanguageModelChatInformation({ silent: true }, cancellation()),
+				provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation()),
+				provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: SLOW_BASE_URL }), cancellation()),
+			]);
 		});
 
-		await provider.refreshViaHost(5000, 100);
+		await provider.refreshGroups();
 
-		assert.strictEqual(discoveryHits, before + 1, "the settled wait must not add a fallback probe");
+		const slowAfter = expectDefined(
+			provider.getServerSnapshots().find((snapshot) => snapshot.status.baseUrl === SLOW_BASE_URL)
+		).status.lastChecked;
+		assert.notStrictEqual(
+			slowAfter,
+			slowBefore,
+			"the slow group's status must be this pass's when the refresh resolves"
+		);
+		await expectDefined(hostServes, "the slow group's models changed, so the host was asked to re-resolve");
+		assert.strictEqual(slowHits, 2, "one real probe per group; the host's re-resolve serves from the refilled cache");
+	});
+
+	test("refreshGroups settles only the serves in flight when it starts: a host that keeps starting serves cannot hold it", async () => {
+		// A serve of another group begins while the pass waits for the first and is still held when the probe lands;
+		// the pass must not wait for it, or a host that never goes quiet would hold the dashboard's Retry open.
+		const OTHER_BASE_URL = "http://litellm.test:8080";
+		const provider = makeProvider();
+		const holds: (() => void)[] = [];
+		const otherHolds: (() => void)[] = [];
+		const held = (queue: (() => void)[]) => async () => {
+			await new Promise<void>((resolve) => {
+				queue.push(resolve);
+			});
+			return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+		};
+		mswServer.use(
+			http.get(MODEL_INFO_URL, held(holds)),
+			http.get(MODELS_URL, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)),
+			http.get(`${OTHER_BASE_URL}/v1/model/info`, held(otherHolds)),
+			http.get(`${OTHER_BASE_URL}/v1/models`, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
+		);
+		const until = async (queue: (() => void)[], count: number) => {
+			while (queue.length < count) {
+				await new Promise((resolve) => setTimeout(resolve, 5));
+			}
+		};
+		const first = provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL }),
+			cancellation()
+		);
+		await until(holds, 1);
+
+		const refresh = provider.refreshGroups();
+		const late = provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: OTHER_BASE_URL }),
+			cancellation()
+		);
+		await until(otherHolds, 1);
+		expectDefined(holds[0])();
+		await first;
+		// The probe of the first group lands while the late serve is still held.
+		await until(holds, 2);
+		expectDefined(holds[1])();
+
+		assert.deepStrictEqual(await refresh, { refreshedGroups: 1 });
+		expectDefined(otherHolds[0])();
+		await late;
 	});
 });
 
@@ -1442,8 +1573,8 @@ suite("provider groups: capability overrides and declared models", () => {
 		const status = expectDefined(expectDefined(statuses.at(-1)).serverStatuses[0]);
 		assert.ok(status.state === "error", "the failure is still recorded");
 		assert.strictEqual(status.expected, undefined, "and stays unexpected");
-		assert.strictEqual(status.classification?.kind, "http");
-		assert.strictEqual(status.classification?.status, 500, "the record carries the HTTP 500 classification");
+		assert.strictEqual(statusClassification(status)?.kind, "http");
+		assert.strictEqual(statusClassification(status)?.status, 500, "the record carries the HTTP 500 classification");
 		assert.strictEqual(status.declaredModelCount, 2);
 		assert.strictEqual(status.servedModelCount, 2, "recorded is what is served");
 

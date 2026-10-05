@@ -22,7 +22,8 @@ import {
 	FEATURE_MODEL_SETTING_KEY_LIST,
 	NUMBER_SETTING_SPECS,
 } from "../shared/config/settingSpec";
-import type { TransportErrorClassification, UnservedEndpointEvidence } from "../shared/errorClassification";
+import type { UnservedEndpointEvidence } from "../shared/errorClassification";
+import type { FailureCause } from "../shared/failureCause";
 import type {
 	ExpectedFailureCategory,
 	McpOptIn,
@@ -140,10 +141,11 @@ interface DashboardServerBase {
 	 */
 	readonly credentials: CredentialPresence;
 	/**
-	 * The credential kind beside that presence: OAuth client credentials rather than a static key. Declared rows derive
-	 * it from the entry's OAuth fields, external rows from the group's own report.
+	 * The credential kind beside that presence: OAuth client credentials, or a virtual-key header, rather than a
+	 * static key. Declared rows derive it from the entry's units, external rows from the group's own report.
 	 */
 	readonly hasOAuth: boolean;
+	readonly hasVirtualKey: boolean;
 	/**
 	 * The server's last successful /model/info key set, for the record editors' key suggestions.
 	 *
@@ -163,10 +165,8 @@ interface DashboardServerBase {
 /**
  * One server row: a declared entry, a live provider group, or both merged (joined by label and base URL). A declared
  * entry whose group sync failed is an "error" row even over a live group that keeps serving: the sync error outranks
- * the live state while `servedModelCount` keeps the live truth.
- *
- *   `errorEnglish` is the log-safe English rendering the copyable diagnostics block substitutes
- *     -> pasted reports stay English
+ * the live state while `servedModelCount` keeps the live truth. A failing row carries its cause as a key, never as
+ * text: the webview renders it in its locale and the copyable diagnostics block renders it in English.
  */
 export type DashboardServer = DashboardServerBase &
 	(
@@ -224,14 +224,20 @@ export type DashboardServer = DashboardServerBase &
 		  }
 		| {
 				/**
-				 * A provider group managed outside the setting; Remove (hide) always
-				 * applies to it, by tombstone. `adoptHandle` is the opaque token the
-				 * adopt intent names its source group by: a salted one-way hash,
-				 * stable for the session, carrying no credential material, resolvable
-				 * only while the group stays external.
+				 * A provider group managed outside the setting; Remove (hide) always applies to it, by tombstone.
+				 * `adoptHandle` is the opaque token the adopt intent names its source group by: a salted one-way hash,
+				 * stable for the session, carrying no credential material, resolvable only while the group stays
+				 * external.
 				 */
 				readonly origin: "external";
 				readonly adoptHandle: string;
+				/**
+				 * The label the group's configuration is stamped with. The sync engine names the groups it creates after
+				 * their entry, so the stamp is usually the host-side name (which the host refuses to reuse), but a group
+				 * the host named itself can carry any stamp: the edit form advises on a collision, never refuses. Absent
+				 * for an unstamped group.
+				 */
+				readonly entryLabel?: string | undefined;
 				readonly config?: undefined;
 				readonly notices?: undefined;
 				readonly entryFieldsInactive?: undefined;
@@ -242,9 +248,7 @@ export type DashboardServer = DashboardServerBase &
 	(
 		| {
 				readonly state: "ok";
-				readonly error?: undefined;
-				readonly errorEnglish?: undefined;
-				readonly classification?: undefined;
+				readonly cause?: undefined;
 				readonly expected?: undefined;
 				readonly declaredModelCount?: undefined;
 				/**
@@ -255,13 +259,11 @@ export type DashboardServer = DashboardServerBase &
 		  }
 		| {
 				readonly state: "error";
-				readonly error: string;
-				readonly errorEnglish?: string | undefined;
 				/**
-				 * The transport classification behind the row's error (enum ids and a status number, never message
-				 * text, so it may cross the webview boundary); present only when `error` IS the transport error.
+				 * Why the row fails, as a key (shared/failureCause.ts): the webview renders it in its locale, the paste
+				 * line in English; it carries no message text, so it crosses the webview boundary as data.
 				 */
-				readonly classification?: TransportErrorClassification | undefined;
+				readonly cause: FailureCause;
 				/**
 				 * True when the failure hit a category the entry's expectedFailures declares: the outcome stays a
 				 * truthful error (the stale anchor and counts depend on it), but presentation treats it as expected.
@@ -273,9 +275,7 @@ export type DashboardServer = DashboardServerBase &
 		  }
 		| {
 				readonly state: "unchecked";
-				readonly error?: undefined;
-				readonly errorEnglish?: undefined;
-				readonly classification?: undefined;
+				readonly cause?: undefined;
 				readonly expected?: undefined;
 				readonly declaredModelCount?: undefined;
 				readonly modelInfoUnsupported?: undefined;
@@ -843,9 +843,29 @@ export interface ResolvedModelRow {
 	readonly capabilities: readonly ResolvedCapCell[];
 }
 
+/**
+ * One row of the overall verdict's input (classifyOverall), the shape the status bar, the notifier, and the dashboard
+ * hero all classify. The host builds the set once per surface from the status window joined with the declared entries
+ * (verdictRows) and publishes the dashboard's copy here, so the webview classifies the host's rows instead of
+ * rebuilding them from the servers table. Field names follow ServerStatus, so a status window is a row set as it is.
+ */
+export interface VerdictRow {
+	readonly state: "ok" | "error" | "unchecked";
+	readonly servedModelCount: number;
+	readonly expected?: boolean | undefined;
+	/** A group the user's configuration hides: answering, but counted apart in the zero-model detail. */
+	readonly hiddenByRemoval?: boolean | undefined;
+	/** A parser-refused entry's row: configuration, not transport, so it fails the fleet only when nothing else is there. */
+	readonly misconfigured?: boolean | undefined;
+	/** Why an error row fails and whose URL its text names, for the paste line (error rows only). */
+	readonly failure?: { readonly cause: FailureCause; readonly baseUrl: string } | undefined;
+}
+
 export interface DashboardState {
 	readonly servers: readonly DashboardServer[];
 	readonly hiddenGroups: readonly HiddenGroup[];
+	/** The hero's and the paste line's verdict input: the same row set the status bar and the notifier classify. */
+	readonly verdictRows: readonly VerdictRow[];
 	readonly models: readonly DashboardModel[];
 	/**
 	 * The hero and the diagnostics paste line read this, never models.length - the models table lists a

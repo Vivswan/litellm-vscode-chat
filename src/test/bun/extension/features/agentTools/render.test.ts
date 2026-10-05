@@ -33,27 +33,21 @@ const LEAKED_MARKER = "bearer-marker-9f8e7d";
 const redact = (text: string): string => text.replaceAll(LEAKED_MARKER, "[redacted]");
 
 describe("agentTools render", () => {
-	// Drifts silently: a server row's error is the transport's display text and embeds the response body, which can
-	// echo the request's own Authorization header; the row must pass through the report's redaction.
-	test("a server row in error comes out of shapeConfiguration with both error texts redacted", () => {
+	// The rows carry a failure as a cause key and no text; the agent reads the English rendering beside the key, so the
+	// result can never carry a response body (and nothing is left to redact).
+	test("a server row in error comes out of shapeConfiguration with its cause rendered in English beside the key", () => {
 		const failing = makeState({
 			servers: [
 				makeExternalServer({
 					label: "Leaky",
 					state: "error",
-					error: `401: Authorization: Bearer ${LEAKED_MARKER} rejected`,
-					errorEnglish: `401 for Authorization: Bearer ${LEAKED_MARKER}`,
+					cause: { kind: "transport", classification: { kind: "auth", status: 401 } },
 				}),
 			],
 		});
-		const shaped = shapeConfiguration(failing, ["servers"], redact);
-		expect(JSON.stringify(shaped)).not.toContain(LEAKED_MARKER);
+		const shaped = shapeConfiguration(failing, ["servers"]);
 		expect(shaped.servers).toEqual([
-			{
-				...failing.servers[0],
-				error: "401: Authorization: Bearer [redacted] rejected",
-				errorEnglish: "401 for Authorization: Bearer [redacted]",
-			},
+			{ ...failing.servers[0], error: "Authentication failed for http://copilot.example:4000" },
 		]);
 	});
 
@@ -130,20 +124,22 @@ describe("agentTools render", () => {
 			baseUrl: "http://dev.test",
 			lastChecked: "t2",
 			servedModelCount: 1,
+			// A virtual-key-only entry: the kind rides beside the presence, or the agent reads a static API key.
+			hasApiKey: true,
+			hasVirtualKey: true,
 			state: "error",
-			error: `body mentions ${LEAKED_MARKER}`,
+			cause: { kind: "transport", classification: { kind: "auth", status: 401 } },
 			logSafeError: markLogSafe("auth"),
-			classification: { kind: "auth", status: 401 },
 			expected: false,
 			declaredModelCount: 1,
 		},
 	];
 
-	//   Drifts silently -> a response-derived string (server error, latest error, log line) reaching the agent without
-	//                      the issue reporter's redaction, or the stack
+	//   Drifts silently -> a response-derived string (latest error, log line) reaching the agent without the issue
+	//                      reporter's redaction, or the stack; a server row carries its cause, which renders in English
 	test.each([
-		["with logs", true, 3],
-		["without logs", false, 2],
+		["with logs", true, 2],
+		["without logs", false, 1],
 	])(
 		"shapeDiagnostics %s redacts every response-derived string and carries no stack",
 		(_name, includeLogs, redactions) => {
@@ -162,6 +158,7 @@ describe("agentTools render", () => {
 					lastChecked: "t1",
 					hasApiKey: true,
 					hasOAuth: undefined,
+					hasVirtualKey: undefined,
 					hiddenByRemoval: false,
 					modelInfoUnsupported: undefined,
 				},
@@ -171,9 +168,10 @@ describe("agentTools render", () => {
 					state: "error",
 					servedModelCount: 1,
 					lastChecked: "t2",
-					hasApiKey: undefined,
+					hasApiKey: true,
 					hasOAuth: undefined,
-					error: "body mentions [redacted]",
+					hasVirtualKey: true,
+					error: "Authentication failed for http://dev.test",
 					classification: { kind: "auth", status: 401 },
 					expected: false,
 					declaredModelCount: 1,
@@ -212,7 +210,7 @@ describe("agentTools render", () => {
 				}),
 			],
 		});
-		const configuration = renderJson(shapeConfiguration(credState, ["servers"], (text) => text));
+		const configuration = renderJson(shapeConfiguration(credState, ["servers"]));
 		expect(configuration).not.toContain(secret);
 		expect(configuration).toContain("http://localhost:4000");
 		expect(configuration).toContain("https://idp.test/token");

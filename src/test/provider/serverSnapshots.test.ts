@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import { statusClassification } from "../../shared/servers";
 import {
 	discoveryHandlers,
 	emptyErrorResponse,
@@ -76,7 +77,7 @@ suite("provider server snapshots", () => {
 
 		const status = expectDefined(provider.getServerSnapshots()[0]).status;
 		assert.ok(status.state === "error", "expected an error status");
-		assert.deepStrictEqual(status.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
+		assert.deepStrictEqual(statusClassification(status), { kind: "http", status: 404, setupHint: "check-base-url" });
 	});
 
 	// msw cannot fabricate the transport's ECONNREFUSED cause chain, so this test injects the transport, which also
@@ -94,7 +95,7 @@ suite("provider server snapshots", () => {
 
 		const status = expectDefined(provider.getServerSnapshots()[0]).status;
 		assert.ok(status.state === "error", "expected an error status");
-		assert.deepStrictEqual(status.classification, { kind: "connection", setupHint: "proxy-not-running" });
+		assert.deepStrictEqual(statusClassification(status), { kind: "connection", setupHint: "proxy-not-running" });
 	});
 
 	test("a cached group refresh still records the models", async () => {
@@ -446,40 +447,36 @@ suite("provider server snapshots", () => {
 		});
 	});
 
-	test("hasSeenGroupConfiguration latches when the host hands a group, before any snapshot exists", async () => {
+	test("a group serve counts as configured only while it runs, so an emptied session reads as not configured", async () => {
 		const provider = makeProvider();
-		// A failing discovery, so the group produces no snapshot rows even though the host handed a group
-		// configuration: the latch must not depend on a successful fetch.
+		// The configured-servers gate reads this between the host handing a group over and its report landing, so
+		// the serve is held open at the network to observe both sides of it.
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
 		mswServer.use(
-			http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+			http.get(MODEL_INFO_URL, async () => {
+				await held;
+				return emptyErrorResponse(404);
+			}),
 			http.get(MODELS_URL, () => emptyErrorResponse(404))
 		);
 
-		assert.strictEqual(provider.hasSeenGroupConfiguration(), false);
-		assert.strictEqual(provider.getServerSnapshots().length, 0);
-
-		// The host performs the groupless refresh first; it reports an empty window and must not flip the latch.
+		assert.strictEqual(provider.hasGroupServeInFlight(), false);
+		// The host performs the groupless refresh first; it reports an empty window and hands no group over.
 		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
-		assert.strictEqual(
-			provider.hasSeenGroupConfiguration(),
-			false,
-			"the groupless refresh proves nothing about groups"
-		);
+		assert.strictEqual(provider.hasGroupServeInFlight(), false, "the groupless refresh proves nothing about groups");
 
-		await provider.provideLanguageModelChatInformation(
+		const serve = provider.provideLanguageModelChatInformation(
 			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" }),
 			cancellation()
 		);
-		assert.strictEqual(provider.hasSeenGroupConfiguration(), true);
-	});
-
-	test("a malformed group configuration still latches: the host offered a group", async () => {
-		const provider = makeProvider();
-
-		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: 42 }), cancellation());
-
-		assert.strictEqual(provider.hasSeenGroupConfiguration(), true);
-		assert.strictEqual(provider.getServerSnapshots().length, 0, "a malformed group yields no snapshot");
+		assert.strictEqual(provider.hasGroupServeInFlight(), true, "a handed-over group proves servers exist");
+		release();
+		await serve;
+		// Nothing is remembered: with every entry removed and the window empty, the gate reads false.
+		assert.strictEqual(provider.hasGroupServeInFlight(), false);
 	});
 
 	test("the recorded snapshot carries the declared models exactly as the serve handed them out", async () => {

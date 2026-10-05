@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
-import { makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
+import { CAUSE, makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
@@ -53,7 +53,7 @@ test("a full state push replaces the skeleton with the rail's verdict and counts
 	const state = makeState({
 		servers: [
 			makeDeclaredServer({ label: "Ok", state: "ok" }),
-			makeDeclaredServer({ label: "Broken", state: "error", error: "connect ECONNREFUSED" }),
+			makeDeclaredServer({ label: "Broken", state: "error", cause: CAUSE.connection }),
 		],
 		models: [makeModel({ id: "a" }), makeModel({ id: "b" }), makeModel({ id: "c" })],
 	});
@@ -69,16 +69,20 @@ test("a full state push replaces the skeleton with the rail's verdict and counts
 	expect(counts.Models).toBe("3");
 	expect(counts.Diagnostics).toBeUndefined();
 	expect(root.textContent).toContain("Broken");
-	expect(root.textContent).toContain("connect ECONNREFUSED");
+	expect(root.textContent).toContain("Could not connect to http://localhost:4000");
 });
 
 test("a hidden-only state renders the connected zero-model hero, never Not configured", () => {
-	//   the shell -> must pass state.hiddenGroups.length through to the verdict, or the hero reads "Not configured"
-	//                beside a warning status bar
+	//   the shell -> classifies the published verdict rows, where the hidden group still answers; a hero reading the
+	//                empty servers table would say "Not configured" beside a warning status bar
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
-			makeState({ servers: [], hiddenGroups: [{ label: "retired", baseUrl: "http://old.test", reason: "removed" }] })
+			makeState({
+				servers: [],
+				verdictRows: [{ state: "ok", servedModelCount: 0, hiddenByRemoval: true }],
+				hiddenGroups: [{ label: "retired", baseUrl: "http://old.test", reason: "removed" }],
+			})
 		)
 	);
 	const overall = root.querySelector(".rail-status");

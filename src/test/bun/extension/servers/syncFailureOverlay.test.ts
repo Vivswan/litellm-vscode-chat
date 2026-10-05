@@ -1,14 +1,18 @@
 /**
  * The sync-failure overlay's precedence rules: a sync error outranks the live status (ok or error) while the served
- * count stays the live truth, an upsertFailed entry discovery never saw becomes an error serving nothing (blocked and
- * skipped entries wait for their group's report instead), and entries without a sync error change nothing. The
- * cross-surface vocabulary suites pin what the bar and notifier make of the overlaid window; this suite pins the
- * overlay itself.
+ * count stays the live truth, an entry discovery never saw becomes an error serving nothing whatever its failure
+ * class, and entries without a sync error change nothing. The cross-surface vocabulary suites pin what the bar and
+ * notifier make of the overlaid window; this suite pins the overlay itself.
  */
 
 import { expect, test } from "bun:test";
+import { classifyOverall } from "../../../../dashboard/presenters";
 import type { DeclaredServerView } from "../../../../extension/servers/serverSync";
-import { applySyncFailures, declaredPresentation } from "../../../../extension/servers/syncFailureOverlay";
+import {
+	applySyncFailures,
+	declaredPresentation,
+	ServerVerdict,
+} from "../../../../extension/servers/syncFailureOverlay";
 import { markLogSafe } from "../../../../shared/logger";
 import type { ServerStatus } from "../../../../shared/servers";
 
@@ -26,15 +30,14 @@ function okStatus(overrides: { serverId: string; servedModelCount: number }): Se
 	};
 }
 
-function errorStatus(overrides: { serverId: string; servedModelCount: number; error: string }): ServerStatus {
+function errorStatus(overrides: { serverId: string; servedModelCount: number }): ServerStatus {
 	return {
 		serverId: overrides.serverId,
 		label: overrides.serverId,
 		baseUrl: `http://${overrides.serverId}.test`,
 		state: "error",
-		error: overrides.error,
+		cause: { kind: "transport", classification: { kind: "connection" } },
 		logSafeError: markLogSafe("RequestError(connection)"),
-		classification: { kind: "connection" },
 		servedModelCount: overrides.servedModelCount,
 		lastChecked: "2026-08-01T00:00:00.000Z",
 	};
@@ -55,79 +58,91 @@ function view(overrides: {
 }
 
 test("a sync failure outranks a live ok status while the served count stays the live truth", () => {
-	const live = okStatus({ serverId: "live", servedModelCount: 4 });
+	// A virtual-key-only group: the kind must survive the rebuild beside the presence, or the persisted status and the
+	// diagnostics read a static API key while the row shows Virtual key.
+	const live: ServerStatus = {
+		...okStatus({ serverId: "live", servedModelCount: 4 }),
+		hasOAuth: false,
+		hasVirtualKey: true,
+	};
 	const overlaid = applySyncFailures(
 		[live],
-		[view({ label: "live", expectedClientId: "live", syncFailure: { class: "blocked", message: "blocked message" } })]
+		[view({ label: "live", expectedClientId: "live", syncFailure: { class: "blocked" } })]
 	);
 	expect(overlaid.length).toBe(1);
 	const status = overlaid[0];
 	expect(status?.state).toBe("error");
-	expect(status?.error).toBe("blocked message");
+	expect(status?.state === "error" ? status.cause : undefined).toEqual({ kind: "sync", failureClass: "blocked" });
 	expect(status?.servedModelCount).toBe(4);
-	// The log rendering is rebuilt from the failure class alone, never the message: log lines land in public issue
-	// reports.
+	// The log rendering is the failure class alone: log lines land in public issue reports.
 	expect(status?.state === "error" ? String(status.logSafeError) : "").toBe("provider group sync failed (blocked)");
 	expect(status?.serverId).toBe("live");
 	expect(status?.baseUrl).toBe("http://live.test");
 	expect(status?.lastChecked).toBe(live.lastChecked);
 	expect(status?.hasApiKey).toBe(true);
+	expect(status?.hasOAuth).toBe(false);
+	expect(status?.hasVirtualKey).toBe(true);
 });
 
-test("a sync failure outranks a live error's text and drops its classification", () => {
-	const live = errorStatus({ serverId: "gw", servedModelCount: 3, error: "boom" });
+test("a sync failure outranks a live error's cause, transport classification included", () => {
+	const live = errorStatus({ serverId: "gw", servedModelCount: 3 });
 	const overlaid = applySyncFailures(
 		[live],
-		[view({ label: "gw", expectedClientId: "gw", syncFailure: { class: "blocked", message: "sync failed" } })]
+		[view({ label: "gw", expectedClientId: "gw", syncFailure: { class: "blocked" } })]
 	);
 	const status = overlaid[0];
 	expect(status?.state).toBe("error");
-	expect(status?.error).toBe("sync failed");
+	// The masked transport cause must not advise on a failure the status no longer displays (the dashboard row drops
+	// it the same way): the sync cause replaces it whole.
+	expect(status?.state === "error" ? status.cause : undefined).toEqual({ kind: "sync", failureClass: "blocked" });
 	expect(status?.servedModelCount).toBe(3);
-	// The masked transport error's classification must not advise on a failure the status no longer displays (the
-	// dashboard row drops it the same way).
-	expect(status !== undefined && "classification" in status && status.classification !== undefined).toBe(false);
 });
 
 test("an upsertFailed entry discovery never saw becomes an error serving nothing", () => {
-	const overlaid = applySyncFailures(
-		[],
-		[view({ label: "pending", syncFailure: { class: "upsertFailed", message: "upsert failed" } })]
-	);
+	const overlaid = applySyncFailures([], [view({ label: "pending", syncFailure: { class: "upsertFailed" } })]);
 	expect(overlaid.length).toBe(1);
 	const status = overlaid[0];
 	expect(status?.state).toBe("error");
-	expect(status?.error).toBe("upsert failed");
+	expect(status?.state === "error" ? status.cause : undefined).toEqual({ kind: "sync", failureClass: "upsertFailed" });
 	expect(status?.servedModelCount).toBe(0);
 	expect(status?.label).toBe("pending");
 	expect(status?.baseUrl).toBe("http://pending.test");
 });
 
-test("a blocked or skipped entry with no live status synthesizes nothing: its group reports later", () => {
-	//   blocked          -> proves a group with the name EXISTS (the duplicate refusal)
-	//   The skip classes -> mean the pass left live groups serving; a synthesized dead error would race the first
-	//                       discovery report red
-	expect(
-		applySyncFailures([], [view({ label: "held", syncFailure: { class: "blocked", message: "name conflict" } })])
-	).toEqual([]);
-	expect(
-		applySyncFailures(
-			[],
-			[view({ label: "skipped", syncFailure: { class: "saltUnavailable", message: "salt unavailable" } })]
-		)
-	).toEqual([]);
-	expect(
-		applySyncFailures(
-			[],
-			[view({ label: "unread", syncFailure: { class: "secretsUnreadable", message: "secrets unreadable" } })]
-		)
-	).toEqual([]);
-	expect(
-		applySyncFailures(
-			[],
-			[view({ label: "mismatched", syncFailure: { class: "secretsMismatched", message: "ownership refused" } })]
-		)
-	).toEqual([]);
+test("a blocked or skipped entry with no live status is the dashboard's row: an error serving nothing", () => {
+	// The bar and the hero read one row set: an entry no report reached is the error row the dashboard draws, and a
+	// live group reporting later is overlaid as the same error.
+	for (const failureClass of ["blocked", "saltUnavailable", "secretsUnreadable", "secretsMismatched"] as const) {
+		const overlaid = applySyncFailures([], [view({ label: "held", syncFailure: { class: failureClass } })]);
+		expect(overlaid.length, failureClass).toBe(1);
+		const held = overlaid[0];
+		expect(held?.state, failureClass).toBe("error");
+		expect(held?.state === "error" ? held.cause : undefined, failureClass).toEqual({ kind: "sync", failureClass });
+		expect(overlaid[0]?.servedModelCount, failureClass).toBe(0);
+		expect(overlaid[0]?.label, failureClass).toBe("held");
+	}
+});
+
+test("the owner's verdict rows carry a declared entry awaiting its first report as unchecked, beside the overlaid statuses", () => {
+	// classifyOverall reads these for the bar, the notifier, and the hero: one awaiting entry beside one failed entry
+	// is degraded, not the error a failure-only set would give.
+	const rows = new ServerVerdict({
+		statuses: () => [],
+		declared: () => ({
+			source: "engine",
+			views: [view({ label: "fresh" }), view({ label: "unread", syncFailure: { class: "secretsUnreadable" } })],
+		}),
+		entryReports: () => [],
+	}).rows();
+	expect(rows).toEqual([
+		{
+			state: "error",
+			servedModelCount: 0,
+			failure: { cause: { kind: "sync", failureClass: "secretsUnreadable" }, baseUrl: "http://unread.test" },
+		},
+		{ state: "unchecked", servedModelCount: 0 },
+	]);
+	expect(classifyOverall(rows)).toBe("degraded");
 });
 
 test("claimants sharing one live snapshot overlay it once, keeping the live served count", () => {
@@ -137,7 +152,7 @@ test("claimants sharing one live snapshot overlay it once, keeping the live serv
 		baseUrl: "http://shared.test",
 		secrets: NO_SECRETS,
 		expectedConnectionId: "shared",
-		syncFailure: { class: "blocked", message: "blocked message" } as const,
+		syncFailure: { class: "blocked" } as const,
 	});
 	const result = applySyncFailures([shared], [sharedView("Prod"), sharedView("Staging")]);
 	expect(result.length).toBe(1);
@@ -162,7 +177,7 @@ test("an unrelated neighbor passes through by reference beside a sync failure", 
 		[healthy, live],
 		[
 			view({ label: "fine", expectedClientId: "fine" }),
-			view({ label: "live", expectedClientId: "live", syncFailure: { class: "blocked", message: "blocked" } }),
+			view({ label: "live", expectedClientId: "live", syncFailure: { class: "blocked" } }),
 		]
 	);
 	expect(result.length).toBe(2);
@@ -171,7 +186,7 @@ test("an unrelated neighbor passes through by reference beside a sync failure", 
 });
 
 test("declaredPresentation owns the precedence: sync failure first, then live, then unchecked", () => {
-	const failure = { class: "blocked", message: "blocked" } as const;
+	const failure = { class: "blocked" } as const;
 	expect(declaredPresentation({ servedModelCount: 7 }, failure)).toEqual({
 		kind: "sync-failed",
 		servedModelCount: 7,

@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import type { DashboardIntent, ReplacedEntryIdentity, RequestPayload } from "../../../dashboard/endpoints";
 import type { ServerFormDraft } from "../../../dashboard/serverForm";
 import { applyInlinePrefill, EMPTY_SERVER_FORM, parseServerForm } from "../../../dashboard/serverForm";
+import { declaredViewsFromSetting } from "../../../extension/dashboard/declaredServers";
 import type { IntentAckNotice, IntentEnvironment } from "../../../extension/dashboard/intents";
 import {
 	DashboardOperationError,
@@ -9,7 +10,6 @@ import {
 	executeDashboardIntent,
 	readInlineSecretValues,
 } from "../../../extension/dashboard/intents";
-import { declaredViewsFromSetting } from "../../../extension/dashboard/panel";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
 import { writeServersSettingFrom } from "../../../extension/settingsWriteTurn";

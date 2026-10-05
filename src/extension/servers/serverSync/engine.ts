@@ -6,12 +6,17 @@
  */
 
 import { isDeepStrictEqual } from "node:util";
-import * as l10n from "@vscode/l10n";
 import type * as vscode from "vscode";
-import type { CredentialRejection, ParsedGroupConfiguration } from "../../../provider/catalog/groupModels";
-import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
+import type { CredentialRejection, GroupServer, ParsedGroupConfiguration } from "../../../provider/catalog/groupModels";
+import {
+	groupClientId,
+	groupCredentialKind,
+	groupHasCredentials,
+	parseGroupConfiguration,
+} from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
+import type { SyncErrorClass } from "../../../shared/failureCause";
 import type {
 	EntryViewFields,
 	NonSecretOptionalFields,
@@ -48,22 +53,13 @@ import {
  *   saltUnavailable    -> the read succeeded and only the unconfirmed fingerprint salt stopped the pass
  *   credentialsRefused -> the group synced, but a configured key cannot ride its header, so requests are refused
  */
-type SyncErrorClass =
-	| "upsertFailed"
-	| "blocked"
-	| "secretsUnreadable"
-	| "secretsMismatched"
-	| "saltUnavailable"
-	| "credentialsRefused";
 
 /**
- * One entry's sync failure: the class and its classified user-facing message, one value so a class without a message
- * (or the reverse) is unrepresentable. Constructed only by syncFailureOf, which derives the message from the class, so
- * a mispaired class/message cannot be built either.
+ * One entry's sync failure: the class alone. The text renders from it where it is shown (shared/failureCause.ts), in
+ * the reader's locale, so the view carries no sentence written under the locale of the pass that failed.
  */
 export interface SyncFailure {
 	readonly class: SyncErrorClass;
-	readonly message: string;
 }
 
 /**
@@ -111,15 +107,39 @@ export interface DeclaredServerView extends DeclaredGroupIdentity, NonSecretOpti
 	 * only, never values.
 	 */
 	readonly rejectedCredentials?: readonly CredentialRejection["field"][] | undefined;
+	/**
+	 * What the group parser kept of the entry's credentials (groupHasCredentials over its output), the one answer the
+	 * group report gives too; undefined when the entry resolves to no usable group configuration. The dashboard row
+	 * and the issue report read it instead of judging locations or inline fields themselves.
+	 */
+	readonly credentials?: DeclaredCredentials | undefined;
+}
+
+/** The kinds beside the presence, so the rows name a virtual-key header or OAuth client as such. */
+export interface DeclaredCredentials {
+	readonly present: boolean;
+	readonly oauth: boolean;
+	readonly virtualKey: boolean;
+}
+
+function credentialsOf(groupServer: GroupServer): DeclaredCredentials {
+	const kind = groupCredentialKind(groupServer);
+	return { present: groupHasCredentials(groupServer), oauth: kind === "oauth", virtualKey: kind === "virtualKey" };
+}
+
+/** The owner's reading of an entry's credentials from the args a pass bakes; see DeclaredServerView.credentials. */
+export function declaredCredentials(args: Readonly<Record<string, string>>): DeclaredCredentials | undefined {
+	const parsed = parseGroupConfiguration(args);
+	return parsed === undefined ? undefined : credentialsOf(parsed.server);
 }
 
 /** One derivation for the join keys (dashboard/declaredJoin.ts), so a pass's views and the live resolution agree. */
 function declaredGroupIdentity(
 	entry: DeclaredServer,
 	parsed: ParsedGroupConfiguration | undefined
-): DeclaredGroupIdentity {
+): DeclaredGroupIdentity & { readonly credentials: DeclaredCredentials | undefined } {
 	if (parsed === undefined) {
-		return { label: entry.label, baseUrl: entry.baseUrl };
+		return { label: entry.label, baseUrl: entry.baseUrl, credentials: undefined };
 	}
 	const { label: _label, ...connection } = parsed.server;
 	return {
@@ -127,6 +147,7 @@ function declaredGroupIdentity(
 		baseUrl: entry.baseUrl,
 		expectedClientId: groupClientId(parsed.server),
 		expectedConnectionId: groupClientId(connection),
+		credentials: credentialsOf(parsed.server),
 	};
 }
 
@@ -259,12 +280,6 @@ export function groupArgsFingerprint(args: Record<string, string>): string {
 	return `i1:${fingerprint(JSON.stringify(groupIdentityArgs(args)))}`;
 }
 
-/**
- * The classified upsert-failure text. The host's raw error message is never stored, displayed, or logged: the command
- * was called with fully resolved secrets, and the log buffer feeds public issue reports.
- */
-export const GROUP_UPSERT_FAILED_MESSAGE = "The host rejected the provider group upsert";
-
 /** How many times resolveDeclaredIdentities re-reads a setting+secrets pair that changed under it before giving up. */
 const IDENTITY_READ_ATTEMPTS = 3;
 
@@ -291,57 +306,13 @@ export class IndeterminateServersSettingError extends Error {
 }
 
 /**
- * That covers an entry whose configuration changed after its group was created AND a brand-new entry under a name the
- * host already uses, so the text must not assert that anything changed. VS Code's group commands are strictly additive
- * and no update or removal command exists (pinned by hostGroupCommand.test.ts).
- */
-export const GROUP_UPDATE_UNAVAILABLE_MESSAGE =
-	"A VS Code provider group already uses this name, and VS Code cannot update an existing group. " +
-	"If the group does not match this entry, delete it in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), " +
-	"then run Sync Models Now.";
-
-/**
- * The classified text for an entry whose stored secrets could not be read this pass. The entry is skipped, not failed
- * permanently: the next pass (or Sync Models Now) reads again.
- */
-export const SECRETS_READ_FAILED_MESSAGE =
-	"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry.";
-
-/**
- * The classified text for an entry whose stored secret is stamped for a different destination (see
- * resolveOwnedSecrets).
- *
- *   the host is add-only     -> the entry is skipped, not synced without the credential
- *   Re-pairing is deliberate -> the user re-enters or removes the stored value
- */
-export const SECRET_OWNERSHIP_MISMATCH_MESSAGE =
-	"A stored secret for this entry was saved for a different server address, so the entry was not synced. Set the secret again (edit the server in the dashboard, or run LiteLLM: Set Server Secret), or remove the stored value.";
-
-/**
- * The classified text for a pass skipped because the fingerprint salt could not be confirmed durable (see
- * ServerSyncEnv.confirmFingerprintsDurable). Entries are skipped, not failed: the live groups keep serving, and the
- * next session (with the stored salt back) syncs normally.
- */
-export const SALT_UNAVAILABLE_MESSAGE =
-	"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session.";
-
-/**
  * The one SyncFailure constructor: the message derives from the class, so the pairing is right by construction at
  * every producer site. The total Record makes a new class a compile error until it names its message. The refusal's
  * text names no field: the group itself synced, and the Diagnostics tab (rejectedCredentials) points at the field.
  */
+/** The failure's message is the renderer's display text for its class (shared/failureCause.ts). */
 function syncFailureOf(failureClass: SyncErrorClass): SyncFailure {
-	const messages: Readonly<Record<SyncErrorClass, string>> = {
-		upsertFailed: GROUP_UPSERT_FAILED_MESSAGE,
-		blocked: GROUP_UPDATE_UNAVAILABLE_MESSAGE,
-		secretsUnreadable: SECRETS_READ_FAILED_MESSAGE,
-		secretsMismatched: SECRET_OWNERSHIP_MISMATCH_MESSAGE,
-		saltUnavailable: SALT_UNAVAILABLE_MESSAGE,
-		credentialsRefused: l10n.t(
-			"A configured API key or virtual key for this entry cannot be sent as an HTTP header, so requests to it are refused. See the Diagnostics tab for the field, then enter the value again."
-		),
-	};
-	return { class: failureClass, message: messages[failureClass] };
+	return { class: failureClass };
 }
 
 /**

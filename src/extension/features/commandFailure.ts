@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { type FailureLineMessage, logFailure } from "../../provider/catalog/discoveryLog";
-import { statusErrorTexts } from "../../provider/transport/errorMapping";
+import { thrownErrorDisplayText } from "../../provider/transport/errorMapping";
+import { transportClassificationOf } from "../../shared/errorClassification";
 import type { Logger } from "../../shared/logger";
 import { commandErrorActions, showActionableMessage } from "../ui/notifier";
 
@@ -19,6 +20,9 @@ export async function reportCommandFailure(
 		return;
 	}
 	logFailure((message, data, cause) => deps.logger.failure(message, data, cause), logLine, error);
-	const texts = statusErrorTexts(error);
-	await showActionableMessage("error", texts.error, commandErrorActions(texts.classification, deps.outputChannel));
+	await showActionableMessage(
+		"error",
+		thrownErrorDisplayText(error),
+		commandErrorActions(transportClassificationOf(error), deps.outputChannel)
+	);
 }

@@ -1,5 +1,6 @@
 /** The connection facts are asserted through Copy diagnostics here; servers.test.tsx pins their on-screen twins. */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import * as l10n from "@vscode/l10n";
 import { DOCS_GETTING_STARTED_URL } from "../../../../shared/util/links";
 import { App } from "../../../../webview/dashboard/app";
 import {
@@ -7,7 +8,7 @@ import {
 	FEEDBACK_LINK_RATE,
 	FEEDBACK_LINK_REPOSITORY,
 } from "../../../../webview/dashboard/feedbackLinks";
-import { makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
+import { CAUSE, makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
 import { buttonByText, cleanup, fireClick, mount, postedCalls, pushToWebview, resetPosted } from "../harness";
 
 beforeEach(() => {
@@ -68,14 +69,14 @@ test("the per-server outcome grid is gone: the server rows own every fact it rep
 				label: "Broken",
 				baseUrl: "http://localhost:4001",
 				state: "error",
-				error: "connect ECONNREFUSED",
+				cause: CAUSE.connection,
 			}),
 		],
 		models: [makeModel(), makeModel({ id: "second", name: "Second" })],
 	});
 	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
 	expect(panel.querySelector("table.diag-grid")).toBeNull();
-	expect(panel.textContent).not.toContain("connect ECONNREFUSED");
+	expect(panel.textContent).not.toContain("Could not connect");
 	expect(panel.textContent).not.toContain("http://localhost:4001");
 	expect(panel.textContent).not.toContain("Servers configured");
 	expect(panel.textContent).not.toContain("Last checked");
@@ -95,7 +96,7 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 				label: "Broken",
 				baseUrl: "http://localhost:4001",
 				state: "error",
-				error: "connect ECONNREFUSED",
+				cause: CAUSE.connection,
 			}),
 		],
 		models: [makeModel(), makeModel({ id: "second", name: "Second" })],
@@ -111,7 +112,7 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 			"Servers configured: 2",
 			`Last checked: ${new Date(lastChecked).toISOString()}`,
 			"Prod (http://localhost:4000): OK (2 models)",
-			"Broken (http://localhost:4001): Error: connect ECONNREFUSED",
+			"Broken (http://localhost:4001): Error: Could not connect to http://localhost:4001",
 			"Configuration diagnostics: 0",
 		].join("\n")
 	);
@@ -188,7 +189,7 @@ test("the copied verdict quotes the served count, not the model-table row count"
 			makeDeclaredServer({
 				label: "Gateway",
 				state: "error",
-				error: "404 on /models",
+				cause: CAUSE.http404,
 				expected: true,
 				servedModelCount: 5,
 				declaredModelCount: 2,
@@ -198,7 +199,9 @@ test("the copied verdict quotes the served count, not the model-table row count"
 	});
 	const copied = copyDiagnostics(root);
 	expect(copied).toContain("Connected (5 models)");
-	expect(copied).toContain("Gateway (http://localhost:4000): OK (5 models, 2 declared) - 404 on /models (expected)");
+	expect(copied).toContain(
+		"Gateway (http://localhost:4000): OK (5 models, 2 declared) - The server at http://localhost:4000 answered 404 (expected)"
+	);
 });
 
 test("the copied block says Never with nothing checked yet, and drops the legacy line with an empty registry", () => {
@@ -220,23 +223,21 @@ test("a world with no server rows reads not configured and disables Test connect
 	expect(buttonByText(root, "Test connection").disabled).toBe(true);
 });
 
-test("Copy diagnostics substitutes a row's English error mirror", () => {
-	// The copied block lands in public issue reports, which stay English by policy; the localized error the chat UI
-	// showed renders on the server row.
-	const root = mountDiagnostics({
-		servers: [
-			makeDeclaredServer({
-				label: "Broken",
-				state: "error",
-				error: "LOCALIZED transport failure",
-				errorEnglish: "ENGLISH transport failure",
-			}),
-		],
-		models: [],
-	});
-	const copied = copyDiagnostics(root);
-	expect(copied).toContain("Broken (http://localhost:4000): Error: ENGLISH transport failure");
-	expect(copied).not.toContain("LOCALIZED");
+test("Copy diagnostics renders a row's cause in English under a swapped bundle", () => {
+	// The copied block lands in public issue reports, which stay English by policy; the row carries only its cause
+	// key, so the paste renders it in English while the on-screen row renders the bundle's text.
+	l10n.config({ contents: { "Could not connect to {0}": "LOCALIZED {0}" } });
+	try {
+		const root = mountDiagnostics({
+			servers: [makeDeclaredServer({ label: "Broken", state: "error", cause: CAUSE.connection })],
+			models: [],
+		});
+		const copied = copyDiagnostics(root);
+		expect(copied).toContain("Broken (http://localhost:4000): Error: Could not connect to http://localhost:4000");
+		expect(copied).not.toContain("LOCALIZED");
+	} finally {
+		l10n.config({ contents: {} });
+	}
 });
 
 test("Test connection posts its command, and disables with nothing configured", () => {
@@ -300,10 +301,15 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 
 test("Copy diagnostics reports an entry whose problems no server row states, and the hidden-group count", () => {
 	// The entry branch splices the parser's free-form English problems, and hidden groups contribute no server row at
-	// all - a hidden-only install would otherwise paste "Configuration diagnostics: 0". The count reads
-	// state.hiddenGroups (the same source the verdict reads), never the hidden-groups diagnostic's labels.
+	// all - a hidden-only install would otherwise paste "Configuration diagnostics: 0". The count reads the published
+	// verdict rows (the same set the headline classifies), never the hidden-groups diagnostic's labels.
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1 })],
+		verdictRows: [
+			{ state: "ok", servedModelCount: 1 },
+			{ state: "ok", servedModelCount: 0, hiddenByRemoval: true },
+			{ state: "ok", servedModelCount: 0, hiddenByRemoval: true },
+		],
 		hiddenGroups: [
 			{ label: "retired-eu", baseUrl: "http://eu.test", reason: "removed" },
 			{ label: "retired-us", baseUrl: "http://us.test", reason: "removed" },

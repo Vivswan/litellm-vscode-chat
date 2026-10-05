@@ -70,6 +70,11 @@ function makeDeps(): GeneratePrDeps {
 	};
 }
 
+/** The command boundary's channel lines, in order; the stack line that may follow carries its own prefix. */
+function boundaryLines(lines: readonly string[]): string[] {
+	return lines.filter((entry) => entry.startsWith("ERROR: Pull request description generation failed"));
+}
+
 suite("extension/features/prGen generatePrCommand", () => {
 	// Toast promises stay pending until dismissed in a live host, which would hang any await on showActionableMessage;
 	// the stubs record and resolve.
@@ -317,7 +322,12 @@ suite("extension/features/prGen generatePrCommand", () => {
 			)
 		);
 		assert.strictEqual(shownMessages.length, 1, "the user is told, rather than nothing happening");
-		assert.strictEqual(lines.filter((entry) => entry.includes("Pull request description generation failed")).length, 1);
+		// One boundary logs it: its data line (the failure's kind), then the private channel's copy of the message an
+		// unclassified throw would otherwise leave nowhere; the stack line follows under its own prefix.
+		assert.deepStrictEqual(boundaryLines(lines), [
+			`ERROR: Pull request description generation failed: ${JSON.stringify({ kind: "unclassified" }, null, 2)}`,
+			"ERROR: Pull request description generation failed: git failed to activate",
+		]);
 	});
 
 	test("cancellation is silent: no notification, no log line", async () => {
@@ -346,11 +356,12 @@ suite("extension/features/prGen generatePrCommand", () => {
 		);
 		assert.strictEqual(shownMessages.length, 1);
 		assert.match(shownMessages[0] ?? "", /upstream exploded/);
-		assert.strictEqual(
-			lines.filter((entry) => entry.includes("Pull request description generation failed")).length,
-			1,
-			"exactly one log line, at the one boundary"
-		);
+		// Exactly one boundary logs it (the data line names the kind; the channel also keeps the message, which no
+		// public sink does), so a second boundary's line would show up here as a third entry.
+		assert.deepStrictEqual(boundaryLines(lines), [
+			`ERROR: Pull request description generation failed: ${JSON.stringify({ kind: "unclassified" }, null, 2)}`,
+			"ERROR: Pull request description generation failed: upstream exploded",
+		]);
 	});
 });
 

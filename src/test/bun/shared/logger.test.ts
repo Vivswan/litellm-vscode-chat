@@ -1,7 +1,7 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import type { RecordedError } from "../../../shared/logger";
-import { errorMessageText, Logger, publicErrorStack, publicErrorText } from "../../../shared/logger";
+import { errorMessageText, Logger, publicErrorStack, publicErrorText, recordedError } from "../../../shared/logger";
 import { collectKnownSecretValues, KnownSecrets } from "../../../shared/util/knownSecrets";
 import { expectDefined } from "../../pureHelpers";
 
@@ -76,7 +76,9 @@ describe("shared/logger", () => {
 		assert.deepStrictEqual(sinks.infoLines, ["circular: [object Object]", "function: [object Function]"]);
 	});
 
-	test("error routes to the channel's error level and records the error", () => {
+	test("error routes to the channel's error level and records the error as unclassified", () => {
+		// The channel keeps the message; the buffer and the recorded error (both prefill public issues) carry only the
+		// fact that an unclassified value was thrown, with the frames under it.
 		const sinks = makeSinks();
 		const logger = new Logger(sinks.channel, sinks.recorder);
 		const err = new Error("boom");
@@ -85,11 +87,14 @@ describe("shared/logger", () => {
 
 		assert.equal(sinks.errorLines[0], "Chat request failed: boom");
 		assert.equal(sinks.infoLines.length, 0);
-		assert.match(expectDefined(sinks.bufferLines[0]), /^\[.+\] ERROR: Chat request failed: boom$/);
+		assert.match(expectDefined(sinks.bufferLines[0]), /^\[.+\] ERROR: Chat request failed: unclassified$/);
 		assert.equal(sinks.recorded.length, 1);
 		const recorded = expectDefined(sinks.recorded[0]);
 		assert.equal(recorded.source, "Chat request failed");
-		assert.deepStrictEqual(recorded.error, { message: "boom", stack: err.stack });
+		assert.strictEqual(recorded.error.message, "unclassified");
+		const recordedStack = expectDefined(recorded.error.stack);
+		assert.ok(recordedStack.startsWith("unclassified\n"), recordedStack);
+		assert.ok(!recordedStack.includes("boom"), "the message line is off the recorded stack");
 	});
 
 	test("error appends the stack trace to the channel only", () => {
@@ -112,7 +117,7 @@ describe("shared/logger", () => {
 		assert.equal(sinks.bufferLines.length, 1);
 		assert.match(
 			expectDefined(sinks.bufferLines[0]),
-			/^\[\d{4}-\d{2}-\d{2}T.+\] ERROR: failed: string reason$/,
+			/^\[\d{4}-\d{2}-\d{2}T.+\] ERROR: failed: unclassified$/,
 			"The issue-report buffer keeps its hand-timestamped format for non-Error values"
 		);
 	});
@@ -230,10 +235,10 @@ describe("shared/logger", () => {
 		logger.error("failed", err);
 
 		assert.deepStrictEqual(sinks.errorLines.slice(0, 1), ["failed: boom"]);
-		assert.ok(expectDefined(sinks.bufferLines[0]).endsWith("ERROR: failed: boom"));
+		assert.ok(expectDefined(sinks.bufferLines[0]).endsWith("ERROR: failed: unclassified"));
 	});
 
-	test("a hostile logClassification getter falls back to the message text", () => {
+	test("a hostile logClassification getter reads as unclassified in the buffer", () => {
 		const sinks = makeSinks();
 		const logger = new Logger(sinks.channel, sinks.recorder);
 		const err = new Error("boom");
@@ -245,7 +250,49 @@ describe("shared/logger", () => {
 
 		logger.error("failed", err);
 
-		assert.ok(expectDefined(sinks.bufferLines[0]).endsWith("ERROR: failed: boom"));
+		assert.ok(expectDefined(sinks.bufferLines[0]).endsWith("ERROR: failed: unclassified"));
+	});
+
+	test("failure writes an unclassified throw's message and stack to the channel alone", () => {
+		// The data line (the failure's kind) reaches every sink; the thrown text reaches the private channel, so the
+		// user can diagnose, and no public sink: the buffer keeps the data line, the recorded error the word.
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const err = new Error("一次性错误");
+		err.stack = "Error: 一次性错误\n    at real (x.ts:1:1)";
+
+		logger.failure("failed", { kind: "unclassified" }, err);
+
+		assert.deepStrictEqual(sinks.errorLines, [
+			'failed: {\n  "kind": "unclassified"\n}',
+			"failed: 一次性错误",
+			"Stack trace: Error: 一次性错误\n    at real (x.ts:1:1)",
+		]);
+		assert.deepStrictEqual(
+			sinks.bufferLines.map((line) => line.replace(/^\[\d{4}-\d{2}-\d{2}T[^\]]+\]/, "[T]")),
+			['[T] ERROR: failed: {\n  "kind": "unclassified"\n}']
+		);
+		assert.deepStrictEqual(sinks.recorded, [
+			{ source: "failed", error: { message: "unclassified", stack: "unclassified\n    at real (x.ts:1:1)" } },
+		]);
+	});
+
+	test("failure keeps a publicly rendered error's text off the channel: the data line and the rendering name it", () => {
+		// A classification (or an English mirror) names the failure; its message may be the response body, which no
+		// sink needs.
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const err = Object.assign(new Error("LiteLLM API error: 502 <html>body</html>"), {
+			logClassification: "RequestError(http, status 502)",
+		});
+
+		logger.failure("failed", { kind: "http", status: 502 }, err);
+
+		assert.deepStrictEqual(sinks.errorLines, ['failed: {\n  "kind": "http",\n  "status": 502\n}']);
+		assert.deepStrictEqual(
+			sinks.recorded.map((entry) => entry.error.message),
+			["RequestError(http, status 502)"]
+		);
 	});
 
 	test("Logger.error never throws on a fully hostile proxy", () => {
@@ -275,8 +322,8 @@ describe("shared/logger", () => {
 			},
 			{
 				error: ["failed: [unrenderable value]"],
-				buffer: ["[T] ERROR: failed: [unrenderable value]"],
-				recorded: [{ source: "failed", error: { message: "[unrenderable value]" } }],
+				buffer: ["[T] ERROR: failed: unclassified"],
+				recorded: [{ source: "failed", error: { message: "unclassified" } }],
 			}
 		);
 	});
@@ -320,6 +367,8 @@ describe("shared/logger", () => {
 
 			const dataLine = `Fetching models for provider group: {\n  "baseUrl": "${rendered}",\n  "silent": true\n}`;
 			const errorLine = `Failed to fetch models for provider group at ${rendered}: connect ECONNREFUSED ${rendered}`;
+			// The buffer and the recorded error are public: an unclassified throw leaves them its frames and the word.
+			const publicLine = `Failed to fetch models for provider group at ${rendered}: unclassified`;
 			assert.deepStrictEqual(
 				{
 					info: sinks.infoLines,
@@ -330,14 +379,11 @@ describe("shared/logger", () => {
 				{
 					info: [dataLine, `MCP server resolved: {\n  "uri": "${rendered}"\n}`],
 					error: [errorLine, `Stack trace: Error: connect ECONNREFUSED ${rendered}\n    at real (x.ts:1:1)`],
-					buffer: [`[T] ${dataLine}`, `[T] ERROR: ${errorLine}`],
+					buffer: [`[T] ${dataLine}`, `[T] ERROR: ${publicLine}`],
 					recorded: [
 						{
 							source: `Failed to fetch models for provider group at ${rendered}`,
-							error: {
-								message: `connect ECONNREFUSED ${rendered}`,
-								stack: `Error: connect ECONNREFUSED ${rendered}\n    at real (x.ts:1:1)`,
-							},
+							error: { message: "unclassified", stack: "unclassified\n    at real (x.ts:1:1)" },
 						},
 					],
 				},
@@ -472,10 +518,24 @@ describe("shared/logger errorMessageText", () => {
 });
 
 describe("shared/logger public renderings", () => {
-	test("publicErrorText prefers the classification and falls back to the message", () => {
+	test("publicErrorText prefers the classification and reads an unclassified throw as the word alone", () => {
 		const classified = Object.assign(new Error("secret body"), { logClassification: "RequestError(http, status 502)" });
 		assert.strictEqual(publicErrorText(classified), "RequestError(http, status 502)");
-		assert.strictEqual(publicErrorText(new Error("template text")), "template text");
+		assert.strictEqual(publicErrorText(new Error("template text")), "unclassified");
+		assert.strictEqual(publicErrorText("a thrown string"), "unclassified");
+	});
+
+	test("an unclassified throw's message reaches no public rendering, whatever its script", () => {
+		// The message may be localized text or a response body; the public surfaces (buffer, latest-error snapshot,
+		// status window) carry the fact of the throw and the frames, never the sentence.
+		const thrown = new Error("一次性错误");
+		assert.strictEqual(publicErrorText(thrown), "unclassified");
+		const recorded = recordedError(thrown);
+		assert.strictEqual(recorded.message, "unclassified");
+		assert.ok(!JSON.stringify(recorded).includes("一次性"), JSON.stringify(recorded));
+		const recordedStack = expectDefined(recorded.stack);
+		assert.ok(recordedStack.startsWith("unclassified\n"), recordedStack);
+		assert.match(recordedStack, /\n\s+at /, "the frames stay");
 	});
 
 	test("publicErrorText ranks classification over English mirror over message", () => {
@@ -515,9 +575,12 @@ describe("shared/logger public renderings", () => {
 		assert.strictEqual(publicErrorStack(err), "RequestError(http, status 502)");
 	});
 
-	test("publicErrorStack leaves unclassified errors' stacks alone", () => {
+	test("publicErrorStack drops an unclassified error's message line, keeping the frames", () => {
 		const err = new Error("plain");
-		assert.strictEqual(publicErrorStack(err), err.stack);
+		const stack = expectDefined(publicErrorStack(err));
+		assert.ok(stack.startsWith("unclassified\n"), stack);
+		assert.ok(!stack.includes("plain"), "the message must not reach the public stack");
+		assert.match(stack, /\n\s+at /, "the real call frames must be kept");
 		assert.strictEqual(publicErrorStack("not an error"), undefined);
 	});
 });

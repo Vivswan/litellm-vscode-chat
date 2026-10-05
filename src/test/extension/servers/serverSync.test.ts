@@ -9,6 +9,7 @@ import type { DeclaredServer, SecretStore, StoredServerSecrets } from "../../../
 import {
 	acceptedEntry,
 	buildGroupArgs,
+	declaresServerRows,
 	deleteServerSecrets,
 	entryExpectedFailuresFor,
 	entryIncludeModesFor,
@@ -20,7 +21,6 @@ import {
 	ServerSyncEngine,
 	updateServerSecret,
 } from "../../../extension/servers/serverSync";
-import { SECRET_OWNERSHIP_MISMATCH_MESSAGE } from "../../../extension/servers/serverSync/engine";
 import {
 	readServerSecretsRecord,
 	resolveOwnedSecrets,
@@ -61,6 +61,15 @@ suite("extension/servers/serverSync", () => {
 			assert.deepStrictEqual(parseServersSetting(undefined), { entries: [], problems: [] });
 			assert.strictEqual(parseServersSetting("junk").entries.length, 0);
 			assert.strictEqual(parseServersSetting("junk").problems.length, 1);
+		});
+
+		test("declaresServerRows counts a rejected entry that has a Misconfigured row as configured", () => {
+			// The status bar and notifier gate on this: a rejected entry with a Misconfigured row is a configured server,
+			// so the bar reads "connecting" beside the hero's "Error: misconfigured entry", never "No servers configured".
+			assert.strictEqual(declaresServerRows([{ label: "x", baseUrl: "http://x.test", auth: { apiKey: 5 } }]), true);
+			assert.strictEqual(declaresServerRows([{ label: "x", auth: { apiKey: 5 } }]), false, "no base URL, no row");
+			assert.strictEqual(declaresServerRows([]), false);
+			assert.strictEqual(declaresServerRows(undefined), false);
 		});
 	});
 
@@ -265,7 +274,7 @@ suite("extension/servers/serverSync", () => {
 
 			assert.strictEqual(recorded.upserts.length, 0, "the refused pairing must never reach the host");
 			const view = engine.getDeclared()[0];
-			assert.strictEqual(view?.syncFailure?.message, SECRET_OWNERSHIP_MISMATCH_MESSAGE);
+			assert.strictEqual(view?.syncFailure?.class, "secretsMismatched");
 			assert.strictEqual(view?.syncFailure?.class, "secretsMismatched");
 			assert.strictEqual(view?.secrets.apiKey, "none", "a refused field displays as no credential");
 			const line = recorded.logged.find(([message]) => message.includes("stamped for a different destination"));
@@ -282,14 +291,14 @@ suite("extension/servers/serverSync", () => {
 			recorded.secretOwners = { A: { apiKey: "http://first.test" } };
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the matching stamp syncs cleanly");
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined, "the matching stamp syncs cleanly");
 			assert.strictEqual(recorded.upserts.length, 1);
 
 			recorded.setting = [{ label: "A", baseUrl: "http://first.test/changed" }];
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "the refused pairing must never reach the host");
 			const view = engine.getDeclared()[0];
-			assert.strictEqual(view?.syncFailure?.message, SECRET_OWNERSHIP_MISMATCH_MESSAGE);
+			assert.strictEqual(view?.syncFailure?.class, "secretsMismatched");
 			assert.strictEqual(view?.syncFailure?.class, "secretsMismatched");
 		});
 
@@ -308,7 +317,7 @@ suite("extension/servers/serverSync", () => {
 				recorded.upserts.map((args) => [args.baseUrl, args.apiKey]),
 				[["http://new.test", "sk-new"]]
 			);
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined);
 		});
 
 		test("a matching stamp and a pre-stamping blob both sync; an inline value keeps a mismatch dormant", async () => {
@@ -339,7 +348,7 @@ suite("extension/servers/serverSync", () => {
 					["Inline", "sk-inline"],
 				]
 			);
-			assert.ok(engine.getDeclared().every((view) => view.syncFailure?.message === undefined));
+			assert.ok(engine.getDeclared().every((view) => view.syncFailure?.class === undefined));
 		});
 		test("resolveGroupArgs never hands the internal test command a refused field", async () => {
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://new.test" }], {
@@ -373,7 +382,7 @@ suite("extension/servers/serverSync", () => {
 			await engine.syncNow();
 			const view = engine.getDeclared()[0];
 			assert.strictEqual(view?.syncFailure?.class, "secretsMismatched");
-			assert.strictEqual(view?.syncFailure?.message, SECRET_OWNERSHIP_MISMATCH_MESSAGE);
+			assert.strictEqual(view?.syncFailure?.class, "secretsMismatched");
 			assert.strictEqual(recorded.upserts.length, 1, "the refused pairing must never reach the host");
 		});
 	});

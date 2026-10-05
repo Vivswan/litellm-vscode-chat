@@ -13,6 +13,7 @@ import { createOpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
 import {
 	currentDeclaredServers,
+	currentSettingDeclaresRows,
 	readEntryApiVersion,
 	readEntryCredentials,
 	readEntryDeclaredModels,
@@ -94,10 +95,10 @@ export function wireProvider(
 	context.subscriptions.push(notifyModelsChanged);
 
 	const hasDeclaredServers = () => currentDeclaredServers().length > 0;
-	// hasSeenGroupConfiguration is the cold-start-honest signal: the host's groupless refresh reports an empty window
-	// before it re-resolves each group, so the live snapshot count alone would wrongly read as empty.
+	// The dashboard's row set, read live: a window the host has not refilled yet (a serve still running), and a
+	// rejected entry that has a Misconfigured row, both count; nothing is remembered from an earlier state.
 	const hasConfiguredServers = () =>
-		provider.getServerSnapshots().length > 0 || provider.hasSeenGroupConfiguration() || hasDeclaredServers();
+		provider.getServerSnapshots().length > 0 || provider.hasGroupServeInFlight() || currentSettingDeclaresRows();
 
 	return { catalogStore, provider, notifyModelsChanged, hasDeclaredServers, hasConfiguredServers };
 }

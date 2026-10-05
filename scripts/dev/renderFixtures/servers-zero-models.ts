@@ -19,6 +19,7 @@ const fixture: RenderFixture = {
 						servedModelCount: 0,
 						credentials: "present",
 						hasOAuth: false,
+						hasVirtualKey: false,
 						state: "ok",
 						lastChecked: minutesAgoMs(2),
 						config: { secrets: provenSecrets({ apiKey: "secure" }) },

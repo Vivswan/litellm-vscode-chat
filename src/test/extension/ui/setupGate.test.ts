@@ -11,7 +11,7 @@ suite("extension/ui/setupGate", () => {
 	function errorStatus(overrides: Partial<Extract<ConnectionStatus, { state: "error" }>> = {}): ConnectionStatus {
 		return {
 			state: "error",
-			error: "boom",
+			cause: { kind: "unclassified" },
 			logSafeError: markLogSafe("boom"),
 			...overrides,
 		};
@@ -30,7 +30,9 @@ suite("extension/ui/setupGate", () => {
 
 	for (const setupHint of SETUP_HINT_KINDS) {
 		test(`an error status hinted ${setupHint} is that problem`, () => {
-			const status = errorStatus({ classification: { kind: "http", status: 404, setupHint } });
+			const status = errorStatus({
+				cause: { kind: "transport", classification: { kind: "http", status: 404, setupHint } },
+			});
 			assert.strictEqual(detectSetupProblem(status), setupHint);
 		});
 	}
@@ -42,7 +44,10 @@ suite("extension/ui/setupGate", () => {
 	test("an error status with a hintless classification is not a setup problem", () => {
 		// A classified failure without a setup hint is a real bug report (e.g. a 500): the gate must not stand between
 		// it and GitHub.
-		assert.strictEqual(detectSetupProblem(errorStatus({ classification: { kind: "http", status: 500 } })), undefined);
+		assert.strictEqual(
+			detectSetupProblem(errorStatus({ cause: { kind: "transport", classification: { kind: "http", status: 500 } } })),
+			undefined
+		);
 	});
 
 	test("the zero-model verdict explained by a hidden group is the hidden-groups problem", () => {
@@ -105,7 +110,7 @@ suite("extension/ui/setupGate", () => {
 	test("a setup hint wins over the hidden-group explanation", () => {
 		const status = errorStatus({
 			totalModels: 0,
-			classification: { kind: "connection", setupHint: "proxy-not-running" },
+			cause: { kind: "transport", classification: { kind: "connection", setupHint: "proxy-not-running" } },
 			serverStatuses: [makeServerStatus({ servedModelCount: 0, hiddenByRemoval: true })],
 		});
 		assert.strictEqual(detectSetupProblem(status), "proxy-not-running");

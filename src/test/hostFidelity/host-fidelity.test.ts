@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { statusClassification } from "../../shared/servers";
 import { type CaptureServer, createCaptureServer } from "../capture-server";
 import {
 	addGroup,
@@ -880,7 +881,7 @@ suite("Host-Fidelity Tests (multi-group)", () => {
 			try {
 				const failed = await waitForGroupStatus(labelB, (status) => status.state === "error", 30000);
 				assert.ok(failed.state === "error", "narrowed by the wait");
-				assert.strictEqual(failed.classification?.kind, "connection", "a dead port classifies as connection");
+				assert.strictEqual(statusClassification(failed)?.kind, "connection", "a dead port classifies as connection");
 				// A FRESH healthy refresh, not the setup-time status: the healthy group's ok must postdate the dead
 				// group's observed failure.
 				const failedAt = Date.parse(failed.lastChecked);

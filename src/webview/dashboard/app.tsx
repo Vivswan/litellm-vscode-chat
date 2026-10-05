@@ -9,7 +9,13 @@ import {
 	SETTING_WRITE_METHODS,
 } from "../../dashboard/endpoints";
 import { classifyOverall, latestCheckedMs } from "../../dashboard/presenters";
-import type { DashboardSectionId, DashboardServer, DashboardState, SettingRowId } from "../../dashboard/viewModels";
+import type {
+	DashboardSectionId,
+	DashboardServer,
+	DashboardState,
+	SettingRowId,
+	VerdictRow,
+} from "../../dashboard/viewModels";
 import { DASHBOARD_SECTION_IDS } from "../../dashboard/viewModels";
 import { AnnounceOnceScope, useAlertOnce } from "./announceOnce";
 import { DiagnosticsSection, pageConfigDiagnostics } from "./diagnostics";
@@ -166,10 +172,11 @@ function ToastHost({
  * zeroModelJudgment host-side): the word names it and the tone matches the status bar's warning, never a green beside
  * a warning bar.
  *
- *   The hero's overall verdict, mapped from the shared classifyOverall -> the strip and the tab never disagree
+ *   The hero's overall verdict, mapped from the shared classifyOverall over the host's published verdict rows -> the
+ *       strip, the tab, the status bar, and the notifier never disagree
  */
-export function overallState(servers: readonly DashboardServer[], modelCount: number, hiddenGroupCount = 0): Overall {
-	switch (classifyOverall(servers, { hiddenGroupCount })) {
+export function overallState(rows: readonly VerdictRow[], modelCount: number): Overall {
+	switch (classifyOverall(rows)) {
 		case "not-configured":
 			return { tone: "muted", word: l10n.t("Not configured") };
 		case "error":
@@ -643,7 +650,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					active={activeSection}
 					onSelect={selectSection}
 					serverCount={state.servers.length}
-					overall={overallState(state.servers, state.servedModelCount, state.hiddenGroups.length)}
+					overall={overallState(state.verdictRows, state.servedModelCount)}
 					synced={lastSync(state.servers, now)}
 				/>
 				<div className="pane">
@@ -720,8 +727,8 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					<SectionPanel section="diagnostics" active={activeSection}>
 						<DiagnosticsSection
 							servers={state.servers}
+							verdictRows={state.verdictRows}
 							modelCount={state.servedModelCount}
-							hiddenGroupCount={state.hiddenGroups.length}
 							diagnostics={state.diagnostics}
 							active={section === "diagnostics"}
 							stateSeq={stateSeq}

@@ -25,6 +25,7 @@ import { inlineSecretValues, readServerSecretsRecord, secretDestination, updateS
 import type { DeclaredServer, EntryModelCapabilities, EntryModelParameters } from "./setting";
 import {
 	acceptedEntry,
+	declaresServerRows,
 	entryApiVersionFor,
 	entryDeclaredModelsFor,
 	entryExpectedFailuresFor,
@@ -368,6 +369,10 @@ function readRawServersSetting(): unknown {
  */
 export function currentDeclaredServers(): DeclaredServer[] {
 	return parseServersSetting(readRawServersSetting()).entries;
+}
+
+export function currentSettingDeclaresRows(): boolean {
+	return declaresServerRows(readRawServersSetting());
 }
 
 /**

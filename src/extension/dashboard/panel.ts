@@ -28,6 +28,7 @@ import type {
 	DashboardSectionId,
 	DashboardState,
 	DashboardUsage,
+	VerdictRow,
 } from "../../dashboard/viewModels";
 import type { LiteLLMChatModelProvider } from "../../provider";
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
@@ -43,11 +44,9 @@ import {
 	getUsageAlertThresholds,
 	getUsagePollIntervalMs,
 	getUsagePollingOffFreshnessWindowMs,
-	SERVERS_SETTING_KEY,
 } from "../../shared/config/settings";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { Logger } from "../../shared/logger";
-import { pickEntryViewFields, pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
 import type { HeaderValue } from "../../shared/util/headers";
 import {
@@ -63,13 +62,12 @@ import type { SecretStore, ServerSyncEngine } from "../servers/serverSync";
 import {
 	deleteServerSecrets,
 	IndeterminateServersSettingError,
-	parseServersSetting,
 	readEntryModelParameters,
-	secretLocations,
 	serverSettingReports,
 	updateServerSecret,
 } from "../servers/serverSync";
 import { readServerSecretsRecord } from "../servers/serverSync/secrets";
+import type { ServerVerdict } from "../servers/syncFailureOverlay";
 import type { UsagePoller } from "../servers/usage";
 import { isUsageFresh, notifyUsageRefreshFailure } from "../servers/usage";
 import type { SettingsAccess } from "../settingsAccess";
@@ -77,6 +75,7 @@ import { createSettingsAccess } from "../settingsAccess";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
 import { secretValueHolders } from "./declaredJoin";
+import type { DeclaredServersInput } from "./declaredServers";
 import { buildDashboardHtml } from "./html";
 import type { DashboardParseIssue } from "./intentSchema";
 import { parseDashboardRequest } from "./intentSchema";
@@ -88,13 +87,7 @@ import {
 	readInlineSecretValues,
 } from "./intents";
 import { buildResolvedModelsView, resolveModelRecordChains } from "./resolvedModels";
-import type {
-	DeclaredServersInput,
-	EntryCapabilitiesRecord,
-	EntryParametersResolution,
-	RemovedGroupsView,
-	SettingsReader,
-} from "./state";
+import type { EntryCapabilitiesRecord, EntryParametersResolution, RemovedGroupsView, SettingsReader } from "./state";
 import {
 	buildDashboardState,
 	mostSpecificGlobalRecordKey,
@@ -143,6 +136,8 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	createPanel(): DashboardPanel;
 	getSnapshots(): readonly ServerModelsSnapshot[];
 	getDeclaredServers(): DeclaredServersInput;
+	/** The verdict rows their owner publishes (ServerVerdict.rows), for the hero and the paste line. */
+	getVerdictRows(): readonly VerdictRow[];
 	/** The declared labels whose secret value each live group carries, by server ID (secretValueHolders). */
 	getSecretHolders(): ReadonlyMap<string, readonly string[]>;
 	/** The removal bookkeeping (tombstones and orphan origins) the state builder folds in. */
@@ -432,6 +427,7 @@ export class DashboardController implements vscode.Disposable {
 			wasLabeledGroupObserved,
 			catalog: this.env.getCatalogStatus(),
 			usage: this.env.getUsage(),
+			verdictRows: this.env.getVerdictRows(),
 		});
 		return {
 			...state,
@@ -793,27 +789,6 @@ export function entryParametersResolver(
 	};
 }
 
-/**
- * Checking a secure blob is async and state pushes carry locations, never values, so the shared rule is fed an
- * empty blob. The "settings-fallback" tag tells state.ts to read the resulting "none" as unproven, not fact.
- */
-export function declaredViewsFromSetting(raw: unknown): DeclaredServersInput {
-	const views = parseServersSetting(raw).entries.map((entry) => {
-		const secrets = secretLocations(entry, {});
-		return {
-			label: entry.label,
-			baseUrl: entry.baseUrl,
-			// The same two registry picks the engine's views ride, so an entry field cannot exist that the fallback
-			// window silently drops (a dropped field would prefill the edit form empty and a save would then DELETE it
-			// from the setting; mcp was lost exactly this way).
-			...pickNonSecretOptionalFields(entry),
-			...pickEntryViewFields(entry),
-			secrets,
-		};
-	});
-	return { source: "settings-fallback", views };
-}
-
 export interface RegisterDashboardOptions {
 	readonly provider: LiteLLMChatModelProvider;
 	readonly logger: Logger;
@@ -821,6 +796,8 @@ export interface RegisterDashboardOptions {
 	readonly removals: GroupRemovalStore;
 	readonly catalog: Pick<OpenRouterCatalogStore, "lookup" | "snapshot" | "status" | "refreshNow">;
 	readonly usagePoller: UsagePoller;
+	/** The owner of the declared set and the verdict rows every surface reads. */
+	readonly verdict: Pick<ServerVerdict, "declared" | "rows">;
 	/**
 	 * The same composed entry-capabilities resolver activation wires into the provider, so the inspector cannot diverge
 	 * from registration and requests.
@@ -928,7 +905,8 @@ export function registerDashboardCommand(
 	context: vscode.ExtensionContext,
 	options: RegisterDashboardOptions
 ): DashboardController {
-	const { provider, logger, syncEngine, removals, catalog, usagePoller, getEntryModelCapabilities, ua } = options;
+	const { provider, logger, syncEngine, removals, catalog, usagePoller, verdict, getEntryModelCapabilities, ua } =
+		options;
 	const serverResolution: ServerResolution = {
 		// The exact resolver chat requests use (activation wires the provider's getEntryModelParameters to the same
 		// readEntryModelParameters).
@@ -969,17 +947,8 @@ export function registerDashboardCommand(
 		}),
 		createPanel: () => createRealPanel(context.extensionUri),
 		getSnapshots: () => provider.getServerSnapshots(),
-		getDeclaredServers: () => {
-			// The engine's declared view is authoritative once a pass has run; right after activation it is still
-			// empty, so the setting fills in, already tagged "settings-fallback" by its producer.
-			const declared = syncEngine.getDeclared();
-			if (declared.length > 0) {
-				return { source: "engine", views: declared };
-			}
-			return declaredViewsFromSetting(
-				vscode.workspace.getConfiguration(CONFIG_SECTION).get<unknown>(SERVERS_SETTING_KEY)
-			);
-		},
+		getDeclaredServers: () => verdict.declared(),
+		getVerdictRows: () => verdict.rows(),
 		getSecretHolders: () =>
 			secretValueHolders(
 				provider.getServerSnapshots(),

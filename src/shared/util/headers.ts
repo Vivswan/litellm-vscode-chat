@@ -28,6 +28,14 @@ export function isValidHeaderName(name: string): boolean {
 }
 
 /**
+ * Header names compare case-insensitively (RFC 9110), so two rows differing only in case are one header; the form's
+ * duplicate check and the save intent's refusal (extension/dashboard/intents.ts) both key on this.
+ */
+export function headerNameKey(name: string): string {
+	return name.toLowerCase();
+}
+
+/**
  * Whether a string can travel as an HTTP header value: tab, visible ASCII, and RFC 9110 obs-text; no CR/LF/NUL or other
  * control octets. Empty is legal; callers for whom a value is a credential require non-empty separately. Private on
  * purpose: every surface, the form included, reads headerValue, so no two readers can disagree on the trim.

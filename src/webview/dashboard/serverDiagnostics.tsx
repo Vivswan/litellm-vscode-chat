@@ -14,8 +14,8 @@ import type {
 	UsageServerCardView,
 	UsageServerView,
 } from "../../dashboard/viewModels";
+import { failureClassification, failureTexts } from "../../shared/failureCause";
 import type { ExpectedFailureCategory } from "../../shared/serverEntry";
-import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
 import type { DocsUrl } from "./docsLinks";
 import { DOCS_LINK_AUTHENTICATION, DOCS_LINK_OPENAI_COMPATIBLE, DOCS_LINK_PARAMS_INACTIVE } from "./docsLinks";
 import { DocsLink } from "./help";
@@ -284,24 +284,25 @@ export function serverDiagnostics(
 			],
 		});
 	}
-	const error = server.error;
+	const error = server.state === "error" ? failureTexts(server.cause, server.baseUrl).display : undefined;
+	const classification = server.state === "error" ? failureClassification(server.cause) : undefined;
 	const inactive = INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true);
 	// The one health walk: this branch's severity and the pill's word read the same verdict.
 	const verdict = serverHealth(server);
 	if (error !== undefined && server.origin !== "misconfigured") {
-		const headline = statusErrorHeadline(error);
+		const headline = error;
 		if (verdict === "degraded" || verdict === "blocking") {
 			const serving = verdict === "degraded";
 			// Where the declare action is withheld, the identity fix rides the details - unless the entry-inactive line
 			// below renders and says the same sentence itself.
 			const declareWithheld =
 				server.origin === "declared" &&
-				server.classification?.unsupportedEndpoint === "modelListing" &&
+				classification?.unsupportedEndpoint === "modelListing" &&
 				server.entryFieldsInactive === true;
 			// The declaration-suggesting transport string is atomic (toasts show it whole) and leads with the
 			// remediation, so the swap happens here: a short consequence clause takes the headline's slot and the
 			// advice rides the detail lines.
-			const declarationAdvice = server.classification?.unsupportedEndpoint === "modelListing";
+			const declarationAdvice = classification?.unsupportedEndpoint === "modelListing";
 			const cause = declarationAdvice ? l10n.t("the server answers, but its models listing fails.") : headline;
 			found.push({
 				key: "discovery-error",
@@ -311,7 +312,6 @@ export function serverDiagnostics(
 					: l10n.t("{0} is serving no models: {1}", server.label, cause),
 				details: detailLines(
 					declarationAdvice ? headline : undefined,
-					statusErrorDetail(error),
 					declareWithheld && inactive.length === 0 ? entryInactiveFixText() : undefined
 				),
 				actions: [
@@ -327,7 +327,7 @@ export function serverDiagnostics(
 								},
 							]
 						: []),
-					...(server.origin === "declared" && server.classification?.unsupportedEndpoint === "modelListing"
+					...(server.origin === "declared" && classification?.unsupportedEndpoint === "modelListing"
 						? [
 								// The error's declaration advice (riding the detail lines, transport proved the shape)
 								// already spells the fix; this is its one-click form, writing exactly the category the
@@ -338,7 +338,7 @@ export function serverDiagnostics(
 								openAiCompatibleGuide,
 							]
 						: []),
-					...(server.classification?.setupHint !== undefined
+					...(classification?.setupHint !== undefined
 						? [
 								{
 									kind: "docs" as const,
@@ -348,9 +348,9 @@ export function serverDiagnostics(
 									// (Label in Name) and the helper's `topic` supplies the distinguishing tail. Do not
 									// spread the helper over these - it carries its own `label` and would put the long
 									// sentence on screen.
-									href: troubleshootingLink(server.classification.setupHint).href,
+									href: troubleshootingLink(classification.setupHint).href,
 									label: l10n.t("Troubleshoot"),
-									ariaLabel: l10n.t("Troubleshoot: {0}", troubleshootingLink(server.classification.setupHint).topic),
+									ariaLabel: l10n.t("Troubleshoot: {0}", troubleshootingLink(classification.setupHint).topic),
 								},
 							]
 						: []),
@@ -387,7 +387,7 @@ export function serverDiagnostics(
 									"{0} serves its last known models; discovery fails only where this entry expects it to.",
 									server.label
 								),
-				details: detailLines(headline, statusErrorDetail(error)),
+				details: detailLines(headline),
 				actions: [],
 			});
 		} else {
@@ -400,7 +400,7 @@ export function serverDiagnostics(
 					server.label,
 					headline
 				),
-				details: detailLines(statusErrorDetail(error)),
+				details: [],
 				actions: [
 					...(server.origin === "declared"
 						? [

@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { ServersSection } from "../../../../webview/dashboard/servers";
 import { relativeTime } from "../../../../webview/dashboard/time";
-import { makeDeclaredServer } from "../fixtures";
+import { CAUSE, makeDeclaredServer } from "../fixtures";
 import { cleanup, mount, resetPosted } from "../harness";
 
 beforeEach(() => {
@@ -50,7 +50,7 @@ test("each server state renders its pill tone, verdict, and relative check time"
 			label: "Broken",
 			baseUrl: "http://b",
 			state: "error",
-			error: "boom",
+			cause: CAUSE.connection,
 			lastChecked: justChecked,
 		}),
 		makeDeclaredServer({ label: "Fresh", baseUrl: "http://c", state: "unchecked" }),
@@ -80,14 +80,14 @@ test("a serving row whose sync failed shows the warn tone, matching its own diag
 	// declaredOutcome's sync branch: an error row that keeps the live served count - degraded, never blocking, on the
 	// pill and the line alike.
 	const root = mountSection([
-		makeDeclaredServer({ label: "Prod", state: "error", error: "the group upsert failed", servedModelCount: 3 }),
+		makeDeclaredServer({ label: "Prod", state: "error", cause: CAUSE.upsertFailed, servedModelCount: 3 }),
 	]);
 	const pill = root.querySelector(".server-list .pill");
 	expect(pill?.classList.contains("tone-warn")).toBe(true);
 	expect(pill?.textContent).toContain("Sync issue");
 	const diagnostic = root.querySelector(".row-diagnostic");
 	expect(diagnostic?.classList.contains("tier-warn")).toBe(true);
-	expect(diagnostic?.textContent).toContain("the group upsert failed");
+	expect(diagnostic?.textContent).toContain("The host rejected the provider group upsert");
 	expect(diagnostic?.textContent).toContain("Prod");
 });
 
@@ -99,7 +99,7 @@ test("an error-state row still serving models reads Sync issue beside the warn d
 		makeDeclaredServer({
 			label: "Gateway",
 			state: "error",
-			error: "boom on the newest sync",
+			cause: CAUSE.http500,
 			declaredModelCount: 2,
 			servedModelCount: 2,
 		}),
@@ -124,7 +124,7 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 				label: "Declared",
 				baseUrl: "http://b",
 				state: "error",
-				error: "404 on /models",
+				cause: CAUSE.http404,
 				expected: true,
 				declaredModelCount: 2,
 				servedModelCount: 2,
@@ -138,7 +138,7 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 		},
 		// Blocking: it serves nothing.
 		{
-			server: makeDeclaredServer({ label: "Down", baseUrl: "http://d", state: "error", error: "refused" }),
+			server: makeDeclaredServer({ label: "Down", baseUrl: "http://d", state: "error", cause: CAUSE.connection }),
 			tone: "tone-error",
 		},
 		// Degraded: the same failure while models keep serving - warn, not the blocking red.
@@ -147,7 +147,7 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 				label: "Serving",
 				baseUrl: "http://h",
 				state: "error",
-				error: "refused",
+				cause: CAUSE.connection,
 				servedModelCount: 2,
 			}),
 			tone: "tone-warn",
@@ -158,7 +158,7 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 				label: "Both",
 				baseUrl: "http://e",
 				state: "error",
-				error: "refused",
+				cause: CAUSE.connection,
 				notices: ["entry-params-inactive"],
 			}),
 			tone: "tone-error",
@@ -169,7 +169,7 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 				label: "Nothing",
 				baseUrl: "http://f",
 				state: "error",
-				error: "404",
+				cause: CAUSE.http404,
 				expected: true,
 			}),
 			tone: "tone-error",

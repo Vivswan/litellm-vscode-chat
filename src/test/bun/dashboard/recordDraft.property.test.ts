@@ -17,6 +17,7 @@ import {
 	lintCapabilityRecords,
 } from "../../../shared/config/capabilityResolution";
 import type { HeaderScalar } from "../../../shared/util/headers";
+import { headerNameKey } from "../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
@@ -72,8 +73,11 @@ const finiteNumber = fc.double({ noNaN: true, noDefaultInfinity: true }).map((n)
 const headerValueString = fc.string({ maxLength: 20 }).map((s) => s.replace(/[\r\n]/g, " ").trim());
 
 const headerScalar: fc.Arbitrary<HeaderScalar> = fc.oneof(fc.boolean(), finiteNumber, headerValueString);
-// Ordinary prototype: parseHeaderRows always returns one, and the round trip compares prototypes.
-const headersRecord = fc.dictionary(headerName, headerScalar, { maxKeys: 6, noNullPrototype: true });
+// Ordinary prototype: parseHeaderRows always returns one, and the round trip compares prototypes. Names are unique
+// case-insensitively (headerNameKey), the one spelling the host accepts per header.
+const headersRecord = fc
+	.dictionary(headerName, headerScalar, { maxKeys: 6, noNullPrototype: true })
+	.filter((record) => new Set(Object.keys(record).map(headerNameKey)).size === Object.keys(record).length);
 
 const hostileText = fc.oneof(
 	fc.string({ maxLength: 15 }),

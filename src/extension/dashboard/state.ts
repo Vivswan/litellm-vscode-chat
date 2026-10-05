@@ -17,6 +17,7 @@ import type {
 	ScopedRecordSetting,
 	ServerSecretsView,
 	SettingScope,
+	VerdictRow,
 } from "../../dashboard/viewModels";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
 import type { PreAttachModelInfo } from "../../provider/catalog/groupModels";
@@ -69,26 +70,23 @@ import {
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
-import type { TransportErrorClassification, UnservedEndpointEvidence } from "../../shared/errorClassification";
-import {
-	entryUsesSecretField,
-	pickEntryViewFields,
-	pickNonSecretOptionalFields,
-	SECRET_FIELD_IDS,
-} from "../../shared/serverEntry";
+import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
+import type { FailureCause } from "../../shared/failureCause";
+import { pickEntryViewFields, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
 import type { TombstoneIdentity } from "../servers/groupRemovals";
 import { sameGroupIdentity, tombstoneHides } from "../servers/groupRemovals";
-import type { DeclaredServerView, DrawableReject, ServerEntryReport } from "../servers/serverSync";
-import { drawableRejects, rejectedCarrierLabels, supersedingBaseUrl } from "../servers/serverSync";
+import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
+import { rejectedCarrierLabels, rejectsWithOwnRow, supersedingBaseUrl } from "../servers/serverSync";
 import { declaredPresentation } from "../servers/syncFailureOverlay";
 import type { SettingsInspection } from "../settingsAccess";
 import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
 import { adoptSourceHandle, locateModel, modelScopeKey } from "./adoptHandle";
 import type { GroupOwnership, LabeledSnapshot, LegacySnapshot } from "./declaredJoin";
 import { labeledSnapshots, resolveGroupOwnership } from "./declaredJoin";
+import type { DeclaredServersInput } from "./declaredServers";
 
 export interface RemovedGroupsView {
 	readonly tombstones: readonly TombstoneIdentity[];
@@ -140,10 +138,12 @@ function buildServer(
 		lastChecked: checkedAtMs(status.lastChecked),
 		credentials: status.hasApiKey === true ? "present" : "absent",
 		hasOAuth: status.hasOAuth === true,
+		hasVirtualKey: status.hasVirtualKey === true,
 		...(identity.origin === "external"
 			? ({
 					origin: "external",
 					adoptHandle: adoptSourceHandle(status.serverId),
+					...(snapshot.entryLabel !== undefined ? { entryLabel: snapshot.entryLabel } : {}),
 					...(identity.provenance !== undefined ? { provenance: identity.provenance } : {}),
 				} as const)
 			: ({
@@ -160,9 +160,7 @@ function buildServer(
 				...base,
 				state: "error",
 				servedModelCount: status.servedModelCount,
-				error: status.error,
-				errorEnglish: status.logSafeError,
-				...(status.classification !== undefined ? { classification: status.classification } : {}),
+				cause: status.cause,
 				...(status.expected === true ? { expected: true } : {}),
 				...(status.declaredModelCount !== undefined ? { declaredModelCount: status.declaredModelCount } : {}),
 			};
@@ -186,9 +184,7 @@ function declaredOutcome(
 	| {
 			state: "error";
 			servedModelCount: number;
-			error: string;
-			errorEnglish?: string | undefined;
-			classification?: TransportErrorClassification | undefined;
+			cause: FailureCause;
 			expected?: boolean | undefined;
 			declaredModelCount?: number | undefined;
 	  }
@@ -200,7 +196,7 @@ function declaredOutcome(
 			// An upsertFailed claimant of a SHARED snapshot renders no model rows (snapshotLabels drops its label), so
 			// the live count would claim models the tables do not show; the count follows the rendered rows.
 			servedModelCount: labelServes ? presentation.servedModelCount : 0,
-			error: presentation.failure.message,
+			cause: { kind: "sync", failureClass: presentation.failure.class },
 		};
 	}
 	// The second test is what narrows `status` below: "unchecked" already means an absent status, but the kind alone
@@ -220,23 +216,11 @@ function declaredOutcome(
 		// Stale-window and declared models serve through ANY discovery failure, so the row's count must match the
 		// picker whether or not the failure was expected.
 		servedModelCount: status.servedModelCount,
-		error: status.error,
-		errorEnglish: status.logSafeError,
-		...(status.classification !== undefined ? { classification: status.classification } : {}),
+		cause: status.cause,
 		...(status.expected === true ? { expected: true } : {}),
 		...(status.declaredModelCount !== undefined ? { declaredModelCount: status.declaredModelCount } : {}),
 	};
 }
-
-/**
- * The sync engine reads the secret blobs; the pre-first-pass settings fallback cannot check SecretStorage
- * synchronously, so a field it reports "none" may really be "secure". The tag is producer-owned -
- * declaredViewsFromSetting returns its views already marked "settings-fallback" - and proof is still judged per view
- * (secretsView): an engine view whose own blob read failed is as blind as the fallback.
- */
-export type DeclaredServersInput =
-	| { readonly source: "engine"; readonly views: readonly DeclaredServerView[] }
-	| { readonly source: "settings-fallback"; readonly views: readonly DeclaredServerView[] };
 
 /**
  * An engine view is proven by its blob read - except under the "secretsUnreadable" class, the one skip whose locations
@@ -254,13 +238,6 @@ function secretsView(view: DeclaredServerView, source: DeclaredServersInput["sou
 		return { kind: "proven", locations: view.secrets };
 	}
 	return { kind: "unproven" };
-}
-
-export function rejectsWithOwnRow(
-	entryReports: readonly ServerEntryReport[],
-	declared: readonly Pick<DeclaredServerView, "label">[]
-): readonly DrawableReject[] {
-	return drawableRejects(entryReports, new Set(declared.map((view) => view.label)));
 }
 
 /**
@@ -362,19 +339,24 @@ function buildServers(
 			notices.push("non-chat-modes-skipped");
 		}
 		const secrets = secretsView(view, declaredInput.source);
-		// The presence verdict reads the SAME union the edit form gates on. Only the deny needs proof: an unproven
-		// view's non-"none" location can only be "settings" (both blind readings are inline-only, and inline wins over
-		// any blob), and the live group's report is the host's own truth - but an unproven "none" is a guess, and the
-		// row says "unknown" instead of denying a secure key nobody read.
-		const knownPresent = matched?.snapshot.status.hasApiKey === true || view.secrets.apiKey !== "none";
+		// The owner's answer (DeclaredServerView.credentials, the group parser's reading) and the live group's report
+		// are the only two voices; the row never judges locations or inline fields itself. Only the deny needs proof:
+		// a fallback view read no blob, so its "absent" is a guess and the row says "unknown". The kind follows the
+		// voice that proved presence: a report proving a key the owner could not read names its kind too.
+		const owner = view.credentials;
+		const reported = matched?.snapshot.status;
+		const kinds =
+			owner?.present === true
+				? { oauth: owner.oauth, virtualKey: owner.virtualKey }
+				: { oauth: reported?.hasOAuth === true, virtualKey: reported?.hasVirtualKey === true };
+		const knownPresent = owner?.present === true || reported?.hasApiKey === true;
 		servers.push({
 			label: view.label,
 			baseUrl: view.baseUrl,
 			lastChecked: checkedAtMs(matched?.snapshot.status.lastChecked),
 			credentials: knownPresent ? "present" : secrets.kind === "proven" ? "absent" : "unknown",
-			// The badge reads the same wire rule the secret machinery judges by: an active OAuth unit is
-			// entryUsesSecretField's oauthClientSecret arm.
-			hasOAuth: entryUsesSecretField(view, "oauthClientSecret"),
+			hasOAuth: kinds.oauth,
+			hasVirtualKey: kinds.virtualKey,
 			origin: "declared",
 			...(matched?.snapshot.observedModelInfoKeys !== undefined
 				? { observedModelInfoKeys: matched.snapshot.observedModelInfoKeys }
@@ -416,13 +398,11 @@ function buildServers(
 			servedModelCount: 0,
 			credentials: "absent",
 			hasOAuth: false,
+			hasVirtualKey: false,
 			origin: "misconfigured",
 			problems: report.problems,
 			state: "error",
-			// English by the issue-report policy, like the parser problems the row carries; the webview renders its own
-			// localized copy.
-			error: "misconfigured entry; not used until its configuration is fixed",
-			errorEnglish: "misconfigured entry; not used until its configuration is fixed",
+			cause: { kind: "misconfiguredEntry" },
 		});
 	}
 	servers.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
@@ -690,6 +670,8 @@ export interface DashboardStateInputs {
 	readonly diagnostics?: readonly ConfigDiagnosticView[];
 	/** The features whose model row offers a host-side probe; defaults to none (no Test buttons). */
 	readonly featureProbes?: readonly FeatureModelId[];
+	/** The verdict rows their owner publishes (ServerVerdict.rows): the hero and the paste line classify these. */
+	readonly verdictRows?: readonly VerdictRow[];
 }
 
 /**
@@ -808,6 +790,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 		usage = EMPTY_USAGE_VIEW,
 		diagnostics = [],
 		featureProbes = [],
+		verdictRows = [],
 	} = inputs;
 	const labeled = labeledSnapshots(snapshots);
 	// A tombstoned group is out of the join: the provider serves nothing from it, so no declared entry may claim it
@@ -850,6 +833,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 	return {
 		servers,
 		hiddenGroups,
+		verdictRows,
 		// The served-count truth for the hero and the paste line, reduced like reportMerged's totalModels but over the
 		// VISIBLE snapshots only: a tombstoned snapshot's models leave the tables (snapshotLabels drops them), so its
 		// count must leave the headline too. Immune to the models array's per-claimant copies either way.

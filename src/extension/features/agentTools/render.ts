@@ -1,7 +1,9 @@
 import * as l10n from "@vscode/l10n";
 import type { DashboardState } from "../../../dashboard/viewModels";
 import type { DashboardSubmission } from "../../../extension/dashboard/panel";
+import { failureTexts } from "../../../shared/failureCause";
 import type { ServerStatus } from "../../../shared/servers";
+import { statusClassification } from "../../../shared/servers";
 import { displayUrl, urlScrubbingReplacer } from "../../../shared/util/displayUrl";
 import type { DiagnosticsSnapshot } from "../../ui/issueReporter";
 import type { ConfigurationSection } from "./inputSchema";
@@ -50,10 +52,11 @@ export function shapeDiagnostics(
 			lastChecked: server.lastChecked,
 			hasApiKey: server.hasApiKey,
 			hasOAuth: server.hasOAuth,
+			hasVirtualKey: server.hasVirtualKey,
 			...(server.state === "error"
 				? {
-						error: redact(server.error),
-						classification: server.classification,
+						error: failureTexts(server.cause, server.baseUrl).english,
+						classification: statusClassification(server),
 						expected: server.expected,
 						declaredModelCount: server.declaredModelCount,
 					}
@@ -75,26 +78,16 @@ export function shapeDiagnostics(
 	};
 }
 
-/**
- *   A server row's error text  -> can embed a response body
- *   can embed a response body  -> passes through the issue report's redaction like a log line
- */
+/** A failing row's cause renders in English for the model beside the row (the rows themselves carry no text). */
 export function shapeConfiguration(
 	state: DashboardState,
-	sections: readonly ConfigurationSection[] | undefined,
-	redact: (text: string) => string
+	sections: readonly ConfigurationSection[] | undefined
 ): Record<string, unknown> {
 	const wanted = new Set<ConfigurationSection>(
 		sections ?? ["servers", "settings", "models", "hiddenGroups", "catalog", "usage"]
 	);
 	const servers = state.servers.map((server) =>
-		server.state === "error"
-			? {
-					...server,
-					error: redact(server.error),
-					...(server.errorEnglish !== undefined ? { errorEnglish: redact(server.errorEnglish) } : {}),
-				}
-			: server
+		server.state === "error" ? { ...server, error: failureTexts(server.cause, server.baseUrl).english } : server
 	);
 	return {
 		...(wanted.has("servers") ? { servers, servedModelCount: state.servedModelCount } : {}),

@@ -47,7 +47,7 @@ import { transportClassificationOf } from "../../shared/errorClassification";
 import { MirroredError } from "../../shared/mirroredError";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { headerValue, isValidHeaderName, trimHttpWhitespace } from "../../shared/util/headers";
+import { headerNameKey, headerValue, isValidHeaderName, trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { TombstoneIdentity, TombstoneRecording } from "../servers/groupRemovals";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
@@ -327,12 +327,10 @@ export function validateSaveServerSetting(
 	if (capabilitiesProblem !== undefined) {
 		return `modelCapabilities: ${capabilitiesProblem}`;
 	}
-	// Mirrors the form's header-row rules and the request path's
-	// normalizeCustomHeaders acceptance: names and the value charset are
-	// refused here so a save can never "succeed" on a header the wire would
-	// drop. Header NAMES are structural configuration and may be echoed;
-	// values never are.
-	const seenLower = new Set<string>();
+	// Mirrors the form's header-row rules and the request path's normalizeCustomHeaders acceptance: names and the
+	// value charset are refused here so a save can never "succeed" on a header the wire would drop. Header NAMES are
+	// structural configuration and may be echoed; values never are.
+	const seenKeys = new Set<string>();
 	for (const [name, value] of Object.entries(server.headers)) {
 		if (isUnsafeRecordKey(name)) {
 			return `headers: "${name}" is a reserved name and cannot be used`;
@@ -340,11 +338,11 @@ export function validateSaveServerSetting(
 		if (!isValidHeaderName(name)) {
 			return `headers: "${name}" is not a valid HTTP header name`;
 		}
-		const lower = name.toLowerCase();
-		if (seenLower.has(lower)) {
+		const key = headerNameKey(name);
+		if (seenKeys.has(key)) {
 			return `headers: "${name}" repeats an earlier header name (names are case-insensitive)`;
 		}
-		seenLower.add(lower);
+		seenKeys.add(key);
 		if (headerValue(String(value)) === undefined) {
 			return `headers: the value of "${name}" cannot be sent as an HTTP header`;
 		}
@@ -704,7 +702,7 @@ export async function executeDashboardIntent(
 				text = await probe(intent.payload.model);
 			} catch (error) {
 				// The transport's classified errors render at the button like the draft probe's: the message is the
-				// transport's own two-part text, and the classification drives the row's setup hints.
+				// transport's own text (shown once, stored nowhere), and the classification drives the row's setup hints.
 				if (error instanceof MirroredError) {
 					throw new DashboardValidationError(error.message, { classification: transportClassificationOf(error) });
 				}
@@ -746,10 +744,11 @@ export async function executeDashboardIntent(
 		case "adoptServer":
 			return applyAdoptServer(intent.payload, env);
 		case "hideExternalServer": {
+			// The group's URL as the host holds it, however it is spelled (a scheme-less `localhost:4000` included): a
+			// hide binds the handle to it and never sends anything there, so only emptiness is refused. The "fieldId:"
+			// prefix stays an ASCII identifier outside the translation: sectionFailureText routes the failure by it.
 			const baseUrl = trimHttpWhitespace(intent.payload.baseUrl);
-			if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
-				// The "fieldId:" prefix stays an ASCII identifier outside the translation: sectionFailureText routes
-				// the failure by it.
+			if (baseUrl.length === 0) {
 				throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 			}
 			const resolved = await env.resolveExternalGroup(baseUrl, intent.payload.sourceHandle);

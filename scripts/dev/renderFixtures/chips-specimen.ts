@@ -15,6 +15,7 @@ const UNCHECKED_SERVER: DashboardServer = {
 	servedModelCount: 0,
 	credentials: "present",
 	hasOAuth: false,
+	hasVirtualKey: false,
 	state: "unchecked",
 	config: { secrets: NO_SECRETS },
 };

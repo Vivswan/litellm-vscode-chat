@@ -9,12 +9,13 @@ import {
 	SessionLogTee,
 } from "../../../extension/ui/commands";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
-import { statusErrorHeadline } from "../../../extension/ui/notifier";
 import type { ConnectionStatus } from "../../../extension/ui/status";
-import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
-import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/transport/errorMapping";
+import { zeroModelJudgment } from "../../../extension/ui/status";
+import { mapSdkError, RequestError, statusLogSafeError } from "../../../provider/transport/errorMapping";
 import { HAS_SHOWN_WELCOME_KEY, LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
-import { SETUP_HINT_KINDS, type SetupHintKind } from "../../../shared/errorClassification";
+import { SETUP_HINT_KINDS, type SetupHintKind, transportClassificationOf } from "../../../shared/errorClassification";
+import type { FailureCause } from "../../../shared/failureCause";
+import { failureTexts } from "../../../shared/failureCause";
 import { Logger, markLogSafe, recordedError } from "../../../shared/logger";
 import { DOCS_GETTING_STARTED_URL, GITHUB_REPO_URL, SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
 import { expectDefined } from "../../pureHelpers";
@@ -145,6 +146,10 @@ suite("extension/ui/commands", () => {
 	}
 
 	const outputChannel = { show: () => {} } as unknown as vscode.OutputChannel;
+	/** The configured-servers gate as the commands receive it; the fixtures here all declare or observe servers. */
+	const CONFIGURED = () => true;
+	/** The engine has published no declared view: what the issue report sees before the first sync pass. */
+	const NO_DECLARED = () => [];
 
 	async function withToasts(fn: () => Promise<void>): Promise<Toast[]> {
 		const toasts: Toast[] = [];
@@ -181,11 +186,10 @@ suite("extension/ui/commands", () => {
 				serverStatuses: [makeServerStatus({ servedModelCount: 3 })],
 			});
 			const provider = {
-				provideLanguageModelChatInformation: async () => [],
-				refreshViaHost: async () => {},
+				refreshGroups: async () => ({ refreshedGroups: 1 }),
 			};
 
-			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "info");
@@ -193,22 +197,55 @@ suite("extension/ui/commands", () => {
 			assert.strictEqual(statusBar.connectionStatus.state, "connected", "the pre-test status must be restored");
 		});
 
+		test("a refresh that probed no group leaves the restored status unclaimed: unavailable, or not configured by the live gate", async () => {
+			// A status restored from the last session sits in the bar while the host has reported no group yet; the
+			// refresh had nothing to probe, so neither its count nor its "not configured" is this pass's. The live gate
+			// says which of the two remaining things is true.
+			const restored = () =>
+				makeStatusBar({
+					state: "connected",
+					totalModels: 3,
+					serverStatuses: [makeServerStatus({ servedModelCount: 3 })],
+				});
+			const provider = {
+				refreshGroups: async () => ({ refreshedGroups: 0 }),
+			};
+
+			const configured = await withToasts(() =>
+				runConnectionTest(provider, restored(), outputChannel, logger, () => true)
+			);
+			const toast = expectDefined(configured[0]);
+			assert.strictEqual(toast.kind, "warning");
+			assert.ok(toast.message.includes("Connection status is unavailable"), toast.message);
+
+			const unconfigured = await withToasts(() =>
+				runConnectionTest(provider, restored(), outputChannel, logger, () => false)
+			);
+			const absent = expectDefined(unconfigured[0]);
+			assert.strictEqual(absent.kind, "error");
+			assert.ok(absent.message.includes("No servers configured"), absent.message);
+		});
+
 		test("the zero-model verdict is not framed as a connection failure; a hidden group earns Open Dashboard", async () => {
 			// The verdict text already names the removal and the recovery, so the "Connection failed - " framing must
 			// not wrap it; warning-grade like the bar and the notifier (one judgment, one severity).
 			const lines: string[] = [];
 			const bufferLogger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
+			// The bar carries its one zero-model judgment on the connected status; the toast presents it.
+			const hidden = [makeServerStatus({ servedModelCount: 0, hiddenByRemoval: true })];
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 0,
-				serverStatuses: [makeServerStatus({ servedModelCount: 0, hiddenByRemoval: true })],
+				serverStatuses: hidden,
+				zeroModel: zeroModelJudgment(hidden, 0),
 			});
 			const provider = {
-				provideLanguageModelChatInformation: async () => [],
-				refreshViaHost: async () => {},
+				refreshGroups: async () => ({ refreshedGroups: 1 }),
 			};
 
-			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, bufferLogger));
+			const toasts = await withToasts(() =>
+				runConnectionTest(provider, statusBar, outputChannel, bufferLogger, CONFIGURED)
+			);
 
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "warning");
@@ -229,13 +266,13 @@ suite("extension/ui/commands", () => {
 			});
 			let refreshed = 0;
 			const provider = {
-				provideLanguageModelChatInformation: async () => [],
-				refreshViaHost: async () => {
+				refreshGroups: async () => {
 					refreshed += 1;
+					return { refreshedGroups: 1 };
 				},
 			};
 
-			await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+			await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			assert.strictEqual(refreshed, 1, "the connection test must trigger the host-driven group refresh");
 		});
@@ -251,16 +288,15 @@ suite("extension/ui/commands", () => {
 				release = resolve;
 			});
 			const provider = {
-				provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
+				refreshGroups: async () => {
 					await blocked;
-					return [];
+					return { refreshedGroups: 1 };
 				},
-				refreshViaHost: async () => {},
 			};
 
 			const toasts = await withToasts(async () => {
-				const first = runConnectionTest(provider, statusBar, outputChannel, logger);
-				const second = runConnectionTest(provider, statusBar, outputChannel, logger);
+				const first = runConnectionTest(provider, statusBar, outputChannel, logger, CONFIGURED);
+				const second = runConnectionTest(provider, statusBar, outputChannel, logger, CONFIGURED);
 				expectDefined(release)();
 				await Promise.all([first, second]);
 			});
@@ -273,7 +309,7 @@ suite("extension/ui/commands", () => {
 		test("reports a degraded outcome with the failing server count", async () => {
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				provideLanguageModelChatInformation: async () => {
+				refreshGroups: async () => {
 					await statusBar.updateStatusBar({
 						state: "degraded",
 						totalModels: 2,
@@ -282,12 +318,11 @@ suite("extension/ui/commands", () => {
 							makeServerStatus({ state: "error", error: "down" }),
 						],
 					});
-					return [];
+					return { refreshedGroups: 1 };
 				},
-				refreshViaHost: async () => {},
 			};
 
-			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "warning");
@@ -300,7 +335,7 @@ suite("extension/ui/commands", () => {
 			// pins them together.
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				provideLanguageModelChatInformation: async () => {
+				refreshGroups: async () => {
 					await statusBar.updateStatusBar({
 						state: "degraded",
 						totalModels: 2,
@@ -310,39 +345,86 @@ suite("extension/ui/commands", () => {
 							makeServerStatus({ serverId: "srv3", state: "error", error: "404 on /models", expected: true }),
 						],
 					});
-					return [];
+					return { refreshedGroups: 1 };
 				},
-				refreshViaHost: async () => {},
 			};
 
-			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
 			assert.ok(toast.message.includes("1 server failing"), toast.message);
 		});
 
-		test("a throwing refresh reports the error status it left behind", async () => {
+		test("a sync-only failure with no group to probe toasts the forced sync's error, never unavailable", async () => {
+			// Only a new entry whose group upsert the host refused: the forced server sync judged the bar red before
+			// the refresh, which then had no group to probe. The verdict is this pass's own, so the toast carries it;
+			// without the forced verdict (a restored error of the same shape) the refresh still claims nothing.
+			const logger = new Logger({ info: () => {}, error: () => {} });
+			const refused: ConnectionStatus = {
+				state: "error",
+				cause: { kind: "sync", failureClass: "upsertFailed" },
+				baseUrl: "http://new.test",
+				logSafeError: markLogSafe("provider group sync failed (upsertFailed)"),
+				serverStatuses: [],
+				totalModels: 0,
+			};
+			const provider = { refreshGroups: async () => ({ refreshedGroups: 0 }) };
+
+			const carried = await withToasts(() =>
+				runModelSync(provider, makeStatusBar(refused), outputChannel, logger, CONFIGURED, refused)
+			);
+			assert.deepStrictEqual(
+				carried.map((toast) => [toast.kind, toast.message]),
+				[["error", "LiteLLM: Model sync failed - The host rejected the provider group upsert"]]
+			);
+
+			const restored = await withToasts(() =>
+				runModelSync(provider, makeStatusBar(refused), outputChannel, logger, CONFIGURED)
+			);
+			assert.deepStrictEqual(
+				restored.map((toast) => [toast.kind, toast.message]),
+				[["warning", "LiteLLM: Connection status is unavailable; try again in a moment."]]
+			);
+		});
+
+		test("a throwing refresh leaves no fresh status: the toast says unavailable, never the status it left behind", async () => {
+			// The probe pass catches per group, so a thrown refresh is an internal failure, not a server's; whatever the
+			// bar shows then is not this pass's reading, and the log line carries the failure.
+			const lines: string[] = [];
+			const bufferLogger = new Logger({
+				info: (line: string) => lines.push(line),
+				error: (line: string) => lines.push(line),
+			});
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
+				refreshGroups: async () => {
 					await statusBar.updateStatusBar({
 						state: "error",
-						error: "ECONNREFUSED",
+						cause: { kind: "unclassified" },
 						logSafeError: markLogSafe("ECONNREFUSED"),
 					});
 					throw new Error("ECONNREFUSED");
 				},
-				refreshViaHost: async () => {},
 			};
 
-			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() =>
+				runConnectionTest(provider, statusBar, outputChannel, bufferLogger, CONFIGURED)
+			);
 
-			const toast = expectDefined(toasts[0]);
-			assert.strictEqual(toast.kind, "error");
-			assert.ok(toast.message.includes("ECONNREFUSED"), toast.message);
+			assert.deepStrictEqual(toasts, [
+				{
+					kind: "warning",
+					message: "LiteLLM: Connection status is unavailable; try again in a moment.",
+					buttons: ["View Output"],
+				},
+			]);
+			assert.ok(
+				lines.some((line) => line.includes("Connection test failed")),
+				`Expected the failure log line. Lines: ${lines.join(" | ")}`
+			);
 		});
 
-		// Composed from ACTUAL transport mappings (mapSdkError -> statusErrorTexts) so the toast cannot drift from
+		// Composed from ACTUAL transport mappings (mapSdkError -> transportClassificationOf) so the toast cannot drift from
 		// what the transport produces: the toast carries the message's headline line only, plus the Troubleshooting
 		// Docs deep link. Keyed by SETUP_HINT_KINDS and walked from that registry, so a new hint id without a coverage
 		// row here fails typecheck instead of shipping untested.
@@ -385,30 +467,43 @@ suite("extension/ui/commands", () => {
 				},
 			};
 
+			/** The status a classified refresh failure leaves: its cause (the transport classification) and its log rendering. */
+			function failedStatus(mapped: Error): ConnectionStatus & { state: "error" } {
+				return {
+					state: "error",
+					cause: { kind: "transport", classification: expectDefined(transportClassificationOf(mapped)) },
+					baseUrl: ctx.baseUrl,
+					logSafeError: statusLogSafeError(mapped),
+				};
+			}
+
 			function providerLeavingError(statusBar: ReturnType<typeof makeStatusBar>, mapped: Error) {
 				return {
-					provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
-						await statusBar.updateStatusBar({ state: "error", ...statusErrorTexts(mapped) });
-						return [];
+					refreshGroups: async () => {
+						await statusBar.updateStatusBar(failedStatus(mapped));
+						return { refreshedGroups: 1 };
 					},
-					refreshViaHost: async () => {},
 				};
 			}
 
 			for (const setupHint of SETUP_HINT_KINDS) {
 				const { label, buildError } = causes[setupHint];
-				test(`${label} keeps the exact transport headline and adds the docs action`, async () => {
+				test(`${label} renders its cause and adds the docs action`, async () => {
 					const mapped = buildError();
-					assert.strictEqual(statusErrorTexts(mapped).classification?.setupHint, setupHint);
+					assert.strictEqual(transportClassificationOf(mapped)?.setupHint, setupHint);
 					const statusBar = makeStatusBar({ state: "not-configured" });
 
 					const toasts = await withToasts(() =>
-						runConnectionTest(providerLeavingError(statusBar, mapped), statusBar, outputChannel, logger)
+						runConnectionTest(providerLeavingError(statusBar, mapped), statusBar, outputChannel, logger, CONFIGURED)
 					);
 
 					const toast = expectDefined(toasts[0]);
 					assert.strictEqual(toast.kind, "error");
-					assert.strictEqual(toast.message, `LiteLLM: Connection failed - ${statusErrorHeadline(mapped.message)}`);
+					const status = failedStatus(mapped);
+					assert.strictEqual(
+						toast.message,
+						`LiteLLM: Connection failed - ${failureTexts(status.cause, ctx.baseUrl).display}`
+					);
 					assert.ok(!toast.message.includes("\n"), "notifications render newlines poorly; the toast stays one line");
 					assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Troubleshooting Docs", "Report Issue"]);
 				});
@@ -432,7 +527,13 @@ suite("extension/ui/commands", () => {
 					return origExecute(command, ...args);
 				};
 				try {
-					await runConnectionTest(providerLeavingError(statusBar, mapped), statusBar, outputChannel, logger);
+					await runConnectionTest(
+						providerLeavingError(statusBar, mapped),
+						statusBar,
+						outputChannel,
+						logger,
+						CONFIGURED
+					);
 					// The toast is fired without awaiting; give the chosen action's
 					// run (showActionableMessage -> openUrl) a turn to land.
 					await new Promise((resolve) => setTimeout(resolve, 0));
@@ -447,42 +548,24 @@ suite("extension/ui/commands", () => {
 		test("an unclassified error status renders exactly today's toast", async () => {
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
+				refreshGroups: async () => {
 					await statusBar.updateStatusBar({
 						state: "error",
-						error: "ECONNREFUSED",
+						cause: { kind: "unclassified" },
 						logSafeError: markLogSafe("ECONNREFUSED"),
 					});
-					return [];
+					return { refreshedGroups: 1 };
 				},
-				refreshViaHost: async () => {},
 			};
 
-			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
-			assert.strictEqual(toast.message, "LiteLLM: Connection failed - ECONNREFUSED");
+			assert.strictEqual(
+				toast.message,
+				"LiteLLM: Connection failed - Model discovery failed; the output log has the details"
+			);
 			assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Report Issue"]);
-		});
-
-		test("a two-part status error toasts the headline line only", async () => {
-			const statusBar = makeStatusBar({ state: "not-configured" });
-			const provider = {
-				provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
-					await statusBar.updateStatusBar({
-						state: "error",
-						error: "The server could not be reached.\nGET http://litellm.test/v1/models: ECONNREFUSED",
-						logSafeError: markLogSafe("connection error"),
-					});
-					return [];
-				},
-				refreshViaHost: async () => {},
-			};
-
-			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
-
-			const toast = expectDefined(toasts[0]);
-			assert.strictEqual(toast.message, "LiteLLM: Connection failed - The server could not be reached.");
 		});
 
 		test("a classified refresh failure reaches the buffer as its classification, never its body", async () => {
@@ -495,16 +578,15 @@ suite("extension/ui/commands", () => {
 			);
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
+				refreshGroups: async () => {
 					throw new RequestError("LiteLLM API error: 502\n<html>internal-billing-host-MARKER</html>", "http", {
 						status: 502,
 						logClassification: "RequestError(http, status 502)",
 					});
 				},
-				refreshViaHost: async () => {},
 			};
 
-			await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, bufferLogger));
+			await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, bufferLogger, CONFIGURED));
 
 			assert.ok(
 				bufferLines.some((line) => line.includes("Connection test failed: RequestError(http, status 502)")),
@@ -519,11 +601,10 @@ suite("extension/ui/commands", () => {
 		test("reports not configured when nothing was ever configured", async () => {
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				provideLanguageModelChatInformation: async () => [],
-				refreshViaHost: async () => {},
+				refreshGroups: async () => ({ refreshedGroups: 1 }),
 			};
 
-			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "error");
@@ -544,19 +625,19 @@ suite("extension/ui/commands", () => {
 			});
 			let releaseRefresh: (() => void) | undefined;
 			const provider = {
-				refreshViaHost: () =>
-					new Promise<void>((resolve) => {
-						releaseRefresh = resolve;
+				refreshGroups: () =>
+					new Promise<{ refreshedGroups: number }>((resolve) => {
+						releaseRefresh = () => resolve({ refreshedGroups: 1 });
 					}),
 			};
 
 			await withToasts(async () => {
-				const first = runModelSync(provider, statusBar, outputChannel, logger);
+				const first = runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED);
 				let secondSettled = false;
-				const second = runModelSync(provider, statusBar, outputChannel, logger).then(() => {
+				const second = runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED).then(() => {
 					secondSettled = true;
 				});
-				// The first pass is parked inside refreshViaHost; neither caller may have an answer yet.
+				// The first pass is parked inside refreshGroups; neither caller may have an answer yet.
 				await Promise.resolve();
 				assert.strictEqual(secondSettled, false, "the second call answered while the first pass was still running");
 
@@ -574,14 +655,16 @@ suite("extension/ui/commands", () => {
 		test("the zero-model verdict is not framed as a failed sync; answered-empty keeps the plain Reconfigure", async () => {
 			const lines: string[] = [];
 			const bufferLogger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
+			const answeredEmpty = [makeServerStatus({ servedModelCount: 0 })];
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 0,
-				serverStatuses: [makeServerStatus({ servedModelCount: 0 })],
+				serverStatuses: answeredEmpty,
+				zeroModel: zeroModelJudgment(answeredEmpty, 0),
 			});
-			const provider = { refreshViaHost: async () => {} };
+			const provider = { refreshGroups: async () => ({ refreshedGroups: 1 }) };
 
-			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, bufferLogger));
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, bufferLogger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "warning");
@@ -607,12 +690,13 @@ suite("extension/ui/commands", () => {
 			});
 			let refreshed = 0;
 			const provider = {
-				refreshViaHost: async () => {
+				refreshGroups: async () => {
 					refreshed += 1;
+					return { refreshedGroups: 1 };
 				},
 			};
 
-			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			assert.strictEqual(refreshed, 1, "the sync must trigger the cache-dropping host refresh");
 			const toast = expectDefined(toasts[0]);
@@ -633,21 +717,25 @@ suite("extension/ui/commands", () => {
 				serverStatuses: [makeServerStatus({ servedModelCount: 2 })],
 			});
 			const provider = {
-				refreshViaHost: async () => {
+				refreshGroups: async () => {
 					await statusBar.updateStatusBar({
 						state: "error",
-						error: "ECONNREFUSED",
+						cause: { kind: "unclassified" },
 						logSafeError: markLogSafe("ECONNREFUSED"),
 						totalModels: 0,
 					});
+					return { refreshedGroups: 1 };
 				},
 			};
 
-			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "error");
-			assert.ok(toast.message.includes("ECONNREFUSED"), toast.message);
+			assert.strictEqual(
+				toast.message,
+				"LiteLLM: Model sync failed - Model discovery failed; the output log has the details"
+			);
 			assert.ok(
 				lines.some((line) => line.includes("Model sync failed: ECONNREFUSED")),
 				`The log must carry the real outcome, not "finished". Lines: ${lines.join(" | ")}`
@@ -656,39 +744,37 @@ suite("extension/ui/commands", () => {
 
 		test("the sync-failed log carries the log-safe rendering while the toast keeps the display headline", async () => {
 			// The "Model sync failed" line lands in the issue-report buffer, so it must use logSafeError; the toast
-			// keeps `error`'s headline line, while the detail line (which may carry response bodies) stays off it.
+			// renders the status's cause, which carries no response text to leak.
 			const lines: string[] = [];
 			const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
 			const statusBar = makeStatusBar({ state: "not-configured" });
+			const cause: FailureCause = { kind: "transport", classification: { kind: "http", status: 502 } };
 			const provider = {
-				refreshViaHost: async () => {
+				refreshGroups: async () => {
 					await statusBar.updateStatusBar({
 						state: "error",
-						error: "LiteLLM API error: 502 internal-billing-host-MARKER\n<html>detail-body-MARKER</html>",
+						cause,
+						baseUrl: "http://litellm.test",
 						logSafeError: markLogSafe("RequestError(http, status 502)"),
 						totalModels: 0,
 					});
+					return { refreshedGroups: 1 };
 				},
 			};
 
-			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
-			assert.ok(toast.message.includes("internal-billing-host-MARKER"), "the toast keeps the display headline");
-			assert.ok(!toast.message.includes("detail-body-MARKER"), "the detail line stays off the notification");
+			assert.strictEqual(toast.message, "LiteLLM: Model sync failed - The server at http://litellm.test answered 502");
 			assert.ok(
 				lines.some((line) => line.includes("Model sync failed: RequestError(http, status 502)")),
 				`the log must carry the classification; lines: ${lines.join(" | ")}`
 			);
-			assert.ok(
-				lines.every((line) => !line.includes("internal-billing-host-MARKER") && !line.includes("detail-body-MARKER")),
-				"the display error's text leaked into a log line"
-			);
 		});
 
-		test("a classified error status keeps the exact transport headline and adds the docs action", async () => {
+		test("a classified error status renders its cause and adds the docs action", async () => {
 			// Composed from the actual transport mapping, like the connection-test suite above: the toast carries the
-			// message's first line, nothing else.
+			// cause's one-line rendering, nothing else.
 			const logger = new Logger({ info: () => {}, error: () => {} });
 			const mapped = mapSdkError(
 				new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()),
@@ -699,17 +785,31 @@ suite("extension/ui/commands", () => {
 				}
 			);
 			const statusBar = makeStatusBar({ state: "not-configured" });
+			const cause: FailureCause = {
+				kind: "transport",
+				classification: expectDefined(transportClassificationOf(mapped)),
+			};
 			const provider = {
-				refreshViaHost: async () => {
-					await statusBar.updateStatusBar({ state: "error", ...statusErrorTexts(mapped), totalModels: 0 });
+				refreshGroups: async () => {
+					await statusBar.updateStatusBar({
+						state: "error",
+						cause,
+						baseUrl: "http://litellm.test",
+						logSafeError: statusLogSafeError(mapped),
+						totalModels: 0,
+					});
+					return { refreshedGroups: 1 };
 				},
 			};
 
-			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "error");
-			assert.strictEqual(toast.message, `LiteLLM: Model sync failed - ${statusErrorHeadline(mapped.message)}`);
+			assert.strictEqual(
+				toast.message,
+				`LiteLLM: Model sync failed - ${failureTexts(cause, "http://litellm.test").display}`
+			);
 			assert.ok(!toast.message.includes("\n"), "notifications render newlines poorly; the toast stays one line");
 			assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Troubleshooting Docs", "Report Issue"]);
 		});
@@ -718,20 +818,24 @@ suite("extension/ui/commands", () => {
 			const logger = new Logger({ info: () => {}, error: () => {} });
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				refreshViaHost: async () => {
+				refreshGroups: async () => {
 					await statusBar.updateStatusBar({
 						state: "error",
-						error: "ECONNREFUSED",
+						cause: { kind: "unclassified" },
 						logSafeError: markLogSafe("ECONNREFUSED"),
 						totalModels: 0,
 					});
+					return { refreshedGroups: 1 };
 				},
 			};
 
-			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
-			assert.strictEqual(toast.message, "LiteLLM: Model sync failed - ECONNREFUSED");
+			assert.strictEqual(
+				toast.message,
+				"LiteLLM: Model sync failed - Model discovery failed; the output log has the details"
+			);
 			assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Report Issue"]);
 		});
 
@@ -739,7 +843,7 @@ suite("extension/ui/commands", () => {
 			const logger = new Logger({ info: () => {}, error: () => {} });
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				refreshViaHost: async () => {
+				refreshGroups: async () => {
 					await statusBar.updateStatusBar({
 						state: "degraded",
 						totalModels: 2,
@@ -748,10 +852,11 @@ suite("extension/ui/commands", () => {
 							makeServerStatus({ state: "error", error: "down" }),
 						],
 					});
+					return { refreshedGroups: 1 };
 				},
 			};
 
-			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "warning");
@@ -765,7 +870,7 @@ suite("extension/ui/commands", () => {
 			const logger = new Logger({ info: () => {}, error: () => {} });
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				refreshViaHost: async () => {
+				refreshGroups: async () => {
 					await statusBar.updateStatusBar({
 						state: "degraded",
 						totalModels: 2,
@@ -775,10 +880,11 @@ suite("extension/ui/commands", () => {
 							makeServerStatus({ serverId: "srv3", state: "error", error: "404 on /models", expected: true }),
 						],
 					});
+					return { refreshedGroups: 1 };
 				},
 			};
 
-			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			const toast = expectDefined(toasts[0]);
 			assert.ok(toast.message.includes("1 server failing"), toast.message);
@@ -797,15 +903,16 @@ suite("extension/ui/commands", () => {
 			});
 			let refreshed = 0;
 			const provider = {
-				refreshViaHost: async () => {
+				refreshGroups: async () => {
 					refreshed += 1;
 					await blocked;
+					return { refreshedGroups: 1 };
 				},
 			};
 
 			const toasts = await withToasts(async () => {
-				const first = runModelSync(provider, statusBar, outputChannel, logger);
-				const second = runModelSync(provider, statusBar, outputChannel, logger);
+				const first = runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED);
+				const second = runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED);
 				expectDefined(release)();
 				await Promise.all([first, second]);
 			});
@@ -814,7 +921,7 @@ suite("extension/ui/commands", () => {
 			assert.strictEqual(toasts.length, 1, "the reentrant invocation must not produce a second toast");
 		});
 
-		test("logs a failing refresh and still reports from the status", async () => {
+		test("logs a failing refresh and reports the status as unavailable, never the old count as synced", async () => {
 			const errors: string[] = [];
 			const logger = new Logger({ info: () => {}, error: (line: string) => errors.push(line) });
 			const statusBar = makeStatusBar({
@@ -823,18 +930,20 @@ suite("extension/ui/commands", () => {
 				serverStatuses: [makeServerStatus({ servedModelCount: 1 })],
 			});
 			const provider = {
-				refreshViaHost: async () => {
+				refreshGroups: async () => {
 					throw new Error("host unavailable");
 				},
 			};
 
-			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger, CONFIGURED));
 
 			assert.ok(
 				errors.some((line) => line.includes("Model sync failed")),
 				`Expected the failure to be logged. Errors: ${errors.join(" | ")}`
 			);
-			assert.strictEqual(toasts.length, 1, "the outcome toast must still be shown");
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "warning");
+			assert.ok(toast.message.includes("Connection status is unavailable"), toast.message);
 		});
 	});
 
@@ -858,9 +967,8 @@ suite("extension/ui/commands", () => {
 
 		const classified404: ConnectionStatus = {
 			state: "error",
-			error: "answered 404",
+			cause: { kind: "transport", classification: { kind: "http", status: 404, setupHint: "check-base-url" } },
 			logSafeError: markLogSafe("RequestError(http, status 404, discovery)"),
-			classification: { kind: "http", status: 404, setupHint: "check-base-url" },
 		};
 
 		interface GateMocks {
@@ -910,6 +1018,7 @@ suite("extension/ui/commands", () => {
 			try {
 				await runReportIssue(
 					() => ({ state: "not-configured" }),
+					NO_DECLARED,
 					"1.2.3",
 					"9.9.9",
 					makeReporter(openedIssueUrls),
@@ -933,6 +1042,7 @@ suite("extension/ui/commands", () => {
 			try {
 				await runReportIssue(
 					() => ({ state: "not-configured" }),
+					NO_DECLARED,
 					"1.2.3",
 					"9.9.9",
 					makeReporter(openedIssueUrls),
@@ -950,7 +1060,14 @@ suite("extension/ui/commands", () => {
 			const openedIssueUrls: string[] = [];
 			const mocks = mockGate("Troubleshooting Docs");
 			try {
-				await runReportIssue(() => classified404, "1.2.3", "9.9.9", makeReporter(openedIssueUrls), freshMemento());
+				await runReportIssue(
+					() => classified404,
+					NO_DECLARED,
+					"1.2.3",
+					"9.9.9",
+					makeReporter(openedIssueUrls),
+					freshMemento()
+				);
 				await waitFor(() => mocks.executed.length > 0, "the docs link to open");
 			} finally {
 				mocks.restore();
@@ -967,7 +1084,14 @@ suite("extension/ui/commands", () => {
 			const openedIssueUrls: string[] = [];
 			const mocks = mockGate("Test Connection");
 			try {
-				await runReportIssue(() => classified404, "1.2.3", "9.9.9", makeReporter(openedIssueUrls), freshMemento());
+				await runReportIssue(
+					() => classified404,
+					NO_DECLARED,
+					"1.2.3",
+					"9.9.9",
+					makeReporter(openedIssueUrls),
+					freshMemento()
+				);
 				await waitFor(() => gateExecuted(mocks).length > 0, "the connection test command to run");
 			} finally {
 				mocks.restore();
@@ -981,9 +1105,9 @@ suite("extension/ui/commands", () => {
 			const mocks = mockGate(undefined);
 			try {
 				const reporter = makeReporter(openedIssueUrls);
-				await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, freshMemento());
+				await runReportIssue(() => classified404, NO_DECLARED, "1.2.3", "9.9.9", reporter, freshMemento());
 				await waitFor(() => gateWarnings(mocks).length === 1, "the gate to show");
-				await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, freshMemento());
+				await runReportIssue(() => classified404, NO_DECLARED, "1.2.3", "9.9.9", reporter, freshMemento());
 				await waitFor(() => gateWarnings(mocks).length === 2, "the gate to re-offer");
 				// A settled turn for any stray action; there must be none.
 				await new Promise((resolve) => setTimeout(resolve, 10));
@@ -1013,6 +1137,7 @@ suite("extension/ui/commands", () => {
 			try {
 				await runReportIssue(
 					() => ({ state: "connected", totalModels: 2, serverStatuses: [makeServerStatus({ servedModelCount: 2 })] }),
+					NO_DECLARED,
 					"1.2.3",
 					"9.9.9",
 					reporter,
@@ -1032,10 +1157,10 @@ suite("extension/ui/commands", () => {
 				await runReportIssue(
 					() => ({
 						state: "error",
-						error: "boom",
+						cause: { kind: "transport", classification: { kind: "http", status: 500 } },
 						logSafeError: markLogSafe("boom"),
-						classification: { kind: "http", status: 500 },
 					}),
+					NO_DECLARED,
 					"1.2.3",
 					"9.9.9",
 					makeReporter(openedIssueUrls),
@@ -1060,7 +1185,14 @@ suite("extension/ui/commands", () => {
 				let status: ConnectionStatus = { state: "not-configured" };
 				// Pins the non-blocking contract: the dashboard's executeCommand intent awaits this promise inside its
 				// serialized message chain, so it must settle while showWarningMessage's promise is still pending.
-				await runReportIssue(() => status, "1.2.3", "9.9.9", makeReporter(openedIssueUrls), freshMemento());
+				await runReportIssue(
+					() => status,
+					NO_DECLARED,
+					"1.2.3",
+					"9.9.9",
+					makeReporter(openedIssueUrls),
+					freshMemento()
+				);
 				assert.ok(answer !== undefined, "the gate must be on screen when the command settles");
 				assert.strictEqual(openedIssueUrls.length, 0, "no issue opens before the gate is answered");
 				// The world changes while the dialog sits unanswered; the report must still carry the snapshot the gate
@@ -1148,7 +1280,7 @@ suite("extension/ui/commands", () => {
 				);
 				const mocks = mockHint(undefined);
 				try {
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					mocks.restore();
 				}
@@ -1167,10 +1299,10 @@ suite("extension/ui/commands", () => {
 				const reporter = makeReporter(openedIssueUrls);
 				const mocks = mockHint(undefined);
 				try {
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 					assert.strictEqual(openedIssueUrls.length, 1);
 					const before = storedReport(storage);
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 					await waitFor(() => hintDialogs(mocks).length === 1, "the repeat hint to show");
 					// A settled turn for any stray action; there must be none.
 					await new Promise((resolve) => setTimeout(resolve, 10));
@@ -1192,7 +1324,7 @@ suite("extension/ui/commands", () => {
 				const reporter = makeReporter(openedIssueUrls);
 				const first = mockHint(undefined);
 				try {
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					first.restore();
 				}
@@ -1201,7 +1333,7 @@ suite("extension/ui/commands", () => {
 				storage.mementoStore.set(LAST_ISSUE_REPORT_KEY, aged);
 				const mocks = mockHint("Report Anyway");
 				try {
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 					await waitFor(() => openedIssueUrls.length === 2, "Report Anyway to open the issue");
 					await waitFor(() => storedReport(storage).openedAt > aged.openedAt, "the ledger to refresh");
 				} finally {
@@ -1218,14 +1350,14 @@ suite("extension/ui/commands", () => {
 				const reporter = makeReporter(openedIssueUrls);
 				const first = mockHint(undefined);
 				try {
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					first.restore();
 				}
 				const before = storedReport(storage);
 				const mocks = mockHint("Open Existing Issues");
 				try {
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 					await waitFor(() => mocks.executed.some((call) => call[0] === "vscode.open"), "the issues list to open");
 					await new Promise((resolve) => setTimeout(resolve, 10));
 				} finally {
@@ -1250,9 +1382,10 @@ suite("extension/ui/commands", () => {
 				const reporter = makeReporter(openedIssueUrls);
 				const mocks = mockHint(undefined);
 				try {
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 					await runReportIssue(
 						() => ({ state: "connected", totalModels: 3, serverStatuses: [makeServerStatus({ servedModelCount: 3 })] }),
+						NO_DECLARED,
 						"1.2.3",
 						"9.9.9",
 						reporter,
@@ -1271,13 +1404,13 @@ suite("extension/ui/commands", () => {
 				const reporter = makeReporter(openedIssueUrls);
 				const mocks = mockHint(undefined);
 				try {
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 					const stored = storedReport(storage);
 					storage.mementoStore.set(LAST_ISSUE_REPORT_KEY, {
 						...stored,
 						openedAt: Date.now() - 73 * 60 * 60 * 1000,
 					});
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					mocks.restore();
 				}
@@ -1292,13 +1425,13 @@ suite("extension/ui/commands", () => {
 				const reporter = makeReporter(openedIssueUrls);
 				const mocks = mockHint(undefined);
 				try {
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 					const stored = storedReport(storage);
 					storage.mementoStore.set(LAST_ISSUE_REPORT_KEY, {
 						...stored,
 						openedAt: Date.now() + 24 * 60 * 60 * 1000,
 					});
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					mocks.restore();
 				}
@@ -1312,7 +1445,7 @@ suite("extension/ui/commands", () => {
 				const reporter = makeReporter(openedIssueUrls);
 				const first = mockHint(undefined);
 				try {
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 				} finally {
 					first.restore();
 				}
@@ -1329,7 +1462,7 @@ suite("extension/ui/commands", () => {
 				try {
 					// Pins the non-blocking contract, like the setup-gate twin above: the dashboard awaits this command
 					// in its serialized message chain, so it must settle while the modal is still pending.
-					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 					assert.ok(answer !== undefined, "the modal must be on screen when the command settles");
 					assert.strictEqual(openedIssueUrls.length, 1, "no issue opens before the modal is answered");
 					expectDefined(answer)("Report Anyway");
@@ -1345,7 +1478,7 @@ suite("extension/ui/commands", () => {
 				const reporter = makeReporter(openedIssueUrls);
 				const firstGate = mockGate("Report Anyway");
 				try {
-					await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => classified404, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 					await waitFor(() => openedIssueUrls.length === 1, "the gated report to open");
 					await waitFor(() => storage.mementoStore.has(LAST_ISSUE_REPORT_KEY), "the gated report to be remembered");
 				} finally {
@@ -1354,7 +1487,7 @@ suite("extension/ui/commands", () => {
 				const gate = mockGate("Report Anyway");
 				const hint = mockHint(undefined);
 				try {
-					await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(() => classified404, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
 					await waitFor(() => openedIssueUrls.length === 2, "Report Anyway to open the second report");
 				} finally {
 					hint.restore();
@@ -1563,14 +1696,11 @@ suite("extension/ui/commands", () => {
 			// The tee carries the buffer line first, then its own [error] snapshot line; the stamp is the only variable.
 			assert.deepStrictEqual(
 				tee.readSince(0).lines.map((line) => line.replace(/^\[\d{4}-\d{2}-\d{2}T[^\]]+\]/, "[T]")),
-				[
-					"[T] ERROR: failure: connect http://host:4000",
-					"[error] failure: connect http://host:4000\nError: connect http://host:4000\n    at real (x.ts:1:1)",
-				]
+				["[T] ERROR: failure: unclassified", "[error] failure: unclassified\nunclassified\n    at real (x.ts:1:1)"]
 			);
 			assert.deepStrictEqual(
 				{ message: reporter.getLatestError()?.message, stack: reporter.getLatestError()?.stack },
-				{ message: "connect http://host:4000", stack: "Error: connect http://host:4000\n    at real (x.ts:1:1)" }
+				{ message: "unclassified", stack: "unclassified\n    at real (x.ts:1:1)" }
 			);
 		});
 	});

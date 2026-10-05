@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import { featureDisplayName, featureEnglishName, featureLogSurface } from "../../dashboard/featureNames";
-import { rejectedCredentialKinds } from "../../provider/catalog/groupModels";
 import type { FeatureModelId } from "../../shared/config/settingSpec";
+import { rejectedCredentialKinds } from "../../shared/failureCause";
 import { localizedError, type MirroredError } from "../../shared/mirroredError";
 import type { EntryConnectionRefused } from "../servers/entryConnection";
 import { featureModelSettingId } from "./featureGate";

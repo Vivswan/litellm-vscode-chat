@@ -10,10 +10,10 @@
 import * as l10n from "@vscode/l10n";
 import type { UsageEndpointId } from "../../../dashboard/usageEndpoints";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
-import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
-import { rejectedCredentialKinds } from "../../../provider/catalog/groupModels";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
+import { rejectedCredentialKinds } from "../../../shared/failureCause";
+import type { RejectedCredentialField } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import type { Clock, Timer } from "../../../shared/util/timer";

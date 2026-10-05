@@ -177,6 +177,18 @@ describe("dashboard/recordDraft", () => {
 			assert.ok(problems[5]?.includes("reserved"));
 		});
 
+		test("names differing only in case are one header: the host refuses the pair, so the form refuses it first", () => {
+			const problems = parsedProblems(
+				parseHeaderRows([
+					{ name: "X-Foo", valueText: "a" },
+					{ name: "x-foo", valueText: "b" },
+				])
+			);
+
+			assert.ok(problems[0]?.includes("case-insensitive"), "the first spelling is flagged");
+			assert.ok(problems[1]?.includes("case-insensitive"), "the second spelling is flagged");
+		});
+
 		test("values with line breaks are flagged: the request path would drop them silently", () => {
 			const problems = parsedProblems(parseHeaderRows([{ name: "x-key", valueText: '"a\\nb"' }]));
 

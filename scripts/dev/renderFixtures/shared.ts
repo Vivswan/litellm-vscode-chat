@@ -9,6 +9,7 @@ import type {
 } from "../../../src/dashboard/viewModels.ts";
 import type { SecretFieldId, SecretLocation } from "../../../src/shared/serverEntry.ts";
 import { makeSettings } from "../../../src/test/dashboardSettingsFixture.ts";
+import { verdictRowsOf } from "../../../src/test/dashboardVerdictFixture.ts";
 import { RENDER_EPOCH_MS } from "../renderClock.ts";
 
 // The harness freezes the page's clock to the same instant, so every relative and absolute time label renders
@@ -36,6 +37,7 @@ export const PROD_SERVER: DashboardServer = {
 	servedModelCount: 3,
 	credentials: "present",
 	hasOAuth: false,
+	hasVirtualKey: false,
 	state: "ok",
 	lastChecked: minutesAgoMs(2),
 	config: {
@@ -51,11 +53,12 @@ export const GATEWAY_SERVER: DashboardServer = {
 	label: "gateway",
 	baseUrl: "https://gateway.internal",
 	servedModelCount: 1,
-	credentials: "absent",
+	// Present, so the drawer's credential-kind branch renders the OAuth client the secrets below carry.
+	credentials: "present",
 	hasOAuth: true,
+	hasVirtualKey: false,
 	state: "error",
-	error: "Model listing failed: 404",
-	errorEnglish: "Model listing failed: 404",
+	cause: { kind: "transport", classification: { kind: "http", status: 404 } },
 	expected: true,
 	declaredModelCount: 1,
 	lastChecked: minutesAgoMs(9),
@@ -78,9 +81,9 @@ export const MISCONFIGURED_SERVER: DashboardServer = {
 	servedModelCount: 0,
 	credentials: "absent",
 	hasOAuth: false,
+	hasVirtualKey: false,
 	state: "error",
-	error: "misconfigured entry; not used until its configuration is fixed",
-	errorEnglish: "misconfigured entry; not used until its configuration is fixed",
+	cause: { kind: "misconfiguredEntry" },
 	problems: ["has auth.apiKey beside auth.oauth; move it to auth.oauth.apiKey"],
 };
 
@@ -93,6 +96,7 @@ export const EXTERNAL_SERVER: DashboardServer = {
 	// The host report carries the credential kind for external groups too; this row is the matrix's external-OAuth
 	// specimen.
 	hasOAuth: true,
+	hasVirtualKey: false,
 	state: "ok",
 	lastChecked: minutesAgoMs(5),
 	adoptHandle: "handle-fixture",
@@ -107,6 +111,7 @@ export const EXTERNAL_KEYED_SERVER: DashboardServer = {
 	servedModelCount: 1,
 	credentials: "present",
 	hasOAuth: false,
+	hasVirtualKey: false,
 	state: "ok",
 	lastChecked: minutesAgoMs(12),
 	adoptHandle: "handle-fixture-keyed",
@@ -487,6 +492,7 @@ export function baseState(overrides: Partial<DashboardState> = {}): DashboardSta
 	return {
 		servers,
 		hiddenGroups: [],
+		verdictRows: verdictRowsOf(servers),
 		servedModelCount: servers.reduce((sum, server) => sum + server.servedModelCount, 0),
 		models: [...MODELS],
 		settings: makeSettings({

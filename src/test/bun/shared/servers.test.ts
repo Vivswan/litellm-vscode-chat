@@ -21,7 +21,7 @@ function failure(serverId: string, overrides: { expected?: boolean; declaredMode
 		label: serverId,
 		baseUrl: `http://${serverId}.test`,
 		state: "error",
-		error: "boom",
+		cause: { kind: "transport", classification: { kind: "connection" } },
 		logSafeError: markLogSafe("RequestError(connection)"),
 		servedModelCount: overrides.declaredModelCount ?? 0,
 		...(overrides.expected !== undefined ? { expected: overrides.expected } : {}),

@@ -2,7 +2,6 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { classifyOverall } from "../dashboard/presenters";
 import type { DeclaredServerView } from "../extension/servers/serverSync";
-import { GROUP_UPDATE_UNAVAILABLE_MESSAGE } from "../extension/servers/serverSync";
 import { applySyncFailures } from "../extension/servers/syncFailureOverlay";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
@@ -261,7 +260,7 @@ suite("Docker server sync", () => {
 		proxyGroups += 1;
 		const models = await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_INLINE);
-		assert.strictEqual(view.syncFailure?.message, undefined, "the group add must succeed");
+		assert.strictEqual(view.syncFailure?.class, undefined, "the group add must succeed");
 		assert.strictEqual(view.secrets.apiKey, "settings", "an inline key reads as settings-stored");
 		const model = expectDefined(models.find((candidate) => candidate.id === ALIAS));
 		assert.strictEqual(await chat(model, `${COMMAND_SIGIL}echo:serversync inline`), "serversync inline");
@@ -277,7 +276,7 @@ suite("Docker server sync", () => {
 		proxyGroups += 1;
 		await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_STORED);
-		assert.strictEqual(view.syncFailure?.message, undefined);
+		assert.strictEqual(view.syncFailure?.class, undefined);
 		assert.strictEqual(view.secrets.apiKey, "secure", "the stored blob is the key's reported location");
 	});
 
@@ -423,7 +422,7 @@ suite("Docker server sync", () => {
 		await writeServersSetting(entries);
 		await syncNow();
 		const blocked = await declaredFor(LABEL_INLINE);
-		assert.strictEqual(blocked.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+		assert.strictEqual(blocked.syncFailure?.class, "blocked");
 		// The live group still carries the entry's label at the OLD URL, which the entry no longer declares: a
 		// superseded leftover. The provider serves nothing from it, so exactly this one group's models leave the picker
 		// while every other group keeps its own.
@@ -440,7 +439,7 @@ suite("Docker server sync", () => {
 		await syncNow();
 		const reverted = await declaredFor(LABEL_INLINE);
 		assert.strictEqual(
-			reverted.syncFailure?.message,
+			reverted.syncFailure?.class,
 			undefined,
 			"reverting to the live group's content clears the error"
 		);
@@ -613,7 +612,7 @@ suite("Docker server sync", () => {
 			"the input limit derives from the declared context length minus the output limit"
 		);
 		const view = await declaredFor(LABEL_EXPECTED);
-		assert.strictEqual(view.syncFailure?.message, undefined, "the group add must succeed");
+		assert.strictEqual(view.syncFailure?.class, undefined, "the group add must succeed");
 
 		// The status window records the TRUE outcome - an error - tagged expected with the declared count riding
 		// along; the presentation layers derive the ok-with-note verdict from those fields.
@@ -679,7 +678,7 @@ suite("Docker server sync", () => {
 		const model = expectDefined(models.find((candidate) => candidate.id === UNEXPECTED_DECLARED_MODEL));
 		assert.strictEqual(model.maxInputTokens, 123000, "the declared max_input_tokens drives registration");
 		const view = await declaredFor(LABEL_DECLARED_UNEXPECTED);
-		assert.strictEqual(view.syncFailure?.message, undefined, "the group add must succeed");
+		assert.strictEqual(view.syncFailure?.class, undefined, "the group add must succeed");
 		const statuses = (await vscode.commands.executeCommand("litellm._test.getServerStatuses")) as ServerStatus[];
 		const status = expectDefined(
 			statuses.find((candidate) => candidate.label === LABEL_DECLARED_UNEXPECTED),
@@ -705,7 +704,7 @@ suite("Docker server sync", () => {
 		await setStoredSecret(LABEL_ROTATED, "apiKey", WRONG_ROTATED_KEY);
 		await declareServer({ label: LABEL_ROTATED, baseUrl: BASE_URL });
 		assert.strictEqual(
-			(await declaredFor(LABEL_ROTATED)).syncFailure?.message,
+			(await declaredFor(LABEL_ROTATED)).syncFailure?.class,
 			undefined,
 			"the group add succeeds; only discovery fails"
 		);
@@ -727,7 +726,7 @@ suite("Docker server sync", () => {
 		proxyGroups += 1;
 		await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_ROTATED);
-		assert.strictEqual(view.syncFailure?.message, undefined, "a credential rotation never enters the blocked state");
+		assert.strictEqual(view.syncFailure?.class, undefined, "a credential rotation never enters the blocked state");
 		assert.strictEqual(view.secrets.apiKey, "secure", "the rotated key lives in SecretStorage");
 		const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
 		assert.ok(countModels(models, ALIAS) >= proxyGroups, "the healed group serves the proxy models");

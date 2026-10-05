@@ -8,23 +8,20 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { classifyOverall, overallStatusText } from "../../../dashboard/presenters";
-import type { DashboardServer } from "../../../dashboard/viewModels";
 import { buildDashboardState, type SettingsReader } from "../../../extension/dashboard/state";
-import type { DeclaredServerView, ServerEntryReport } from "../../../extension/servers/serverSync";
-import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
-import { Notifier } from "../../../extension/ui/notifier";
 import type { GroupServer } from "../../../provider/catalog/groupModels";
 import { GroupStatusReporter } from "../../../provider/catalog/statusReporting";
 import { StatusWindow } from "../../../provider/catalog/statusWindow";
+import { failureTexts } from "../../../shared/failureCause";
 import { markLogSafe } from "../../../shared/logger";
 import type { AggregatedStatus, ServerStatusError } from "../../../shared/servers";
 import { isHiddenGroupServerStatus } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fixedHeaderValue } from "../../../shared/util/headers";
 import type { Timer } from "../../../shared/util/timer";
-import type { WindowStateRow } from "../../statusVocabulary";
-import { WINDOW_STATE_ROWS } from "../../statusVocabulary";
+import { declaredViews, rejectedReports, rowVerdict, WINDOW_STATE_ROWS } from "../../statusVocabulary";
 import { createStatusBarManager, RecordingItem } from "./statusBarHarness";
+import { windowNotifier } from "./verdictHarness";
 
 /** The notifier's deferral timer, fired synchronously so the deferred no-servers claim lands inside the test. */
 const IMMEDIATE_TIMER: Timer = {
@@ -35,44 +32,6 @@ const IMMEDIATE_TIMER: Timer = {
 };
 
 const EMPTY_READER: SettingsReader = { get: () => undefined, inspect: () => ({ defaultValue: undefined }) };
-
-/**
- * The row's declared rows as sync-engine views: what the state builder joins and what the bar's and notifier's overlay
- * reads, with the row's sync failures riding as syncFailure - the same one input on every surface.
- */
-function declaredViews(row: WindowStateRow): DeclaredServerView[] {
-	return row.rows
-		.filter((server) => server.origin === "declared")
-		.map((server) => {
-			const failure = row.syncFailures?.find((candidate) => candidate.label === server.label);
-			return {
-				label: server.label,
-				baseUrl: server.baseUrl,
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const,
-				expectedClientId: row.window.find((status) => status.label === server.label)?.serverId,
-				syncFailure: failure !== undefined ? { class: failure.failureClass, message: failure.message } : undefined,
-			};
-		});
-}
-
-/**
- * The row's misconfigured rows as the parser's entry reports: what serverSettingReports hands the state builder for an
- * entry it refused, so the mirror exercises the builder's misconfigured-row branch rather than assuming the
- * hand-written literal.
- */
-function rejectedReports(row: WindowStateRow): ServerEntryReport[] {
-	return row.rows
-		.filter((server): server is Extract<DashboardServer, { origin: "misconfigured" }> => {
-			return server.origin === "misconfigured";
-		})
-		.map((server, index) => ({
-			index,
-			label: server.label,
-			baseUrl: server.baseUrl,
-			problems: [...server.problems],
-			accepted: false,
-		}));
-}
 
 suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 	const createdContexts: vscode.ExtensionContext[] = [];
@@ -122,6 +81,7 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 				reader: EMPTY_READER,
 				declared: { source: "engine", views: declaredViews(row) },
 				entryReports: rejects,
+				verdictRows: rowVerdict(row).rows(),
 				removedGroups: {
 					tombstones: row.window.filter(isHiddenGroupServerStatus).map((status) => ({
 						by: "group" as const,
@@ -160,7 +120,7 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 						expected.declaredModelCount,
 						`${row.name}: declared count of "${expected.label}"`
 					);
-					assert.strictEqual(built.error, expected.error, `${row.name}: error of "${expected.label}"`);
+					assert.deepStrictEqual(built.cause, expected.cause, `${row.name}: cause of "${expected.label}"`);
 				}
 			}
 			// The misconfigured mirror is the whole row: the builder derives every field of a parser-refused entry's
@@ -203,18 +163,11 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 		}
 	});
 
-	test("one verdict from both inputs: the overlaid window and the dashboard rows classify identically", () => {
+	test("the one verdict row set classifies to the table's verdict", () => {
 		for (const row of WINDOW_STATE_ROWS) {
-			assert.strictEqual(
-				classifyOverall(row.rows, { hiddenGroupCount: row.hiddenGroups ?? 0 }),
-				row.expect.verdict,
-				`${row.name}: rows verdict`
-			);
-			// The bar's real input: the window with the row's sync failures overlaid.
-			const overlaid = applySyncFailures(row.window, declaredViews(row));
-			if (overlaid.length > 0) {
-				assert.strictEqual(classifyOverall(overlaid), row.expect.verdict, `${row.name}: window verdict`);
-			}
+			// The owner's set over the row's window, views, and refused entries: what the bar, the notifier, and
+			// (published) the hero classify.
+			assert.strictEqual(classifyOverall(rowVerdict(row).rows()), row.expect.verdict, `${row.name}: verdict`);
 		}
 	});
 
@@ -224,6 +177,7 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			const harness = createStatusBarManager({
 				hasConfiguredServers: () => row.configured,
 				getDeclared: () => declaredViews(row),
+				entryReports: () => rejectedReports(row),
 				item,
 			});
 			createdContexts.push(harness.context);
@@ -258,7 +212,7 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			baseUrl: `http://${label}.test`,
 			lastChecked: "now",
 			state: "error",
-			error: `${label} failed`,
+			cause: { kind: "transport", classification: { kind: "connection" } },
 			logSafeError: markLogSafe(`${label} failed`),
 			servedModelCount: 0,
 		});
@@ -269,15 +223,15 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			reporter.reportMerged(true);
 			await new Promise((resolve) => setImmediate(resolve));
 			const status = harness.manager.connectionStatus;
-			return status.state === "error" ? status.error : status.state;
+			return status.state === "error" ? failureTexts(status.cause, status.baseUrl ?? "").display : status.state;
 		};
 
 		window.record(failed("a1", "A"), nothingServed, groupA);
 		window.record(failed("b1", "B"), nothingServed, groupB);
-		assert.strictEqual(await barError(), "A failed");
+		assert.strictEqual(await barError(), "Could not connect to http://A.test");
 
 		window.record(failed("a2", "A"), nothingServed, { ...groupA, apiKey: fixedHeaderValue("k2") });
-		assert.strictEqual(await barError(), "A failed", "the rotation must not move A behind B");
+		assert.strictEqual(await barError(), "Could not connect to http://A.test", "the rotation must not move A behind B");
 	});
 
 	test("the notifier toasts each window state with the table's kind, or stays silent", () => {
@@ -285,12 +239,12 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			toasts.length = 0;
 			// Zero grace on an immediate timer: the deferred no-servers claim (the not-configured row) fires inside the
 			// test instead of 15s later.
-			const notifier = new Notifier(
-				() => row.configured,
-				() => declaredViews(row),
-				0,
-				IMMEDIATE_TIMER
-			);
+			const notifier = windowNotifier(() => row.configured, {
+				getDeclared: () => declaredViews(row),
+				entryReports: () => rejectedReports(row),
+				graceMs: 0,
+				timer: IMMEDIATE_TIMER,
+			});
 			notifier.handleAggregatedStatus({
 				serverStatuses: [...row.window],
 				totalModels: row.totalModels,
@@ -313,11 +267,7 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 
 	test("the diagnostics paste line says what the table says", () => {
 		for (const row of WINDOW_STATE_ROWS) {
-			assert.strictEqual(
-				overallStatusText([...row.rows], row.totalModels, { hiddenGroupCount: row.hiddenGroups ?? 0 }),
-				row.expect.statusLine,
-				row.name
-			);
+			assert.strictEqual(overallStatusText(rowVerdict(row).rows(), row.totalModels), row.expect.statusLine, row.name);
 		}
 	});
 });
