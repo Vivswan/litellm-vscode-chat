@@ -41,7 +41,7 @@ export function wireServers(
 		observedGroupBaseUrls: (label: string) => readonly string[];
 		/** The groups the host serves now; see ServerSyncEnv.observedSnapshots. */
 		observedSnapshots: () => readonly ServerModelsSnapshot[];
-		/** Fires when a labeled group enters the provider's status window; a pass re-runs so the evidence is used. */
+		/** Fires when a group enters the provider's status window; a pass re-runs so the evidence is used. */
 		onDidObserveGroup: vscode.Event<void>;
 	}
 ): ServersWiring {
