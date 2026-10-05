@@ -11,13 +11,23 @@
 import * as os from "node:os";
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import { numberContractSentence } from "../../dashboard/presenters";
 import { CMD } from "../../shared/config/commandIds";
-import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
+import type { NumberSettingId } from "../../shared/config/settingSpec";
+import {
+	ALL_SETTING_KEYS,
+	BOOLEAN_SETTING_SPECS,
+	NUMBER_SETTING_SPECS,
+	SERVERS_SETTING_KEY,
+	USAGE_STATUS_BAR_MODES,
+	USAGE_STATUS_BAR_SETTING_KEY,
+} from "../../shared/config/settingSpec";
 import { PRE_IMPORT_SNAPSHOT_SECRET } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { parseSecretOwner, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { upgradedStamp } from "../migrations/oauthStampClientId";
 import type { ServerSyncEngine } from "../servers/serverSync/engine";
@@ -72,8 +82,8 @@ export interface ImportPreviewSummary {
 	readonly problemLines: readonly string[];
 	/** Total problem lines before the cap. */
 	readonly problemCount: number;
-	/** Wrong-typed keys the scalar type gate skips. */
-	readonly skippedKeyCount: number;
+	/** Keys the scalar gate skips, in file order: each is named in the preview with the contract it failed. */
+	readonly skippedKeys: readonly string[];
 	/** File keys outside the setting vocabulary, ignored. */
 	readonly unknownKeyCount: number;
 	/** Server entries that cannot import (no usable label, or shadowed same-label siblings). */
@@ -132,7 +142,7 @@ export interface SettingsTransferEnv {
 }
 
 /** Render the preview summary into the modal's detail text. */
-function renderImportPreview(summary: ImportPreviewSummary): string {
+export function renderImportPreview(summary: ImportPreviewSummary): string {
 	const lines: string[] = [];
 	if (summary.settingCount > 0) {
 		const keys = summary.settingKeys.join(", ") + (summary.settingCount > summary.settingKeys.length ? ", ..." : "");
@@ -178,12 +188,8 @@ function renderImportPreview(summary: ImportPreviewSummary): string {
 					)
 		);
 	}
-	if (summary.skippedKeyCount > 0) {
-		lines.push(
-			summary.skippedKeyCount === 1
-				? l10n.t("1 setting has the wrong type and will be skipped.")
-				: l10n.t("{0} settings have the wrong type and will be skipped.", summary.skippedKeyCount)
-		);
+	for (const key of summary.skippedKeys) {
+		lines.push(skippedKeyLine(key));
 	}
 	if (summary.unknownKeyCount > 0) {
 		lines.push(
@@ -422,13 +428,41 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 	}
 }
 
+/**
+ * The preview line for a skipped key: the contract it failed, in the dashboard's own words and from the one spec, so
+ * the user learns what to change in the file rather than how many values went missing.
+ */
+function skippedKeyLine(key: string): string {
+	if (Object.hasOwn(NUMBER_SETTING_SPECS, key)) {
+		return `${numberContractSentence(key as NumberSettingId)} ${l10n.t("It will be skipped.")}`;
+	}
+	if (Object.hasOwn(BOOLEAN_SETTING_SPECS, key)) {
+		return l10n.t("{0} must be true or false. It will be skipped.", key);
+	}
+	if (key === USAGE_STATUS_BAR_SETTING_KEY) {
+		return l10n.t("{0} must be one of {1}. It will be skipped.", key, USAGE_STATUS_BAR_MODES.join(", "));
+	}
+	return l10n.t("{0} has a value its key does not accept; it will be skipped.", key);
+}
+
 /** The localized parse-failure message for one ParseEnvelopeResult verdict. */
-function parseFailureMessage(reason: "not-json" | "not-an-export" | "newer-version", exportedBy?: string): string {
-	if (reason === "newer-version") {
-		return exportedBy !== undefined
+function parseFailureMessage(
+	verdict:
+		| { readonly reason: "not-json" | "not-an-export" }
+		| { readonly reason: "newer-version"; readonly exportedBy?: string | undefined }
+		| { readonly reason: "overflowing-number"; readonly path: string }
+): string {
+	if (verdict.reason === "overflowing-number") {
+		return l10n.t(
+			"LiteLLM: This file holds a number too large for JSON at {0}, which would import as null; fix the value and try again.",
+			verdict.path
+		);
+	}
+	if (verdict.reason === "newer-version") {
+		return verdict.exportedBy !== undefined
 			? l10n.t(
 					"LiteLLM: This file was exported by a newer version of the extension ({0}); update the extension to import it.",
-					exportedBy
+					verdict.exportedBy
 				)
 			: l10n.t(
 					"LiteLLM: This file was exported by a newer version of the extension; update the extension to import it."
@@ -520,10 +554,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		const parsed = parseEnvelope(text);
 		if (!parsed.ok) {
 			env.log("Settings import rejected: the file did not parse as an export", { reason: parsed.reason });
-			await env.prompts.notify(
-				"error",
-				parseFailureMessage(parsed.reason, parsed.reason === "newer-version" ? parsed.exportedBy : undefined)
-			);
+			await env.prompts.notify("error", parseFailureMessage(parsed));
 			return;
 		}
 
@@ -575,7 +606,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			secretFieldCount: plan.secretFieldCount,
 			problemLines,
 			problemCount,
-			skippedKeyCount: plan.skippedKeys.length,
+			skippedKeys: plan.skippedKeys.map((skipped) => skipped.key),
 			unknownKeyCount: parsed.unknownKeys.length,
 			skippedServerCount: unimportableServers,
 		};
@@ -599,7 +630,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			}
 			const taken = new Set<string>([...currentLabels, ...importableLabels, ...renameTargets]);
 			const validate = (candidate: string): string | undefined => {
-				const trimmed = candidate.trim();
+				const trimmed = trimHttpWhitespace(candidate);
 				if (trimmed.length === 0) {
 					return l10n.t("enter a label");
 				}
@@ -615,7 +646,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			if (newLabel === undefined) {
 				return;
 			}
-			const trimmed = newLabel.trim();
+			const trimmed = trimHttpWhitespace(newLabel);
 			decisions[collision.label] = { action: "rename", newLabel: trimmed };
 			renameTargets.add(trimmed);
 		}
@@ -846,7 +877,7 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 		// server entry can ever read.
 		if (
 			label.length === 0 ||
-			label.trim() !== label ||
+			trimHttpWhitespace(label) !== label ||
 			isUnsafeRecordKey(label) ||
 			!isRecord(entry) ||
 			typeof entry.present !== "boolean"

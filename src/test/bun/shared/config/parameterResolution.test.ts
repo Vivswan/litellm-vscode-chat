@@ -281,7 +281,7 @@ describe("shared/config parameterResolution resolveMaxTokens", () => {
 				runtimeMaxTokens: 111,
 				configuredMaxTokens: 222,
 				maxOutputTokens: 999,
-				outputLimitDeclared: true,
+				defaultMaxTokens: 999,
 			}),
 			{ value: 111, source: "runtime" }
 		);
@@ -290,7 +290,7 @@ describe("shared/config parameterResolution resolveMaxTokens", () => {
 				runtimeMaxTokens: undefined,
 				configuredMaxTokens: 222,
 				maxOutputTokens: 999,
-				outputLimitDeclared: true,
+				defaultMaxTokens: 999,
 			}),
 			{ value: 222, source: "configured" }
 		);
@@ -299,7 +299,7 @@ describe("shared/config parameterResolution resolveMaxTokens", () => {
 				runtimeMaxTokens: undefined,
 				configuredMaxTokens: 22200,
 				maxOutputTokens: 999,
-				outputLimitDeclared: false,
+				defaultMaxTokens: 999,
 			}),
 			{ value: 22200, source: "configured" },
 			"a user-set max_tokens goes out exactly as written, above the model max and the cap alike"
@@ -309,27 +309,28 @@ describe("shared/config parameterResolution resolveMaxTokens", () => {
 				runtimeMaxTokens: undefined,
 				configuredMaxTokens: undefined,
 				maxOutputTokens: 32000,
-				outputLimitDeclared: true,
+				defaultMaxTokens: 32000,
 			}),
-			{ value: 32000, source: "declared" }
+			{ value: 32000, source: "limit" }
 		);
 		assert.deepStrictEqual(
 			resolveMaxTokens({
 				runtimeMaxTokens: undefined,
 				configuredMaxTokens: undefined,
 				maxOutputTokens: 32000,
-				outputLimitDeclared: false,
+				defaultMaxTokens: DEFAULT_MAX_TOKENS_CAP,
 			}),
-			{ value: Math.min(DEFAULT_MAX_TOKENS_CAP, 32000), source: "capped-default" }
+			{ value: DEFAULT_MAX_TOKENS_CAP, source: "capped" }
 		);
 		assert.deepStrictEqual(
 			resolveMaxTokens({
 				runtimeMaxTokens: undefined,
 				configuredMaxTokens: undefined,
 				maxOutputTokens: 2000,
-				outputLimitDeclared: false,
+				defaultMaxTokens: 2000,
 			}),
-			{ value: 2000, source: "capped-default" }
+			{ value: 2000, source: "limit" },
+			"a guessed limit already under the cap goes out whole, so the inspector names no cap"
 		);
 	});
 
@@ -340,7 +341,7 @@ describe("shared/config parameterResolution resolveMaxTokens", () => {
 				runtimeMaxTokens: 1000,
 				configuredMaxTokens: 2000,
 				maxOutputTokens: 32000,
-				outputLimitDeclared: true,
+				defaultMaxTokens: 32000,
 			}),
 			{ value: 9000, source: "forced" }
 		);
@@ -350,7 +351,7 @@ describe("shared/config parameterResolution resolveMaxTokens", () => {
 				runtimeMaxTokens: 1000,
 				configuredMaxTokens: undefined,
 				maxOutputTokens: 2000,
-				outputLimitDeclared: false,
+				defaultMaxTokens: 2000,
 			}),
 			{ value: 9000, source: "forced" },
 			"a forced value counts as user-set: the min(4096, guess) cap never touches it"
@@ -362,10 +363,10 @@ describe("shared/config parameterResolution resolveMaxTokens", () => {
 			resolveMaxTokens({
 				runtimeMaxTokens: "1000",
 				configuredMaxTokens: null,
-				maxOutputTokens: 2000,
-				outputLimitDeclared: false,
+				maxOutputTokens: 16000,
+				defaultMaxTokens: 4096,
 			}),
-			{ value: 2000, source: "capped-default" }
+			{ value: 4096, source: "capped" }
 		);
 	});
 });
@@ -379,7 +380,7 @@ describe("shared/config parameterResolution projectEffectiveParameters", () => {
 				"gpt-5*": { temperature: 0.3, _reserved: 1, stream: false },
 			},
 			maxOutputTokens: 32000,
-			outputLimitDeclared: true,
+			defaultMaxTokens: 32000,
 		});
 		assert.deepStrictEqual(
 			projection.rows.map((row) => `${row.name}:${row.sent ? "sent" : (row.skipReason ?? "?")}`),
@@ -388,7 +389,7 @@ describe("shared/config parameterResolution projectEffectiveParameters", () => {
 		);
 		const topP = projection.rows.find((row) => row.name === "top_p");
 		assert.strictEqual(topP?.inheritedBy, "gpt-5*");
-		assert.deepStrictEqual(projection.maxTokens, { value: 32000, source: "declared" });
+		assert.deepStrictEqual(projection.maxTokens, { value: 32000, source: "limit" });
 	});
 
 	test("a numeric configured max_tokens becomes the derivation, not a row; a non-numeric one stays a row", () => {
@@ -396,7 +397,7 @@ describe("shared/config parameterResolution projectEffectiveParameters", () => {
 			rawModelId: "m1",
 			globalParameters: { m1: { max_tokens: 1234 } },
 			maxOutputTokens: 32000,
-			outputLimitDeclared: false,
+			defaultMaxTokens: 4096,
 		});
 		assert.deepStrictEqual(numeric.rows, []);
 		assert.deepStrictEqual(numeric.maxTokens, {
@@ -409,11 +410,11 @@ describe("shared/config parameterResolution projectEffectiveParameters", () => {
 			rawModelId: "m1",
 			globalParameters: { m1: { max_tokens: "lots" } },
 			maxOutputTokens: 32000,
-			outputLimitDeclared: false,
+			defaultMaxTokens: 4096,
 		});
 		assert.strictEqual(junk.rows[0]?.name, "max_tokens");
 		assert.strictEqual(junk.rows[0]?.sent, false);
-		assert.deepStrictEqual(junk.maxTokens, { value: 4096, source: "capped-default" });
+		assert.deepStrictEqual(junk.maxTokens, { value: 4096, source: "capped" });
 	});
 
 	test("a forced max_tokens projects as the forced derivation with its attribution", () => {
@@ -421,7 +422,7 @@ describe("shared/config parameterResolution projectEffectiveParameters", () => {
 			rawModelId: "m1",
 			globalParameters: { m1: { max_tokens: 9000, _force: true } },
 			maxOutputTokens: 32000,
-			outputLimitDeclared: true,
+			defaultMaxTokens: 32000,
 		});
 		assert.deepStrictEqual(projection.rows, []);
 		assert.deepStrictEqual(projection.maxTokens, {

@@ -7,7 +7,7 @@ import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getModelParametersConfig, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { entryConnectionFor } from "../../servers/entryConnection";
-import { noEntryForConfiguredServer } from "../modelSettingError";
+import { configuredServerUnavailable } from "../modelSettingError";
 import { withProbeToken } from "../probeToken";
 import { CompletionCache } from "./completionCache";
 import type { InlineCompletionSend } from "./inlineCompletionProvider";
@@ -26,15 +26,16 @@ import { InlineLanguageStatusRow, registerToggleInlineLanguageCommand } from "./
 function createFimSend(
 	secrets: vscode.SecretStorage,
 	oneShot: Pick<OneShotClient, "completeFim">,
-	table: ModelResolutionTable
+	table: ModelResolutionTable,
+	log: (message: string, data?: unknown) => void
 ): InlineCompletionSend {
 	return async ({ modelRef, prefix, suffix, token }) => {
 		const resolved = await entryConnectionFor(secrets, modelRef.server);
-		if (resolved === undefined) {
-			throw noEntryForConfiguredServer("inlineCompletions", modelRef.server);
+		if (resolved.kind !== "resolved") {
+			throw configuredServerUnavailable("inlineCompletions", modelRef.server, resolved.kind);
 		}
 		const { fimTemplate } = table.resolveParameters(modelRef.server, modelRef.model, {
-			globalParameters: getModelParametersConfig(),
+			globalParameters: getModelParametersConfig(log),
 			entryParameters: resolved.entry.modelParameters,
 		});
 		const wire = buildFimPrompt({ prefix, suffix, fimTemplate });
@@ -88,7 +89,7 @@ export function wireInlineCompletions(
 	//   One resolution table for the feature's lifetime -> the directive read is memoized
 	const table = new ModelResolutionTable();
 	const cache = new CompletionCache();
-	const fimSend = createFimSend(context.secrets, deps.oneShot, table);
+	const fimSend = createFimSend(context.secrets, deps.oneShot, table, log);
 	const provider = createInlineCompletionProvider({ send: fimSend, cache, log });
 
 	let registration: vscode.Disposable | undefined;

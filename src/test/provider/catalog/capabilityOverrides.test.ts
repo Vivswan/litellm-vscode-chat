@@ -1,7 +1,7 @@
 /**
  * The attach-side override application and declared-model synthesis: coherent rebuilds
  * (token constraints, capability flags, the reasoning and caching gates, pricing,
- * outputLimitSource promotion, stale-pricing healing), the idempotence of the unconditional
+ * the request default, stale-pricing healing), the idempotence of the unconditional
  * rebuild, inertness against the DISCOVERED raw-ID set, and collision suppression against
  * reserved exposed IDs.
  */
@@ -14,7 +14,7 @@ import { buildModelInfos, pricingFromCosts } from "../../../provider/catalog/reg
 import type { LiteLLMModelItem } from "../../../provider/catalog/schemas";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
-import { makeModelInfo } from "../../pureHelpers";
+import { deploymentShape, makeModelInfo } from "../../pureHelpers";
 
 /** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
@@ -54,7 +54,7 @@ const DEPLOYMENT_PROVIDER = {
 
 const DEPLOYMENT: LiteLLMModelItem = {
 	id: "gpt-test",
-	shape: { kind: "deployment", provider: DEPLOYMENT_PROVIDER },
+	shape: deploymentShape(DEPLOYMENT_PROVIDER),
 	architecture: { input_modalities: ["text", "image"] },
 };
 
@@ -77,7 +77,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(overridden[0]?.maxOutputTokens, 4000);
 			const healed = applyCapabilityOverrides(overridden, SERVER, options());
 			assert.strictEqual(healed[0]?.maxOutputTokens, 32000, "the server-declared limit returns");
-			assert.strictEqual(healed[0]?.litellm.outputLimitSource, "provider");
+			assert.strictEqual(healed[0]?.litellm.defaultMaxTokens, 32000);
 			assert.strictEqual(healed[0]?.configurationSchema, undefined, "the promoted control is demoted again");
 		});
 
@@ -86,10 +86,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			// floor fill and the _fallback value takes its place.
 			const undeclaredOutput: LiteLLMModelItem = {
 				id: "gpt-test",
-				shape: {
-					kind: "deployment",
-					provider: { provider: "openai", status: "ok", supports_tools: true, max_input_tokens: 180000 },
-				},
+				shape: deploymentShape({ provider: "openai", status: "ok", supports_tools: true, max_input_tokens: 180000 }),
 			};
 			const infos = [registered(undeclaredOutput)];
 			const out = applyCapabilityOverrides(
@@ -98,7 +95,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 				options({ globalCapabilities: { "gpt-test": { _fallback: true, max_output_tokens: 23456 } } })
 			);
 			assert.strictEqual(out[0]?.maxOutputTokens, 23456);
-			assert.strictEqual(out[0]?.litellm.outputLimitSource, "user", "a fallback value counts as user-set");
+			assert.strictEqual(out[0]?.litellm.defaultMaxTokens, 23456, "a fallback value is sent whole");
 		});
 
 		test("a foreign prefix and a foreign scope both leave the model untouched", () => {
@@ -116,7 +113,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.deepStrictEqual(out, infos, "records for other models and other servers move no value here");
 		});
 
-		test("an override rebuilds token constraints, flags, and provenance coherently", () => {
+		test("an override rebuilds token constraints, flags, and the request default coherently", () => {
 			const infos = [registered(DEPLOYMENT)];
 			const out = applyCapabilityOverrides(
 				infos,
@@ -140,18 +137,18 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(patched.capabilities?.toolCalling, false);
 			assert.strictEqual(patched.capabilities?.imageInput, false);
 			assert.strictEqual(patched.litellm.supportsAudioInput, true);
-			assert.strictEqual(patched.litellm.outputLimitSource, "user", "an overridden output limit is user-set");
+			assert.strictEqual(patched.litellm.defaultMaxTokens, 4000, "an overridden output limit is sent whole");
 			assert.deepStrictEqual(patched.litellm.serverDeclared, infos[0]?.litellm.serverDeclared, "the baseline rides");
 			assert.strictEqual(patched.name, infos[0]?.name, "display identity is untouched");
 		});
 
-		test("an override on another field keeps the server-declared output provenance", () => {
+		test("an override on another field keeps the server-declared output default", () => {
 			const out = applyCapabilityOverrides(
 				[registered(DEPLOYMENT)],
 				SERVER,
 				options({ globalCapabilities: { "gpt-test": { supports_vision: false } } })
 			);
-			assert.strictEqual(out[0]?.litellm.outputLimitSource, "provider");
+			assert.strictEqual(out[0]?.litellm.defaultMaxTokens, 32000);
 			assert.strictEqual(out[0]?.maxOutputTokens, 32000, "the server-declared limit stays");
 		});
 
@@ -186,7 +183,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		test("reasoning promotion adds the effort schema and demotion removes it", () => {
 			const reasoningItem: LiteLLMModelItem = {
 				...DEPLOYMENT,
-				shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+				shape: deploymentShape({ ...DEPLOYMENT_PROVIDER, supports_reasoning: true }),
 			};
 			const withSchema = registered(reasoningItem);
 			assert.deepStrictEqual(withSchema.configurationSchema, REASONING_EFFORT_SCHEMA);
@@ -210,7 +207,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		test("a reasoning_effort_levels record replaces the menu, unknown levels included", () => {
 			const reasoningItem: LiteLLMModelItem = {
 				...DEPLOYMENT,
-				shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+				shape: deploymentShape({ ...DEPLOYMENT_PROVIDER, supports_reasoning: true }),
 			};
 			const out = applyCapabilityOverrides(
 				[registered(reasoningItem)],
@@ -227,7 +224,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		test("the entry's level list beats the global one, and a levels-only record on a gated-off model is inert", () => {
 			const reasoningItem: LiteLLMModelItem = {
 				...DEPLOYMENT,
-				shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+				shape: deploymentShape({ ...DEPLOYMENT_PROVIDER, supports_reasoning: true }),
 			};
 			const out = applyCapabilityOverrides(
 				[registered(reasoningItem)],
@@ -254,14 +251,11 @@ suite("provider/catalog/capabilityOverrides", () => {
 		test("server-declared per-level flags register their menu directly and the walk re-derives it", () => {
 			const flagged: LiteLLMModelItem = {
 				...DEPLOYMENT,
-				shape: {
-					kind: "deployment",
-					provider: {
-						...DEPLOYMENT_PROVIDER,
-						supports_reasoning: true,
-						reasoning_effort_levels: ["low", "high", "max"],
-					},
-				},
+				shape: deploymentShape({
+					...DEPLOYMENT_PROVIDER,
+					supports_reasoning: true,
+					reasoning_effort_levels: ["low", "high", "max"],
+				}),
 			};
 			const infos = [registered(flagged)];
 			assert.deepStrictEqual(
@@ -276,14 +270,11 @@ suite("provider/catalog/capabilityOverrides", () => {
 		test("a stale served menu heals once its level record is removed", () => {
 			const flagged: LiteLLMModelItem = {
 				...DEPLOYMENT,
-				shape: {
-					kind: "deployment",
-					provider: {
-						...DEPLOYMENT_PROVIDER,
-						supports_reasoning: true,
-						reasoning_effort_levels: ["low", "high"],
-					},
-				},
+				shape: deploymentShape({
+					...DEPLOYMENT_PROVIDER,
+					supports_reasoning: true,
+					reasoning_effort_levels: ["low", "high"],
+				}),
 			};
 			const overridden = applyCapabilityOverrides(
 				[registered(flagged)],
@@ -385,7 +376,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			);
 			const stamped: LiteLLMModelItem = {
 				id: "gpt-test",
-				shape: { kind: "deployment", provider: mapped.provider },
+				shape: deploymentShape(mapped.provider),
 			};
 			const infos = [registered(stamped)];
 			// The stamp (and the stray cache cost beside it) must not resurface as
@@ -405,18 +396,15 @@ suite("provider/catalog/capabilityOverrides", () => {
 		test("server pricing re-derives byte-identical beside an unrelated override", () => {
 			const priced: LiteLLMModelItem = {
 				id: "gpt-test",
-				shape: {
-					kind: "deployment",
-					provider: {
-						...DEPLOYMENT_PROVIDER,
-						cache_read_input_token_cost: 0.0000003,
-						cache_creation_input_token_cost: 0.00000375,
-						long_context_input_cost_per_token: 0.000006,
-						long_context_output_cost_per_token: 0.0000225,
-						long_context_cache_read_input_token_cost: 0.0000003,
-						long_context_cache_creation_input_token_cost: 0.0000075,
-					},
-				},
+				shape: deploymentShape({
+					...DEPLOYMENT_PROVIDER,
+					cache_read_input_token_cost: 0.0000003,
+					cache_creation_input_token_cost: 0.00000375,
+					long_context_input_cost_per_token: 0.000006,
+					long_context_output_cost_per_token: 0.0000225,
+					long_context_cache_read_input_token_cost: 0.0000003,
+					long_context_cache_creation_input_token_cost: 0.0000075,
+				}),
 			};
 			const infos = [registered(priced)];
 			const out = applyCapabilityOverrides(
@@ -488,10 +476,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			// rebuild must reproduce that exactly (the relaxed zero-pair rule is for RAW user-written 0/0 only).
 			const dust: LiteLLMModelItem = {
 				id: "gpt-test",
-				shape: {
-					kind: "deployment",
-					provider: { ...DEPLOYMENT_PROVIDER, input_cost_per_token: 1e-13, output_cost_per_token: 2e-13 },
-				},
+				shape: deploymentShape({ ...DEPLOYMENT_PROVIDER, input_cost_per_token: 1e-13, output_cost_per_token: 2e-13 }),
 			};
 			const infos = [registered(dust)];
 			assert.strictEqual(infos[0]?.inputCost, 0, "dust rounds to a 0 numeric field at registration");
@@ -533,7 +518,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 
 			const caching: LiteLLMModelItem = {
 				id: "gpt-test",
-				shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_prompt_caching: true } },
+				shape: deploymentShape({ ...DEPLOYMENT_PROVIDER, supports_prompt_caching: true }),
 			};
 			const withCaching = registered(caching);
 			assert.strictEqual(withCaching.litellm.supportsPromptCaching, true);
@@ -575,7 +560,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			test("a winning params list without reasoning_effort demotes the control", () => {
 				const reasoningItem: LiteLLMModelItem = {
 					...DEPLOYMENT,
-					shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+					shape: deploymentShape({ ...DEPLOYMENT_PROVIDER, supports_reasoning: true }),
 				};
 				const withSchema = registered(reasoningItem);
 				assert.notStrictEqual(withSchema.configurationSchema, undefined);
@@ -594,7 +579,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			test("an empty params list is a real demotion signal when it wins", () => {
 				const reasoningItem: LiteLLMModelItem = {
 					...DEPLOYMENT,
-					shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+					shape: deploymentShape({ ...DEPLOYMENT_PROVIDER, supports_reasoning: true }),
 				};
 				const out = applyCapabilityOverrides(
 					[registered(reasoningItem)],
@@ -623,7 +608,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			test("a fallback-demoted params list loses to the server's flag", () => {
 				const reasoningItem: LiteLLMModelItem = {
 					...DEPLOYMENT,
-					shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+					shape: deploymentShape({ ...DEPLOYMENT_PROVIDER, supports_reasoning: true }),
 				};
 				const out = applyCapabilityOverrides(
 					[registered(reasoningItem)],
@@ -702,7 +687,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.deepStrictEqual(declared.litellm.serverDeclared, { kind: "declared" });
 			assert.strictEqual(declared.maxOutputTokens, 8000);
 			assert.strictEqual(declared.maxInputTokens, 56000, "derived from the effective context minus output");
-			assert.strictEqual(declared.litellm.outputLimitSource, "user", "declared limits are user-set");
+			assert.strictEqual(declared.litellm.defaultMaxTokens, 8000, "declared limits are sent whole");
 			assert.strictEqual(declared.capabilities?.toolCalling, true, "the floor keeps tools on");
 			assert.strictEqual(declared.capabilities?.imageInput, false);
 		});
@@ -735,7 +720,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.ok(logged[0]?.message.includes("Suppressing a declared model"));
 		});
 
-		test("the floor backstops a bare declared ID, with the conservative outputLimitSource", () => {
+		test("the floor backstops a bare declared ID, with the request default under the cap", () => {
 			const infos = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
@@ -747,7 +732,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.ok(declared !== undefined);
 			assert.strictEqual(declared.maxOutputTokens, 16000);
 			assert.strictEqual(declared.maxInputTokens, 112000);
-			assert.strictEqual(declared.litellm.outputLimitSource, "defaults", "a floor limit keeps the request cap");
+			assert.strictEqual(declared.litellm.defaultMaxTokens, 4096, "a floor limit is a guess, so requests stay capped");
 		});
 
 		test("multi-server synthesis namespaces the exposed ID like registration", () => {

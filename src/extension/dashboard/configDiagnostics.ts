@@ -4,16 +4,21 @@
  */
 
 import type { ConfigDiagnosticView, HiddenGroup } from "../../dashboard/viewModels";
+import { NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
+import type { CredentialRejection } from "../../provider/catalog/groupModels";
 import type { ModelCapabilitiesRecord } from "../../shared/config/capabilityResolution";
 import { filterUnrecognizedKeyDiagnostics, lintCapabilityRecords } from "../../shared/config/capabilityResolution";
 import { lintParameterRecords } from "../../shared/config/parameterResolution";
 import type { RecordDiagnostic } from "../../shared/config/recordResolution";
+import { acceptsNumberSetting } from "../../shared/config/settingSpec";
+import type { RecordShapeReport } from "../../shared/config/settings";
 import {
 	normalizeModelCapabilities,
 	normalizeModelParameters,
 	normalizeUsageAlertThresholds,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 } from "../../shared/config/settings";
+import { presentCarriers } from "../../shared/serverEntry";
 import { collectLegacyHints } from "../migrations/settingsRedesign/hints";
 import {
 	LEGACY_HEADERS_ID,
@@ -24,11 +29,20 @@ import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSyn
 import type { SettingsReader } from "./state";
 import { rejectsWithOwnRow } from "./state";
 
+/** The field under `auth` (or `auth.oauth`) a dropped credential lives in, as the servers setting spells it. */
+const CREDENTIAL_PATHS: Record<CredentialRejection["field"], string> = {
+	apiKey: "apiKey",
+	virtualKeyValue: "virtualKey.value",
+};
+
 export interface ConfigDiagnosticsInput {
 	readonly reader: SettingsReader;
 	/** The per-entry acceptance reports (serverSettingReports over the raw setting). */
 	readonly entryReports: readonly ServerEntryReport[];
-	readonly declared: readonly Pick<DeclaredServerView, "label" | "modelParameters" | "modelCapabilities">[];
+	readonly declared: readonly Pick<
+		DeclaredServerView,
+		"label" | "modelParameters" | "modelCapabilities" | "rejectedCredentials" | "oauthTokenUrl" | "oauthClientId"
+	>[];
 	/**
 	 * The groups the user's configuration hides (removed, or superseded), as the state builder renders them
 	 * (visibleHiddenGroups).
@@ -81,21 +95,41 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 	const modelParametersValue = input.reader.get(NEW_MODEL_PARAMETERS_ID);
 	const modelCapabilitiesValue = input.reader.get(NEW_MODEL_CAPABILITIES_ID);
 
+	// The records normalizer is the one classifier of a map's shape; its refusals land here so a "oops" map or a
+	// "gpt-4": "oops" entry does not read as "no overrides" with nothing saying why.
+	const shapeReport =
+		(setting: "models.parameters" | "models.capabilities"): RecordShapeReport =>
+		(problem) => {
+			diagnostics.push({
+				kind: "setting-shape",
+				setting,
+				...(problem.kind === "map"
+					? {}
+					: { key: problem.key, reason: problem.kind === "entry" ? "not-object" : "reserved-name" }),
+				severity: "warning",
+			});
+		};
+	const globalParameters = normalizeModelParameters(modelParametersValue, shapeReport("models.parameters"));
+	const globalCapabilities = normalizeModelCapabilities(modelCapabilitiesValue, shapeReport("models.capabilities"));
+
 	// The two global records, linted record-level so keys no model matches still report.
 	diagnostics.push(
-		...recordDiagnostics(
-			"models.parameters",
-			undefined,
-			lintParameterRecords(normalizeModelParameters(modelParametersValue))
-		),
-		...recordDiagnostics(
-			"models.capabilities",
-			undefined,
-			capabilityLint(normalizeModelCapabilities(modelCapabilitiesValue), input.observedKeysUnion)
-		)
+		...recordDiagnostics("models.parameters", undefined, lintParameterRecords(globalParameters)),
+		...recordDiagnostics("models.capabilities", undefined, capabilityLint(globalCapabilities, input.observedKeysUnion))
 	);
 
 	for (const view of input.declared) {
+		for (const field of view.rejectedCredentials ?? []) {
+			// The key and the virtual key ride inside auth.oauth when the entry declares OAuth (parseAuth flattens the
+			// companion), so the path points where the user wrote it.
+			const inOAuth = presentCarriers("oauthClientSecret", view) !== undefined;
+			diagnostics.push({
+				kind: "credential",
+				label: view.label,
+				path: `auth.${inOAuth ? "oauth." : ""}${CREDENTIAL_PATHS[field]}`,
+				severity: "warning",
+			});
+		}
 		if (view.modelParameters !== undefined) {
 			diagnostics.push(
 				...recordDiagnostics("models.parameters", view.label, lintParameterRecords(view.modelParameters))
@@ -163,6 +197,15 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		const dropped = distinct - kept;
 		if (dropped > 0) {
 			diagnostics.push({ kind: "thresholds", dropped, severity: "warning" });
+		}
+	}
+
+	// A number setting outside its contract reads as the default (settings.ts judges by the same rule), and the user
+	// learns it here by key and bound: a chat.timeout of 2147483648 would otherwise become five minutes in silence.
+	for (const setting of NUMBER_SETTING_IDS) {
+		const raw = input.reader.get(setting);
+		if (raw !== undefined && !acceptsNumberSetting(setting, raw)) {
+			diagnostics.push({ kind: "number-setting", setting, severity: "warning" });
 		}
 	}
 

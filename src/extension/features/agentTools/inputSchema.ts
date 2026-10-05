@@ -8,16 +8,19 @@ import { WIRE_LIMITS } from "../../../dashboard/endpoints";
 import type { AgentToolId } from "../../../shared/config/commandIds";
 import { FEATURE_MODEL_IDS } from "../../../shared/config/settingSpec";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { trimHttpWhitespace } from "../../../shared/util/headers";
 import { recordFromKeys } from "../../../shared/util/json";
 
 /** The catalog search's own bound; every other string takes the dashboard's wire limit for its kind. */
 const QUERY_MAX = 200;
 
 /**
- * Labels are trimmed here because the dashboard's save trims too: an untrimmed " Prod " would miss the stored Prod in
- * the planner (new-entry defaults, no replace identity) and then overwrite Prod on save, deleting its fields.
+ * Labels lose edge HTTP whitespace here, the dashboard save's one trim rule, as an in-order check before the length
+ * bounds (so a padded label at the limit still fits and the manifest keeps its string shape): an untrimmed " Prod "
+ * would miss the stored Prod in the planner (new-entry defaults, no replace identity) and then overwrite Prod on save,
+ * deleting its fields. A U+00A0 is part of the spelling and stays.
  */
-const label = z.string().trim().min(1).max(WIRE_LIMITS.label);
+const label = z.string().overwrite(trimHttpWhitespace).min(1).max(WIRE_LIMITS.label);
 
 /** The sections of the configuration read, so an agent can ask for the slice it needs instead of everything. */
 const CONFIGURATION_SECTIONS = ["servers", "settings", "models", "hiddenGroups", "catalog", "usage"] as const;

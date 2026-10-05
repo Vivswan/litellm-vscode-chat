@@ -11,8 +11,26 @@ import type {
 	UsageForbiddenServerView,
 	UsageServerView,
 } from "../../../dashboard/viewModels";
+import type { EffectiveCapabilities } from "../../../shared/config/capabilityResolution";
 import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
 import { makeSettings } from "../../dashboardSettingsFixture";
+
+export function makeCapabilities(overrides: Partial<EffectiveCapabilities> = {}): EffectiveCapabilities {
+	return {
+		fields: {
+			context_length: { value: 128000, level: "floor", shadowed: [] },
+			max_input_tokens: { value: 112000, level: "derived", shadowed: [] },
+			max_output_tokens: { value: 16000, level: "floor", shadowed: [] },
+			supports_function_calling: { value: true, level: "floor", shadowed: [] },
+			supports_vision: { value: false, level: "floor", shadowed: [] },
+			supports_reasoning: { value: false, level: "floor", shadowed: [] },
+			supports_audio_input: { value: false, level: "floor", shadowed: [] },
+		},
+		defaultMaxTokens: 4096,
+		diagnostics: [],
+		...overrides,
+	};
+}
 
 type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
 type ExternalServer = Extract<DashboardServer, { origin: "external" }>;
@@ -155,7 +173,7 @@ export function makeModel(overrides: Partial<DashboardModel> = {}): DashboardMod
 		serverLabel: "Prod",
 		maxInputTokens: 128000,
 		maxOutputTokens: 16000,
-		outputLimitDeclared: false,
+		defaultMaxTokens: 4096,
 		toolCalling: true,
 		imageInput: false,
 		promptCaching: false,

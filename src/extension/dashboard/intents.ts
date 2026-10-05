@@ -20,14 +20,16 @@ import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import type { FeatureModelId, FeatureModelRef, KeyedSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
+	acceptsNumberSetting,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	FEATURE_MODEL_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
-	isIntegerSetting,
 	isUsableThreshold,
 	NUMBER_SETTING_SPECS,
+	numberSettingBoundText,
+	numberSettingOffValue,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
 	UI_THEME_SETTING_KEY,
@@ -45,7 +47,12 @@ import { transportClassificationOf } from "../../shared/errorClassification";
 import { MirroredError } from "../../shared/mirroredError";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
+import {
+	isValidHeaderName,
+	isValidHeaderValue,
+	sendableHeaderValue,
+	trimHttpWhitespace,
+} from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { TombstoneIdentity, TombstoneRecording } from "../servers/groupRemovals";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
@@ -198,32 +205,30 @@ const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readon
 /**
  * Value constraints the message schema cannot express. Reasons are two-part - a localized headline, then a technical
  * detail line - and the detail names the setting id because the failure banner is page-global and names no field;
- * the id stays an ASCII identifier outside the translation.
+ * the id stays an ASCII identifier outside the translation. The bound is the spec's own (acceptsNumberSetting), the
+ * rule the reader applies, so a value this refuses is one settings.json would read as the default.
  */
 export function validateNumberSetting(setting: NumberSettingId, value: number | null): string | undefined {
 	const spec = NUMBER_SETTING_SPECS[setting];
-	if (value === null) {
-		if (spec.nullable) {
-			return undefined;
-		}
+	if (value === null && !spec.nullable) {
 		return `${l10n.t("This setting needs a number and cannot be left empty.")}\n${l10n.t(
 			"setting {0}: no value given; the setting is not clearable",
 			setting
 		)}`;
 	}
-	if (value < spec.minimum) {
-		const minimum = unitBehavior(setting).minimumText(spec.minimum);
-		return `${l10n.t("Enter a number that is at least {0}.", minimum)}\n${l10n.t(
-			"setting {0}, minimum {1}",
-			setting,
-			minimum
-		)}`;
-	}
-	// The schema layer admits any finite number (the webview is outside the trust boundary), so the spec's integer-only
-	// rule is re-enforced here: without it a crafted message would write a fraction into a settings.json field whose
-	// contribution declares "integer".
-	if (isIntegerSetting(setting) && !Number.isInteger(value)) {
-		return `${l10n.t("Enter a whole number.")}\n${l10n.t("setting {0}: fractional values are not accepted", setting)}`;
+	if (!acceptsNumberSetting(setting, value)) {
+		const { boundText } = unitBehavior(setting);
+		const offValue = numberSettingOffValue(setting);
+		const headline =
+			offValue === undefined
+				? l10n.t("Enter a whole number between {0} and {1}.", boundText(spec.minimum), boundText(spec.maximum))
+				: l10n.t(
+						"Enter a whole number between {0} and {1}, or {2} to turn it off.",
+						boundText(spec.minimum),
+						boundText(spec.maximum),
+						offValue
+					);
+		return `${headline}\n${l10n.t("setting {0}: must be a whole number {1}", setting, numberSettingBoundText(setting))}`;
 	}
 	return undefined;
 }
@@ -256,7 +261,7 @@ function validateConnectionFields(
 	server: SaveServerPayload,
 	secrets: Readonly<Record<SecretFieldId, SecretDirective>>
 ): string | undefined {
-	const baseUrl = server.baseUrl.trim();
+	const baseUrl = trimHttpWhitespace(server.baseUrl);
 	if (baseUrl.length === 0) {
 		return "baseUrl: enter the server URL";
 	}
@@ -265,11 +270,11 @@ function validateConnectionFields(
 	}
 	// Empty-string optionals count as absent: the merge omits them from the written entry, so only fields with content
 	// need to be usable.
-	const tokenUrl = server.oauthTokenUrl?.trim();
+	const tokenUrl = server.oauthTokenUrl === undefined ? undefined : trimHttpWhitespace(server.oauthTokenUrl);
 	if (tokenUrl !== undefined && tokenUrl.length > 0 && !isUsableHttpUrl(tokenUrl)) {
 		return "oauthTokenUrl: not a usable http(s) URL";
 	}
-	const header = server.virtualKeyHeader?.trim();
+	const header = server.virtualKeyHeader === undefined ? undefined : trimHttpWhitespace(server.virtualKeyHeader);
 	if (header !== undefined && header.length > 0 && !isValidHeaderName(header)) {
 		return "virtualKeyHeader: not a valid HTTP header name";
 	}
@@ -279,9 +284,16 @@ function validateConnectionFields(
 			return `${field}: an empty value cannot be set; use clear`;
 		}
 	}
-	const virtualKeyDirective = secrets.virtualKeyValue;
-	if (virtualKeyDirective.action === "set" && !isValidHeaderValue(virtualKeyDirective.value)) {
-		return "virtualKeyValue: the value cannot be sent as an HTTP header";
+	// The one credential rule (sendableHeaderValue, the request path's own): a value it would drop, or that it trims
+	// to nothing, is refused here before a save stores it or a draft probe sends without it.
+	for (const field of ["apiKey", "virtualKeyValue"] as const) {
+		const directive = secrets[field];
+		if (directive.action === "set") {
+			const sendable = sendableHeaderValue(directive.value);
+			if (sendable === undefined || sendable.length === 0) {
+				return `${field}: the value cannot be sent as an HTTP header`;
+			}
+		}
 	}
 	return undefined;
 }
@@ -297,7 +309,7 @@ export function validateSaveServerSetting(
 	server: SaveServerPayload,
 	secrets: Readonly<Record<SecretFieldId, SecretDirective>>
 ): string | undefined {
-	const label = server.label.trim();
+	const label = trimHttpWhitespace(server.label);
 	if (label.length === 0) {
 		return "label: enter a label";
 	}
@@ -350,7 +362,7 @@ export function validateSaveServerSetting(
 	// The guided path refuses an MCP endpoint it can see is broken, the same rule the form applies; the setting itself
 	// takes a URL as written and reports an unusable one, exactly as it does for baseUrl.
 	if (server.mcp !== null && server.mcp !== true) {
-		const url = server.mcp.url?.trim();
+		const url = server.mcp.url === undefined ? undefined : trimHttpWhitespace(server.mcp.url);
 		if (url !== undefined && url.length > 0 && !isUsableHttpUrl(url)) {
 			return "mcp.url: not a usable http(s) URL";
 		}
@@ -556,8 +568,8 @@ export async function executeDashboardIntent(
 			}
 			// The getter trims both halves, so the canonical trimmed form is written; a value that trims away entirely
 			// is a bypassing caller.
-			const server = intent.payload.value.server.trim();
-			const model = intent.payload.value.model.trim();
+			const server = trimHttpWhitespace(intent.payload.value.server);
+			const model = trimHttpWhitespace(intent.payload.value.model);
 			if (server.length === 0 || model.length === 0) {
 				throw new DashboardValidationError(
 					`${l10n.t("Pick a server and model, or Not set to clear the pick.")}\n${l10n.t(
@@ -598,7 +610,7 @@ export async function executeDashboardIntent(
 				// Entries that trim away are refused rather than dropped: the row's editor already trims empties out,
 				// so anything else is a bypassing caller. Written trimmed and deduplicated in the given order - the
 				// canonical form normalization would produce anyway.
-				const trimmed = intent.payload.languages.map((value) => value.trim());
+				const trimmed = intent.payload.languages.map((value) => trimHttpWhitespace(value));
 				if (trimmed.some((value) => value.length === 0)) {
 					throw new DashboardValidationError(
 						`${l10n.t("Language IDs must be plain, non-empty identifiers, e.g. typescript.")}\n${l10n.t(
@@ -748,7 +760,7 @@ export async function executeDashboardIntent(
 		case "adoptServer":
 			return applyAdoptServer(intent.payload, env);
 		case "hideExternalServer": {
-			const baseUrl = intent.payload.baseUrl.trim();
+			const baseUrl = trimHttpWhitespace(intent.payload.baseUrl);
 			if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
 				// The "fieldId:" prefix stays an ASCII identifier outside the translation: sectionFailureText routes
 				// the failure by it.
@@ -778,7 +790,7 @@ export async function executeDashboardIntent(
 			return undefined;
 		}
 		case "unhideServer": {
-			if (intent.payload.label.trim().length === 0) {
+			if (trimHttpWhitespace(intent.payload.label).length === 0) {
 				throw new DashboardValidationError(`label: ${l10n.t("enter a label")}`);
 			}
 			// The identity is echoed back verbatim (no trimming): the webview sends exactly what the HiddenGroup row

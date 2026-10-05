@@ -6,6 +6,7 @@ import type { ServerUsageState, UsageEndpointState } from "../../../../extension
 import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "../../../../extension/servers/usage/store";
 import type { StatusItemLike, StatusItemView } from "../../../../extension/ui/status";
 import { renderUsageStatus, UsageStatusBar } from "../../../../extension/ui/usageStatusItem";
+import { MAX_TIMER_MS } from "../../../../shared/config/settingSpec";
 
 const NOW = Date.UTC(2026, 7, 1, 12);
 const POLL_INTERVAL_MS = 300_000;
@@ -350,11 +351,18 @@ class FakeItem implements StatusItemLike {
 }
 
 describe("extension/ui usageStatusItem UsageStatusBar", () => {
-	function harness(options: { thresholds?: readonly number[]; mode?: "always" | "alerts-only" | "off" } = {}) {
+	function harness(
+		options: {
+			thresholds?: readonly number[];
+			mode?: "always" | "alerts-only" | "off";
+			pollIntervalMs?: number;
+			pollingOffWindowMs?: number;
+		} = {}
+	) {
 		const store = new UsageStore();
 		const item = new FakeItem();
 		const clock = { nowMs: NOW };
-		const timers: Array<{ callback: () => void; ms: number; cancelled: boolean }> = [];
+		const timers: Array<{ callback: () => void; ms: number; cancelled: boolean; fired: boolean }> = [];
 		let thresholds = options.thresholds ?? DEFAULT_THRESHOLDS;
 		let mode = options.mode ?? ("always" as const);
 		const bar = new UsageStatusBar({
@@ -362,13 +370,21 @@ describe("extension/ui usageStatusItem UsageStatusBar", () => {
 			item,
 			getMode: () => mode,
 			getThresholds: () => thresholds,
-			getPollIntervalMs: () => POLL_INTERVAL_MS,
-			getPollingOffWindowMs: () => POLLING_OFF_WINDOW_MS,
+			getPollIntervalMs: () => options.pollIntervalMs ?? POLL_INTERVAL_MS,
+			getPollingOffWindowMs: () => options.pollingOffWindowMs ?? POLLING_OFF_WINDOW_MS,
 			getCurrencySymbol: () => "$",
 			clock: { now: () => clock.nowMs },
 			timer: {
 				set: (callback, ms) => {
-					const entry = { callback, ms, cancelled: false };
+					const entry = {
+						callback: () => {
+							entry.fired = true;
+							callback();
+						},
+						ms,
+						cancelled: false,
+						fired: false,
+					};
 					timers.push(entry);
 					return () => {
 						entry.cancelled = true;
@@ -437,6 +453,28 @@ describe("extension/ui usageStatusItem UsageStatusBar", () => {
 		pending[0]?.callback();
 
 		assert.strictEqual(item.visible, false, "the item hides on time instead of waiting for the next poll");
+	});
+
+	test("a stale edge past the platform timer's ceiling is armed at the ceiling and re-armed on fire, not looped", () => {
+		// usage.pollingOffFreshnessWindow 2147483648 is a legal age window; handed to setTimeout as is, the platform fires
+		// it after about 1 ms and every render re-arms it. The setting stays as written; the timer is what gets capped.
+		const windowMs = MAX_TIMER_MS + 1;
+		const { store, item, clock, timers } = harness({ pollIntervalMs: 0, pollingOffWindowMs: windowMs });
+		store.upsert(usageState("alpha", { spend: 42, effectiveBudget: 100, lastUpdatedAt: NOW }), []);
+
+		const first = timers.filter((timer) => !timer.cancelled);
+		assert.strictEqual(first.length, 1);
+		assert.strictEqual(first[0]?.ms, MAX_TIMER_MS, "armed at the ceiling, not past it");
+
+		const rendersBefore = item.views.length;
+		clock.nowMs = NOW + MAX_TIMER_MS;
+		first[0]?.callback();
+
+		assert.strictEqual(item.visible, true, "one millisecond of freshness remains");
+		assert.strictEqual(item.views.length, rendersBefore + 1, "the fire renders once");
+		const second = timers.filter((timer) => !timer.cancelled && !timer.fired);
+		assert.strictEqual(second.length, 1, "one timer pending, no loop");
+		assert.strictEqual(second[0]?.ms, 1, "re-armed for the remaining millisecond");
 	});
 
 	test("dispose cancels the stale-edge timer, unsubscribes, and disposes the item", () => {

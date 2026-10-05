@@ -26,7 +26,6 @@ import {
 	resolveCapabilityOverrides,
 	resolveModelCapabilities,
 } from "../../../../shared/config/capabilityResolution";
-import { resolveMaxTokens } from "../../../../shared/config/parameterResolution";
 import { FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE } from "../../../../shared/config/recordResolution";
 
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
@@ -55,7 +54,7 @@ function resolve(partial: Partial<ResolveModelCapabilitiesInput>): EffectiveCapa
 		rawModelId: "gpt-4",
 		globalCapabilities: {},
 		catalog: EMPTY_CATALOG_LOOKUP,
-		serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+		serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 4096 },
 		...partial,
 	});
 }
@@ -395,7 +394,7 @@ describe("shared/config capabilityResolution resolveModelCapabilities walk", () 
 			serverDeclared: {
 				kind: "discovered",
 				values: { max_input_tokens: 90000, supports_vision: true },
-				outputDeclared: false,
+				defaultMaxTokens: 4096,
 			},
 		});
 		assert.strictEqual(effective.fields.context_length.level, "global");
@@ -413,7 +412,7 @@ describe("shared/config capabilityResolution resolveModelCapabilities walk", () 
 			globalCapabilities: {
 				"*": { [FALLBACK_DIRECTIVE]: true, context_length: 131072, max_output_tokens: 8192 },
 			},
-			serverDeclared: { kind: "discovered", values: { context_length: 100000 }, outputDeclared: false },
+			serverDeclared: { kind: "discovered", values: { context_length: 100000 }, defaultMaxTokens: 4096 },
 		});
 		assert.strictEqual(effective.fields.context_length.value, 100000);
 		assert.strictEqual(effective.fields.context_length.level, "server");
@@ -470,7 +469,7 @@ describe("shared/config capabilityResolution resolveModelCapabilities walk", () 
 		const effective = resolve({
 			globalCapabilities: { "gpt-4": { context_length: 200000 } },
 			catalog,
-			serverDeclared: { kind: "discovered", values: { context_length: 100000 }, outputDeclared: false },
+			serverDeclared: { kind: "discovered", values: { context_length: 100000 }, defaultMaxTokens: 4096 },
 		});
 		assert.strictEqual(effective.fields.context_length.value, 200000);
 		assert.deepStrictEqual(
@@ -485,7 +484,7 @@ describe("shared/config capabilityResolution resolveModelCapabilities walk", () 
 				"gpt-4": { context_length: 200000 },
 				"*": { [FALLBACK_DIRECTIVE]: true, context_length: 131072, _inheritable: true },
 			},
-			serverDeclared: { kind: "discovered", values: { context_length: 100000 }, outputDeclared: false },
+			serverDeclared: { kind: "discovered", values: { context_length: 100000 }, defaultMaxTokens: 4096 },
 		});
 		assert.strictEqual(effective.fields.context_length.value, 200000);
 		assert.strictEqual(effective.fields.context_length.level, "global");
@@ -503,7 +502,7 @@ describe("shared/config capabilityResolution open fields in the walk", () => {
 			serverDeclared: {
 				kind: "discovered",
 				values: { supports_prompt_caching: true, input_cost_per_token: 0.000003, supported_openai_params: ["tools"] },
-				outputDeclared: false,
+				defaultMaxTokens: 4096,
 			},
 		});
 		assert.deepStrictEqual(effective.fields.supports_prompt_caching, {
@@ -540,7 +539,7 @@ describe("shared/config capabilityResolution open fields in the walk", () => {
 		const effective = resolve({
 			globalCapabilities: { "gpt-4": { custom_flag: "global", other_extra: 1 } },
 			entryCapabilities: { "gpt-4": { custom_flag: "entry" } },
-			serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+			serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 4096 },
 		});
 		assert.strictEqual(effective.fields.custom_flag?.value, "entry");
 		assert.strictEqual(effective.fields.custom_flag?.level, "entry");
@@ -553,7 +552,7 @@ describe("shared/config capabilityResolution open fields in the walk", () => {
 	test("a _fallback-marked extra sits below the server value and wins only where the server is silent", () => {
 		const shadowedByServer = resolve({
 			entryCapabilities: { "gpt-4": { [FALLBACK_DIRECTIVE]: true, supports_prompt_caching: false } },
-			serverDeclared: { kind: "discovered", values: { supports_prompt_caching: true }, outputDeclared: false },
+			serverDeclared: { kind: "discovered", values: { supports_prompt_caching: true }, defaultMaxTokens: 4096 },
 		});
 		assert.strictEqual(shadowedByServer.fields.supports_prompt_caching?.value, true);
 		assert.strictEqual(shadowedByServer.fields.supports_prompt_caching?.level, "server");
@@ -564,7 +563,7 @@ describe("shared/config capabilityResolution open fields in the walk", () => {
 
 		const serverSilent = resolve({
 			entryCapabilities: { "gpt-4": { [FALLBACK_DIRECTIVE]: true, supports_prompt_caching: false } },
-			serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+			serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 4096 },
 		});
 		assert.strictEqual(serverSilent.fields.supports_prompt_caching?.value, false);
 		assert.strictEqual(serverSilent.fields.supports_prompt_caching?.level, "entry-fallback");
@@ -603,71 +602,10 @@ describe("shared/config capabilityResolution open fields in the walk", () => {
 
 		const asFallback = resolve({
 			entryCapabilities: { "gpt-4": { [FALLBACK_DIRECTIVE]: true, valueOf: 1 } },
-			serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+			serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 4096 },
 		});
 		assert.strictEqual(openField(asFallback, "valueOf")?.value, 1);
 		assert.strictEqual(openField(asFallback, "valueOf")?.level, "entry-fallback");
-	});
-});
-
-describe("shared/config capabilityResolution output-limit provenance", () => {
-	test("a user-written value lifts the request cap: overrides and fallbacks alike", () => {
-		for (const record of [{ max_output_tokens: 32000 }, { [FALLBACK_DIRECTIVE]: true, max_output_tokens: 32000 }]) {
-			const effective = resolve({ globalCapabilities: { "gpt-4": record } });
-			const lifted = effective.outputLimitSource !== "defaults";
-			assert.strictEqual(effective.outputLimitSource, "user");
-			assert.strictEqual(
-				resolveMaxTokens({
-					runtimeMaxTokens: undefined,
-					configuredMaxTokens: undefined,
-					maxOutputTokens: effective.fields.max_output_tokens.value,
-					outputLimitDeclared: lifted,
-				}).value,
-				32000
-			);
-		}
-	});
-
-	test("the server level is provider only under the every-contributor declaredness rule", () => {
-		const declared = resolve({
-			serverDeclared: { kind: "discovered", values: { max_output_tokens: 32000 }, outputDeclared: true },
-		});
-		assert.strictEqual(declared.outputLimitSource, "provider");
-		const undeclared = resolve({
-			serverDeclared: { kind: "discovered", values: { max_output_tokens: 32000 }, outputDeclared: false },
-		});
-		assert.strictEqual(undeclared.outputLimitSource, "defaults");
-	});
-
-	test("BOTH catalog paths stay clamped guesses: the explicit directive included", () => {
-		const catalog = makeCatalog({
-			"dir/entry": { max_output_tokens: 32000 },
-			"imp/gpt-4": { max_output_tokens: 24000 },
-		});
-		const viaDirective = resolve({
-			globalCapabilities: { "gpt-4": { [OPENROUTER_MODEL_DIRECTIVE]: "dir/entry" } },
-			catalog,
-		});
-		assert.strictEqual(viaDirective.fields.max_output_tokens.level, "directive");
-		assert.strictEqual(viaDirective.outputLimitSource, "defaults", "an _openrouter_model limit is still a guess");
-		assert.strictEqual(
-			resolveMaxTokens({
-				runtimeMaxTokens: undefined,
-				configuredMaxTokens: undefined,
-				maxOutputTokens: viaDirective.fields.max_output_tokens.value,
-				outputLimitDeclared: viaDirective.outputLimitSource !== "defaults",
-			}).value,
-			4096,
-			"the wire clamp holds for directive-derived limits"
-		);
-
-		const viaImplicit = resolve({ catalog });
-		assert.strictEqual(viaImplicit.fields.max_output_tokens.level, "catalog");
-		assert.strictEqual(viaImplicit.outputLimitSource, "defaults");
-	});
-
-	test("the floor is a defaults guess", () => {
-		assert.strictEqual(resolve({}).outputLimitSource, "defaults");
 	});
 });
 

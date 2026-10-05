@@ -12,7 +12,7 @@ type Projection = NonNullable<ModelParametersResponse["projection"]>;
 
 const EMPTY_PROJECTION: Projection = {
 	rows: [],
-	maxTokens: { source: "declared", value: 16384 },
+	maxTokens: { source: "limit", value: 16384 },
 	diagnostics: [],
 };
 

@@ -9,14 +9,17 @@
 
 import {
 	ALL_SETTING_KEYS,
+	acceptsNumberSetting,
 	BOOLEAN_SETTING_SPECS,
 	NUMBER_SETTING_SPECS,
+	type NumberSettingId,
 	SERVERS_SETTING_KEY,
 	USAGE_STATUS_BAR_MODES,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settingSpec";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { restructureServers } from "../migrations/settingsRedesign/entries";
 import type { StoredSecretOwners, StoredServerSecrets } from "../servers/serverSync/secrets";
@@ -40,8 +43,9 @@ export interface SettingWrite {
 export interface SkippedKey {
 	readonly key: string;
 	/**
-	 * The light scalar type gate: a spec'd number/boolean key or the enum-string usage.statusBar whose incoming value
-	 * has the wrong type. The other structured keys pass through to their readers' existing leniency.
+	 * The scalar gate (acceptsScalar): a spec'd number key whose value is outside its contract, a boolean key whose value
+	 * is not a boolean, or usage.statusBar outside its enum. The other structured keys pass through to their readers'
+	 * existing leniency.
 	 *
 	 *   a servers value that is not an array cannot travel through incomingServers
 	 *     -> it lands here rather than dropping
@@ -100,11 +104,13 @@ export interface ImportPlan {
 	readonly currentServersRaw: unknown;
 }
 
-/** Whether the incoming value's JS type fits the key's scalar spec; structured keys always pass. */
-function passesTypeGate(key: string, value: unknown): boolean {
+/**
+ * Whether the key's scalar spec takes the incoming value as written: a number by its whole contract, a boolean by
+ * type, the status-bar mode by its enum. Structured keys always pass, to their readers' own leniency.
+ */
+function acceptsScalar(key: string, value: unknown): boolean {
 	if (Object.hasOwn(NUMBER_SETTING_SPECS, key)) {
-		const spec = NUMBER_SETTING_SPECS[key as keyof typeof NUMBER_SETTING_SPECS];
-		return typeof value === "number" || (spec.nullable && value === null);
+		return acceptsNumberSetting(key as NumberSettingId, value);
 	}
 	if (Object.hasOwn(BOOLEAN_SETTING_SPECS, key)) {
 		return typeof value === "boolean";
@@ -241,7 +247,7 @@ export function planSettingsImport(
 			});
 			continue;
 		}
-		if (passesTypeGate(key, value)) {
+		if (acceptsScalar(key, value)) {
 			settingsWrites.push({ key, value });
 		} else {
 			skippedKeys.push({ key, reason: "wrong-type" });
@@ -373,7 +379,9 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 		// The stamp target is the entry as it will be written and parsed back;
 		// see SecretWrite.owners for the fail-closed fallback.
 		const parsed = acceptedEntry([stripped.entry], label)?.entry;
-		const target = parsed ?? { baseUrl: typeof rawEntry.baseUrl === "string" ? rawEntry.baseUrl.trim() : "" };
+		const target = parsed ?? {
+			baseUrl: typeof rawEntry.baseUrl === "string" ? trimHttpWhitespace(rawEntry.baseUrl) : "",
+		};
 		const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
 		for (const field of SECRET_FIELD_IDS) {
 			if (stripped.secrets[field] !== undefined) {
@@ -430,7 +438,7 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 		// The rename targets the flow already validated; a target it should have rejected would shadow another entry or
 		// clobber its blob, so the safe reading is skip. The trim mirrors the parser's label rule, keeping the
 		// SecretStorage key and the written entry's label in agreement.
-		const newLabel = typeof decision.newLabel === "string" ? decision.newLabel.trim() : "";
+		const newLabel = typeof decision.newLabel === "string" ? trimHttpWhitespace(decision.newLabel) : "";
 		if (
 			newLabel.length === 0 ||
 			isUnsafeRecordKey(newLabel) ||

@@ -13,6 +13,7 @@ import {
 } from "../../dashboard/recordDraft";
 import type { DashboardModel, ScopedRecordSetting, SettingScope } from "../../dashboard/viewModels";
 import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { DOCS_LINK_MODEL_CAPABILITIES, DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpModelCapabilitiesSection, helpModelParameterPrefix, helpModelParametersSection } from "./helpText";
@@ -295,7 +296,7 @@ function recordVerdict(
 	const standing: { matcher: string; message: string }[] = [];
 	for (const [index, group] of groups.entries()) {
 		const issue = issues[index];
-		const matcher = group.prefix.trim().length > 0 ? group.prefix : l10n.t("(no matcher)");
+		const matcher = trimHttpWhitespace(group.prefix).length > 0 ? group.prefix : l10n.t("(no matcher)");
 		if (issue?.prefix !== undefined) {
 			standing.push({ matcher, message: issue.prefix });
 		}
@@ -447,7 +448,7 @@ export function ModelParametersEditor({
 	const closeEditor = () => {
 		if (editingIndex !== undefined) {
 			const group = groups[editingIndex];
-			if (group !== undefined && group.prefix.trim().length === 0 && group.params.length === 0) {
+			if (group !== undefined && trimHttpWhitespace(group.prefix).length === 0 && group.params.length === 0) {
 				draft.update(groups.filter((_, index) => index !== editingIndex));
 			}
 		}
@@ -727,7 +728,7 @@ export function ModelCapabilitiesEditor({
 	const closeEditor = () => {
 		if (editingIndex !== undefined) {
 			const group = groups[editingIndex];
-			if (group !== undefined && group.prefix.trim().length === 0 && group.params.length === 0) {
+			if (group !== undefined && trimHttpWhitespace(group.prefix).length === 0 && group.params.length === 0) {
 				draft.update(groups.filter((_, index) => index !== editingIndex));
 			}
 		}

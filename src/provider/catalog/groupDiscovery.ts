@@ -9,12 +9,12 @@ import type { ExpectedDiscoveryFailures } from "./discovery";
 import type { DiscoveryCache } from "./discoveryCache";
 import { discoveryLineWriter, failureKindOf } from "./discoveryLog";
 import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./groupModels";
-import { attachGroupServer, groupClientId, groupServerLabel, markStale } from "./groupModels";
+import { attachGroup, groupClientId, groupServerLabel, markStale } from "./groupModels";
 import { buildModelInfos } from "./registration";
 import type { ServedModelDecorator } from "./servedModels";
 import type { GroupServeOutcome, GroupStatusReporter } from "./statusReporting";
 import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./statusWindow";
-import { logicalGroupId } from "./statusWindow";
+import { groupIdentity, logicalGroupId } from "./statusWindow";
 
 /** GroupServeOutcome minus the served-set counts, which recordAndServe derives from the served pair. */
 type OkServeShape = Omit<Extract<GroupServeOutcome, { state: "ok" }>, "servedModelCount">;
@@ -106,27 +106,32 @@ export interface GroupDiscoveryOptions {
 export class GroupDiscovery {
 	private readonly _options: GroupDiscoveryOptions;
 	/**
+	 * The claim counter, keyed by the pre-overlay claim key (a labeled group's logicalGroupId, else its client ID):
 	 * index.ts claims the generation before its first await, so arrival order at the facade decides which serve's
-	 * record stands, not resolver or fetch completion order. Unlabeled groups stay out.
+	 * record stands, not resolver or fetch completion order.
 	 */
 	private readonly _serveGenerations = new Map<string, number>();
+	/**
+	 * The newest generation that has RECORDED, keyed by the group's IDENTITY (statusWindow.ts groupIdentity), so two
+	 * unowned twins sharing a claim key never yield to each other. A serve yields to a newer record, never to a newer
+	 * claim: until the newer serve lands, the older one's record is the only thing that makes its served models
+	 * routable, and the newer record replaces it the moment it lands.
+	 */
+	private readonly _recordedGenerations = new Map<string, number>();
 
 	constructor(options: GroupDiscoveryOptions) {
 		this._options = options;
 	}
 
 	/**
-	 * Claim the next serve generation for a logical group, SYNCHRONOUSLY and before any await in the caller: the
-	 * overlay never changes label or base URL, so the pre-overlay parse is a valid claim ticket.
-	 *   Undefined for unlabeled groups -> keep plain last-write-wins recording
+	 * Claim the next serve generation, SYNCHRONOUSLY and before any await in the caller: the overlay never changes
+	 * label or base URL, and an unlabeled group's client ID never changes either, so the pre-overlay parse is a valid
+	 * claim ticket.
 	 */
-	beginServe(groupServer: Pick<GroupServer, "label" | "baseUrl">): number | undefined {
-		const logicalId = logicalGroupId(groupServer);
-		if (logicalId === undefined) {
-			return undefined;
-		}
-		const generation = (this._serveGenerations.get(logicalId) ?? 0) + 1;
-		this._serveGenerations.set(logicalId, generation);
+	beginServe(groupServer: GroupServer): number {
+		const claimKey = logicalGroupId(groupServer) ?? groupClientId(groupServer);
+		const generation = (this._serveGenerations.get(claimKey) ?? 0) + 1;
+		this._serveGenerations.set(claimKey, generation);
 		return generation;
 	}
 
@@ -163,14 +168,14 @@ export class GroupDiscovery {
 
 	/**
 	 * A fresh cached result still reports its remembered outcome, so the merged status and the group-aging
-	 * cycle bookkeeping stay live across cached sweeps. Every read attaches the group server to a fresh outer
-	 * object (nested metadata stays shared) carrying the CURRENT credentials, whose fingerprint keys the cache.
+	 * cycle bookkeeping stay live across cached sweeps. Every read stamps the group's identity onto a fresh outer
+	 * object (nested metadata stays shared); the credential fingerprint of the CURRENT connection keys the cache.
 	 */
 	async fetchGroupModels(
 		groupServer: GroupServer,
 		silent: boolean,
 		bypassCache = false,
-		/** The beginServe claim for this serve; absent for unlabeled groups and callers with no earlier await. */
+		/** The beginServe claim for this serve; absent for callers with no earlier await. */
 		generation?: number,
 		/**
 		 * A failure the caller established before any fetch (the entry's credentials did not resolve): it takes the
@@ -190,14 +195,14 @@ export class GroupDiscovery {
 			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
 			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
 		};
+		const identity = groupIdentity(groupServer, server.id);
 		const attach = (infos: readonly PreAttachModelInfo[]): AttachedModelInfo[] =>
-			infos.map((info) => attachGroupServer(info, groupServer));
-		// Computed before recordAndServe because it doubles as this serve's configuration stamp there.
+			infos.map((info) => attachGroup(info, identity));
+		// The cache key composes the group with the live apiVersion and includeModes, so an edit lands on a fresh key.
 		const cacheKey = this.cacheKeyFor(groupServer);
-		// An unclaimed labeled serve claims here, so it can at least be superseded by later serves.
-		const logicalId = logicalGroupId(groupServer);
+		// An unclaimed serve claims here, so it can at least be superseded by later serves.
 		const serveGeneration = generation ?? this.beginServe(groupServer);
-		// The one outcome that serves WITHOUT recording is the rotated-configuration yield below.
+		// The one outcome that serves WITHOUT recording is the superseded yield below.
 		//   both outcome counts -> derive from the same pair
 		const recordAndServe: RecordAndServe = (
 			served: ServedModelSets,
@@ -206,18 +211,12 @@ export class GroupDiscovery {
 		): AttachedServe => {
 			const discovered = attach(served.discovered);
 			const declared = attach(served.declared);
-			// A serve whose configuration is no longer the group's CURRENT one yields the record, since a late
-			// completion would overwrite the newer configuration's models, status, and stale-serve anchor. The
-			// CALLER still gets the models its call was configured for.
-			//
-			//   recomputed cache key differs -> a live apiVersion edit on THIS server object
-			//   a later serve claimed        -> covers rotation too, since rotated credentials arrive only with a LATER
-			//                                   serve's overlaid server, invisible to this serve's recomputed key
-			const superseded =
-				logicalId !== undefined &&
-				serveGeneration !== undefined &&
-				this._serveGenerations.get(logicalId) !== serveGeneration;
-			if (superseded || this.cacheKeyFor(groupServer) !== cacheKey) {
+			// A serve yields its record once a NEWER serve of the same group has recorded, since overwriting would put
+			// an older configuration's models, status, and stale-serve anchor back. The CALLER still gets the models its
+			// call was configured for. Until the newer serve lands, this record is what makes those models routable, so
+			// a newer claim alone (or a live apiVersion edit, which the next serve carries) never yields.
+			//   rotated credentials -> arrive only with a LATER serve's overlaid server, so they land as a newer record
+			if ((this._recordedGenerations.get(identity) ?? 0) > serveGeneration) {
 				this._options.log(
 					"Discovery finished for a rotated configuration; leaving the group record to the current one",
 					{
@@ -226,6 +225,7 @@ export class GroupDiscovery {
 				);
 				return { served: [...discovered, ...declared], discovered, declared };
 			}
+			this._recordedGenerations.set(identity, serveGeneration);
 			// The one served-count derivation.
 			const servedModelCount = served.discovered.length + served.declared.length;
 			if (outcome.state === "ok") {

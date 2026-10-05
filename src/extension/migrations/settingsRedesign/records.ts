@@ -4,6 +4,7 @@
  * and shared by the global-record and entry-record paths.
  */
 
+import { trimHttpWhitespace } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 import { DECLARE_DIRECTIVE, isForceableKey } from "./legacyIds";
 
@@ -155,7 +156,7 @@ export function transformEntryRecord(raw: unknown, kind: RecordKind): EntryRecor
 			carried = strip.value;
 			if (strip.declared) {
 				// The parser trims declared IDs, so the move writes the trimmed form.
-				declared.push(key.trim());
+				declared.push(trimHttpWhitespace(key));
 			}
 			if (strip.strippedInert) {
 				strippedInertDeclares += 1;
@@ -280,7 +281,7 @@ export function transformGlobalRecord(
 					keyDeclared = true;
 					const list = entryDeclares.get(target.entryIndex) ?? [];
 					// The parser trims declared IDs, so the move writes the trimmed form.
-					list.push(remainder.trim());
+					list.push(trimHttpWhitespace(remainder));
 					entryDeclares.set(target.entryIndex, list);
 				} else if (strip.strippedInert) {
 					keyStrippedInert = true;

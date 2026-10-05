@@ -86,7 +86,7 @@ suite("provider groups with OAuth", () => {
 		assert.deepStrictEqual(authHeaders, ["Bearer tok-1", "Bearer tok-1"]);
 	});
 
-	test("a cached discovery sweep still attaches working OAuth credentials", async () => {
+	test("a cached discovery sweep still serves models whose requests authenticate with OAuth", async () => {
 		const provider = makeProvider();
 		const tokens = tokenEndpoint();
 		let discoveryHits = 0;

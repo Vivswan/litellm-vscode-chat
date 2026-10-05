@@ -6,7 +6,8 @@ import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "
 import { DiscoveryCache } from "../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../provider/catalog/groupDiscovery";
 import type { GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "../provider/catalog/groupModels";
-import { attachGroupServer } from "../provider/catalog/groupModels";
+import { attachGroup, groupClientId } from "../provider/catalog/groupModels";
+import { groupIdentity } from "../provider/catalog/statusWindow";
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import { Logger, markLogSafe, publicErrorText } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
@@ -122,6 +123,8 @@ export function systemMessage(text: string): vscode.LanguageModelChatRequestMess
 export interface CapturedRequest {
 	body: Record<string, unknown>;
 	headers: Record<string, string>;
+	/** The model object the request went out with: the discovered one under useDiscoveredModel, else the attached copy. */
+	model: LiteLLMModelInfo;
 }
 
 export interface CaptureRequestOverrides {
@@ -133,16 +136,24 @@ export interface CaptureRequestOverrides {
 	 * prompt-caching support.
 	 */
 	useDiscoveredModel?: boolean;
+	/** The group the host serves and the request routes through, as its flat host configuration; defaults to testGroupServer(). */
+	group?: Pick<GroupServer, "baseUrl" | "apiKey" | "label">;
 }
 
-/** The calling suite must have installed the msw lifecycle via useMsw(). */
+/**
+ * Serve one provider group followed by a chat request against msw handlers, the way the host drives the provider: the
+ * group's refresh with its configuration, then a request with a model carrying that group's identity. Discovery
+ * endpoints return `discoveryPayload` (default: a valid "test-model" listing), and POST /v1/chat/completions captures
+ * the request body and headers before answering with a minimal SSE stream. The calling suite must have installed the
+ * msw lifecycle via useMsw().
+ */
 export async function captureRequest(
 	provider: LiteLLMChatModelProvider,
 	model: LiteLLMModelInfo,
 	opts: unknown,
 	overrides: CaptureRequestOverrides = {}
 ): Promise<CapturedRequest> {
-	let captured: CapturedRequest | undefined;
+	let captured: Omit<CapturedRequest, "model"> | undefined;
 	const discoveryPayload = overrides.discoveryPayload ?? DEFAULT_DISCOVERY_PAYLOAD;
 	mswServer.use(
 		...discoveryHandlers(discoveryPayload),
@@ -154,9 +165,11 @@ export async function captureRequest(
 			return sseTextResponse("ok");
 		})
 	);
+	const group = overrides.group ?? testGroupServer();
+	const token = new vscode.CancellationTokenSource().token;
 	const infos = await provider.provideLanguageModelChatInformation(
-		{ silent: true },
-		new vscode.CancellationTokenSource().token
+		{ silent: true, configuration: group } as { silent: boolean },
+		token
 	);
 	const discovered = overrides.useDiscoveredModel
 		? expectDefined(
@@ -164,20 +177,19 @@ export async function captureRequest(
 				`discovery returned no model with id "${model.id}"`
 			)
 		: undefined;
-	// A hand-built model without its own attached server gets the group server the injected configuration resolves to,
-	// mirroring the host contract: every served model carries its group's connection, and the request path routes by
-	// nothing else.
 	const sent =
 		discovered ??
-		(model.litellm?.server !== undefined ? model : attachGroupServer(model as PreAttachModelInfo, testGroupServer()));
+		(model.litellm?.group !== undefined
+			? model
+			: attachGroup(model as PreAttachModelInfo, groupIdentity(group, groupClientId(group))));
 	await provider.provideLanguageModelChatResponse(
 		sent,
 		overrides.messages ?? [userMessage("test")],
 		opts as vscode.ProvideLanguageModelChatResponseOptions,
 		{ report: () => {} },
-		new vscode.CancellationTokenSource().token
+		token
 	);
-	return expectDefined(captured, "no chat request reached the mock server");
+	return { ...expectDefined(captured, "no chat request reached the mock server"), model: sent };
 }
 
 export async function captureRequestBody(

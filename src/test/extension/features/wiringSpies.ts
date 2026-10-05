@@ -66,10 +66,25 @@ export async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise
 	}
 }
 
-export function fakeContext(): vscode.ExtensionContext {
+export function memorySecretStorage(): vscode.SecretStorage {
+	const blobs = new Map<string, string>();
+	return {
+		get: async (key) => blobs.get(key),
+		store: async (key, value) => {
+			blobs.set(key, value);
+		},
+		delete: async (key) => {
+			blobs.delete(key);
+		},
+		keys: async () => [...blobs.keys()],
+		onDidChange: new vscode.EventEmitter<vscode.SecretStorageChangeEvent>().event,
+	};
+}
+
+export function fakeContext(secrets: vscode.SecretStorage = memorySecretStorage()): vscode.ExtensionContext {
 	return {
 		subscriptions: [] as vscode.Disposable[],
-		secrets: { get: async () => undefined, store: async () => {}, delete: async () => {} },
+		secrets,
 	} as unknown as vscode.ExtensionContext;
 }
 

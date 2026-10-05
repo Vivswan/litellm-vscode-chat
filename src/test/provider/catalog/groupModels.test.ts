@@ -1,16 +1,18 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import {
-	attachGroupServer,
+	attachGroup,
 	type GroupServer,
 	groupClientId,
 	type LiteLLMModelInfo,
+	logCredentialRejections,
 	markStale,
 	type PreAttachModelInfo,
 	parseGroupConfiguration,
 	parseModelMetadata,
 } from "../../../provider/catalog/groupModels";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
+import { groupIdentity } from "../../../provider/catalog/statusWindow";
 import { type OAuthConfig, oauthCredentialFingerprint } from "../../../provider/transport/auth";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { resolveFuzzSeed } from "../../fuzzStream";
@@ -18,6 +20,9 @@ import { expectDefined, makeModelInfo } from "../../pureHelpers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
+
+// Spelled out: the typography gate refuses a literal non-breaking space, and the test is about that very byte.
+const NBSP = String.fromCharCode(0xa0);
 
 /** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
@@ -121,8 +126,17 @@ suite("provider/catalog/groupModels", () => {
 			assert.deepStrictEqual(
 				trimmed.virtualKey,
 				{ header: "x-vk", value: "vk-1" },
-				"leading and trailing whitespace is harmless and stripped"
+				"leading and trailing HTTP whitespace is harmless and stripped"
 			);
+			// The one credential trim rule: a Latin-1 non-breaking space is the value's own byte and survives.
+			const padded = expectDefined(
+				parseGroupConfiguration({
+					baseUrl: "http://litellm.test",
+					virtualKeyHeader: "x-vk",
+					virtualKeyValue: `${NBSP}vk-1`,
+				})
+			);
+			assert.deepStrictEqual(padded.virtualKey, { header: "x-vk", value: `${NBSP}vk-1` });
 
 			const invalidValues = ["vk\r\nInjected: x", "vk\n1", "vk\r1", "vk\u00001", "   "];
 			for (const virtualKeyValue of invalidValues) {
@@ -139,10 +153,17 @@ suite("provider/catalog/groupModels", () => {
 
 		test("a rejected virtual key logs the header name once and never the value; absence stays silent", () => {
 			const lines: string[] = [];
-			const log = (message: string, data?: unknown) => lines.push(`${message} ${JSON.stringify(data ?? null)}`);
+			const log = logCredentialRejections((message: string, data?: unknown) =>
+				lines.push(`${message} ${JSON.stringify(data ?? null)}`)
+			);
 
 			const noKey = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test" }, log));
 			assert.strictEqual(noKey.virtualKey, undefined);
+			// A header with no value is a missing secret the dashboard already shows as such, not a rejected one.
+			const noValue = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk" }, log)
+			);
+			assert.strictEqual(noValue.virtualKey, undefined);
 			assert.strictEqual(lines.length, 0, "an unconfigured virtual key must not be logged as rejected");
 
 			const config = {
@@ -159,6 +180,36 @@ suite("provider/catalog/groupModels", () => {
 				lines.every((line) => !line.includes("secret")),
 				`the virtual key value leaked into the log: ${lines.join(" | ")}`
 			);
+		});
+
+		test("an API key's edge whitespace is trimmed; an interior control character drops it, logged once without the value", () => {
+			// Headers.append throws a TypeError quoting the whole value ('"sk-a\nb" is an invalid header value'); the
+			// chat error, the dashboard row, and the output channel would all carry it.
+			const lines: string[] = [];
+			const log = logCredentialRejections((message: string, data?: unknown) =>
+				lines.push(`${message} ${JSON.stringify(data ?? null)}`)
+			);
+			assert.deepStrictEqual(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: " sk-abc\n" }, log), {
+				baseUrl: "http://litellm.test",
+				apiKey: "sk-abc",
+			});
+			// Only HTTP whitespace is edge-trimmed: Headers keeps a Latin-1 non-breaking space, so the key does too.
+			assert.deepStrictEqual(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: `${NBSP}sk-abc${NBSP}` }, log),
+				{
+					baseUrl: "http://litellm.test",
+					apiKey: `${NBSP}sk-abc${NBSP}`,
+				}
+			);
+			assert.strictEqual(lines.length, 0, "a trimmed key is a repair, not a rejection");
+
+			const config = { baseUrl: "http://litellm.test", apiKey: "sk-a\nb" };
+			const keyless = { baseUrl: "http://litellm.test", apiKey: "" };
+			assert.deepStrictEqual(parseGroupConfiguration(config, log), keyless);
+			assert.deepStrictEqual(parseGroupConfiguration(config, log), keyless);
+			assert.deepStrictEqual(lines, [
+				"Ignoring the configured API key: the value cannot be sent as an HTTP header null",
+			]);
 		});
 
 		test("unknown configuration fields are ignored", () => {
@@ -416,33 +467,14 @@ suite("provider/catalog/groupModels", () => {
 		});
 	});
 
-	suite("parseModelMetadata", () => {
-		test("OAuth and virtual-key units survive the attach round trip", () => {
-			const server = expectDefined(
-				parseGroupConfiguration({
-					baseUrl: "http://litellm.test",
-					apiKey: "k",
-					...OAUTH_FIELDS,
-					virtualKeyHeader: "x-vk",
-					virtualKeyValue: "vk-1",
-				})
-			);
-			const model = attachGroupServer(makeModelInfo(), server);
-			assert.deepStrictEqual(parseModelMetadata(model).server, server);
-		});
+	suite("attachGroup and parseModelMetadata", () => {
+		const server = expectDefined(
+			parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
+		);
+		const identity = groupIdentity(server, groupClientId(server));
 
-		test("the entry label survives the attach round trip, so the request path can reach it", () => {
-			const server = expectDefined(
-				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
-			);
-			const parsed = expectDefined(parseModelMetadata(attachGroupServer(makeModelInfo(), server)).server);
-			assert.strictEqual(parsed.label, "Prod");
-			assert.strictEqual(groupClientId(parsed), groupClientId(server), "one entry, one identity, either side");
-		});
-
-		test("attachGroupServer keeps the configuration schema on the model", () => {
-			const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
-			const model = attachGroupServer(makeModelInfo({ configurationSchema: REASONING_EFFORT_SCHEMA }), server);
+		test("attachGroup keeps the configuration schema on the model", () => {
+			const model = attachGroup(makeModelInfo({ configurationSchema: REASONING_EFFORT_SCHEMA }), identity);
 			assert.deepStrictEqual(
 				model.configurationSchema,
 				REASONING_EFFORT_SCHEMA,
@@ -450,19 +482,18 @@ suite("provider/catalog/groupModels", () => {
 			);
 		});
 
-		test("attachGroupServer carries the audio-input gate and parseModelMetadata re-narrows it", () => {
-			const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
-			const audioModel = attachGroupServer(
+		test("attachGroup carries the audio-input gate and parseModelMetadata re-narrows it", () => {
+			const audioModel = attachGroup(
 				makeModelInfo({
 					litellm: {
 						rawModelId: "test-model",
 						supportsPromptCaching: false,
-						outputLimitSource: "defaults",
+						defaultMaxTokens: 4096,
 						supportsAudioInput: true,
-						serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+						serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 4096 },
 					},
 				}),
-				server
+				identity
 			);
 			assert.strictEqual(audioModel.litellm.supportsAudioInput, true, "the metadata rebuild must not drop the gate");
 			assert.strictEqual(parseModelMetadata(audioModel).supportsAudioInput, true);
@@ -476,74 +507,27 @@ suite("provider/catalog/groupModels", () => {
 			assert.strictEqual(parseModelMetadata(makeModelInfo()).supportsAudioInput, false);
 			const junk = {
 				...makeModelInfo(),
-				litellm: { supportsPromptCaching: false, outputLimitSource: "defaults", supportsAudioInput: "yes" },
+				litellm: { supportsPromptCaching: false, defaultMaxTokens: 4096, supportsAudioInput: "yes" },
 			} as unknown as LiteLLMModelInfo;
 			assert.strictEqual(parseModelMetadata(junk).supportsAudioInput, false);
 		});
 
-		test("the type system refuses an attached copy where a pre-attach info belongs", () => {
-			const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
-			const attached = attachGroupServer(makeModelInfo(), server);
-			// The one-token-away mistake the split exists to stop: caching or snapshotting attach(...) output instead
-			// of the pre-attach infos.
-			// @ts-expect-error an attached copy embeds the group's credentials and is not a PreAttachModelInfo
+		test("the type system refuses a served copy where a pre-attach info belongs", () => {
+			const attached = attachGroup(makeModelInfo(), identity);
+			// The one-token-away mistake the split exists to stop: caching or snapshotting attach(...) output, which
+			// may carry a stale decoration, instead of the pre-attach infos.
+			// @ts-expect-error a served copy is stamped with a group identity and is not a PreAttachModelInfo
 			const leaked: PreAttachModelInfo = attached;
 			void leaked;
-			assert.deepStrictEqual(attached.litellm.server, server, "the attached copy itself keeps its server");
-		});
-
-		test("a malformed oauth sub-object coming back across the host boundary degrades to absent", () => {
-			// Built by hand, not through attachGroupServer: this is the hostile round-trip shape whose type the host
-			// boundary cannot vouch for.
-			const model = {
-				...makeModelInfo(),
-				litellm: {
-					supportsPromptCaching: false,
-					outputLimitSource: "defaults",
-					server: {
-						baseUrl: "http://litellm.test",
-						apiKey: "k",
-						oauth: { tokenUrl: "http://idp.test/token" },
-						virtualKey: { header: "x-vk" },
-					},
-				},
-			} as unknown as LiteLLMModelInfo;
-			assert.deepStrictEqual(parseModelMetadata(model).server, { baseUrl: "http://litellm.test", apiKey: "k" });
-		});
-
-		test("a trailing slash coming back across the host boundary re-normalizes to the parsed identity", () => {
-			const parsed = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
-			const roundTrip = {
-				...makeModelInfo(),
-				litellm: {
-					supportsPromptCaching: false,
-					outputLimitSource: "defaults",
-					server: { baseUrl: "http://litellm.test/", apiKey: "k" },
-				},
-			} as unknown as LiteLLMModelInfo;
-			const server = expectDefined(parseModelMetadata(roundTrip).server);
-			assert.strictEqual(server.baseUrl, "http://litellm.test");
-			assert.strictEqual(groupClientId(server), groupClientId(parsed), "one server, one identity, either spelling");
-		});
-
-		test("a URL that normalizes to nothing degrades to absent, like the configuration parse", () => {
-			const model = {
-				...makeModelInfo(),
-				litellm: {
-					supportsPromptCaching: false,
-					outputLimitSource: "defaults",
-					server: { baseUrl: "///", apiKey: "k" },
-				},
-			} as unknown as LiteLLMModelInfo;
-			assert.strictEqual(parseModelMetadata(model).server, undefined);
 		});
 	});
 
 	suite("markStale", () => {
 		const server = () => expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
+		const identity = () => groupIdentity(server(), groupClientId(server()));
 
 		test("stamps the warning icon and a connectivity banner on fresh copies, leaving the inputs untouched", () => {
-			const attached = [attachGroupServer(makeModelInfo(), server())];
+			const attached = [attachGroup(makeModelInfo(), identity())];
 			const stale = markStale(attached, "1/1/2026, 9:30:00 AM");
 
 			assert.strictEqual(stale.length, 1);
@@ -553,7 +537,7 @@ suite("provider/catalog/groupModels", () => {
 				connectivity:
 					"The server is unreachable; showing the models from its last successful sync at 1/1/2026, 9:30:00 AM.",
 			});
-			assert.deepStrictEqual(decorated.litellm.server, server(), "the attached server survives the decoration");
+			assert.strictEqual(decorated.litellm.group, identity(), "the group identity survives the decoration");
 
 			const input = expectDefined(attached[0]);
 			assert.ok(!("statusIcon" in input), "decoration happens on copies; the input must stay clean");
@@ -561,8 +545,8 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("accepts attached copies only, so decorated objects cannot enter the cache or snapshot paths", () => {
-			// Those paths hold PreAttachModelInfo; if markStale accepted it, a credential-carrying copy could be cached
-			// or pushed to the dashboard, and a stale icon would survive a healthy sweep.
+			// Those paths hold PreAttachModelInfo; if markStale accepted it, a decorated copy could be cached or pushed to
+			// the dashboard, and a stale icon would survive a healthy sweep.
 			// @ts-expect-error markStale takes AttachedModelInfo, never the pre-attach registration output
 			const rejected = () => markStale([makeModelInfo()], "1/1/2026, 9:30:00 AM");
 			void rejected;

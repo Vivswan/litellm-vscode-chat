@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import type {
 	CancellationToken,
 	Event,
@@ -16,6 +17,7 @@ import { getDiscoveryStaleServeWindow, getDiscoveryTimeout } from "../shared/con
 import { countTextTokens } from "../shared/conversion/textTokens";
 import { estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
 import type { Logger } from "../shared/logger";
+import { localizedError, type MirroredError } from "../shared/mirroredError";
 import type { ExpectedFailureCategory, NonChatMode } from "../shared/serverEntry";
 import type { AggregatedStatus } from "../shared/servers";
 import { DiscoveryCache } from "./catalog/discoveryCache";
@@ -24,6 +26,7 @@ import { GroupDiscovery } from "./catalog/groupDiscovery";
 import type { EntryCredentialsResolver, GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
 import {
 	groupClientId,
+	logCredentialRejections,
 	overlayEntryCredentials,
 	parseGroupConfiguration,
 	parseModelMetadata,
@@ -47,6 +50,15 @@ const HOST_REFRESH_DEADLINE_MARGIN_MS = 2000;
 
 export function hostRefreshDeadlineMs(discoveryTimeoutMs: number): number {
 	return Math.max(HOST_REFRESH_DEADLINE_FLOOR_MS, discoveryTimeoutMs + HOST_REFRESH_DEADLINE_MARGIN_MS);
+}
+
+/** The terse classification keeps the model ID out of public logs. */
+function unroutableModelError(modelId: string, reason: "no group identity" | "group not served"): MirroredError {
+	return localizedError(
+		l10n.t('Model "{0}" is not registered with any configured server. Refresh the model list and try again.', modelId),
+		`Model "${modelId}" is not registered with any configured server. Refresh the model list and try again.`,
+		`RequestRouting(${reason})`
+	);
 }
 
 /** The host pass races discovery fetches, so it reads the DISCOVERY timeout and chat.timeout plays no part. */
@@ -134,7 +146,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private readonly _client: ChatClient;
 	// The host re-resolves groups in bursts, so cached sweeps must not hit the network.
 	//
-	// The group server is attached to the stored infos on every read, never cached.
+	// The group identity is stamped onto the stored infos on every read, never cached.
 	//   refreshViaHost clears the cache, and testKnownGroupConnections invalidates each group it probes
 	//     -> Explicit refreshes reach it anyway
 	private readonly _discoveryCache: DiscoveryCache<DiscoveredGroupModels>;
@@ -170,15 +182,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			getEntryModelParameters: options.getEntryModelParameters,
 			getEntryHeaders: options.getEntryHeaders,
 			getEntryApiVersion: options.getEntryApiVersion,
-			resolveEntryCredentials: options.resolveEntryCredentials,
 			resolution: this._resolution,
 			fetch: options.fetch,
 		});
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
 		this._statusWindow = new StatusWindow(
 			options.now ?? (() => Date.now()),
-			// Read per consumption so settings changes apply live; the clamp warning routes through the facade's
-			// logger.
+			// Read per consumption so settings changes apply live; the out-of-contract diagnostic routes through the
+			// facade's logger.
 			() => getDiscoveryStaleServeWindow((message, data) => this.log(message, data)),
 			() => this._onDidObserveGroupEmitter.fire()
 		);
@@ -296,7 +307,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	/** Model IDs are returned raw and display names unprefixed because the host namespaces group models itself. */
 	private async provideGroupModels(configuration: unknown, silent: boolean): Promise<LiteLLMModelInfo[]> {
-		const parsed = parseGroupConfiguration(configuration, (message, data) => this.log(message, data));
+		const parsed = parseGroupConfiguration(
+			configuration,
+			logCredentialRejections((message, data) => this.log(message, data))
+		);
 		if (!parsed) {
 			this.log("Ignoring provider-group refresh with malformed configuration (baseUrl must be a string)");
 			return [];
@@ -396,7 +410,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			},
 		};
 		try {
-			await this._client.send({ model, messages, options, progress: trackingProgress, token });
+			// The one parse of the model object's LiteLLM metadata for this request.
+			const metadata = parseModelMetadata(model);
+			const server = await this.liveGroupServer(model.id, metadata.group);
+			await this._client.send({ metadata, server, messages, options, progress: trackingProgress, token });
 		} catch (err) {
 			// User-initiated cancellation is not an error; logging it would pollute the issue-report buffer and clobber
 			// the latest real error.
@@ -406,6 +423,26 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			// Only the throw is wrapped, so the boundary still logs exactly once and keeps the classification.
 			throw toLanguageModelError(err);
 		}
+	}
+
+	/**
+	 * A model object names its group; the connection is the window's current one under the entry's current
+	 * credentials, so a rotation reaches the very next request, and a model whose group identity has left the window
+	 * (or that this provider never served) fails before anything is sent.
+	 */
+	private async liveGroupServer(modelId: string, group: string | undefined): Promise<GroupServer> {
+		if (group === undefined) {
+			throw unroutableModelError(modelId, "no group identity");
+		}
+		const recorded = this._statusWindow.getGroupServerByIdentity(group);
+		if (recorded === undefined) {
+			throw unroutableModelError(modelId, "group not served");
+		}
+		const overlaid = await overlayEntryCredentials(recorded, this._resolveEntryCredentials);
+		if (overlaid.failure !== undefined) {
+			throw overlaid.failure;
+		}
+		return overlaid.server;
 	}
 
 	async provideTokenCount(
@@ -419,7 +456,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		// The same capability gates the chat path sends under, so the host's budget prices the same transmitted forms
 		// the request would carry. Known overcount: pricing one message at a time synthesizes the tool-image lead-in
 		// per message where the real request emits it once per turn (~10 tokens, the safe direction).
-		const metadata = parseModelMetadata(model, (message, data) => this.log(message, data));
+		const metadata = parseModelMetadata(model);
 		return estimateMessagesTokens([text], {
 			imageInput: metadata.imageInput,
 			audioInput: metadata.supportsAudioInput,

@@ -11,6 +11,7 @@
  *                                                                 by the restructure
  */
 
+import type { RecordShapeReport } from "../../../shared/config/settings";
 import {
 	normalizeCustomHeaders,
 	normalizeModelCapabilities,
@@ -35,7 +36,7 @@ import {
 	SECRET_FIELD_NESTED_PATHS,
 } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { HEADER_NAME_PATTERN, isHeaderScalar } from "../../../shared/util/headers";
+import { HEADER_NAME_PATTERN, isHeaderScalar, trimHttpWhitespace, usableHttpText } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 import type { CollectableEntry } from "../../../shared/util/knownSecrets";
 import { sameGroupIdentity } from "../groupRemovals";
@@ -71,14 +72,6 @@ export function nonSecretIdentityMatches(
 		entry.apiVersion === other.apiVersion &&
 		NON_SECRET_OPTIONAL_FIELD_IDS.every((field) => entry[field] === other[field])
 	);
-}
-
-function usableString(value: unknown): string | undefined {
-	if (typeof value !== "string") {
-		return undefined;
-	}
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /**
@@ -153,7 +146,7 @@ function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn |
 		report("has an mcp.url that is not a string, ignored");
 		return true;
 	}
-	const url = usableString(mcp.url);
+	const url = usableHttpText(mcp.url);
 	return url !== undefined ? { url } : true;
 }
 
@@ -231,7 +224,7 @@ function assignNestedSecrets(auth: Readonly<Record<string, unknown>>, fields: Fl
 	for (const field of SECRET_FIELD_IDS) {
 		for (const path of SECRET_FIELD_NESTED_PATHS[field]) {
 			// The first segment is "auth", the object in hand.
-			const value = usableString(valueAt(auth, path.slice(1)));
+			const value = usableHttpText(valueAt(auth, path.slice(1)));
 			if (value !== undefined) {
 				fields[field] = value;
 			}
@@ -253,7 +246,7 @@ export function collectableEntries(raw: unknown): CollectableEntry[] {
 		return [];
 	}
 	const strings = (values: readonly unknown[]): string[] =>
-		values.map(usableString).filter((value): value is string => value !== undefined);
+		values.map(usableHttpText).filter((value): value is string => value !== undefined);
 	return raw.filter(isRecord).map((record) => {
 		// A null prototype: a raw header named "__proto__" must become an own entry, not reach the inherited setter.
 		const headers: Record<string, string> = Object.create(null);
@@ -298,8 +291,8 @@ function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 			problems.push(`has an unknown auth.oauth key "${key}"`);
 		}
 	}
-	const tokenUrl = typeof form.tokenUrl === "string" ? usableString(form.tokenUrl) : undefined;
-	const clientId = typeof form.clientId === "string" ? usableString(form.clientId) : undefined;
+	const tokenUrl = typeof form.tokenUrl === "string" ? usableHttpText(form.tokenUrl) : undefined;
+	const clientId = typeof form.clientId === "string" ? usableHttpText(form.clientId) : undefined;
 	if (tokenUrl === undefined || clientId === undefined) {
 		problems.push("has an incomplete auth.oauth (tokenUrl and clientId are required)");
 	}
@@ -325,7 +318,7 @@ function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 	}
 	fields.oauthTokenUrl = tokenUrl;
 	fields.oauthClientId = clientId;
-	const scopes = usableString(form.scopes);
+	const scopes = usableHttpText(form.scopes);
 	if (scopes !== undefined) {
 		fields.oauthScopes = scopes;
 	}
@@ -349,7 +342,7 @@ function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFi
 			problems.push(`has an unknown ${path} key "${key}"`);
 		}
 	}
-	const header = typeof object.header === "string" ? usableString(object.header) : undefined;
+	const header = typeof object.header === "string" ? usableHttpText(object.header) : undefined;
 	if (header === undefined) {
 		problems.push(`has a ${path} without a usable header name`);
 	} else if (!HEADER_NAME_PATTERN.test(header)) {
@@ -426,7 +419,7 @@ export function rejectedCarrierInlineSecrets(
 		}
 		const values = SECRET_FIELD_IDS.flatMap((id) =>
 			[record[id], ...SECRET_FIELD_NESTED_PATHS[id].map((path) => valueAt(record, path))]
-				.map(usableString)
+				.map(usableHttpText)
 				.filter((value): value is string => value !== undefined)
 		);
 		if (values.length > 0) {
@@ -473,8 +466,8 @@ export function serverSettingReports(raw: unknown): ServerEntryReport[] {
 	const reports: { index: number; label?: string; baseUrl?: string; problems: string[]; accepted: boolean }[] = raw.map(
 		(item, index) => {
 			const record = isRecord(item) ? item : undefined;
-			const label = record !== undefined ? usableString(record.label) : undefined;
-			const baseUrl = record !== undefined ? usableString(record.baseUrl) : undefined;
+			const label = record !== undefined ? usableHttpText(record.label) : undefined;
+			const baseUrl = record !== undefined ? usableHttpText(record.baseUrl) : undefined;
 			return {
 				index,
 				...(label !== undefined && !isUnsafeRecordKey(label) ? { label } : {}),
@@ -537,8 +530,8 @@ function acceptEntries(
 			return;
 		}
 		const record = item;
-		const label = usableString(record.label);
-		const baseUrl = usableString(record.baseUrl);
+		const label = usableHttpText(record.label);
+		const baseUrl = usableHttpText(record.baseUrl);
 		if (label === undefined || baseUrl === undefined) {
 			report("is missing a label or baseUrl");
 			return;
@@ -574,13 +567,13 @@ function acceptEntries(
 			...auth.fields,
 		};
 
-		// "" is a real value (append nothing to the base URL), so this cannot funnel through usableString, which erases
+		// "" is a real value (append nothing to the base URL), so this cannot funnel through usableHttpText, which erases
 		// it. Like budget, a malformed value is a diagnostic and is ignored; the entry stays usable.
 		if (record.apiVersion !== undefined) {
 			if (typeof record.apiVersion !== "string") {
 				report("has an apiVersion that is not a string, ignored");
 			} else {
-				entry.apiVersion = record.apiVersion.trim();
+				entry.apiVersion = trimHttpWhitespace(record.apiVersion);
 			}
 		}
 
@@ -608,13 +601,32 @@ function acceptEntries(
 					report(`has an unknown models key "${key}", ignored`);
 				}
 			}
+			// The records normalizer is the one shape classifier; its refusals ride this entry's report so a
+			// `"gpt-4": "oops"` does not read as "no per-entry records" in silence.
+			const shapeReport =
+				(slot: "parameters" | "capabilities"): RecordShapeReport =>
+				(problem) => {
+					switch (problem.kind) {
+						case "map":
+							report(`has a models.${slot} that is not an object, ignored`);
+							break;
+						case "entry":
+							report(`has a models.${slot} entry "${problem.key}" that is not an object, ignored`);
+							break;
+						case "reserved-key":
+							report(`has a models.${slot} entry "${problem.key}" under a reserved name, ignored`);
+							break;
+					}
+				};
 			const parameters = optionalSlot(models.parameters, "models.parameters", report);
-			const modelParameters = parameters === undefined ? {} : normalizeModelParameters(parameters);
+			const modelParameters =
+				parameters === undefined ? {} : normalizeModelParameters(parameters, shapeReport("parameters"));
 			if (Object.keys(modelParameters).length > 0) {
 				entry.modelParameters = modelParameters;
 			}
 			const capabilities = optionalSlot(models.capabilities, "models.capabilities", report);
-			const modelCapabilities = capabilities === undefined ? {} : normalizeModelCapabilities(capabilities);
+			const modelCapabilities =
+				capabilities === undefined ? {} : normalizeModelCapabilities(capabilities, shapeReport("capabilities"));
 			if (Object.keys(modelCapabilities).length > 0) {
 				entry.modelCapabilities = modelCapabilities;
 			}
@@ -635,7 +647,7 @@ function acceptEntries(
 			}
 			const declared = listSlot(discovery.declared, "discovery.declared", report);
 			if (declared !== undefined) {
-				const ids = declared.map(usableString).filter((id): id is string => id !== undefined);
+				const ids = declared.map(usableHttpText).filter((id): id is string => id !== undefined);
 				if (ids.length < declared.length) {
 					const dropped = declared.length - ids.length;
 					report(`lists ${dropped} unusable discovery.declared value(s), ignored`);
@@ -680,7 +692,7 @@ export function acceptedEntry(raw: unknown, label: string): { index: number; ent
 	if (!Array.isArray(raw)) {
 		return undefined;
 	}
-	const wanted = label.trim();
+	const wanted = trimHttpWhitespace(label);
 	return acceptEntries(raw).find(({ entry }) => entry.label === wanted);
 }
 
@@ -697,7 +709,7 @@ export function rawDeclaredLabels(raw: unknown): Set<string> {
 	const labels = new Set<string>();
 	for (const item of raw) {
 		if (isRecord(item) && typeof item.label === "string") {
-			const label = item.label.trim();
+			const label = trimHttpWhitespace(item.label);
 			if (label.length > 0 && !isUnsafeRecordKey(label)) {
 				labels.add(label);
 			}

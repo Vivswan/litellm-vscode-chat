@@ -32,6 +32,7 @@ import { OPENROUTER_MODEL_DIRECTIVE } from "../../../shared/config/recordResolut
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { getCurrencySymbol } from "../../../shared/config/settings";
 import { resolveFuzzSeed } from "../../fuzzStream";
+import { deploymentShape } from "../../pureHelpers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
@@ -59,11 +60,6 @@ const providerArb: fc.Arbitrary<LiteLLMProvider> = fc.record(
 		max_tokens: limitValue,
 		max_input_tokens: limitValue,
 		max_output_tokens: limitValue,
-		// The internal marker deployment merging authors; generated so merged provider shapes (declared values with a
-		// demoted source) stay covered.
-		output_limit_source: fc.option(fc.constantFrom<"provider" | "defaults">("provider", "defaults"), {
-			nil: undefined,
-		}),
 		supports_prompt_caching: flagValue,
 		supports_response_schema: flagValue,
 		supports_reasoning: flagValue,
@@ -102,7 +98,7 @@ const modelItemArb = (id: string): fc.Arbitrary<LiteLLMModelItem> =>
 		.tuple(
 			fc.oneof(
 				fc.constant<{ kind: "bare" }>({ kind: "bare" }),
-				providerArb.map((provider) => ({ kind: "deployment" as const, provider })),
+				providerArb.map((provider) => deploymentShape(provider)),
 				fc.array(providerArb, { minLength: 1, maxLength: 3 }).map((providers) => ({
 					kind: "group" as const,
 					providers: providers as [LiteLLMProvider, ...LiteLLMProvider[]],
@@ -318,7 +314,7 @@ function assertAdvertisesEffective(info: PreAttachModelInfo, effective: Effectiv
 		capabilityField(effective.fields, "supports_prompt_caching")?.value === true,
 		"the caching gate must follow the effective supports_prompt_caching"
 	);
-	assert.strictEqual(info.litellm.outputLimitSource, effective.outputLimitSource);
+	assert.strictEqual(info.litellm.defaultMaxTokens, effective.defaultMaxTokens);
 	assert.strictEqual(
 		info.configurationSchema !== undefined,
 		reasoningGate(effective.fields),

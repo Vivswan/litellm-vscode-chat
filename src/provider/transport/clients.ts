@@ -85,6 +85,8 @@ export function buildDefaultHeaders(
 				delete headers[key];
 			}
 		}
+		// Header-legal already: every caller's key came through catalog/groupModels.ts narrowApiKey, which drops anything
+		// else, so the platform's Headers never sees, or quotes, a bad key.
 		headers["X-API-Key"] = config.apiKey;
 	} else if (!hasCustomAuthorization) {
 		headers.Authorization = null;

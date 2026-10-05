@@ -274,7 +274,11 @@ suite("provider group discovery caching", () => {
 			assert.strictEqual(infos.length, 1);
 			const info = expectDefined(infos[0]);
 			assert.strictEqual(info.id, "test-model");
-			assert.strictEqual(info.litellm.server?.baseUrl, GROUP.baseUrl, "every caller must get the attached server");
+			assert.strictEqual(
+				info.litellm.group,
+				expectDefined(provider.getServerSnapshots()[0]).status.serverId,
+				"every caller gets a model naming the group the window recorded"
+			);
 		}
 	});
 
@@ -302,7 +306,10 @@ suite("provider group discovery caching", () => {
 		const infos = await provider.provideLanguageModelChatInformation(groupOptions(GROUP), cancellation());
 
 		assert.strictEqual(counter.hits(), 1, "the second refresh must not reach the network");
-		assert.strictEqual(expectDefined(infos[0]).litellm.server?.baseUrl, GROUP.baseUrl);
+		assert.strictEqual(
+			expectDefined(infos[0]).litellm.group,
+			expectDefined(provider.getServerSnapshots()[0]).status.serverId
+		);
 		const status = expectDefined(statuses.at(-1), "the cached hit must still report status");
 		const serverStatus = expectDefined(status.serverStatuses[0]);
 		assert.strictEqual(serverStatus.state, "ok");
@@ -472,7 +479,7 @@ suite("provider group discovery caching", () => {
 		assert.strictEqual(
 			lookup(oldGroup),
 			undefined,
-			"the old key's entry embeds rotated-away credentials and must be pruned"
+			"the old key carries the rotated-away credentials' fingerprint and must be pruned"
 		);
 		assert.notStrictEqual(lookup(newGroup), undefined, "the live key's entry must survive the prune");
 	});

@@ -20,6 +20,7 @@ import type { MirroredError } from "../../../shared/mirroredError";
 import { localizedError } from "../../../shared/mirroredError";
 import type { McpOptIn } from "../../../shared/serverEntry";
 import { displayUrl } from "../../../shared/util/displayUrl";
+import type { EntryConnectionRefusal } from "../../servers/entryConnection";
 import { entryConnectionFor } from "../../servers/entryConnection";
 import type { DeclaredServer } from "../../servers/serverSync/setting";
 import { parseServersSetting } from "../../servers/serverSync/setting";
@@ -93,14 +94,21 @@ function definitionOf(descriptor: McpDefinitionDescriptor): vscode.McpHttpServer
 
 /**
  * A closed vocabulary rather than free text: each member owns one honest sentence and one log classification. The
- * classification is convention, not construction - localizedError takes it optionally - so the tests pin all three by
- * name.
+ * classification is convention, not construction - localizedError takes it optionally - so a test pins a classification
+ * by name, never by deriving it.
  *
  *   refusalError's switch has no default and returns a non-optional type
- *     -> a fourth member does not compile until it has a case, and localizedError will not take that case without its
+ *     -> a new member does not compile until it has a case, and localizedError will not take that case without its
  *        English mirror
  */
-type McpRefusal = "not-published" | "stale-secrets" | "changed-during-resolve";
+type McpRefusal = "not-published" | "stale-secrets" | "secrets-unreadable" | "changed-during-resolve";
+
+/** Total over the connection refusals, so a new one does not compile until it says which sentence it gets. */
+const MCP_REFUSAL_FOR: Readonly<Record<EntryConnectionRefusal, McpRefusal>> = {
+	noEntry: "not-published",
+	secretsMismatched: "stale-secrets",
+	secretsUnreadable: "secrets-unreadable",
+};
 
 /**
  * English mirrors ride every construction (the message reaches the output channel and public issue reports), and the
@@ -122,6 +130,12 @@ function refusalError(reason: McpRefusal, label: string): MirroredError {
 				),
 				`The stored secrets for "${label}" were saved for a different server. Store them again for this entry's current URL, then start its MCP server.`,
 				"Mcp(stored secrets stamped for another destination)"
+			);
+		case "secrets-unreadable":
+			return localizedError(
+				l10n.t('Reading the stored secrets for "{0}" failed, so its MCP server cannot be started. Try again.', label),
+				`Reading the stored secrets for "${label}" failed, so its MCP server cannot be started. Try again.`,
+				"Mcp(stored secrets unreadable)"
 			);
 		case "changed-during-resolve":
 			return localizedError(
@@ -184,11 +198,8 @@ export function createMcpServerDefinitionProvider(
 				if (entry === undefined || resolved === undefined) {
 					refuse("not-published");
 				}
-				if (resolved.refusedSecrets.length > 0) {
-					// The label's stored blob was paired with a different server (a base URL edited after the secret
-					// was stored is the usual cause). The chat path refuses such a pairing outright; this one must too,
-					// because the credentials leave our process and no 401 of ours would ever come back to correct it.
-					refuse("stale-secrets");
+				if (resolved.kind !== "resolved") {
+					refuse(MCP_REFUSAL_FOR[resolved.kind]);
 				}
 				baseUrl = entry.baseUrl;
 				headers = sameOrigin(before.uri, baseUrl)

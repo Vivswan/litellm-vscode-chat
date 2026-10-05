@@ -6,6 +6,7 @@
 
 import type { McpOptIn } from "../../../shared/serverEntry";
 import { mcpEndpointOf } from "../../../shared/util/baseUrl";
+import { trimHttpWhitespace } from "../../../shared/util/headers";
 
 /**
  * The view of one opted-in entry this mapping consumes, injected by the caller: parsing the servers setting and
@@ -57,7 +58,7 @@ export function mcpDefinitionsOf(entries: readonly McpEntryView[]): McpDefinitio
  */
 function mcpUriOf(entry: McpEntryView): string {
 	if (entry.mcp !== true && entry.mcp.url !== undefined) {
-		const url = entry.mcp.url.trim();
+		const url = trimHttpWhitespace(entry.mcp.url);
 		if (url !== "") {
 			return url;
 		}

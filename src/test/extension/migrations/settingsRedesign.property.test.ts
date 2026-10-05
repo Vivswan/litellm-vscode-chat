@@ -41,7 +41,6 @@ import {
 	resolveNewWorldReference,
 	resolveOldWorld,
 	WALK_BASELINES,
-	wireMaxTokens,
 } from "./settingsRedesignOracle";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 120;
@@ -482,21 +481,16 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 						projected.walks.map((walk) => walk.fields),
 						old.walks.map((walk) => walk.fields)
 					);
-					// The wire rule (min(4096, limit) exactly under "defaults"), per baseline: provenance
-					// either agrees - identical wire max_tokens - or moves "defaults" -> "user" through the ONE
-					// documented lift, the explicitly configured defaultMaxOutputTokens whose migrated fill counts
-					// user-set.
+					// The wire rule (min(4096, limit) exactly under a "defaults" limit), per baseline: the wire max_tokens
+					// either agrees, or moves from the clamp to the whole limit through the ONE documented lift, the
+					// explicitly configured defaultMaxOutputTokens whose migrated fill counts user-set.
 					for (const [index, oldWalk] of old.walks.entries()) {
 						const newWalk = projected.walks[index];
 						assert.ok(newWalk !== undefined);
-						if (newWalk.outputLimitSource === oldWalk.outputLimitSource) {
-							assert.strictEqual(wireMaxTokens(newWalk), wireMaxTokens(oldWalk), `baseline ${index} wire max_tokens`);
-						} else {
-							assert.strictEqual(oldWalk.outputLimitSource, "defaults", `baseline ${index}: only the lift may differ`);
-							assert.strictEqual(newWalk.outputLimitSource, "user", `baseline ${index}: only the lift may differ`);
+						if (newWalk.wireMaxTokens !== oldWalk.wireMaxTokens) {
 							assert.ok(old.expectsOutputClampLift, `baseline ${index}: a lift needs a configured trio output`);
-							assert.strictEqual(wireMaxTokens(newWalk), newWalk.fields.max_output_tokens as number);
-							assert.strictEqual(wireMaxTokens(oldWalk), Math.min(4096, oldWalk.fields.max_output_tokens as number));
+							assert.strictEqual(newWalk.wireMaxTokens, newWalk.fields.max_output_tokens as number);
+							assert.strictEqual(oldWalk.wireMaxTokens, Math.min(4096, oldWalk.fields.max_output_tokens as number));
 						}
 					}
 				}
@@ -664,14 +658,12 @@ suite("extension/migrations/settingsRedesign: documented divergence pins", () =>
 		const old = resolveOldWorld(snapshot, server, "gpt-5");
 		assert.strictEqual(old.expectsOutputClampLift, true);
 		const oldWalk = expectDefined(old.walks[1]);
-		assert.strictEqual(oldWalk.outputLimitSource, "defaults");
-		assert.strictEqual(wireMaxTokens(oldWalk), 4096, "old: the guess never escaped the cap");
+		assert.strictEqual(oldWalk.wireMaxTokens, 4096, "old: the guess never escaped the cap");
 
 		const migrated = applyPlanToSnapshot(snapshot, planSettingsRedesign(snapshot).writes);
 		const projected = resolveNewWorldReference(migrated, server, "gpt-5");
 		const newWalk = expectDefined(projected.walks[1]);
-		assert.strictEqual(newWalk.outputLimitSource, "user");
-		assert.strictEqual(wireMaxTokens(newWalk), 32000, "new: the user-set fill goes out uncapped");
+		assert.strictEqual(newWalk.wireMaxTokens, 32000, "new: the user-set fill goes out uncapped");
 	});
 });
 

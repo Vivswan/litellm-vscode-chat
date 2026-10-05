@@ -14,6 +14,7 @@ import type { OptionalEntryFieldId, OptionalEntryFields, SecretFieldId, SecretOw
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
 import type { TombstoneIdentity } from "../servers/groupRemovals";
 import type { DeclaredIdentities } from "../servers/serverSync";
@@ -142,7 +143,7 @@ export async function applyAdoptServer(
 	intent: RequestPayload<"adoptServer">,
 	env: IntentEnvironment
 ): Promise<string | undefined> {
-	const label = intent.label.trim();
+	const label = trimHttpWhitespace(intent.label);
 	if (label.length === 0) {
 		// The "fieldId:" prefix stays an ASCII identifier outside the translation: sectionFailureText routes the
 		// failure onto the right form section by it.
@@ -151,7 +152,7 @@ export async function applyAdoptServer(
 	if (isUnsafeRecordKey(label)) {
 		throw new DashboardValidationError(`label: ${l10n.t("reserved name")}`);
 	}
-	const baseUrl = intent.baseUrl.trim();
+	const baseUrl = trimHttpWhitespace(intent.baseUrl);
 	if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
 		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 	}

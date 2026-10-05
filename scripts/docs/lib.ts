@@ -4,7 +4,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CONFIG_SECTION } from "../../src/shared/config/settingSpec";
+import { CONFIG_SECTION, NUMBER_SETTING_SPECS } from "../../src/shared/config/settingSpec";
 import { renderConfiguration } from "../dev/manifest/configuration";
 import { SETTING_PROSE, type SettingProse } from "./settingsReferenceProse";
 
@@ -41,15 +41,28 @@ function beginMarkerCount(content: string): number {
 	return content.match(new RegExp(BEGIN_MARKER_PATTERN.source, "g"))?.length ?? 0;
 }
 
-/** The settings in manifest order (the settings UI's order, which the docs tables follow) with their defaults. */
+/** The bounds a number setting's spec declares; a value outside them reads as the default. */
+export interface SettingBounds {
+	readonly minimum: number;
+	readonly maximum: number;
+	/** The documented off switch, taken below the minimum. */
+	readonly offValue?: number | undefined;
+}
+
+/**
+ * The settings in manifest order (the settings UI's order, which the docs tables follow) with their defaults, and the
+ * bounds of the number settings among them.
+ */
 export interface SpecSettings {
 	readonly order: readonly string[];
 	readonly defaults: ReadonlyMap<string, unknown>;
+	readonly bounds: ReadonlyMap<string, SettingBounds>;
 }
 
 /**
  * The same rows the manifest generator renders, read from the spec: the docs and package.json then agree by
- * construction instead of by a check, and the two generators can run in either order.
+ * construction instead of by a check, and the two generators can run in either order. The bounds come off the spec
+ * itself: the manifest renders an off switch as its schema floor, while the docs state the real contract.
  */
 export function readSpecSettings(): SpecSettings {
 	const order: string[] = [];
@@ -61,8 +74,25 @@ export function readSpecSettings(): SpecSettings {
 			defaults.set(id, schema.default);
 		}
 	}
-	return { order, defaults };
+	const bounds = new Map<string, SettingBounds>();
+	for (const [id, spec] of Object.entries(NUMBER_SETTING_SPECS)) {
+		bounds.set(id, {
+			minimum: spec.minimum,
+			maximum: spec.maximum,
+			offValue: "offValue" in spec ? spec.offValue : undefined,
+		});
+	}
+	return { order, defaults, bounds };
 }
+
+const BOUNDS_PROSE: Record<DocLocale, (bounds: SettingBounds) => string> = {
+	en: ({ minimum, maximum, offValue }) =>
+		`${offValue === undefined ? "" : `\`${offValue}\` to turn it off, or `}a whole number from \`${minimum}\` to \`${maximum}\`; anything else reads as the default`,
+	zhCn: ({ minimum, maximum, offValue }) =>
+		`${offValue === undefined ? "" : `\`${offValue}\` 表示关闭, 或 `}\`${minimum}\` 到 \`${maximum}\` 的整数; 其他值按默认值读取`,
+	zhTw: ({ minimum, maximum, offValue }) =>
+		`${offValue === undefined ? "" : `\`${offValue}\` 表示關閉, 或 `}\`${minimum}\` 到 \`${maximum}\` 的整數; 其他值按預設值讀取`,
+};
 
 function renderDefault(id: string, settings: SpecSettings): string {
 	const value = settings.defaults.get(id);
@@ -158,9 +188,11 @@ export function buildReferenceTable(
 	for (const [id, entry] of validatedRows(settings, prose)) {
 		const text = entry[locale];
 		assertProseCell(id, locale, text);
+		const bounds = settings.bounds.get(id);
+		const behavior = bounds === undefined ? text : `${text}; ${BOUNDS_PROSE[locale](bounds)}`;
 		const rendered = renderDefault(id, settings);
 		assertDefaultCell(id, rendered);
-		const row = `| \`${CONFIG_SECTION}.${id}\` | \`${rendered}\` | ${text} |`;
+		const row = `| \`${CONFIG_SECTION}.${id}\` | \`${rendered}\` | ${behavior} |`;
 		// A cell carrying marker text would corrupt the next run's region scan
 		// there; refuse it here, where the blame is the poisoned entry.
 		if (BEGIN_MARKER_PATTERN.test(row) || row.includes(END_MARKER)) {

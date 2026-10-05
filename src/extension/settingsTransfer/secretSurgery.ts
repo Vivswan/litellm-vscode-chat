@@ -11,22 +11,11 @@
 
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import type { StoredServerSecrets } from "../servers/serverSync/secrets";
 
 type MutableSecrets = { -readonly [K in SecretFieldId]?: string };
-
-/**
- * parseAuth's usable-text rule: a position holds a value only when it carries non-whitespace text, and the effective
- * value is the trimmed one.
- */
-function usableText(value: unknown): string | undefined {
-	if (typeof value !== "string") {
-		return undefined;
-	}
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
-}
 
 function cloneJson(value: unknown): unknown {
 	if (Array.isArray(value)) {
@@ -61,7 +50,7 @@ function takeSecret(
 	field: SecretFieldId,
 	blob: MutableSecrets
 ): boolean {
-	const value = usableText(container[key]);
+	const value = usableHttpText(container[key]);
 	if (value === undefined) {
 		return false;
 	}
@@ -76,7 +65,7 @@ function textless(value: unknown): boolean {
 		value === null ||
 		typeof value === "number" ||
 		typeof value === "boolean" ||
-		(typeof value === "string" && value.trim().length === 0)
+		(typeof value === "string" && trimHttpWhitespace(value).length === 0)
 	);
 }
 
@@ -113,7 +102,7 @@ export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): 
 	let flatResidue = false;
 	for (const field of SECRET_FIELD_IDS) {
 		if (nestedAuthWins) {
-			if (usableText(entry[field]) !== undefined) {
+			if (usableHttpText(entry[field]) !== undefined) {
 				delete entry[field];
 			}
 		} else {
@@ -167,7 +156,7 @@ export interface MaterializedEntry {
  */
 function placeSecret(container: Record<string, unknown>, key: string, value: string): { placed: boolean } {
 	const existing = container[key];
-	if (usableText(existing) !== undefined) {
+	if (usableHttpText(existing) !== undefined) {
 		return { placed: true };
 	}
 	if (existing !== undefined && typeof existing !== "string") {

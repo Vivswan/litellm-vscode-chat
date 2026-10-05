@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import type { LanguageModelChatInformation } from "vscode";
 import { ThemeIcon } from "vscode";
-import type { EffectiveOutputLimitSource, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
+import { guessedMaxTokensDefault, type ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
 import { localizedError, type MirroredError } from "../../shared/mirroredError";
 import type {
 	NonSecretOptionalFieldId,
@@ -18,8 +18,9 @@ import {
 } from "../../shared/serverEntry";
 import type { NormalizedBaseUrl } from "../../shared/util/baseUrl";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { displayUrl } from "../../shared/util/displayUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
-import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../shared/util/headers";
+import { HEADER_NAME_PATTERN, sendableHeaderValue, usableHttpText } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import type { OAuthConfig, VirtualKeyConfig } from "../transport/auth";
 import { oauthCredentialFingerprint } from "../transport/auth";
@@ -27,18 +28,25 @@ import { oauthCredentialFingerprint } from "../transport/auth";
 /**
  * The host stores one configuration object per named group and hands the exact LanguageModelChatInformation objects a
  * provider returned back to provideLanguageModelChatResponse and provideTokenCount, so LiteLLM facts ride on the model
- * objects themselves.
+ * objects themselves. The group's connection does not: a model carries its group's identity, and the provider resolves
+ * the live connection from it at request time, so no credential value is ever handed to the host.
  */
 
 export interface GroupServer {
 	baseUrl: NormalizedBaseUrl;
 	apiKey: string;
-	/** Non-secret. Part of the group's identity (see groupClientId). */
+	/** Non-secret. Part of the group's identity (see groupIdentity and groupClientId). */
 	label?: string;
 	/** Client-credentials authentication; present only when the configuration names a token URL and client ID. */
 	oauth?: OAuthConfig;
 	/** Gateway virtual key; present only when the configuration names both a header and a value. */
 	virtualKey?: VirtualKeyConfig;
+	/**
+	 * Set by overlayEntryCredentials when a declared entry at this label and URL owns the group. Owned, the group's
+	 * identity is the rotation-stable label plus URL (the setting is truth); unowned, it stays the client ID, since no
+	 * declarative source exists that would make one labeled external twin stand in for another.
+	 */
+	entryOwned?: true;
 }
 
 interface LiteLLMModelMetadataBase {
@@ -50,11 +58,10 @@ interface LiteLLMModelMetadataBase {
 	readonly rawModelId: string;
 	readonly supportsPromptCaching: boolean;
 	/**
-	 * Where maxOutputTokens came from.
-	 *   server-declared ("provider") and user-set ("user") -> values escape the request-side cap
-	 *   only "defaults"                                    -> keeps it, because a guessed limit must not be sent as-is
+	 * The request's max_tokens when nothing configures one, decided where the limit was derived (registration, or the
+	 * capability walk on a rebuild); the chat path reads it and applies no cap of its own.
 	 */
-	readonly outputLimitSource: EffectiveOutputLimitSource;
+	readonly defaultMaxTokens: number;
 	/**
 	 * Gates the input_audio message conversion. Optional because model objects round-trip through the host and older
 	 * metadata lacks it (absent reads as false).
@@ -65,9 +72,9 @@ interface LiteLLMModelMetadataBase {
 }
 
 /**
- * The `never` pins the credential boundary, so a group-attached copy, whose server embeds the group's credentials, does
- * not compile into the discovery cache (groupDiscovery.ts), StatusWindow.record (statusWindow.ts), or a dashboard
- * snapshot.
+ * The `never` pins the serve boundary: a served copy, stamped with one group's identity and possibly stale-decorated
+ * (markStale), does not compile into the discovery cache (groupDiscovery.ts), StatusWindow.record (statusWindow.ts),
+ * or a dashboard snapshot, which hold the configuration-free form.
  */
 export interface PreAttachModelInfo extends LanguageModelChatInformation {
 	readonly litellm: LiteLLMModelMetadataBase & {
@@ -76,17 +83,18 @@ export interface PreAttachModelInfo extends LanguageModelChatInformation {
 		 * patched values.
 		 */
 		readonly serverDeclared: ServerDeclaredCapabilities;
-		readonly server?: never;
+		readonly group?: never;
 	};
 }
 
 /**
- * A model entry with its group's resolved connection attached, for the host round trip only: attachGroupServer is the
- * sole constructor, and the value must never enter a cache, a status snapshot, or a state push.
+ * A model entry stamped with the identity of the group that served it, for the host round trip: attachGroup is the
+ * sole constructor. No field of this type can hold a credential value; the request path resolves the live connection
+ * from `group`.
  */
 export interface AttachedModelInfo extends LanguageModelChatInformation {
 	readonly litellm: LiteLLMModelMetadataBase & {
-		readonly server: GroupServer;
+		readonly group: string;
 		readonly serverDeclared?: never;
 	};
 }
@@ -98,15 +106,20 @@ export type GroupCredentials = Pick<GroupServer, "apiKey" | "oauth" | "virtualKe
 
 /**
  * Wholesale, never merged: the entry's resolved credential set is the complete truth, so an entry that dropped its
- * OAuth unit (or virtual key) must strip the baked one rather than keep authenticating with it.
+ * OAuth unit (or virtual key) must strip the baked one rather than keep authenticating with it. The destructure is a
+ * canary: when GroupServer grows a field it stops compiling, so the field-by-field copies here and in groupDiscovery's
+ * ServerConnection get visited.
  */
 function overlayGroupCredentials(server: GroupServer, credentials: GroupCredentials): GroupServer {
+	const { baseUrl, label, apiKey: _key, oauth: _oauth, virtualKey: _vk, entryOwned: _owned, ...unconsumed } = server;
+	void (unconsumed satisfies Record<string, never>);
 	return {
-		baseUrl: server.baseUrl,
+		baseUrl,
 		apiKey: credentials.apiKey,
-		...(server.label !== undefined ? { label: server.label } : {}),
+		...(label !== undefined ? { label } : {}),
 		...(credentials.oauth !== undefined ? { oauth: credentials.oauth } : {}),
 		...(credentials.virtualKey !== undefined ? { virtualKey: credentials.virtualKey } : {}),
+		entryOwned: true,
 	};
 }
 
@@ -114,11 +127,11 @@ function overlayGroupCredentials(server: GroupServer, credentials: GroupCredenti
 type CredentialsUnavailableReason = "secretsUnreadable" | "secretsMismatched" | "unusable";
 
 /**
- * The entry-credentials resolver's answer for a labeled group. The baked credentials are the copy the host stored at
- * group creation, which a rotation retires.
- *   external (no declared entry at this label and normalized base URL) -> the baked set stays; a leftover group
+ * The entry-credentials resolver's answer for a labeled group, overlaid onto the connection handed in: at serve time
+ * the host-baked set a rotation retires, at request time the status window's recorded set.
+ *   external (no declared entry at this label and normalized base URL) -> the connection handed in stays; a leftover group
  *   resolved                                                           -> the entry's current set overlays it
- *   unavailable(reason)                                                -> a classified failure, never the baked key
+ *   unavailable(reason)                                                -> a classified failure, never the handed-in key
  */
 export type GroupCredentialsResolution =
 	| { readonly kind: "external" }
@@ -140,9 +153,9 @@ function credentialsUnavailableError(reason: CredentialsUnavailableReason): Mirr
 export type EntryCredentialsResolver = (label: string, baseUrl: string) => Promise<GroupCredentialsResolution>;
 
 /**
- * The one overlay for both consumers of a labeled group's credentials.
- *   serve path (provider/index.ts)      -> the failure rides beside the baked server as the discovery preflight failure
- *   request path (transport/chatClient) -> the failure is thrown before anything is sent
+ * The one overlay for both consumers of a labeled group's credentials, both in provider/index.ts.
+ *   serve path   -> the failure rides beside the baked server as the discovery preflight failure
+ *   request path -> the failure is thrown before anything is sent
  */
 export async function overlayEntryCredentials(
 	server: GroupServer,
@@ -163,7 +176,7 @@ export async function overlayEntryCredentials(
 		case "resolved":
 			return { server: overlayGroupCredentials(server, resolution.credentials) };
 		case "unavailable":
-			return { server, failure: credentialsUnavailableError(resolution.reason) };
+			return { server: { ...server, entryOwned: true }, failure: credentialsUnavailableError(resolution.reason) };
 	}
 }
 
@@ -171,9 +184,10 @@ export async function overlayEntryCredentials(
 const GROUP_CLIENT_ID_PREFIX = "group:";
 
 /**
- * A fixed-arity JSON tuple, injective because escaping keeps every value inside its slot, hashed so no ID
- * embeds credential material. A credential rotation mints a new client ID for the same logical group; a labeled
- * group's logicalGroupId (statusWindow.ts) does not change, so its status entry survives the rotation.
+ * A fixed-arity JSON tuple, injective because escaping keeps every value inside its slot, hashed so no ID embeds
+ * credential material; the readable URL suffix is the credential-free spelling (userinfo stripped). A credential
+ * rotation mints a new client ID for the same logical group; a labeled group's logicalGroupId (statusWindow.ts) does
+ * not change, so its status entry survives the rotation.
  *
  *   credential fingerprint -> two groups may share a base URL with different credentials
  *   entry label            -> two DECLARED entries may share the URL and every credential, and without it
@@ -187,7 +201,7 @@ export function groupClientId(server: GroupServer): string {
 		server.oauth ? oauthCredentialFingerprint(server.oauth) : null,
 		server.virtualKey ? [server.virtualKey.header, server.virtualKey.value] : null,
 	]);
-	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(identity)}:${server.baseUrl}`;
+	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(identity)}:${displayUrl(server.baseUrl)}`;
 }
 
 /**
@@ -196,14 +210,6 @@ export function groupClientId(server: GroupServer): string {
  */
 export function isGroupClientId(serverId: unknown): boolean {
 	return typeof serverId === "string" && serverId.startsWith(GROUP_CLIENT_ID_PREFIX);
-}
-
-function usableString(value: unknown): string | undefined {
-	if (typeof value !== "string") {
-		return undefined;
-	}
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
 }
 
 type RawOptionalFields = { readonly [K in OptionalEntryFieldId]?: unknown };
@@ -216,7 +222,7 @@ type RawOptionalFields = { readonly [K in OptionalEntryFieldId]?: unknown };
 function usableNonSecretFields(raw: RawOptionalFields): NonSecretOptionalFields {
 	const fields: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
 	for (const id of NON_SECRET_OPTIONAL_FIELD_IDS) {
-		const value = usableString(raw[id]);
+		const value = usableHttpText(raw[id]);
 		if (value !== undefined) {
 			fields[id] = value;
 		}
@@ -226,7 +232,8 @@ function usableNonSecretFields(raw: RawOptionalFields): NonSecretOptionalFields 
 
 /**
  * OAuth is present as one typed unit or not at all: a usable token URL and client ID make the unit, anything less
- * degrades to absent. The secret is taken verbatim (an empty one means a public client) and scopes are optional.
+ * degrades to absent. The secret is taken verbatim (an empty one means a public client) and scopes are optional; it
+ * rides the token request's body (transport/auth.ts), never a header, so no header rule applies to it.
  */
 function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
 	const fields = usableNonSecretFields(raw);
@@ -242,32 +249,82 @@ function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
 	};
 }
 
-type NarrowLog = (message: string, data?: unknown) => void;
+/**
+ * A credential the narrowing dropped, named by field so the dashboard can point at the entry's auth field and the log
+ * can classify it. `header` is the virtual key's configured header name (user configuration, never a value);
+ * `fingerprint` identifies the configured value for once-only logging and never reveals it.
+ */
+export interface CredentialRejection {
+	readonly field: Extract<SecretFieldId, "apiKey" | "virtualKeyValue">;
+	readonly header?: string;
+	readonly fingerprint: string;
+}
 
-/** One warning per rejected header name, so per-request re-narrowing does not spam the log. */
-const reportedInvalidVirtualKeys = new Set<string>();
+export type CredentialRejectionReport = (rejection: CredentialRejection) => void;
 
-/** A rejection is logged once per header name so typos are diagnosable; the value never reaches the log. */
-function narrowVirtualKey(raw: RawOptionalFields, log?: NarrowLog): VirtualKeyConfig | undefined {
+/** One log line per distinct rejected value, so per-request re-narrowing does not spam the log. */
+const loggedRejections = new Set<string>();
+
+/** The per-request paths' reporter: the classification, the virtual key's header name for typo hunting, never a value. */
+export function logCredentialRejections(log: (message: string, data?: unknown) => void): CredentialRejectionReport {
+	return (rejection) => {
+		const key = `${rejection.field}:${rejection.fingerprint}`;
+		if (loggedRejections.has(key)) {
+			return;
+		}
+		loggedRejections.add(key);
+		if (rejection.field === "apiKey") {
+			log("Ignoring the configured API key: the value cannot be sent as an HTTP header");
+		} else {
+			log("Ignoring the configured virtual key: the header name or value cannot be sent as an HTTP header", {
+				header: rejection.header,
+			});
+		}
+	};
+}
+
+/**
+ * The key rides two headers (transport/clients.ts buildDefaultHeaders), so a value the platform's Headers would
+ * refuse never reaches it: that TypeError quotes the whole value, and it would surface in the chat error, the
+ * dashboard row, and the output channel. A pasted trailing newline is the common case and is repaired by trimming;
+ * a value still refused has no unambiguous repair and drops the key.
+ */
+function narrowApiKey(raw: RawOptionalFields, report?: CredentialRejectionReport): string | undefined {
+	if (typeof raw.apiKey !== "string") {
+		return undefined;
+	}
+	const sendable = sendableHeaderValue(raw.apiKey);
+	if (sendable !== undefined) {
+		return sendable;
+	}
+	report?.({ field: "apiKey", fingerprint: fingerprint(raw.apiKey) });
+	return undefined;
+}
+
+/**
+ * A rejection names the header so typos are diagnosable; the value never leaves the narrowing. A header with no value
+ * at all is a missing secret, not a rejected one, and the secret-location view already shows it: nothing to report.
+ * The value is read by the one credential trim rule (sendableHeaderValue), so a pasted newline is repaired and a
+ * Latin-1 byte survives, exactly as for the API key.
+ */
+function narrowVirtualKey(raw: RawOptionalFields, report?: CredentialRejectionReport): VirtualKeyConfig | undefined {
 	if (raw.virtualKeyHeader === undefined && raw.virtualKeyValue === undefined) {
 		return undefined;
 	}
 	const carriers = presentCarriers("virtualKeyValue", usableNonSecretFields(raw));
-	const usableValue = usableString(raw.virtualKeyValue);
+	const sendable = typeof raw.virtualKeyValue === "string" ? sendableHeaderValue(raw.virtualKeyValue) : undefined;
 	if (
 		carriers !== undefined &&
-		usableValue !== undefined &&
-		HEADER_NAME_PATTERN.test(carriers.virtualKeyHeader) &&
-		isValidHeaderValue(usableValue)
+		sendable !== undefined &&
+		sendable.length > 0 &&
+		HEADER_NAME_PATTERN.test(carriers.virtualKeyHeader)
 	) {
-		return { header: carriers.virtualKeyHeader, value: usableValue };
+		return { header: carriers.virtualKeyHeader, value: sendable };
 	}
-	const name = carriers?.virtualKeyHeader ?? "(not set)";
-	if (log !== undefined && !reportedInvalidVirtualKeys.has(name)) {
-		reportedInvalidVirtualKeys.add(name);
-		log("Ignoring the configured virtual key: the header name or value cannot be sent as an HTTP header", {
-			header: name,
-		});
+	if (raw.virtualKeyValue !== undefined) {
+		const header = carriers?.virtualKeyHeader ?? "(not set)";
+		const value = typeof raw.virtualKeyValue === "string" ? raw.virtualKeyValue : "";
+		report?.({ field: "virtualKeyValue", header, fingerprint: fingerprint(`${header}\u0000${value}`) });
 	}
 	return undefined;
 }
@@ -282,21 +339,17 @@ type CredentialUnit = {
 	[S in keyof GroupCredentials]-?: {
 		readonly slot: S;
 		readonly passengers: readonly NonSecretOptionalFieldId[];
-		readonly narrow: (raw: RawOptionalFields, log?: NarrowLog) => GroupCredentials[S] | undefined;
+		readonly narrow: (raw: RawOptionalFields, report?: CredentialRejectionReport) => GroupCredentials[S] | undefined;
 	};
 }[keyof GroupCredentials];
 
 /**
  * The parser's reading of the secret-field vocabulary, total over SecretFieldId: a secret field without a unit here
- * does not compile, so buildGroupArgs (serverSync/engine.ts) cannot send one the parser drops. narrowCredentials
+ * does not compile, so buildGroupArgs (serverSync/engine.ts) cannot send one the parser drops. narrowGroupCredentials
  * reads this table, never the field names.
  */
 const CREDENTIAL_UNITS = {
-	apiKey: {
-		slot: "apiKey",
-		passengers: [],
-		narrow: (raw) => (typeof raw.apiKey === "string" ? raw.apiKey : undefined),
-	},
+	apiKey: { slot: "apiKey", passengers: [], narrow: narrowApiKey },
 	oauthClientSecret: { slot: "oauth", passengers: ["oauthScopes"], narrow: narrowOAuth },
 	virtualKeyValue: { slot: "virtualKey", passengers: [], narrow: narrowVirtualKey },
 } as const satisfies Record<SecretFieldId, CredentialUnit>;
@@ -317,22 +370,26 @@ function fillSlot<S extends keyof GroupCredentials>(
 	slots: CredentialSlots,
 	unit: {
 		readonly slot: S;
-		readonly narrow: (raw: RawOptionalFields, log?: NarrowLog) => GroupCredentials[S] | undefined;
+		readonly narrow: (raw: RawOptionalFields, report?: CredentialRejectionReport) => GroupCredentials[S] | undefined;
 	},
 	raw: RawOptionalFields,
-	log?: NarrowLog
+	report?: CredentialRejectionReport
 ): void {
-	const value = unit.narrow(raw, log);
+	const value = unit.narrow(raw, report);
 	if (value !== undefined) {
 		slots[unit.slot] = value;
 	}
 }
 
-/** An absent key is the empty string, GroupServer's no-key value. */
-function narrowCredentials(raw: RawOptionalFields, log?: NarrowLog): GroupCredentials {
+/**
+ * The credential half of a group server from the raw optional fields (an absent key is the empty string, GroupServer's
+ * no-key value). Exported so the usage client (usage/spendClient.ts) narrows by this very table and cannot diverge on
+ * which credentials travel.
+ */
+export function narrowGroupCredentials(raw: RawOptionalFields, report?: CredentialRejectionReport): GroupCredentials {
 	const slots: CredentialSlots = {};
 	for (const field of SECRET_FIELD_IDS) {
-		fillSlot(slots, CREDENTIAL_UNITS[field], raw, log);
+		fillSlot(slots, CREDENTIAL_UNITS[field], raw, report);
 	}
 	return { ...slots, apiKey: slots.apiKey ?? "" };
 }
@@ -342,43 +399,40 @@ function narrowCredentials(raw: RawOptionalFields, log?: NarrowLog): GroupCreden
  * forward compatibility. The credentials come off CREDENTIAL_UNITS, so the fields this parser carries are the fields
  * that table claims.
  */
-export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog): GroupServer | undefined {
+export function parseGroupConfiguration(
+	configuration: unknown,
+	report?: CredentialRejectionReport
+): GroupServer | undefined {
 	if (!isRecord(configuration)) {
 		return undefined;
 	}
-	const rawBaseUrl = usableString(configuration.baseUrl);
+	const rawBaseUrl = usableHttpText(configuration.baseUrl);
 	const baseUrl = rawBaseUrl === undefined ? undefined : normalizeBaseUrl(rawBaseUrl);
 	if (baseUrl === undefined || baseUrl.length === 0) {
 		return undefined;
 	}
 	// The entry label the sync engine stamps into the configuration; not an OPTIONAL_ENTRY_FIELDS member because it is
 	// a required field of the declared entry itself, read explicitly here like baseUrl.
-	const label = usableString(configuration.label);
+	const label = usableHttpText(configuration.label);
 	const raw: { -readonly [K in OptionalEntryFieldId]?: unknown } = {};
 	for (const { id } of OPTIONAL_ENTRY_FIELDS) {
 		raw[id] = configuration[id];
 	}
-	return { baseUrl, ...narrowCredentials(raw, log), ...(label !== undefined ? { label } : {}) };
+	return { baseUrl, ...narrowGroupCredentials(raw, report), ...(label !== undefined ? { label } : {}) };
 }
 
-/**
- * `detail` is dropped so the host fills it with the group name. The destructure below is a canary, not
- * round-trip safety; when GroupServer grows a field it stops compiling so someone visits the copies that
- * cannot carry such a guard, parseAttachedServer below and chatClient.ts's ServerConnection copies.
- */
-export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer): AttachedModelInfo {
+/** `detail` is dropped so the host fills it with the group name. */
+export function attachGroup(info: PreAttachModelInfo, group: string): AttachedModelInfo {
 	const { detail: _detail, ...rest } = info;
-	const { baseUrl: _url, apiKey: _key, label: _label, oauth: _oauth, virtualKey: _vk, ...unconsumed } = server;
-	void (unconsumed satisfies Record<string, never>);
 	return {
 		...rest,
 		litellm: {
 			rawModelId: info.litellm.rawModelId,
 			supportsPromptCaching: modelSupportsPromptCaching(info),
-			outputLimitSource: modelOutputLimitSource(info),
+			defaultMaxTokens: modelDefaultMaxTokens(info),
 			supportsAudioInput: modelSupportsAudioInput(info),
 			...(info.litellm.declared === true ? { declared: true } : {}),
-			server: { ...server },
+			group,
 		},
 	};
 }
@@ -405,72 +459,38 @@ export function markStale(infos: readonly AttachedModelInfo[], lastSyncedDisplay
  */
 export interface ParsedModelMetadata {
 	/**
-	 * The attached group server, or undefined when the model object carries none - a state the provider never serves,
-	 * which the request path fails loudly on.
+	 * The identity of the group that served the model, or undefined when the model object carries none - a state the
+	 * provider never serves, which the request path fails loudly on.
 	 */
-	readonly server: GroupServer | undefined;
+	readonly group: string | undefined;
 	/**
 	 * A model object whose round trip lost the stamp falls back to its exposed ID, which group registrations mint raw
 	 * anyway.
 	 */
 	readonly rawModelId: string;
+	/** The host's token limits as the model object carries them; the request path reads them from here only. */
+	readonly maxInputTokens: number;
+	readonly maxOutputTokens: number;
 	readonly supportsPromptCaching: boolean;
 	readonly supportsAudioInput: boolean;
 	/** The registered imageInput capability, re-narrowed like the litellm fields; gates image message conversion. */
 	readonly imageInput: boolean;
-	/**
-	 * Anything but an exact "provider" or "user" (a missing field, an older extension's metadata) keeps the
-	 * conservative cap.
-	 */
-	readonly outputLimitSource: EffectiveOutputLimitSource;
+	/** See LiteLLMModelMetadataBase.defaultMaxTokens. */
+	readonly defaultMaxTokens: number;
 }
 
-/**
- * The attached server's base URL is re-normalized because identity surfaces require the normalized form and the host
- * round trip could hand back anything string-shaped. OAuth and virtual-key sub-objects get the same lenient narrowing
- * as the group configuration: malformed ones degrade to absent.
- */
-export function parseModelMetadata(model: LiteLLMModelInfo, log?: NarrowLog): ParsedModelMetadata {
+/** The group identity is compared with the window's, never derived from, so any usable string is taken as-is. */
+export function parseModelMetadata(model: LiteLLMModelInfo): ParsedModelMetadata {
 	const rawModelId = model.litellm?.rawModelId;
 	return {
-		server: parseAttachedServer(model.litellm?.server, log),
+		group: usableHttpText(model.litellm?.group),
 		rawModelId: typeof rawModelId === "string" && rawModelId.length > 0 ? rawModelId : model.id,
+		maxInputTokens: model.maxInputTokens,
+		maxOutputTokens: model.maxOutputTokens,
 		supportsPromptCaching: modelSupportsPromptCaching(model),
 		supportsAudioInput: modelSupportsAudioInput(model),
 		imageInput: model.capabilities?.imageInput === true,
-		outputLimitSource: modelOutputLimitSource(model),
-	};
-}
-
-function parseAttachedServer(candidate: unknown, log?: NarrowLog): GroupServer | undefined {
-	if (!isRecord(candidate) || typeof candidate.baseUrl !== "string" || typeof candidate.apiKey !== "string") {
-		return undefined;
-	}
-	const baseUrl = normalizeBaseUrl(candidate.baseUrl);
-	if (baseUrl.length === 0) {
-		// Symmetric with parseGroupConfiguration: a URL that normalizes to nothing (e.g. "/") is no server.
-		return undefined;
-	}
-	const label = usableString(candidate.label);
-	const rawOAuth: unknown = candidate.oauth;
-	const rawVirtualKey: unknown = candidate.virtualKey;
-	const oauth = isRecord(rawOAuth)
-		? narrowOAuth({
-				oauthTokenUrl: rawOAuth.tokenUrl,
-				oauthClientId: rawOAuth.clientId,
-				oauthClientSecret: rawOAuth.clientSecret,
-				oauthScopes: rawOAuth.scopes,
-			})
-		: undefined;
-	const virtualKey = isRecord(rawVirtualKey)
-		? narrowVirtualKey({ virtualKeyHeader: rawVirtualKey.header, virtualKeyValue: rawVirtualKey.value }, log)
-		: undefined;
-	return {
-		baseUrl,
-		apiKey: candidate.apiKey,
-		...(label !== undefined ? { label } : {}),
-		...(oauth !== undefined ? { oauth } : {}),
-		...(virtualKey !== undefined ? { virtualKey } : {}),
+		defaultMaxTokens: modelDefaultMaxTokens(model),
 	};
 }
 
@@ -483,9 +503,18 @@ function modelSupportsAudioInput(model: LiteLLMModelInfo): boolean {
 	return model.litellm?.supportsAudioInput === true;
 }
 
-function modelOutputLimitSource(model: LiteLLMModelInfo): EffectiveOutputLimitSource {
-	const source: unknown = model.litellm?.outputLimitSource;
-	return source === "provider" || source === "user" ? source : "defaults";
+function modelDefaultMaxTokens(model: LiteLLMModelInfo): number {
+	const stamped: unknown = model.litellm?.defaultMaxTokens;
+	if (typeof stamped === "number" && stamped > 0) {
+		return stamped;
+	}
+	// Metadata minted before the stamp existed carries the word the cap decision used to read instead.
+	//   "provider", "user" -> was sent whole
+	//   anything else      -> was capped as a guess
+	const legacy: unknown = isRecord(model.litellm) ? model.litellm.outputLimitSource : undefined;
+	return legacy === "provider" || legacy === "user"
+		? model.maxOutputTokens
+		: guessedMaxTokensDefault(model.maxOutputTokens);
 }
 
 /** The host never hands the group NAME to the extension, so the URL host stands in. */

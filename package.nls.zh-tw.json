@@ -133,7 +133,7 @@
 	"litellm.config.discovery.timeout.description": "模型探索請求的逾時 (毫秒)。預設為 30000ms (30 秒)。",
 	"litellm.config.discovery.cacheTtl.description": "已探索的模型清單在再次詢問伺服器前可重複使用多久 (毫秒)。預設為 3600000 (1 小時)。較高的值可避免 VS Code 密集重新解析提供者時重複發出探索請求, 但伺服器上新增或移除的模型最久要這麼長時間才會出現; 較低的值能較快反映伺服器端變更, 代價是更多請求。設為 0 表示每次重新整理都詢問伺服器 (同時發生的重新整理仍共用一個請求)。執行「LiteLLM: 立即同步模型」可不受此設定影響立即重新整理。",
 	"litellm.config.discovery.staleServeWindow.description": "伺服器停止回應後, 其最後已知的模型繼續提供 (標記為過時) 的時長 (毫秒), 從最後一次成功探索起算。預設為 600000 (10 分鐘)。若你的伺服器會休眠或重啟更久, 且希望期間模型仍留在選擇器中, 可調高此值; 設為 0 則永不提供過時模型, 重新整理失敗會立即清空該伺服器的模型清單。",
-	"litellm.config.usage.pollInterval.description": "從每個 LiteLLM 伺服器重新整理各伺服器花費與預算資料的頻率, 以毫秒計。預設為 300000 (5 分鐘)。設為 0 可完全停用輪詢 (不發出背景用量請求, 也不產生預算提醒); 「LiteLLM: 立即重新整理用量」命令與儀表板仍可隨需取得。",
+	"litellm.config.usage.pollInterval.description": "從每個 LiteLLM 伺服器重新整理各伺服器花費與預算資料的頻率, 以毫秒計。預設為 300000 (5 分鐘)。設為 0 可完全停用輪詢 (不發出背景用量請求, 也不產生預算提醒); 「LiteLLM: 立即重新整理用量」命令與儀表板仍可隨需取得。低於 30000 的非零值不被接受, 此時該設定按預設值讀取。",
 	"litellm.config.usage.initialRefreshDelay.description": "延伸模組啟動後多久執行首次用量輪詢, 以毫秒計。預設為 5000 (5 秒)。",
 	"litellm.config.usage.serversChangeRefreshDelay.description": "servers 設定變更後多久重新整理用量資料, 以毫秒計。預設為 2000 (2 秒), 足以合併 settings.json 中的連續按鍵。",
 	"litellm.config.usage.pollingOffFreshnessWindow.description": "輪詢關閉時 (usage.pollInterval 為 0), 隨需取得的用量資料算作新鮮的時長, 以毫秒計。預設為 600000 (10 分鐘)。輪詢開啟時, 新鮮視窗改為輪詢間隔的兩倍。設為 0 則輪詢關閉時用量資料從不算新鮮, 用量狀態列項目會因此隱藏。",

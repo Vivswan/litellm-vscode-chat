@@ -7,6 +7,7 @@
 
 import { isDeepStrictEqual } from "node:util";
 import type * as vscode from "vscode";
+import type { CredentialRejection } from "../../../provider/catalog/groupModels";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
@@ -96,11 +97,20 @@ export interface DeclaredServerView extends DeclaredGroupIdentity, NonSecretOpti
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 	/** The label's last sync failure, cleared by the next success. */
 	readonly syncFailure?: SyncFailure | undefined;
+	/**
+	 * The credential fields the group narrowing dropped (a key the platform's Headers would refuse): the request path
+	 * sends without them, and the dashboard says so beside the entry. Fields only, never values.
+	 */
+	readonly rejectedCredentials?: readonly CredentialRejection["field"][] | undefined;
 }
 
 /** One derivation for the join keys (dashboard/declaredJoin.ts), so a pass's views and the live resolution agree. */
-function declaredGroupIdentity(entry: DeclaredServer, args: Readonly<Record<string, string>>): DeclaredGroupIdentity {
-	const groupServer = parseGroupConfiguration(args);
+function declaredGroupIdentity(
+	entry: DeclaredServer,
+	args: Readonly<Record<string, string>>,
+	report?: (rejection: CredentialRejection) => void
+): DeclaredGroupIdentity {
+	const groupServer = parseGroupConfiguration(args, report);
 	if (groupServer === undefined) {
 		return { label: entry.label, baseUrl: entry.baseUrl };
 	}
@@ -964,11 +974,15 @@ export class ServerSyncEngine implements vscode.Disposable {
 					}
 				}
 			}
+			// The same narrowing the provider applies, collected rather than logged: the dashboard names the dropped
+			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it.
+			const rejections: CredentialRejection[] = [];
 			views.push({
-				...declaredGroupIdentity(entry, args),
+				...declaredGroupIdentity(entry, args, (rejection) => rejections.push(rejection)),
 				...pickNonSecretOptionalFields(entry),
 				...pickEntryViewFields(entry),
 				secrets: secretLocations(entry, stored),
+				rejectedCredentials: rejections.map((rejection) => rejection.field),
 				syncFailure,
 			});
 		}

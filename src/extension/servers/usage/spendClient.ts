@@ -16,6 +16,7 @@
 import * as l10n from "@vscode/l10n";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { DISCOVERY_MAX_RETRIES } from "../../../provider/catalog/discovery";
+import { narrowGroupCredentials } from "../../../provider/catalog/groupModels";
 import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "../../../provider/transport/auth";
 import { OAuthTokenSource } from "../../../provider/transport/auth";
 import type { AuthOverlayScope } from "../../../provider/transport/authOverlay";
@@ -23,15 +24,12 @@ import { applyAuthOverlay, plainFetchBaseHeaders } from "../../../provider/trans
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
-import type { SecretFieldCarrier, SecretFieldId } from "../../../shared/serverEntry";
-import { presentCarriers } from "../../../shared/serverEntry";
 import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
 import { displayUrl } from "../../../shared/util/displayUrl";
-import { isValidHeaderName, isValidHeaderValue } from "../../../shared/util/headers";
 import { isRecord } from "../../../shared/util/json";
 import { sleepUnlessAborted } from "../../../shared/util/timer";
+import { buildGroupArgs } from "../serverSync/engine";
 import type { StoredServerSecrets } from "../serverSync/secrets";
-import { inlineSecretValues } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 
 // The URL builders over the shared USAGE_ENDPOINT_PATHS table: each takes the entry's apiVersion so serverRootOf can
@@ -69,76 +67,22 @@ export interface UsageConnection {
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 }
 
-declare const secretFieldBrand: unique symbol;
-
-/** A secret field's resolved value, branded by its field, so one field's unit cannot be built from another's value. */
-type ResolvedSecret<F extends SecretFieldId> = string & { readonly [secretFieldBrand]: F };
-
-/**
- * One secret field's unit inputs, paired by the field: its carriers as the entry carries them (SECRET_FIELD_CARRIERS
- * through presentCarriers) and its value under the inline-wins rule. A unit builder takes one field's pair, so its
- * carriers are its own field's by shape and its secret sinks accept only its own field's value by brand.
- */
-interface SecretUnitInput<F extends SecretFieldId> {
-	readonly carriers: { readonly [K in SecretFieldCarrier<F>]: string } | undefined;
-	readonly value: ResolvedSecret<F> | undefined;
-}
-
-/**
- * The OAuth unit: present exactly when the entry carries the client secret's carriers, the secret itself taken as
- * resolved (absent means a public client) and the scopes optional.
- */
-function oauthUnit(input: SecretUnitInput<"oauthClientSecret">, scopes: string | undefined): OAuthConfig | undefined {
-	if (input.carriers === undefined) {
-		return undefined;
-	}
-	return {
-		tokenUrl: input.carriers.oauthTokenUrl,
-		clientId: input.carriers.oauthClientId,
-		clientSecret: input.value ?? "",
-		...(scopes !== undefined ? { scopes } : {}),
-	};
-}
-
-/**
- * The virtual-key unit must be header-legal because an invalid name or value makes the platform's fetch throw a
- * TypeError, and such an error can expose the plaintext value (narrowVirtualKey applies the same rule on the chat
- * path).
- */
-function virtualKeyUnit({ carriers, value }: SecretUnitInput<"virtualKeyValue">): VirtualKeyConfig | undefined {
-	return carriers !== undefined &&
-		value !== undefined &&
-		isValidHeaderName(carriers.virtualKeyHeader) &&
-		isValidHeaderValue(value)
-		? { header: carriers.virtualKeyHeader, value }
-		: undefined;
-}
-
 /**
  * The base URL is normalized because a doubled slash reaches LiteLLM as `//key/info`, which answers 404 and would
- * misclassify the server as usage-unsupported.
+ * misclassify the server as usage-unsupported. The credentials come off the chat path's own narrowing over
+ * buildGroupArgs (inline values outrank the stored blob), so a key or virtual key the chat path drops is dropped here
+ * too, and the sync engine's Diagnostics-tab report covers both.
  */
 export function usageConnectionFor(entry: DeclaredServer, stored: StoredServerSecrets): UsageConnection {
-	const inline = inlineSecretValues(entry);
-	const input = <F extends SecretFieldId>(field: F): SecretUnitInput<F> => ({
-		carriers: presentCarriers(field, entry),
-		value: (inline[field] ?? stored[field]) as ResolvedSecret<F> | undefined,
-	});
-	// Each secret field's unit on the connection, keyed by the field it carries: total over SecretFieldId, so a new
-	// secret field does not compile until it says how it rides a usage call.
-	const units = {
-		apiKey: input("apiKey").value ?? "",
-		oauthClientSecret: oauthUnit(input("oauthClientSecret"), entry.oauthScopes),
-		virtualKeyValue: virtualKeyUnit(input("virtualKeyValue")),
-	} satisfies Record<SecretFieldId, unknown>;
+	const credentials = narrowGroupCredentials(buildGroupArgs(entry, stored));
 	return {
 		label: entry.label,
 		baseUrl: normalizeBaseUrl(entry.baseUrl),
 		...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
-		apiKey: units.apiKey,
+		apiKey: credentials.apiKey,
 		headers: entry.headers ?? {},
-		...(units.oauthClientSecret !== undefined ? { oauth: units.oauthClientSecret } : {}),
-		...(units.virtualKeyValue !== undefined ? { virtualKey: units.virtualKeyValue } : {}),
+		...(credentials.oauth !== undefined ? { oauth: credentials.oauth } : {}),
+		...(credentials.virtualKey !== undefined ? { virtualKey: credentials.virtualKey } : {}),
 	};
 }
 

@@ -5,7 +5,7 @@ import type { ModelParametersResponse } from "../../../../webview/dashboard/mode
 import { ModelInspector } from "../../../../webview/dashboard/modelInspector";
 import type { ExternalRecordEdit } from "../../../../webview/dashboard/recordEditors";
 import { ModelCapabilitiesEditor, ModelParametersEditor } from "../../../../webview/dashboard/recordEditors";
-import { makeModel } from "../fixtures";
+import { makeCapabilities, makeModel } from "../fixtures";
 import { buttonByText, cleanup, lastRequest, mount, postedRequests, render, resetPosted, respondTo } from "../harness";
 
 /** The response's projection payload, named through the message so no resolver module is imported here. */
@@ -38,7 +38,7 @@ function makeProjection(overrides: Partial<EffectiveParametersProjection> = {}):
 				shadowed: [],
 			},
 		],
-		maxTokens: { source: "declared", value: 16384 },
+		maxTokens: { source: "limit", value: 16384 },
 		diagnostics: [],
 		...overrides,
 	};
@@ -155,7 +155,7 @@ describe("the inspector's capabilities configure-jump", () => {
 						context_length: { value: 200000, level: "global", key: "gpt-5*", shadowed: [] },
 						max_output_tokens: { value: 16384, level: "entry", key: "*", shadowed: [] },
 					},
-					outputLimitSource: "user",
+					defaultMaxTokens: 16384,
 					diagnostics: [],
 				},
 			},
@@ -188,7 +188,7 @@ describe("the inspector's capabilities configure-jump", () => {
 		const recordJumps: [string, string, boolean][] = [];
 		const root = mountCapsAnswered(
 			{
-				capabilities: { fields: {}, outputLimitSource: "defaults", diagnostics: [] },
+				capabilities: makeCapabilities(),
 			},
 			{ onEditRecord: (kind, key, create) => recordJumps.push([kind, key, create]) }
 		);

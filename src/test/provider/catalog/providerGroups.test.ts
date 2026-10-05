@@ -81,7 +81,7 @@ suite("provider groups", () => {
 		);
 
 		const info = expectDefined(infos[0]);
-		assert.strictEqual(info.inputCost, 3, "attachGroupServer must not drop the pricing fields");
+		assert.strictEqual(info.inputCost, 3, "attachGroup must not drop the pricing fields");
 		assert.strictEqual(info.outputCost, 15);
 		assert.strictEqual(info.priceCategory, "medium", "the derived cost badge survives the group path end to end");
 		assert.strictEqual(info.pricing, "$3 in / $15 out per 1M tokens", "the display label rides beside the numbers");
@@ -293,7 +293,7 @@ suite("provider groups", () => {
 		assert.strictEqual(
 			expectDefined(body).max_tokens,
 			32000,
-			"the declared limit must survive attachGroupServer's metadata rebuild"
+			"the declared limit must survive attachGroup's metadata rebuild"
 		);
 	});
 
@@ -346,7 +346,7 @@ suite("provider groups", () => {
 		assert.strictEqual(
 			expectDefined(body).max_tokens,
 			32000,
-			"the cache's attach-at-read rebuild must preserve outputLimitSource"
+			"the cache's attach-at-read rebuild must preserve the request default"
 		);
 	});
 
@@ -394,7 +394,7 @@ suite("provider groups", () => {
 		assert.deepStrictEqual(
 			expectDefined(second[0]).configurationSchema,
 			REASONING_EFFORT_SCHEMA,
-			"attachGroupServer's rebuild on a cached read must keep the schema"
+			"attachGroup's rebuild on a cached read must keep the schema"
 		);
 
 		await provider.provideLanguageModelChatResponse(
@@ -1250,7 +1250,7 @@ suite("provider groups: capability overrides and declared models", () => {
 				const info = expectDefined(overridden[0]);
 				assert.strictEqual(info.maxOutputTokens, 2048);
 				assert.strictEqual(info.capabilities?.imageInput, true);
-				assert.strictEqual(info.litellm.outputLimitSource, "user", "an overridden limit is user-set");
+				assert.strictEqual(info.litellm.defaultMaxTokens, 2048, "an overridden limit is sent whole");
 			}
 		);
 

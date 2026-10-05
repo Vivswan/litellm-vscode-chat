@@ -15,7 +15,7 @@ const fixture: RenderFixture = {
 				globalRecordKey: "gpt-5*",
 				capabilities: {
 					fields: worstCaseCapabilityFields(),
-					outputLimitSource: "provider",
+					defaultMaxTokens: 16384,
 					diagnostics: [
 						{ kind: "unrecognized-key", key: "supports_web_search", layer: "global", recordKey: "gpt-5*" },
 						{ kind: "invalid-value", key: "output_cost_per_token", layer: "global", recordKey: "gpt-5*" },

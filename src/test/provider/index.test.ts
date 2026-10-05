@@ -6,15 +6,16 @@ import { defaultHostRefreshDeadlineMs, hostRefreshDeadlineMs } from "../../provi
 import { mapModelInfoEntry, parseModelInfoItem } from "../../provider/catalog/discovery";
 import { DiscoveryCache } from "../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../provider/catalog/groupDiscovery";
-import { attachGroupServer } from "../../provider/catalog/groupModels";
+import { attachGroup, groupClientId } from "../../provider/catalog/groupModels";
 import { buildModelInfos } from "../../provider/catalog/registration";
+import { groupIdentity } from "../../provider/catalog/statusWindow";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { Logger, publicErrorText } from "../../shared/logger";
 import { MirroredError } from "../../shared/mirroredError";
 import type { AggregatedStatus } from "../../shared/servers";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeModelInfo } from "../pureHelpers";
+import { DEFAULT_DISCOVERY_PAYLOAD, deploymentShape, expectDefined, makeModelInfo } from "../pureHelpers";
 import { makeProvider, testGroupServer, userMessage, withConfig } from "../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
@@ -22,8 +23,9 @@ const SEED = resolveFuzzSeed();
 
 suite("provider", () => {
 	test("hostRefreshDeadlineMs floors at 8s and follows the discovery timeout plus its margin", () => {
-		// The floor: a pathologically low discovery timeout (clamped to 1000) must not make the host pass abandon
-		// almost instantly - the deadline also bounds the host's own re-resolve round trip.
+		// The floor: a discovery timeout at its 1000 ms floor must
+		// not make the host pass abandon almost instantly - the deadline also
+		// bounds the host's own re-resolve round trip.
 		assert.strictEqual(hostRefreshDeadlineMs(1000), 8000);
 		assert.strictEqual(hostRefreshDeadlineMs(30000), 32000);
 		assert.strictEqual(hostRefreshDeadlineMs(120000), 122000);
@@ -113,26 +115,48 @@ suite("provider", () => {
 		);
 	});
 
-	test("provideLanguageModelChatResponse throws without configuration", async () => {
-		const provider = makeProvider();
-
-		let error: unknown;
-		try {
-			await provider.provideLanguageModelChatResponse(
-				makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
-				[],
-				{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
-				{ report: () => {} },
-				new vscode.CancellationTokenSource().token
+	test("a model the provider cannot route fails classified, mirrored, and before any network call", async () => {
+		// Two ways a model object can name no live group: it carries no identity (a hostile or pre-identity object),
+		// or it names a group the window no longer holds (removed, or never served by this provider).
+		const ghost = makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 });
+		const cases = [
+			{ name: "no identity", model: ghost, classification: "RequestRouting(no group identity)" },
+			{
+				name: "unserved group",
+				model: attachGroup(ghost, groupIdentity(testGroupServer(), groupClientId(testGroupServer()))),
+				classification: "RequestRouting(group not served)",
+			},
+		];
+		for (const { name, model, classification } of cases) {
+			let fetchCalled = false;
+			const provider = makeProvider(undefined, undefined, undefined, {
+				fetch: async () => {
+					fetchCalled = true;
+					throw new Error("fetch must not be called");
+				},
+			});
+			await assert.rejects(
+				provider.provideLanguageModelChatResponse(
+					model,
+					[],
+					{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				),
+				(error: unknown) => {
+					assert.ok(error instanceof MirroredError, `${name}: a mirrored error`);
+					assert.strictEqual(
+						error.message,
+						'Model "m" is not registered with any configured server. Refresh the model list and try again.',
+						`${name}: the display text`
+					);
+					assert.strictEqual(error.englishMessage, error.message, `${name}: the English mirror`);
+					assert.strictEqual(publicErrorText(error), classification, `${name}: the classification`);
+					return true;
+				}
 			);
-		} catch (e) {
-			error = e;
+			assert.strictEqual(fetchCalled, false, `${name}: no request may be sent`);
 		}
-		assert.ok(error instanceof Error);
-		assert.ok(
-			error.message.includes('Model "m" is not registered with any configured server'),
-			`Unexpected error message: ${error.message}`
-		);
 	});
 
 	test("user cancellation rejects with CancellationError and is not logged as an error", async () => {
@@ -142,19 +166,28 @@ suite("provider", () => {
 			error: (line: string) => lines.push(`ERROR: ${line}`),
 		} as unknown as vscode.LogOutputChannel;
 		const provider = makeProvider(TEST_BASE_URL, "test-key", channel, {
+			// Discovery answers the one serve that puts the group in the window; the chat POST then hangs until aborted.
 			fetch: (_url, init) =>
-				new Promise((_resolve, reject) => {
-					init?.signal?.addEventListener("abort", () => {
-						reject(new DOMException("The operation was aborted.", "AbortError"));
-					});
-				}),
+				init?.method === "POST"
+					? new Promise((_resolve, reject) => {
+							init.signal?.addEventListener("abort", () => {
+								reject(new DOMException("The operation was aborted.", "AbortError"));
+							});
+						})
+					: Promise.resolve(
+							new Response(JSON.stringify(DEFAULT_DISCOVERY_PAYLOAD), {
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							})
+						),
 		});
+		await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 
 		const cts = new vscode.CancellationTokenSource();
 		const pending = provider.provideLanguageModelChatResponse(
-			attachGroupServer(
+			attachGroup(
 				makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
-				testGroupServer()
+				groupIdentity(testGroupServer(), groupClientId(testGroupServer()))
 			),
 			[userMessage("hi")],
 			{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
@@ -167,28 +200,6 @@ suite("provider", () => {
 			!lines.some((l) => l.includes("ERROR:")),
 			`Cancellation must not produce an error log. Lines: ${lines.join(" | ")}`
 		);
-	});
-
-	test("provideLanguageModelChatResponse rejects a model without an attached server before any network call", async () => {
-		let fetchCalled = false;
-		const provider = makeProvider(undefined, undefined, undefined, {
-			fetch: async () => {
-				fetchCalled = true;
-				throw new Error("fetch must not be called");
-			},
-		});
-
-		await assert.rejects(
-			provider.provideLanguageModelChatResponse(
-				makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
-				[],
-				{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
-				{ report: () => {} },
-				new vscode.CancellationTokenSource().token
-			),
-			/not registered with any configured server/
-		);
-		assert.strictEqual(fetchCalled, false, "No request may be sent when the model has no attached server");
 	});
 
 	// This nested suite mocks the network with msw; the tests above inject their transport instead, so the interceptor
@@ -408,7 +419,11 @@ suite("provider", () => {
 			assert.strictEqual(info.family, "perplexity", "display identity still follows the first provider");
 			assert.strictEqual(info.maxOutputTokens, 8000, "the base entry stands for the whole group, so limits collapse");
 			assert.strictEqual(info.maxInputTokens, 64000);
-			assert.strictEqual(info.litellm.outputLimitSource, "provider", "every provider declared its output limit");
+			assert.strictEqual(
+				info.litellm.defaultMaxTokens,
+				8000,
+				"every provider declared a limit, so the collapse is sent whole"
+			);
 			assert.strictEqual(
 				info.litellm.supportsPromptCaching,
 				false,
@@ -421,39 +436,32 @@ suite("provider", () => {
 				[
 					{
 						id: "sole",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0.000003,
-								output_cost_per_token: 0.000015,
-								cache_read_input_token_cost: 0.0000003,
-								cache_creation_input_token_cost: 0.00000375,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 0.000003,
+							output_cost_per_token: 0.000015,
+							cache_read_input_token_cost: 0.0000003,
+							cache_creation_input_token_cost: 0.00000375,
+						}),
 					},
 					{ id: "bare", shape: { kind: "bare" } },
 					{
 						id: "free",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0,
-								output_cost_per_token: 1e308,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 0,
+							output_cost_per_token: 1e308,
+						}),
 					},
 					{
 						// The stamp must arrive through the production /model/info ingest: discovery maps a raw 0/0
 						// pair (and every cost beside it, tiered keys included) to undefined, so registration prices
 						// nothing.
 						id: "stamped",
-						shape: {
-							kind: "deployment",
-							provider: mapModelInfoEntry(
+						shape: deploymentShape(
+							mapModelInfoEntry(
 								expectDefined(
 									parseModelInfoItem({
 										model_name: "stamped",
@@ -466,8 +474,8 @@ suite("provider", () => {
 										},
 									})
 								)
-							).provider,
-						},
+							).provider
+						),
 					},
 					{
 						id: "multi",
@@ -580,32 +588,26 @@ suite("provider", () => {
 				[
 					{
 						id: "tiered",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "anthropic",
-								status: "ok",
-								input_cost_per_token: 0.000003,
-								output_cost_per_token: 0.000015,
-								cache_read_input_token_cost: 0.0000003,
-								long_context_input_cost_per_token: 0.000006,
-								long_context_output_cost_per_token: 0.0000225,
-								long_context_cache_read_input_token_cost: 0.0000003,
-								long_context_cache_creation_input_token_cost: 0.00000375,
-							},
-						},
+						shape: deploymentShape({
+							provider: "anthropic",
+							status: "ok",
+							input_cost_per_token: 0.000003,
+							output_cost_per_token: 0.000015,
+							cache_read_input_token_cost: 0.0000003,
+							long_context_input_cost_per_token: 0.000006,
+							long_context_output_cost_per_token: 0.0000225,
+							long_context_cache_read_input_token_cost: 0.0000003,
+							long_context_cache_creation_input_token_cost: 0.00000375,
+						}),
 					},
 					{
 						id: "overflow",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0.000003,
-								long_context_input_cost_per_token: 1e308,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 0.000003,
+							long_context_input_cost_per_token: 1e308,
+						}),
 					},
 					{
 						id: "multi",
@@ -724,16 +726,15 @@ suite("provider", () => {
 				[
 					{
 						id: "sole",
-						shape: { kind: "deployment", provider: { ...groq, provider: "openai" } },
+						shape: deploymentShape({ ...groq, provider: "openai" }),
 						architecture: { input_modalities: ["text", "image", "pdf"] },
 					},
 					{
 						// Built through the production ingest: the wire 0/0 stamp maps to undefined costs before
 						// registration ever sees the provider.
 						id: "stamped",
-						shape: {
-							kind: "deployment",
-							provider: mapModelInfoEntry(
+						shape: deploymentShape(
+							mapModelInfoEntry(
 								expectDefined(
 									parseModelInfoItem({
 										model_name: "stamped",
@@ -749,15 +750,12 @@ suite("provider", () => {
 										},
 									})
 								)
-							).provider,
-						},
+							).provider
+						),
 					},
 					{
 						id: "negzero",
-						shape: {
-							kind: "deployment",
-							provider: { ...groq, provider: "openai", input_cost_per_token: -0 },
-						},
+						shape: deploymentShape({ ...groq, provider: "openai", input_cost_per_token: -0 }),
 					},
 					{ id: "multi", shape: { kind: "group", providers: [groq, together] } },
 				],
@@ -866,18 +864,15 @@ suite("provider", () => {
 			const { infos } = buildModelInfos(
 				boundaries.map(([perMillion]) => ({
 					id: `m-${perMillion}`,
-					shape: {
-						kind: "deployment" as const,
-						provider: {
-							provider: "openai",
-							status: "ok",
-							input_cost_per_token: perMillion / 1_000_000,
-							output_cost_per_token: perMillion / 1_000_000,
-							// The tier price describes an opt-in regime; it must not move the band.
-							long_context_input_cost_per_token: 1,
-							long_context_output_cost_per_token: 1,
-						},
-					},
+					shape: deploymentShape({
+						provider: "openai",
+						status: "ok",
+						input_cost_per_token: perMillion / 1_000_000,
+						output_cost_per_token: perMillion / 1_000_000,
+						// The tier price describes an opt-in regime; it must not move the band.
+						long_context_input_cost_per_token: 1,
+						long_context_output_cost_per_token: 1,
+					}),
 				})),
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
@@ -900,54 +895,42 @@ suite("provider", () => {
 					// any other mix.
 					{
 						id: "output-heavy",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0,
-								output_cost_per_token: 3.9 / 1_000_000,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 0,
+							output_cost_per_token: 3.9 / 1_000_000,
+						}),
 					},
 					{
 						id: "input-heavy",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 3.9 / 1_000_000,
-								output_cost_per_token: 0,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 3.9 / 1_000_000,
+							output_cost_per_token: 0,
+						}),
 					},
 					{
 						id: "sub-unit",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								// Rounds to 0 in the six-decimal per-million unit.
-								input_cost_per_token: 1e-13,
-								output_cost_per_token: 0.000003,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							// Rounds to 0 in the six-decimal per-million unit.
+							input_cost_per_token: 1e-13,
+							output_cost_per_token: 0.000003,
+						}),
 					},
 					{
 						id: "dust",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								// BOTH sides are sub-unit dust: positive raw costs that slip the 0/0 undeclared check
-								// but round to 0/0.
-								input_cost_per_token: 1e-15,
-								output_cost_per_token: 1e-15,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							// BOTH sides are sub-unit dust: positive raw costs that slip the 0/0 undeclared check
+							// but round to 0/0.
+							input_cost_per_token: 1e-15,
+							output_cost_per_token: 1e-15,
+						}),
 					},
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
@@ -985,15 +968,12 @@ suite("provider", () => {
 				[
 					{
 						id: "free",
-						shape: {
-							kind: "deployment",
-							provider: {
-								provider: "openai",
-								status: "ok",
-								input_cost_per_token: 0,
-								output_cost_per_token: 0,
-							},
-						},
+						shape: deploymentShape({
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: 0,
+							output_cost_per_token: 0,
+						}),
 					},
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
@@ -1018,15 +998,12 @@ suite("provider", () => {
 						[
 							{
 								id: "m",
-								shape: {
-									kind: "deployment",
-									provider: {
-										provider: "openai",
-										status: "ok",
-										input_cost_per_token: inputPerToken,
-										output_cost_per_token: outputPerToken,
-									},
-								},
+								shape: deploymentShape({
+									provider: "openai",
+									status: "ok",
+									input_cost_per_token: inputPerToken,
+									output_cost_per_token: outputPerToken,
+								}),
 							},
 						],
 						{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },

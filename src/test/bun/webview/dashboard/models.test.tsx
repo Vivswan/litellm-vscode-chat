@@ -17,7 +17,7 @@ test("a row reads as two lines - name and meta, then a spec sentence - with the 
 		name: "GPT Priced",
 		maxInputTokens: 128000,
 		maxOutputTokens: 16384,
-		outputLimitDeclared: true,
+		defaultMaxTokens: 16384,
 		inputCost: 2.5,
 		outputCost: 10.1234,
 		cacheReadCost: 0.256789,
@@ -105,17 +105,17 @@ test("a capability the model lacks is answered in the detail, since the row only
 	expect(detail.querySelectorAll("del").length).toBe(0);
 });
 
-test("an undeclared output limit says so where the number is read", () => {
-	// The extension picked that number and it caps requests, which is worth saying next to it; a declared limit needs
-	// no such note.
-	const assumed = makeModel({ id: "assumed", maxOutputTokens: 4096, outputLimitDeclared: false });
+test("a guessed output limit says so where the number is read", () => {
+	// The extension picked that number and requests stay under it, which is worth saying next to it; a limit sent
+	// whole needs no such note.
+	const assumed = makeModel({ id: "assumed", maxOutputTokens: 16000, defaultMaxTokens: 4096 });
 	const root = mount(<ModelsSection currencySymbol="$" models={[assumed]} serverCount={1} onInspect={() => {}} />);
 	fireClick(root.querySelector("button.model-disclosure") as HTMLElement);
 	const detail = root.querySelector(".model-detail") as HTMLElement;
 	const maxOutput = Array.from(detail.querySelectorAll(".model-detail-field")).find(
 		(entry) => entry.querySelector("dt")?.textContent === "Max output tokens"
 	);
-	expect(maxOutput?.querySelector("dd")?.textContent).toBe(`${(4096).toLocaleString()} (assumed)`);
+	expect(maxOutput?.querySelector("dd")?.textContent).toBe(`${(16000).toLocaleString()} (assumed)`);
 });
 
 test("each spec segment owns the separator that follows it, so a dropped segment takes its dash with it", () => {

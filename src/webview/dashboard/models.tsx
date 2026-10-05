@@ -18,6 +18,7 @@ import {
 } from "../../dashboard/modelFilters";
 import type { DashboardModel } from "../../dashboard/viewModels";
 import { capabilityDisplayLabel, costUnitLabel } from "../../shared/config/capabilityDisplay";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { compactTokenCount } from "../../shared/util/tokenCount";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { helpModelsSection } from "./helpText";
@@ -115,11 +116,13 @@ function detailFields(
 		{ label: l10n.t("Server"), value: model.serverLabel },
 		{ label: fieldLabel("max_input_tokens"), value: formatTokens(model.maxInputTokens), mono: true },
 		{
-			//   An undeclared limit is a number the extension picked -> worth saying so where the number is read
+			//   A limit the request default sits under is a guess the extension capped -> worth saying so where the
+			//   number is read
 			label: fieldLabel("max_output_tokens"),
-			value: model.outputLimitDeclared
-				? formatTokens(model.maxOutputTokens)
-				: l10n.t("{0} (assumed)", formatTokens(model.maxOutputTokens)),
+			value:
+				model.defaultMaxTokens < model.maxOutputTokens
+					? l10n.t("{0} (assumed)", formatTokens(model.maxOutputTokens))
+					: formatTokens(model.maxOutputTokens),
 			mono: true,
 		},
 	];
@@ -579,7 +582,7 @@ export function ModelsSection({
 	// pill-filtered list, or OR-within-a-dimension would be unreachable. Memoized: every scroll event re-renders, and
 	// the options walk the list.
 	const pillOptions = useMemo(() => modelFilterOptions(scoped, pills), [scoped, pills]);
-	const textActive = filter.trim().length > 0;
+	const textActive = trimHttpWhitespace(filter).length > 0;
 	// Both clear actions unmount the button that was just pressed, so focus would fall to the body and take the
 	// keyboard user's place with it; the filter input is where the cleared filters live on.
 	const filterInputRef = useRef<HTMLInputElement>(null);

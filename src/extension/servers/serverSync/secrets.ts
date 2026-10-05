@@ -259,15 +259,16 @@ export interface OwnedSecretsResolution {
 	/**
 	 * Every stored field the stamp mismatch dropped with nothing standing in (no inline value): `refused` plus the
 	 * inert fields the entry cannot send. The with-secrets export reads this superset for its accounting, so a value
-	 * left out of the file is never a silent omission; the pairing gates (the sync engine, MCP) read `refused`.
+	 * left out of the file is never a silent omission; the pairing gates (the sync engine, the usage poller,
+	 * entryConnection.ts) read `refused`.
 	 */
 	readonly mismatched: readonly SecretFieldId[];
 }
 
 /**
  *   THE ownership check -> for every consumer that pairs a blob with an entry
- *   `refused` -> the verdict a caller may gate the whole pairing on instead of proceeding without the credential
- *                (entryConnection.ts names the callers that send anyway)
+ *   `refused` -> the verdict a pairing gate (the sync pass, the usage poller, entryConnection.ts) stops on instead of
+ *                proceeding without the credential; the with-secrets export only accounts for it
  *   stamp mismatch, entry would send it, no inline winner -> refused
  *   stamp mismatch, entry cannot send it                  -> dropped but kept under its old stamp
  *   kept under its old stamp                              -> refusal waits until the entry could send it

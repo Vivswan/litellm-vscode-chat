@@ -6,7 +6,9 @@
  *   a `_fallback` field                                                -> drops below the server level
  */
 
+import { trimHttpWhitespace } from "../util/headers";
 import type { ModelRecordMap } from "./modelMatcher";
+import { DEFAULT_MAX_TOKENS_CAP } from "./parameterResolution";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
 import {
 	canonicalFieldKey,
@@ -183,7 +185,7 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 
 	for (const [key, value] of Object.entries(normalized)) {
 		if (key === OPENROUTER_MODEL_DIRECTIVE) {
-			if (typeof value === "string" && value.trim() !== "") {
+			if (typeof value === "string" && trimHttpWhitespace(value) !== "") {
 				openrouterModel = value;
 			} else {
 				diagnostics.push({ kind: "invalid-directive", key });
@@ -512,20 +514,26 @@ export type ServerCapabilityValues = {
 
 /**
  * Registration's post-aggregation baseline for one model: the conservative merged values exactly as the deployment
- * merge produced them, plus output-limit declaredness (the every-contributor rule), which controls only whether the
- * output limit counts as "provider". Declared models have no server side at all, so the discriminant makes a missing
- * baseline unrepresentable rather than silently empty.
+ * merge produced them, plus the request default the collapse decided for the server level. Both are minima over the
+ * contributors, taken independently, so a floor-filled contributor caps the default even when a declared one supplies
+ * the advertised minimum. Declared models have no server side at all, so the discriminant makes a missing baseline
+ * unrepresentable rather than silently empty.
  */
 export type ServerDeclaredCapabilities =
 	| {
 			readonly kind: "discovered";
 			readonly values: Readonly<Partial<ServerCapabilityValues>>;
-			readonly outputDeclared: boolean;
+			readonly defaultMaxTokens: number;
 	  }
 	| { readonly kind: "declared" };
 
 export const FLOOR_CONTEXT_LENGTH = 128000;
 export const FLOOR_MAX_OUTPUT_TOKENS = 16000;
+
+/** A guessed output limit (a floor fill, a catalog entry) is advertised whole; requests default to the cap under it. */
+export function guessedMaxTokensDefault(limit: number): number {
+	return Math.min(DEFAULT_MAX_TOKENS_CAP, limit);
+}
 
 /**
  * max_input_tokens has no floor - the context-minus-output derivation is its backstop, and it is total because both
@@ -539,13 +547,6 @@ export const CAPABILITY_FLOOR: Readonly<Omit<CapabilityFieldValues, "max_input_t
 	supports_reasoning: false,
 	supports_audio_input: false,
 };
-
-/**
- * Provenance of the effective max output tokens. "user" (an override or a `_fallback` fill) and "provider"
- * (server-declared by every contributor) are sent uncapped; "defaults" keeps the request path's min(4096, limit)
- * clamp, because a guessed limit must not escape it.
- */
-export type EffectiveOutputLimitSource = "user" | "provider" | "defaults";
 
 export interface EffectiveCapabilityField<V extends CapabilityJsonValue = CapabilityJsonValue> {
 	readonly value: V;
@@ -573,7 +574,8 @@ export interface ResolveModelCapabilitiesInput extends ResolveCapabilityOverride
 
 export interface EffectiveCapabilities {
 	readonly fields: EffectiveCapabilityFields;
-	readonly outputLimitSource: EffectiveOutputLimitSource;
+	/** The request's max_tokens when nothing configures one; the one number the chat path reads for the fallback. */
+	readonly defaultMaxTokens: number;
 	/** See ResolvedCapabilityOverrides.directive. */
 	readonly directive?: DirectiveOutcome | undefined;
 	readonly diagnostics: readonly CapabilityDiagnostic[];
@@ -614,7 +616,7 @@ function resolveField(
 
 /**
  * Total over CapabilityLevel on purpose: a level added to the walk fails compilation here instead of silently
- * resolving to "defaults" and regaining the wire clamp. The directive level is deliberately NOT user-set - an
+ * resolving to a guess and regaining the wire clamp. The directive level is deliberately NOT user-set - an
  * `_openrouter_model` output limit is still the catalog's guess, so both catalog paths keep the clamp.
  */
 const LEVEL_IS_USER_SET: Readonly<Record<CapabilityLevel, boolean>> = {
@@ -628,6 +630,11 @@ const LEVEL_IS_USER_SET: Readonly<Record<CapabilityLevel, boolean>> = {
 	derived: false,
 	floor: false,
 };
+
+/** A user-written value (an override or a `_fallback` fill); the dashboard labels the output limit by it. */
+export function isUserSetLevel(level: CapabilityLevel): boolean {
+	return LEVEL_IS_USER_SET[level];
+}
 
 export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): EffectiveCapabilities {
 	const overrides = resolveCapabilityOverrides(input);
@@ -670,12 +677,13 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 	const booleanField = (name: BooleanCapabilityField): EffectiveCapabilityField<boolean> =>
 		coreField(name, { level: "floor", value: CAPABILITY_FLOOR[name] });
 
-	const outputLevel = maxOutputTokens.level;
-	const outputLimitSource: EffectiveOutputLimitSource = LEVEL_IS_USER_SET[outputLevel]
-		? "user"
-		: outputLevel === "server" && input.serverDeclared.kind === "discovered" && input.serverDeclared.outputDeclared
-			? "provider"
-			: "defaults";
+	// The server level's default is the baseline's: the collapse decided it beside the value, and the two minima can come
+	// from different contributors.
+	const defaultMaxTokens = LEVEL_IS_USER_SET[maxOutputTokens.level]
+		? maxOutputTokens.value
+		: maxOutputTokens.level === "server" && input.serverDeclared.kind === "discovered"
+			? input.serverDeclared.defaultMaxTokens
+			: guessedMaxTokensDefault(maxOutputTokens.value);
 
 	const fields: Record<string, EffectiveCapabilityField> = {
 		context_length: contextLength,
@@ -705,7 +713,7 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 
 	return {
 		fields: fields as EffectiveCapabilityFields,
-		outputLimitSource,
+		defaultMaxTokens,
 		...(overrides.directive !== undefined ? { directive: overrides.directive } : {}),
 		diagnostics: overrides.diagnostics,
 	};

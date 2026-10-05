@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { StreamProcessor } from "../../../provider/transport/streaming";
+import type { StreamProcessor } from "../../../provider/transport/streaming/processor";
 
 /** A standalone tool-call ID source with an observable count, mirroring the ChatClient's. */
 export function idSource(): { next(): number; readonly count: number } {

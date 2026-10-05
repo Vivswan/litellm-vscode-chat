@@ -73,10 +73,10 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 			);
 			const problem = validateTestServerDraft(serverPayload({ label: "Prod", baseUrl: "http://x" }), {
 				...KEEP_ALL,
-				virtualKeyValue: { action: "set", location: "secure", value: "vk-secret\n" },
+				virtualKeyValue: { action: "set", location: "secure", value: "vk\nsecret" },
 			});
 			assert.ok(problem !== undefined);
-			assert.ok(!problem.includes("vk-secret"), problem);
+			assert.ok(!problem.includes("secret"), problem);
 		});
 
 		test("a set directive probes the typed value; nothing is written, stored, or synced", async () => {
@@ -96,6 +96,21 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 			assert.deepStrictEqual(recorded.secretOps, []);
 			assert.deepStrictEqual(recorded.updates, []);
 			assert.strictEqual(recorded.syncRequests, 0);
+		});
+
+		test("a set key the platform's Headers would refuse is refused before the probe, naming the field", async () => {
+			// Sent as-is, the probe's error quoted the whole key back to the form ("... invalid value: 'Bearer sk-a b'");
+			// the same rule refuses a save of a newly set key (a kept stored one is the Diagnostics tab's to report).
+			const recorded = makeEnv([]);
+			await assert.rejects(
+				draftTest(recorded, {
+					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-a\nb" } },
+				}),
+				(error: unknown) =>
+					error instanceof DashboardValidationError &&
+					error.message === "apiKey: the value cannot be sent as an HTTP header"
+			);
+			assert.deepStrictEqual(recorded.probes, []);
 		});
 
 		test("the draft's apiVersion override rides the probe connection trimmed; auto stays absent", async () => {

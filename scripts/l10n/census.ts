@@ -69,9 +69,9 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"createPrSend",
 	"wirePrGeneration",
 	"runGeneratePrDescription",
-	// src/extension/features/modelSettingError (the features' one no-such-server sentence) and the shared send
-	// composition that throws it.
-	"noEntryForConfiguredServer",
+	// src/extension/features/modelSettingError (the features' one "configured server yields no connection" error) and
+	// the shared send composition that throws it.
+	"configuredServerUnavailable",
 	"featureChatSend",
 	"createCommitProbe",
 	// src/dashboard/featureNames (the features' one display-name registry).
@@ -121,13 +121,17 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"helpModelParameterName",
 	"helpModelParameterValue",
 	"parseNumberDraft",
+	"numberContractSentence",
+	"skippedKeyLine",
 	"defaultDisplay",
 	"equivalence",
+	"parseHeaderValue",
 	"parseJsonValue",
 	"formatDuration",
 	"zeroModelExplanation",
 	"keyProblem",
 	"firstGroupProblem",
+	"parseCatalogIdText",
 	"recordFromJsonText",
 	"parseGroups",
 	"parseHeaderRows",
@@ -419,5 +423,6 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"glyphTrail",
 	"catalogStatusParts",
 	"credentialsUnavailableError",
+	"unroutableModelError",
 	"overlayEntryCredentials",
 ];

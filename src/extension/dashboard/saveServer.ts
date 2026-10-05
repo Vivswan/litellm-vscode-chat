@@ -8,6 +8,7 @@ import type { ReplacedEntryIdentity, RequestPayload, SecretDirective } from "../
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS, sameSecretDestination } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServer } from "../servers/serverSync";
 import { acceptedEntry, inlineSecretValues, secretLocations } from "../servers/serverSync";
@@ -181,10 +182,10 @@ export async function applySaveServerSetting(
 	intent: RequestPayload<"saveServerSetting">,
 	env: IntentEnvironment
 ): Promise<void> {
-	const label = intent.server.label.trim();
+	const label = trimHttpWhitespace(intent.server.label);
 	// Trimmed like entry matching trims, so the secret-store operations below hit the same label the entry lookup
 	// resolves.
-	const targetLabel = (intent.replace?.label ?? label).trim();
+	const targetLabel = trimHttpWhitespace(intent.replace?.label ?? label);
 	const entries = rawServerEntries(env.readServersSetting());
 	// The entry being edited is the one the dashboard row described, never a rejected same-label sibling sitting
 	// earlier in the raw array. The same helper reads what the sync engine will read for this label after the save (see
@@ -235,12 +236,12 @@ export async function applySaveServerSetting(
 	// copied here is silently DELETED by the save.
 	const newEntry: Record<string, unknown> = {
 		label,
-		baseUrl: intent.server.baseUrl.trim(),
+		baseUrl: trimHttpWhitespace(intent.server.baseUrl),
 	};
 	// "" is a real apiVersion (append nothing), so it is written; only absent (auto) omits the key. Trimmed like the
 	// setting parser reads it.
 	if (intent.server.apiVersion !== undefined) {
-		newEntry.apiVersion = intent.server.apiVersion.trim();
+		newEntry.apiVersion = trimHttpWhitespace(intent.server.apiVersion);
 	}
 	// An empty record reads as absent everywhere (the parser omits it), so it is not written either.
 	const models: Record<string, unknown> = {};
@@ -260,7 +261,7 @@ export async function applySaveServerSetting(
 	}
 	// Declared IDs are trimmed and deduplicated like the parser reads them.
 	const declaredModels = [
-		...new Set(intent.server.declaredModels.map((id) => id.trim()).filter((id) => id.length > 0)),
+		...new Set(intent.server.declaredModels.map((id) => trimHttpWhitespace(id)).filter((id) => id.length > 0)),
 	];
 	if (declaredModels.length > 0) {
 		discovery.declared = declaredModels;
@@ -309,7 +310,7 @@ export async function applySaveServerSetting(
 	// fallback covers the unreachable parse failure without ever stamping a wrong destination.
 	const intendedEntry = acceptedEntry([newEntry], label)?.entry;
 	const destinationOf = (field: SecretFieldId): SecretOwner =>
-		secretDestination(intendedEntry ?? { baseUrl: intent.server.baseUrl.trim() }, field);
+		secretDestination(intendedEntry ?? { baseUrl: trimHttpWhitespace(intent.server.baseUrl) }, field);
 
 	// A leftover blob field under the saved label is wiped when no plan can reference it (wiping after a rename's
 	// copy would delete the copied fields, so the two are exclusive).

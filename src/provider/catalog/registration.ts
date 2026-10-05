@@ -5,13 +5,13 @@ import { normalizeCostPerToken } from "../../shared/util/numbers";
 import type { PreAttachModelInfo } from "./groupModels";
 import {
 	buildExposedModelId,
-	collapseTokenConstraints,
+	collapseTokenLimits,
 	deriveTokenConstraints,
 	discoveredCapabilityBaseline,
 	reportedReasoningLevels,
 } from "./modelCatalog";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema, supportsReasoningEffort } from "./modelConfiguration";
-import type { LiteLLMModelItem, LiteLLMProvider, PerTokenCosts } from "./schemas";
+import type { LiteLLMModelItem, LiteLLMProvider, PerTokenCosts, TokenConstraints } from "./schemas";
 import { supportsTools } from "./schemas";
 
 export interface RegistrationResult {
@@ -207,15 +207,16 @@ export function buildModelInfos(
 		// a price the picker refused to advertise.
 		const baselineFor = (
 			providers: readonly LiteLLMProvider[],
+			limits: TokenConstraints,
 			toolCalling: boolean,
 			reasoning: boolean,
 			costs?: Readonly<PerTokenCosts>
-		) => discoveredCapabilityBaseline({ providers, modalities, toolCalling, reasoning, costs });
+		) => discoveredCapabilityBaseline({ providers, limits, modalities, toolCalling, reasoning, costs });
 
 		switch (shape.kind) {
 			case "deployment": {
 				const provider = shape.provider;
-				const constraints = deriveTokenConstraints(provider);
+				const constraints = shape.limits;
 				const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 				return [
 					{
@@ -235,10 +236,11 @@ export function buildModelInfos(
 						litellm: {
 							rawModelId: m.id,
 							supportsPromptCaching: provider.supports_prompt_caching === true,
-							outputLimitSource: constraints.outputLimitSource,
+							defaultMaxTokens: constraints.defaultMaxTokens,
 							supportsAudioInput: audioInput,
 							serverDeclared: baselineFor(
 								[provider],
+								constraints,
 								supportsTools(provider),
 								supportsReasoningEffort(provider),
 								provider
@@ -267,9 +269,9 @@ export function buildModelInfos(
 						litellm: {
 							rawModelId: m.id,
 							supportsPromptCaching: false,
-							outputLimitSource: constraints.outputLimitSource,
+							defaultMaxTokens: constraints.defaultMaxTokens,
 							supportsAudioInput: audioInput,
-							serverDeclared: baselineFor([], true, false),
+							serverDeclared: baselineFor([], constraints, true, false),
 						},
 					} satisfies PreAttachModelInfo,
 				];
@@ -285,13 +287,16 @@ export function buildModelInfos(
 					// The aggregates stand for whichever tool-capable provider the proxy routes to, so they advertise
 					// the conservative collapse (the same rule deployment merging applies): never more than the
 					// strictest provider's standalone constraints.
-					const constraints = collapseTokenConstraints([firstTool, ...restTools]);
+					const constraints = collapseTokenLimits([
+						deriveTokenConstraints(firstTool),
+						...restTools.map(deriveTokenConstraints),
+					]);
 					const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
 					const aggregateMetadata = {
 						supportsPromptCaching: aggregatePromptCaching,
-						outputLimitSource: constraints.outputLimitSource,
+						defaultMaxTokens: constraints.defaultMaxTokens,
 						supportsAudioInput: audioInput,
-						serverDeclared: baselineFor(toolProviders, true, toolProviders.every(supportsReasoningEffort)),
+						serverDeclared: baselineFor(toolProviders, constraints, true, toolProviders.every(supportsReasoningEffort)),
 					};
 					const aggregateConfigurationSchema = configurationSchemaFor(toolProviders);
 					const aggregateCapabilities = {
@@ -352,9 +357,9 @@ export function buildModelInfos(
 						litellm: {
 							rawModelId: rawId,
 							supportsPromptCaching: p.supports_prompt_caching === true,
-							outputLimitSource: constraints.outputLimitSource,
+							defaultMaxTokens: constraints.defaultMaxTokens,
 							supportsAudioInput: audioInput,
-							serverDeclared: baselineFor([p], true, supportsReasoningEffort(p), p),
+							serverDeclared: baselineFor([p], constraints, true, supportsReasoningEffort(p), p),
 						},
 					} satisfies PreAttachModelInfo);
 				}
@@ -364,7 +369,11 @@ export function buildModelInfos(
 					// The untooled base entry stands for the whole provider group (the proxy routes it to any of them),
 					// so its constraints collapse across every provider, prompt caching and reasoning support need
 					// every provider.
-					const constraints = collapseTokenConstraints(providers);
+					const [firstProvider, ...restProviders] = providers;
+					const constraints = collapseTokenLimits([
+						deriveTokenConstraints(firstProvider),
+						...restProviders.map(deriveTokenConstraints),
+					]);
 					const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 					entries.push({
 						...common,
@@ -382,9 +391,9 @@ export function buildModelInfos(
 						litellm: {
 							rawModelId: m.id,
 							supportsPromptCaching: providers.every((p) => p.supports_prompt_caching === true),
-							outputLimitSource: constraints.outputLimitSource,
+							defaultMaxTokens: constraints.defaultMaxTokens,
 							supportsAudioInput: audioInput,
-							serverDeclared: baselineFor(providers, false, providers.every(supportsReasoningEffort)),
+							serverDeclared: baselineFor(providers, constraints, false, providers.every(supportsReasoningEffort)),
 						},
 					} satisfies PreAttachModelInfo);
 				}

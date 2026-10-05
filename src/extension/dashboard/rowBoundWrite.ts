@@ -7,6 +7,7 @@
 import { isDeepStrictEqual } from "node:util";
 import * as l10n from "@vscode/l10n";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import type { DeclaredServer } from "../servers/serverSync";
 import {
@@ -56,7 +57,8 @@ export interface RowIdentity {
 /** Trimmed like the parser reads it, so a padded raw base URL still matches the URL its row shows. */
 function sameBaseUrl(entryBaseUrl: unknown, rowBaseUrl: string): boolean {
 	return (
-		typeof entryBaseUrl === "string" && normalizeBaseUrl(entryBaseUrl.trim()) === normalizeBaseUrl(rowBaseUrl.trim())
+		typeof entryBaseUrl === "string" &&
+		normalizeBaseUrl(trimHttpWhitespace(entryBaseUrl)) === normalizeBaseUrl(trimHttpWhitespace(rowBaseUrl))
 	);
 }
 
@@ -78,7 +80,7 @@ function entryMoved(): DashboardValidationError {
  * (drawableRejects, the rule the Misconfigured rows are drawn by).
  */
 function carriersOfRow(entries: readonly unknown[], row: RowIdentity): readonly number[] {
-	const label = row.label.trim();
+	const label = trimHttpWhitespace(row.label);
 	const carriers = entries.flatMap((entry, index) => (declaredEntryLabel(entry) === label ? [index] : []));
 	if (carriers.length === 0) {
 		throw noEntryUnderLabel();

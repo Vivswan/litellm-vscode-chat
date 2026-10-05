@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import * as vscode from "vscode";
-import { StreamProcessor } from "../../../provider/transport/streaming";
+import { StreamProcessor } from "../../../provider/transport/streaming/processor";
 import { parseChunk } from "../../../provider/transport/wire";
 import type { FuzzEvent } from "../../fuzzCorpus";
 import {

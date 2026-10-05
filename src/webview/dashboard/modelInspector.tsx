@@ -37,7 +37,7 @@ import type {
 	EffectiveCapabilityField,
 	ShadowedCapabilityValue,
 } from "../../shared/config/capabilityResolution";
-import { capabilityField } from "../../shared/config/capabilityResolution";
+import { capabilityField, isUserSetLevel } from "../../shared/config/capabilityResolution";
 import type {
 	EffectiveParameterRow,
 	ParameterDiagnostic,
@@ -158,11 +158,11 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens): {
 			return source === undefined
 				? { value: maxTokens.value, reason: unattributed }
 				: { value: maxTokens.value, source };
-		case "declared":
-			// "the model's", not "the server's": a user record and a _fallback fill both count as declared here, so
-			// naming the server is a claim the panel cannot back up.
-			return { value: maxTokens.value, reason: l10n.t("the model's declared output limit") };
-		case "capped-default":
+		case "limit":
+			// "the model's", not "the server's" or "declared": a user record, a _fallback fill and a catalog guess already
+			// under the cap all land here, so naming a source is a claim the panel cannot back up.
+			return { value: maxTokens.value, reason: l10n.t("the model's output limit") };
+		case "capped":
 			return {
 				value: maxTokens.value,
 				reason: l10n.t("min({0}, model max) - a default, not declared", formatTokens(DEFAULT_MAX_TOKENS_CAP)),
@@ -514,17 +514,16 @@ function capabilityDiagnosticText(diagnostic: CapabilityDiagnostic): string {
 /**
  * The output limit as a labelled fact, and nothing else: what the REQUEST does about it is conditional and belongs on
  * the max_tokens derivation line - stating it here too produced "capped at 4,096" directly under a max_tokens line
- * reading 10,000.
+ * reading 10,000. A server level whose default sits under its value had a floor-filled contributor in its collapse.
  */
 function outputLimitNote(capabilities: EffectiveCapabilities): string {
-	switch (capabilities.outputLimitSource) {
-		case "user":
-			return l10n.t("User-set.");
-		case "provider":
-			return l10n.t("Server-declared.");
-		case "defaults":
-			return l10n.t("A default.");
+	const limit = capabilities.fields.max_output_tokens;
+	if (isUserSetLevel(limit.level)) {
+		return l10n.t("User-set.");
 	}
+	return limit.level === "server" && capabilities.defaultMaxTokens === limit.value
+		? l10n.t("Server-declared.")
+		: l10n.t("A default.");
 }
 
 /**

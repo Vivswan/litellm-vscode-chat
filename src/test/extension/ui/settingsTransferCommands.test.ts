@@ -12,6 +12,7 @@ import type {
 	SettingsTransferPrompts,
 } from "../../../extension/ui/settingsTransferCommands";
 import {
+	renderImportPreview,
 	runExportSettingsFlow,
 	runImportSettingsFlow,
 	runUndoLastImportFlow,
@@ -519,7 +520,7 @@ suite("settingsTransferCommands import flow", () => {
 
 	test("JSON without the envelope discriminant is rejected", async () => {
 		const world = makeWorld();
-		stageImportFile(world, JSON.stringify({ settings: { "chat.timeout": 1 } }));
+		stageImportFile(world, JSON.stringify({ settings: { "chat.timeout": 60000 } }));
 		await runImportSettingsFlow(world.env);
 		assert.match(onlyNotification(world).message, /not a LiteLLM settings export/);
 	});
@@ -544,7 +545,7 @@ suite("settingsTransferCommands import flow", () => {
 
 	test("files over the 5 MB cap are rejected before reading", async () => {
 		const world = makeWorld();
-		stageEnvelope(world, { "chat.timeout": 1 });
+		stageEnvelope(world, { "chat.timeout": 60000 });
 		world.sizeOverride = 5 * 1024 * 1024 + 1;
 		await runImportSettingsFlow(world.env);
 		assert.match(onlyNotification(world).message, /too large/);
@@ -563,7 +564,7 @@ suite("settingsTransferCommands import flow", () => {
 	test("the preview summary carries counts, caps, and the connection-changed collisions", async () => {
 		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] }, { a: { apiKey: "CURRENT" } });
 		stageEnvelope(world, {
-			"chat.timeout": 1,
+			"chat.timeout": 60000,
 			"chat.promptCaching": true,
 			"discovery.timeout": "wrong-type",
 			unknownKey: 1,
@@ -583,7 +584,7 @@ suite("settingsTransferCommands import flow", () => {
 		assert.strictEqual(summary.collisionCount, 1);
 		assert.strictEqual(summary.connectionChangedCount, 1);
 		assert.strictEqual(summary.secretFieldCount, 1);
-		assert.strictEqual(summary.skippedKeyCount, 1);
+		assert.deepStrictEqual(summary.skippedKeys, ["discovery.timeout"]);
 		assert.strictEqual(summary.unknownKeyCount, 1);
 		assert.strictEqual(summary.skippedServerCount, 1);
 		assert.ok(summary.problemCount > 0);
@@ -801,7 +802,7 @@ suite("settingsTransferCommands import flow", () => {
 			{ b: { apiKey: "UNTOUCHED" } }
 		);
 		stageEnvelope(world, {
-			"chat.timeout": 1,
+			"chat.timeout": 60000,
 			servers: [
 				{ label: "a", baseUrl: "http://new-a:4000" },
 				{ label: "b", baseUrl: "http://new-b:4000" },
@@ -821,7 +822,7 @@ suite("settingsTransferCommands import flow", () => {
 
 	test("dismissing the rename box aborts the whole import with zero writes", async () => {
 		const world = makeWorld({ "chat.timeout": 9999, servers: [{ label: "a", baseUrl: "http://a:4000" }] });
-		stageEnvelope(world, { "chat.timeout": 1, servers: [{ label: "a", baseUrl: "http://new:4000" }] });
+		stageEnvelope(world, { "chat.timeout": 60000, servers: [{ label: "a", baseUrl: "http://new:4000" }] });
 		world.answers.collisions = { a: "rename" };
 		world.answers.rename = undefined;
 		await runImportSettingsFlow(world.env);
@@ -832,7 +833,7 @@ suite("settingsTransferCommands import flow", () => {
 
 	test("a failed snapshot write cancels the import before any mutation", async () => {
 		const world = makeWorld({ "chat.timeout": 9999 });
-		stageEnvelope(world, { "chat.timeout": 1, servers: [{ label: "n", baseUrl: "http://n:4000" }] });
+		stageEnvelope(world, { "chat.timeout": 60000, servers: [{ label: "n", baseUrl: "http://n:4000" }] });
 		world.failSnapshotWrite = true;
 		await runImportSettingsFlow(world.env);
 		assert.match(onlyNotification(world).message, /undo snapshot could not be saved/);
@@ -847,7 +848,7 @@ suite("settingsTransferCommands import flow", () => {
 			{ a: { apiKey: "PRE-KEY" } }
 		);
 		stageEnvelope(world, {
-			"chat.timeout": 1,
+			"chat.timeout": 60000,
 			"discovery.timeout": 2000,
 			servers: [
 				{ label: "a", baseUrl: "http://new:4000" },
@@ -876,7 +877,7 @@ suite("settingsTransferCommands import flow", () => {
 			{ a: { apiKey: "OLD-KEY", virtualKeyValue: "OLD-VK" } }
 		);
 		stageEnvelope(world, {
-			"chat.timeout": 1,
+			"chat.timeout": 60000,
 			servers: [
 				{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } },
 				{ label: "added", baseUrl: "http://added:4000", auth: { apiKey: "ADDED-KEY" } },
@@ -889,7 +890,7 @@ suite("settingsTransferCommands import flow", () => {
 		assert.deepStrictEqual(blobOf(world, "added"), {});
 		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "a", baseUrl: "http://old:4000" }]);
 		// The non-servers write already landed; the snapshot and Undo action cover it.
-		assert.strictEqual(world.settings.get("chat.timeout"), 1);
+		assert.strictEqual(world.settings.get("chat.timeout"), 60000);
 		assert.notStrictEqual(world.snapshotSlot, undefined);
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "error");
@@ -1017,7 +1018,7 @@ suite("settingsTransferCommands import flow", () => {
 
 	test("a servers setting that changed during the prompts aborts before the snapshot", async () => {
 		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] });
-		stageEnvelope(world, { "chat.timeout": 1, servers: [{ label: "b", baseUrl: "http://b:4000" }] });
+		stageEnvelope(world, { "chat.timeout": 60000, servers: [{ label: "b", baseUrl: "http://b:4000" }] });
 		world.answers.confirmImport = () => {
 			// A concurrent edit lands while the preview modal is open.
 			world.settings.set(SERVERS_SETTING_KEY, [{ label: "a", baseUrl: "http://edited:4000" }]);
@@ -1048,7 +1049,7 @@ suite("settingsTransferCommands import flow", () => {
 	test("an import whose every write fails restores the previous snapshot and offers no undo", async () => {
 		const world = makeWorld();
 		world.snapshotSlot = "PREVIOUS-SNAPSHOT";
-		stageEnvelope(world, { "chat.timeout": 1 });
+		stageEnvelope(world, { "chat.timeout": 60000 });
 		world.failWrites.add("chat.timeout");
 		await runImportSettingsFlow(world.env);
 		assert.strictEqual(world.snapshotSlot, "PREVIOUS-SNAPSHOT", "a landed-nothing run must put the slot back");
@@ -1085,7 +1086,7 @@ suite("settingsTransferCommands import flow", () => {
 
 	test("failed non-servers writes are collected into a warning summary; the rest land", async () => {
 		const world = makeWorld();
-		stageEnvelope(world, { "chat.timeout": 1, "discovery.timeout": 2000 });
+		stageEnvelope(world, { "chat.timeout": 60000, "discovery.timeout": 2000 });
 		world.failWrites.add("chat.timeout");
 		await runImportSettingsFlow(world.env);
 		assert.strictEqual(world.settings.get("discovery.timeout"), 2000);
@@ -1098,7 +1099,7 @@ suite("settingsTransferCommands import flow", () => {
 	test("keys shadowed by workspace values are called out in the summary", async () => {
 		const world = makeWorld();
 		world.workspaceValues.set("chat.timeout", 42);
-		stageEnvelope(world, { "chat.timeout": 1 });
+		stageEnvelope(world, { "chat.timeout": 60000 });
 		await runImportSettingsFlow(world.env);
 		assert.match(onlyNotification(world).message, /Workspace settings override chat\.timeout/);
 	});
@@ -1174,7 +1175,7 @@ suite("settingsTransferCommands undo flow", () => {
 		};
 		const world = makeWorld(initialSettings, { a: { apiKey: "PRE-KEY" } });
 		stageEnvelope(world, {
-			"chat.timeout": 1,
+			"chat.timeout": 60000,
 			"discovery.timeout": 2000, // absent before: undo must REMOVE it
 			servers: [
 				{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } },
@@ -1374,7 +1375,7 @@ suite("settingsTransferCommands undo flow", () => {
 			{ a: { apiKey: "PRE-KEY" } }
 		);
 		stageEnvelope(world, {
-			"chat.timeout": 1,
+			"chat.timeout": 60000,
 			servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
 		});
 		world.answers.collisions = { a: "overwrite" };
@@ -1448,7 +1449,7 @@ suite("settingsTransferCommands undo flow", () => {
 			{ a: { apiKey: "PRE-KEY" } }
 		);
 		stageEnvelope(world, {
-			"chat.timeout": 1,
+			"chat.timeout": 60000,
 			servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
 		});
 		world.answers.collisions = { a: "overwrite" };
@@ -1472,7 +1473,7 @@ suite("settingsTransferCommands undo flow", () => {
 
 	test("undo asks for confirmation with the snapshot time; declining restores nothing", async () => {
 		const world = makeWorld({ "chat.timeout": 9999 });
-		stageEnvelope(world, { "chat.timeout": 1 });
+		stageEnvelope(world, { "chat.timeout": 60000 });
 		await runImportSettingsFlow(world.env);
 		world.notifications = [];
 		world.ops = [];
@@ -1484,7 +1485,7 @@ suite("settingsTransferCommands undo flow", () => {
 		assert.ok(!Number.isNaN(new Date(shownAt).getTime()), "the modal receives the snapshot's recorded instant");
 		assert.deepStrictEqual(world.ops, [], "a declined confirmation restores nothing");
 		assert.deepStrictEqual(world.notifications, [], "a declined confirmation aborts silently");
-		assert.strictEqual(world.settings.get("chat.timeout"), 1);
+		assert.strictEqual(world.settings.get("chat.timeout"), 60000);
 		assert.notStrictEqual(world.snapshotSlot, undefined, "the slot stays for a later undo");
 
 		world.answers.confirmUndo = true;
@@ -1511,7 +1512,7 @@ suite("settingsTransferCommands undo flow", () => {
 
 	test("undoing a settings-only import carries no reconnect note", async () => {
 		const world = makeWorld({ "chat.timeout": 9999 });
-		stageEnvelope(world, { "chat.timeout": 1 });
+		stageEnvelope(world, { "chat.timeout": 60000 });
 		await runImportSettingsFlow(world.env);
 		world.notifications = [];
 		await runUndoLastImportFlow(world.env);
@@ -1594,7 +1595,7 @@ suite("settingsTransferCommands undo flow", () => {
 
 	test("a failed restore step keeps the slot for a retry and warns", async () => {
 		const world = makeWorld({ "chat.timeout": 9999 });
-		stageEnvelope(world, { "chat.timeout": 1 });
+		stageEnvelope(world, { "chat.timeout": 60000 });
 		await runImportSettingsFlow(world.env);
 		world.notifications = [];
 		world.failWrites.add("chat.timeout");
@@ -1686,5 +1687,32 @@ suite("settingsTransferCommands secret hygiene", () => {
 		world.armSecretFailureOnServersWrite = true;
 		await runImportSettingsFlow(world.env);
 		assert.ok(!visibleSurfaces(world).includes(SENTINEL));
+	});
+});
+
+suite("settingsTransferCommands import preview", () => {
+	test("each skipped key is named with the contract it failed, in the dashboard's own words", () => {
+		// The preview used to say "1 setting has the wrong type" and never named chat.timeout or its range; a boolean or
+		// enum key names its accepted values from the one spec.
+		const summary: ImportPreviewSummary = {
+			settingCount: 0,
+			settingKeys: [],
+			serverCount: 0,
+			collisionCount: 0,
+			connectionChangedCount: 0,
+			secretFieldCount: 0,
+			problemLines: [],
+			problemCount: 0,
+			skippedKeys: ["chat.timeout", "usage.pollInterval", "chat.promptCaching", "usage.statusBar"],
+			unknownKeyCount: 0,
+			skippedServerCount: 0,
+		};
+		const lines = renderImportPreview(summary).split("\n");
+		assert.deepStrictEqual(lines, [
+			"chat.timeout must be a whole number between 1000 and 2147483647. It will be skipped.",
+			"usage.pollInterval must be a whole number between 30000 and 2147483647, or 0 to turn it off. It will be skipped.",
+			"chat.promptCaching must be true or false. It will be skipped.",
+			"usage.statusBar must be one of always, alerts-only, off. It will be skipped.",
+		]);
 	});
 });

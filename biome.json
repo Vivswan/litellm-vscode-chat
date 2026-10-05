@@ -340,8 +340,10 @@
 											"!**/shared/errorClassification",
 											"!**/shared/serverEntry",
 											"!**/shared/util/baseUrl",
+							"!**/shared/util/decimalText",
 											"!**/shared/util/displayUrl",
 											"!**/shared/util/errorText",
+							"!**/shared/util/headers",
 											"!**/shared/util/json",
 											"!**/shared/util/links",
 											"!**/shared/util/tokenCount"

@@ -1,6 +1,18 @@
+import { parseDecimalText } from "./decimalText";
+import { trimHttpWhitespace } from "./headers";
+
+/**
+ * A positive whole count from a JSON number or its decimal text (LiteLLM emits some limits as strings; a legacy token
+ * setting was free text). Text passes the one decimal grammar after the one trim, so " 9000 " reads 9000 while a
+ * U+00A0 or "0x10" reads as absent instead of a second number the user never spelled.
+ */
 export function normalizePositiveNumber(value: unknown): number | undefined {
 	const candidate =
-		typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+		typeof value === "number"
+			? value
+			: typeof value === "string"
+				? (parseDecimalText(trimHttpWhitespace(value)) ?? Number.NaN)
+				: Number.NaN;
 
 	return Number.isFinite(candidate) && Number.isInteger(candidate) && candidate > 0 ? candidate : undefined;
 }

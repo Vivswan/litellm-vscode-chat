@@ -444,7 +444,7 @@ function buildModel(info: PreAttachModelInfo, serverLabel: string, scopeKey: str
 		serverLabel,
 		maxInputTokens: info.maxInputTokens,
 		maxOutputTokens: info.maxOutputTokens,
-		outputLimitDeclared: info.litellm.outputLimitSource !== "defaults",
+		defaultMaxTokens: info.litellm.defaultMaxTokens,
 		inputCost: info.inputCost,
 		outputCost: info.outputCost,
 		cacheReadCost: info.cacheCost,
@@ -969,7 +969,7 @@ export function resolveDashboardModelParameters(
 		resolved,
 		{
 			maxOutputTokens: info.maxOutputTokens,
-			outputLimitDeclared: info.litellm.outputLimitSource !== "defaults",
+			defaultMaxTokens: info.litellm.defaultMaxTokens,
 		},
 		entry?.entryLabel
 	);

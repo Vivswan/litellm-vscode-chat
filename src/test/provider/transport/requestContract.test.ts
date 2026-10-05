@@ -2,8 +2,11 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { entryModelParametersFor } from "../../../extension/servers/serverSync";
-import { attachGroupServer } from "../../../provider/catalog/groupModels";
+import type { GroupServer, LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
+import { attachGroup, groupClientId, parseModelMetadata } from "../../../provider/catalog/groupModels";
+import { groupIdentity } from "../../../provider/catalog/statusWindow";
 import { ChatClient } from "../../../provider/transport/chatClient";
+import type { CapabilityCatalogLookup } from "../../../shared/config/capabilityResolution";
 import { resolveModelParameters } from "../../../shared/config/parameterResolution";
 import { getModelParametersConfig } from "../../../shared/config/settings";
 import { convertMessages } from "../../../shared/conversion/messages";
@@ -18,7 +21,7 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
-import { makeModelInfo } from "../../pureHelpers";
+import { DEFAULT_DISCOVERY_PAYLOAD, makeModelInfo } from "../../pureHelpers";
 import {
 	captureRequest,
 	captureRequestBody,
@@ -31,7 +34,17 @@ import {
 } from "../../testUtils";
 
 const modelInfo = makeModelInfo();
-const attachedModelInfo = attachGroupServer(modelInfo, testGroupServer());
+/** The Default group as the host serves it, for requests that bypass captureRequest. */
+const servedModel = attachGroup(modelInfo, groupIdentity(testGroupServer(), groupClientId(testGroupServer())));
+
+/**
+ * Put the Default group in the provider's status window the way a host sweep does, so a direct
+ * provideLanguageModelChatResponse call can route; the discovery handlers answer that one sweep.
+ */
+async function serveDefaultGroup(provider: ReturnType<typeof makeProvider>): Promise<void> {
+	mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
+	await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+}
 
 /**
  * The live-configuration read of the configured-parameters merge, exactly as the request path composes it (requests
@@ -310,8 +323,12 @@ suite("provider/request contract", () => {
 	});
 
 	suite("per-entry models.parameters", () => {
-		const labeledModel = (label: string) =>
-			attachGroupServer(makeModelInfo(), { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "test-key", label });
+		/** The declared entry's group, as the host serves it: the entry's label at the test base URL. */
+		const labeledGroup = (label: string): GroupServer => ({
+			baseUrl: normalizeBaseUrl(TEST_BASE_URL),
+			apiKey: "test-key",
+			label,
+		});
 
 		test("entry parameters override the global match key by key", async () => {
 			const params = await withConfig(
@@ -351,14 +368,24 @@ suite("provider/request contract", () => {
 			const globalConfig = { "models.parameters": { "test-model": { temperature: 0.8, seed: 7 } } };
 
 			const bodyA = await withConfig(globalConfig, () =>
-				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+				captureRequestBody(
+					provider,
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ group: labeledGroup("team-a") }
+				)
 			);
 			assert.strictEqual(bodyA.temperature, 0.1);
 			assert.strictEqual(bodyA.top_p, 0.9);
 			assert.strictEqual(bodyA.seed, 7, "the global setting still supplies keys the entry leaves unset");
 
 			const bodyB = await withConfig(globalConfig, () =>
-				captureRequestBody(provider, labeledModel("team-b"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+				captureRequestBody(
+					provider,
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ group: labeledGroup("team-b") }
+				)
 			);
 			assert.strictEqual(bodyB.temperature, 0.6);
 			assert.strictEqual(bodyB.seed, 7);
@@ -378,7 +405,12 @@ suite("provider/request contract", () => {
 				getEntryModelParameters: (label, baseUrl) => entryModelParametersFor(setting, label, baseUrl),
 			});
 			const body = await withConfig({ "models.parameters": { "test-model": { temperature: 0.8 } } }, () =>
-				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+				captureRequestBody(
+					provider,
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ group: labeledGroup("team-a") }
+				)
 			);
 			assert.strictEqual(body.temperature, 0.8, "only the global setting applies");
 		});
@@ -391,7 +423,12 @@ suite("provider/request contract", () => {
 				getEntryModelParameters: (label, baseUrl) => entryModelParametersFor(setting, label, baseUrl),
 			});
 			const body = await withConfig({ "models.parameters": { "test-model": { temperature: 0.8 } } }, () =>
-				captureRequestBody(provider, labeledModel("team-b"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+				captureRequestBody(
+					provider,
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ group: labeledGroup("team-b") }
+				)
 			);
 			assert.strictEqual(body.temperature, 0.8, "only the global setting applies");
 		});
@@ -403,11 +440,16 @@ suite("provider/request contract", () => {
 				}),
 			});
 			const body = await withConfig({ "models.parameters": { "test-model": { max_tokens: 2222 } } }, () =>
-				captureRequestBody(provider, labeledModel("team-a"), {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-					modelOptions: { temperature: 0.9 },
-					modelConfiguration: { reasoningEffort: "high" },
-				})
+				captureRequestBody(
+					provider,
+					modelInfo,
+					{
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+						modelOptions: { temperature: 0.9 },
+						modelConfiguration: { reasoningEffort: "high" },
+					},
+					{ group: labeledGroup("team-a") }
+				)
 			);
 			assert.strictEqual(body.temperature, 0.9, "runtime options outrank the entry");
 			assert.strictEqual(body.reasoning_effort, "high", "the picker outranks the entry");
@@ -421,17 +463,21 @@ suite("provider/request contract", () => {
 				}),
 			});
 			const body = await withConfig({ "models.parameters": { "test-model": { seed: 7, _force: ["seed"] } } }, () =>
-				captureRequestBody(provider, labeledModel("team-a"), {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-					modelOptions: { temperature: 0.9, seed: 42, max_tokens: 1234 },
-					modelConfiguration: { reasoningEffort: "high" },
-				})
+				captureRequestBody(
+					provider,
+					modelInfo,
+					{
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+						modelOptions: { temperature: 0.9, seed: 42, max_tokens: 1234 },
+						modelConfiguration: { reasoningEffort: "high" },
+					},
+					{ group: labeledGroup("team-a") }
+				)
 			);
 			assert.strictEqual(body.temperature, 0.2, "the forced entry value beats the runtime option");
 			assert.strictEqual(body.reasoning_effort, "low", "the forced entry value beats the picker");
 			assert.strictEqual(body.seed, 7, "the forced global value beats the runtime option");
-			// 9999 exceeds min(4096, model max) on this undeclared-limit model: a forced max_tokens counts as user-set,
-			// so the guess cap never touches it.
+			// 9999 exceeds this model's request default: a forced max_tokens is user-set, so the default never touches it.
 			assert.strictEqual(body.max_tokens, 9999, "a forced max_tokens beats the runtime option, uncapped");
 			assert.strictEqual(body._force, undefined, "the directive key itself never reaches the wire");
 		});
@@ -441,7 +487,12 @@ suite("provider/request contract", () => {
 				getEntryModelParameters: () => ({ "test-model": { _internal: true, top_p: 0.5 } }),
 			});
 			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+				captureRequestBody(
+					provider,
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ group: labeledGroup("team-a") }
+				)
 			);
 			assert.strictEqual(body.top_p, 0.5);
 			assert.strictEqual(body._internal, undefined);
@@ -464,7 +515,12 @@ suite("provider/request contract", () => {
 				}),
 			});
 			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+				captureRequestBody(
+					provider,
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ group: labeledGroup("team-a") }
+				)
 			);
 			assert.strictEqual(body.model, "test-model");
 			assert.strictEqual(body.stream, true);
@@ -476,7 +532,7 @@ suite("provider/request contract", () => {
 			assert.strictEqual(body.temperature, 0.4, "ordinary keys in the same record still pass through");
 		});
 
-		test("a model whose attached server has no label never consults entry parameters", async () => {
+		test("a model served by an unlabeled group never consults entry parameters", async () => {
 			let asked = 0;
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryModelParameters: () => {
@@ -484,12 +540,14 @@ suite("provider/request contract", () => {
 					return { "test-model": { temperature: 0.1 } };
 				},
 			});
-			const unlabeled = attachGroupServer(makeModelInfo(), {
-				baseUrl: normalizeBaseUrl(TEST_BASE_URL),
-				apiKey: "test-key",
-			});
+			const unlabeled: GroupServer = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "test-key" };
 			const body = await withConfig({ "models.parameters": { "test-model": { temperature: 0.8 } } }, () =>
-				captureRequestBody(provider, unlabeled, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+				captureRequestBody(
+					provider,
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ group: unlabeled }
+				)
 			);
 			assert.strictEqual(body.temperature, 0.8, "only the global setting applies");
 			assert.strictEqual(asked, 0, "the resolver is never called without a label");
@@ -624,7 +682,7 @@ suite("provider/request contract", () => {
 				(body.tools as readonly { function: { parameters: Record<string, unknown> } }[])[0]?.function.parameters;
 
 			const defaultBody = await withConfig({}, () =>
-				captureRequestBody(makeProvider(TEST_BASE_URL), attachedModelInfo, opts)
+				captureRequestBody(makeProvider(TEST_BASE_URL), servedModel, opts)
 			);
 			const defaultParameters = parametersOf(defaultBody);
 			assert.ok(defaultParameters, "the tool must ride the request");
@@ -634,7 +692,7 @@ suite("provider/request contract", () => {
 			);
 
 			const extendedBody = await withConfig({ "chat.additionalToolSchemaKeywords": ["propertyNames"] }, () =>
-				captureRequestBody(makeProvider(TEST_BASE_URL), attachedModelInfo, opts)
+				captureRequestBody(makeProvider(TEST_BASE_URL), servedModel, opts)
 			);
 			const extendedParameters = parametersOf(extendedBody);
 			assert.ok(extendedParameters, "the tool must ride the request");
@@ -658,14 +716,22 @@ suite("provider/request contract", () => {
 					getEntryApiVersion: (label, versionBaseUrl) =>
 						label === "Default" && versionBaseUrl === TEST_BASE_URL ? version : undefined,
 				});
+				// Discovery re-roots under the same version, so the serve that puts the group in the window answers there.
+				const root = version === undefined ? "/v1" : version === "" ? "" : `/${version}`;
 				mswServer.use(
+					http.get(`${TEST_BASE_URL}${root}/model/info`, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)),
+					http.get(`${TEST_BASE_URL}${root}/models`, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)),
 					http.post(`${TEST_BASE_URL}${path}`, ({ request }) => {
 						chatUrl = request.url;
 						return sseResponse("data: [DONE]\n\n");
 					})
 				);
+				await provider.provideLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
 				await provider.provideLanguageModelChatResponse(
-					attachedModelInfo,
+					servedModel,
 					[userMessage("test")],
 					{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
 					{ report: () => {} },
@@ -808,9 +874,9 @@ suite("provider/request contract", () => {
 					litellm: {
 						rawModelId: "test-model",
 						supportsPromptCaching: false,
-						outputLimitSource: "defaults",
+						defaultMaxTokens: 4096,
 						supportsAudioInput: true,
-						serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+						serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 4096 },
 					},
 				}),
 				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
@@ -861,185 +927,164 @@ suite("provider/request contract", () => {
 			],
 		});
 
-		test("runtime modelOptions.max_tokens wins over configured models.parameters", async () => {
-			const body = await withConfig({ "models.parameters": { "test-model": { max_tokens: 2222 } } }, () =>
-				captureRequestBody(createConfiguredProvider(), modelInfo, {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-					modelOptions: { max_tokens: 1234 },
-				})
-			);
-			assert.strictEqual(body.max_tokens, 1234);
-		});
+		const catalogFilling = (fields: Record<string, number>): CapabilityCatalogLookup => {
+			const entry = { kind: "found", id: "openai/test-model", fields } as const;
+			return {
+				byExactId: (id) => (id === entry.id ? entry : { kind: "not-found" }),
+				byRawModelId: (rawId) => (rawId === "test-model" ? entry : { kind: "not-found" }),
+			};
+		};
 
-		test("runtime modelOptions.max_tokens wins over the fallback cap", async () => {
-			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(createConfiguredProvider(), modelInfo, {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-					modelOptions: { max_tokens: 1234 },
-				})
-			);
-			assert.strictEqual(body.max_tokens, 1234);
-		});
+		/** Metadata an earlier build minted: no request default stamped, only the provenance word it carried then. */
+		const olderMetadata = (maxOutputTokens: number, outputLimitSource: string) =>
+			({
+				...makeModelInfo({ maxOutputTokens }),
+				litellm: {
+					rawModelId: "test-model",
+					supportsPromptCaching: false,
+					outputLimitSource,
+					group: groupIdentity(testGroupServer(), groupClientId(testGroupServer())),
+				},
+			}) as unknown as LiteLLMModelInfo;
 
-		test("configured models.parameters.max_tokens wins over the fallback cap", async () => {
-			const body = await withConfig({ "models.parameters": { "test-model": { max_tokens: 2222 } } }, () =>
-				captureRequestBody(createConfiguredProvider(), modelInfo, {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-				})
-			);
-			assert.strictEqual(body.max_tokens, 2222);
-		});
+		interface MaxTokensCase {
+			readonly name: string;
+			/** The listing the model registers from; a row without one sends `model` by hand. */
+			readonly discovery?: unknown;
+			readonly model?: LiteLLMModelInfo;
+			readonly config?: Record<string, unknown>;
+			readonly modelOptions?: Record<string, unknown>;
+			readonly catalog?: CapabilityCatalogLookup;
+			/** maxOutputTokens as the host sees it. */
+			readonly advertised: number;
+			/** max_tokens as the server receives it. */
+			readonly wire: number;
+		}
 
-		test("without runtime or configured value, falls back to min(4096, model max output)", async () => {
-			const bodyLargeModel = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(createConfiguredProvider(), modelInfo, {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-				})
-			);
-			assert.strictEqual(bodyLargeModel.max_tokens, 4096, "Cap applies when the model allows more");
+		const CASES: readonly MaxTokensCase[] = [
+			{
+				name: "a server-declared limit",
+				discovery: infoListing({ max_output_tokens: 32000 }),
+				advertised: 32000,
+				wire: 32000,
+			},
+			{ name: "a floor-filled limit", discovery: infoListing({}), advertised: 16000, wire: 4096 },
+			{
+				name: "merged deployments, every one declared",
+				discovery: infoListing({ max_output_tokens: 32000 }, { max_output_tokens: 24000 }),
+				advertised: 24000,
+				wire: 24000,
+			},
+			{
+				name: "merged deployments, one undeclared",
+				discovery: infoListing({ max_output_tokens: 32000 }, {}),
+				advertised: 16000,
+				wire: 4096,
+			},
+			{
+				name: "merged deployments, the declared minimum already under the cap",
+				discovery: infoListing({ max_output_tokens: 2000 }, {}),
+				advertised: 2000,
+				wire: 2000,
+			},
+			{
+				name: "an aggregate entry, every provider declared",
+				model: makeModelInfo({ id: "test-model:cheapest" }),
+				discovery: providersListing({ max_output_tokens: 32000 }, { max_output_tokens: 24000 }),
+				advertised: 24000,
+				wire: 24000,
+			},
+			{
+				name: "an aggregate entry, one provider undeclared",
+				model: makeModelInfo({ id: "test-model:fastest" }),
+				discovery: providersListing({ max_output_tokens: 32000 }, {}),
+				advertised: 16000,
+				wire: 4096,
+			},
+			{
+				name: "a user capability record over a floor fill",
+				discovery: infoListing({}),
+				config: { "models.capabilities": { "test-model": { max_output_tokens: 32000 } } },
+				advertised: 32000,
+				wire: 32000,
+			},
+			{
+				name: "a user _fallback fill over a floor fill",
+				discovery: infoListing({}),
+				config: { "models.capabilities": { "test-model": { _fallback: true, max_output_tokens: 32000 } } },
+				advertised: 32000,
+				wire: 32000,
+			},
+			{
+				name: "an _openrouter_model directive over a floor fill",
+				discovery: infoListing({}),
+				config: { "models.capabilities": { "test-model": { _openrouter_model: "openai/test-model" } } },
+				catalog: catalogFilling({ max_output_tokens: 24000 }),
+				advertised: 24000,
+				wire: 4096,
+			},
+			{
+				name: "an OpenRouter catalog fill over a floor fill",
+				discovery: infoListing({}),
+				catalog: catalogFilling({ max_output_tokens: 24000 }),
+				advertised: 24000,
+				wire: 4096,
+			},
+			{
+				name: "a runtime option over a configured record and a declared limit",
+				discovery: infoListing({ max_output_tokens: 32000 }),
+				config: { "models.parameters": { "test-model": { max_tokens: 2222 } } },
+				modelOptions: { max_tokens: 1234 },
+				advertised: 32000,
+				wire: 1234,
+			},
+			{
+				name: "a configured record over a declared limit",
+				discovery: infoListing({ max_output_tokens: 32000 }),
+				config: { "models.parameters": { "test-model": { max_tokens: 2222 } } },
+				advertised: 32000,
+				wire: 2222,
+			},
+			{
+				name: "older metadata, a guessed limit above the cap",
+				model: olderMetadata(8000, "defaults"),
+				advertised: 8000,
+				wire: 4096,
+			},
+			{
+				name: "older metadata, a guessed limit under the cap",
+				model: olderMetadata(2000, "defaults"),
+				advertised: 2000,
+				wire: 2000,
+			},
+			{
+				name: "older metadata, a server-declared limit",
+				model: olderMetadata(8000, "provider"),
+				advertised: 8000,
+				wire: 8000,
+			},
+			{ name: "older metadata, a user-set limit", model: olderMetadata(8000, "user"), advertised: 8000, wire: 8000 },
+			{ name: "older metadata, an unknown word", model: olderMetadata(8000, "forged"), advertised: 8000, wire: 4096 },
+		];
 
-			const bodySmallModel = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(createConfiguredProvider(), makeModelInfo({ maxOutputTokens: 2000 }), {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-				})
-			);
-			assert.strictEqual(bodySmallModel.max_tokens, 2000, "Model max wins when below the cap");
-		});
-
-		test("a server-declared output limit is sent uncapped", async () => {
-			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(
-					createConfiguredProvider(),
-					modelInfo,
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{ discoveryPayload: infoListing({ max_output_tokens: 32000 }), useDiscoveredModel: true }
-				)
-			);
-			assert.strictEqual(body.max_tokens, 32000, "an admin's declared limit must not be clamped to 4096");
-		});
-
-		test("a user-overridden output limit (modelCapabilities) is sent uncapped like a declared one", async () => {
-			// The capability override path stamps outputLimitSource: "user"; the request path must honor it like
-			// "provider" - the user's number is not a guess.
-			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(
-					createConfiguredProvider(),
-					makeModelInfo({
-						maxOutputTokens: 32000,
-						litellm: {
-							rawModelId: "test-model",
-							supportsPromptCaching: false,
-							outputLimitSource: "user",
-							serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
-						},
-					}),
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto }
-				)
-			);
-			assert.strictEqual(body.max_tokens, 32000, "a user-set limit must not be clamped to 4096");
-		});
-
-		test("a defaults-derived output limit stays capped at 4096", async () => {
-			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(
-					createConfiguredProvider(),
-					modelInfo,
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{ discoveryPayload: infoListing({}), useDiscoveredModel: true }
-				)
-			);
-			assert.strictEqual(body.max_tokens, 4096, "the floor-guessed output limit must not escape the cap");
-		});
-
-		test("runtime and configured max_tokens still outrank a server-declared limit", async () => {
-			const declared = { discoveryPayload: infoListing({ max_output_tokens: 32000 }), useDiscoveredModel: true };
-			const runtime = await withConfig({ "models.parameters": { "test-model": { max_tokens: 2222 } } }, () =>
-				captureRequestBody(
-					createConfiguredProvider(),
-					modelInfo,
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto, modelOptions: { max_tokens: 1234 } },
-					declared
-				)
-			);
-			assert.strictEqual(runtime.max_tokens, 1234);
-
-			const configured = await withConfig({ "models.parameters": { "test-model": { max_tokens: 2222 } } }, () =>
-				captureRequestBody(
-					createConfiguredProvider(),
-					modelInfo,
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					declared
-				)
-			);
-			assert.strictEqual(configured.max_tokens, 2222);
-		});
-
-		test("a merged load-balanced model keeps its declared minimum uncapped", async () => {
-			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(
-					createConfiguredProvider(),
-					modelInfo,
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{
-						discoveryPayload: infoListing({ max_output_tokens: 32000 }, { max_output_tokens: 24000 }),
-						useDiscoveredModel: true,
-					}
-				)
-			);
-			assert.strictEqual(body.max_tokens, 24000, "every deployment declared a limit, so the merged minimum is honored");
-		});
-
-		test("a merged model with an undeclared deployment falls back to the cap", async () => {
-			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(
-					createConfiguredProvider(),
-					modelInfo,
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{ discoveryPayload: infoListing({ max_output_tokens: 32000 }, {}), useDiscoveredModel: true }
-				)
-			);
-			assert.strictEqual(body.max_tokens, 4096, "one defaults-filled deployment demotes the merged limit to a guess");
-		});
-
-		test("an aggregate entry keeps a fully declared minimum uncapped", async () => {
-			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(
-					createConfiguredProvider(),
-					makeModelInfo({ id: "test-model:cheapest" }),
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{
-						discoveryPayload: providersListing({ max_output_tokens: 32000 }, { max_output_tokens: 24000 }),
-						useDiscoveredModel: true,
-					}
-				)
-			);
-			assert.strictEqual(body.max_tokens, 24000);
-		});
-
-		test("an aggregate entry falls back to the cap when any provider left its limit to defaults", async () => {
-			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(
-					createConfiguredProvider(),
-					makeModelInfo({ id: "test-model:fastest" }),
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{ discoveryPayload: providersListing({ max_output_tokens: 32000 }, {}), useDiscoveredModel: true }
-				)
-			);
-			assert.strictEqual(body.max_tokens, 4096);
-		});
-
-		test("a wire payload claiming provider provenance without a declared limit stays capped end-to-end", async () => {
-			// The provider schema is a loose pass-through, so a server payload can carry the merge's internal
-			// output_limit_source marker; with no declared limit the request must stay under the cap.
-			const body = await withConfig({ "models.parameters": {} }, () =>
-				captureRequestBody(
-					createConfiguredProvider(),
-					makeModelInfo({ id: "test-model:provider-0" }),
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{ discoveryPayload: providersListing({ output_limit_source: "provider" }), useDiscoveredModel: true }
-				)
-			);
-			assert.strictEqual(body.max_tokens, 4096, "a spoofed provenance claim must not lift the cap");
+		test("the advertised output limit and the wire max_tokens, per limit source", async () => {
+			for (const row of CASES) {
+				const catalog = row.catalog;
+				const provider =
+					catalog === undefined
+						? createConfiguredProvider()
+						: makeProvider(TEST_BASE_URL, "test-key", undefined, { getCatalogLookup: () => catalog });
+				const { body, model } = await withConfig({ "models.parameters": {}, ...row.config }, () =>
+					captureRequest(
+						provider,
+						row.model ?? modelInfo,
+						{ toolMode: vscode.LanguageModelChatToolMode.Auto, modelOptions: row.modelOptions },
+						row.discovery === undefined ? {} : { discoveryPayload: row.discovery, useDiscoveredModel: true }
+					)
+				);
+				assert.strictEqual(model.maxOutputTokens, row.advertised, `${row.name}: advertised`);
+				assert.strictEqual(body.max_tokens, row.wire, `${row.name}: wire`);
+			}
 		});
 	});
 
@@ -1192,10 +1237,14 @@ suite("provider/request contract", () => {
 
 		test("rejects when the estimated input exceeds the model token limit without sending a request", async () => {
 			const provider = makeProvider(TEST_BASE_URL);
+			await serveDefaultGroup(provider);
 			const requests = trackUnexpectedRequests();
 			await assert.rejects(
 				provider.provideLanguageModelChatResponse(
-					attachGroupServer(makeModelInfo({ maxInputTokens: 10 }), testGroupServer()),
+					attachGroup(
+						makeModelInfo({ maxInputTokens: 10 }),
+						groupIdentity(testGroupServer(), groupClientId(testGroupServer()))
+					),
 					[userMessage("x".repeat(4000))],
 					{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
 					{ report: () => {} },
@@ -1223,10 +1272,15 @@ suite("provider/request contract", () => {
 				expected,
 				"the sent messages must price back to the pre-send estimate"
 			);
+			const provider = makeProvider(TEST_BASE_URL);
+			await serveDefaultGroup(provider);
 			const requests = trackUnexpectedRequests();
 			await assert.rejects(
-				makeProvider(TEST_BASE_URL).provideLanguageModelChatResponse(
-					attachGroupServer(makeModelInfo({ maxInputTokens: expected - 1 }), testGroupServer()),
+				provider.provideLanguageModelChatResponse(
+					attachGroup(
+						makeModelInfo({ maxInputTokens: expected - 1 }),
+						groupIdentity(testGroupServer(), groupClientId(testGroupServer()))
+					),
 					messages,
 					{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
 					{ report: () => {} },
@@ -1239,6 +1293,7 @@ suite("provider/request contract", () => {
 
 		test("rejects requests with more than 128 tools without sending a request", async () => {
 			const provider = makeProvider(TEST_BASE_URL);
+			await serveDefaultGroup(provider);
 			const tools = Array.from({ length: 129 }, (_, i) => ({
 				name: `tool_${i}`,
 				description: "a tool",
@@ -1247,7 +1302,7 @@ suite("provider/request contract", () => {
 			const requests = trackUnexpectedRequests();
 			await assert.rejects(
 				provider.provideLanguageModelChatResponse(
-					attachedModelInfo,
+					servedModel,
 					[userMessage("hi")],
 					{
 						toolMode: vscode.LanguageModelChatToolMode.Auto,
@@ -1270,7 +1325,7 @@ suite("provider/request contract", () => {
 				inputSchema: { type: "object", properties: {} },
 			}));
 			const body = await withConfig({ "chat.maxToolsPerRequest": 129 }, () =>
-				captureRequestBody(makeProvider(TEST_BASE_URL), attachedModelInfo, {
+				captureRequestBody(makeProvider(TEST_BASE_URL), servedModel, {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 					tools,
 				} as unknown as vscode.ProvideLanguageModelChatResponseOptions)
@@ -1296,54 +1351,40 @@ suite("provider/request contract", () => {
 			});
 		}
 
-		function send(client: ChatClient, model: Parameters<ChatClient["send"]>[0]["model"]): Promise<void> {
+		/** The group every mirrored-message request here routes through; the provider resolves it before send. */
+		const MIRROR_SERVER: GroupServer = {
+			baseUrl: normalizeBaseUrl(TEST_BASE_URL),
+			apiKey: "test-key",
+			label: "Mirror",
+		};
+
+		function send(
+			client: ChatClient,
+			model: LiteLLMModelInfo,
+			options: vscode.ProvideLanguageModelChatResponseOptions = {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} as vscode.ProvideLanguageModelChatResponseOptions,
+			messages: vscode.LanguageModelChatRequestMessage[] = [userMessage("hi")]
+		): Promise<void> {
 			return client.send({
-				model,
-				messages: [userMessage("hi")],
-				options: {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-				} as vscode.ProvideLanguageModelChatResponseOptions,
+				metadata: parseModelMetadata(model),
+				server: MIRROR_SERVER,
+				messages,
+				options,
 				progress: { report: () => {} },
 				token: new vscode.CancellationTokenSource().token,
 			});
 		}
 
-		test("a model without an attached server rejects with the mirrored, classified routing error", async () => {
-			const client = new ChatClient({ userAgent: "test" });
-			await expectMirroredRejection(
-				send(client, makeModelInfo({ id: "ghost" })),
-				/^Model "ghost" is not registered with any configured server\. Refresh the model list and try again\.$/
-			);
-			// Every served model carries its group's connection, so a model without one is a boundary break and must
-			// fail as a classified error - the classification keeps the model ID out of public logs.
-			await assert.rejects(send(client, makeModelInfo({ id: "ghost" })), (e: unknown) => {
-				assert.strictEqual(
-					(e as Error & { logClassification?: string }).logClassification,
-					"RequestRouting(model without attached server)"
-				);
-				return true;
-			});
-		});
-
 		test("more tools than the cap rejects with the mirrored tools-cap message", async () => {
 			const client = new ChatClient({ userAgent: "test" });
-			const model = attachGroupServer(makeModelInfo(), {
-				baseUrl: normalizeBaseUrl(TEST_BASE_URL),
-				apiKey: "test-key",
-				label: "Mirror",
-			});
+			const model = makeModelInfo();
 			const tools = Array.from({ length: 129 }, (_, i) => ({ name: `tool_${i}`, description: "a tool" }));
 			await assert.rejects(
-				client.send({
-					model,
-					messages: [userMessage("hi")],
-					options: {
-						toolMode: vscode.LanguageModelChatToolMode.Auto,
-						tools,
-					} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
-					progress: { report: () => {} },
-					token: new vscode.CancellationTokenSource().token,
-				}),
+				send(client, model, {
+					toolMode: vscode.LanguageModelChatToolMode.Auto,
+					tools,
+				} as unknown as vscode.ProvideLanguageModelChatResponseOptions),
 				(e: unknown) => {
 					assert.ok(e instanceof Error);
 					assert.strictEqual(
@@ -1358,49 +1399,30 @@ suite("provider/request contract", () => {
 
 		test("an over-limit prompt rejects with the mirrored token-limit message", async () => {
 			const client = new ChatClient({ userAgent: "test" });
-			const model = attachGroupServer(makeModelInfo({ maxInputTokens: 10 }), {
-				baseUrl: normalizeBaseUrl(TEST_BASE_URL),
-				apiKey: "test-key",
-				label: "Mirror",
+			const model = makeModelInfo({ maxInputTokens: 10 });
+			await assert.rejects(send(client, model, undefined, [userMessage("x".repeat(4000))]), (e: unknown) => {
+				assert.ok(e instanceof Error);
+				const paragraphs = e.message.split("\n\n");
+				assert.strictEqual(paragraphs.length, 2, e.message);
+				const [summary, details] = paragraphs;
+				assert.strictEqual(
+					summary,
+					"This conversation looks too long for the model - trim messages or attachments, or raise the model's " +
+						"input limit in settings if it is wrong."
+				);
+				assert.match(
+					details ?? "",
+					/^Details: token limit exceeded before send: local estimate \d+ tokens \(messages \+ tools\), input limit 10$/
+				);
+				assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
+				return true;
 			});
-			await assert.rejects(
-				client.send({
-					model,
-					messages: [userMessage("x".repeat(4000))],
-					options: {
-						toolMode: vscode.LanguageModelChatToolMode.Auto,
-					} as vscode.ProvideLanguageModelChatResponseOptions,
-					progress: { report: () => {} },
-					token: new vscode.CancellationTokenSource().token,
-				}),
-				(e: unknown) => {
-					assert.ok(e instanceof Error);
-					const paragraphs = e.message.split("\n\n");
-					assert.strictEqual(paragraphs.length, 2, e.message);
-					const [summary, details] = paragraphs;
-					assert.strictEqual(
-						summary,
-						"This conversation looks too long for the model - trim messages or attachments, or raise the model's " +
-							"input limit in settings if it is wrong."
-					);
-					assert.match(
-						details ?? "",
-						/^Details: token limit exceeded before send: local estimate \d+ tokens \(messages \+ tools\), input limit 10$/
-					);
-					assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
-					return true;
-				}
-			);
 		});
 
 		test("an empty 200 body rejects with the mirrored no-response-body message", async () => {
 			mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => new HttpResponse(null, { status: 200 })));
 			const client = new ChatClient({ userAgent: "test" });
-			const model = attachGroupServer(makeModelInfo(), {
-				baseUrl: normalizeBaseUrl(TEST_BASE_URL),
-				apiKey: "test-key",
-				label: "Mirror",
-			});
+			const model = makeModelInfo();
 			await expectMirroredRejection(
 				send(client, model),
 				/^The server accepted the request but sent nothing back\. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server\.\n\nDetails: LiteLLM answered 200 with a missing response body \(http:\/\/litellm\.test\)$/

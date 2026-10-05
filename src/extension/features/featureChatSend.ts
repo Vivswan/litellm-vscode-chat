@@ -4,7 +4,7 @@ import type { OneShotChatMessage, OneShotClient } from "../../provider/transport
 import type { FeatureModelId, FeatureModelRef } from "../../shared/config/settingSpec";
 import { getRequestTimeout } from "../../shared/config/settings";
 import { entryConnectionFor } from "../servers/entryConnection";
-import { noEntryForConfiguredServer } from "./modelSettingError";
+import { configuredServerUnavailable } from "./modelSettingError";
 
 /**
  * The features on this pipeline, derived by exclusion: inline completions are the one model-picking feature NOT here
@@ -27,8 +27,8 @@ export async function featureChatSend(
 	log: (message: string, data?: unknown) => void
 ): Promise<string> {
 	const resolved = await entryConnectionFor(deps.secrets, ref.server);
-	if (resolved === undefined) {
-		throw noEntryForConfiguredServer(feature, ref.server);
+	if (resolved.kind !== "resolved") {
+		throw configuredServerUnavailable(feature, ref.server, resolved.kind);
 	}
 	return deps.oneShot.completeChatOnce(
 		resolved.connection,

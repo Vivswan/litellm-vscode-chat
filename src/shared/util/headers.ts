@@ -36,3 +36,34 @@ export function isValidHeaderName(name: string): boolean {
 export function isValidHeaderValue(value: string): boolean {
 	return /^[\t\x20-\x7e\x80-\xff]*$/.test(value);
 }
+
+/**
+ * Edge HTTP whitespace (tab, space, CR, LF) is exactly what Headers itself strips, so trimming it repairs a pasted
+ * trailing newline while a U+00A0 byte of a real key survives. The one trim rule for every credential position: the
+ * form, the host boundary, and the request-path narrowing all read through it.
+ */
+export function trimHttpWhitespace(value: string): string {
+	return value.replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "");
+}
+
+/**
+ * A credential as it would travel, or undefined when no repair makes it sendable. Every API-key unit reads through
+ * this, so the chat, usage, and draft-probe paths cannot disagree on which keys travel.
+ */
+export function sendableHeaderValue(value: string): string | undefined {
+	const trimmed = trimHttpWhitespace(value);
+	return isValidHeaderValue(trimmed) ? trimmed : undefined;
+}
+
+/**
+ * A configured string as a usable field: present, HTTP-whitespace trimmed, and non-empty; anything else is absent. The
+ * one usable-text rule for labels, URLs, header names, model IDs, and credentials alike, so a padded value spells the
+ * same field on every surface and a U+00A0 inside or beside it is kept, never repaired.
+ */
+export function usableHttpText(value: unknown): string | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const trimmed = trimHttpWhitespace(value);
+	return trimmed.length > 0 ? trimmed : undefined;
+}

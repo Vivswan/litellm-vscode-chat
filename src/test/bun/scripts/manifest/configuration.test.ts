@@ -22,11 +22,11 @@ const MINI: ConfigurationInputs = {
 		{ id: "beta", settings: ["beta.mode", "beta.model", "beta.delay"] },
 	],
 	shapes: {
-		"alpha.count": { kind: "number", spec: { default: 4, minimum: 1, nullable: false, integer: true } },
+		"alpha.count": { kind: "number", spec: { default: 4, minimum: 1, maximum: 10, nullable: false, integer: true } },
 		"alpha.enabled": { kind: "boolean", spec: { default: false } },
 		"beta.mode": { kind: "enum", values: ["fast", "slow"], default: "fast" },
 		"beta.model": { kind: "featureModel" },
-		"beta.delay": { kind: "number", spec: { default: null, minimum: 0, nullable: true } },
+		"beta.delay": { kind: "number", spec: { default: null, minimum: 0, maximum: 60000, nullable: true } },
 	},
 	presentation: {
 		"alpha.count": { scope: "window", description: "plain" },
@@ -50,6 +50,7 @@ describe("manifest configuration renderer", () => {
 							type: "integer",
 							default: 4,
 							minimum: 1,
+							maximum: 10,
 							description: "%litellm.config.alpha.count.description%",
 						},
 						"litellm-vscode-chat.alpha.enabled": {
@@ -88,6 +89,7 @@ describe("manifest configuration renderer", () => {
 							default: null,
 							restricted: true,
 							minimum: 0,
+							maximum: 60000,
 							description: "%litellm.config.beta.delay.description%",
 						},
 					},

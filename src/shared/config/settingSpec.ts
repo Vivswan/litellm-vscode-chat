@@ -2,7 +2,7 @@
  * The single source of truth for the extension's configuration section.
  *
  * package.json's contributed configuration is generated from this table (scripts/dev/manifest), the settings readers
- * clamp against it, and the dashboard protocol layers its own presentation metadata on top.
+ * judge against it, and the dashboard protocol layers its own presentation metadata on top.
  *
  * Pure constants: no vscode, no Node, no zod (this module rides into the webview bundle and loads outside the host).
  */
@@ -140,43 +140,108 @@ export const DEFAULT_TOKEN_ESTIMATION_MODE: TokenEstimationMode = "auto";
  */
 export const DEFAULT_CURRENCY_SYMBOL = "$";
 
-/** The floor both timeout settings clamp to; sub-second timeouts would abort requests before they leave. */
+/** The floor of both timeout settings; a sub-second timeout would abort requests before they leave. */
 export const MIN_TIMEOUT_MS = 1000;
 
 /**
- * The value contract of one number setting, exactly what package.json declares for it.
+ * The ceiling of every timer-fed millisecond setting: the largest delay the platform's timers schedule as written.
+ * Age windows, which only compare elapsed time, are not bound by it.
+ *   2^31 -> setTimeout and AbortSignal.timeout fire after 1 ms, so every request times out at once
+ *   2^32 -> AbortSignal.timeout throws a RangeError
+ */
+export const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/**
+ * The value contract of one number setting, exactly what package.json declares for it; a configured value outside
+ * it reads as the default (acceptsNumberSetting), never as a clamped or rounded guess.
  *
- * `integer` is the one source of the integer-only fact: the manifest declares `"type": "integer"`, the settings reader
- * floors fractions, and the dashboard's count grammar refuses them.
+ * `integer` is the one source of the integer-only fact: the manifest declares `"type": "integer"`, the reader and the
+ * dashboard refuse fractions. Every millisecond setting is integer-only because the platform's timers are:
+ * AbortSignal.timeout(1000.5) throws a RangeError.
  *   Nullable settings may default to null -> "unset, derive it"
  */
-export type NumberSettingValueSpec = { readonly integer?: true } & (
-	| { readonly default: number; readonly minimum: number; readonly nullable: false }
-	| { readonly default: number | null; readonly minimum: number; readonly nullable: true }
+export type NumberSettingValueSpec = {
+	readonly integer?: true;
+	readonly minimum: number;
+	readonly maximum: number;
+	/** The documented off switch: exactly this value is taken although it lies below the minimum. */
+	readonly offValue?: 0;
+} & (
+	| { readonly default: number; readonly nullable: false }
+	| { readonly default: number | null; readonly nullable: true }
 );
 
 export interface BooleanSettingValueSpec {
 	readonly default: boolean;
 }
 
+/**
+ * The floor of a running usage poll: a tiny interval ("1") would be a permanent as-fast-as-the-network-allows loop of
+ * several GETs per server. Zero stays the off switch (usage.pollInterval's offValue).
+ */
+export const MIN_USAGE_POLL_INTERVAL_MS = 30000;
+
 export const NUMBER_SETTING_SPECS = {
-	"chat.timeout": { default: 300000, minimum: MIN_TIMEOUT_MS, nullable: false },
-	// A tool count, not milliseconds.
-	"chat.maxToolsPerRequest": { default: 128, minimum: 1, nullable: false, integer: true },
-	"discovery.timeout": { default: 30000, minimum: MIN_TIMEOUT_MS, nullable: false },
-	// A zero TTL is legal: it disables serving from the discovery cache.
-	"discovery.cacheTtl": { default: 3600000, minimum: 0, nullable: false },
-	// Zero is legal: it disables stale serving.
-	"discovery.staleServeWindow": { default: 600000, minimum: 0, nullable: false },
-	// Milliseconds like the other cadence settings. Zero is legal and disables usage polling entirely (explicit refresh
-	// still works); negatives clamp to it.
-	"usage.pollInterval": { default: 300000, minimum: 0, nullable: false },
+	"chat.timeout": { default: 300000, minimum: MIN_TIMEOUT_MS, maximum: MAX_TIMER_MS, nullable: false, integer: true },
+	// A tool count, not milliseconds; nothing short of exact-integer range bounds it.
+	"chat.maxToolsPerRequest": {
+		default: 128,
+		minimum: 1,
+		maximum: Number.MAX_SAFE_INTEGER,
+		nullable: false,
+		integer: true,
+	},
+	"discovery.timeout": {
+		default: 30000,
+		minimum: MIN_TIMEOUT_MS,
+		maximum: MAX_TIMER_MS,
+		nullable: false,
+		integer: true,
+	},
+	// An age window: compared against elapsed time, never scheduled, so a 30-day TTL is legal and only exact-integer
+	// range bounds it. A zero TTL is legal too: it disables serving from the discovery cache.
+	"discovery.cacheTtl": {
+		default: 3600000,
+		minimum: 0,
+		maximum: Number.MAX_SAFE_INTEGER,
+		nullable: false,
+		integer: true,
+	},
+	// An age window like cacheTtl. Zero is legal: it disables stale serving.
+	"discovery.staleServeWindow": {
+		default: 600000,
+		minimum: 0,
+		maximum: Number.MAX_SAFE_INTEGER,
+		nullable: false,
+		integer: true,
+	},
+	// Milliseconds like the other cadence settings. Zero is the documented off switch (explicit refresh still works).
+	"usage.pollInterval": {
+		default: 300000,
+		minimum: MIN_USAGE_POLL_INTERVAL_MS,
+		maximum: MAX_TIMER_MS,
+		offValue: 0,
+		nullable: false,
+		integer: true,
+	},
 	// The first poll after activation: soon, but never on the activation path.
-	"usage.initialRefreshDelay": { default: 5000, minimum: 0, nullable: false },
+	"usage.initialRefreshDelay": { default: 5000, minimum: 0, maximum: MAX_TIMER_MS, nullable: false, integer: true },
 	// Long enough to coalesce settings.json keystroke bursts.
-	"usage.serversChangeRefreshDelay": { default: 2000, minimum: 0, nullable: false },
-	// Zero is legal.
-	"usage.pollingOffFreshnessWindow": { default: 600000, minimum: 0, nullable: false },
+	"usage.serversChangeRefreshDelay": {
+		default: 2000,
+		minimum: 0,
+		maximum: MAX_TIMER_MS,
+		nullable: false,
+		integer: true,
+	},
+	// An age window like cacheTtl. Zero is legal.
+	"usage.pollingOffFreshnessWindow": {
+		default: 600000,
+		minimum: 0,
+		maximum: Number.MAX_SAFE_INTEGER,
+		nullable: false,
+		integer: true,
+	},
 } as const satisfies Record<string, NumberSettingValueSpec>;
 
 export type NumberSettingId = keyof typeof NUMBER_SETTING_SPECS;
@@ -184,6 +249,47 @@ export type NumberSettingId = keyof typeof NUMBER_SETTING_SPECS;
 export function isIntegerSetting(id: NumberSettingId): boolean {
 	const spec = NUMBER_SETTING_SPECS[id];
 	return "integer" in spec && spec.integer === true;
+}
+
+export function numberSettingOffValue(id: NumberSettingId): number | undefined {
+	const spec = NUMBER_SETTING_SPECS[id];
+	return "offValue" in spec ? spec.offValue : undefined;
+}
+
+/**
+ * Whether a configured value is one the setting takes as written. Anything else reads as the default, never as a
+ * clamped or rounded guess: the reader (settings.ts), the host write (dashboard/intents.ts), the import gate
+ * (settingsTransfer/importPlan.ts), the form (dashboard/presenters.ts), and the Diagnostics tab (configDiagnostics.ts)
+ * all judge by this one rule, so they name the same bound.
+ */
+export function acceptsNumberSetting(id: NumberSettingId, raw: unknown): boolean {
+	const spec = NUMBER_SETTING_SPECS[id];
+	if (raw === null) {
+		return spec.nullable;
+	}
+	const offValue = numberSettingOffValue(id);
+	if (offValue !== undefined && raw === offValue) {
+		return true;
+	}
+	return (
+		typeof raw === "number" &&
+		Number.isFinite(raw) &&
+		(!isIntegerSetting(id) || Number.isInteger(raw)) &&
+		raw >= spec.minimum &&
+		raw <= spec.maximum
+	);
+}
+
+/**
+ * The contract as English bound text for logs, failure-detail lines, and the copyable diagnostics block, so every
+ * English surface names the same bound.
+ *   "between 1000 and 2147483647" / "between 30000 and 2147483647, or 0 to turn it off"
+ */
+export function numberSettingBoundText(id: NumberSettingId): string {
+	const { minimum, maximum } = NUMBER_SETTING_SPECS[id];
+	const offValue = numberSettingOffValue(id);
+	const range = `between ${minimum} and ${maximum}`;
+	return offValue === undefined ? range : `${range}, or ${offValue} to turn it off`;
 }
 
 export const BOOLEAN_SETTING_SPECS = {

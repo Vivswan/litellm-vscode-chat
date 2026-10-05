@@ -4,10 +4,10 @@ import {
 	classifyOverall,
 	latestCheckedMs,
 	overallStatusText,
+	parseNumberDraft,
 	servedModelsBreakdown,
 	serverOutcomeParts,
 	serverOutcomeText,
-	unitBehavior,
 	zeroModelEnglishDetail,
 	zeroModelExplanation,
 } from "../../../dashboard/presenters";
@@ -15,7 +15,7 @@ import type { DashboardServer } from "../../../dashboard/viewModels";
 import type { CapabilityJsonValue } from "../../../shared/config/capabilityResolution";
 import { capabilityField } from "../../../shared/config/capabilityResolution";
 import type { NumberSettingId } from "../../../shared/config/settingSpec";
-import { isIntegerSetting, NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
+import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 
 /**
  * These lines are what users copy out of the Diagnostics tab into issue reports, so the exact text is pinned once here
@@ -513,15 +513,28 @@ describe("dashboard/presenters renderers", () => {
 });
 
 describe("dashboard/presenters number-unit grammars", () => {
-	test("a setting's draft grammar refuses fractions exactly when its spec is integer-only", () => {
+	test("a setting's draft parse refuses a fraction with its own grammar's or the spec's message, never rounds it", () => {
 		// The integer-only fact has one source, the spec's `integer` flag, so a new integer setting cannot ship a unit
-		// whose input accepts values the host would silently floor.
+		// whose input commits values the host would refuse. Total over NumberSettingId: a new setting states its message.
+		const between = (id: NumberSettingId) =>
+			`${id} must be a whole number between ${NUMBER_SETTING_SPECS[id].minimum} and ${NUMBER_SETTING_SPECS[id].maximum}.`;
+		const refusalOf15: Record<NumberSettingId, string> = {
+			"chat.timeout": between("chat.timeout"),
+			"chat.maxToolsPerRequest": between("chat.maxToolsPerRequest"),
+			"discovery.timeout": between("discovery.timeout"),
+			"discovery.cacheTtl": between("discovery.cacheTtl"),
+			"discovery.staleServeWindow": between("discovery.staleServeWindow"),
+			"usage.pollInterval":
+				"usage.pollInterval must be a whole number between 30000 and 2147483647, or 0 to turn it off.",
+			"usage.initialRefreshDelay": between("usage.initialRefreshDelay"),
+			"usage.serversChangeRefreshDelay": between("usage.serversChangeRefreshDelay"),
+			"usage.pollingOffFreshnessWindow": between("usage.pollingOffFreshnessWindow"),
+		};
 		for (const id of Object.keys(NUMBER_SETTING_SPECS) as NumberSettingId[]) {
-			const fractionReading = unitBehavior(id).parseDraft("1.5");
-			assert.strictEqual(
-				fractionReading === undefined,
-				isIntegerSetting(id),
-				`${id}: the draft grammar and the spec's integer flag disagree about fractions`
+			assert.deepStrictEqual(
+				parseNumberDraft(id, "1.5"),
+				{ kind: "invalid", problem: refusalOf15[id] },
+				`${id}: the draft parse of "1.5"`
 			);
 		}
 	});
