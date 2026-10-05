@@ -53,7 +53,8 @@ export interface ExternalGroupResolution {
  * resolution (ServerSyncEngine.resolveDeclaredIdentities), so a stale or forged handle cannot land on a group the
  * setting declares now, and cannot re-point at another host.
  *
- *   identity with client IDs      -> joinDeclared's passes claim one group for it (by ID, else by label and URL, else by URL alone)
+ *   identity with client IDs      -> joinDeclared's passes claim one group for it
+ *                                    (by ID, else by label and URL, else by URL alone)
  *   identity with none (a reject) -> its group is any group at its URL, so every one of them stays off limits
  */
 function resolveExternalSnapshot(

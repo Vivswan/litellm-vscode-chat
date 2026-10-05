@@ -252,8 +252,10 @@ const validation =
  *   rejected-entry            -> L1's auth block was hand-edited into a shape the parser refuses after its group, key baked in, was created
  *   label-only-entry          -> L1 was hand-edited down to its label; the pass keeps the label declared, yet nothing can join its group
  *   non-array-setting         -> the setting is mid-edit; the pass keeps every old label declared, yet nothing can join any group
- *   rejected-entry-shared-url -> the rejected L1's key lives in an unlabeled legacy group at H, beside another group at H the URL join would claim first
- *   malformed-after-resolution -> the setting turns into a non-array in the continuation between the resolution's return and the write
+ *   rejected-entry-shared-url -> the rejected L1's key lives in an unlabeled legacy group at H,
+ *                                beside another group at H the URL join would claim first
+ *   malformed-after-resolution -> the setting turns into a non-array in the continuation
+ *                                 between the resolution's return and the write
  */
 const WINDOWS: Record<string, Scenario> = {
 	"mid-pass": {
