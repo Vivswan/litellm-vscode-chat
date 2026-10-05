@@ -53,7 +53,6 @@ bun run setup-env:pwsh
 From the project directory:
 
 ```bash
-bun run lint:actions # lint GitHub Actions workflows
 bun run lint         # Biome formatting, lint, and import-order check (bun run format applies the fixes)
 bun run compile      # compile TypeScript
 bun run typecheck    # type-check all four tsconfig projects (compile builds only the root one)
