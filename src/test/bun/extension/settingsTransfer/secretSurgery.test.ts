@@ -6,6 +6,7 @@ import {
 	materializeEntrySecrets,
 	stripCredentialHeaders,
 	stripEntrySecrets,
+	stripUrlUserinfo,
 } from "../../../../extension/settingsTransfer/secretSurgery";
 
 function entryWith(auth: unknown): Record<string, unknown> {
@@ -145,9 +146,12 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 				entryWith({ virtualKey: { header: "x-key", name: "sk-ish" } }),
 				// A container at a known text position could hold text too.
 				entryWith({ oauth: { tokenUrl: ["sk"], clientId: "c" } }),
-				// Keys that name inherited members or the prototype: a walk that read the recursion table through the
-				// prototype certified the first (Object.prototype.toString returned truthy text) and threw on the second.
+				// Keys that name inherited members or the prototype. A walk that indexed the recursion table with the raw
+				// key certified toString (Object.prototype.toString returned truthy text) and threw on hasOwnProperty (an
+				// unbound call); the unsafe-key guard refuses constructor and __proto__ before any read.
 				entryWith({ toString: "sk-at-an-inherited-name" }),
+				entryWith({ constructor: "sk-at-the-constructor-key" }),
+				entryWith({ hasOwnProperty: "sk-at-a-method-name" }),
 				entryWith(JSON.parse('{"__proto__": "sk-at-a-prototype-key"}')),
 			]) {
 				assert.strictEqual(stripEntrySecrets(raw).unsanitizable, true, JSON.stringify(raw.auth));
@@ -315,6 +319,70 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 			assert.deepStrictEqual(result.removed, removed);
 			if (!result.unsanitizable) {
 				assert.deepStrictEqual(result.entry, { label: "A", baseUrl: "http://a.test", ...stripped });
+			}
+		});
+	});
+
+	describe("stripUrlUserinfo", () => {
+		// Drifts silently: the URL positions come from the shared field table and the credential verdict mirrors
+		// displayUrl, so a position the walk missed would leave `user:pw@` in a no-secrets file, a form only displayUrl
+		// hides (a credentialed URL inside a query parameter, the fail-closed tail of a refused value) would ride out
+		// uncounted, and a URL rewritten for a reason other than a credential (a tab the parser drops) would count as a
+		// secret in the export summary.
+		test.each<[string, Record<string, unknown>, Record<string, unknown> | undefined, number]>([
+			[
+				"every URL position (baseUrl, flat oauthTokenUrl, auth.oauth.tokenUrl, mcp.url) is rebuilt and counted",
+				{
+					baseUrl: "http://u:base-pw@a.test",
+					oauthTokenUrl: "http://u:flat-pw@idp.test",
+					auth: { oauth: { tokenUrl: "http://u:nested-pw@idp.test", clientId: "c" } },
+					mcp: { url: "http://u:mcp-pw@a.test/mcp" },
+				},
+				{
+					baseUrl: "http://a.test",
+					oauthTokenUrl: "http://idp.test",
+					auth: { oauth: { tokenUrl: "http://idp.test", clientId: "c" } },
+					mcp: { url: "http://a.test/mcp" },
+				},
+				4,
+			],
+			[
+				"a credentialed URL inside a query parameter is a cut the display form makes, so it counts",
+				{ baseUrl: "https://a.test/?next=https://u:query-pw@b.test" },
+				{ baseUrl: "https://a.test/?next=https://b.test" },
+				1,
+			],
+			[
+				'a refused value with an "@" fails closed to its tail, as displayUrl shows it, and counts',
+				{ baseUrl: "sk-credential-Q7@a.test:443" },
+				{ baseUrl: "a.test:443" },
+				1,
+			],
+			[
+				"a URL without a credential rides as written: a tab the parser drops is not one",
+				{ baseUrl: "http://a.test\t/v1", mcp: { url: "http://a.test/mcp" } },
+				{ baseUrl: "http://a.test\t/v1", mcp: { url: "http://a.test/mcp" } },
+				0,
+			],
+			[
+				"a URL-named key inside a models record is request text the user wrote, not an entry URL position",
+				{ models: { parameters: { "gpt-*": { url: "http://u:record-pw@hook.test" } } } },
+				{ models: { parameters: { "gpt-*": { url: "http://u:record-pw@hook.test" } } } },
+				0,
+			],
+			[
+				"a URL spelling at a key the grammar does not read (mcp.tokenUrl) is not a URL position",
+				{ mcp: { url: "http://a.test/mcp", tokenUrl: [] } },
+				{ mcp: { url: "http://a.test/mcp", tokenUrl: [] } },
+				0,
+			],
+		])("%s", (_name, fields, stripped, removed) => {
+			const raw = { label: "A", ...fields };
+			const result = stripUrlUserinfo(raw);
+			assert.strictEqual(result.unsanitizable, stripped === undefined);
+			assert.strictEqual(result.removed, removed);
+			if (!result.unsanitizable) {
+				assert.deepStrictEqual(result.entry, { label: "A", ...stripped });
 			}
 		});
 	});

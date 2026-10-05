@@ -130,6 +130,7 @@ suite("extension/settingsTransfer/exportBuild", () => {
 			{
 				label: "A",
 				baseUrl: "http://u:export-password@a.test",
+				oauthTokenUrl: "http://u:flat-password@idp.test",
 				auth: { oauth: { tokenUrl: "http://u:oauth-password@idp.test", clientId: "c" } },
 				mcp: { url: "http://u:mcp-password@a.test/mcp" },
 			},
@@ -145,6 +146,7 @@ suite("extension/settingsTransfer/exportBuild", () => {
 						{
 							label: "A",
 							baseUrl: "http://a.test",
+							oauthTokenUrl: "http://idp.test",
 							auth: { oauth: { tokenUrl: "http://idp.test", clientId: "c" } },
 							mcp: { url: "http://a.test/mcp" },
 						},
@@ -163,7 +165,7 @@ suite("extension/settingsTransfer/exportBuild", () => {
 			envelope: { [CONFIG_SECTION]: 1, exportedBy: "0.4.5", settings: { [SERVERS_SETTING_KEY]: servers } },
 			settingCount: 1,
 			serverCount: 1,
-			secretFieldCount: 3,
+			secretFieldCount: 4,
 			unmaterializedSecretCount: 0,
 			mismatchedSecretCount: 0,
 			omittedUnsanitizableCount: 0,

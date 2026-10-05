@@ -1,10 +1,11 @@
 /**
- * What the agent tools hand back and what the confirmation cards say, in model-facing English. Dashboard state
- * carries secret LOCATIONS by construction; every string the model reads leaves through modelFacing(), the one
- * function over the shared KnownSecrets matcher: wiring.ts applies it at the tool's exits, this file per string and
- * identifier while each is whole.
+ * What the agent tools hand back, in model-facing English, and what the confirmation cards say to the user, localized
+ * at call time. Dashboard state carries secret LOCATIONS by construction; every string the model or the user reads
+ * leaves through modelFacing(), the one function over the shared KnownSecrets matcher: wiring.ts applies it at the
+ * tool's exits, this file per string and identifier while each is whole.
  */
 
+import * as l10n from "@vscode/l10n";
 import type { DashboardState } from "../../../dashboard/viewModels";
 import type { DashboardSubmission } from "../../../extension/dashboard/panel";
 import { isCredentialHeader } from "../../../shared/serverEntry";
@@ -423,8 +424,6 @@ function fenced(lines: readonly (string | Parts)[]): Parts {
 	return [`${fence}\n`, ...body, `\n${fence}`];
 }
 
-const HIDDEN_TEXT_NOTE = " (carries text the card does not show, such as URL credentials)";
-
 /**
  * A card value with its note when the exit will hide part of it: a URL's credentials or a credential header are
  * written as given but never displayed, so the user is told the value holds more than the card shows. The preview
@@ -439,15 +438,24 @@ function shownAs(raw: unknown, scrubbed: unknown, preview: Redactor): Parts {
 	const text = renderedText(rendered);
 	return preview.redact(text) === text && text === (JSON.stringify(raw) ?? "null")
 		? rendered
-		: [...rendered, HIDDEN_TEXT_NOTE];
+		: [...rendered, ` ${l10n.t("(carries text the card does not show, such as URL credentials)")}`];
+}
+
+/** The two value labels padded to one code-unit length; in English the values that follow start in one column. */
+function valueLabels(): { readonly before: string; readonly after: string } {
+	const before = l10n.t("before:");
+	const after = l10n.t("after:");
+	const width = Math.max(before.length, after.length) + 1;
+	return { before: before.padEnd(width), after: after.padEnd(width) };
 }
 
 /** A setting change: the full key, the scope the write lands in, and both values. */
 export function describeSettingChange(setting: string, before: unknown, after: unknown, scope: string | null): Parts {
+	const labels = valueLabels();
 	return fenced([
-		`litellm-vscode-chat.${setting}${scope !== null ? `  (configured in: ${scope})` : ""}`,
-		["before: ", ...shown(before)],
-		["after:  ", ...(after === null ? ["(removed from its configured scope)"] : shown(after))],
+		`litellm-vscode-chat.${setting}${scope !== null ? `  ${l10n.t("(configured in: {0})", scope)}` : ""}`,
+		[labels.before, ...shown(before)],
+		[labels.after, ...(after === null ? [l10n.t("(removed from its configured scope)")] : shown(after))],
 	]);
 }
 
@@ -461,10 +469,11 @@ export function describeRecordChange(
 	known: readonly string[] = []
 ): Parts {
 	const preview = compiled(known);
+	const labels = valueLabels();
 	return fenced([
 		`models.${kind}["${key}"]  (${target})`,
-		["before: ", ...(before === undefined ? ["(absent)"] : shown(before, preview))],
-		["after:  ", ...(after === undefined ? ["(removed)"] : shown(after, preview))],
+		[labels.before, ...(before === undefined ? [l10n.t("(absent)")] : shown(before, preview))],
+		[labels.after, ...(after === undefined ? [l10n.t("(removed)")] : shown(after, preview))],
 	]);
 }
 
@@ -491,7 +500,9 @@ export function describeServerChange(
 	known: readonly string[] = []
 ): Parts {
 	const preview = compiled(known);
-	const lines: Parts[] = [[before === undefined ? `new servers entry "${label}"` : `servers entry "${label}"`]];
+	const lines: Parts[] = [
+		[before === undefined ? l10n.t('new servers entry "{0}"', label) : l10n.t('servers entry "{0}"', label)],
+	];
 	const carriers = carriersOf(before, after);
 	const scrubbedBefore = scrubSecrets(before ?? {}, carriers, "entry", preview);
 	const scrubbedAfter = scrubSecrets(after, carriers, "entry", preview);
@@ -502,13 +513,14 @@ export function describeServerChange(
 		// Compared raw, rendered through shownAs(): dropping or replacing a URL's credentials is a change the card must
 		// list, and the side that carries them says so.
 		if (JSON.stringify(previous) !== JSON.stringify(next)) {
-			const shownPrevious = previous === undefined ? ["(absent)"] : shownAs(previous, scrubbedBefore[key], preview);
-			const shownNext = next === undefined ? ["(absent)"] : shownAs(next, scrubbedAfter[key], preview);
+			const shownPrevious =
+				previous === undefined ? [l10n.t("(absent)")] : shownAs(previous, scrubbedBefore[key], preview);
+			const shownNext = next === undefined ? [l10n.t("(absent)")] : shownAs(next, scrubbedAfter[key], preview);
 			// Both sides can render alike when only the hidden text changed (one password replaced by another), so that
 			// case is named too.
 			const hiddenChanged =
 				preview.redact(renderedText(shownPrevious)) === preview.redact(renderedText(shownNext))
-					? " (the hidden text changed)"
+					? ` ${l10n.t("(the hidden text changed)")}`
 					: "";
 			lines.push([`${key}: `, ...shownPrevious, " -> ", ...shownNext, hiddenChanged]);
 		}
@@ -517,10 +529,10 @@ export function describeServerChange(
 		lines.push([line]);
 	}
 	for (const prompt of prompts) {
-		lines.push([`${prompt.field}: you will be asked to type it (stored in ${prompt.location})`]);
+		lines.push([l10n.t("{0}: you will be asked to type it (stored in {1})", prompt.field, prompt.location)]);
 	}
 	if (lines.length === 1) {
-		lines.push(["(no field changes)"]);
+		lines.push([l10n.t("(no field changes)")]);
 	}
 	return fenced(lines);
 }
@@ -532,11 +544,14 @@ export function describeAdoption(
 	locations: Readonly<Partial<Record<string, "settings" | "secure">>>
 ): Parts {
 	const shownUrl = displayUrl(source.baseUrl);
+	const heading = l10n.t('adopt provider group "{0}" at {1} as servers entry "{2}"', source.label, shownUrl, label);
 	const lines = [
-		`adopt provider group "${source.label}" at ${shownUrl} as servers entry "${label}"${shownUrl === source.baseUrl ? "" : " (the stored URL carries credentials the card does not show; they are copied as-is)"}`,
+		shownUrl === source.baseUrl
+			? heading
+			: `${heading} ${l10n.t("(the stored URL carries credentials the card does not show; they are copied as-is)")}`,
 	];
 	for (const field of ["apiKey", "oauthClientSecret", "virtualKeyValue"]) {
-		lines.push(`${field}: copied to ${locations[field] ?? "secure"} storage if the group holds one`);
+		lines.push(l10n.t("{0}: copied to {1} storage if the group holds one", field, locations[field] ?? "secure"));
 	}
 	return fenced(lines);
 }

@@ -3,6 +3,9 @@
  * in the agent's context window, where no test would notice.
  */
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import * as l10n from "@vscode/l10n";
 import { CREDENTIAL_HEADER_PLACEHOLDER } from "../../../../../extension/features/agentTools/inputSchema";
 import type { AgentRequest } from "../../../../../extension/features/agentTools/planner";
 import {
@@ -21,6 +24,7 @@ import {
 import type { DiagnosticsSnapshot } from "../../../../../extension/ui/issueReporter";
 import { markLogSafe } from "../../../../../shared/logger";
 import type { ServerStatus } from "../../../../../shared/servers";
+import { REPO_ROOT } from "../../../../util/repoRoot";
 import { makeDeclaredServer, makeExternalServer, makeState } from "../../../webview/fixtures";
 import { agentToolsState, PROD_CONFIG, PROD_HEADER_SECRET } from "./fixture";
 
@@ -681,5 +685,50 @@ describe("agentTools render", () => {
 		const fence = card.slice(0, card.indexOf("\n"));
 		expect(fence.length).toBeGreaterThanOrEqual(4);
 		expect(card.endsWith(`\n${fence}`)).toBe(true);
+	});
+
+	// Drifts silently: the card is the text the user confirms, and a builder that froze its English at module scope or
+	// skipped l10n shows an English card beside a localized invocation message only in a non-English window.
+	test("a confirmation card renders in the configured locale, its label interpolated and redacted when it is a known value", () => {
+		const zhCn = JSON.parse(readFileSync(path.join(REPO_ROOT, "l10n", "bundle.l10n.zh-cn.json"), "utf8")) as Record<
+			string,
+			string
+		>;
+		const label = "sk-label-is-a-value-Q7";
+		const parts = () =>
+			serverChangeParts(
+				label,
+				undefined,
+				{ label, baseUrl: "http://a.test" },
+				[],
+				[{ field: "oauthClientSecret", location: "secure" }]
+			);
+		l10n.config({ contents: zhCn });
+		try {
+			expect<string>(modelFacing(parts(), [label])).toBe(
+				[
+					"```",
+					(zhCn['new servers entry "{0}"'] as string).replace("{0}", "[redacted]"),
+					`baseUrl: ${zhCn["(absent)"]} -> "http://a.test"`,
+					`label: ${zhCn["(absent)"]} -> "[redacted]"`,
+					(zhCn["{0}: you will be asked to type it (stored in {1})"] as string)
+						.replace("{0}", "oauthClientSecret")
+						.replace("{1}", "secure"),
+					"```",
+				].join("\n")
+			);
+		} finally {
+			l10n.config({ contents: {} });
+		}
+		expect<string>(modelFacing(parts(), [label])).toBe(
+			[
+				"```",
+				'new servers entry "[redacted]"',
+				'baseUrl: (absent) -> "http://a.test"',
+				'label: (absent) -> "[redacted]"',
+				"oauthClientSecret: you will be asked to type it (stored in secure)",
+				"```",
+			].join("\n")
+		);
 	});
 });

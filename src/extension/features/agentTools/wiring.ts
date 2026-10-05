@@ -256,9 +256,9 @@ function secretSummary(payload: unknown): string[] {
 			continue;
 		}
 		if (directive.action === "clear") {
-			lines.push(`${field}: cleared`);
+			lines.push(l10n.t("{0}: cleared", field));
 		} else if (directive.action === "set" && typeof directive.value === "string" && directive.value.length > 0) {
-			lines.push(`${field}: set (${String(directive.location)})`);
+			lines.push(l10n.t("{0}: set ({1})", field, String(directive.location)));
 		}
 	}
 	return lines;
@@ -447,8 +447,13 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				const patched = applyRecordPatch(current, input);
 				const target =
 					input.server === undefined
-						? `${input.kind === "capabilities" ? state.settings.modelCapabilities.editScope : state.settings.modelParameters.editScope} settings`
-						: `servers entry "${input.server}"`;
+						? l10n.t(
+								"the {0} settings",
+								input.kind === "capabilities"
+									? state.settings.modelCapabilities.editScope
+									: state.settings.modelParameters.editScope
+							)
+						: l10n.t('servers entry "{0}"', input.server);
 				return {
 					title: l10n.t("Edit the LiteLLM model record {0}?", input.key),
 					message: describeRecordChange(input.kind, input.key, current[input.key], patched[input.key], target, known),
@@ -504,7 +509,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				}
 				// A hide or unhide is identified by label AND base URL (two groups can share a label), so the card
 				// names both.
-				const target = input.action === "remove" ? input.label : `${input.label} at ${displayUrl(input.baseUrl)}`;
+				const target =
+					input.action === "remove" ? input.label : l10n.t("{0} at {1}", input.label, displayUrl(input.baseUrl));
 				return {
 					title: l10n.t("{0} the LiteLLM server {1}?", input.action, input.label),
 					message: describeAction(input.action, target),
@@ -519,12 +525,12 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					return undefined;
 				}
 				const input = parsed.input;
+				const row = "label" in input ? declaredRow(state, input.label) : undefined;
 				const target =
 					"label" in input
-						? `${input.label}${(() => {
-								const row = declaredRow(state, input.label);
-								return row === undefined ? "" : ` at ${displayUrl(row.baseUrl)}`;
-							})()}`
+						? row === undefined
+							? input.label
+							: l10n.t("{0} at {1}", input.label, displayUrl(row.baseUrl))
 						: "feature" in input
 							? input.feature
 							: undefined;

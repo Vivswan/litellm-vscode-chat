@@ -15,7 +15,12 @@
  */
 
 import type { SecretFieldId } from "../../shared/serverEntry";
-import { isCredentialHeader, SECRET_FIELD_IDS, virtualKeyHeaderNames } from "../../shared/serverEntry";
+import {
+	isCredentialHeader,
+	OPTIONAL_ENTRY_FIELDS,
+	SECRET_FIELD_IDS,
+	virtualKeyHeaderNames,
+} from "../../shared/serverEntry";
 import { displayUrl } from "../../shared/util/displayUrl";
 import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
@@ -202,40 +207,59 @@ export type StrippedUrls =
 	| { readonly unsanitizable: true; readonly removed: number };
 
 /**
- * The raw entry's URL positions, each rebuilt through displayUrl: a `user:password@` written into a base URL or a
- * token URL is a credential the no-secrets export must not carry, and one the with-secrets export counts.
- *
- *   baseUrl, oauthTokenUrl (flat)  -> top level
- *   auth.oauth.tokenUrl            -> the nested auth grammar
- *   mcp.url                        -> the MCP opt-in's object form
+ * The entry grammar's URL positions, from the shared field table: the "uri" fields flat beside baseUrl, their nested
+ * keys under auth.oauth, and McpOptIn's url. By container, because the same spelling elsewhere (mcp.tokenUrl) is a key
+ * the parser ignores, not a URL.
+ */
+type UriEntryField = Extract<(typeof OPTIONAL_ENTRY_FIELDS)[number], { readonly format: "uri" }>;
+const URI_ENTRY_FIELDS = OPTIONAL_ENTRY_FIELDS.filter(
+	(field): field is UriEntryField => "format" in field && field.format === "uri"
+);
+const FLAT_URL_KEYS: readonly string[] = ["baseUrl", ...URI_ENTRY_FIELDS.map((field) => field.id)];
+const OAUTH_URL_KEYS: readonly string[] = URI_ENTRY_FIELDS.map((field) => field.nestedKey);
+const MCP_URL_KEYS: readonly string[] = ["url"];
+
+/**
+ * Whether displayUrl hides part of this URL: its display form differs beyond the tabs and newlines the parser drops
+ * wherever they sit. Judged against displayUrl itself, so every form it withholds (userinfo the parser reads, a cut
+ * inside the text such as a credentialed URL in a query parameter, the fail-closed tail of a refused value with an
+ * "@") counts, and a tab alone does not.
+ */
+function carriesCredential(url: string): boolean {
+	return displayUrl(url) !== url.replace(/[\t\n\r]/g, "");
+}
+
+/**
+ * Every URL position of the raw entry, rebuilt through displayUrl when it carries a credential: a `user:password@`
+ * written into a URL is one the no-secrets export must not carry, and one the with-secrets export counts. A URL
+ * without one rides as written, tabs and all; a rewrite there would count a secret that is not one.
  */
 export function stripUrlUserinfo(rawEntry: Readonly<Record<string, unknown>>): StrippedUrls {
 	let removed = 0;
 	let unsanitizable = false;
-	const rebuilt = (value: unknown): unknown => {
-		if (typeof value !== "string") {
-			unsanitizable ||= typeof value === "object" && value !== null;
-			return value;
-		}
-		const shown = displayUrl(value);
-		if (shown !== value) {
-			removed += 1;
-		}
-		return shown;
-	};
-	const entry: Record<string, unknown> = {
-		...rawEntry,
-		...("baseUrl" in rawEntry ? { baseUrl: rebuilt(rawEntry.baseUrl) } : {}),
-		...("oauthTokenUrl" in rawEntry ? { oauthTokenUrl: rebuilt(rawEntry.oauthTokenUrl) } : {}),
-	};
-	if (isRecord(rawEntry.auth) && isRecord(rawEntry.auth.oauth) && "tokenUrl" in rawEntry.auth.oauth) {
-		entry.auth = {
-			...rawEntry.auth,
-			oauth: { ...rawEntry.auth.oauth, tokenUrl: rebuilt(rawEntry.auth.oauth.tokenUrl) },
-		};
+	const rebuilt = (container: Readonly<Record<string, unknown>>, keys: readonly string[]): Record<string, unknown> =>
+		Object.fromEntries(
+			Object.entries(container).map(([key, value]) => {
+				if (!keys.includes(key)) {
+					return [key, value];
+				}
+				if (typeof value !== "string") {
+					unsanitizable ||= typeof value === "object" && value !== null;
+					return [key, value];
+				}
+				if (!carriesCredential(value)) {
+					return [key, value];
+				}
+				removed += 1;
+				return [key, displayUrl(value)];
+			})
+		);
+	const entry = rebuilt(rawEntry, FLAT_URL_KEYS);
+	if (isRecord(rawEntry.auth) && isRecord(rawEntry.auth.oauth)) {
+		entry.auth = { ...rawEntry.auth, oauth: rebuilt(rawEntry.auth.oauth, OAUTH_URL_KEYS) };
 	}
-	if (isRecord(rawEntry.mcp) && "url" in rawEntry.mcp) {
-		entry.mcp = { ...rawEntry.mcp, url: rebuilt(rawEntry.mcp.url) };
+	if (isRecord(rawEntry.mcp)) {
+		entry.mcp = rebuilt(rawEntry.mcp, MCP_URL_KEYS);
 	}
 	if (unsanitizable) {
 		return { unsanitizable, removed };
