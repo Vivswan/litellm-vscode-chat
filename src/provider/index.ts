@@ -259,18 +259,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	/**
 	 * Clients and cached discovery results prune in lockstep, since both key on the group client ID and its
-	 * credential fingerprint. The keep-set composes through GroupDiscovery.cacheKeyFor like the keys themselves.
-	 *
-	 *   root rotated                  -> the old root's entry is unreachable and ages out here
-	 *   kept ID the window cannot map -> contributes no key; fails safe as one extra discovery round trip
+	 * credential fingerprint. The discovery keep-set composes through GroupDiscovery.cacheKeyFor like the keys
+	 * themselves.
+	 *   root rotated -> the old root's entry is unreachable and ages out here
 	 */
 	private pruneServerCaches(keep: readonly string[]): void {
 		this._client.pruneClients(keep);
 		this._discoveryCache.prune(
-			keep.flatMap((serverId) => {
-				const groupServer = this._statusWindow.getGroupServer(serverId);
-				return groupServer !== undefined ? [this._discovery.cacheKeyFor(groupServer)] : [];
-			})
+			this._statusWindow.groupServers().map((groupServer) => this._discovery.cacheKeyFor(groupServer))
 		);
 		this._resolution.prune(keep);
 	}
@@ -311,12 +307,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const overlaid = await overlayEntryCredentials(parsed, this._resolveEntryCredentials);
 
 		const serverId = groupClientId(overlaid.server);
-		if (this._statusWindow.beginCycleOnReSight(serverId)) {
+		if (this._statusWindow.beginCycleOnReSight(serverId, overlaid.server)) {
 			this.pruneServerCaches([...this._statusWindow.serverIds(), serverId]);
 		}
 
 		const models = await this._discovery.fetchGroupModels(overlaid.server, silent, false, generation, overlaid.failure);
-		// The serve's record may have evicted a rotated twin's identity from the window.
+		// A rotation's record replaced the group's client ID in the window, so the retired client's caches prune here.
 		this.pruneServerCaches(this._statusWindow.serverIds());
 		return models;
 	}
@@ -377,8 +373,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				// Already logged and recorded in the merged status; the remaining group servers still get probed.
 			}
 		}
-		// Same lockstep re-derivation as provideGroupModels: a probe's record may have evicted a rotated twin's
-		// identity.
+		// Same lockstep re-derivation as provideGroupModels: a probe's record may have replaced a rotated group's
+		// client ID.
 		this.pruneServerCaches(this._statusWindow.serverIds());
 	}
 

@@ -16,7 +16,8 @@ import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay
 import { Notifier } from "../../../extension/ui/notifier";
 import { GroupStatusReporter } from "../../../provider/catalog/statusReporting";
 import { StatusWindow } from "../../../provider/catalog/statusWindow";
-import type { AggregatedStatus } from "../../../shared/servers";
+import { markLogSafe } from "../../../shared/logger";
+import type { AggregatedStatus, ServerStatusError } from "../../../shared/servers";
 import { isHiddenGroupServerStatus } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import type { Timer } from "../../../shared/util/timer";
@@ -238,6 +239,47 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			assert.strictEqual(harness.manager.connectionStatus.state, row.expect.bar.state, `${row.name}: bar state`);
 			assert.strictEqual(item.last.severity, row.expect.bar.severity, `${row.name}: bar severity`);
 		}
+	});
+
+	test("a credential rotation keeps the group's place in the window, so the bar still names the same failing server", async () => {
+		// Keyed by client ID, the rotated group re-entered the window at the end and the bar (and the "All servers
+		// failed" log line) switched from A's failure to B's with nothing about B having changed.
+		const item = new RecordingItem();
+		const harness = createStatusBarManager({ hasConfiguredServers: () => true, item });
+		createdContexts.push(harness.context);
+		const window = new StatusWindow(
+			() => 0,
+			() => 0
+		);
+		const reporter = new GroupStatusReporter(window);
+		reporter.setCallback((status) => harness.manager.handleAggregatedStatus(status));
+		const failed = (serverId: string, label: string): ServerStatusError => ({
+			serverId,
+			label,
+			entryLabel: label,
+			baseUrl: `http://${label}.test`,
+			lastChecked: "now",
+			state: "error",
+			error: `${label} failed`,
+			logSafeError: markLogSafe(`${label} failed`),
+			servedModelCount: 0,
+		});
+		const nothingServed = { discovered: [], declared: [] } as const;
+		const groupA = { baseUrl: normalizeBaseUrl("http://A.test"), apiKey: "k1", label: "A" };
+		const groupB = { baseUrl: normalizeBaseUrl("http://B.test"), apiKey: "k", label: "B" };
+		const barError = async () => {
+			reporter.reportMerged(true);
+			await new Promise((resolve) => setImmediate(resolve));
+			const status = harness.manager.connectionStatus;
+			return status.state === "error" ? status.error : status.state;
+		};
+
+		window.record(failed("a1", "A"), nothingServed, groupA);
+		window.record(failed("b1", "B"), nothingServed, groupB);
+		assert.strictEqual(await barError(), "A failed");
+
+		window.record(failed("a2", "A"), nothingServed, { ...groupA, apiKey: "k2" });
+		assert.strictEqual(await barError(), "A failed", "the rotation must not move A behind B");
 	});
 
 	test("the notifier toasts each window state with the table's kind, or stays silent", () => {

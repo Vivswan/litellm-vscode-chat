@@ -172,12 +172,12 @@ const GROUP_CLIENT_ID_PREFIX = "group:";
 
 /**
  * A fixed-arity JSON tuple, injective because escaping keeps every value inside its slot, hashed so no ID
- * embeds credential material. A credential rotation mints a new identity for the same labeled logical
- * group, and statusWindow.ts evicts the previous identity when the new one records.
+ * embeds credential material. A credential rotation mints a new client ID for the same logical group; a labeled
+ * group's logicalGroupId (statusWindow.ts) does not change, so its status entry survives the rotation.
  *
  *   credential fingerprint -> two groups may share a base URL with different credentials
  *   entry label            -> two DECLARED entries may share the URL and every credential, and without it
- *                             both collapse to one status-window identity and the second never reports
+ *                             both would share one client ID, the dashboard's handle to a group (getGroupServer)
  */
 export function groupClientId(server: GroupServer): string {
 	const identity = JSON.stringify([

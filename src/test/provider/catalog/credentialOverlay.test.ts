@@ -163,11 +163,11 @@ suite("provider credential overlay", () => {
 		assert.strictEqual(classifyOverall([status]), "degraded", "serving under an unexpected error, never connected");
 	});
 
-	test("a rotation evicts the group's retired status identity instead of leaving a ghost twin", async () => {
-		// A rotated credential mints a new client ID for the SAME logical group;
-		// the old identity must leave the window at once, or it double-counts the
-		// merged status and renders as a ghost external row whose Hide would
-		// tombstone the label the real group serves under.
+	test("a rotation replaces the client ID in the group's one status entry: the retired ID leaves the window at once", async () => {
+		// A rotated credential mints a new client ID for the SAME logical group; a
+		// second entry beside the retired one double-counted the merged status and
+		// rendered as a ghost external row whose Hide tombstoned the label the real
+		// group serves under.
 		let key = "sk-first";
 		const provider = makeProvider(undefined, "unused", undefined, {
 			resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: key } }),
@@ -259,9 +259,8 @@ suite("provider credential overlay", () => {
 	});
 
 	test("a rotation carries the stale-serve anchor: a failed silent refresh still serves last-known models", async () => {
-		// The evicted twin's last success is the same logical group's; without
-		// the carry, rotating right before an outage would vanish the models
-		// instead of stale-serving them.
+		// The stale anchor belongs to the group, not to the client ID: rotating
+		// right before an outage must not vanish the models it was serving.
 		let key = "sk-first";
 		let fail = false;
 		const provider = makeProvider(undefined, "unused", undefined, {
@@ -278,7 +277,7 @@ suite("provider credential overlay", () => {
 		key = "sk-second";
 		fail = true;
 		const stale = await provider.provideLanguageModelChatInformation(groupOptions(configuration, true), cancellation());
-		assert.strictEqual(stale.length, 1, "the rotated identity inherits the twin's stale-serve anchor");
+		assert.strictEqual(stale.length, 1, "the rotated group keeps its stale-serve anchor");
 		assert.ok(stale[0]?.statusIcon !== undefined, "stale-served models carry the warning decoration");
 	});
 
