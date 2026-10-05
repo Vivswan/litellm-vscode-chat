@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { StreamProcessor } from "../../../provider/transport/streaming";
+import { StreamProcessor } from "../../../provider/transport/streaming/processor";
 import { expectDefined } from "../../pureHelpers";
 import { collector, eventSequenceOf, idSource, toolCallsOf, visibleTextOf } from "./streamingHelpers";
 

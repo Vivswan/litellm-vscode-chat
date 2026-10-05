@@ -22,13 +22,8 @@ import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
 import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/discovery";
 import { fetchModels } from "../catalog/discovery";
-import type {
-	EntryCredentialsResolver,
-	GroupServer,
-	LiteLLMModelInfo,
-	ParsedModelMetadata,
-} from "../catalog/groupModels";
-import { groupClientId, overlayEntryCredentials, parseModelMetadata } from "../catalog/groupModels";
+import type { GroupServer, ParsedModelMetadata } from "../catalog/groupModels";
+import { groupClientId } from "../catalog/groupModels";
 import { requestParamsFromModelConfiguration } from "../catalog/modelConfiguration";
 import {
 	type OAuthConfig,
@@ -44,11 +39,14 @@ import { bodylessResponseError, mapSdkError, timeoutRequestError } from "./error
 import type { TransportFetch } from "./nodeHttpFetch";
 import { nodeHttpFetch } from "./nodeHttpFetch";
 import { buildRequestBody, resolveMaxTokens } from "./request";
-import type { ToolCallIdSource } from "./streaming";
-import { StreamProcessor } from "./streaming";
+import type { ToolCallIdSource } from "./streaming/processor";
+import { StreamProcessor } from "./streaming/processor";
 
 export interface ChatRequestContext {
-	model: LiteLLMModelInfo;
+	/** The provider's one parse of the model object; nothing here re-narrows the host round trip. */
+	metadata: ParsedModelMetadata;
+	/** The group's live connection, resolved by the provider from the model's group identity. */
+	server: GroupServer;
 	messages: readonly LanguageModelChatRequestMessage[];
 	options: ProvideLanguageModelChatResponseOptions;
 	progress: vscode.Progress<vscode.LanguageModelResponsePart>;
@@ -66,27 +64,13 @@ export interface ServerConnection extends ServerWithKey {
 	entryLabel?: string | undefined;
 }
 
-/**
- * Every field is required (undefined must be stated, not omitted), so a resolution branch cannot silently drop the
- * credentials another branch carries.
- */
-interface ResolvedConnection {
-	serverId: string;
-	baseUrl: string;
-	apiKey: string;
-	rawModelId: string;
-	entryLabel: string | undefined;
-	oauth: OAuthConfig | undefined;
-	virtualKey: VirtualKeyConfig | undefined;
-}
-
 export interface ChatClientOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
 	/**
 	 * Resolves a declared server entry's per-entry modelParameters at request time, from the entry's label and the
-	 * attached server's base URL, and only when both identify the same declared entry. Defaults to none: models
-	 * without an attached labeled server (external groups) get only the global modelParameters.
+	 * group's base URL, and only when both identify the same declared entry. Defaults to none: models served by an
+	 * unlabeled group (external groups) get only the global modelParameters.
 	 */
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
@@ -103,7 +87,6 @@ export interface ChatClientOptions {
 	 * matches get the auto rule.
 	 */
 	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
-	resolveEntryCredentials?: EntryCredentialsResolver | undefined;
 	/** The HTTP transport under the SDK client; tests inject a fake here. Defaults to nodeHttpFetch. */
 	fetch?: TransportFetch | undefined;
 }
@@ -118,7 +101,6 @@ export class ChatClient {
 	) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
 	private readonly getEntryHeaders: (label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined;
 	private readonly getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
-	private readonly resolveEntryCredentials?: EntryCredentialsResolver | undefined;
 	private readonly clients: ServerClientCache;
 	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly resolution: ModelResolutionTable;
@@ -136,7 +118,6 @@ export class ChatClient {
 		this.getEntryModelParameters = options.getEntryModelParameters ?? (() => undefined);
 		this.getEntryHeaders = options.getEntryHeaders ?? (() => undefined);
 		this.getEntryApiVersion = options.getEntryApiVersion ?? (() => undefined);
-		this.resolveEntryCredentials = options.resolveEntryCredentials;
 		this.resolution = options.resolution ?? new ModelResolutionTable();
 		this.clients = new ServerClientCache(options.fetch ?? nodeHttpFetch);
 	}
@@ -215,69 +196,13 @@ export class ChatClient {
 		return { headers: Object.keys(headers).length > 0 ? headers : undefined, auth };
 	}
 
-	/**
-	 * Every served model carries its group's resolved connection, so a model without one crossed the host boundary in
-	 * a state this provider never served (most likely a stale model object from before a refresh) and fails loudly
-	 * with a classified error instead of an undefined route; the terse classification keeps the model ID out of public
-	 * logs.
-	 */
-	private resolveConnection(
-		model: LiteLLMModelInfo,
-		metadata: Pick<ParsedModelMetadata, "server" | "rawModelId">
-	): ResolvedConnection {
-		const groupServer = metadata.server;
-		if (groupServer) {
-			return {
-				serverId: groupClientId(groupServer),
-				baseUrl: groupServer.baseUrl,
-				apiKey: groupServer.apiKey,
-				rawModelId: metadata.rawModelId,
-				// The configured group label only; an unlabeled group resolves no entry configuration (its display
-				// label is a URL-host fallback).
-				entryLabel: groupServer.label,
-				oauth: groupServer.oauth,
-				virtualKey: groupServer.virtualKey,
-			};
-		}
-		throw localizedError(
-			l10n.t(
-				'Model "{0}" is not registered with any configured server. Refresh the model list and try again.',
-				model.id
-			),
-			`Model "${model.id}" is not registered with any configured server. Refresh the model list and try again.`,
-			"RequestRouting(model without attached server)"
-		);
-	}
-
-	/**
-	 * The attached credentials are the serve-time copy a rotation may have retired, so an unresolved entry fails the
-	 * request instead of sending them. Throws without logging, like every transport module.
-	 */
-	private async overlaidServer(server: GroupServer | undefined): Promise<GroupServer | undefined> {
-		if (server === undefined) {
-			return undefined;
-		}
-		const overlaid = await overlayEntryCredentials(server, this.resolveEntryCredentials);
-		if (overlaid.failure !== undefined) {
-			throw overlaid.failure;
-		}
-		return overlaid.server;
-	}
-
 	async send(ctx: ChatRequestContext): Promise<void> {
-		const { model, messages, options, progress, token } = ctx;
-
-		// The one parse of the model object's LiteLLM metadata; everything below reads the parsed result instead of
-		// re-narrowing the host round trip.
-		const parsed = parseModelMetadata(model, this.log);
-		// Attached credentials date from the serve that minted the model object; the overlay swaps in the entry's
-		// current ones so a rotation applies to the very next request instead of waiting out a host re-resolve.
-		const metadata = { ...parsed, server: await this.overlaidServer(parsed.server) };
-		const connection = this.resolveConnection(model, metadata);
+		const { metadata, server, messages, options, progress, token } = ctx;
+		const serverId = groupClientId(server);
 
 		const promptCachingEnabled = isPromptCachingEnabled();
-		const customHeaders = this.customHeadersFor(connection.entryLabel, connection.baseUrl);
-		const apiVersion = this.apiVersionFor(connection.entryLabel, connection.baseUrl);
+		const customHeaders = this.customHeadersFor(server.label, server.baseUrl);
+		const apiVersion = this.apiVersionFor(server.label, server.baseUrl);
 		const requestTimeout = getRequestTimeout(this.log);
 		validateRequest(messages);
 		const wireGates = { imageInput: metadata.imageInput, audioInput: metadata.supportsAudioInput };
@@ -309,7 +234,7 @@ export class ChatClient {
 		// markers are token-neutral. Tools price unmarked: a marker would be JSON.stringified as content.
 		const inputTokenCount = estimateWireMessagesTokens(openaiMessages);
 		const toolTokenCount = estimateToolTokens(toolConfig?.tools);
-		const tokenLimit = Math.max(1, model.maxInputTokens);
+		const tokenLimit = Math.max(1, metadata.maxInputTokens);
 		if (inputTokenCount + toolTokenCount > tokenLimit) {
 			// The numbers must survive in the detail: docs/troubleshooting.md teaches comparing the limit against the
 			// model's real one (the models.capabilities fix).
@@ -336,26 +261,23 @@ export class ChatClient {
 		// at another URL, stale from a label reuse or a baseUrl edit.
 		//   two entries may share a base URL -> the label tells them apart
 		const entryModelParameters =
-			metadata.server?.label !== undefined
-				? this.getEntryModelParameters(metadata.server.label, metadata.server.baseUrl)
-				: undefined;
-		const { params: modelParams, forcedParams } = this.resolution.resolveParameters(
-			connection.serverId,
-			connection.rawModelId,
-			{ globalParameters: getModelParametersConfig(), entryParameters: entryModelParameters }
-		);
+			server.label !== undefined ? this.getEntryModelParameters(server.label, server.baseUrl) : undefined;
+		const { params: modelParams, forcedParams } = this.resolution.resolveParameters(serverId, metadata.rawModelId, {
+			globalParameters: getModelParametersConfig(),
+			entryParameters: entryModelParameters,
+		});
 
 		// The one home of the fallback chain is resolveMaxTokens (shared with the dashboard's inspector).
 		const { value: maxTokens } = resolveMaxTokens({
 			forcedMaxTokens: forcedParams.max_tokens,
 			runtimeMaxTokens: options.modelOptions?.max_tokens,
 			configuredMaxTokens: modelParams.max_tokens,
-			maxOutputTokens: model.maxOutputTokens,
+			maxOutputTokens: metadata.maxOutputTokens,
 			outputLimitDeclared: metadata.outputLimitSource !== "defaults",
 		});
 
 		const requestBody = buildRequestBody({
-			rawModelId: connection.rawModelId,
+			rawModelId: metadata.rawModelId,
 			openaiMessages,
 			maxTokens,
 			modelParams,
@@ -366,17 +288,17 @@ export class ChatClient {
 		});
 
 		const client = this.clients.get({
-			serverId: connection.serverId,
-			baseUrl: connection.baseUrl,
+			serverId,
+			baseUrl: server.baseUrl,
 			apiVersion,
-			apiKey: connection.apiKey,
+			apiKey: server.apiKey,
 			userAgent: this.userAgent,
 			customHeaders,
 		});
 
 		this.log("Sending chat request", {
-			url: chatCompletionsUrl(connection.baseUrl, apiVersion),
-			modelId: connection.rawModelId,
+			url: chatCompletionsUrl(server.baseUrl, apiVersion),
+			modelId: metadata.rawModelId,
 			messageCount: messages.length,
 		});
 
@@ -389,12 +311,12 @@ export class ChatClient {
 		const cancelListener = token.onCancellationRequested(() => cancelController.abort());
 		const timeoutSignal = AbortSignal.timeout(requestTimeout);
 		const requestSignal = AbortSignal.any([cancelController.signal, timeoutSignal]);
-		const errorContext = { surface: "chat" as const, baseUrl: connection.baseUrl, timeoutMs: requestTimeout };
+		const errorContext = { surface: "chat" as const, baseUrl: server.baseUrl, timeoutMs: requestTimeout };
 		let auth: AuthOverlayScope | undefined;
 
 		try {
 			const resolvedAuth = await this.resolveAuthHeaders(
-				{ oauth: connection.oauth, virtualKey: connection.virtualKey },
+				{ oauth: server.oauth, virtualKey: server.virtualKey },
 				"chat",
 				{ ms: getDiscoveryTimeout(this.log), setting: "discovery.timeout" },
 				requestSignal
@@ -410,7 +332,7 @@ export class ChatClient {
 				.asResponse();
 
 			if (!response.body) {
-				throw bodylessResponseError("chat", response.status, connection.baseUrl);
+				throw bodylessResponseError("chat", response.status, server.baseUrl);
 			}
 
 			// The user-set audio.format parameter (when a modality-audio request declares one) is the only statement of
@@ -438,7 +360,7 @@ export class ChatClient {
 			);
 			await streamProcessor.processStreamingResponse(counted, token);
 			if (bodyBytes === 0) {
-				throw bodylessResponseError("chat", response.status, connection.baseUrl);
+				throw bodylessResponseError("chat", response.status, server.baseUrl);
 			}
 		} catch (err) {
 			if (token.isCancellationRequested) {

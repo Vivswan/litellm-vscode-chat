@@ -526,9 +526,9 @@ export function registerTestCommands(
 			}
 		),
 		vscode.commands.registerCommand("litellm._test.getDeclaredServers", () => syncEngine.getDeclared()),
-		// The group serving path is otherwise host-invoked only. The typed destructure strips the litellm attachment,
-		// which embeds the group's resolved credentials, so a rename of that field breaks the compile here instead of
-		// silently leaking.
+		// The group serving path is otherwise host-invoked only. The typed destructure strips the litellm attachment
+		// (the served group's identity and model metadata), so a rename of that field breaks the compile here instead
+		// of leaking it.
 		//
 		//   the args the engine would build NOW -> can differ from what the add-only host stored at group creation
 		//   non-silent                           -> a discovery failure serves the declared set or throws, like Test

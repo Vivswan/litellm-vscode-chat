@@ -407,5 +407,6 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"glyphTrail",
 	"catalogStatusParts",
 	"credentialsUnavailableError",
+	"unroutableModelError",
 	"overlayEntryCredentials",
 ];

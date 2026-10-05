@@ -5,19 +5,32 @@
 
 import type { SkippedModeCounts } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
+import { displayUrl } from "../../shared/util/displayUrl";
 import type { GroupServer, PreAttachModelInfo } from "./groupModels";
 
 /**
- * The identity a credential rotation leaves intact; the serve-generation claim (groupDiscovery.ts) and the window's
- * entry both key on it. Undefined for an unlabeled group, whose client ID is its only identity. A JSON array, so it can
- * never collide with a `group:` client ID.
+ * The identity a credential rotation leaves intact; the serve-generation claim (groupDiscovery.ts) and an entry-owned
+ * group's window entry key on it. Undefined for an unlabeled group. A JSON array, so it can never collide with a
+ * `group:` client ID. The URL is the credential-free spelling: everything derived from an identity (window keys, the
+ * model objects the host receives) must be free of userinfo.
  */
 export function logicalGroupId(groupServer: Pick<GroupServer, "label" | "baseUrl">): string | undefined {
-	return groupServer.label !== undefined ? JSON.stringify([groupServer.label, groupServer.baseUrl]) : undefined;
+	return groupServer.label !== undefined
+		? JSON.stringify([groupServer.label, displayUrl(groupServer.baseUrl)])
+		: undefined;
 }
 
-function groupIdentity(groupServer: Pick<GroupServer, "label" | "baseUrl">, clientId: string): string {
-	return logicalGroupId(groupServer) ?? clientId;
+/**
+ * The window's key, and the identity a served model carries (groupModels.ts attachGroup) for the request path to
+ * resolve its live connection by.
+ *   owned by a declared entry -> label plus URL: the setting is truth, so a rotation keeps the identity
+ *   no declared owner         -> the client ID: nothing could make one labeled external twin stand in for another
+ */
+export function groupIdentity(
+	groupServer: Pick<GroupServer, "label" | "baseUrl" | "entryOwned">,
+	clientId: string
+): string {
+	return groupServer.entryOwned === true ? (logicalGroupId(groupServer) ?? clientId) : clientId;
 }
 
 /**
@@ -28,8 +41,8 @@ const EVICTION_TTL_FLOOR_MS = 10 * 60 * 1000;
 
 /**
  * One server's slice of the status window, for read-only consumers (the dashboard). `models` are registration's infos
- * before any group server is attached - PreAttachModelInfo by type, so a snapshot carrying credentials does not
- * compile.
+ * before the serve stamps a group identity - PreAttachModelInfo by type, so a served copy, which may carry the stale
+ * decoration, does not compile into a snapshot.
  */
 export interface ServerModelsSnapshot {
 	readonly status: ServerStatus;
@@ -146,7 +159,7 @@ export class StatusWindow {
 	 *   a rotated client ID                                -> not a re-sight: advancing on it evicted a live group's
 	 *                                                        stale anchor before that group was re-reached
 	 */
-	beginCycleOnReSight(clientId: string, groupServer: Pick<GroupServer, "label" | "baseUrl">): boolean {
+	beginCycleOnReSight(clientId: string, groupServer: Pick<GroupServer, "label" | "baseUrl" | "entryOwned">): boolean {
 		const entry = this.entries.get(groupIdentity(groupServer, clientId));
 		if (this.cycleMarked || entry === undefined || entry.status.serverId !== clientId || entry.cycle !== this.cycle) {
 			return false;
@@ -168,8 +181,8 @@ export class StatusWindow {
 	}
 
 	/**
-	 * `served` holds the pre-attach infos by type, never the group-attached copies: snapshots() hands them to the
-	 * dashboard, and attached copies embed the server's credentials.
+	 * `served` holds the pre-attach infos by type, never the served copies: snapshots() hands them to the dashboard,
+	 * and a served copy may carry the stale decoration, which a healthy sweep must not inherit.
 	 *
 	 * Only an ok report may carry observations, and one omitting them blanks the carried sets; a failure report
 	 * structurally cannot carry any, so an outage only ever carries the previous serve's observations forward.
@@ -231,6 +244,11 @@ export class StatusWindow {
 		return undefined;
 	}
 
+	/** The request path's lookup, by the identity a served model carries; same handling rules as getGroupServer. */
+	getGroupServerByIdentity(identity: string): GroupServer | undefined {
+		return this.entries.get(identity)?.groupServer;
+	}
+
 	/**
 	 * The distinct base URLs of the LABELED groups currently in the window under `label`: the sync engine's live
 	 * ownership evidence (see ServerSyncEnv.observedGroupBaseUrls).
@@ -268,7 +286,7 @@ export class StatusWindow {
 	 */
 	staleServableModels(
 		clientId: string,
-		groupServer: Pick<GroupServer, "label" | "baseUrl">
+		groupServer: Pick<GroupServer, "label" | "baseUrl" | "entryOwned">
 	): { models: readonly PreAttachModelInfo[]; discoveredRawIds: readonly string[]; lastSuccessAt: number } | undefined {
 		const entry = this.entries.get(groupIdentity(groupServer, clientId));
 		const lastSuccess = entry?.lastSuccess;

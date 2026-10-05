@@ -147,7 +147,7 @@ suite("Host-Fidelity Tests (provider group semantics)", () => {
 				server.getSeenAuthorizations().includes(`Bearer ${secretSentinel}`),
 				"the seam's discovery must carry the SecretStorage-resolved key"
 			);
-			assert.ok(!("litellm" in info), "the seam must strip the credential-carrying transport attachment");
+			assert.ok(!("litellm" in info), "the seam must strip the provider's litellm attachment");
 			assert.ok(
 				!JSON.stringify(infos).includes(secretSentinel),
 				"the resolved secret must never ride the seam's result"
