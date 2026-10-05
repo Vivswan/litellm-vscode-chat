@@ -47,6 +47,7 @@ import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import { usableHttpText } from "../../../shared/util/headers";
 import { isRecord, recordFromKeys } from "../../../shared/util/json";
+import { collectableEntries, collectKnownSecretValues } from "../../../shared/util/knownSecrets";
 import { type AgentSecretDirective, type AgentToolInput, CREDENTIAL_HEADER_PLACEHOLDER } from "./inputSchema";
 
 /** The dashboard methods an agent tool may address; the excluded four are unrepresentable, not refused. */
@@ -328,6 +329,25 @@ export function withSecretValues(
 		}
 	}
 	return { method: request.method, payload: { ...request.payload, secrets } };
+}
+
+/**
+ * The secret values a request carries in its own payload, read as the stored configuration is read: the entry it
+ * saves with each `set` directive's value in that field's flat position, through the setting's own collector. A
+ * submit that fails without saving can quote them, and a fresh store read cannot know a value that was never stored.
+ */
+export function inlineSecretValues(request: AgentRequest): readonly string[] {
+	const payload = request.payload;
+	if (!isRecord(payload)) {
+		return [];
+	}
+	const directives = isRecord(payload.secrets) ? payload.secrets : {};
+	const inline = recordFromKeys(SECRET_FIELD_IDS, (field) => {
+		const directive = directives[field];
+		return isRecord(directive) && directive.action === "set" ? directive.value : undefined;
+	});
+	const server = isRecord(payload.server) ? payload.server : {};
+	return collectKnownSecretValues(collectableEntries([{ ...server, ...inline }]), []);
 }
 
 interface SecretsPlan {

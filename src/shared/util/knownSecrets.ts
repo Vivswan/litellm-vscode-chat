@@ -2,9 +2,9 @@
  * Every secret VALUE the extension knows, replaced wherever it appears, in one pass with the URL-credential cuts of
  * displayUrl.ts. Response-derived text (a 403 body quoting the key) and a URL spelling the parser refuses have no shape
  * to scrub by, so the configured values themselves are the handle; the Logger redacts with one KnownSecrets, built so
- * a model-facing exit boundary can share it. Collected over-inclusively from every raw record by the parser's own
- * readers (serverSync/setting.ts collectableEntries): every string at every secret position, the one the parser
- * selects and the ones it passes over, in an entry accepted or rejected.
+ * a model-facing exit boundary can share it. Collected over-inclusively from every raw record by one reader
+ * (collectableEntries): every string at every secret position, the one the parser selects and the ones it passes
+ * over, in an entry accepted or rejected.
  *   inline secret values     -> every flat secret field and every nested position of SECRET_FIELD_NESTED_PATHS
  *   credential header values -> every raw header isCredentialHeader names, the entry's carrier among them
  *   URL userinfo             -> every configured URL (base, token, mcp) through configuredUserinfo, the same finder
@@ -15,8 +15,10 @@
  * in any spelling matches in either hex case.
  */
 
-import { isCredentialHeader } from "../serverEntry";
+import { isCredentialHeader, SECRET_FIELD_IDS, SECRET_FIELD_NESTED_PATHS } from "../serverEntry";
 import { type Cut, configuredUserinfo, MAX_AUTHORITY_LENGTH, REDACTED, urlCuts } from "./displayUrl";
+import { isHeaderScalar, usableHttpText } from "./headers";
+import { isRecord, valueAt } from "./json";
 
 /** A one- or two-character value would blank most of every line ("a" in "chat"); the URL cut still covers it. */
 const MIN_VALUE_LENGTH = 3;
@@ -33,6 +35,53 @@ export interface CollectableEntry {
 	readonly secrets: readonly string[];
 	readonly headers: Readonly<Record<string, string>>;
 	readonly carriers: readonly string[];
+}
+
+/**
+ * The collectable view of EVERY raw record, over-inclusive by design: every string at every secret position is a
+ * value, the one the parser selects and the ones it passes over, in an entry it accepts or rejects (an auth conflict,
+ * a bad URL), since a line can quote any of them. SECRET_FIELD_NESTED_PATHS stays the one table of the positions.
+ *   URL fields    -> baseUrl, the flat and the nested token URL, mcp.url
+ *   secret values -> every flat secret field and every nested position of the table
+ *   headers       -> every raw header entry with a scalar value, the normalizer's rejections included
+ *   carriers      -> the flat virtualKeyHeader and the header beside each nested virtual-key value
+ */
+export function collectableEntries(raw: unknown): CollectableEntry[] {
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	const strings = (values: readonly unknown[]): string[] =>
+		values.map(usableHttpText).filter((value): value is string => value !== undefined);
+	return raw.filter(isRecord).map((record) => {
+		// A null prototype: a raw header named "__proto__" must become an own entry, not reach the inherited setter.
+		const headers: Record<string, string> = Object.create(null);
+		if (isRecord(record.headers)) {
+			for (const [name, value] of Object.entries(record.headers)) {
+				if (isHeaderScalar(value)) {
+					headers[name] = String(value);
+				}
+			}
+		}
+		return {
+			urls: strings([
+				record.baseUrl,
+				record.oauthTokenUrl,
+				valueAt(record, ["auth", "oauth", "tokenUrl"]),
+				valueAt(record, ["mcp", "url"]),
+			]),
+			secrets: strings(
+				SECRET_FIELD_IDS.flatMap((id) => [
+					record[id],
+					...SECRET_FIELD_NESTED_PATHS[id].map((path) => valueAt(record, path)),
+				])
+			),
+			headers,
+			carriers: strings([
+				record.virtualKeyHeader,
+				...SECRET_FIELD_NESTED_PATHS.virtualKeyValue.map((path) => valueAt(record, [...path.slice(0, -1), "header"])),
+			]),
+		};
+	});
 }
 
 /** The known values of the parsed entries plus the stored values read for them; short ones out, deduplicated. */

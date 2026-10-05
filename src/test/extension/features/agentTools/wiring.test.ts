@@ -513,6 +513,41 @@ suite("extension/features/agentTools wiring", () => {
 		});
 	});
 
+	test("a credential the input itself carries is withheld from a failed reply that quotes it", async () => {
+		const input = {
+			...NEW_SERVER,
+			headers: { Authorization: "Bearer input-secret-Q7" },
+			secrets: { apiKey: { action: "set", location: "settings", value: "sk-inline-Q9" } },
+		};
+		await withWiringSpies(async (spies) => {
+			const harness = await wireUnderTest(ALL_WRITES, {
+				respond: (request) => ({
+					outcome: "validation-error",
+					reply: {
+						kind: "fail",
+						id: request.id,
+						method: "saveServerSetting",
+						message: "Denied input-secret-Q7 and sk-inline-Q9",
+						failureKind: "validation",
+					},
+				}),
+			});
+			const on = { ...ALL_WRITES, [AGENT_TOOLS_SECRET_VALUES_KEY]: true };
+			const result = await withConfig(on, () => invokeLive(spies, "saveServer", input));
+			assert.deepStrictEqual(resultJson(result), {
+				method: "saveServerSetting",
+				ok: false,
+				failureKind: "validation",
+				message: "Denied [redacted] and [redacted]",
+			});
+			assert.strictEqual(harness.submitted.length, 1, "the save reached the dashboard and was refused there");
+			for (const line of harness.lines) {
+				assertOmits(line, "input-secret-Q7", "the log never carries the header value");
+				assertOmits(line, "sk-inline-Q9", "the log never carries the directive value");
+			}
+		});
+	});
+
 	test("a dashboard failure rides the result for the agent; the log gets method and outcome only", async () => {
 		const message = "the entered key xyz is bad";
 		await withWiringSpies(async (spies) => {
@@ -953,25 +988,29 @@ suite("extension/features/agentTools wiring", () => {
 		});
 	});
 
-	// A plain Error's message is the dashboard's or a response's text: the model gets it scrubbed, the log gets the
-	// error's name alone (CLAUDE.md: logs carry classifications, never response-derived text).
-	test("a plain Error's message reaches the model scrubbed and the log by name only", async () => {
+	// A plain Error's name and message are the dashboard's or a response's text: the model gets them scrubbed, the log
+	// gets a fixed classification (CLAUDE.md: logs carry classifications, never response-derived text).
+	test("a plain Error's name and message reach the model scrubbed and the log as a classification only", async () => {
 		await withWiringSpies(async (spies) => {
 			const harness = await wireUnderTest(ALL_WRITES, {
-				submitThrows: new RangeError("Denied tenant alice@example.test"),
+				submitThrows: Object.assign(new RangeError("Denied tenant alice@example.test"), {
+					name: "Denied for alice@example.test",
+				}),
 			});
 			await withConfig(ALL_WRITES, async () => {
 				await assert.rejects(invokeLive(spies, "setSetting", { setting: "chat.timeout", value: 1 }), (error) => {
 					assert.ok(error instanceof Error && !(error instanceof MirroredError));
-					assert.strictEqual(error.name, "RangeError");
+					assert.strictEqual(error.name, "Denied for alice@example.test");
 					assert.strictEqual(error.message, "Denied tenant alice@example.test");
 					return true;
 				});
 			});
-			assertOmits(harness.lines.join("\n"), "alice@example.test", "the log carries the name, never the text");
+			const failures = harness.lines.filter((line) => line.startsWith("ERROR: Agent tool setSetting failed"));
+			assert.strictEqual(failures.length, 1, "one error line per failed call");
+			assertOmits(harness.lines.join("\n"), "alice@example.test", "neither the name nor the message reaches the log");
 			assert.ok(
-				harness.lines.some((line) => line.includes("RangeError")),
-				"the error's name is what the log records"
+				(failures[0] as string).includes("AgentTools(setSetting: plain-error)"),
+				"the classification is what the log records"
 			);
 		});
 	});

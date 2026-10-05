@@ -16,6 +16,7 @@ import {
 } from "../../../../../extension/features/agentTools/inputSchema";
 import type { AgentRequest, RefusalReason, ToolPlan } from "../../../../../extension/features/agentTools/planner";
 import {
+	inlineSecretValues,
 	planEditModelRecords,
 	planInspectModel,
 	planRemoveServer,
@@ -455,6 +456,25 @@ describe("agentTools planner save_server", () => {
 		});
 		// A value for a field whose directive is not `set` is dropped, not smuggled in.
 		expect(withSecretValues(before, { oauthClientSecret: "leak" }).payload).toEqual(before.payload);
+	});
+
+	// Drifts silently: a submit that fails without saving quotes a value the fresh store read cannot know. The shapes
+	// are the ones a hand-rolled reader missed: a numeric header value and an MCP URL's userinfo.
+	test("a save's inline secrets are read as the stored configuration is: numeric headers and mcp userinfo included", () => {
+		const plan = planSaveServer(
+			{
+				label: "New",
+				baseUrl: "http://new.test",
+				headers: { Authorization: 123456789, "X-Team": "platform" },
+				mcp: { url: "http://probe:mcp-secret-Q7@mcp.test/mcp" },
+				secrets: { apiKey: { action: "set", location: "settings", value: "sk-inline" } },
+			},
+			state,
+			true
+		);
+		const values = inlineSecretValues(requestsOf(plan).requests[0] as AgentRequest);
+		expect(values).toEqual(expect.arrayContaining(["sk-inline", "123456789", "probe", "mcp-secret-Q7"]));
+		expect(values).not.toContain("platform");
 	});
 
 	test.each([

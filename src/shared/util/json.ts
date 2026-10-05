@@ -37,6 +37,15 @@ export function isUnsafeRecordKey(key: string): boolean {
 	return key === "__proto__" || key === "constructor" || key === "prototype";
 }
 
+/** The value at a path of record keys; absent (or a non-record on the way) reads as undefined. */
+export function valueAt(root: unknown, path: readonly string[]): unknown {
+	let node = root;
+	for (const segment of path) {
+		node = isRecord(node) ? node[segment] : undefined;
+	}
+	return node;
+}
+
 /** A fully populated record over a closed key list: the one place the fill-every-key pattern asserts totality. */
 export function recordFromKeys<K extends string, V>(keys: readonly K[], value: (key: K) => V): Record<K, V> {
 	return Object.fromEntries(keys.map((key) => [key, value(key)])) as Record<K, V>;

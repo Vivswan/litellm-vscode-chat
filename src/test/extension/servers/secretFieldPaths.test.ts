@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import { inlineSecretValues } from "../../../extension/servers/serverSync/secrets";
-import { collectableEntries, parseServersSetting } from "../../../extension/servers/serverSync/setting";
+import { parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import { Logger } from "../../../shared/logger";
 import { SECRET_FIELD_IDS, SECRET_FIELD_NESTED_PATHS } from "../../../shared/serverEntry";
-import { collectKnownSecretValues, KnownSecrets } from "../../../shared/util/knownSecrets";
+import { collectableEntries, collectKnownSecretValues, KnownSecrets } from "../../../shared/util/knownSecrets";
 
 /** A raw entry that is a valid form around `path`, with `value` placed at the path's end. */
 function entryWithSecretAt(path: readonly string[], value: string): Record<string, unknown> {

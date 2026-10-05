@@ -36,9 +36,8 @@ import {
 	SECRET_FIELD_NESTED_PATHS,
 } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { HEADER_NAME_PATTERN, isHeaderScalar, trimHttpWhitespace, usableHttpText } from "../../../shared/util/headers";
-import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
-import type { CollectableEntry } from "../../../shared/util/knownSecrets";
+import { HEADER_NAME_PATTERN, trimHttpWhitespace, usableHttpText } from "../../../shared/util/headers";
+import { isRecord, isUnsafeRecordKey, valueAt } from "../../../shared/util/json";
 import { sameGroupIdentity } from "../groupRemovals";
 
 export type EntryModelParameters = EntryViewFieldValues["modelParameters"];
@@ -211,14 +210,6 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 	return { fields };
 }
 
-function valueAt(root: unknown, path: readonly string[]): unknown {
-	let node = root;
-	for (const segment of path) {
-		node = isRecord(node) ? node[segment] : undefined;
-	}
-	return node;
-}
-
 /** The secret values at the table's nested positions (SECRET_FIELD_NESTED_PATHS), usable text only. */
 function assignNestedSecrets(auth: Readonly<Record<string, unknown>>, fields: FlatAuthFields): void {
 	for (const field of SECRET_FIELD_IDS) {
@@ -230,53 +221,6 @@ function assignNestedSecrets(auth: Readonly<Record<string, unknown>>, fields: Fl
 			}
 		}
 	}
-}
-
-/**
- * The collectable view of EVERY raw record, over-inclusive by design: every string at every secret position is a
- * value, the one the parser selects and the ones it passes over, in an entry it accepts or rejects (an auth conflict,
- * a bad URL), since a line can quote any of them. SECRET_FIELD_NESTED_PATHS stays the one table of the positions.
- *   URL fields    -> baseUrl, the flat and the nested token URL, mcp.url
- *   secret values -> every flat secret field and every nested position of the table
- *   headers       -> every raw header entry with a scalar value, the normalizer's rejections included
- *   carriers      -> the flat virtualKeyHeader and the header beside each nested virtual-key value
- */
-export function collectableEntries(raw: unknown): CollectableEntry[] {
-	if (!Array.isArray(raw)) {
-		return [];
-	}
-	const strings = (values: readonly unknown[]): string[] =>
-		values.map(usableHttpText).filter((value): value is string => value !== undefined);
-	return raw.filter(isRecord).map((record) => {
-		// A null prototype: a raw header named "__proto__" must become an own entry, not reach the inherited setter.
-		const headers: Record<string, string> = Object.create(null);
-		if (isRecord(record.headers)) {
-			for (const [name, value] of Object.entries(record.headers)) {
-				if (isHeaderScalar(value)) {
-					headers[name] = String(value);
-				}
-			}
-		}
-		return {
-			urls: strings([
-				record.baseUrl,
-				record.oauthTokenUrl,
-				valueAt(record, ["auth", "oauth", "tokenUrl"]),
-				valueAt(record, ["mcp", "url"]),
-			]),
-			secrets: strings(
-				SECRET_FIELD_IDS.flatMap((id) => [
-					record[id],
-					...SECRET_FIELD_NESTED_PATHS[id].map((path) => valueAt(record, path)),
-				])
-			),
-			headers,
-			carriers: strings([
-				record.virtualKeyHeader,
-				...SECRET_FIELD_NESTED_PATHS.virtualKeyValue.map((path) => valueAt(record, [...path.slice(0, -1), "header"])),
-			]),
-		};
-	});
 }
 
 function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
@@ -402,7 +346,7 @@ export function rejectedCarrierLabels(entryReports: readonly ServerEntryReport[]
  * The secret values a rejected carrier still carries inline, by label: the parser refused the entry whole, but the
  * values sit in the setting, so a group holding one is the label's leftover like a stored value makes it (the group
  * ownership's holder evidence). Read at every flat secret field and every nested position of the one table the
- * parser assigns through (SECRET_FIELD_NESTED_PATHS), like collectableEntries.
+ * parser assigns through (SECRET_FIELD_NESTED_PATHS), like collectableEntries (shared/util/knownSecrets.ts).
  */
 export function rejectedCarrierInlineSecrets(
 	raw: unknown,

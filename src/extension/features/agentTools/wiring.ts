@@ -16,11 +16,11 @@ import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import { isRecord } from "../../../shared/util/json";
 import type { KnownSecrets } from "../../../shared/util/knownSecrets";
-import { collectKnownSecretValues } from "../../../shared/util/knownSecrets";
+import { collectableEntries, collectKnownSecretValues } from "../../../shared/util/knownSecrets";
 import type { DashboardController } from "../../dashboard/panel";
 import type { SecretStore } from "../../servers/serverSync/secrets";
 import { readDeclaredSecretValues } from "../../servers/serverSync/secrets";
-import { collectableEntries, rawDeclaredLabels } from "../../servers/serverSync/setting";
+import { rawDeclaredLabels } from "../../servers/serverSync/setting";
 import type { SettingsAccess } from "../../settingsAccess";
 import { resolveConfiguredScope } from "../../settingsAccess";
 import { buildDiagnosticsSnapshot } from "../../ui/diagnostics";
@@ -35,6 +35,7 @@ import {
 	applyRecordPatch,
 	declaredRow,
 	externalRow,
+	inlineSecretValues,
 	planEditModelRecords,
 	planInspectModel,
 	planRemoveServer,
@@ -89,7 +90,7 @@ export interface AgentToolsDeps {
 	readonly secretStore: SecretStore;
 	/**
 	 * The extension's shared known-value set (the Logger's); the exit unions it with a fresh read and the values the
-	 * user typed.
+	 * call itself supplied.
 	 */
 	readonly knownSecrets: Pick<KnownSecrets, "values">;
 	readonly getConnectionStatus: () => ConnectionStatus;
@@ -300,11 +301,11 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	}
 
 	/**
-	 * The exit's values: those known before the call, those the user typed into the masked prompts during it, and
-	 * those known now (a save may have stored the value a reply then quotes).
+	 * The exit's values: those known before the call, those the call supplied (typed into the masked prompts or
+	 * carried in the input), and those known now (a save may have stored the value a reply then quotes).
 	 */
-	private async exitSecrets(known: readonly string[], typed: readonly string[]): Promise<readonly string[]> {
-		return [...new Set([...known, ...typed, ...(await this.knownSecrets())])];
+	private async exitSecrets(known: readonly string[], supplied: readonly string[]): Promise<readonly string[]> {
+		return [...new Set([...known, ...supplied, ...(await this.knownSecrets())])];
 	}
 
 	/**
@@ -313,7 +314,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	 *   a MirroredError              -> a new one: display and English mirror both scrubbed, classification kept
 	 *   any other Error              -> a plain Error with the scrubbed name and message
 	 *   a string or object           -> a classified Error (non-error-throw) with its scrubbed rendering
-	 *   the conversion or the log sink throwing -> fixed text, classified; the sink's failure goes nowhere
+	 *   the conversion throwing      -> fixed text, classified
+	 *   the log sink throwing        -> the replacement still leaves; the sink's failure goes nowhere
 	 */
 	private converted(error: unknown, secrets: readonly string[]): Error {
 		const kind = thrownKind(error);
@@ -321,6 +323,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 			return new vscode.CancellationError();
 		}
 		const tag = `AgentTools(${this.id}: non-error-throw)`;
+		const plainTag = `AgentTools(${this.id}: plain-error)`;
 		let replacement: Error;
 		try {
 			replacement =
@@ -341,8 +344,12 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 			);
 		}
 		try {
-			// A plain Error's message is the dashboard's or a response's text: the log gets its name alone.
-			this.logger.error(`Agent tool ${this.id} failed`, kind === "error" ? new Error(replacement.name) : replacement);
+			// A plain Error's name and message are the dashboard's or a response's text: the log gets the classification
+			// alone.
+			this.logger.error(
+				`Agent tool ${this.id} failed`,
+				kind === "error" ? localizedError(plainTag, plainTag, plainTag) : replacement
+			);
 		} catch {
 			// A failing sink is not an exit: the replacement still leaves, the sink's own text never does.
 		}
@@ -353,12 +360,12 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	 * The exception exit: the exit set is read (a store that cannot be read is itself converted, with the values
 	 * already in hand), then the thrown value is converted and the conversion thrown.
 	 */
-	private async leave(error: unknown, known: readonly string[], typed: readonly string[]): Promise<never> {
+	private async leave(error: unknown, known: readonly string[], supplied: readonly string[]): Promise<never> {
 		let secrets: readonly string[];
 		try {
-			secrets = await this.exitSecrets(known, typed);
+			secrets = await this.exitSecrets(known, supplied);
 		} catch (unreadable) {
-			throw this.converted(unreadable, [...known, ...typed]);
+			throw this.converted(unreadable, [...known, ...supplied]);
 		}
 		throw this.converted(error, secrets);
 	}
@@ -540,7 +547,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 		const known = await this.knownSecrets().catch((unreadable: unknown) => {
 			throw this.converted(unreadable, []);
 		});
-		const typed: string[] = [];
+		const supplied: string[] = [];
 		try {
 			// Registration already gates on the switches, but a configuration change races an in-flight agent turn: the
 			// tool answers the live settings.
@@ -559,16 +566,16 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					"tool switched off"
 				);
 			}
-			const payload = await this.run(options.input, token, typed);
+			const payload = await this.run(options.input, token, supplied);
 			// Rendered with the exit's values, so two keys that redact alike are numbered rather than merged.
-			const secrets = await this.exitSecrets(known, typed);
+			const secrets = await this.exitSecrets(known, supplied);
 			return toolResult(renderJson(payload, secrets));
 		} catch (error) {
-			return this.leave(error, known, typed);
+			return this.leave(error, known, supplied);
 		}
 	}
 
-	private async run(raw: unknown, token: vscode.CancellationToken, typed: string[]): Promise<unknown> {
+	private async run(raw: unknown, token: vscode.CancellationToken, supplied: string[]): Promise<unknown> {
 		const state = this.deps.dashboard.readState();
 		switch (this.id) {
 			case "diagnostics": {
@@ -584,7 +591,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 			case "configuration":
 				return shapeConfiguration(state, this.parse("configuration", raw).sections);
 			case "inspectModel":
-				return this.execute(planInspectModel(this.parse("inspectModel", raw), state), token, typed);
+				return this.execute(planInspectModel(this.parse("inspectModel", raw), state), token, supplied);
 			case "searchCatalog":
 				return this.execute(
 					{
@@ -593,20 +600,20 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 						prompts: [],
 					},
 					token,
-					typed
+					supplied
 				);
 			case "setSetting":
-				return this.execute(planSetSetting(this.parse("setSetting", raw)), token, typed);
+				return this.execute(planSetSetting(this.parse("setSetting", raw)), token, supplied);
 			case "editModelRecords":
-				return this.execute(planEditModelRecords(this.parse("editModelRecords", raw), state), token, typed);
+				return this.execute(planEditModelRecords(this.parse("editModelRecords", raw), state), token, supplied);
 			case "saveServer": {
 				const input = this.parse("saveServer", raw);
-				return this.execute(planSaveServer(input, state, agentToolsAcceptSecretValues()), token, typed, input.label);
+				return this.execute(planSaveServer(input, state, agentToolsAcceptSecretValues()), token, supplied, input.label);
 			}
 			case "removeServer":
-				return this.execute(planRemoveServer(this.parse("removeServer", raw), state), token, typed);
+				return this.execute(planRemoveServer(this.parse("removeServer", raw), state), token, supplied);
 			case "runAction":
-				return this.execute(planRunAction(this.parse("runAction", raw), state), token, typed);
+				return this.execute(planRunAction(this.parse("runAction", raw), state), token, supplied);
 		}
 	}
 
@@ -627,14 +634,14 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	private async execute(
 		plan: ToolPlan,
 		token: vscode.CancellationToken,
-		typed: string[],
+		supplied: string[],
 		label = ""
 	): Promise<unknown> {
 		if (plan.kind === "refused") {
 			throw refusalError(this.id, refusalText(plan.reason, plan.detail), plan.reason);
 		}
 		// Each answer joins the exit set the moment it is typed: a later prompt or submit that fails may quote it.
-		const values = await this.promptSecrets(plan.prompts, label, token, typed);
+		const values = await this.promptSecrets(plan.prompts, label, token, supplied);
 		const results: unknown[] = [];
 		for (const planned of plan.requests) {
 			// A cancel stops the plan before its next submit; what already landed stays, since a dashboard write is not
@@ -643,6 +650,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				throw new vscode.CancellationError();
 			}
 			const request = values === undefined ? planned : withSecretValues(planned, values);
+			// The input's own credential values join before the submit that may quote them without storing them.
+			supplied.push(...inlineSecretValues(request));
 			const submission = await this.deps.dashboard.submit(frame(request));
 			results.push(shapeSubmission(request, submission));
 			if (submission.outcome !== "ok") {
@@ -663,7 +672,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 		prompts: readonly SecretPrompt[],
 		label: string,
 		token: vscode.CancellationToken,
-		typed: string[]
+		supplied: string[]
 	): Promise<Partial<Record<SecretFieldId, string>> | undefined> {
 		if (prompts.length === 0) {
 			return undefined;
@@ -678,7 +687,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 			if (value === undefined || value.length === 0 || token.isCancellationRequested) {
 				throw new vscode.CancellationError();
 			}
-			typed.push(value);
+			supplied.push(value);
 			values[prompt.field] = value;
 		}
 		return values;

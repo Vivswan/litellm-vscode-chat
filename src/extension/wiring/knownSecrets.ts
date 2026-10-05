@@ -3,9 +3,9 @@ import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { SERVERS_SETTING_KEY } from "../../shared/config/settings";
 import { isServerSecretsKey } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
-import { type CollectableEntry, collectKnownSecretValues } from "../../shared/util/knownSecrets";
+import { type CollectableEntry, collectableEntries, collectKnownSecretValues } from "../../shared/util/knownSecrets";
 import { onServerSecretWritten, readDeclaredSecretValues } from "../servers/serverSync/secrets";
-import { collectableEntries, rawDeclaredLabels } from "../servers/serverSync/setting";
+import { rawDeclaredLabels } from "../servers/serverSync/setting";
 
 /**
  * Keep the Logger's known-secret list current from every raw record read by the parser's own readers (accepted or
