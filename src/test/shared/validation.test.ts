@@ -30,12 +30,11 @@ suite("shared/validation", () => {
 			(e: unknown) => {
 				assert.ok(e instanceof Error);
 				assert.match(e.message, /contained no messages/);
-				// Chat-surface shape: the "Details:" lead-in separates headline and
-				// detail (Copilot Chat's error block flattens newlines).
+				// Chat-surface shape: the "Details:" lead-in separates headline and detail (Copilot Chat's error block
+				// flattens newlines).
 				assert.ok(e.message.includes("\n\nDetails: "), e.message);
-				// English host: the mirror coincides with the display; a bare
-				// localized message from shared/validation.ts would land translated
-				// text in the output channel.
+				// English host: the mirror coincides with the display; a bare localized message from
+				// shared/validation.ts would land translated text in the output channel.
 				assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
 				return true;
 			}
@@ -68,8 +67,8 @@ suite("shared/validation", () => {
 				assert.match(e.message, /Unpaired tool call IDs: call-1\./);
 				assert.ok(e.message.includes("\n\nDetails: "), e.message);
 				assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
-				// The call IDs are earlier model output (response-derived), so the
-				// public log surfaces get a count-only classification instead.
+				// The call IDs are earlier model output (response-derived), so the public log surfaces get a count-only
+				// classification instead.
 				assert.strictEqual(
 					(e as Error & { logClassification?: string }).logClassification,
 					"ValidationError(unpaired tool calls: 1)"
@@ -94,12 +93,12 @@ suite("shared/validation", () => {
 			() => validateRequest(messages),
 			(e: unknown) => {
 				assert.ok(e instanceof Error);
-				// The detail embeds the part's constructor name, which is minified
-				// in the packaged VS Code API, so only the shape is pinned.
+				// The detail embeds the part's constructor name, which is minified in the packaged VS Code API, so only
+				// the shape is pinned.
 				assert.match(e.message, /Expected a tool result after a tool call, got \S+\./);
 				assert.ok(e.message.includes("\n\nDetails: "), e.message);
-				// The constructor name is caller-controlled text, so the
-				// classification stays a fixed string without it.
+				// The constructor name is caller-controlled text, so the classification stays a fixed string without
+				// it.
 				assert.strictEqual(
 					(e as Error & { logClassification?: string }).logClassification,
 					"ValidationError(non-tool-result part after tool call)"
@@ -233,8 +232,8 @@ suite("shared/validation", () => {
 	});
 
 	test("a call id reused within one message is rejected even when a result part sits between the calls", () => {
-		// Conversion ships a message's calls in ONE tool_calls array, so the
-		// part-order close cannot stop the id shipping twice in that array.
+		// Conversion ships a message's calls in ONE tool_calls array, so the part-order close cannot stop the id
+		// shipping twice in that array.
 		const messages: vscode.LanguageModelChatMessage[] = [
 			{
 				role: vscode.LanguageModelChatMessageRole.Assistant,
@@ -266,8 +265,8 @@ suite("shared/validation", () => {
 	});
 
 	test("a tool call outside an assistant message still needs its result", () => {
-		// Conversion ships tool-call parts wherever they sit, so an unanswered
-		// call in a user message would reach the wire unreferenced.
+		// Conversion ships tool-call parts wherever they sit, so an unanswered call in a user message would reach the
+		// wire unreferenced.
 		const messages: vscode.LanguageModelChatMessage[] = [
 			{
 				role: vscode.LanguageModelChatMessageRole.User,

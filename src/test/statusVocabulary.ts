@@ -1,14 +1,12 @@
 /**
- * The cross-surface serving-vocabulary table: one window state per row, with
- * what EVERY headline surface must say about it - the status bar's state and
- * severity, the dashboard hero's word and tone, the notifier's toast (or its
- * silence), the diagnostics paste line, and the row pills. Two suites consume
- * it (the host suite for the bar/notifier/paste line and the real state
- * builder's mirror, the bun webview suite for the hero and the rendered
- * pills), so the surfaces are pinned against the SAME rows and cannot
- * contradict each other without one suite going red. Each row also names
- * the one severity class its aggregate surfaces belong to, so a reader can
- * see at a glance which rows a green bar beside a red hero would violate.
+ * The cross-surface serving-vocabulary table: one window state per row, with what EVERY headline surface must say about
+ * it - the status bar's state and severity, the dashboard hero's word and tone, the notifier's toast (or its silence),
+ * the diagnostics paste line, and the row pills. Two suites consume it (the host suite for the bar/notifier/paste line
+ * and the real state builder's mirror, the bun webview suite for the hero and the rendered pills), so the surfaces are
+ * pinned against the SAME rows and cannot contradict each other without one suite going red.
+ *
+ *   Each row also names the one severity class its aggregate surfaces belong to
+ *     -> a reader can see at a glance which rows a green bar beside a red hero would violate
  */
 
 import type { OverallVerdict } from "../dashboard/presenters";
@@ -18,9 +16,8 @@ import { markLogSafe } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 
 /**
- * The one severity every aggregate surface of a row must express. "setup" is
- * the call-to-action tier: the bar prompts with a warning tint while the hero
- * stays muted - nothing is degraded, something is just not set up yet.
+ * The one severity every aggregate surface of a row must express. "setup" is the call-to-action tier: the bar prompts
+ * with a warning tint while the hero stays muted - nothing is degraded, something is just not set up yet.
  */
 type SeverityClass = "ok" | "warn" | "error" | "muted" | "setup";
 
@@ -30,7 +27,6 @@ interface BarExpectation {
 	readonly severity: "plain" | "warning" | "error";
 }
 
-/** The notifier expectation: the toast's kind and a fragment of its message, or silence. */
 type NotifierExpectation = { readonly kind: "info" | "warning" | "error"; readonly contains: string } | "none";
 
 /** One rendered pill: its visible word (compile-pinned to the vocabulary below) and its dot tone class. */
@@ -44,10 +40,9 @@ export interface WindowStateRow {
 	/** The provider-reported status window, exactly as handleAggregatedStatus and the notifier receive it. */
 	readonly window: readonly ServerStatus[];
 	/**
-	 * Declared entries whose provider-group sync failed, by entry label: the
-	 * sync-failure overlay's input beside the window. The host suite feeds them
-	 * to the bar and notifier as declared views carrying syncFailure (whose
-	 * class gates the overlay's no-live-status synthesis).
+	 * Declared entries whose provider-group sync failed, by entry label: the sync-failure overlay's input beside the
+	 * window. The host suite feeds them to the bar and notifier as declared views carrying syncFailure (whose class
+	 * gates the overlay's no-live-status synthesis).
 	 */
 	readonly syncFailures?: readonly {
 		readonly label: string;
@@ -62,9 +57,9 @@ export interface WindowStateRow {
 	/** The same state as the dashboard's server rows; the host suite pins this mirror against the REAL builder. */
 	readonly rows: readonly DashboardServer[];
 	/**
-	 * How many provider groups the user's configuration hides (state.hiddenGroups). The
-	 * hero and paste line read it beside the rows; the window carries the same
-	 * groups as hiddenByRemoval ok statuses, which the host mirror tombstones.
+	 * How many provider groups the user's configuration hides (state.hiddenGroups). The hero and paste line read it
+	 * beside the rows; the window carries the same groups as hiddenByRemoval ok statuses, which the host mirror
+	 * tombstones.
 	 */
 	readonly hiddenGroups?: number;
 	readonly expect: {
@@ -123,11 +118,9 @@ const NO_SECRETS = {
 } as const;
 
 /**
- * A declared dashboard row mirroring one window status, with the notices the
- * REAL builder derives for it. Hand-written so the bun suite needs no host
- * imports; the host suite rebuilds the same rows through buildDashboardState
- * and asserts the mirror holds - notices included - so this literal cannot
- * drift from the builder without a red host test.
+ * A declared dashboard row mirroring one window status, with the notices the REAL builder derives for it. Hand-written
+ * so the bun suite needs no host imports; the host suite rebuilds the same rows through buildDashboardState and asserts
+ * the mirror holds - notices included - so this literal cannot drift from the builder without a red host test.
  */
 function declaredRow(status: ServerStatus, notices?: readonly DeclaredServerNotice[]): DashboardServer {
 	const base = {
@@ -137,10 +130,9 @@ function declaredRow(status: ServerStatus, notices?: readonly DeclaredServerNoti
 		servedModelCount: status.servedModelCount,
 		credentials: "absent",
 		hasOAuth: false,
-		// Mirrors state.ts's checkedAtMs (the push's one ISO-to-epoch-ms owner)
-		// without its ""-sentinel branch: every status here carries a real
-		// instant (CHECKED_AT), so a sentinel reaching this mirror fails the
-		// host suite's equality pin loudly instead of mapping to absent.
+		// Mirrors state.ts's checkedAtMs (the push's one ISO-to-epoch-ms owner) without its ""-sentinel branch: every
+		// status here carries a real instant (CHECKED_AT), so a sentinel reaching this mirror fails the host suite's
+		// equality pin loudly instead of mapping to absent.
 		lastChecked: new Date(status.lastChecked).getTime(),
 		config: { secrets: NO_SECRETS },
 		...(notices !== undefined && notices.length > 0 ? { notices } : {}),
@@ -188,10 +180,9 @@ function misconfiguredRow(name: string): DashboardServer {
 }
 
 /**
- * A declared row whose provider-group sync failed, mirroring declaredOutcome's
- * sync branch: an error row carrying the sync message, with the live status's
- * served count when a group serves and zero (no lastChecked either) when the
- * entry never reached discovery.
+ * A declared row whose provider-group sync failed, mirroring declaredOutcome's sync branch: an error row carrying the
+ * sync message, with the live status's served count when a group serves and zero (no lastChecked either) when the entry
+ * never reached discovery.
  */
 function syncFailedRow(name: string, message: string, live?: ServerStatus): DashboardServer {
 	return {
@@ -247,10 +238,12 @@ const UPDATE_UNAVAILABLE =
  * pass, and the two sync-failure rows pin the applySyncFailures overlay. Two residuals stay, each needing plumbing
  * or a vocabulary ruling of its own:
  *
- *   blocked or skipped entry, no live status   -> red dashboard row beside a spinning bar (the overlay synthesizes
- *                                                 only for upsertFailed); persists while secret reads keep failing
- *   sync-failed claimants sharing one snapshot -> one window status against one row each; zero served beside a clean
- *                                                 claimant reads "error" in the window and "degraded" in the rows
+ *   blocked or skipped entry, no live status       -> red dashboard row beside a spinning bar
+ *   the overlay synthesizes only for upsertFailed  -> red dashboard row beside a spinning bar
+ *   red dashboard row beside a spinning bar        -> persists while secret reads keep failing
+ *   sync-failed claimants sharing one snapshot     -> one window status against one row each; zero served beside a
+ *                                                     clean claimant reads "error" in the window and "degraded" in the
+ *                                                     rows
  */
 export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 	{
@@ -298,16 +291,15 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 			hero: { word: "Connected, no models", tone: "warn" },
 			statusLine: "Connected, but 0 models are served (answered with an empty listing)",
 			notifier: { kind: "warning", contains: "listed no models" },
-			// The row itself is healthy: the warning is an aggregate claim, and a
-			// red or amber pill here would blame a server that answered fine.
+			// The row itself is healthy: the warning is an aggregate claim, and a red or amber pill here would blame a
+			// server that answered fine.
 			pills: [{ word: "Connected", tone: "ok" }],
 		},
 	},
 	{
 		name: "only hidden groups remain, so zero models is user-chosen configuration",
-		// The hidden group leaves the servers table entirely (rows is empty); the
-		// hidden-groups count is what keeps every surface on the connected
-		// zero-model warning instead of "Not configured" beside a warning bar.
+		// The hidden group leaves the servers table entirely (rows is empty); the hidden-groups count is what keeps
+		// every surface on the connected zero-model warning instead of "Not configured" beside a warning bar.
 		window: [hiddenGroup],
 		totalModels: 0,
 		configured: true,
@@ -343,9 +335,8 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 	},
 	{
 		name: "a hidden group beside a declared entry no discovery pass has seen",
-		// The unchecked entry contributes no window status; the hidden group's
-		// synthesized row is what keeps the rows verdict on the window's
-		// "connected" instead of a muted "waiting" beside a warning bar.
+		// The unchecked entry contributes no window status; the hidden group's synthesized row is what keeps the rows
+		// verdict on the window's "connected" instead of a muted "waiting" beside a warning bar.
 		window: [hiddenGroup],
 		totalModels: 0,
 		configured: true,
@@ -374,8 +365,8 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 			hero: { word: "Degraded", tone: "warn" },
 			statusLine: "Degraded (1 models, some servers failed)",
 			notifier: "none",
-			// The dead row's pill IS red: row severity may exceed the aggregate
-			// (one dead server degrades a fleet), never the other way around.
+			// The dead row's pill IS red: row severity may exceed the aggregate (one dead server degrades a fleet),
+			// never the other way around.
 			pills: [
 				{ word: "Connected", tone: "ok" },
 				{ word: "Error", tone: "error" },
@@ -424,9 +415,8 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 		configured: true,
 		rows: [declaredRow(expectedStaleServing)],
 		expect: {
-			// The failure is declared normal and models serve: quiet everywhere,
-			// never one surface's "Connected" beside another's "Error". Serving
-			// through the stale window alone earns NO nothing-declared notice.
+			// The failure is declared normal and models serve: quiet everywhere, never one surface's "Connected" beside
+			// another's "Error". Serving through the stale window alone earns NO nothing-declared notice.
 			severityClass: "ok",
 			verdict: "connected",
 			bar: { state: "connected", severity: "plain" },
@@ -502,9 +492,8 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 	},
 	{
 		name: "a declared entry discovery never saw, whose provider-group sync failed",
-		// Empty window on purpose: the failed upsert means no group exists to
-		// report, so only the overlay can carry the failure to the bar
-		// (upsertFailed is the one class that proves the absence).
+		// Empty window on purpose: the failed upsert means no group exists to report, so only the overlay can carry the
+		// failure to the bar (upsertFailed is the one class that proves the absence).
 		window: [],
 		syncFailures: [{ label: "pending", message: UPSERT_FAILED, failureClass: "upsertFailed" }],
 		totalModels: 0,
@@ -528,8 +517,8 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 		configured: true,
 		rows: [syncFailedRow("live", UPDATE_UNAVAILABLE, liveBeforeSyncFailure)],
 		expect: {
-			// Serving through the failed sync: degraded everywhere, never the ok
-			// window's "Connected" beside a red dashboard row.
+			// Serving through the failed sync: degraded everywhere, never the ok window's "Connected" beside a red
+			// dashboard row.
 			severityClass: "warn",
 			verdict: "degraded",
 			bar: { state: "degraded", severity: "warning" },
@@ -558,13 +547,11 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 ];
 
 /**
- * Every pill word the row health walk can produce (serverHealth's seven
- * verdicts collapse onto these six words; "Connected" covers both the clean
- * and the expected-serving states). The vocabulary lives webview-side
- * (ServerPillWord in servers.tsx) and this table must stay importable by
- * the host suite, whose project cannot reach a .tsx module - so the bun
- * webview suite owns the pin: a compile-level both-ways check of this list
- * against ServerPillWord, beside the rendered-word equality.
+ * Every pill word the row health walk can produce (serverHealth's seven verdicts collapse onto these six words;
+ * "Connected" covers both the clean and the expected-serving states). The vocabulary lives webview-side (ServerPillWord
+ * in servers.tsx) and this table must stay importable by the host suite, whose project cannot reach a .tsx module - so
+ * the bun webview suite owns the pin: a compile-level both-ways check of this list against ServerPillWord, beside the
+ * rendered-word equality.
  */
 export const ALL_PILL_WORDS = [
 	"Connected",

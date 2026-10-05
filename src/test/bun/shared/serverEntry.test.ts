@@ -22,9 +22,8 @@ describe("shared/serverEntry: entryUsesSecretField", () => {
 	const base = { baseUrl: "http://x.test" };
 
 	test("a resolved apiKey is sent on every servable entry shape", () => {
-		// parseGroupConfiguration reads any string apiKey and the transport
-		// carries it on each request regardless of the other auth fields; a
-		// missing one merely means a keyless server.
+		// parseGroupConfiguration reads any string apiKey and the transport carries it on each request regardless of
+		// the other auth fields; a missing one merely means a keyless server.
 		assert.strictEqual(entryUsesSecretField(base, "apiKey"), true);
 		assert.strictEqual(entryUsesSecretField({ ...base, virtualKeyHeader: "x-key" }, "apiKey"), true);
 		assert.strictEqual(
@@ -34,8 +33,8 @@ describe("shared/serverEntry: entryUsesSecretField", () => {
 	});
 
 	test("the client secret is used only through an active oauth unit: BOTH tokenUrl and clientId", () => {
-		// narrowOAuth's unit rule; the settings parser rejects one half without
-		// the other, so on parsed entries the halves never split.
+		// narrowOAuth's unit rule; the settings parser rejects one half without the other, so on parsed entries the
+		// halves never split.
 		assert.strictEqual(entryUsesSecretField(base, "oauthClientSecret"), false);
 		assert.strictEqual(
 			entryUsesSecretField({ ...base, oauthTokenUrl: "https://idp.test/token" }, "oauthClientSecret"),
@@ -52,8 +51,8 @@ describe("shared/serverEntry: entryUsesSecretField", () => {
 	});
 
 	test("a virtual key value is used only through a declared header", () => {
-		// narrowVirtualKey sends only with both halves; the header's presence is
-		// the entry-side half (the parser already enforced its name validity).
+		// narrowVirtualKey sends only with both halves; the header's presence is the entry-side half (the parser
+		// already enforced its name validity).
 		assert.strictEqual(entryUsesSecretField(base, "virtualKeyValue"), false);
 		assert.strictEqual(entryUsesSecretField({ ...base, virtualKeyHeader: "x-litellm-key" }, "virtualKeyValue"), true);
 		assert.strictEqual(
@@ -66,8 +65,8 @@ describe("shared/serverEntry: entryUsesSecretField", () => {
 	});
 
 	test("a base URL that normalizes to nothing forms no server, so no field is used", () => {
-		// parseGroupConfiguration refuses a normalized-empty base URL outright:
-		// nothing of such an entry ever reaches the wire.
+		// parseGroupConfiguration refuses a normalized-empty base URL outright: nothing of such an entry ever reaches
+		// the wire.
 		for (const baseUrl of ["/", "///"]) {
 			assert.strictEqual(entryUsesSecretField({ baseUrl }, "apiKey"), false);
 			assert.strictEqual(

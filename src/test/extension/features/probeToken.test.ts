@@ -1,13 +1,3 @@
-/**
- * The dashboard probes' shared cancellation scaffold, pinned directly (it
- * shipped covered only through the feature wirings' probes): withProbeToken
- * hands the run a fresh token from a source that stays live for the run's
- * whole pendency, passes the result and the error through untouched, and
- * disposes the source in finally on every path - resolve, rejection, and a
- * synchronous throw alike - so probes cannot accumulate live sources across
- * dashboard sessions. Disposal is counted live, so a mutant that disposes
- * before or during the run fails the pending-count pin, not just the totals.
- */
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
 import { withProbeToken } from "../../../extension/features/probeToken";
@@ -38,8 +28,8 @@ suite("extension/features probeToken", () => {
 				first = token;
 				return gate;
 			});
-			// The pin codifying "the send's own timeout bounds the call": nothing
-			// may dispose the source before the run settles.
+			// The pin codifying "the send's own timeout bounds the call": nothing may dispose the source before the run
+			// settles.
 			assert.strictEqual(count(), 0, "the source stays live while the run is pending");
 			assert.strictEqual(first?.isCancellationRequested, false, "the pending token is uncancelled");
 			release("done");

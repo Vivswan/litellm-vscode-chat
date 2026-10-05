@@ -7,10 +7,9 @@ import { resolveFuzzSeed } from "../../fuzzStream";
 import { expectDefined } from "../../pureHelpers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
-// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
 
-/** Minimal 1x1 PNG; convertMessages only inspects the MIME type and bytes. */
+/** convertMessages -> only inspects the MIME type and bytes */
 const PNG_DATA = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03]);
 
 type ConversationEvent =
@@ -20,14 +19,17 @@ type ConversationEvent =
 	| { kind: "tool-exchange"; callId: string; name: string; args: Record<string, unknown>; result: string };
 
 /**
- * How an adversarial generator corrupts one tool exchange. "empty-pair" is the
- * shape validation accepts and the mint repairs; "user-call",
- * "user-call-text", and "nested-call" are valid exotic shapes (the calls ride
- * user messages, so validation's positional walk never sees them);
- * "same-message-pair", "empty-twin-pair", and "result-then-call" mix call and
- * result parts inside one message and stay sendable; "interleaved-reuse"
- * reuses an id across two calls of one message (one tool_calls array on the
- * wire) and the rest must be rejected before send.
+ * How an adversarial generator corrupts one tool exchange.
+ *
+ *   "empty-pair"                                                    -> the shape validation accepts and the mint
+ *                                                                      repairs
+ *   "user-call", "user-call-text", and "nested-call"                -> valid exotic shapes
+ *     the calls ride user messages                                  -> validation's positional walk never sees them
+ *   "same-message-pair", "empty-twin-pair", and "result-then-call"  -> mix call and result parts inside one message
+ *                                                                      and stay sendable
+ *   "interleaved-reuse"                                             -> reuses an id across two calls of one message
+ *                                                                      (one tool_calls array on the wire)
+ *   the rest                                                        -> must be rejected before send
  */
 type ExchangeCorruption =
 	| "none"
@@ -62,8 +64,8 @@ const SENDABLE_CORRUPTIONS: ReadonlySet<ExchangeCorruption> = new Set([
 	"result-then-call",
 ]);
 
-// Nonempty: the converter intentionally drops messages whose only content is
-// the empty string, and an empty conversation is rejected by validateRequest.
+// Nonempty: the converter intentionally drops messages whose only content is the empty string, and an empty
+// conversation is rejected by validateRequest.
 const textArb = fc.string({ minLength: 1, maxLength: 40 });
 const callIdArb = fc
 	.tuple(fc.constantFrom("call", "tool", "fn"), fc.nat({ max: 99999 }))
@@ -86,7 +88,6 @@ function message(
 	return { role, content, name: undefined } as vscode.LanguageModelChatRequestMessage;
 }
 
-/** Expand events into a well-paired VS Code message list. */
 function buildMessages(events: ConversationEvent[]): vscode.LanguageModelChatRequestMessage[] {
 	const messages: vscode.LanguageModelChatRequestMessage[] = [];
 	let toolSequence = 0;
@@ -146,14 +147,13 @@ const corruptionArb: fc.Arbitrary<ExchangeCorruption> = fc.constantFrom(
 	"interleaved-reuse"
 );
 
-// A tiny id pool (with the mint's own prefix in it) makes cross-exchange
-// reuse, duplicate-live ids, and mint collisions all reachable.
+// A tiny id pool (with the mint's own prefix in it) makes cross-exchange reuse, duplicate-live ids, and mint collisions
+// all reachable.
 const adversarialEventArb: fc.Arbitrary<AdversarialEvent> = fc.record({
 	callId: fc.constantFrom("call_1", "call_2", "call_synth_0"),
 	corruption: corruptionArb,
 });
 
-/** Expand corruption-tagged exchanges into messages; only SENDABLE_CORRUPTIONS leave a sendable history. */
 function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageModelChatRequestMessage[] {
 	const messages: vscode.LanguageModelChatRequestMessage[] = [];
 	const assistant = (id: string): void => {
@@ -197,8 +197,8 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 			case "stray-result":
 				user([event.callId]);
 				break;
-			// The two user-sourced shapes are sendable: pairing is role-agnostic
-			// and validation's positional walk covers only assistant messages.
+			// The two user-sourced shapes are sendable: pairing is role-agnostic and validation's positional walk
+			// covers only assistant messages.
 			case "user-call":
 				messages.push(
 					message(vscode.LanguageModelChatMessageRole.User, [
@@ -218,8 +218,8 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 				user([event.callId]);
 				break;
 			case "same-message-pair":
-				// A call and its result in one message: the tool_calls array emits
-				// before the message's tool messages, so the pair closes on the wire.
+				// A call and its result in one message: the tool_calls array emits before the message's tool messages,
+				// so the pair closes on the wire.
 				messages.push(
 					message(vscode.LanguageModelChatMessageRole.User, [
 						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
@@ -228,8 +228,8 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 				);
 				break;
 			case "empty-twin-pair":
-				// Two minted calls share one tool_calls array; the mint must keep
-				// them distinct, and the empty results pair FIFO in array order.
+				// Two minted calls share one tool_calls array; the mint must keep them distinct, and the empty results
+				// pair FIFO in array order.
 				messages.push(
 					message(vscode.LanguageModelChatMessageRole.User, [
 						new vscode.LanguageModelToolCallPart("", "fn", {}),
@@ -240,9 +240,8 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 				);
 				break;
 			case "result-then-call":
-				// The reopening call sits behind its predecessor's answer in one
-				// message; conversion defers the new tool_calls message until the
-				// answer emits, so the id is never live twice on the wire.
+				// The reopening call sits behind its predecessor's answer in one message; conversion defers the new
+				// tool_calls message until the answer emits, so the id is never live twice on the wire.
 				messages.push(
 					message(vscode.LanguageModelChatMessageRole.User, [
 						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
@@ -257,9 +256,8 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 				user([event.callId]);
 				break;
 			case "interleaved-reuse":
-				// Part order closes the first call before the second, but both calls
-				// ride the message's ONE tool_calls array, so the id duplicates on
-				// the wire; validation must reject the reuse.
+				// Part order closes the first call before the second, but both calls ride the message's ONE tool_calls
+				// array, so the id duplicates on the wire; validation must reject the reuse.
 				messages.push(
 					message(vscode.LanguageModelChatMessageRole.Assistant, [
 						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
@@ -270,8 +268,8 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 				user([event.callId]);
 				break;
 			case "nested-call": {
-				// A second turn opens inside the first, with text between; the inner
-				// id must differ or the history is a duplicate-live reject instead.
+				// A second turn opens inside the first, with text between; the inner id must differ or the history is a
+				// duplicate-live reject instead.
 				const inner = event.callId === "call_1" ? "call_2" : "call_1";
 				messages.push(
 					message(vscode.LanguageModelChatMessageRole.User, [
@@ -294,12 +292,10 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 }
 
 /**
- * The wire-pairing bijection LiteLLM's backends enforce: every tool message
- * answers an open tool_call and every tool_call gets exactly one answer,
- * with the answers directly following their tool_calls message - backends
- * reject a non-tool message interleaved into an open turn. An id may recur
- * once answered (some backends mint the same id every turn), so matching is
- * by open count, not global uniqueness.
+ * The wire-pairing bijection LiteLLM's backends enforce: every tool message answers an open tool_call and every
+ * tool_call gets exactly one answer, with the answers directly following their tool_calls message - backends reject a
+ * non-tool message interleaved into an open turn. An id may recur once answered (some backends mint the same id every
+ * turn), so matching is by open count, not global uniqueness.
  */
 function assertWirePaired(converted: WireMessage[]): void {
 	const open = new Map<string, number>();

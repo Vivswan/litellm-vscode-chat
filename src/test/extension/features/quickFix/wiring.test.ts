@@ -1,14 +1,8 @@
 /**
- * The quick-fix feature end to end in the host: what the lightbulb offers and
- * what it costs to offer it, what an invoked action asks the chat view for, and
- * what happens when that view is not there.
- *
- * The zero-network property is the load-bearing one: provideCodeActions runs on
- * every cursor move in a file with diagnostics, so a request there would send
- * the user's code somewhere without them clicking anything. It is pinned twice
- * over - by msw's onUnhandledRequest: "error" and by a request spy, because a
- * request to an ALREADY-MOCKED endpoint would satisfy msw and still be a
- * request.
+ * The zero-network property is the load-bearing one: provideCodeActions runs on every cursor move in a file with
+ * diagnostics, so a request there would send the user's code somewhere without them clicking anything. It is pinned
+ * twice over - by msw's onUnhandledRequest: "error" and by a request spy, because a request to an ALREADY-MOCKED
+ * endpoint would satisfy msw and still be a request.
  */
 import * as assert from "node:assert";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -30,7 +24,6 @@ import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../..
 import { makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
 
-/** The settings that make the feature live against the msw-mocked server. */
 const ENABLED_CONFIG = {
 	"quickFix.enabled": true,
 	"quickFix.model": { server: "alpha", model: "gpt-test" },
@@ -57,8 +50,7 @@ function deps(logger?: Logger): Parameters<typeof runQuickFixChat>[1] {
 		} as unknown as vscode.SecretStorage,
 		logger: logger ?? makeLogger().logger,
 		outputChannel: { show: () => {}, appendLine: () => {} } as unknown as vscode.OutputChannel,
-		// The participant is live unless a test says otherwise; that is the state
-		// the primary path exists for.
+		// The participant is live unless a test says otherwise; that is the state the primary path exists for.
 		isParticipantAvailable: () => true,
 	};
 }
@@ -90,7 +82,6 @@ function actionContext(diagnostics: readonly vscode.Diagnostic[]): vscode.CodeAc
 	} as unknown as vscode.CodeActionContext;
 }
 
-/** The command payload an action carries; the assertion surface for what an invocation would send. */
 function argsOf(action: vscode.CodeAction): QuickFixChatArgs {
 	const [first] = action.command?.arguments ?? [];
 	assert.ok(first !== undefined, "the action carries no command payload");
@@ -98,12 +89,10 @@ function argsOf(action: vscode.CodeAction): QuickFixChatArgs {
 }
 
 /**
- * Run `fn` with every outgoing request counted at both floors the extension
- * sends through (http.request and https.request under the transport, and
- * globalThis.fetch), so an "instant" path can be proven to have made no call at
- * all. Synchronous on purpose: the property is that the provider does
- * its whole job inside this window, which a promise-returning spy could not
- * distinguish from one that fetches after the window closes.
+ * Run `fn` with every outgoing request counted at both floors the extension sends through (http.request and
+ * https.request under the transport, and globalThis.fetch), so an "instant" path can be proven to have made no call at
+ * all. Synchronous on purpose: the property is that the provider does its whole job inside this window, which a
+ * promise-returning spy could not distinguish from one that fetches after the window closes.
  */
 function withRequestSpy<T>(fn: () => T): { result: T; calls: number } {
 	type RequestModule = { request: (...args: unknown[]) => nodeHttp.ClientRequest };
@@ -137,8 +126,8 @@ function withRequestSpy<T>(fn: () => T): { result: T; calls: number } {
 suite("extension/features/quickFix wiring", () => {
 	useMsw();
 
-	// Toast promises stay pending until dismissed in a live host, which would
-	// hang any await on showActionableMessage; the stubs record and resolve.
+	// Toast promises stay pending until dismissed in a live host, which would hang any await on showActionableMessage;
+	// the stubs record and resolve.
 	const shownMessages: string[] = [];
 	let origInfo: unknown;
 	let origWarn: unknown;
@@ -173,8 +162,7 @@ suite("extension/features/quickFix wiring", () => {
 				new vscode.CancellationTokenSource().token
 			)
 		);
-		// Synchronous by contract: an await here would put this feature in the
-		// editor's per-keystroke latency path.
+		// Synchronous by contract: an await here would put this feature in the editor's per-keystroke latency path.
 		assert.ok(Array.isArray(result), "provideCodeActions must answer synchronously, not with a promise");
 		const actions = result as vscode.CodeAction[];
 		assert.strictEqual(actions.length, 2, "one Fix action and one Explain action");
@@ -289,9 +277,8 @@ suite("extension/features/quickFix wiring", () => {
 	});
 
 	test("the fallback prompt labels an outside-workspace file by name, never by its absolute path", async () => {
-		// asRelativePath hands back the ABSOLUTE path for a file no workspace
-		// folder contains, so the fallback prompt used to carry /Users/<name>/...
-		// there; the shared documentLabel pipeline answers the bare name.
+		// asRelativePath hands back the ABSOLUTE path for a file no workspace folder contains, so the fallback prompt
+		// used to carry /Users/<name>/... there; the shared documentLabel pipeline answers the bare name.
 		const dir = await mkdtemp(path.join(tmpdir(), "lvt-label-"));
 		const filePath = path.join(dir, "outside-workspace.ts");
 		await writeFile(filePath, "return total;\n");
@@ -323,8 +310,8 @@ suite("extension/features/quickFix wiring", () => {
 			await rm(dir, { recursive: true, force: true });
 		}
 		assert.ok(prompt.includes("outside-workspace.ts"), `the prompt names the file, got:\n${prompt}`);
-		// fsPath is exactly the string the raw host API used to hand back for an
-		// uncontained URI, so this is the leak, verbatim, per platform.
+		// fsPath is exactly the string the raw host API used to hand back for an uncontained URI, so this is the leak,
+		// verbatim, per platform.
 		assert.ok(
 			!prompt.includes(vscode.Uri.file(filePath).fsPath),
 			`the absolute path must never reach the prompt:\n${prompt}`
@@ -332,8 +319,7 @@ suite("extension/features/quickFix wiring", () => {
 	});
 
 	test("a disabled invocation answers with the enable hint and reaches neither chat nor a model", async () => {
-		// No msw handler for the chat endpoint: any request would fail the test
-		// through onUnhandledRequest: "error".
+		// No msw handler for the chat endpoint: any request would fail the test through onUnhandledRequest: "error".
 		const document = await sampleDocument();
 		const [fix] = createQuickFixActionsProvider().provideCodeActions(
 			document,
@@ -364,10 +350,8 @@ suite("extension/features/quickFix wiring", () => {
 	});
 
 	test("the no-model advice names the cause: a disabled participant is not a broken chat view", async () => {
-		// Before the readiness gate, runFallback was only ever reached by a real
-		// chat.open failure, so one message could serve. Now it can be reached
-		// because the user turned @litellm off, and telling them the chat view
-		// broke would send them looking for a fault that is not there.
+		// Now it can be reached because the user turned @litellm off, and telling them the chat view broke would send
+		// them looking for a fault that is not there.
 		const document = await sampleDocument();
 		const [fix] = createQuickFixActionsProvider().provideCodeActions(
 			document,
@@ -391,8 +375,8 @@ suite("extension/features/quickFix wiring", () => {
 		assert.ok(message.includes("chatParticipant.enabled"), `the advice offers the real fix, got ${message}`);
 		assert.ok(message.includes("quickFix.model"), "and still names the model setting");
 		assert.ok(!message.includes("could not be opened"), "the chat view did not fail; do not say it did");
-		// The predicate answers one question - can @litellm answer - so the advice
-		// must not assert WHICH half is missing; the setting may well be on.
+		// The predicate answers one question - can @litellm answer - so the advice must not assert WHICH half is
+		// missing; the setting may well be on.
 		assert.ok(!message.includes("Re-enable"), `registration may have been refused with the setting on: ${message}`);
 	});
 
@@ -428,14 +412,13 @@ suite("extension/features/quickFix wiring", () => {
 			{},
 			{ mode: "fix" },
 			{ uri: "not-a-uri", range: 1, diagnostics: [] },
-			// The array is present and the outer shape is right; its CONTENTS are
-			// junk. Without per-element validation these reach selectDiagnostics and
-			// throw a TypeError out of the command handler.
+			// The array is present and the outer shape is right; its CONTENTS are junk. Without per-element validation
+			// these reach selectDiagnostics and throw a TypeError out of the command handler.
 			{ uri: validUri, range: validRange, diagnostics: [null], mode: "fix" },
 			{ uri: validUri, range: validRange, diagnostics: [{}], mode: "fix" },
 			{ uri: validUri, range: validRange, diagnostics: [{ message: 1, range: validRange, severity: 0 }], mode: "fix" },
-			// source and code are read by the prompt builder too, so the boundary
-			// has to cover them or the "typed precondition" it promises is fiction.
+			// source and code are read by the prompt builder too, so the boundary has to cover them or the "typed
+			// precondition" it promises is fiction.
 			{
 				uri: validUri,
 				range: validRange,
@@ -448,8 +431,8 @@ suite("extension/features/quickFix wiring", () => {
 				diagnostics: [{ message: "x", range: validRange, severity: 0, code: { value: {} } }],
 				mode: "fix",
 			},
-			// Nothing usable to ask about: the chat path would submit a bare
-			// "@litellm /fix" and the fallback would pay for an empty question.
+			// Nothing usable to ask about: the chat path would submit a bare "@litellm /fix" and the fallback would pay
+			// for an empty question.
 			{ uri: validUri, range: validRange, diagnostics: [], mode: "fix" },
 			{
 				uri: validUri,
@@ -491,12 +474,12 @@ suite("extension/features/quickFix wiring", () => {
 	});
 
 	test("with no live participant the chat path is skipped outright, not tried and believed", async () => {
-		// chat.open SUBMITS the query. With no participant behind @litellm the
-		// turn - diagnostics and attached code - goes out addressed to something
-		// that is not there, and the command RESOLVES either way, so no try/catch
-		// could notice. The only way to be right here is not to go. Driven through
-		// the readiness predicate rather than the setting, because a refused
-		// REGISTRATION is the case the setting cannot see.
+		// chat.open SUBMITS the query. With no participant behind @litellm the turn - diagnostics and attached code -
+		// goes out addressed to something that is not there, and the command RESOLVES either way, so no try/catch
+		// could notice.
+		//
+		//   a refused REGISTRATION is the case the setting cannot see  -> Driven through the readiness predicate
+		//                                                                 rather than the setting
 		const document = await sampleDocument();
 		const [fix] = createQuickFixActionsProvider().provideCodeActions(
 			document,
@@ -539,9 +522,8 @@ suite("extension/features/quickFix wiring", () => {
 	});
 
 	test("disabling the feature while the chat view is failing cancels the fallback", async () => {
-		// The fallback runs after an await on another extension's command; a user
-		// who turned quick fixes off in that window has said what they want, and
-		// sending their code anyway would be the one thing the setting forbids.
+		// The fallback runs after an await on another extension's command; a user who turned quick fixes off in that
+		// window has said what they want, and sending their code anyway would be the one thing the setting forbids.
 		const document = await sampleDocument();
 		const [fix] = createQuickFixActionsProvider().provideCodeActions(
 			document,
@@ -558,16 +540,16 @@ suite("extension/features/quickFix wiring", () => {
 			})
 		);
 		const { logger, lines } = makeLogger();
-		// withConfig reads this object per get(), so mutating it mid-run is what
-		// the user flipping the setting looks like from inside the extension.
+		// withConfig reads this object per get(), so mutating it mid-run is what the user flipping the setting looks
+		// like from inside the extension.
 		const liveConfig: Record<string, unknown> = { ...ENABLED_CONFIG };
 		await withConfig(liveConfig, async () => {
 			await runQuickFixChat(
 				client(),
 				{
 					...deps(logger),
-					// The setting flips WHILE the chat attempt is in flight, which is
-					// exactly the window the second read exists for.
+					// The setting flips WHILE the chat attempt is in flight, which is exactly the window the second
+					// read exists for.
 					openChat: () => {
 						liveConfig["quickFix.enabled"] = false;
 						return Promise.reject(new Error("no chat extension installed"));
@@ -615,8 +597,8 @@ suite("extension/features/quickFix wiring", () => {
 			(vscode.window as Record<string, unknown>).showTextDocument = originalShow;
 		}
 		assert.strictEqual(prompts.length, 2);
-		// The progress notification promises an explanation for one and a fix for
-		// the other; the prompt has to keep that promise.
+		// The progress notification promises an explanation for one and a fix for the other; the prompt has to keep
+		// that promise.
 		assert.ok(prompts[0]?.includes("propose a fix"), prompts[0] ?? "");
 		assert.ok(!prompts[1]?.includes("propose a fix"), prompts[1] ?? "");
 		assert.ok(prompts[1]?.includes("Explain rather than rewrite"), prompts[1] ?? "");
@@ -641,8 +623,8 @@ suite("extension/features/quickFix wiring", () => {
 			configListeners.push(() => listener({ affectsConfiguration: () => true }));
 			return new vscode.Disposable(() => {});
 		};
-		// The shared host already runs the activated extension, so a real
-		// registration of the same command id would collide.
+		// The shared host already runs the activated extension, so a real registration of the same command id would
+		// collide.
 		(vscode.commands as Record<string, unknown>).registerCommand = () => new vscode.Disposable(() => {});
 		try {
 			const context = fakeContext();
@@ -662,8 +644,8 @@ suite("extension/features/quickFix wiring", () => {
 				}
 			});
 			assert.strictEqual(registrations.length, 1, "enabling registers one");
-			// file only: an unsaved buffer cannot have its code attached to a chat
-			// turn, so an action there would ask a model to fix what it cannot see.
+			// file only: an unsaved buffer cannot have its code attached to a chat turn, so an action there would ask a
+			// model to fix what it cannot see.
 			assert.deepStrictEqual(registrations[0]?.selector, [{ scheme: "file" }]);
 
 			await withConfig({ ...ENABLED_CONFIG, "quickFix.enabled": false }, () => {

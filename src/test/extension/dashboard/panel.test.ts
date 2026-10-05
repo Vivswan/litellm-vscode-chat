@@ -31,7 +31,6 @@ function request(method: string, payload: unknown, id?: string): unknown {
 	return { kind: "request", id: id ?? `req-auto-${nextAutoRequestId}`, method, payload };
 }
 
-/** Whether a posted message is the named read's response envelope, narrowing to it. */
 function isResponse<M extends ReadMethod>(
 	message: unknown,
 	method: M
@@ -47,7 +46,6 @@ interface FakePanel {
 	setVisible(visible: boolean): void;
 	triggerDispose(): void;
 	disposed: boolean;
-	/** How many times the controller brought this panel forward. */
 	revealed: number;
 }
 
@@ -96,7 +94,6 @@ interface Harness {
 	controller: DashboardController;
 	panels: FakePanel[];
 	updates: [string, unknown][];
-	/** Every removeSetting call (the resetSetting intent's removals). */
 	removals: string[];
 	commands: [string, ...unknown[]][];
 	serverWrites: unknown[][];
@@ -189,8 +186,8 @@ function makeHarness(): Harness {
 			if (harness.failUpdates !== undefined) {
 				throw harness.failUpdates;
 			}
-			// Simulate the real store plus latency: a concurrent second intent
-			// that read before this write would lose the update.
+			// Simulate the real store plus latency: a concurrent second intent that read before this write would lose
+			// the update.
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			harness.serversSetting = [...value];
 			serverWrites.push([...value]);
@@ -210,8 +207,8 @@ function makeHarness(): Harness {
 		unhideGroup: async () => false,
 		isGroupHidden: () => false,
 		openManageLanguageModels: async () => true,
-		// The probe is gated so tests can hold it open (a slow discovery) and
-		// prove a later Save is not queued behind it; ungated it resolves empty.
+		// The probe is gated so tests can hold it open (a slow discovery) and prove a later Save is not queued behind
+		// it; ungated it resolves empty.
 		probeDraftConnection: () => {
 			if (harness.probeError !== undefined) {
 				return Promise.reject(harness.probeError);
@@ -261,7 +258,6 @@ function lastState(fake: FakePanel): Extract<ExtensionToWebviewMessage, { kind: 
 	return message;
 }
 
-/** Let the async message handler chain settle. */
 function settle(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -289,8 +285,8 @@ suite("extension/dashboard/panel", () => {
 	});
 
 	test("open kicks the staleness-gated usage refresh, never the unconditional one", () => {
-		// The gate itself lives in the poller (refreshIfStale reads the last
-		// completed pass); the panel's job is only to ask the gated seam on every open.
+		// The gate itself lives in the poller (refreshIfStale reads the last completed pass); the panel's job is only
+		// to ask the gated seam on every open.
 		const harness = makeHarness();
 		harness.controller.open();
 		harness.controller.open();
@@ -357,8 +353,8 @@ suite("extension/dashboard/panel", () => {
 			const fake = harness.panels[0];
 			assert.ok(fake);
 
-			// The page is still loading (no ready yet): an immediate post would
-			// be dropped on the floor, so the focus must stay pending.
+			// The page is still loading (no ready yet): an immediate post would be dropped on the floor, so the focus
+			// must stay pending.
 			harness.controller.open("diagnostics");
 			assert.deepStrictEqual(focusMessages(fake), []);
 
@@ -379,8 +375,8 @@ suite("extension/dashboard/panel", () => {
 			harness.controller.open("diagnostics");
 			assert.deepStrictEqual(focusMessages(fake), [], "a hidden page would drop the message");
 
-			// Revealing re-fires the view state, but the torn-down page reloads:
-			// only its own ready proves it can receive the focus.
+			// Revealing re-fires the view state, but the torn-down page reloads: only its own ready proves it can
+			// receive the focus.
 			fake.setVisible(true);
 			assert.deepStrictEqual(focusMessages(fake), []);
 			fake.receiveMessage(request("ready", null));
@@ -394,8 +390,8 @@ suite("extension/dashboard/panel", () => {
 			const fake = harness.panels[0];
 			assert.ok(fake);
 
-			// The handshake is queued but the page dies (panel hidden) before the
-			// serialized chain drains it; the reloaded page has not spoken yet.
+			// The handshake is queued but the page dies (panel hidden) before the serialized chain drains it; the
+			// reloaded page has not spoken yet.
 			fake.receiveMessage(request("ready", null));
 			fake.setVisible(false);
 			await settle();
@@ -444,20 +440,18 @@ suite("extension/dashboard/panel", () => {
 				oauthClientSecret: "none",
 				virtualKeyValue: "none",
 			});
-			// A secure blob may exist for Bare, but the setting cannot prove it,
-			// so the synchronous fallback reads "none".
+			// A secure blob may exist for Bare, but the setting cannot prove it, so the synchronous fallback reads
+			// "none".
 			assert.deepStrictEqual(views[1]?.secrets, { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" });
 			assert.strictEqual(views[1]?.virtualKeyHeader, "x-vk");
 			assert.ok(!JSON.stringify(views).includes("sk-inline"), "the view carries locations, never values");
 		});
 
 		test("carries every registered entry field, matching the engine's post-sync view", () => {
-			// The fallback covers the window before the first sync pass lands;
-			// dropping a field there would blank the edit form's prefill (and,
-			// for a saved-through draft, silently DELETE it from the setting -
-			// mcp was lost exactly this way). The walk is registry-driven and
-			// fail-closed: a field added to ENTRY_VIEW_FIELD_SET does not pass
-			// until this fixture exercises it.
+			// The fallback covers the window before the first sync pass lands; dropping a field there would blank the
+			// edit form's prefill (and, for a saved-through draft, silently DELETE it from the setting - mcp was lost
+			// exactly this way). The walk is registry-driven and fail-closed: a field added to ENTRY_VIEW_FIELD_SET
+			// does not pass until this fixture exercises it.
 			const raw = {
 				label: "Prod",
 				baseUrl: "http://a.test",
@@ -495,8 +489,8 @@ suite("extension/dashboard/panel", () => {
 	});
 
 	test("a fallback-sourced push carries unproven secret locations; the engine's push proves them", () => {
-		// The window between activation and the first sync pass: the fallback
-		// cannot read secret blobs, so its rows must not claim proven-"none".
+		// The window between activation and the first sync pass: the fallback cannot read secret blobs, so its rows
+		// must not claim proven-"none".
 		const harness = makeHarness();
 		harness.snapshots = [];
 		harness.declaredServers = declaredViewsFromSetting([{ label: "Prod", baseUrl: "http://prod.test" }]);
@@ -507,7 +501,6 @@ suite("extension/dashboard/panel", () => {
 		assert.ok(fallbackRow?.origin === "declared");
 		assert.deepStrictEqual(fallbackRow.config.secrets, { kind: "unproven" });
 
-		// The first pass lands: the same label now pushes proven locations.
 		harness.declaredServers = {
 			source: "engine",
 			views: [
@@ -550,8 +543,8 @@ suite("extension/dashboard/panel", () => {
 
 		fake.receiveMessage(request("setUiTheme", { value: "dark" }));
 		fake.receiveMessage(request("setUiAccent", { value: "teal" }));
-		// The vocabularies are closed at the schema, so a webview that posted
-		// anything else writes nothing rather than putting junk in the setting.
+		// The vocabularies are closed at the schema, so a webview that posted anything else writes nothing rather than
+		// putting junk in the setting.
 		fake.receiveMessage(request("setUiTheme", { value: "solarized" }));
 		fake.receiveMessage(request("setUiAccent", { value: 7 }));
 		await settle();
@@ -584,7 +577,6 @@ suite("extension/dashboard/panel", () => {
 		const fake = harness.panels[0];
 		assert.ok(fake);
 
-		// A probe that will hang for a whole discovery timeout, then a Save.
 		fake.receiveMessage(
 			request(
 				"testServerDraft",
@@ -613,14 +605,14 @@ suite("extension/dashboard/panel", () => {
 				"save-1"
 			)
 		);
-		// Several ticks: the save's writeServersSetting carries its own
-		// setTimeout latency, and the probe stays parked on its gate throughout.
+		// Several ticks: the save's writeServersSetting carries its own setTimeout latency, and the probe stays parked
+		// on its gate throughout.
 		for (let i = 0; i < 5; i += 1) {
 			await settle();
 		}
 
-		// The Save's write landed while the probe is still hanging: were the
-		// probe on the chain, this would be empty until releaseProbe ran.
+		// The Save's write landed while the probe is still hanging: were the probe on the chain, this would be empty
+		// until releaseProbe ran.
 		assert.deepStrictEqual(harness.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
 		assert.ok(
 			fake.posted.some(
@@ -634,8 +626,6 @@ suite("extension/dashboard/panel", () => {
 			"the probe has not acked yet; it is still hanging"
 		);
 
-		// Releasing the probe lets its own ack arrive, carrying the composed
-		// zero-model warning notice (message plus tone).
 		releaseProbe();
 		await settle();
 		const probeAck = fake.posted.find((message) => (message as { id?: string }).id === "probe-1") as
@@ -737,8 +727,6 @@ suite("extension/dashboard/panel", () => {
 			"the field itself still applies"
 		);
 
-		// The same evidence reaches the state push: the surviving global-record
-		// hint is advisory, and the observed set rides the server row and union.
 		const statePush = fake.posted.filter((message) => (message as ExtensionToWebviewMessage).kind === "push").at(-1) as
 			| Extract<ExtensionToWebviewMessage, { kind: "push" }>
 			| undefined;
@@ -795,9 +783,8 @@ suite("extension/dashboard/panel", () => {
 		assert.ok(notice.kind === "fail" && notice.message.includes("at least"));
 		assert.ok(notice.kind === "fail" && notice.failureKind === "validation", "a refused intent is validation-kind");
 		assert.ok(!("classification" in notice), "a non-transport validation failure carries no classification");
-		// The fail envelope names the owning settings row, derived from the
-		// validated payload, so the page can place the notice without a
-		// correlation map of its own.
+		// The fail envelope names the owning settings row, derived from the validated payload, so the page can place
+		// the notice without a correlation map of its own.
 		assert.ok(notice.kind === "fail" && notice.row === "chat.timeout");
 	});
 
@@ -835,8 +822,8 @@ suite("extension/dashboard/panel", () => {
 		assert.strictEqual(notice.id, "probe-404");
 		assert.strictEqual(notice.failureKind, "validation");
 		assert.deepStrictEqual(notice.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
-		// The log carries the classification enums (they feed issue-report
-		// triage) but never the message's response-derived text.
+		// The log carries the classification enums (they feed issue-report triage) but never the message's
+		// response-derived text.
 		const rejection = harness.loggedMessages.find(([message]) => message === "Dashboard intent rejected");
 		assert.deepStrictEqual(rejection?.[1], {
 			method: "testServerDraft",
@@ -851,8 +838,8 @@ suite("extension/dashboard/panel", () => {
 		harness.controller.open();
 		const fake = harness.panels[0];
 		assert.ok(fake);
-		// The validation message quotes the offending record key, so the message
-		// must stay out of the log (user-entered keys can be anything pasted).
+		// The validation message quotes the offending record key, so the message must stay out of the log (user-entered
+		// keys can be anything pasted).
 		fake.receiveMessage(
 			request(
 				"setModelParameters",
@@ -989,9 +976,8 @@ suite("extension/dashboard/panel", () => {
 	});
 
 	test("a save payload omitting the always-sent fields is rejected at the schema, deleting nothing", async () => {
-		// The save rebuilds the entry from the intent, so a payload that could
-		// omit modelCapabilities or expectedFailures would silently delete
-		// hand-written configuration; the schema requires the fields instead.
+		// The save rebuilds the entry from the intent, so a payload that could omit modelCapabilities or
+		// expectedFailures would silently delete hand-written configuration; the schema requires the fields instead.
 		const harness = makeHarness();
 		harness.serversSetting = [
 			{
@@ -1033,8 +1019,8 @@ suite("extension/dashboard/panel", () => {
 			harness.loggedMessages.some(([message]) => message === "Ignoring malformed dashboard message"),
 			"the schema rejection is logged"
 		);
-		// The envelope frame parsed, so the refusal answers the caller: an
-		// editor waiting on this id must not sit in its pending state forever.
+		// The envelope frame parsed, so the refusal answers the caller: an editor waiting on this id must not sit in
+		// its pending state forever.
 		const refusal = fake.posted.find((message) => (message as ExtensionToWebviewMessage).kind === "fail") as
 			| ExtensionToWebviewMessage
 			| undefined;
@@ -1096,8 +1082,7 @@ suite("extension/dashboard/panel", () => {
 		const fake = harness.panels[0];
 		assert.ok(fake);
 
-		// An inline write leaves at most a dormant secure copy behind, so its
-		// failed cleanup must not fail the intent.
+		// An inline write leaves at most a dormant secure copy behind, so its failed cleanup must not fail the intent.
 		fake.receiveMessage(
 			request(
 				"saveServerSetting",
@@ -1185,9 +1170,8 @@ suite("extension/dashboard/panel", () => {
 		const fake = harness.panels[0];
 		assert.ok(fake);
 
-		// The set-secure write lands, the settings write fails, and the rollback
-		// delete fails too: the new secret is durably stored and active, so the
-		// webview must not reopen the form as if nothing landed.
+		// The set-secure write lands, the settings write fails, and the rollback delete fails too: the new secret is
+		// durably stored and active, so the webview must not reopen the form as if nothing landed.
 		fake.receiveMessage(
 			request(
 				"saveServerSetting",
@@ -1242,7 +1226,6 @@ suite("extension/dashboard/panel", () => {
 		const harness = makeHarness();
 		harness.serversSetting = [
 			{ label: "Inline", baseUrl: "http://a.test", auth: { apiKey: "sk-inline" } },
-			// Mixed entry: inline key, everything else lives elsewhere or nowhere.
 			{ label: "Mixed", baseUrl: "http://c.test", auth: { apiKey: "sk-mixed", virtualKey: { header: "x-vk" } } },
 		];
 		harness.controller.open();
@@ -1323,8 +1306,6 @@ suite("extension/dashboard/panel", () => {
 		);
 		const logged = JSON.stringify({ logs: harness.loggedMessages, errors: harness.loggedErrors });
 		assert.ok(!logged.includes("sk-inline-value"), "the value must never reach the log");
-		// The state canary: the pushes that did happen (the open) carry no
-		// inline secret even though the setting holds one.
 		const states = (fake.posted as ExtensionToWebviewMessage[]).filter((m) => m.kind === "push");
 		assert.ok(!JSON.stringify(states).includes("sk-inline-value"), "state pushes must not carry inline values");
 	});
@@ -1377,7 +1358,6 @@ suite("extension/dashboard/panel", () => {
 		assert.ok(fake);
 		const secret = "sk-super-secret-value";
 
-		// A save that succeeds and one that fails validation, both carrying the secret.
 		fake.receiveMessage(
 			request(
 				"saveServerSetting",
@@ -1451,8 +1431,8 @@ suite("extension/dashboard/panel", () => {
 			const fake = harness.panels[0];
 			assert.ok(fake);
 
-			// The webview save lands with simulated latency; the injected removal
-			// finds its entry ONLY if the chain serialized it behind the save.
+			// The webview save lands with simulated latency; the injected removal finds its entry ONLY if the chain
+			// serialized it behind the save.
 			fake.receiveMessage(
 				request(
 					"saveServerSetting",
@@ -1479,10 +1459,9 @@ suite("extension/dashboard/panel", () => {
 
 	suite("submit (the programmatic client entry)", () => {
 		test("answers by return value in every outcome shape, and posts none of the answers to the page", async () => {
-			// The agent tools read the correlated answer from the submission; the
-			// open page must not receive notices for ids it never minted. What
-			// would drift silently: a reply shape the webview path changes without
-			// the return value following, or an answer leaking onto the panel.
+			// The agent tools read the correlated answer from the submission; the open page must not receive notices
+			// for ids it never minted. What would drift silently: a reply shape the webview path changes without the
+			// return value following, or an answer leaking onto the panel.
 			const harness = makeHarness();
 			harness.controller.open();
 			const fake = harness.panels[0];
@@ -1646,9 +1625,8 @@ suite("extension/dashboard/panel", () => {
 		});
 
 		test("a rotated-credentials group still resolves: the lookup is by snapshot server ID, the match by label and URL", () => {
-			// Rotating credentials mints a new fingerprinted server ID, so the
-			// strict labeled-identity join fails - but the request path matches
-			// label plus URL, and the inspector must agree with the request path.
+			// Rotating credentials mints a new fingerprinted server ID, so the strict labeled-identity join fails - but
+			// the request path matches label plus URL, and the inspector must agree with the request path.
 			const resolve = resolver({
 				"group:labeled:rotated-fingerprint:http://prod.test": { label: "Team A", baseUrl: "http://prod.test" },
 			});

@@ -8,9 +8,11 @@ import { blocks } from "./cssBlocks";
 const webviewDir = path.resolve(import.meta.dir, "../../../../../webview");
 
 /**
- * What forced colours do to one transparent border. `named`: a forced-colors rule states the colour the author
- * meant by transparent. `welcome`: the repaint is an improvement. `notABorder`: the value never lands on a
- * border, and a fully transparent BACKGROUND is left alone by this mode.
+ * What forced colours do to one transparent border.
+ *
+ * named       -> a forced-colors rule states the colour the author meant by transparent
+ * welcome     -> the repaint is an improvement
+ * notABorder  -> the value never lands on a border, and a fully transparent BACKGROUND is left alone by this mode
  */
 type Disposition =
 	| {
@@ -36,10 +38,11 @@ interface TransparentBorder {
 }
 
 /**
- * Every transparent border the webview can draw. Forced colours repaint a border colour whether or not the
- * author wrote it transparent, while a fully transparent BACKGROUND is left alone - so `transparent` as an OFF
- * state inverts for borders only. A new transparent border fails this test until someone says which of the
- * two things it is. Four spellings reach a border, and the scan reads all four.
+ * Forced colours repaint a border colour whether or not the author wrote it transparent, while a fully transparent
+ * BACKGROUND is left alone - so `transparent` as an OFF state inverts for borders only. A new transparent border
+ * fails this test until someone says which of the two things it is.
+ *
+ *   Four spellings reach a border  -> the scan reads all four
  */
 const TRANSPARENT_BORDERS: readonly TransparentBorder[] = [
 	{
@@ -150,9 +153,8 @@ const TRANSPARENT_BORDERS: readonly TransparentBorder[] = [
 ];
 
 /**
- * Every way a colour here can come out fully transparent: the keyword, a hex with a zero alpha nibble or byte,
- * and any colour function given a zero alpha. A guard that only knows the word `transparent` walks past the
- * next `#0000`. Underscores count as spaces, which is how an arbitrary Tailwind value spells one.
+ * A guard that only knows the word `transparent` walks past the next `#0000`. Underscores count as spaces, which is
+ * how an arbitrary Tailwind value spells one.
  */
 const ZERO_ALPHA = String.raw`0(?:\.0+)?%?`;
 /** A function's argument list, allowing one level of nested calls. */
@@ -178,8 +180,8 @@ const UTILITY_PATTERN = new RegExp(
 	"gi"
 );
 /**
- * Border longhands and shorthand. The lookbehind keeps the property name whole, so a custom property merely
- * ending in "border" is read as the token it is rather than a declaration it is not.
+ * The lookbehind keeps the property name whole, so a custom property merely ending in "border" is read as the token
+ * it is rather than a declaration it is not.
  */
 const DECLARATION_PATTERN = new RegExp(`(?<![a-z-])border[a-z-]*:[^;{}]*(?:${TRANSPARENT_VALUE})[^;{}]*`, "gi");
 /**
@@ -202,9 +204,9 @@ function sourceFiles(dir: string): readonly string[] {
 }
 
 /**
- * Every transparent-border site in the webview tree, as `file :: text` counts. CSS comments come out first and
- * whitespace is collapsed: a commented-out declaration draws nothing, and a declaration Biome wrapped at 120
- * columns is the same site as one that fits on a line. TypeScript comments are left in, to fail closed.
+ * CSS comments come out first and whitespace is collapsed: a commented-out declaration draws nothing, and a declaration
+ * Biome wrapped at 120 columns is the same site as one that fits on a line. TypeScript comments are left in, to fail
+ * closed.
  */
 function scanForTransparentBorders(): Map<string, number> {
 	const found = new Map<string, number>();
@@ -212,15 +214,14 @@ function scanForTransparentBorders(): Map<string, number> {
 		const css = file.endsWith(".css");
 		const source = readFileSync(file, "utf8");
 		const scanned = css ? source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ") : source;
-		// path.relative yields backslashes on Windows; the registry spells
-		// forward slashes. Normalize so the key is platform-invariant.
+		// path.relative yields backslashes on Windows; the registry spells forward slashes.
 		const relative = path.relative(webviewDir, file).split(path.sep).join("/");
 		const matches = css
 			? [...scanned.matchAll(DECLARATION_PATTERN), ...scanned.matchAll(TOKEN_PATTERN)]
 			: [...scanned.matchAll(UTILITY_PATTERN)];
 		for (const match of matches) {
-			// A token holding a partial alpha is not an off state, and the border
-			// patterns already counted the ones written onto a border.
+			// A token holding a partial alpha is not an off state, and the border patterns already counted the ones
+			// written onto a border.
 			if (match[0].startsWith("--") && match[0].includes("color-mix")) {
 				continue;
 			}
@@ -232,8 +233,7 @@ function scanForTransparentBorders(): Map<string, number> {
 }
 
 test("every transparent border in the webview is one this list has ruled on", () => {
-	// Fails closed: a new transparent border, or one more occurrence of a known
-	// one, lands here as an unexplained site.
+	// Fails closed: a new transparent border, or one more occurrence of a known one, lands here as an unexplained site.
 	const found = scanForTransparentBorders();
 	const declared = new Map(TRANSPARENT_BORDERS.map((site) => [`${site.file} :: ${site.text}`, site.count]));
 	expect(Object.fromEntries([...found].sort())).toEqual(Object.fromEntries([...declared].sort()));
@@ -244,11 +244,9 @@ function normalize(css: string): string {
 	return css.replace(/\s+/g, " ").toLowerCase();
 }
 
-/** The bodies of every rule opened by `selector` in the given CSS. */
 function ruleBodies(css: string, selector: string): string[] {
-	// Split on the selector where a selector may START - after a brace, a comma,
-	// or the beginning - so a more specific sibling (`button .spinner` beside
-	// `.spinner`) is a different rule rather than another copy of this one.
+	// Split on the selector where a selector may START - after a brace, a comma, or the beginning - so a more specific
+	// sibling (`button .spinner` beside `.spinner`) is a different rule rather than another copy of this one.
 	const opener = new RegExp(String.raw`(?:^|[{};,]\s*)${escapeForRegExp(normalize(selector))}\s*\{`);
 	const bodies: string[] = [];
 	let rest = normalize(css);
@@ -259,7 +257,6 @@ function ruleBodies(css: string, selector: string): string[] {
 	return bodies;
 }
 
-/** A literal string as a regular-expression source. */
 function escapeForRegExp(literal: string): string {
 	return literal.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
@@ -267,9 +264,8 @@ function escapeForRegExp(literal: string): string {
 test(
 	"every transparent border named as handled compiles to a forced-colors rule",
 	async () => {
-		// The other half: the list may not claim a fix that does not exist. Read from the COMPILED sheets, and only
-		// from UNCONDITIONAL blocks - the same declaration nested in a width query stops existing at every other
-		// width. The uniqueness check below is the claim's reach: one rule per selector in these blocks.
+		// Read from the COMPILED sheets, and only from UNCONDITIONAL blocks - the same declaration nested in a width
+		// query stops existing at every other width.
 		const compiled = {
 			theme: forcedColorsBlocks(await compileTheme()),
 			dashboard: forcedColorsBlocks(await compileDashboard()),
@@ -286,8 +282,8 @@ test(
 				.map((block) => block.text)
 				.join("\n");
 			const bodies = ruleBodies(text, site.disposition.selector);
-			// Once, because a second rule for the same selector further down wins and
-			// hands the off state back its system colour with the suite green.
+			// Once, because a second rule for the same selector further down wins and hands the off state back its
+			// system colour with the suite green.
 			expect(bodies.length, where).toBe(1);
 			expect(bodies[0], where).toContain(normalize(site.disposition.declaration));
 		}
@@ -296,9 +292,11 @@ test(
 );
 
 /**
- * What forced colours do to one separating background fill. `twinned`: a forced-colors rule restates the
- * boundary in a channel the mode keeps. `insideBorder`: the fill only tints inside a border the component
- * already draws, and borders survive. `welcome`: losing the fill costs nothing a reader needs.
+ * What forced colours do to one separating background fill.
+ *
+ * twinned       -> a forced-colors rule restates the boundary in a channel the mode keeps
+ * insideBorder  -> the fill only tints inside a border the component already draws, and borders survive
+ * welcome       -> losing the fill costs nothing a reader needs
  */
 type FillDisposition =
 	| {
@@ -326,9 +324,8 @@ interface SeparatingFill {
 }
 
 /**
- * Every background fill the dashboard sheet paints - the transparent-border registry's inverse. Forced colours
- * repaint every author background to Canvas (keeping only its alpha), so a component whose ONLY separation
- * channel is a fill dissolves into the page. Utility-class fills are invisible here; see UTILITY_FILLS.
+ * Forced colours repaint every author background to Canvas (keeping only its alpha), so a component whose ONLY
+ * separation channel is a fill dissolves into the page. Utility-class fills are invisible here; see UTILITY_FILLS.
  */
 const SEPARATING_FILLS: readonly SeparatingFill[] = [
 	{
@@ -645,10 +642,9 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 			why: "the collapsed rail's active bar is fill-only; the unconditional twin paints it Highlight at every width, and the narrow block's later restatement only wins the geometry argument back",
 		},
 	},
-	// The scrollbar thumbs: forced colors ignores author scrollbar styling
-	// outright and draws the system's own bars, thumb included, so these fills
-	// only exist outside the mode. The HC pair carries its contrastBorder edge
-	// in the same rule.
+	// The scrollbar thumbs: forced colors ignores author scrollbar styling outright and draws the system's own bars,
+	// thumb included, so these fills only exist outside the mode. The HC pair carries its contrastBorder edge in the
+	// same rule.
 	{
 		selector: ":root:hover::-webkit-scrollbar-thumb",
 		declaration: "background: var(--vscode-scrollbarSlider-background)",
@@ -748,9 +744,8 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 const FILL_DECLARATION = /^background(?:-color|-image)?:/;
 
 /**
- * Every background fill in the compiled dashboard sheet, as `address :: declaration` counts, the address being
- * the selector prefixed by any at-rule preludes wrapping it. A comment-aware brace walk over the COMPILED
- * sheet, not a text grep: the compiler's spelling is the one the browser gets.
+ * A comment-aware brace walk over the COMPILED sheet, not a text grep: the compiler's spelling is the one the browser
+ * gets.
  */
 function scanForSeparatingFills(css: string): Map<string, number> {
 	const found = new Map<string, number>();
@@ -776,7 +771,6 @@ function scanForSeparatingFills(css: string): Map<string, number> {
 
 test("every separating background fill in the dashboard sheet is one this list has ruled on", async () => {
 	// Fails closed: a new background fill, or one more copy of a known one, lands here as an unexplained site.
-	// Update SEPARATING_FILLS with the new selector and an honest disposition.
 	const found = scanForSeparatingFills(await compileDashboard());
 	const declared = new Map(SEPARATING_FILLS.map((site) => [`${site.selector} :: ${site.declaration}`, site.count]));
 	expect(
@@ -786,9 +780,8 @@ test("every separating background fill in the dashboard sheet is one this list h
 });
 
 test("every fill named as twinned compiles to a forced-colors rule restating its boundary", async () => {
-	// The other half, same contract as the border registry's second test: the list may not claim a twin that
-	// does not exist. Twins are read from blocks unconditional apart from the forced-colors query itself, since
-	// a twin nested in a width query is a boundary that stops existing at every other width.
+	// Twins are read from blocks unconditional apart from the forced-colors query itself, since a twin nested in a
+	// width query is a boundary that stops existing at every other width.
 	const compiled = await compileDashboard();
 	for (const site of SEPARATING_FILLS) {
 		if (site.disposition.kind !== "twinned") {

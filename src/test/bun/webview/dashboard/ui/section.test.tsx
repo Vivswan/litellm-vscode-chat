@@ -1,6 +1,6 @@
 /**
- * The Section primitive: the header line's parts and, more importantly, the
- * naming contract the extension's deep links depend on.
+ * The Section primitive: the header line's parts and, more importantly, the naming contract the extension's deep links
+ * depend on.
  */
 import { afterEach, expect, test } from "bun:test";
 import { DOCS_LINK_SERVERS } from "../../../../../webview/dashboard/docsLinks";
@@ -56,9 +56,8 @@ test("help, docs, meta and actions are each optional and none of them appear uni
 });
 
 test("the header can stand alone, without minting a section id", () => {
-	// Sub-headers inside a page want the line but not the landmark; a second
-	// element carrying `${id}-section` would break the deep link's assumption
-	// that the name identifies exactly one place.
+	// Sub-headers inside a page want the line but not the landmark; a second element carrying `${id}-section` would
+	// break the deep link's assumption that the name identifies exactly one place.
 	const root = mount(<SectionHeader title="Just a header" />);
 	expect(root.querySelector("section")).toBeNull();
 	expect(root.querySelector("h2")?.textContent).toBe("Just a header");
@@ -77,17 +76,16 @@ test("the help button is named for what it opens, not for the section", () => {
 });
 
 test("the heading level is the caller's, because a sub-header cannot be a second h2", () => {
-	// The surfaces this replaces use h2, h3 and h4; pinning h2 would have made
-	// the primitive unusable for the sub-headers and split the vocabulary.
+	// The surfaces this replaces use h2, h3 and h4; pinning h2 would have made the primitive unusable for the
+	// sub-headers and split the vocabulary.
 	expect(mount(<SectionHeader title="Section" />).querySelector("h2")).not.toBeNull();
 	expect(mount(<SectionHeader title="Sub" level={3} />).querySelector("h3")).not.toBeNull();
 	expect(mount(<SectionHeader title="Deeper" level={4} />).querySelector("h4")).not.toBeNull();
 });
 
 test("a header variant does not cost the caller the id contract", () => {
-	// headerClassName exists so a surface that needs one header styled
-	// differently keeps using Section, instead of hand-rolling the <section>
-	// and losing the naming and focus contract that is the point.
+	// headerClassName exists so a surface that needs one header styled differently keeps using Section, instead of
+	// hand-rolling the <section> and losing the naming and focus contract that is the point.
 	const root = mount(
 		<Section id="variant" title="Variant" headerClassName="compact">
 			{null}

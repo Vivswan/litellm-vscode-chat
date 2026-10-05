@@ -1,8 +1,3 @@
-/**
- * The merged model inspector: ONE slide-over per model row, sectioned Parameters / Capabilities / Pricing, fed by two
- * reads that ignore uncorrelated responses. A source renders as one compact badge, a beaten value inside a real <del>
- * behind a clipped "Overridden value", and nothing in the panel collapses.
- */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import type { CapabilityLevel, EffectiveCapabilities } from "../../../../shared/config/capabilityResolution";
@@ -41,15 +36,13 @@ function normOf(root: ParentNode, selector: string): string {
 	return textOf(root, selector).replace(/\s+/g, " ");
 }
 
-/** The panel's section titles in document order; every section names itself. */
 function sectionTitles(root: ParentNode): string[] {
 	return [...root.querySelectorAll(".model-inspector .section-title")].map((title) => (title.textContent ?? "").trim());
 }
 
 /**
- * Mount, capture the inspector's own readModelParameters requestId, then rerender with the correlated response. The
- * projection is computed by the SAME shared function the extension answers with; the capability feed stays unanswered,
- * so the params pins must hold regardless of the other section's state.
+ * The projection is computed by the SAME shared function the extension answers with; the capability feed stays
+ * unanswered, so the params pins must hold regardless of the other section's state.
  */
 function mountParamsAnswered(options: {
 	globalParameters?: Record<string, Record<string, unknown>>;
@@ -79,7 +72,6 @@ function mountParamsAnswered(options: {
 	return container;
 }
 
-/** A total EffectiveCapabilities fixture: floor everywhere, overridable per field. */
 function makeCapabilities(overrides: Partial<EffectiveCapabilities> = {}): EffectiveCapabilities {
 	return {
 		fields: {
@@ -98,8 +90,8 @@ function makeCapabilities(overrides: Partial<EffectiveCapabilities> = {}): Effec
 }
 
 /**
- * Mount the inspector and answer its readModelCapabilities post; the
- * parameters feed stays unanswered - the caps pins must hold on their own.
+ * Mount the inspector and answer its readModelCapabilities post; the parameters feed stays unanswered - the caps pins
+ * must hold on their own.
  */
 function mountCapsAnswered(
 	capabilities: EffectiveCapabilities | undefined,
@@ -129,8 +121,6 @@ test("the models list row carries ONE quiet Inspect action that opens the merged
 	const dialog = document.querySelector("[role='dialog']") as HTMLElement;
 	expect(dialog).not.toBeNull();
 	expect(textOf(dialog, "#model-inspector-title")).toContain("Omni");
-	// Opening posts BOTH reads for exactly the clicked row; each section
-	// renders when its own answer lands.
 	for (const method of ["readModelParameters", "readModelCapabilities"] as const) {
 		const read = postedRequests(method).at(-1);
 		expect(read).not.toBeUndefined();
@@ -140,8 +130,8 @@ test("the models list row carries ONE quiet Inspect action that opens the merged
 	expect(dialog.textContent).toContain("Resolving parameters...");
 	expect(dialog.textContent).toContain("Resolving capabilities...");
 
-	// The X closes it again (SlideOver's close request maps straight to close;
-	// a read-only view has nothing to confirm).
+	// The X closes it again (SlideOver's close request maps straight to close; a read-only view has nothing to
+	// confirm).
 	fireClick(dialog.querySelector("button[aria-label='Close']") as HTMLButtonElement);
 	expect(document.querySelector("[role='dialog']")).toBeNull();
 });
@@ -156,7 +146,6 @@ test("the panel reads as one document: Parameters, Capabilities, and Pricing sec
 		})
 	);
 	expect(sectionTitles(root)).toEqual(["Parameters", "Capabilities", "Pricing"]);
-	// The unit moves out of the title and onto the header line's summary slot.
 	expect(textOf(root, "#inspector-pricing-section .section-meta")).toBe("$ per million tokens");
 	// The Diagnostics jump anchors exist on the two addressable sections.
 	expect(root.querySelector("#inspector-params-section")).not.toBeNull();
@@ -164,8 +153,8 @@ test("the panel reads as one document: Parameters, Capabilities, and Pricing sec
 });
 
 test("without pricing fields the Pricing section states the absence instead of vanishing", () => {
-	// Absence is a designed state: a reader who opens the panel to check what a
-	// model costs gets an answer, not a missing section - and no invented zero.
+	// Absence is a designed state: a reader who opens the panel to check what a model costs gets an answer, not a
+	// missing section - and no invented zero.
 	const root = mountCapsAnswered(makeCapabilities());
 	expect(sectionTitles(root)).toEqual(["Parameters", "Capabilities", "Pricing"]);
 	const pricing = root.querySelector("#inspector-pricing-section") as HTMLElement;
@@ -175,13 +164,12 @@ test("without pricing fields the Pricing section states the absence instead of v
 });
 
 test("the Parameters section leads with the answer: table, supported params, max_tokens, machinery, record path", () => {
-	// The approved hierarchy: answers first, machinery last.
 	const container = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	respondTo(lastRequest("readModelParameters"), {
 		projection: projectEffectiveParameters({
 			rawModelId: model.rawId,
-			// The invalid matcher key produces a diagnostics block, so the
-			// order pin covers its position too (right after the table).
+			// The invalid matcher key produces a diagnostics block, so the order pin covers its position too (right
+			// after the table).
 			globalParameters: { "gpt-4*": { temperature: 0.2 }, "gpt*4o": { top_p: 0.5 } },
 			maxOutputTokens: model.maxOutputTokens,
 			outputLimitDeclared: model.outputLimitDeclared,
@@ -206,8 +194,7 @@ test("the Parameters section leads with the answer: table, supported params, max
 	});
 	const section = container.querySelector("#inspector-params-section") as HTMLElement;
 	expect(section).not.toBeNull();
-	// querySelectorAll returns document order: classify each major block and
-	// pin the whole reading sequence.
+	// querySelectorAll returns document order: classify each major block and pin the whole reading sequence.
 	const blocks = [
 		...section.querySelectorAll(
 			"table.resolution, .record-problems, .supported-params, .max-tokens, .inspector-notes, .record-chain"
@@ -228,8 +215,7 @@ test("the Parameters section leads with the answer: table, supported params, max
 		return element.matches(".supported-params") ? "supported-params" : "effective-table";
 	});
 	expect(blocks).toEqual(["effective-table", "diagnostics", "supported-params", "max-tokens", "notes", "record-path"]);
-	// The section names itself through its heading, which is where the
-	// Diagnostics jump lands.
+	// The section names itself through its heading, which is where the Diagnostics jump lands.
 	expect(section.getAttribute("aria-labelledby")).toBe("inspector-params-title");
 	expect(section.querySelector(".section-head h4#inspector-params-title")).not.toBeNull();
 });
@@ -264,15 +250,14 @@ test("the record-path figure closes its section in the open: nothing in the pane
 	expect(chain).not.toBeNull();
 	expect(chain?.textContent).toContain("Record path");
 	expect(chain?.textContent).toContain("gpt-4*");
-	// A reader who opened the panel has already asked for it: no disclosure
-	// anywhere in the overlay, so no state can hide the machinery.
+	// A reader who opened the panel has already asked for it: no disclosure anywhere in the overlay, so no state can
+	// hide the machinery.
 	expect(root.querySelector("details")).toBeNull();
 });
 
 test("a state push leaves the record path on screen instead of hiding it under the reader", () => {
-	// A state push orphans the answers (fresh requestIds), so the figure
-	// unmounts until the new answer lands; what comes back must be the same
-	// visible figure, never a re-collapsed one.
+	// A state push orphans the answers (fresh requestIds), so the figure unmounts until the new answer lands; what
+	// comes back must be the same visible figure, never a re-collapsed one.
 	const chains = [
 		{
 			layer: "global" as const,
@@ -298,8 +283,6 @@ test("a state push leaves the record path on screen instead of hiding it under t
 	answer();
 	expect(container.querySelector(".record-chain")).not.toBeNull();
 
-	// The push: readiness drops (a re-request orphans the answer, so the figure
-	// may unmount), then the fresh answer lands.
 	void act(() => {
 		render(<ModelInspector currencySymbol="$" {...props} stateSeq={1} />, container);
 	});
@@ -309,9 +292,8 @@ test("a state push leaves the record path on screen instead of hiding it under t
 });
 
 test("without a chain story the Parameters section renders no record path at all", () => {
-	// A single-link chain (or none) tells no inheritance story; a figure with
-	// one key would promise detail it cannot show. (The caps feed stays
-	// unanswered here; the caps section's own pin is above.)
+	// A single-link chain (or none) tells no inheritance story; a figure with one key would promise detail it cannot
+	// show.
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4o": { temperature: 0.2 } } });
 	expect(root.querySelector(".record-chain")).toBeNull();
 });
@@ -397,8 +379,6 @@ test("a stateSeq bump re-requests BOTH feeds, so an open inspector follows confi
 	expect(postedRequests("readModelParameters")).toHaveLength(1);
 	expect(postedRequests("readModelCapabilities")).toHaveLength(1);
 
-	// The same tree re-rendered with a bumped stateSeq (a state push landed):
-	// the inspector must ask again instead of trusting its pre-edit answers.
 	void act(() => {
 		render(<ModelInspector currencySymbol="$" model={model} stateSeq={1} onClose={() => {}} />, container);
 	});
@@ -477,8 +457,8 @@ test("an entry override names the entry layer and shows the shadowed global valu
 			.map((cell) => (cell.textContent ?? "").trim())
 			.join(" | ")
 	);
-	// The beaten value sits under its winner, opened by a clipped word that
-	// keeps a screen reader from announcing it as another parameter.
+	// The beaten value sits under its winner, opened by a clipped word that keeps a screen reader from announcing it as
+	// another parameter.
 	expect(texts).toEqual([
 		"temperature | 0.1 | entry gpt-4*",
 		"Overridden value | 0.8 | settings gpt-4*",
@@ -486,8 +466,7 @@ test("an entry override names the entry layer and shows the shadowed global valu
 	]);
 	const shadowed = root.querySelector("tr.res-shadow") as HTMLElement;
 	expect(shadowed.querySelector(".res-name .visually-hidden")?.textContent).toBe("Overridden value");
-	// A real deletion, not a line-through class: the semantics have to survive
-	// a stylesheet the reader never loads.
+	// A real deletion, not a line-through class: the semantics have to survive a stylesheet the reader never loads.
 	expect(shadowed.querySelector(".res-value del")?.textContent).toBe("0.8");
 });
 
@@ -500,8 +479,8 @@ test("an inherited field renders its writer badge with the winning record on the
 	});
 	const rows = Array.from(root.querySelectorAll("table.resolution tbody tr"));
 	const texts = rows.map((row) => (row.textContent ?? "").replace(/\s+/g, " ").trim());
-	// The inheritance is a quiet directive mark naming the winning record that
-	// pulled the value in, beside the badge naming the record that wrote it.
+	// The inheritance is a quiet directive mark naming the winning record that pulled the value in, beside the badge
+	// naming the record that wrote it.
 	expect(texts.some((text) => text.includes("settings *") && text.includes("inherited by gpt-4*"))).toBe(true);
 	expect(texts.some((text) => text.includes("settings gpt-4*") && !text.includes("inherited"))).toBe(true);
 	expect(root.querySelector(".mark")?.textContent?.replace(/\s+/g, " ").trim()).toBe("inherited by gpt-4*");
@@ -513,8 +492,8 @@ test("unknown underscore keys never surface; provider-owned keys render muted wi
 	expect(rows.length).toBe(1);
 	expect(rows.every((row) => row.classList.contains("res-not-sent"))).toBe(true);
 	expect(root.textContent).not.toContain("_internal");
-	// The mark is one quiet phrase; the rule behind it rides a focusable tip,
-	// because that sentence exists nowhere else on the panel.
+	// The mark is one quiet phrase; the rule behind it rides a focusable tip, because that sentence exists nowhere else
+	// on the panel.
 	expect(textOf(root, ".mark-quiet")).toContain("not sent");
 	const tip = root.querySelector('.mark-quiet [role="tooltip"]');
 	expect(tip?.textContent).toBe("A provider-owned request field: the extension owns it and never sends an override.");
@@ -543,11 +522,9 @@ test("_force diagnostics render like the capability side's: unforceable keys and
 	// A label doing a heading's job is a heading, so assistive tech can jump to it; the items name the key and the
 	// record, and the warning tone says the rest.
 	expect(textOf(root, ".record-problems h5")).toBe("Record problems");
-	// The refused provider-owned key names itself and the record that carried it.
 	expect(root.textContent).toContain('"model" cannot be forced and its mark is skipped');
-	// A listed name the record does not set malforms the directive; the copy
-	// leads with the shape that works and must not claim the whole directive is
-	// dead - valid entries stay forced.
+	// A listed name the record does not set malforms the directive; the copy leads with the shape that works and must
+	// not claim the whole directive is dead - valid entries stay forced.
 	expect(root.textContent).toContain('"_force" must be true or a list of fields the record sets');
 	expect(root.textContent).toContain('e.g. ["temperature"]; offending entries are ignored (settings key gpt-4*)');
 });
@@ -560,9 +537,8 @@ test("an invalid matcher key renders its own diagnostic", () => {
 });
 
 test("the params section's unknown-inherit-key message spells the directive by its registered name", () => {
-	// The message must spell the directive literally for l10n extraction, so a
-	// registry rename would leave it (and its translations) telling users about
-	// a gone directive; this pin fails the rename until the message moves too.
+	// The message must spell the directive literally for l10n extraction, so a registry rename would leave it (and its
+	// translations) telling users about a gone directive; this pin fails the rename until the message moves too.
 	const root = mountParamsAnswered({
 		globalParameters: { "gpt-4o": { temperature: 0.2, _inherit_from: ["missing"] } },
 	});
@@ -586,27 +562,23 @@ test("clean configuration renders no diagnostics block", () => {
 
 test("the max_tokens derivation states the configured branch with its attribution", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { max_tokens: 2222 } } });
-	// The configured branch carries the same badge a row would: scope and key,
-	// no sentence.
 	expect(normOf(root, ".max-tokens")).toBe("max_tokens 2,222 settings gpt-4*");
-	// A configured max_tokens is the derivation's story, never a table row -
-	// and it is real configuration, so the absence line must not claim nothing
-	// matched.
+	// A configured max_tokens is the derivation's story, never a table row - and it is real configuration, so the
+	// absence line must not claim nothing matched.
 	expect(root.querySelector("table.resolution")).toBeNull();
 	expect(root.querySelector(".absent")).toBeNull();
 });
 
 test("the max_tokens derivation states the declared and capped-default branches", () => {
-	// Neither derived branch has a record to point at, so neither wears a
-	// badge: they say in words where the number came from.
+	// Neither derived branch has a record to point at, so neither wears a badge: they say in words where the number
+	// came from.
 	const declared = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, outputLimitDeclared: true } });
-	// The derivation line formats its count like the tables do: the same number
-	// in two renderings on one screen reads as two numbers.
+	// The derivation line formats its count like the tables do: the same number in two renderings on one screen reads
+	// as two numbers.
 	expect(normOf(declared, ".max-tokens")).toBe("max_tokens 32,000 the model's declared output limit");
 	expect(declared.querySelector(".max-tokens .prov")).toBeNull();
 
 	const capped = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, outputLimitDeclared: false } });
-	// One rendering of one number, including inside the formula.
 	expect(normOf(capped, ".max-tokens")).toBe("max_tokens 4,096 min(4,096, model max) - a default, not declared");
 });
 
@@ -618,8 +590,8 @@ test.each([
 	(_, force) => {
 		const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { max_tokens: 2222, _force: force } } });
 		expect(normOf(root, ".max-tokens")).toContain("max_tokens 2,222 settings gpt-4* force");
-		// A forced max_tokens renders on the derivation line, never as a row - but runtime options lose to it as they lose
-		// to a forced row, so the caveat below makes the exception with no forced row in the table.
+		// A forced max_tokens renders on the derivation line, never as a row - but runtime options lose to it as they
+		// lose to a forced row, so the caveat below makes the exception with no forced row in the table.
 		expect(root.textContent).toContain("Overrides every table row above except forced rows.");
 		expect(root.querySelector(".absent")).toBeNull();
 		expect(root.querySelector('.max-tokens [role="tooltip"]')?.textContent).toBe(
@@ -686,9 +658,8 @@ test("two rows sharing an ID and display label still ask about their own snapsho
 });
 
 test("one snapshot rendered under two labels: the inspector stays on the clicked row's label", () => {
-	// The inspected identity includes serverLabel too: a group snapshot can
-	// render under several labels with identical (scopeKey, rawId), and the
-	// overlay must attribute the clicked row, not the first claimant.
+	// The inspected identity includes serverLabel too: a group snapshot can render under several labels with identical
+	// (scopeKey, rawId), and the overlay must attribute the clicked row, not the first claimant.
 	const rows = [
 		makeModel({ ...model, scopeKey: "s0", serverLabel: "A" }),
 		makeModel({ ...model, scopeKey: "s0", serverLabel: "B" }),
@@ -733,8 +704,8 @@ test("the header keeps ONE orientation line - family and capability chips - and 
 	expect(line?.textContent).toContain("gpt");
 	const chips = [...(line?.querySelectorAll(".cap-chip") ?? [])].map((chip) => chip.textContent);
 	expect(chips).toEqual(["tools", "vision"]);
-	// Capability words are prose about the model, so they wear the soft-fill
-	// chip - never the outline badge, which means provenance and nothing else.
+	// Capability words are prose about the model, so they wear the soft-fill chip - never the outline badge, which
+	// means provenance and nothing else.
 	expect(line?.querySelector(".cap-chip")?.getAttribute("data-slot")).toBe("badge");
 	expect(line?.querySelector(".prov")).toBeNull();
 	expect(root.querySelector(".model-facts")).toBeNull();
@@ -776,8 +747,8 @@ test("the correlated caps response renders every field with its value and source
 	const text = (table?.textContent ?? "").replace(/\s+/g, " ");
 	expect(text).toContain("Context length");
 	expect(text).toContain((200000).toLocaleString());
-	// Every level renders as a badge; the walk's levels that no record can own
-	// (the report, the floor) carry a scope word and no key.
+	// Every level renders as a badge; the walk's levels that no record can own (the report, the floor) carry a scope
+	// word and no key.
 	expect(text).toContain("entry gpt-4");
 	expect(text).toContain("Overridden value");
 	expect(text).toContain("settings gpt");
@@ -818,8 +789,8 @@ test("every level of the capability walk renders as one badge, with the directiv
 });
 
 test("a scope word a reader cannot infer carries its sentence in a focusable tip", () => {
-	// "derived" is a computation, not a place, and the rule behind it exists
-	// nowhere else on the panel - so it has to be reachable without a pointer.
+	// "derived" is a computation, not a place, and the rule behind it exists nowhere else on the panel - so it has to
+	// be reachable without a pointer.
 	const root = mountCapsAnswered(
 		makeCapabilities({
 			fields: { ...makeCapabilities().fields, max_input_tokens: { value: 112000, level: "derived", shadowed: [] } },
@@ -833,9 +804,8 @@ test("a scope word a reader cannot infer carries its sentence in a focusable tip
 });
 
 test("a record key too long for its column carries the full badge text in a focusable tip", () => {
-	// The stylesheet ellipsizes a badge that outgrows the source column, and a
-	// long unbroken regex matcher is exactly the text a reader opened the panel
-	// for - so a clipped badge joins the Tab order with its full text.
+	// The stylesheet ellipsizes a badge that outgrows the source column, and a long unbroken regex matcher is exactly
+	// the text a reader opened the panel for - so a clipped badge joins the Tab order with its full text.
 	const key = "/^(gpt|claude)-[0-9.]+-(preview|latest)$/i";
 	const root = mountCapsAnswered(
 		makeCapabilities({
@@ -845,12 +815,11 @@ test("a record key too long for its column carries the full badge text in a focu
 			},
 		})
 	);
-	// The context_length row is the table's first; the derived row below it has
-	// a tip of its own, so both reads stay scoped to their own row.
+	// The context_length row is the table's first; the derived row below it has a tip of its own, so both reads stay
+	// scoped to their own row.
 	const tip = root.querySelector("tbody tr")?.querySelector(".res-source .tip-wrap");
 	expect(tip?.getAttribute("tabindex")).toBe("0");
 	expect(tip?.querySelector('[role="tooltip"]')?.textContent).toBe(`settings ${key}`);
-	// A key that comfortably fits stays plain text, outside the Tab order.
 	cleanup();
 	resetPosted();
 	const short = mountCapsAnswered(
@@ -865,7 +834,6 @@ test("a record key too long for its column carries the full badge text in a focu
 });
 
 test("every resolution table names its three columns for assistive tech", () => {
-	// A provenance table always names name, value and source, now through visible heads.
 	const root = mountCapsAnswered(
 		makeCapabilities({
 			fields: {
@@ -884,8 +852,8 @@ test("every resolution table names its three columns for assistive tech", () => 
 });
 
 test("the Pricing section states its own in-flight state instead of vanishing", () => {
-	// Pricing rides the capability feed, so it has nothing to show until that
-	// answer lands - which is a state to render, not a section to withhold.
+	// Pricing rides the capability feed, so it has nothing to show until that answer lands - which is a state to
+	// render, not a section to withhold.
 	const container = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	expect(sectionTitles(container)).toEqual(["Parameters", "Capabilities", "Pricing"]);
 	const pricing = container.querySelector("#inspector-pricing-section") as HTMLElement;
@@ -895,9 +863,8 @@ test("the Pricing section states its own in-flight state instead of vanishing", 
 });
 
 test("the fixed machinery renders while the projection is still in flight", () => {
-	// "Resolving parameters..." followed by nothing reads as a section that
-	// failed to load; the always-sent fields and the caveats are truth about the
-	// extension, not about this answer.
+	// "Resolving parameters..." followed by nothing reads as a section that failed to load; the always-sent fields and
+	// the caveats are truth about the extension, not about this answer.
 	const container = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	expect(container.textContent).toContain("Resolving parameters...");
 	expect(container.querySelector(".inspector-notes")).not.toBeNull();
@@ -908,15 +875,14 @@ test("the fixed machinery renders while the projection is still in flight", () =
 	expect(notes[0]).toBe("model messages stream stream_options max_tokens");
 	expect(notes[1]).toBe("tools tool_choice");
 	expect(container.textContent).toContain("Sent with tools");
-	// With no projection to read, the runtime caveat keeps its unconditional
-	// wording rather than claiming there are forced rows.
+	// With no projection to read, the runtime caveat keeps its unconditional wording rather than claiming there are
+	// forced rows.
 	expect(container.textContent).toContain("Overrides every table row above.");
 });
 
 test("a configured max_tokens whose layer the projection could not name wears no badge", () => {
-	// The projection reports the branch and the value; the layer is a separate
-	// lookup that can come back empty. A badge would then name a layer the panel
-	// does not know - so it says so in words instead.
+	// The projection reports the branch and the value; the layer is a separate lookup that can come back empty. A badge
+	// would then name a layer the panel does not know - so it says so in words instead.
 	const container = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	respondTo(lastRequest("readModelParameters"), {
 		projection: { rows: [], maxTokens: { source: "configured", value: 2222 }, diagnostics: [] },
@@ -926,9 +892,8 @@ test("a configured max_tokens whose layer the projection could not name wears no
 });
 
 test("a beaten value keeps the directive that put it in the running", () => {
-	// A shadowed fallback fill is still a fallback: dropping the mark from the
-	// loser leaves the reader guessing why a record they never see in the
-	// winner's chain was competing at all.
+	// A shadowed fallback fill is still a fallback: dropping the mark from the loser leaves the reader guessing why a
+	// record they never see in the winner's chain was competing at all.
 	const root = mountCapsAnswered(
 		makeCapabilities({
 			fields: {
@@ -967,9 +932,8 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 });
 
 /**
- * A name cell's VISIBLE text: a labeled field renders its label inside the
- * wire-key tip (the tooltip text would otherwise concatenate onto
- * textContent), an open field renders its raw key directly.
+ * A name cell's VISIBLE text: a labeled field renders its label inside the wire-key tip (the tooltip text would
+ * otherwise concatenate onto textContent), an open field renders its raw key directly.
  */
 function nameText(cell: Element | null): string | null {
 	if (cell === null) {
@@ -998,19 +962,14 @@ test("the core fields render first in their pinned order; open fields land under
 		"Vision",
 		"Reasoning",
 		"Audio input",
-		// The consumed booleans follow the core with friendly labels.
 		"Prompt caching",
-		// The open fields, code-unit sorted, labeled by their raw wire keys.
 		"custom_rank",
 		"supports_web_search",
 	]);
-	// The extras open the labeled Other-fields band inside the caps table.
 	const bands = [...root.querySelectorAll("tr.res-group th")].map((cell) => cell.textContent);
 	expect(bands).toEqual(["Other fields"]);
 	const text = root.textContent ?? "";
-	// Open values render as plain numbers, never token-formatted.
 	expect(text).toContain("custom_rank");
-	// An open boolean keeps the yes/no idiom.
 	const webSearchRow = [...root.querySelectorAll("table.resolution tbody tr")].find((row) =>
 		row.textContent?.includes("supports_web_search")
 	);
@@ -1022,7 +981,6 @@ test("a core-only response renders no in-table bands; the section headers carry 
 	const root = mountCapsAnswered(makeCapabilities());
 	expect(root.querySelectorAll("tr.res-group").length).toBe(0);
 	expect(sectionTitles(root)).toEqual(["Parameters", "Capabilities", "Pricing"]);
-	// The capabilities header line summarizes what the table holds.
 	expect(textOf(root, "#inspector-caps-section .section-meta")).toBe("7 fields");
 });
 
@@ -1033,8 +991,8 @@ test("cost fields render as $/M in the Pricing section, exactly once, never in s
 				...makeCapabilities().fields,
 				input_cost_per_token: { value: 0.000005, level: "server", shadowed: [] },
 				output_cost_per_token: { value: 0.000025, level: "server", shadowed: [] },
-				// The regression case: 5e-7 stringifies to "5e-7", and the raw
-				// rendering leaked exactly that into the table.
+				// The regression case: 5e-7 stringifies to "5e-7", and the raw rendering leaked exactly that into the
+				// table.
 				cache_read_input_token_cost: { value: 5e-7, level: "server", shadowed: [] },
 				cache_creation_input_token_cost: {
 					value: 6.25e-6,
@@ -1045,7 +1003,6 @@ test("cost fields render as $/M in the Pricing section, exactly once, never in s
 			},
 		})
 	);
-	// The cost rows live under the Pricing section header - the one pricing rendering in the whole panel.
 	const pricingSection = root.querySelector("#inspector-pricing-section") as HTMLElement;
 	expect(pricingSection).not.toBeNull();
 	const pricingRows = [...pricingSection.querySelectorAll("table.resolution tbody tr")].filter((row) =>
@@ -1056,17 +1013,14 @@ test("cost fields render as $/M in the Pricing section, exactly once, never in s
 	expect(values).toContain("$25.00");
 	expect(values).toContain("$0.50");
 	expect(values).toContain("$6.25");
-	// The shadowed cost formats as $/M too, and nothing renders as 5e-7.
 	expect(pricingSection.querySelector("tr.res-shadow .res-value")?.textContent).toBe("$37.50");
 	for (const value of values) {
 		expect(value).not.toMatch(/\de[+-]?\d/);
 	}
-	// No dollar amount renders anywhere outside the Pricing section, whose own
-	// header line states the unit once.
 	const outside = (root.textContent ?? "").split("Pricing")[0] ?? "";
 	expect(outside).not.toContain("$");
-	// The friendly labels replace the raw wire keys, which stay one focusable
-	// tip away (the label hides the very key a capabilities record needs).
+	// The friendly labels replace the raw wire keys, which stay one focusable tip away (the label hides the very key a
+	// capabilities record needs).
 	const names = pricingRows.map((row) => nameText(row.querySelector(".res-name")));
 	expect(names).toContain("Input");
 	expect(names).toContain("Cache read");
@@ -1120,34 +1074,29 @@ test("the supported-params list renders in the PARAMETERS section: header line c
 			},
 		})
 	);
-	// What the model ACCEPTS renders beside what we send: the block lives in
-	// the Parameters section, not the Capabilities table, while staying a
-	// capability on the wire (it arrived on the modelCapabilities response).
+	// What the model ACCEPTS renders beside what we send: the block lives in the Parameters section, not the
+	// Capabilities table, while staying a capability on the wire (it arrived on the modelCapabilities response).
 	const paramsSection = root.querySelector("#inspector-params-section") as HTMLElement;
 	expect(paramsSection).not.toBeNull();
 	const block = paramsSection.querySelector(".supported-params") as HTMLElement;
 	expect(block).not.toBeNull();
-	// The block's header line carries the name, the count and the source, so
-	// the body below is nothing but names.
 	expect(textOf(block, "h5")).toBe("Supported parameters");
 	expect(textOf(block, ".params-count")).toBe("27 parameters");
 	expect(textOf(block, ".prov").replace(/\s+/g, " ")).toBe("settings gpt-5*");
-	// Quiet monospace text, not a wall of pills: one element per name so
-	// boundaries survive a comma inside a name, nothing hidden behind a tip.
+	// Quiet monospace text, not a wall of pills: one element per name so boundaries survive a comma inside a name,
+	// nothing hidden behind a tip.
 	const listItems = [...block.querySelectorAll(".params-names li")].map((item) => item.textContent);
 	expect(listItems).toEqual([...long].sort());
 	expect(block.querySelector('[role="tooltip"]')).toBeNull();
 	expect(block.querySelector(".params-names")?.getAttribute("aria-label")).toBe("Supported parameters");
-	// A shadowed list stays count-only (its record holds the value), struck
-	// through behind the same clipped word every beaten value carries.
+	// A shadowed list stays count-only (its record holds the value), struck through behind the same clipped word every
+	// beaten value carries.
 	const shadowedLine = block.querySelector(".params-shadow") as HTMLElement;
 	expect(shadowedLine?.querySelector("del")?.textContent).toBe("1 parameter");
 	expect(shadowedLine?.querySelector(".visually-hidden")?.textContent).toBe("Overridden value");
-	// The clipped marker and the value are separate words to a screen reader,
-	// not "Overridden value1 parameter".
+	// The clipped marker and the value are separate words to a screen reader, not "Overridden value1 parameter".
 	expect(shadowedLine?.textContent?.replace(/\s+/g, " ")).toContain("Overridden value 1 parameter");
 	expect(shadowedLine?.textContent).not.toContain("temperature");
-	// The Capabilities section renders the list nowhere - one rendering only.
 	const capsSection = root.querySelector("#inspector-caps-section") as HTMLElement;
 	expect(capsSection.textContent).not.toContain("27 parameters");
 	cleanup();
@@ -1161,8 +1110,7 @@ test("the supported-params list renders in the PARAMETERS section: header line c
 		})
 	);
 	expect(empty.textContent).toContain("0 parameters");
-	// An empty list renders no list at all - a bare strip under the count would
-	// read as a rendering bug.
+	// An empty list renders no list at all - a bare strip under the count would read as a rendering bug.
 	expect(empty.querySelector(".params-names")).toBeNull();
 });
 
@@ -1188,8 +1136,8 @@ test("a value long enough to clip gets the focusable full-text tip; short values
 		makeCapabilities({
 			fields: {
 				...makeCapabilities().fields,
-				// An OPEN field with a long JSON value; the consumed params list
-				// has its own count rendering and is pinned elsewhere.
+				// An OPEN field with a long JSON value; the consumed params list has its own count rendering and is
+				// pinned elsewhere.
 				custom_param_list: { value: long, level: "server", shadowed: [] },
 			},
 		})
@@ -1198,7 +1146,6 @@ test("a value long enough to clip gets the focusable full-text tip; short values
 	expect(tipWrap).not.toBeNull();
 	expect(tipWrap?.getAttribute("tabindex")).toBe("0");
 	expect(tipWrap?.querySelector('[role="tooltip"]')?.textContent).toBe(JSON.stringify(long));
-	// The short core values stay plain text outside the Tab order.
 	expect(root.querySelectorAll(".res-value .tip-wrap").length).toBe(1);
 });
 
@@ -1217,8 +1164,8 @@ test("the clip tip's threshold sits exactly at the 8ch box, counting wide glyphs
 	// JSON.stringify adds the two quotes: 6 chars render as exactly 8.
 	expect(tipCount("x".repeat(6))).toBe(0);
 	expect(tipCount("x".repeat(7))).toBe(1);
-	// 4 CJK glyphs plus the quotes approximate 10ch: clipped well before the
-	// code-unit length reaches 8, so the tip must already be there.
+	// 4 CJK glyphs plus the quotes approximate 10ch: clipped well before the code-unit length reaches 8, so the tip
+	// must already be there.
 	expect(tipCount("字".repeat(4))).toBe(1);
 });
 
@@ -1236,29 +1183,27 @@ test("an unrecognized-key diagnostic renders as an informational note, apart fro
 	expect(textOf(advisories as HTMLElement, "h5")).toBe("Record notes");
 	expect(advisories?.textContent).toContain("applied as an override as-is");
 	expect(advisories?.querySelector("li")?.className).toBe("hint");
-	// The record diagnostics live at the end of the Capabilities section (near
-	// the records they judge), never dangling after Pricing.
+	// The record diagnostics live at the end of the Capabilities section (near the records they judge), never dangling
+	// after Pricing.
 	expect(advisories?.closest("section")?.id).toBe("inspector-caps-section");
-	// The real problem stays under the problems heading, not among the notes.
 	expect(textOf(root, ".record-problems:not(.record-notes) h5")).toBe("Record problems");
 	expect(advisories?.textContent).not.toContain("invalid value");
 });
 
 test("the declared badge follows the model's verdict: a discovered model shows no badge", () => {
-	// The badge rides model.declared (what registration served), never the
-	// record configuration; a discovered model must not claim "not discovered".
+	// The badge rides model.declared (what registration served), never the record configuration; a discovered model
+	// must not claim "not discovered".
 	const root = mountCapsAnswered(makeCapabilities());
 	expect(root.textContent).not.toContain("Declared model");
 });
 
 test("the output-limit note names the limit's source and nothing the request does", () => {
-	// A label plus a value, in the parameters machinery's idiom. It says only where the limit came from: what the
-	// REQUEST sends is conditional (a configured or forced max_tokens beats the limit), and the max_tokens line owns it.
+	// It says only where the limit came from: what the REQUEST sends is conditional (a configured or forced max_tokens
+	// beats the limit), and the max_tokens line owns it.
 	const user = mountCapsAnswered(makeCapabilities({ outputLimitSource: "user" }));
 	expect(textOf(user, ".output-limit dt")).toBe("Output limit");
 	expect(textOf(user, ".output-limit dd")).toBe("User-set.");
-	// The branch every screenshot renders needs its own pin, not just the two
-	// edge branches.
+	// The branch every screenshot renders needs its own pin, not just the two edge branches.
 	cleanup();
 	resetPosted();
 	expect(textOf(mountCapsAnswered(makeCapabilities({ outputLimitSource: "provider" })), ".output-limit dd")).toBe(
@@ -1268,14 +1213,13 @@ test("the output-limit note names the limit's source and nothing the request doe
 	resetPosted();
 	const defaults = mountCapsAnswered(makeCapabilities({ outputLimitSource: "defaults" }));
 	expect(textOf(defaults, ".output-limit dd")).toBe("A default.");
-	// Never a cap claim: a configured max_tokens beats the limit, and this
-	// section cannot see whether one exists.
+	// Never a cap claim: a configured max_tokens beats the limit, and this section cannot see whether one exists.
 	expect(defaults.textContent).not.toContain("capped at");
 });
 
 test("only numbers right-align in the value column", () => {
-	// D16 is about NUMERICS: the column also carries yes/no and JSON, and
-	// right-aligning a word pushes it away from the name it belongs to.
+	// D16 is about NUMERICS: the column also carries yes/no and JSON, and right-aligning a word pushes it away from the
+	// name it belongs to.
 	const root = mountCapsAnswered(
 		makeCapabilities({
 			fields: {
@@ -1305,8 +1249,7 @@ test("an empty-capabilities response says the state moved on instead of inventin
 });
 
 test("the Diagnostics jump links open the merged panel scrolled to their section", () => {
-	// happy-dom implements scrollIntoView as a no-op; capture the landing
-	// element instead of a scroll position.
+	// happy-dom implements scrollIntoView as a no-op; capture the landing element instead of a scroll position.
 	const landings: string[] = [];
 	const original = Element.prototype.scrollIntoView;
 	Element.prototype.scrollIntoView = function (this: Element) {
@@ -1315,14 +1258,12 @@ test("the Diagnostics jump links open the merged panel scrolled to their section
 	try {
 		mount(<App />);
 		pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], models: [model] })));
-		// The models table's plain Inspect opens unanchored: no landing recorded.
 		fireClick(document.querySelector("button[aria-label='Inspect Omni on Prod']") as HTMLButtonElement);
 		expect(document.querySelector("[role='dialog']")).not.toBeNull();
 		expect(landings).toEqual([]);
 		fireClick(document.querySelector("button[aria-label='Close']") as HTMLButtonElement);
 
-		// Land on the Diagnostics tab and answer its resolved-models read so the
-		// jump-linked rows exist.
+		// Land on the Diagnostics tab and answer its resolved-models read so the jump-linked rows exist.
 		pushToWebview({ kind: "focusSection", section: "diagnostics" });
 		respondTo(lastRequest("readResolvedModels"), {
 			view: {
@@ -1349,9 +1290,8 @@ test("the Diagnostics jump links open the merged panel scrolled to their section
 });
 
 test("the anchor stops re-scrolling for good once both feeds have answered", () => {
-	// Readiness flips false again on every state push (fresh requestIds orphan
-	// the old answers) - a reader who scrolled away must not be yanked back to
-	// the anchor by a configuration change landing minutes later.
+	// Readiness flips false again on every state push (fresh requestIds orphan the old answers) - a reader who scrolled
+	// away must not be yanked back to the anchor by a configuration change landing minutes later.
 	const landings: string[] = [];
 	const original = Element.prototype.scrollIntoView;
 	Element.prototype.scrollIntoView = function (this: Element) {
@@ -1377,8 +1317,6 @@ test("the anchor stops re-scrolling for good once both feeds have answered", () 
 		answer();
 		landings.length = 0;
 
-		// A state push bumps stateSeq (readiness drops), then fresh answers land:
-		// no further scroll, in either window.
 		void act(() => {
 			render(<ModelInspector currencySymbol="$" {...props} stateSeq={1} />, container);
 		});
@@ -1390,9 +1328,9 @@ test("the anchor stops re-scrolling for good once both feeds have answered", () 
 });
 
 test("a slide-over with no field still lands focus inside itself, so Esc reaches the panel", () => {
-	// The inspector is the one slide-over with nothing to type into, so focus falls back to the panel's first focusable:
-	// Radix's own open-autofocus is declined, and the opener the dialog just hid from assistive tech is where focus
-	// would otherwise sit, taking the panel's Esc handler with it.
+	// The inspector is the one slide-over with nothing to type into, so focus falls back to the panel's first
+	// focusable: Radix's own open-autofocus is declined, and the opener the dialog just hid from assistive tech is
+	// where focus would otherwise sit, taking the panel's Esc handler with it.
 	let closed = 0;
 	const opener = document.createElement("button");
 	document.body.appendChild(opener);

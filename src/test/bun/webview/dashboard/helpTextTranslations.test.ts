@@ -1,7 +1,7 @@
 /**
  * Translated help-text guard: every translated bundle carrying an English help key must keep the contract - no
  * template syntax or {0} placeholders, because help text never interpolates and a translator's placeholder would
- * render literally in that locale. Locales come from disk; missing keys are the l10n gate's job.
+ * render literally in that locale.
  */
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";

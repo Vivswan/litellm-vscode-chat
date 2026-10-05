@@ -185,8 +185,8 @@ suite("provider/catalog/groupModels", () => {
 				apiKey: "",
 			});
 			assert.strictEqual(parseGroupConfiguration({ apiKey: "k" }), undefined);
-			// A URL that normalizes to nothing is no server: the same refusal entryUsesSecretField's no-server arm makes,
-			// so a stored credential can never ride a configuration the wire rule attributes to no entry.
+			// A URL that normalizes to nothing is no server: the same refusal entryUsesSecretField's no-server arm
+			// makes, so a stored credential can never ride a configuration the wire rule attributes to no entry.
 			assert.strictEqual(parseGroupConfiguration({ baseUrl: "/", apiKey: "k" }), undefined);
 			assert.strictEqual(parseGroupConfiguration("http://litellm.test"), undefined);
 			assert.strictEqual(parseGroupConfiguration(null), undefined);
@@ -214,8 +214,7 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("a labeled OAuth configuration cannot encode like an unlabeled one", () => {
-			// The label slot is null or a string, so a labeled identity's tuple can
-			// never equal an unlabeled one's.
+			// The label slot is null or a string, so a labeled identity's tuple can never equal an unlabeled one's.
 			const unlabeled = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
 			const labeled = expectDefined(
 				parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS, label: "Prod" })
@@ -253,9 +252,8 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("rotating any credential part mints a new identity: every OAuth field, the API key, both virtual-key halves", () => {
-			// The OAuth half of the identity is oauthCredentialFingerprint, so each
-			// rotation must move the fingerprint and the group ID together; a field
-			// the fingerprint stopped covering would fail both assertions.
+			// The OAuth half of the identity is oauthCredentialFingerprint, so each rotation must move the fingerprint
+			// and the group ID together; a field the fingerprint stopped covering would fail both assertions.
 			const base = {
 				baseUrl: "http://litellm.test",
 				apiKey: "k",
@@ -310,12 +308,10 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("an API key spelling another identity's encoding never collides with the identity it spells", () => {
-			// Deterministic regression pairs the seeded property may never sample:
-			// the API key is free-form, so a bare key can be byte-for-byte the JSON
-			// text of another identity's tuple (current format), a retired format's
-			// credential JSON, or raw delimiter material. JSON slot escaping must
-			// keep every such key inside its own slot; a collision would merge
-			// status entries and reuse the wrong discovery cache.
+			// Deterministic regression pairs the seeded property may never sample: the API key is free-form, so a bare
+			// key can be byte-for-byte the JSON text of another identity's tuple (current format), a retired format's
+			// credential JSON, or raw delimiter material. JSON slot escaping must keep every such key inside its own
+			// slot; a collision would merge status entries and reuse the wrong discovery cache.
 			const genuineLabeled = expectDefined(
 				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
 			);
@@ -349,15 +345,10 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("property: one injective encoding covers every identity component the old namespaces guarded (seed-pinned)", () => {
-			// Ground truth is component-wise equality, independent of any string
-			// encoding, so an encoding flaw that let two different identities
-			// serialize identically would fail here. Small domains make component
-			// collisions common, so both directions get real coverage: equal
-			// components must share an ID, and ANY differing component must move
-			// it. The API key domain carries the old smuggling vectors - keys
-			// spelling the JSON text of labeled, credentialed, and current-format
-			// identities, plus raw delimiter material - which the retired
-			// labeled:/cred: namespace segments used to guard.
+			// Ground truth is component-wise equality, independent of any string encoding, so an encoding flaw that let
+			// two different identities serialize identically would fail here. Small domains make component collisions
+			// common, so both directions get real coverage: equal components must share an ID, and ANY differing
+			// component must move it.
 			const baseUrlArb = fc.constantFrom(...["http://a.test", "http://b.test"].map((url) => normalizeBaseUrl(url)));
 			const labelArb = fc.option(fc.constantFrom("Prod", "Staging"), { nil: undefined });
 			const apiKeyArb = fc.constantFrom(
@@ -402,8 +393,8 @@ suite("provider/catalog/groupModels", () => {
 					...(virtualKey !== undefined ? { virtualKey } : {}),
 				})
 			);
-			// OAuth compares by its credential fingerprint, production's own unit of
-			// OAuth identity (scopes "" and absent are the same material there).
+			// OAuth compares by its credential fingerprint, production's own unit of OAuth identity (scopes "" and
+			// absent are the same material there).
 			const sameIdentity = (a: GroupServer, b: GroupServer): boolean =>
 				a.baseUrl === b.baseUrl &&
 				(a.label ?? null) === (b.label ?? null) &&
@@ -493,8 +484,8 @@ suite("provider/catalog/groupModels", () => {
 		test("the type system refuses an attached copy where a pre-attach info belongs", () => {
 			const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
 			const attached = attachGroupServer(makeModelInfo(), server);
-			// The one-token-away mistake the split exists to stop: caching or
-			// snapshotting attach(...) output instead of the pre-attach infos.
+			// The one-token-away mistake the split exists to stop: caching or snapshotting attach(...) output instead
+			// of the pre-attach infos.
 			// @ts-expect-error an attached copy embeds the group's credentials and is not a PreAttachModelInfo
 			const leaked: PreAttachModelInfo = attached;
 			void leaked;
@@ -502,8 +493,8 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("a malformed oauth sub-object coming back across the host boundary degrades to absent", () => {
-			// Built by hand, not through attachGroupServer: this is the hostile
-			// round-trip shape whose type the host boundary cannot vouch for.
+			// Built by hand, not through attachGroupServer: this is the hostile round-trip shape whose type the host
+			// boundary cannot vouch for.
 			const model = {
 				...makeModelInfo(),
 				litellm: {
@@ -570,9 +561,8 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("accepts attached copies only, so decorated objects cannot enter the cache or snapshot paths", () => {
-			// Those paths hold PreAttachModelInfo; if markStale accepted it, a
-			// credential-carrying copy could be cached or pushed to the dashboard,
-			// and a stale icon would survive a healthy sweep.
+			// Those paths hold PreAttachModelInfo; if markStale accepted it, a credential-carrying copy could be cached
+			// or pushed to the dashboard, and a stale icon would survive a healthy sweep.
 			// @ts-expect-error markStale takes AttachedModelInfo, never the pre-attach registration output
 			const rejected = () => markStale([makeModelInfo()], "1/1/2026, 9:30:00 AM");
 			void rejected;

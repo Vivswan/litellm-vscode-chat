@@ -22,9 +22,8 @@ const textOnly = { imageInput: false, audioInput: false };
 const textTokens = (text: string): number => Math.ceil(text.length / CHARS_PER_TOKEN);
 
 /**
- * The synthesized image message's fixed lead-in (messages.ts). The estimate
- * prices the converted request, so this constant is priced with it; the
- * literal is restated here so a reworded lead-in shows up as a count change.
+ * The synthesized image message's fixed lead-in (messages.ts). The estimate prices the converted request, so this
+ * constant is priced with it; the literal is restated here so a reworded lead-in shows up as a count change.
  */
 const LEAD_IN_TOKENS = textTokens("Images returned by the tool calls above:");
 
@@ -81,9 +80,8 @@ suite("shared/conversion/dataPartForm", () => {
 	});
 
 	test("an image mime that is also text-decodable follows each position's conversion order", () => {
-		// User messages try the image block first, so the vision gate decides;
-		// with it off, conversion falls back to the text decode. Tool results
-		// decode text first, so the mime is text there even for vision models.
+		// User messages try the image block first, so the vision gate decides; with it off, conversion falls back to
+		// the text decode. Tool results decode text first, so the mime is text there even for vision models.
 		assert.deepStrictEqual(dataPartWireForm("image/foo+json", "user", fullMultimodal), { form: "image" });
 		assert.deepStrictEqual(dataPartWireForm("image/foo+json", "user", textOnly), { form: "text" });
 		assert.deepStrictEqual(dataPartWireForm("image/foo+json", "toolResult", fullMultimodal), { form: "text" });
@@ -133,9 +131,8 @@ suite("shared/conversion/tokenEstimation", () => {
 	});
 
 	test("text-mime data parts price the decoded text conversion transmits, not their byte count", () => {
-		// 12 Han characters: 36 UTF-8 bytes but a 12-character wire string. The
-		// estimate prices the converted request, so the character figure is the
-		// right one; the old bytes/4 walk priced 9 here.
+		// 12 Han characters: 36 UTF-8 bytes but a 12-character wire string. The estimate prices the converted request,
+		// so the character figure is the right one; the old bytes/4 walk priced 9 here.
 		const decoded = "把这个函数重构成纯函数呀";
 		const payload = new TextEncoder().encode(decoded);
 		const messages = [userMessage(new vscode.LanguageModelDataPart(payload, "text/plain"))];
@@ -176,8 +173,8 @@ suite("shared/conversion/tokenEstimation", () => {
 			new vscode.LanguageModelTextPart(text),
 			new vscode.LanguageModelDataPart(new Uint8Array(4), "image/png"),
 		]);
-		// With vision, the image rides a synthesized user message whose fixed
-		// lead-in ships too, so the estimate includes it.
+		// With vision, the image rides a synthesized user message whose fixed lead-in ships too, so the estimate
+		// includes it.
 		assert.strictEqual(
 			estimateMessagesTokens([userMessage(part)], visionOnly),
 			textTokens(text) + IMAGE_TOKEN_ESTIMATE + LEAD_IN_TOKENS
@@ -228,8 +225,8 @@ suite("shared/conversion/tokenEstimation", () => {
 	});
 
 	test('an entry with no JSON rendering prices the "undefined" literal conversion transmits', () => {
-		// JSON.stringify returns undefined for a bare function; conversion's
-		// `text +=` coerces that to the literal "undefined" on the wire.
+		// JSON.stringify returns undefined for a bare function; conversion's `text +=` coerces that to the literal
+		// "undefined" on the wire.
 		const content: unknown[] = [() => {}];
 		const part = new vscode.LanguageModelToolResultPart("call-1", content as vscode.LanguageModelTextPart[]);
 		assert.strictEqual(estimateMessagesTokens([userMessage(part)], fullMultimodal), textTokens("undefined"));
@@ -256,8 +253,8 @@ suite("shared/conversion/tokenEstimation", () => {
 	});
 
 	test("prompt-tsx values with no JSON rendering price zero without throwing", () => {
-		// JSON.stringify returns undefined for these; conversion transmits
-		// nothing, so the estimate must not throw on the missing rendering.
+		// JSON.stringify returns undefined for these; conversion transmits nothing, so the estimate must not throw on
+		// the missing rendering.
 		const fnValue = new vscode.LanguageModelPromptTsxPart(() => {});
 		assert.strictEqual(estimateMessagesTokens([userMessage(fnValue)], fullMultimodal), 0);
 
@@ -291,8 +288,8 @@ suite("shared/conversion/tokenEstimation", () => {
 	});
 
 	test("thinking that never replays prices zero: unsigned text, and thinking outside assistant turns", () => {
-		// A plain value-bearing object is not a thinking part (no replay
-		// metadata, not the host's class); conversion drops it, so it counts 0.
+		// A plain value-bearing object is not a thinking part (no replay metadata, not the host's class); conversion
+		// drops it, so it counts 0.
 		const plain = { value: "just thinking text" };
 		assert.strictEqual(estimateMessagesTokens([assistantMessage(plain)], fullMultimodal), 0);
 		// Conversion reads thinking out of assistant history only.
@@ -301,9 +298,8 @@ suite("shared/conversion/tokenEstimation", () => {
 	});
 
 	test("a redacted payload prices even without a text value: it ships whatever the value field holds", () => {
-		// The old part walk required a string value before pricing anything, so
-		// a value-less redacted part undercounted to zero - the direction that
-		// skips host trimming and overflows server-side.
+		// The old part walk required a string value before pricing anything, so a value-less redacted part undercounted
+		// to zero - the direction that skips host trimming and overflows server-side.
 		const redacted = { metadata: { type: "redacted_thinking", data: "d".repeat(40) } };
 		assert.strictEqual(
 			estimateMessagesTokens([assistantMessage(redacted)], fullMultimodal),
@@ -323,9 +319,8 @@ suite("shared/conversion/tokenEstimation", () => {
 	});
 
 	test("cache_control markers are token-neutral across all three marker kinds", () => {
-		// The chat path prices the cache-marked array it sends, so every marker
-		// placement must leave the count unchanged: the string-content wrap, the
-		// block-level marker, and the tool-role message-level marker.
+		// The chat path prices the cache-marked array it sends, so every marker placement must leave the count
+		// unchanged: the string-content wrap, the block-level marker, and the tool-role message-level marker.
 		const wire: OpenAIChatMessage[] = [
 			{ role: "system", content: "You are helpful." },
 			{
@@ -360,8 +355,8 @@ suite("shared/conversion/tokenEstimation", () => {
 				new vscode.LanguageModelDataPart(textPayload, "text/plain")
 			),
 		];
-		// The message's text parts join into one wire string, so the estimate
-		// prices "reply" + the decoded payload as one text, not two ceils.
+		// The message's text parts join into one wire string, so the estimate prices "reply" + the decoded payload as
+		// one text, not two ceils.
 		const expected = textTokens("reply" + "decoded assistant text");
 		assert.strictEqual(
 			estimateMessagesTokens(messages, fullMultimodal),
@@ -372,8 +367,8 @@ suite("shared/conversion/tokenEstimation", () => {
 
 	test("system-role binary DataParts price as dropped too: only user messages carry binary blocks", () => {
 		const textPayload = new TextEncoder().encode("system attachment text");
-		// VS Code sends role 3 for system messages via a proposed API; the
-		// stable enum only declares User and Assistant.
+		// VS Code sends role 3 for system messages via a proposed API; the stable enum only declares User and
+		// Assistant.
 		const messages = [
 			message(3 as vscode.LanguageModelChatMessageRole, [
 				new vscode.LanguageModelTextPart("policy"),

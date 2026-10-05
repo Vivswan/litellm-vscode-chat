@@ -1,7 +1,3 @@
-/**
- * StreamProcessor's core: text and tool-call assembly, tool-call index normalization,
- * dedup across channels, and inline tokens split at byte boundaries.
- */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { StreamProcessor } from "../../../provider/transport/streaming";

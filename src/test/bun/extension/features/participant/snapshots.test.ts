@@ -1,8 +1,7 @@
 /**
- * The snapshot conversion behind /models: the provider's per-group snapshots
- * become the label-plus-models shape the markdown renderer takes, with each
- * model's id read from the mint-stamped raw-ID metadata (the id a user writes
- * in settings), and a one-line capability summary per model.
+ * The snapshot conversion behind /models: the provider's per-group snapshots become the label-plus-models shape the
+ * markdown renderer takes, with each model's id read from the mint-stamped raw-ID metadata (the id a user writes in
+ * settings), and a one-line capability summary per model.
  */
 import { describe, expect, test } from "bun:test";
 import { participantSnapshots, type SnapshotSource } from "../../../../../extension/features/participant/snapshots";
@@ -12,8 +11,8 @@ const SOURCE: readonly SnapshotSource[] = [
 		status: { label: "Team proxy", serverId: "srv-1", state: "ok" },
 		models: [
 			{
-				// The exposed id differs from the stamp, so a conversion reading the
-				// exposed id cannot pass by accident.
+				// The exposed id differs from the stamp, so a conversion reading the exposed id cannot pass by
+				// accident.
 				id: "team-proxy/gpt-4o-mini:cheapest",
 				litellm: { rawModelId: "gpt-4o-mini:cheapest" },
 				maxInputTokens: 128000,
@@ -101,8 +100,8 @@ describe("extension/features/participant snapshots", () => {
 	});
 
 	test("a group the user removed is left out entirely, not headed with an empty table", () => {
-		// A removed group stays in the status window as healthy-with-no-models, so
-		// an unfiltered answer would name a server the user deleted.
+		// A removed group stays in the status window as healthy-with-no-models, so an unfiltered answer would name a
+		// server the user deleted.
 		const converted = participantSnapshots([
 			{
 				status: { label: "removed", serverId: "gone", state: "ok", hiddenByRemoval: true },
@@ -114,8 +113,7 @@ describe("extension/features/participant snapshots", () => {
 	});
 
 	test("a group that is merely empty, or failing, still appears", () => {
-		// Only an explicit removal hides a group; an empty or unreachable server
-		// is news the user wants, not noise.
+		// Only an explicit removal hides a group; an empty or unreachable server is news the user wants, not noise.
 		const converted = participantSnapshots([
 			{ status: { label: "empty", serverId: "a", state: "ok" }, models: [] },
 			{ status: { label: "down", serverId: "b", state: "error" }, models: [] },

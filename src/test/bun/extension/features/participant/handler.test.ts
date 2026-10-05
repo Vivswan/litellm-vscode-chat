@@ -13,7 +13,6 @@ import {
 
 const SNAPSHOTS: ProviderSnapshot[] = [{ label: "alpha", models: [{ id: "gpt-test", capabilities: "tools" }] }];
 
-/** Deps around a recording stream and a scripted model. */
 function fakeDeps(
 	fragments: () => AsyncIterable<string>,
 	overrides: Partial<ParticipantDeps> = {}

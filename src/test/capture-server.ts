@@ -1,7 +1,6 @@
 /**
- * Programmable capture server for host-fidelity tests: a controllable HTTP
- * server that captures inbound request bodies and returns scenario-specific SSE
- * responses.
+ * Programmable capture server for host-fidelity tests: a controllable HTTP server that captures inbound request bodies
+ * and returns scenario-specific SSE responses.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -10,7 +9,6 @@ import { URL } from "node:url";
 import type { Scenario } from "./scenarios";
 import { BUILTIN_SCENARIOS, playScenario, readBody, sendJson } from "./scenarios";
 
-/** The single model this fixture serves when the caller mints no per-group-unique ID of its own. */
 const DEFAULT_MODEL_ID = "openai/gpt-5-mini-flex";
 
 const modelInfoFor = (modelId: string) => ({
@@ -22,9 +20,8 @@ const modelInfoFor = (modelId: string) => ({
 				id: modelId,
 				key: modelId,
 				litellm_provider: "openai",
-				// Deliberately off the built-in floors (128000 context, 16000 output) and
-				// their derived input (112000), so the pins on these numbers fail the
-				// moment a floor is served instead of the declared value.
+				// Deliberately off the built-in floors (128000 context, 16000 output) and their derived input (112000),
+				// so the pins on these numbers fail the moment a floor is served instead of the declared value.
 				max_input_tokens: 200000,
 				max_output_tokens: 12000,
 				max_tokens: 12000,
@@ -32,8 +29,8 @@ const modelInfoFor = (modelId: string) => ({
 				supports_tool_choice: true,
 				supports_prompt_caching: false,
 				supports_vision: true,
-				// Declared pricing makes every capture run register the numeric cost
-				// fields plus the derived priceCategory through the real host.
+				// Declared pricing makes every capture run register the numeric cost fields plus the derived
+				// priceCategory through the real host.
 				input_cost_per_token: 0.00000125,
 				output_cost_per_token: 0.00001,
 			},
@@ -59,15 +56,13 @@ export interface CaptureServer {
 	setScenario(name: string): void;
 	getLastRequest(): Record<string, unknown> | null;
 	/**
-	 * Every distinct Authorization header seen past the _test introspection block, verbatim.
-	 * Membership is race-free where a last-write-wins field is not.
+	 * Every distinct Authorization header seen past the _test introspection block, verbatim. Membership is race-free
+	 * where a last-write-wins field is not.
 	 */
 	getSeenAuthorizations(): readonly string[];
 	addScenario(name: string, config: Scenario): void;
 	close(): Promise<void>;
 }
-
-// ── Factory ──────────────────────────────────────────────────────────────────
 
 export function createCaptureServer(options?: { modelId?: string }): CaptureServer {
 	const modelId = options?.modelId ?? DEFAULT_MODEL_ID;
@@ -81,7 +76,6 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 	const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
 		const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
-		// ── Test introspection endpoints ──
 		if (req.method === "GET" && url.pathname === "/_test/last-request") {
 			return sendJson(res, 200, lastRequest || {});
 		}
@@ -96,13 +90,12 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 			return sendJson(res, 200, { scenario: name });
 		}
 
-		// Recorded for every request past the _test block above (unmatched paths
-		// included), so suites can prove which credential a request carried.
+		// Recorded for every request past the _test block above (unmatched paths included), so suites can prove which
+		// credential a request carried.
 		if (typeof req.headers.authorization === "string") {
 			seenAuthorizations.add(req.headers.authorization);
 		}
 
-		// ── Standard LiteLLM-compatible endpoints ──
 		if (req.method === "GET" && url.pathname === "/health") {
 			return sendJson(res, 200, { status: "ok" });
 		}
@@ -129,8 +122,7 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 				return sendJson(res, 500, { error: { message: `No scenario configured` } });
 			}
 
-			// Always the streaming rendition: this fixture's callers stream every
-			// request.
+			// Always the streaming rendition: this fixture's callers stream every request.
 			return playScenario(res, scenario, true);
 		}
 

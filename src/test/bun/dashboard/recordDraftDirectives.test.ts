@@ -169,11 +169,9 @@ describe("dashboard/recordDraft inheritance directives", () => {
 		});
 
 		test("the empty list is unwritable through the choice writer: no key parses to no keys at all", () => {
-			// The never-write-[] rule lives in the shape: parseInheritKeysText has
-			// no reading for an all-blank text, and setInheritFromChoice's keys arm
-			// takes a non-empty list by type. The barrier stays expressible as
-			// "none" (false) and as a literal [] via Edit as JSON, which still
-			// reads back as none.
+			// The never-write-[] rule lives in the shape: parseInheritKeysText has no reading for an all-blank text,
+			// and setInheritFromChoice's keys arm takes a non-empty list by type. The barrier stays expressible as
+			// "none" (false) and as a literal [] via Edit as JSON, which still reads back as none.
 			assert.strictEqual(parseInheritKeysText(" , "), undefined);
 			assert.strictEqual(parseInheritKeysText(""), undefined);
 			assert.deepStrictEqual(parseInheritKeysText(" a ,, b "), ["a", "b"]);
@@ -252,8 +250,8 @@ describe("dashboard/recordDraft inheritance directives", () => {
 		});
 
 		test("keeps checkbox directives in a group with no eligible row: there is no box to carry the state", () => {
-			// A bare `_force: true` absorbed here would vanish entirely - and
-			// silently arm itself for the next added row.
+			// A bare `_force: true` absorbed here would vanish entirely - and silently arm itself for the next added
+			// row.
 			for (const value of ["true", "false", "[]"]) {
 				const alone = group("g", [["_force", value]]);
 				assert.strictEqual(directiveRowAbsorbed("params", alone, 0, flags), false, `_force ${value}`);

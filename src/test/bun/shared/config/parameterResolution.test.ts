@@ -1,10 +1,8 @@
 /**
- * The parameters-resolution unit pins: the two canonical worked examples from
- * docs/models.md#which-record-applies (the barrier family and the
- * exclusive-list bypass), the entry-over-global merge, `_force` across both
- * layers, the max_tokens derivation, and the inspector projection. The matcher
- * grammar and the inheritance engine have their own suites; the seed-pinned
- * equivalence property pins the projection against buildRequestBody.
+ * The parameters-resolution unit pins: the two canonical worked examples from docs/models.md#which-record-applies (the
+ * barrier family and the exclusive-list bypass), the entry-over-global merge, `_force` across both layers, the
+ * max_tokens derivation, and the inspector projection. The matcher grammar and the inheritance engine have their own
+ * suites; the seed-pinned equivalence property pins the projection against buildRequestBody.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -197,10 +195,8 @@ describe("shared/config parameterResolution resolveModelParameters", () => {
 			entryParameters: { "codestral-*": { _fim_template: "<e>{prefix}{suffix}" } },
 		});
 		assert.strictEqual(resolved.fimTemplate, "<e>{prefix}{suffix}");
-		// A directive is never a field: the wire merge carries no underscore key.
 		assert.deepStrictEqual(Object.keys(resolved.params), ["temperature"]);
 
-		// The global winner's template serves when the entry's winner carries none.
 		const globalOnly = resolveModelParameters({
 			rawModelId: "codestral-fim",
 			globalParameters: { "*": { _fim_template: "<g>{prefix}{suffix}" } },
@@ -217,7 +213,6 @@ describe("shared/config parameterResolution resolveModelParameters", () => {
 				"codestral-*": { top_p: 1, _inherit_from: true },
 			},
 		});
-		// The fields flowed; the directive stayed with its writer, which lost.
 		assert.deepStrictEqual(resolved.params, { temperature: 1, top_p: 1 });
 		assert.strictEqual(resolved.fimTemplate, undefined);
 	});
@@ -248,7 +243,6 @@ describe("shared/config parameterResolution resolveModelParameters", () => {
 			"the typo falls back to the native body, not the global template"
 		);
 		assert.ok(suppressed.diagnostics.some((d) => d.layer === "entry" && d.kind === "invalid-directive"));
-		// An entry SILENT on the directive still lets the global one through.
 		const silent = resolveModelParameters({
 			rawModelId: "codestral-fim",
 			globalParameters: { "*": { _fim_template: "<g>{prefix}{suffix}" } },

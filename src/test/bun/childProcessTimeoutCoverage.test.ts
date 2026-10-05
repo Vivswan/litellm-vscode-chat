@@ -49,7 +49,6 @@ const REQUIRE_MEMBERS = new Set(["cache", "resolve"]);
 const TEST_NAMES = new Set(["test", "it", "xtest", "xit"]);
 const HOOK_NAMES = new Set(["beforeAll", "beforeEach", "afterAll", "afterEach", "onTestFinished"]);
 
-/** Whether importing `name` from a non-relative `specifier` hands the importer a spawn. */
 const spawnsFromExternal = (specifier: string, name: string): boolean =>
 	CHILD_PROCESS_SPECIFIER.test(specifier) || (specifier === "bun" && (name === "*" || BUN_SPAWN_EXPORTS.has(name)));
 
@@ -190,7 +189,6 @@ function unwrapped(expression: ts.Expression): ts.Expression {
 	return current;
 }
 
-/** The identifier an expression is, casts aside. */
 const baseName = (expression: ts.Expression): string | undefined => {
 	const inner = unwrapped(expression);
 	return ts.isIdentifier(inner) ? inner.text : undefined;
@@ -235,9 +233,6 @@ function listRoots(problems: string[]): string[] {
 	return [...new Set(roots)].sort();
 }
 
-/**
- * A relative specifier's file, or `undefined` for an inert asset; an unresolvable or unreadable target is a problem.
- */
 function resolveRelative(from: string, specifier: string, problems: string[]): string | undefined {
 	const base = path.resolve(path.dirname(from), specifier);
 	const candidates = [
@@ -268,11 +263,9 @@ function resolveRelative(from: string, specifier: string, problems: string[]): s
 	return undefined;
 }
 
-/** Whether a call is `import(...)` or a direct `require(...)`. */
 const isDynamicLoad = (node: ts.CallExpression): boolean =>
 	node.expression.kind === ts.SyntaxKind.ImportKeyword || baseName(node.expression) === "require";
 
-/** The relative modules a file loads at runtime; a type-only import or export loads nothing, so it is not one. */
 function loadedTargets(sf: ts.SourceFile, problems: string[]): string[] {
 	const file = path.resolve(sf.fileName);
 	const targets: string[] = [];
@@ -316,7 +309,6 @@ function loadedTargets(sf: ts.SourceFile, problems: string[]): string[] {
 	return targets;
 }
 
-/** The runtime import closure of the roots over relative specifiers. */
 function discoverModules(roots: readonly string[], problems: string[]): string[] {
 	const seen = new Set<string>(roots);
 	const queue = [...roots];
@@ -334,7 +326,6 @@ function discoverModules(roots: readonly string[], problems: string[]): string[]
 
 const isFunctionLike = (node: ts.Node): boolean => ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 
-/** A variable whose value is a function body runs nothing until called; any other initializer runs at load. */
 const isDeferred = (initializer: ts.Expression | undefined): boolean =>
 	initializer !== undefined && isFunctionLike(initializer);
 
@@ -415,9 +406,6 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 	const cannotRead = (node: ts.Node, what: string): void => {
 		fail(node, `${what} runs or loads code the walk cannot read`);
 	};
-	/**
-	 * Whether the walk may load `specifier`: a spawner or a listed module yes, dynamic code or an unlisted package no.
-	 */
 	const admit = (node: ts.Node, specifier: string, name = "*"): boolean => {
 		if (specifier.startsWith(".")) {
 			return true;
@@ -519,7 +507,6 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 		}
 	}
 
-	/** Whether a callee registers a test or a hook, by its root name or by the member read off a bun:test namespace. */
 	const registrationKind = (callee: ts.Expression): "test" | "hook" | undefined => {
 		const found = calleeRoot(callee);
 		if (found === undefined) {
@@ -610,10 +597,11 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 	};
 	// Only a declaration outside every other declaration and registration gets a name of its own: a nested one flows
 	// its references and sites into the scope enclosing it, so a local in one function cannot alias a local in another.
-	// A declaration's own name defines, it does not use.
 	// Not named `declare`: bun 1.3.x's transpiler reads a statement that begins with that contextual keyword as an
 	// ambient declaration and drops the whole call, which silently dropped every function, class, interface, type,
 	// enum, and namespace registration on CI; the top-level declaration control in audit() catches a recurrence.
+	//
+	//   A declaration's own name -> defines, it does not use
 	const registerDeclaration = (node: ts.HasModifiers & { readonly name?: ts.Node }, scopes: readonly Scope[]): void => {
 		const body = (child: ts.Node, inner: readonly Scope[]): void => {
 			if (child !== node.name) {
@@ -737,9 +725,10 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 			registerDeclaration(node, scopes);
 			return;
 		}
-		// Destructuring reads members like a member access does: a loader member, a computed key, or a rest element pulled
-		// out of a guarded base fails the same way, and a banned base pulled out of globalThis is that base stored under
-		// another name. (`require` never reaches here: as an initializer it is already a stored `require`.)
+		// Destructuring reads members like a member access does: a loader member, a computed key, or a rest element
+		// pulled out of a guarded base fails the same way, and a banned base pulled out of globalThis is that base
+		// stored under another name. (`require` never reaches here: as an initializer it is already a stored
+		// `require`.)
 		const pattern:
 			| { readonly source: ts.Expression; readonly keys: readonly (readonly [ts.Node, string | undefined])[] }
 			| undefined =
@@ -816,7 +805,8 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 			if (script === undefined || !ts.isStringLiteralLike(script) || !script.text.startsWith(".")) {
 				cannotRead(node, "a Worker from anything but a literal relative module path");
 			} else {
-				// A worker boots a second runtime, which pays the same startup cost as a child, and its module may spawn.
+				// A worker boots a second runtime, which pays the same startup cost as a child,
+				// and its module may spawn.
 				site(scopes, `new Worker("${script.text}") at ${module.rel}:${lineOf(node)}`);
 				const target = resolveRelative(file, script.text, problems);
 				if (target !== undefined) {
@@ -1055,7 +1045,6 @@ function resolveBinding(graph: Graph, binding: Binding, visiting: Set<string>): 
 	return found;
 }
 
-/** What a name means inside a module: its declarations, or what its import binding stands for. */
 function resolveName(graph: Graph, module: Module, name: string, visiting: Set<string>): Scope[] {
 	const declared = module.decls.get(name);
 	if (declared !== undefined) {
@@ -1217,8 +1206,8 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 		);
 	}
 	if (unregistered.length > 0) {
-		// Reach and export resolution both read the declaration table, so nothing computed from it would be trustworthy:
-		// report the loss once, in place of the hundreds of misleading misses it would otherwise cause.
+		// Reach and export resolution both read the declaration table, so nothing computed from it would be
+		// trustworthy: report the loss once, in place of the hundreds of misleading misses it would otherwise cause.
 		const shown = unregistered.slice(0, 5).join(", ");
 		problems.push(
 			`the walk never registered ${unregistered.length} of the ${parsedDeclarations} top-level declarations it parsed (${shown}${unregistered.length > 5 ? ", ..." : ""}), so its declaration walk is incomplete and the audit stops here`
@@ -1239,8 +1228,9 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 			(count, scope) => count + scope.sites.length,
 			0
 		);
-		// Code that runs when the module loads answers to no deadline; a function body a test calls answers to the test's.
-		// A spawning function nothing calls is a helper the bun tree does not use (scripts hold several), not a member.
+		// Code that runs when the module loads answers to no deadline; a function body a test calls answers to the
+		// test's. A spawning function nothing calls is a helper the bun tree does not use (scripts hold several), not
+		// a member.
 		for (const scope of [module.moduleScope, ...declared]) {
 			const chain = chains.get(scope);
 			if (scope.eager && chain !== undefined) {

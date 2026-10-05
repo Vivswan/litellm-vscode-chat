@@ -1,9 +1,9 @@
 /**
- * Shared streaming scenario definitions for the fake LiteLLM backends: the
- * in-process capture server and the containerized fake OpenAI server behind the
- * docker proxy. Each scenario is a canned /v1/chat/completions response,
- * addressed per request with the %play:<name> command. The model catalog lives
- * separately in fakeStack/models.ts.
+ * Shared streaming scenario definitions for the fake LiteLLM backends: the in-process capture server and the
+ * containerized fake OpenAI server behind the docker proxy. Each scenario is a canned /v1/chat/completions response,
+ * addressed per request with the %play:<name> command.
+ *
+ *   The model catalog -> lives separately in fakeStack/models.ts
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -26,9 +26,8 @@ interface ErrorScenario {
 }
 
 /**
- * A well-formed SSE prefix with a broken ending: after the chunks, "destroy"
- * drops the socket, "no-done" ends the body cleanly WITHOUT the [DONE] sentinel,
- * and "stall" holds the connection silent before destroying it server-side.
+ * A well-formed SSE prefix with a broken ending: after the chunks, "destroy" drops the socket, "no-done" ends the body
+ * cleanly WITHOUT the [DONE] sentinel, and "stall" holds the connection silent before destroying it server-side.
  */
 interface SseAbortScenario {
 	type: "sse-abort";
@@ -39,10 +38,9 @@ interface SseAbortScenario {
 }
 
 /**
- * Verbatim response bytes: statusCode and headers as given, then the frames in
- * order (each frame's characters are single bytes, written as latin1, so a test
- * can split a multi-byte UTF-8 sequence across frames). Nothing is implied - no
- * Content-Type, no [DONE].
+ * Verbatim response bytes: statusCode and headers as given, then the frames in order (each frame's characters are
+ * single bytes, written as latin1, so a test can split a multi-byte UTF-8 sequence across frames). Nothing is implied -
+ * no Content-Type, no [DONE].
  */
 interface RawScenario {
 	type: "raw";
@@ -56,16 +54,14 @@ interface RawScenario {
 
 export type Scenario = SseScenario | SseDelayedScenario | ErrorScenario | SseAbortScenario | RawScenario;
 
-/** Stall duration when an sse-abort or raw scenario names none. */
 export const STALL_MS_DEFAULT = 10000;
 
 /** Hard bound on stall durations, pacing delays, and the playback deadline, so a leaked test cannot wedge the stack. */
 export const MAX_STALL_MS = 60000;
 
 /**
- * Upper bound on a runtime-registered scenario's chunks/frames: the 1 MiB body
- * cap alone admits hundreds of thousands of entries, whose paced playback would
- * occupy the socket far past every delay cap.
+ * Upper bound on a runtime-registered scenario's chunks/frames: the 1 MiB body cap alone admits hundreds of thousands
+ * of entries, whose paced playback would occupy the socket far past every delay cap.
  */
 export const MAX_SCENARIO_ITEMS = 10000;
 
@@ -92,8 +88,7 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		chunks: [makeChunk({ role: "assistant", content: "Hello from capture server" }), makeChunk({}, "stop")],
 	},
 
-	// Kept as a %play target; the real load-balanced group is gpt-5.2 in the
-	// model catalog.
+	// Kept as a %play target; the real load-balanced group is gpt-5.2 in the model catalog.
 	"load-balanced": {
 		type: "sse",
 		chunks: [makeChunk({ role: "assistant", content: "Balanced across deployments" }), makeChunk({}, "stop")],
@@ -151,7 +146,6 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 	"tool-call-chunked": {
 		type: "sse",
 		chunks: [
-			// Frame 1: id + name, no args yet
 			makeChunk({
 				role: "assistant",
 				tool_calls: [
@@ -166,7 +160,6 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 					},
 				],
 			}),
-			// Frame 2: partial args
 			makeChunk({
 				tool_calls: [
 					{
@@ -177,7 +170,6 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 					},
 				],
 			}),
-			// Frame 3: rest of args
 			makeChunk({
 				tool_calls: [
 					{
@@ -197,7 +189,6 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		chunks: [
 			makeChunk({ role: "assistant", content: "Response with usage" }),
 			makeChunk({}, "stop"),
-			// Final chunk: empty choices + usage trailer
 			{
 				id: "chatcmpl-capture",
 				object: "chat.completion.chunk",
@@ -381,8 +372,8 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		],
 	},
 
-	// A no-parameter tool call streamed OpenAI-style with empty arguments in
-	// every frame; it must emit with the empty object instead of failing (#281)
+	// A no-parameter tool call streamed OpenAI-style with empty arguments in every frame; it must emit with the empty
+	// object instead of failing (#281)
 	"tool-call-empty-args": {
 		type: "sse",
 		chunks: [
@@ -472,9 +463,8 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		],
 	},
 
-	// Perplexity-style chunk-root citations and search_results: the source list
-	// grows as the model finds sources, so later chunks repeat already-reported
-	// entries and the repeats must dedupe into one Sources trailer.
+	// Perplexity-style chunk-root citations and search_results: the source list grows as the model finds sources, so
+	// later chunks repeat already-reported entries and the repeats must dedupe into one Sources trailer.
 	"citations-chunk-level": {
 		type: "sse",
 		chunks: [
@@ -495,8 +485,8 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		],
 	},
 
-	// LiteLLM's Anthropic extended-thinking mapping: thinking_blocks with signatures
-	// alongside the duplicate reasoning_content text
+	// LiteLLM's Anthropic extended-thinking mapping: thinking_blocks with signatures alongside the duplicate
+	// reasoning_content text
 	"thinking-blocks": {
 		type: "sse",
 		chunks: [
@@ -527,7 +517,8 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		],
 	},
 
-	// Audio output delta (gpt-4o-audio shape); the transcript streams as text, the clip as one DataPart at end of stream
+	// Audio output delta (gpt-4o-audio shape); the transcript streams as text, the clip as one DataPart at end of
+	// stream
 	"audio-output": {
 		type: "sse",
 		chunks: [
@@ -559,13 +550,14 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 	},
 };
 
-// ── Playback helpers ─────────────────────────────────────────────────────────
+// Playback helpers
+//
 // Shared by the capture server and the containerized fake OpenAI server.
 
 export const readBody = (req: IncomingMessage): Promise<string> =>
 	new Promise((resolve, reject) => {
-		// Decode as one utf8 stream: per-chunk Buffer.toString would corrupt a
-		// multi-byte character split across TCP reads.
+		// Decode as one utf8 stream: per-chunk Buffer.toString would corrupt a multi-byte character split across TCP
+		// reads.
 		req.setEncoding("utf8");
 		let data = "";
 		req.on("data", (chunk) => {
@@ -614,9 +606,8 @@ const sendSseDelayed = (res: ServerResponse, chunks: unknown[], delayMs: number)
 };
 
 /**
- * Delay between the last written bytes and a destroy tail. Destroying in the
- * same tick sends an RST while headers and chunks still sit in local buffers,
- * and the peer then sees a zero-byte failure instead of a mid-stream abort.
+ * Delay between the last written bytes and a destroy tail. Destroying in the same tick sends an RST while headers and
+ * chunks still sit in local buffers, and the peer then sees a zero-byte failure instead of a mid-stream abort.
  */
 const DESTROY_FLUSH_MS = 100;
 
@@ -627,16 +618,17 @@ const armTimer = (res: ServerResponse, fn: () => void, ms: number): void => {
 	res.once("close", () => clearTimeout(timer));
 };
 
-/** Hold the connection silent, then destroy it server-side; the duration is capped at MAX_STALL_MS regardless of the ask. */
+/**
+ * Hold the connection silent, then destroy it server-side; the duration is capped at MAX_STALL_MS regardless of the
+ * ask.
+ */
 const stallThenDestroy = (res: ServerResponse, stallMs: number | undefined): void => {
 	armTimer(res, () => res.destroy(), Math.min(stallMs ?? STALL_MS_DEFAULT, MAX_STALL_MS));
 };
 
 /**
- * Destroy the socket once the written bytes had a chance to reach the peer; see DESTROY_FLUSH_MS.
- * The peer sees a plain FIN with the chunked body unterminated - the only death
- * shape available here: bun's node:http hands out a facade socket whose writes
- * never reach the wire and whose resetAndDestroy() is a no-op (bun 1.4.0), so
+ * The peer sees a plain FIN with the chunked body unterminated - the only death shape available here: bun's node:http
+ * hands out a facade socket whose writes never reach the wire and whose resetAndDestroy() is a no-op (bun 1.4.0), so
  * neither an RST nor hand-framed garbage can be sent through it.
  */
 const destroyAfterFlush = (res: ServerResponse): void => {
@@ -644,10 +636,9 @@ const destroyAfterFlush = (res: ServerResponse): void => {
 };
 
 /**
- * Write `count` paced steps, then finish. A whole-playback deadline destroys
- * the response MAX_STALL_MS after the first write and stays armed through the
- * finish tail: a validator-passing scenario can still carry thousands of steps,
- * so the per-value caps alone do not bound socket occupation.
+ * A whole-playback deadline destroys the response MAX_STALL_MS after the first write and stays armed through the finish
+ * tail: a validator-passing scenario can still carry thousands of steps, so the per-value caps alone do not bound
+ * socket occupation.
  */
 function runPaced(
 	res: ServerResponse,
@@ -673,7 +664,7 @@ function runPaced(
 		if (i < count) {
 			writeStep(i);
 			i++;
-			// codeql[js/resource-exhaustion] -- fake-backend pacing timer; delay capped by the validator, total by the deadline
+			// codeql[js/resource-exhaustion] -- fake-backend pacing timer; delay capped by the validator
 			pending = setTimeout(next, delayMs);
 		} else {
 			finish();
@@ -738,9 +729,10 @@ const sendRaw = (res: ServerResponse, scenario: RawScenario): void => {
 };
 
 /**
- * The one playback dispatch, shared by the containerized fake OpenAI server and
- * the in-process capture server. `raw` plays verbatim regardless of the stream
- * flag; `sse-abort` collapses for stream:false, because abort is stream-only.
+ * `raw` plays verbatim regardless of the stream flag; `sse-abort` collapses for stream:false, because abort is
+ * stream-only.
+ *
+ * The one playback dispatch -> shared by the containerized fake OpenAI server and the in-process capture server
  */
 export function playScenario(res: ServerResponse, scenario: Scenario, stream: boolean): void {
 	if (scenario.type === "error") {
@@ -758,13 +750,11 @@ export function playScenario(res: ServerResponse, scenario: Scenario, stream: bo
 	}
 }
 
-// ── Runtime-registration validation ──────────────────────────────────────────
+// Runtime-registration validation
 
-/** Bounded chunk/frame lists; the count cap is what keeps paced playback finite (see MAX_SCENARIO_ITEMS). */
 const isBoundedList = (value: unknown): value is unknown[] =>
 	Array.isArray(value) && value.length <= MAX_SCENARIO_ITEMS;
 
-/** Durations must be finite and inside [0, MAX_STALL_MS]; optional ones may be absent. */
 const isBoundedMs = (value: unknown): boolean =>
 	typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_STALL_MS;
 const isOptionalBoundedMs = (value: unknown): boolean => value === undefined || isBoundedMs(value);
@@ -779,7 +769,10 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
 	!Array.isArray(value) &&
 	Object.values(value).every((entry) => typeof entry === "string");
 
-/** Raw frames are written as latin1, one char per byte; a code point above 0xFF would silently mojibake, so it is rejected here. */
+/**
+ * Raw frames are written as latin1, one char per byte; a code point above 0xFF would silently mojibake, so it is
+ * rejected here.
+ */
 const isByteString = (value: unknown): value is string => {
 	if (typeof value !== "string") {
 		return false;
@@ -793,9 +786,8 @@ const isByteString = (value: unknown): value is string => {
 };
 
 /**
- * Validator for PUT /_test/custom-scenario payloads. Built-in scenarios skip it;
- * the caps exist so a runtime registration cannot wedge the fake backend with
- * unbounded lists, delays, or statuses writeHead would reject.
+ * Validator for PUT /_test/custom-scenario payloads. Built-in scenarios skip it; the caps exist so a runtime
+ * registration cannot wedge the fake backend with unbounded lists, delays, or statuses writeHead would reject.
  */
 export function isScenario(value: unknown): value is Scenario {
 	if (typeof value !== "object" || value === null) {
@@ -833,10 +825,6 @@ export function isScenario(value: unknown): value is Scenario {
 	return false;
 }
 
-/**
- * Collapse an SSE chunk list into one non-streaming chat.completion body for
- * stream:false requests: text, refusal, tool calls, finish reason, and usage.
- */
 export function collapseChunks(chunks: unknown[]): Record<string, unknown> {
 	let content = "";
 	let refusal = "";

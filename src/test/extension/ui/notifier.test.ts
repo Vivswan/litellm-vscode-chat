@@ -99,7 +99,6 @@ suite("extension/ui/notifier", () => {
 		silent,
 	});
 
-	/** A hand-cranked Timer: nothing fires until the test elapses the grace itself. */
 	function manualTimer(): { timer: Timer; elapseGrace(): void; pendingCount(): number } {
 		let nextHandle = 0;
 		const pending = new Map<number, () => void>();
@@ -198,7 +197,6 @@ suite("extension/ui/notifier", () => {
 		assert.strictEqual(expectDefined(toasts[0]).kind, "error");
 	});
 
-	/** A group serving zero models because the user explicitly removed (hid) it. */
 	function hiddenGroupStatus(serverId = "srv1"): ServerStatus {
 		return {
 			serverId,
@@ -225,8 +223,8 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("zero models explained by a hidden group names the removal and opens the dashboard, never blames the proxy", () => {
-		// The only group is hidden by the user's configuration; "Check your LiteLLM
-		// proxy configuration" was actively wrong here.
+		// The only group is hidden by the user's configuration; "Check your LiteLLM proxy configuration" was actively
+		// wrong here.
 		const notifier = new Notifier(
 			() => true,
 			() => []
@@ -258,10 +256,8 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("a hidden group beside an unexpected failure is a degraded window: the notifier stands down", () => {
-		// A genuine failure is in the mix, so the verdict is degraded and the
-		// status bar says "1 server failing"; a zero-model toast beside it
-		// would blame the catalog for what is really an outage. The judgment
-		// claims the headline only when the verdict explains nothing.
+		// A genuine failure is in the mix, so the verdict is degraded and the status bar says "1 server failing"; a
+		// zero-model toast beside it would blame the catalog for what is really an outage.
 		const notifier = new Notifier(
 			() => true,
 			() => []
@@ -275,9 +271,8 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("all failures expected with nothing declared warns needs-declare, not 'returned no models'", () => {
-		// Discovery never returned a list here, so the toast mirrors the dashboard
-		// and status bar's needs-declare verdict and points at the fix (the
-		// entry's discovery.declared list).
+		// Discovery never returned a list here, so the toast mirrors the dashboard and status bar's needs-declare
+		// verdict and points at the fix (the entry's discovery.declared list).
 		const notifier = new Notifier(
 			() => true,
 			() => []
@@ -296,9 +291,8 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("an expected failure beside a reachable zero-model server keeps the zero-model warning", () => {
-		// A healthy server DID return an (empty) list, so the answered-but-empty
-		// wording is the truthful description; needs-declare needs every server
-		// failing expectedly.
+		// A healthy server DID return an (empty) list, so the answered-but-empty wording is the truthful description;
+		// needs-declare needs every server failing expectedly.
 		const notifier = new Notifier(
 			() => true,
 			() => []
@@ -313,9 +307,7 @@ suite("extension/ui/notifier", () => {
 	});
 
 	suite("the zero-model judgment is the one text source for toast and tooltip", () => {
-		// The verdict/status table: every zero-model shape the judgment claims,
-		// and every neighboring verdict it must stand down for. The equality pin
-		// below is the guard that no surface re-minted its own zero-model prose.
+		// The equality pin below is the guard that no surface re-minted its own zero-model prose.
 		const table: { name: string; serverStatuses: ServerStatus[]; totalModels: number }[] = [
 			{ name: "one answering-empty server", serverStatuses: [okStatus(0)], totalModels: 0 },
 			{ name: "several answering-empty servers", serverStatuses: [okStatus(0), okStatus(0)], totalModels: 0 },
@@ -363,13 +355,11 @@ suite("extension/ui/notifier", () => {
 					manager.handleAggregatedStatus(report);
 					await new Promise((resolve) => setImmediate(resolve));
 					if (judgment !== undefined) {
-						// The equality pin: both surfaces render the one function's text.
 						assert.strictEqual(toasts.length, 1, "the zero-model judgment must toast");
 						assert.strictEqual(expectDefined(toasts[0]).message, `LiteLLM: ${judgment.display}`);
 						assert.ok(item.last.tooltip.includes(judgment.display), item.last.tooltip);
 						assert.ok(item.last.tooltip.includes("No models available"), item.last.tooltip);
 					} else {
-						// Stood down: neither surface may carry the judgment's wording.
 						for (const surface of [item.last.tooltip, ...toasts.map((toast) => toast.message)]) {
 							assert.ok(!surface.includes("listed no models"), surface);
 							assert.ok(!surface.includes("is hidden and serves no models"), surface);
@@ -392,8 +382,7 @@ suite("extension/ui/notifier", () => {
 		);
 		notifier.handleAggregatedStatus(noServers());
 		assert.strictEqual(toasts.length, 0, "declared or group-served servers must suppress the no-servers claim");
-		// Real failures are not gated: reachability problems are true regardless
-		// of where the servers were configured.
+		// Real failures are not gated: reachability problems are true regardless of where the servers were configured.
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED"));
 		assert.strictEqual(toasts.length, 1);
 		assert.strictEqual(expectDefined(toasts[0]).kind, "error");
@@ -401,14 +390,13 @@ suite("extension/ui/notifier", () => {
 
 	suite("the cold-start ordering", () => {
 		test("empty groupless report, then the latch flips: no toast, ever", () => {
-			// The migrated-user sequence: the host's groupless refresh reports an
-			// empty window while the gate is still false.
+			// The migrated-user sequence: the host's groupless refresh reports an empty window while the gate is still
+			// false.
 			let configured = false;
 			const { notifier, elapseGrace, pendingCount } = makeNotifier(() => configured);
 			notifier.handleAggregatedStatus(noServers());
 			assert.strictEqual(toasts.length, 0, "the claim must not fire on the spot");
 			assert.strictEqual(pendingCount(), 1, "the claim is deferred, not dropped");
-			// Milliseconds later the host hands over a group and the latch flips.
 			configured = true;
 			elapseGrace();
 			assert.strictEqual(toasts.length, 0, "re-gated at expiry: group evidence withdraws the claim");
@@ -457,9 +445,8 @@ suite("extension/ui/notifier", () => {
 		test("a non-silent empty report leaves a pending claim armed, and it still fires at expiry", () => {
 			const { notifier, elapseGrace, pendingCount } = makeNotifier(() => false);
 			notifier.handleAggregatedStatus(noServers());
-			// A user-initiated check while the claim is pending: its caller surfaces
-			// the outcome directly, so it neither arms nor withdraws the deferred
-			// background claim.
+			// A user-initiated check while the claim is pending: its caller surfaces the outcome directly, so it
+			// neither arms nor withdraws the deferred background claim.
 			notifier.handleAggregatedStatus(noServers(false));
 			assert.strictEqual(pendingCount(), 1, "the non-silent report leaves the pending claim untouched");
 			elapseGrace();
@@ -482,8 +469,8 @@ suite("extension/ui/notifier", () => {
 		const hinted: TransportErrorClassification = { kind: "connection", setupHint: "proxy-not-running" };
 
 		test("a hint-carrying classification keeps today's message and adds Troubleshooting Docs", () => {
-			// The transport message already carries its own advice; the
-			// classification's whole value on the toast is the docs action.
+			// The transport message already carries its own advice; the classification's whole value on the toast is
+			// the docs action.
 			const notifier = new Notifier(
 				() => false,
 				() => []
@@ -510,9 +497,8 @@ suite("extension/ui/notifier", () => {
 		});
 
 		test("a hintless classification renders today's UI too", () => {
-			// A classified error whose construction site opted out of a hint (a
-			// timeout, an upstream-auth 401) must not grow a docs button with no
-			// cause-specific target.
+			// A classified error whose construction site opted out of a hint (a timeout, an upstream-auth 401) must not
+			// grow a docs button with no cause-specific target.
 			const notifier = new Notifier(
 				() => false,
 				() => []
@@ -534,9 +520,8 @@ suite("extension/ui/notifier", () => {
 		});
 
 		test("a bare failure followed by the same text with a hint re-fires", () => {
-			// The signature keys on error text PLUS hint: the hint identifies the
-			// cause, so its arrival is new information (and the first toast that
-			// carries the Troubleshooting Docs action), not a duplicate.
+			// The signature keys on error text PLUS hint: the hint identifies the cause, so its arrival is new
+			// information (and the first toast that carries the Troubleshooting Docs action), not a duplicate.
 			const notifier = new Notifier(
 				() => false,
 				() => []
@@ -548,12 +533,10 @@ suite("extension/ui/notifier", () => {
 		});
 
 		test("distinct causes sharing a toast headline re-fire: DNS failure then connection refused", () => {
-			// Composed from real transport mappings so the shared-headline premise
-			// cannot drift: ENOTFOUND and ECONNREFUSED render the same connection
-			// headline (the toast line the signature keys on; the cause detail below
-			// it differs and is excluded), but only ECONNREFUSED carries
-			// proxy-not-running, so a text-only signature would suppress the toast
-			// offering the docs action.
+			// Composed from real transport mappings so the shared-headline premise cannot drift: ENOTFOUND and
+			// ECONNREFUSED render the same connection headline (the toast line the signature keys on; the cause detail
+			// below it differs and is excluded), but only ECONNREFUSED carries proxy-not-running, so a text-only
+			// signature would suppress the toast offering the docs action.
 			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
 			const connectionFailure = (deepest: string) =>
 				statusErrorTexts(
@@ -597,8 +580,8 @@ suite("extension/ui/notifier", () => {
 			);
 			assert.strictEqual(toasts.length, 1);
 			assert.strictEqual(expectDefined(toasts[0]).message, "LiteLLM: The server could not be reached.");
-			// The detail line carries variable server-derived text (spend figures,
-			// cause chains); its churn is not new information.
+			// The detail line carries variable server-derived text (spend figures, cause chains); its churn is not new
+			// information.
 			notifier.handleAggregatedStatus(
 				allFailed("The server could not be reached.\nGET http://litellm.test/v1/models: ETIMEDOUT")
 			);
@@ -607,16 +590,15 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("a suppressed empty window preserves dedup, so a recurring error toasts once", () => {
-		// A group-configured install whose groupless refresh reports an empty
-		// window between per-group refreshes.
+		// A group-configured install whose groupless refresh reports an empty window between per-group refreshes.
 		const notifier = new Notifier(
 			() => true,
 			() => []
 		);
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED"));
 		assert.strictEqual(toasts.length, 1);
-		// The empty window is suppressed (not recovered), so it must not reset the
-		// dedup signature the way a healthy refresh would.
+		// The empty window is suppressed (not recovered), so it must not reset the dedup signature the way a healthy
+		// refresh would.
 		notifier.handleAggregatedStatus(noServers());
 		assert.strictEqual(toasts.length, 1, "the gated empty window makes no claim");
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED"));

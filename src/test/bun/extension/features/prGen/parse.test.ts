@@ -75,19 +75,17 @@ describe("extension/features/prGen parseTitleAndDescription", () => {
 	});
 
 	test("a lone opening fence costs its own line only - no block ever loses its closer", () => {
-		// The prompt asks for markdown, so a description may legitimately carry a
-		// code block. When the model drops the OUTER closer, removing the opener
-		// as a pair would take the inner block's closer with it and the rest of
-		// the PR body would render as code. The fixture must therefore NOT end
-		// with a fence, or the whole-reply rule applies and proves nothing.
+		// When the model drops the OUTER closer, removing the opener as a pair would take the inner block's closer with
+		// it and the rest of the PR body would render as code. The fixture must therefore NOT end with a fence, or the
+		// whole-reply rule applies and proves nothing.
+		//
+		//   The prompt asks for markdown -> a description may legitimately carry a code block
 		const parsed = parseTitleAndDescription(
 			"```text\nTitle: Add retry\nDescription:\nUse:\n```ts\nretry(3)\n```\nThat is all."
 		);
 		expect(parsed.kind).toBe("parsed");
-		// The opener line is gone, so it cannot become the title...
 		expect(parsed.kind === "parsed" && parsed.title).toBe("Add retry");
 		const description = parsed.kind === "parsed" ? (parsed.description ?? "") : "";
-		// ...and the inner block keeps BOTH of its own fences.
 		expect(description).toContain("```ts");
 		expect(description).toContain("retry(3)");
 		expect(description.match(/^```/gm)?.length).toBe(2);
@@ -95,28 +93,24 @@ describe("extension/features/prGen parseTitleAndDescription", () => {
 	});
 
 	test("a description ENDING in a code block keeps that block's closer", () => {
-		// Three fence lines, first and last among them: judging by first-and-last
-		// alone calls this a single fenced block and hands it to the stripper,
-		// which then removes the description's own closing fence and leaves the
+		// Three fence lines, first and last among them: judging by first-and-last alone calls this a single fenced
+		// block and hands it to the stripper, which then removes the description's own closing fence and leaves the
 		// rest of the PR body rendering as code.
 		const parsed = parseTitleAndDescription("```markdown\nTitle: Add retry\nDescription:\nUse:\n```ts\nretry(3)\n```");
 		expect(parsed.kind).toBe("parsed");
 		expect(parsed.kind === "parsed" && parsed.title).toBe("Add retry");
 		const description = parsed.kind === "parsed" ? (parsed.description ?? "") : "";
-		// Both of the inner block's fences survive.
 		expect(description.match(/^```/gm)?.length).toBe(2);
 		expect(description.endsWith("```")).toBe(true);
 	});
 
 	test("a bare-fenced title plus a description ending in a code block loses neither fence", () => {
-		// No outer wrapper at all, yet the reply both starts and ends with a
-		// fence: the shape that first-and-last judging gets most wrong.
+		// No outer wrapper at all, yet the reply both starts and ends with a fence: the shape that first-and-last
+		// judging gets most wrong.
 		const parsed = parseTitleAndDescription("```\nfeat: add retry\n```\n\nBody text.\n\n```ts\nretry(3)\n```");
 		expect(parsed.kind).toBe("parsed");
 		expect(parsed.kind === "parsed" && parsed.title).toBe("feat: add retry");
 		const description = parsed.kind === "parsed" ? (parsed.description ?? "") : "";
-		// The title block's closer is furniture and goes; the description's own
-		// block keeps both of its fences.
 		expect(description.startsWith("```")).toBe(false);
 		expect(description).toContain("Body text.");
 		expect(description.match(/^```/gm)?.length).toBe(2);
@@ -124,9 +118,8 @@ describe("extension/features/prGen parseTitleAndDescription", () => {
 	});
 
 	test("a description's OWN language-less code block is never mistaken for the title's closer", () => {
-		// The furniture rule only takes a fence sitting immediately after the
-		// title. Here a Description: label stands between, so the fence is the
-		// description's own opener and must stay.
+		// The furniture rule only takes a fence sitting immediately after the title. Here a Description: label stands
+		// between, so the fence is the description's own opener and must stay.
 		const parsed = parseTitleAndDescription(
 			"```markdown\nTitle: Add retry\nDescription:\n```\nplain code\n```\nMore body."
 		);
@@ -140,9 +133,8 @@ describe("extension/features/prGen parseTitleAndDescription", () => {
 	});
 
 	test("a TAGGED lone opener does not become the title", () => {
-		// The regression the line-only rule exists to prevent: leaving the opener
-		// in made "```markdown" the title and pushed the real answer, labels and
-		// all, into the description.
+		// The regression the line-only rule exists to prevent: leaving the opener in made "```markdown" the title and
+		// pushed the real answer, labels and all, into the description.
 		const parsed = parseTitleAndDescription("```markdown\nTitle: Add retry\nDescription:\nBody.");
 		expect(parsed).toEqual({ kind: "parsed", title: "Add retry", description: "Body." });
 	});
@@ -150,8 +142,6 @@ describe("extension/features/prGen parseTitleAndDescription", () => {
 	test("a fenced reply with no label parses without leaving an orphan closer", () => {
 		const parsed = parseTitleAndDescription("```\nfeat: add retry\n```\n\nThis PR retries uploads.");
 		expect(parsed.kind).toBe("parsed");
-		// Not stripped (the fence does not wrap the WHOLE reply), so no orphan
-		// closer can end up at the head of the description.
 		expect(parsed.kind === "parsed" && (parsed.description ?? "")).not.toMatch(/^```/);
 	});
 

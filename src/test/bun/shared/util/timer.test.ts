@@ -3,7 +3,6 @@ import * as assert from "node:assert";
 import type { Timer } from "../../../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK, sleepUnlessAborted } from "../../../../shared/util/timer";
 
-/** A recording timer: nothing fires until the test fires it. */
 class FakeTimer implements Timer {
 	readonly scheduled: { callback: () => void; ms: number; cancelled: boolean }[] = [];
 

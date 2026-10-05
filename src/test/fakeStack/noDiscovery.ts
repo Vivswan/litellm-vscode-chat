@@ -1,25 +1,18 @@
 /**
- * The fake backend's no-discovery mode: requests under this path prefix get a
- * 404 for the discovery GETs while everything else - chat completions above all
- * - dispatches normally, so a docker suite can drive a gateway that serves chat
- * but cannot list models. The mode rides the URL path because every fake route
- * shares one port and base URL root, mirroring the /authed bearer-guarded
- * prefix. Pure: no vscode, no DOM, no Node.
+ * The fake backend's no-discovery mode: requests under this path prefix get a 404 for the discovery GETs while
+ * everything else - chat completions above all - dispatches normally, so a docker suite can drive a gateway that serves
+ * chat but cannot list models. The mode rides the URL path because every fake route shares one port and base URL root,
+ * mirroring the /authed bearer-guarded prefix.
  */
 
 export const NO_DISCOVERY_PREFIX = "/nodiscovery";
 
-/** A pathname split into its no-discovery flag and the route the handlers should serve. */
 export interface NoDiscoveryRouting {
 	readonly pathname: string;
 	readonly noDiscovery: boolean;
 }
 
-/**
- * Strip NO_DISCOVERY_PREFIX off a pathname when it leads, flagging the request;
- * exact-prefix requests route to "/". A pathname that merely shares the prefix's
- * characters ("/nodiscoveryextra") is left alone.
- */
+/** A pathname that merely shares the prefix's characters ("/nodiscoveryextra") is left alone. */
 export function stripNoDiscoveryPrefix(pathname: string): NoDiscoveryRouting {
 	if (pathname === NO_DISCOVERY_PREFIX || pathname.startsWith(`${NO_DISCOVERY_PREFIX}/`)) {
 		return { pathname: pathname.slice(NO_DISCOVERY_PREFIX.length) || "/", noDiscovery: true };
@@ -28,9 +21,8 @@ export function stripNoDiscoveryPrefix(pathname: string): NoDiscoveryRouting {
 }
 
 /**
- * The discovery routes the no-discovery mode blanks. /v1/model/info is listed
- * even though the fake backend never served it, so the mode stays total if that
- * route ever appears.
+ * /v1/model/info is listed even though the fake backend never served it, so the mode stays total if that route ever
+ * appears.
  */
 export function isDiscoveryRoute(pathname: string): boolean {
 	return pathname === "/v1/models" || pathname === "/v1/model/info";
@@ -52,11 +44,9 @@ export function createNoDiscoveryState(): NoDiscoveryState {
 }
 
 /**
- * Count one blanked discovery GET, keyed by the request's bearer token (or
- * "(none)"): the docker suites give each no-discovery server a unique key, so a
- * suite's no-retry assertions read its own server's attempts even while other
- * servers hit the same prefix. Counters reset only on a process restart, so
- * tests assert deltas, not absolutes.
+ * Count one blanked discovery GET, keyed by the request's bearer token (or "(none)"): the docker suites give each
+ * no-discovery server a unique key, so a suite's no-retry assertions read its own server's attempts even while other
+ * servers hit the same prefix. Counters reset only on a process restart, so tests assert deltas, not absolutes.
  */
 export function recordDiscoveryAttempt(
 	state: NoDiscoveryState,

@@ -1,6 +1,6 @@
 /**
- * The servers setting's parse and acceptance rules, secret blobs and ownership,
- * buildGroupArgs, per-entry records, and the secret palette and prefill parity.
+ * The servers setting's parse and acceptance rules, secret blobs and ownership, buildGroupArgs, per-entry records, and
+ * the secret palette and prefill parity.
  */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
@@ -157,9 +157,8 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("concurrent writes to one label serialize: a cleared field cannot resurrect", async () => {
-			// A SecretStore whose reads yield, so unserialized read-modify-writes
-			// would interleave: both writers read the same snapshot and the last
-			// store wins, resurrecting the cleared apiKey (the pre-fix defect).
+			// A SecretStore whose reads yield, so unserialized read-modify-writes would interleave: both writers read
+			// the same snapshot and the last store wins, resurrecting the cleared apiKey (the pre-fix defect).
 			const values = new Map<string, string>([[serverSecretsKey("Prod"), JSON.stringify({ apiKey: "sk-live" })]]);
 			const store: SecretStore = {
 				get: async (key) => {
@@ -213,8 +212,8 @@ suite("extension/servers/serverSync", () => {
 				mismatched: ["oauthClientSecret"],
 			});
 
-			// The same mismatch behind an inline value is dormant: dropped from the
-			// resolution but not a refusal (the inline value is what would be sent).
+			// The same mismatch behind an inline value is dormant: dropped from the resolution but not a refusal (the
+			// inline value is what would be sent).
 			const shadowed: DeclaredServer = { ...entry, oauthClientSecret: "cs-inline" };
 			assert.deepStrictEqual(resolveOwnedSecrets(shadowed, record), {
 				values: { apiKey: "sk-1", virtualKeyValue: "vk-1" },
@@ -222,11 +221,10 @@ suite("extension/servers/serverSync", () => {
 				mismatched: [],
 			});
 
-			// The same mismatch on a field the entry cannot send is inert, not a
-			// refusal: refusal is scoped by the one wire rule (entryUsesSecretField),
-			// so a stale-stamped headerless virtualKeyValue drops without blocking,
-			// and an oauthClientSecret without an active OAuth unit likewise. Both
-			// still list as mismatched, the export's accounting superset.
+			// The same mismatch on a field the entry cannot send is inert, not a refusal: refusal is scoped by the one
+			// wire rule (entryUsesSecretField), so a stale-stamped headerless virtualKeyValue drops without blocking,
+			// and an oauthClientSecret without an active OAuth unit likewise. Both still list as mismatched, the
+			// export's accounting superset.
 			const staleUnsent = {
 				values: { virtualKeyValue: "vk-old", oauthClientSecret: "cs-old" },
 				owners: { virtualKeyValue: "http://old.test", oauthClientSecret: "https://old-idp.test/token" },
@@ -236,15 +234,14 @@ suite("extension/servers/serverSync", () => {
 				refused: [],
 				mismatched: ["oauthClientSecret", "virtualKeyValue"],
 			});
-			// Declaring the header makes the field used: the SAME stored value now
-			// refuses (the field-becomes-used transition; consent fires then).
+			// Declaring the header makes the field used: the SAME stored value now refuses (the field-becomes-used
+			// transition; consent fires then).
 			assert.deepStrictEqual(
 				resolveOwnedSecrets({ label: "B", baseUrl: "http://a.test/", virtualKeyHeader: "x-key" }, staleUnsent),
 				{ values: {}, refused: ["virtualKeyValue"], mismatched: ["oauthClientSecret", "virtualKeyValue"] }
 			);
 
-			// A stamp recorded with no destination ("") refuses once the entry
-			// gains one: re-pairing stays deliberate.
+			// A stamp recorded with no destination ("") refuses once the entry gains one: re-pairing stays deliberate.
 			const stampedEmpty = { values: { oauthClientSecret: "cs-1" }, owners: { oauthClientSecret: "" } };
 			assert.deepStrictEqual(resolveOwnedSecrets(entry, stampedEmpty), {
 				values: {},
@@ -277,11 +274,10 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("the refusal precedes the add-only path: a re-pointed entry with a secret stamped for the old URL skips as secretsMismatched", async () => {
-			// The composed case the monkey fuzzer found (FUZZ_SEED=285569): sync a
-			// label, stamp its stored key for that URL, then change the URL. The
-			// entry now BOTH diverges from its immutable group (the blocked path)
-			// and fails the ownership check; the check runs at the read boundary,
-			// before any host call, so the pass classifies secretsMismatched.
+			// The composed case the monkey fuzzer found (FUZZ_SEED=285569): sync a label, stamp its stored key for that
+			// URL, then change the URL. The entry now BOTH diverges from its immutable group (the blocked path) and
+			// fails the ownership check; the check runs at the read boundary, before any host call, so the pass
+			// classifies secretsMismatched.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://first.test" }], { A: { apiKey: "sk-first" } });
 			recorded.secretOwners = { A: { apiKey: "http://first.test" } };
 			const engine = new ServerSyncEngine(recorded.env);
@@ -298,12 +294,8 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("the save path's staging window is covered: a staged secret for a re-pointed host refuses until the settings write lands", async () => {
-			// A dashboard save stages secure writes BEFORE the settings write. A
-			// pass running inside that window reads the OLD entry with the NEW
-			// blob - a consistent snapshot entryStillCurrent cannot catch. The
-			// staged value carries the stamp of the entry being SAVED, so the
-			// ownership check refuses the transient pairing; once the settings
-			// write lands, the next pass syncs the true pairing.
+			// A dashboard save stages secure writes BEFORE the settings write. A pass running inside that window reads
+			// the OLD entry with the NEW blob - a consistent snapshot entryStillCurrent cannot catch.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://old.test" }], { A: { apiKey: "sk-new" } });
 			recorded.secretOwners = { A: { apiKey: "http://new.test" } };
 			const engine = new ServerSyncEngine(recorded.env);
@@ -363,11 +355,9 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("a stale stamp on a field the entry cannot send is inert: the entry syncs, and refusal starts when the field becomes used", async () => {
-			// The USER RULING: refusal is scoped by the one wire rule
-			// (entryUsesSecretField). A headerless entry can never send a
-			// virtualKeyValue, so a stale-stamped one blocks nothing - it drops
-			// from the resolution (never rides the group args) and raises no
-			// secretsMismatched skip.
+			// The USER RULING: refusal is scoped by the one wire rule (entryUsesSecretField). A headerless entry can
+			// never send a virtualKeyValue, so a stale-stamped one blocks nothing - it drops from the resolution (never
+			// rides the group args) and raises no secretsMismatched skip.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { virtualKeyValue: "vk-old" } });
 			recorded.secretOwners = { A: { virtualKeyValue: "http://old.test" } };
 			const engine = new ServerSyncEngine(recorded.env);
@@ -377,9 +367,8 @@ suite("extension/servers/serverSync", () => {
 			assert.strictEqual(recorded.upserts.length, 1, "the entry syncs");
 			assert.strictEqual(recorded.upserts[0]?.virtualKeyValue, undefined, "the stale value still never rides");
 
-			// The field-becomes-used transition: declaring the header makes the
-			// entry's shape send the field, so the SAME stored value refuses now -
-			// the consent moment is when the user is actually deciding to send it.
+			// The field-becomes-used transition: declaring the header makes the entry's shape send the field, so the
+			// SAME stored value refuses now - the consent moment is when the user is actually deciding to send it.
 			recorded.setting = [{ label: "A", baseUrl: "http://a.test", auth: { virtualKey: { header: "x-key" } } }];
 			await engine.syncNow();
 			const view = engine.getDeclared()[0];
@@ -408,8 +397,6 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("emits keys in the pinned order the persisted fingerprints hash", () => {
-			// The fingerprint hashes JSON.stringify(args), so key insertion order is
-			// durable state: reordering it invalidates every stored fingerprint.
 			// The list is spelled out on purpose; do not derive it from the descriptor.
 			const args = buildGroupArgs(
 				{
@@ -442,11 +429,9 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("the mcp opt-in never reaches the group args, so editing it cannot change a fingerprint", () => {
-			// The fingerprint hashes JSON.stringify(these args), so anything that
-			// enters them churns the group. MCP is read extension-side only: turning
-			// it on, pointing it at another URL, and turning it off must all render
-			// byte-identically, or a user toggling tools would silently re-push the
-			// provider group (and, since the host is add-only, could lose it).
+			// MCP is read extension-side only: turning it on, pointing it at another URL, and turning it off must
+			// all render byte-identically, or a user toggling tools would silently re-push the provider group (and,
+			// since the host is add-only, could lose it).
 			const base = { label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-1" } as const;
 			const rendered = [undefined, true as const, { url: "https://gateway.internal/tools/mcp" }, { url: "" }].map(
 				(mcp) => JSON.stringify(buildGroupArgs({ ...base, ...(mcp !== undefined ? { mcp } : {}) }, {}))
@@ -459,9 +444,8 @@ suite("extension/servers/serverSync", () => {
 
 	suite("buildGroupArgs round trip through parseGroupConfiguration", () => {
 		test("an entry populating every descriptor field survives the host-configuration parse intact", () => {
-			// buildGroupArgs writes the provider-group configuration and
-			// parseGroupConfiguration reads it; both iterate OPTIONAL_ENTRY_FIELDS, so a
-			// descriptor field can only ship if it round-trips here.
+			// buildGroupArgs writes the provider-group configuration and parseGroupConfiguration reads it; both iterate
+			// OPTIONAL_ENTRY_FIELDS, so a descriptor field can only ship if it round-trips here.
 			const entry: DeclaredServer = {
 				label: "Everything",
 				baseUrl: "http://round.test/",
@@ -498,8 +482,8 @@ suite("extension/servers/serverSync", () => {
 					label: "Prod",
 					baseUrl: "http://prod.test",
 					models: {
-						// JSON.parse so __proto__ is an own key (an object literal would
-						// set the prototype instead of a property).
+						// JSON.parse so __proto__ is an own key (an object literal would set the prototype instead of a
+						// property).
 						parameters: JSON.parse(
 							'{"gpt-4": {"temperature": 0.2, "stop": ["END"]}, "claude": "not a record", "__proto__": {"polluted": true}}'
 						) as unknown,
@@ -545,10 +529,9 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("entrySupersedingBaseUrl is matchedEntryFor's complement: the label's entry at another URL, else nothing", () => {
-			// The suppression predicate's rule: a live group carrying an entry's label
-			// at a URL the entry no longer declares is the leftover an add-only host
-			// kept. Same label at the same URL (slashes aside) is the entry's own
-			// group; an undeclared or rejected label proves nothing.
+			// The suppression predicate's rule: a live group carrying an entry's label at a URL the entry no longer
+			// declares is the leftover an add-only host kept. Same label at the same URL (slashes aside) is the entry's
+			// own group; an undeclared or rejected label proves nothing.
 			const raw = [
 				{ label: "Prod", baseUrl: "http://new.test/" },
 				{ label: "", baseUrl: "http://rejected.test" },
@@ -635,8 +618,8 @@ suite("extension/servers/serverSync", () => {
 				{ label: "Bare", baseUrl: "http://bare.test" },
 			]);
 
-			// Unknown expectedFailures values are counted, never echoed: the
-			// problems are logged and the tokens are user text.
+			// Unknown expectedFailures values are counted, never echoed: the problems are logged and the tokens are
+			// user text.
 			assert.deepStrictEqual(problems, [
 				"entry 1 lists 2 unknown discovery.expectedFailures value(s), ignored",
 				"entry 1 lists 2 unknown discovery.includeModes value(s), ignored",
@@ -774,9 +757,8 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("buildGroupArgs prefers the inline value exactly where inlineSecretValues reports one", () => {
-			// The dormancy rule: for every secret field, the argument sent to the host is
-			// the inline value when inlineSecretValues holds the field, the stored one
-			// otherwise.
+			// The dormancy rule: for every secret field, the argument sent to the host is the inline value when
+			// inlineSecretValues holds the field, the stored one otherwise.
 			const entry: DeclaredServer = {
 				label: "Mixed",
 				baseUrl: "http://mixed.test",
@@ -794,9 +776,8 @@ suite("extension/servers/serverSync", () => {
 
 	suite("secret-location parity with the dashboard prefill", () => {
 		test("the edit form's prefill keys are exactly the fields whose pushed location is settings", async () => {
-			// One fixture through both paths: the declared views carry the locations the
-			// dashboard state pushes and readInlineSecretValues answers the edit form's
-			// prefill, and both derive from inlineSecretValues.
+			// One fixture through both paths: the declared views carry the locations the dashboard state pushes and
+			// readInlineSecretValues answers the edit form's prefill, and both derive from inlineSecretValues.
 			const setting = [
 				{
 					label: "Mixed",
@@ -849,9 +830,8 @@ suite("extension/servers/serverSync", () => {
 				return undefined;
 			};
 			try {
-				// The registered command re-reads the setting through
-				// getConfiguration, so withConfig serves it the fixture entry whose
-				// apiKey (the first quick-pick field) sits inline.
+				// The registered command re-reads the setting through getConfiguration, so withConfig serves it the
+				// fixture entry whose apiKey (the first quick-pick field) sits inline.
 				await withConfig(
 					{ servers: [{ label: "Dormancy Probe", baseUrl: "http://dormant.test", auth: { apiKey: "sk-inline" } }] },
 					async () => {
@@ -861,8 +841,8 @@ suite("extension/servers/serverSync", () => {
 						assert.ok(/inline values take precedence/.test(warning), warning);
 						assert.ok(!warning.includes("sk-"), "the warning names the field, never a value");
 
-						// Cleanup through the same command: an empty value removes the
-						// stored secret, and removal must not warn about dormancy.
+						// Cleanup through the same command: an empty value removes the stored secret, and removal must
+						// not warn about dormancy.
 						storedValue = "";
 						await vscode.commands.executeCommand(CMD.setServerSecret);
 						assert.strictEqual(warnings.length, 1, "clearing the stored value fires no dormancy warning");
@@ -882,9 +862,8 @@ suite("extension/servers/serverSync", () => {
 				showWarningMessage: vscode.window.showWarningMessage,
 			};
 			const warnings: string[] = [];
-			// Mutated inside the input stub: the prompts stay open indefinitely,
-			// and this models a hand edit of settings.json re-pointing the label at
-			// another host while the user types the secret.
+			// Mutated inside the input stub: the prompts stay open indefinitely, and this models a hand edit of
+			// settings.json re-pointing the label at another host while the user types the secret.
 			const sectionValues: Record<string, unknown> = {
 				servers: [{ label: "Drift Probe", baseUrl: "http://old.test" }],
 			};
@@ -912,9 +891,8 @@ suite("extension/servers/serverSync", () => {
 			assert.strictEqual(warnings.length, 1, "the drift must warn exactly once");
 			assert.ok(/changed while the prompts were open/.test(warnings[0] ?? ""), warnings[0] ?? "no warning shown");
 			assert.ok(!(warnings[0] ?? "").includes("sk-"), "the warning never carries the entered value");
-			// The lossless session tee proves the refusal: the classification line
-			// landed and the store-success line never did, so updateServerSecret
-			// was never reached.
+			// The lossless session tee proves the refusal: the classification line landed and the store-success line
+			// never did, so updateServerSecret was never reached.
 			const batch = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", 0)) as {
 				lines: string[];
 			};

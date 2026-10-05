@@ -63,8 +63,7 @@ const model = {
 		rawModelId: "test-model",
 		supportsPromptCaching: false,
 		outputLimitSource: "defaults",
-		// The attached group connection, as every served model carries it; the
-		// request path routes by nothing else.
+		// The attached group connection, as every served model carries it; the request path routes by nothing else.
 		server: { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "k", label: "Default" },
 	},
 } satisfies LiteLLMModelInfo;
@@ -82,9 +81,8 @@ const options = {
 } as unknown as vscode.ProvideLanguageModelChatResponseOptions;
 
 suite("provider/transport/chatClient", () => {
-	// These tests inject the transport: they observe interleaved stream delivery
-	// across concurrent requests, AbortSignal wiring, and injected transport
-	// errors, none of which msw handlers can express.
+	// These tests inject the transport: they observe interleaved stream delivery across concurrent requests,
+	// AbortSignal wiring, and injected transport errors, none of which msw handlers can express.
 	test("concurrent send() calls generate disjoint tool-call IDs", async () => {
 		const first = controllableStream();
 		const second = controllableStream();
@@ -104,7 +102,6 @@ suite("provider/transport/chatClient", () => {
 		const sendA = client.send({ model, messages, options, progress: a.progress, token });
 		const sendB = client.send({ model, messages, options, progress: b.progress, token });
 
-		// Both requests are now in flight; complete their streams interleaved.
 		first.push(idlessToolCallChunk("tool_one"));
 		second.push(idlessToolCallChunk("tool_two"));
 		first.push("data: [DONE]\n\n");
@@ -123,9 +120,8 @@ suite("provider/transport/chatClient", () => {
 	});
 
 	test("the request's model field is the stamped rawModelId, never the exposed ID", async () => {
-		// Group mints register raw IDs today, so most fixtures have the two equal;
-		// this one diverges them on purpose to pin the route: the wire `model`
-		// must come from litellm.rawModelId, not from the exposed model.id.
+		// Group mints register raw IDs today, so most fixtures have the two equal; this one diverges them on purpose to
+		// pin the route: the wire `model` must come from litellm.rawModelId, not from the exposed model.id.
 		const body = controllableStream();
 		let wireBody: unknown;
 		const client = new ChatClient({
@@ -188,8 +184,8 @@ suite("provider/transport/chatClient", () => {
 	});
 
 	test("a validation-rejected request emits zero conversion-side logs and never reaches the transport", async () => {
-		// A history that both fails validation (unpaired tool call) and would log
-		// during conversion (a DataPart with no wire mapping).
+		// A history that both fails validation (unpaired tool call) and would log during conversion (a DataPart with no
+		// wire mapping).
 		const rejectedMessages: vscode.LanguageModelChatRequestMessage[] = [
 			{
 				role: vscode.LanguageModelChatMessageRole.User,
@@ -207,8 +203,8 @@ suite("provider/transport/chatClient", () => {
 		];
 		const conversionLogPattern = /Skipping LanguageModelDataPart|Tool returned/;
 
-		// Positive control: converting this history does emit the drop log, so the
-		// zero-logs assertion below cannot pass vacuously.
+		// Positive control: converting this history does emit the drop log, so the zero-logs assertion below cannot
+		// pass vacuously.
 		const controlLogs: string[] = [];
 		convertMessages(rejectedMessages, { log: (message) => controlLogs.push(message) });
 		assert.ok(
@@ -289,17 +285,15 @@ suite("provider/transport/chatClient", () => {
 	});
 
 	test("a stream that stalls mid-body aborts at the configured chat.timeout", async function () {
-		// The configured timeouts are hard whole-call bounds. The SDK's own timeout
-		// disarms once headers arrive and the transport has no idle clock, so only
-		// send()'s AbortSignal.timeout wiring can abort a body that stops flowing.
+		// The configured timeouts are hard whole-call bounds. The SDK's own timeout disarms once headers arrive and the
+		// transport has no idle clock, so only send()'s AbortSignal.timeout wiring can abort a body that stops flowing.
 		this.timeout(10000);
 		const stalling: TransportFetch = async (_url, init) => {
 			const signal = init?.signal;
 			const encoder = new TextEncoder();
 			const stream = new ReadableStream<Uint8Array>({
 				start(controller) {
-					// One delta arrives, then the body stalls forever. Like the real
-					// transport, the body stream errors when the request signal aborts.
+					// Like the real transport, the body stream errors when the request signal aborts.
 					controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
 					signal?.addEventListener("abort", () => controller.error(signal.reason ?? new Error("aborted")));
 				},
@@ -323,9 +317,8 @@ suite("provider/transport/chatClient", () => {
 	});
 
 	test("a send overlays the attached credentials with the entry's current ones", async () => {
-		// The attached server dates from the serve that minted the model object;
-		// a rotation since then must reach the very next request, not wait out a
-		// host re-resolve.
+		// The attached server dates from the serve that minted the model object; a rotation since then must reach the
+		// very next request, not wait out a host re-resolve.
 		const resolved: [string, string][] = [];
 		const stream = controllableStream();
 		let authHeader: string | undefined;

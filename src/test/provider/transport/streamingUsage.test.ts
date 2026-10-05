@@ -1,6 +1,3 @@
-/**
- * The usage DataPart at the end of a stream.
- */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { StreamProcessor } from "../../../provider/transport/streaming";
@@ -75,8 +72,9 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("an interim usage object does not pin stale counts: the final trailer wins", async () => {
-		// Some providers stamp running usage onto ordinary chunks. Emission is
-		// reserved for the post-loop run, so the interim counts never ship.
+		// Some providers stamp running usage onto ordinary chunks.
+		//
+		//   Emission -> reserved for the post-loop run
 		const { parts, progress } = collector();
 		const stream = usageProcessor(progress);
 		const body = sseStream([
@@ -117,9 +115,8 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("non-finite counts are rejected: JSON.stringify would null them and the consumer drops the payload", async () => {
-		// A wire literal like 1e999 parses to Infinity. As a required count it
-		// kills the emission outright; as an optional detail it is omitted
-		// while the finite trio still ships.
+		// A wire literal like 1e999 parses to Infinity. As a required count it kills the emission outright; as an
+		// optional detail it is omitted while the finite trio still ships.
 		const { parts, progress } = collector();
 		const stream = usageProcessor(progress);
 		const body = sseStream([
@@ -311,9 +308,8 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("reasoning-only plus citations plus a usage trailer: the throw wins and nothing emits", async () => {
-		// The three-way collision: terminal checks run before either trailer,
-		// so the failed request ships neither the Sources list nor the
-		// accounting part.
+		// The three-way collision: terminal checks run before either trailer, so the failed request ships neither the
+		// Sources list nor the accounting part.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor);
 		const body = sseStream([
@@ -347,8 +343,7 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("the sources trailer precedes the usage DataPart at end of stream", async () => {
-		// Citations are chat content, usage is metadata: the visible trailer
-		// renders before the accounting part.
+		// Citations are chat content, usage is metadata: the visible trailer renders before the accounting part.
 		const { parts, progress } = collector();
 		const stream = usageProcessor(progress);
 		const body = sseStream([

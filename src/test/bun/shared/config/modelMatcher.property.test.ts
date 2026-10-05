@@ -1,12 +1,8 @@
 /**
- * The matcher fuzzer: random key sets (exact, trailing-glob, regex with and
- * without /i, invalid regex, misplaced stars, "*", "") against random model IDs.
- * The oracle is the GENERATOR's construction intent, independent of the
- * implementation: every key carries its intended kind and expected match
- * predicate, and the pairwise specificity rules are restated from the spec over
- * those intents. Invariants: invalid keys are inert and diagnosed, chain
- * membership equals the intent predicates, the chain is totally ordered by the
- * pairwise rules, and the winner is beaten by no other matching key.
+ * The matcher fuzzer: random key sets (exact, trailing-glob, regex with and without /i, invalid regex, misplaced stars,
+ * "*", "") against random model IDs. The oracle is the GENERATOR's construction intent, independent of the
+ * implementation: every key carries its intended kind and expected match predicate, and the pairwise specificity rules
+ * are restated from the spec over those intents.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -17,8 +13,8 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
 const SEED = resolveFuzzSeed();
 
-// No "*" or "/" so a generated literal can never accidentally spell another
-// key form; the parse-level slash edge cases are pinned in the unit suite.
+// No "*" or "/" so a generated literal can never accidentally spell another key form; the parse-level slash edge cases
+// are pinned in the unit suite.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789._-");
 const modelIdArb = fc.string({ unit: idChar, minLength: 1, maxLength: 12 });
 
@@ -42,8 +38,8 @@ function intentMatches(intent: KeyIntent, id: string): boolean {
 		case "glob":
 			return id.startsWith(intent.prefix);
 		case "regex":
-			// The generated regex body is "<escaped literal>.*", so whole-ID
-			// anchoring reduces to a (case-folded, under /i) prefix test.
+			// The generated regex body is "<escaped literal>.*", so whole-ID anchoring reduces to a (case-folded, under
+			// /i) prefix test.
 			return intent.insensitive
 				? id.toLowerCase().startsWith(intent.prefix.toLowerCase())
 				: id.startsWith(intent.prefix);
@@ -150,7 +146,6 @@ describe("shared/config modelMatcher fuzzer", () => {
 				const byKey = new Map(specs.map((spec) => [spec.key, spec]));
 				const { chain, diagnostics } = matchChain(id, records);
 
-				// Invalid keys are inert: never in the chain, always diagnosed.
 				const invalid = specs.filter((spec) => spec.intent.kind === "invalid").map((spec) => spec.key);
 				assert.deepStrictEqual(
 					diagnostics.map((d) => d.key),
@@ -160,15 +155,12 @@ describe("shared/config modelMatcher fuzzer", () => {
 					assert.notStrictEqual(byKey.get(match.key)?.intent.kind, "invalid", "an invalid key must never match");
 				}
 
-				// Membership: exactly the keys whose construction intent matches.
 				const expectedMembers = specs
 					.filter((spec) => intentMatches(spec.intent, id))
 					.map((spec) => spec.key)
 					.sort();
 				assert.deepStrictEqual([...chain.map((m) => m.key)].sort(), expectedMembers);
 
-				// Order: strictly ascending under the documented pairwise rules, so the
-				// winner (the chain tail) is beaten by nothing.
 				for (let i = 0; i < chain.length; i += 1) {
 					for (let j = i + 1; j < chain.length; j += 1) {
 						const earlier = byKey.get((chain[i] as { key: string }).key) as KeySpec;

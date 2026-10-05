@@ -1,9 +1,6 @@
 /**
- * The review-comments wiring: opt-in by construction. Disabled means NO
- * comment controller, no threads, and no writes to workspaceState; enabling
- * restores what was stored, disabling takes it off screen without erasing it.
- * The commands register unconditionally either way, because a keybinding or
- * executeCommand does not honour a menu's when-clause.
+ * The commands register unconditionally either way, because a keybinding or executeCommand does not honour a menu's
+ * when-clause.
  */
 import * as assert from "node:assert";
 import * as os from "node:os";
@@ -22,7 +19,6 @@ import { fakeReviewContext, withCommentSpies } from "./commentHarness";
 
 const STORED_URI = "file:///workspace/stored.ts";
 
-/** One workspaceState value carrying a single restorable thread. */
 function seededStore(uri = STORED_URI) {
 	return {
 		version: REVIEW_STORE_VERSION,
@@ -94,9 +90,8 @@ suite("extension/features/reviewComments wiring", () => {
 				assert.strictEqual(ranges.ranges?.[0]?.start.line, 0);
 				assert.strictEqual(ranges.ranges?.[0]?.end.line, 2);
 
-				// An untitled buffer or a virtual document would be stored under a
-				// URI that names something else next session, and the prune could
-				// never clear it - so there is no gutter to start one from.
+				// An untitled buffer or a virtual document would be stored under a URI that names something else next
+				// session, and the prune could never clear it - so there is no gutter to start one from.
 				const untitled = await vscode.workspace.openTextDocument({ content: "a\nb", language: "typescript" });
 				const scratch = await provider.provideCommentingRanges(untitled, token);
 				assert.ok(scratch !== undefined && scratch !== null && !Array.isArray(scratch));
@@ -172,10 +167,9 @@ suite("extension/features/reviewComments wiring", () => {
 	});
 
 	test("the prune drops the threads of a file that is gone and keeps the ones whose file is still there", async () => {
-		// Real files on disk rather than a stubbed stat: vscode.workspace.fs is
-		// frozen, and this way the whole chain is proven - the FileNotFound
-		// mapping included. The "a stat that failed for another reason counts as
-		// present" rule is the pure codec's, pinned in persistence.test.ts.
+		// Real files on disk rather than a stubbed stat: vscode.workspace.fs is frozen, and this way the whole chain is
+		// proven - the FileNotFound mapping included. The "a stat that failed for another reason counts as present"
+		// rule is the pure codec's, pinned in persistence.test.ts.
 		const root = vscode.Uri.file(path.join(os.tmpdir(), `lvt-review-prune-${process.pid}-${Date.now()}`));
 		const gone = vscode.Uri.joinPath(root, "gone.ts");
 		const kept = vscode.Uri.joinPath(root, "kept.ts");
@@ -215,8 +209,8 @@ suite("extension/features/reviewComments wiring", () => {
 	});
 
 	test("the real comments API accepts this controller's id, thread, and comment shapes", () => {
-		// The suite's other tests run against a recording double; this one proves
-		// the shapes it records are ones the host itself takes.
+		// The suite's other tests run against a recording double; this one proves the shapes it records are ones the
+		// host itself takes.
 		const controller = vscode.comments.createCommentController(`${COMMENT_CONTROLLER_ID}.test`, "LiteLLM review");
 		try {
 			const thread = controller.createCommentThread(vscode.Uri.parse(STORED_URI), new vscode.Range(0, 0, 1, 0), [
@@ -250,8 +244,8 @@ suite("extension/features/reviewComments wiring", () => {
 			// The probe answers with what the PARSER read, not the raw reply.
 			assert.strictEqual(await okProbe({ server: "Main", model: "gpt-test" }), "reads past the end");
 			assert.strictEqual(count(), 1, "a resolved probe releases its source");
-			// The probe runs the feature's own prompt builder over a canned diff, so
-			// it proves the real pipeline rather than a bare ping.
+			// The probe runs the feature's own prompt builder over a canned diff, so it proves the real pipeline rather
+			// than a bare ping.
 			assert.ok(seenPrompt.includes("Working tree diff of average.js:"));
 			assert.ok(seenPrompt.includes("LINE <start>-<end>:"));
 
@@ -264,10 +258,9 @@ suite("extension/features/reviewComments wiring", () => {
 	});
 
 	test("the dashboard probe reports prose as no answer, and the no-findings reply as one", async () => {
-		// A model that ignores the format is not a working review model, so the
-		// probe must fail it rather than count characters: the dashboard turns
-		// undefined into the empty-answer warning. Without the parse, every one
-		// of these reads as a green probe.
+		// A model that ignores the format is not a working review model, so the probe must fail it rather than count
+		// characters: the dashboard turns undefined into the empty-answer warning. Without the parse, every one of
+		// these reads as a green probe.
 		for (const prose of [
 			"Sure! The loop looks like it might read past the end of the array.",
 			"```\n```",
@@ -282,8 +275,8 @@ suite("extension/features/reviewComments wiring", () => {
 			);
 		}
 
-		// The sentinel is the contract's own vocabulary for a clean file, so it
-		// proves the model understood the format and passes.
+		// The sentinel is the contract's own vocabulary for a clean file, so it proves the model understood the format
+		// and passes.
 		const cleanProbe = createReviewProbe(async () => "NO FINDINGS");
 		const clean = await cleanProbe({ server: "Main", model: "gpt-test" });
 		assert.ok(clean !== undefined && clean !== "", "the no-findings reply is a parseable answer");

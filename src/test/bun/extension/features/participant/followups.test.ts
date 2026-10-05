@@ -1,6 +1,6 @@
 /**
- * The followups a finished turn offers. That every one of them routes to a registered command is a compile-time fact
- * (ParticipantFollowup.command is SlashCommandName); what remains to pin is the offer rule itself.
+ * That every one of them routes to a registered command is a compile-time fact (ParticipantFollowup.command is
+ * SlashCommandName); what remains to pin is the offer rule itself.
  */
 import { describe, expect, test } from "bun:test";
 import { participantFollowups } from "../../../../../extension/features/participant/followups";

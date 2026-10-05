@@ -1,9 +1,3 @@
-/**
- * The generate-pull-request-description command: every outcome the local
- * branch walk can produce, mapped to advice rather than to an error, and the
- * generated draft landing on the clipboard. The send is injected, so this
- * suite pins the command's own behavior without a wire.
- */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { API, Branch, Change, Commit, Repository } from "../../../../extension/features/gitApi";
@@ -50,7 +44,6 @@ function fakeGit(repo: Repository): () => Promise<API | undefined> {
 	return () => Promise.resolve({ repositories: [repo] });
 }
 
-/** A branch with one commit and one patch over origin/main. */
 function readyRepo(): Repository {
 	return fakeRepo({
 		head: { name: "feature/x", commit: "abc" },
@@ -62,10 +55,8 @@ function readyRepo(): Repository {
 	});
 }
 
-/** What the injected copy seam last received; reset per test. */
 let copied = "";
 
-/** Whether the stubbed progress hands the task an already-cancelled token. */
 let cancelProgress = false;
 
 function makeDeps(): GeneratePrDeps {
@@ -80,8 +71,8 @@ function makeDeps(): GeneratePrDeps {
 }
 
 suite("extension/features/prGen generatePrCommand", () => {
-	// Toast promises stay pending until dismissed in a live host, which would
-	// hang any await on showActionableMessage; the stubs record and resolve.
+	// Toast promises stay pending until dismissed in a live host, which would hang any await on showActionableMessage;
+	// the stubs record and resolve.
 	const shownMessages: string[] = [];
 	let origInfo: unknown;
 	let origWarn: unknown;
@@ -244,8 +235,8 @@ suite("extension/features/prGen generatePrCommand", () => {
 	});
 
 	test("a runaway title is bounded in the notification, and the clipboard still gets it whole", async () => {
-		// parseTitleAndDescription puts no length bound on the title, so a model
-		// that ignores the one-line instruction must not fill the screen.
+		// parseTitleAndDescription puts no length bound on the title, so a model that ignores the one-line instruction
+		// must not fill the screen.
 		const huge = `feat: ${"x".repeat(4000)}`;
 		await withConfig(ENABLED_CONFIG, () =>
 			runGeneratePrDescription(() => Promise.resolve(`Title: ${huge}`), makeDeps(), undefined, fakeGit(readyRepo()))
@@ -277,8 +268,8 @@ suite("extension/features/prGen generatePrCommand", () => {
 	});
 
 	test("a cancelled walk sends nothing and says nothing - the partial gather never reaches the wire", async () => {
-		// The dangerous shape: the walk gathered some patches, the user hit
-		// Cancel, and the flow carried on to assemble and send them anyway.
+		// The dangerous shape: the walk gathered some patches, the user hit Cancel, and the flow carried on to assemble
+		// and send them anyway.
 		cancelProgress = true;
 		let sends = 0;
 		const { logger, lines } = makeLogger();

@@ -26,9 +26,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 	});
 
 	test("global record lints attribute to their setting id with no entry label, records no model matches included", () => {
-		// The _inherit_from key sits on a record no live model matches: only the
-		// record-level lint still reports it. The capabilities key surfaces only
-		// because a server reported an observed set that does not name it.
+		// The _inherit_from key sits on a record no live model matches: only the record-level lint still reports it.
+		// The capabilities key surfaces only because a server reported an observed set that does not name it.
 		const diagnostics = buildConfigDiagnostics(
 			makeInput({
 				reader: makeReader({
@@ -59,9 +58,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 		const capabilitiesWith = (field: string) => makeReader({ "models.capabilities": { "gpt-4": { [field]: true } } });
 
 		test("with no observed set anywhere, every hint drops: no false hints on declared-only or fallback discovery", () => {
-			// The load-bearing silence: declared-only entries, expectedFailures:
-			// modelInfo, the /models fallback, and pre-discovery all leave no
-			// observed set, and none of them may produce a typo hint.
+			// The load-bearing silence: declared-only entries, expectedFailures: modelInfo, the /models fallback, and
+			// pre-discovery all leave no observed set, and none of them may produce a typo hint.
 			const diagnostics = buildConfigDiagnostics(makeInput({ reader: capabilitiesWith("supports_levitation") }));
 			assert.deepStrictEqual(diagnostics, []);
 		});
@@ -101,9 +99,9 @@ suite("extension/dashboard/configDiagnostics", () => {
 		});
 
 		test("mixed evidence: one server's union cannot silence a key only the evidence-less server knows (known residual)", () => {
-			// One discovered server reported a set; a declared-only entry did not.
-			// The global record's key hints against the union alone - the residual
-			// the observedKeysUnion doc names, kept advisory for exactly this case.
+			// One discovered server reported a set; a declared-only entry did not. The global record's key hints
+			// against the union alone - the residual the observedKeysUnion doc names, kept advisory for exactly this
+			// case.
 			const diagnostics = buildConfigDiagnostics(
 				makeInput({
 					reader: capabilitiesWith("declared_backend_key"),
@@ -116,8 +114,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 		});
 
 		test("a consumed-vocabulary key is never hinted, whatever the observed set says", () => {
-			// The parse never emits unrecognized-key for consumed fields, and the
-			// filter's own consumed check backstops that against vocabulary drift.
+			// The parse never emits unrecognized-key for consumed fields, and the filter's own consumed check backstops
+			// that against vocabulary drift.
 			const diagnostics = buildConfigDiagnostics(
 				makeInput({
 					reader: makeReader({ "models.capabilities": { "gpt-4": { supports_prompt_caching: true } } }),
@@ -149,8 +147,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 		});
 
 		test("prototype-named keys go through the Set, not raw object reads", () => {
-			// "toString" is a legal open capability field and a legal observed
-			// key; a raw object-key membership test would misread both.
+			// "toString" is a legal open capability field and a legal observed key; a raw object-key membership test
+			// would misread both.
 			const hinted = buildConfigDiagnostics(
 				makeInput({ reader: capabilitiesWith("toString"), observedKeysUnion: ["supports_function_calling"] })
 			);
@@ -218,8 +216,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 				position: 2,
 				problems: ["ignored piece"],
 				misconfigured: false,
-				// An accepted entry never gets a misconfigured row, so its ignored
-				// pieces are always this list's alone to report.
+				// An accepted entry never gets a misconfigured row, so its ignored pieces are always this list's alone
+				// to report.
 				rowOwned: false,
 				severity: "warning",
 			},
@@ -228,8 +226,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 				position: 3,
 				problems: ["no usable label"],
 				misconfigured: true,
-				// No label, so buildServers draws no row: Diagnostics is the only
-				// place these problems appear and must not filter them as duplicates.
+				// No label, so buildServers draws no row: Diagnostics is the only place these problems appear and must
+				// not filter them as duplicates.
 				rowOwned: false,
 				severity: "warning",
 			},
@@ -284,8 +282,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 	});
 
 	test("hidden groups surface as one diagnostic carrying their labels; none stays silent", () => {
-		// A hidden-only setup otherwise reads as healthy with zero models and no
-		// visible cause, so Diagnostics must name the groups an explicit removal hid.
+		// A hidden-only setup otherwise reads as healthy with zero models and no visible cause, so Diagnostics must
+		// name the groups an explicit removal hid.
 		const diagnostics = buildConfigDiagnostics(
 			makeInput({
 				hiddenGroups: [

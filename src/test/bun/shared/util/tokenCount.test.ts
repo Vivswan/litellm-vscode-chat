@@ -1,8 +1,6 @@
 /**
- * The extension's one compact token-count rendering, shared by the dashboard's
- * model rows and the chat participant's /models table. Pinned at the unit
- * boundaries, which is where a formatter of this shape goes wrong: rounding
- * before choosing the magnitude turns 999,999 into "1000k".
+ * Pinned at the unit boundaries, which is where a formatter of this shape goes wrong: rounding before choosing the
+ * magnitude turns 999,999 into "1000k".
  */
 import { describe, expect, test } from "bun:test";
 import { compactTokenCount } from "../../../../shared/util/tokenCount";

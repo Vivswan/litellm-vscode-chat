@@ -7,22 +7,19 @@ import { resolveNls } from "../../util/nls";
 import { REPO_ROOT } from "../../util/repoRoot";
 
 /**
- * Per locale, the title the palette shows (package.nls.<locale>.json) must
- * equal the title messages interpolate (the bundle's translation). The l10n
- * gate checks each family against its own English reference, never one
- * against the other, so a translator editing one leaves guidance naming a
- * command the palette does not show, with nothing else failing. The manage
- * command's nls keys are found by English VALUE, since key names may change.
- * Not manageCommandTitle(): a non-English host returns a translated value.
+ * Per locale, the title the palette shows (package.nls.<locale>.json) must equal the title messages interpolate (the
+ * bundle's translation). The l10n gate checks each family against its own English reference, never one against the
+ * other, so a translator editing one leaves guidance naming a command the palette does not show, with nothing else
+ * failing.
+ *
+ *   key names may change                           -> The manage command's nls keys are found by English VALUE
+ *   a non-English host returns a translated value  -> Not manageCommandTitle()
  */
 
 const englishBundlePath = path.join(REPO_ROOT, "l10n", "bundle.l10n.json");
 const englishNlsPath = path.join(REPO_ROOT, "package.nls.json");
 
-/**
- * Flat key-to-message view of one translation file. The English bundle's values
- * may be strings or {message, comment} objects; every other file is flat strings.
- */
+/** The English bundle's values may be strings or {message, comment} objects; every other file is flat strings. */
 function messagesOf(file: string): Record<string, string> {
 	const raw: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
 	assert.ok(raw !== null && typeof raw === "object" && !Array.isArray(raw), `${path.basename(file)} is a JSON object`);
@@ -47,7 +44,6 @@ function messagesOf(file: string): Record<string, string> {
 	return table;
 }
 
-/** Locale -> absolute file path for one translation-file family. */
 function localeFiles(dir: string, pattern: RegExp): Map<string, string> {
 	const files = new Map<string, string>();
 	for (const name of fs.readdirSync(dir).sort()) {

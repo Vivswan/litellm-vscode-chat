@@ -31,7 +31,6 @@ function groupOptions(configuration: unknown, silent = true): { silent: boolean 
 
 const cancellation = () => new vscode.CancellationTokenSource().token;
 
-/** Answer the token endpoint with sequentially numbered tokens and count the exchanges. */
 function tokenEndpoint(expiresIn = 3600): { count: () => number } {
 	let exchanges = 0;
 	mswServer.use(
@@ -170,8 +169,8 @@ suite("provider groups with OAuth", () => {
 		let tokenExchanges = 0;
 		let chatHits = 0;
 		mswServer.use(
-			// The first exchange (discovery) answers with an immediately-expiring
-			// token so the chat call must exchange afresh; that one hangs.
+			// The first exchange (discovery) answers with an immediately-expiring token so the chat call must exchange
+			// afresh; that one hangs.
 			http.post(TOKEN_URL, () => {
 				tokenExchanges += 1;
 				if (tokenExchanges === 1) {
@@ -338,9 +337,8 @@ suite("provider groups with OAuth", () => {
 	});
 
 	test("a 401 with the virtual key on its own header still invalidates the bearer token that was sent", async () => {
-		// Guards the discriminating half of the sent-token capture: a virtual key on
-		// a non-Authorization header leaves the bearer entry in place, so the 401
-		// concerns the sent token and must force a fresh exchange.
+		// Guards the discriminating half of the sent-token capture: a virtual key on a non-Authorization header leaves
+		// the bearer entry in place, so the 401 concerns the sent token and must force a fresh exchange.
 		const provider = makeProvider();
 		const tokens = tokenEndpoint();
 		let chatAttempts = 0;
@@ -372,9 +370,9 @@ suite("provider groups with OAuth", () => {
 	});
 
 	test("a 401 when the virtual key overwrites the Authorization header does not discard the unsent OAuth token", async () => {
-		// The virtual key replaces the bearer entry under any casing, so no OAuth token
-		// went out and the 401 says nothing about the cached one: invalidating it anyway
-		// would force a needless exchange on every retry against a misconfigured gateway.
+		// The virtual key replaces the bearer entry under any casing, so no OAuth token went out and the 401 says
+		// nothing about the cached one: invalidating it anyway would force a needless exchange on every retry against a
+		// misconfigured gateway.
 		for (const spelling of ["Authorization", "authorization"]) {
 			const provider = makeProvider();
 			const tokens = tokenEndpoint();
@@ -470,9 +468,9 @@ suite("provider groups with OAuth", () => {
 	});
 
 	test('a chat-triggered token rejection carries the chat "Details:" lead-in end to end', async () => {
-		// Pins the surface wiring through ChatClient.send, not just OAuthTokenSource:
-		// expires_in 0 keeps the discovery token out of the cache, so the chat call
-		// exchanges itself and its rejection must render with the chat-surface join.
+		// Pins the surface wiring through ChatClient.send, not just OAuthTokenSource: expires_in 0 keeps the discovery
+		// token out of the cache, so the chat call exchanges itself and its rejection must render with the chat-surface
+		// join.
 		const provider = makeProvider();
 		let exchanges = 0;
 		mswServer.use(

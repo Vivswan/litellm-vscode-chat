@@ -6,7 +6,6 @@ import {
 	type ReviewPlacement,
 } from "../../../../../extension/features/reviewComments/placements";
 
-/** Shorthand for the expected result shape; `sawNoFindings` defaults off, as it is for any answer without the sentinel. */
 function parsed(placements: readonly ReviewPlacement[], dropped: number, sawNoFindings = false): ParsedPlacements {
 	return { placements, dropped, sawNoFindings };
 }
@@ -26,16 +25,16 @@ describe("extension/features/reviewComments/placements", () => {
 	});
 
 	test("an answer that is nothing but whitespace or fences yields zero placements and no sentinel", () => {
-		// The distinction the caller acts on: nothing here SAYS the file is clean,
-		// so a caller must not clear a file's comments over it.
+		// The distinction the caller acts on: nothing here SAYS the file is clean, so a caller must not clear a file's
+		// comments over it.
 		for (const answer of ["", "   \n\n\t", "```\n```"]) {
 			expect(parsePlacements(answer, 10)).toEqual(parsed([], 0));
 		}
 	});
 
 	test("the no-findings sentinel is recognized through case, punctuation, and fences, and reported", () => {
-		// The sentinel's spelling is what the prompt tells the model to answer, and
-		// the signature is frozen because the review commands call it positionally.
+		// The sentinel's spelling is what the prompt tells the model to answer, and the signature is frozen because the
+		// review commands call it positionally.
 		const parse: (answer: string, lineCount: number) => ParsedPlacements = parsePlacements;
 		const cases = [NO_FINDINGS_REPLY, "no findings.", "No findings!", "**No-Findings.**", "```\nNO FINDINGS\n```"];
 		for (const answer of cases) {

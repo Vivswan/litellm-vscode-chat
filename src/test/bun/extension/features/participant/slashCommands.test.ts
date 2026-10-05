@@ -14,7 +14,6 @@ const HISTORY: ChatMessage[] = [
 	{ role: "assistant", content: "earlier answer" },
 ];
 
-/** A recording turn: what a command reported and what it sent. */
 function fakeTurn(overrides: Partial<SlashCommandTurn> = {}): {
 	turn: SlashCommandTurn;
 	reported: string[];

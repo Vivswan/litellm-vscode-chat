@@ -1,13 +1,10 @@
 /**
- * Totality and bounds properties for parsePlacements. Two properties with two
- * different generators, because they pin different halves of the contract:
- * the noise property feeds arbitrary and grammar-adjacent strings to pin "any
- * string parses without throwing and nothing escapes its bounds"; the
- * structured property renders known findings (including saturating huge
- * anchors) interleaved with known garbage, so nearly every run exercises real
- * placements - counts, order, bodies, and clamped bounds - rather than
- * spending its runs deep inside noise that parses to nothing. The
- * example-based leniency rules live in placements.test.ts.
+ * Two properties with two different generators, because they pin different halves of the contract: the noise property
+ * feeds arbitrary and grammar-adjacent strings to pin "any string parses without throwing and nothing escapes its
+ * bounds"; the structured property renders known findings (including saturating huge anchors) interleaved with known
+ * garbage, so nearly every run exercises real placements - counts, order, bodies, and clamped bounds - rather than
+ * spending its runs deep inside noise that parses to nothing. The example-based leniency rules live in
+ * placements.test.ts.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -44,7 +41,9 @@ const grammarToken = fc.constantFrom(
 const answerArb = fc.oneof(fc.string({ maxLength: 200 }), fc.string({ unit: grammarToken, maxLength: 60 }));
 const lineCountArb = fc.oneof(fc.integer({ min: -100, max: 100_000 }), fc.double());
 
-/** Anchor digits: exact small numbers (signed - negatives clamp to line one) plus runs long enough to saturate parseInt. */
+/**
+ * Anchor digits: exact small numbers (signed - negatives clamp to line one) plus runs long enough to saturate parseInt.
+ */
 const anchorArb = fc.oneof(
 	fc.integer({ min: -1_000_000, max: 1_000_000 }).map(String),
 	fc.constantFrom("99999999999999999999", "9".repeat(400))
@@ -63,7 +62,10 @@ const findingArb = fc
 		body: `finding ${bodyId}`,
 	}));
 
-/** Known garbage: `counted` says whether the parser must report it dropped (fences, blanks, and the sentinel are ignored silently). */
+/**
+ * Known garbage: `counted` says whether the parser must report it dropped (fences, blanks, and the sentinel are
+ * ignored silently).
+ */
 const noiseArb = fc.constantFrom(
 	{ line: "", counted: false },
 	{ line: "```", counted: false },

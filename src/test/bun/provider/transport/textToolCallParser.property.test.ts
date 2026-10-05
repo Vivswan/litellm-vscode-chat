@@ -10,7 +10,6 @@ const ARG_END = "<|tool_call_argument_end|>";
 const END = "<|tool_call_end|>";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
 
 type TextSegment = { kind: "text"; text: string };
@@ -32,9 +31,8 @@ type NormalizedEvent =
 const nameChar = fc.constantFrom(..."abgtXZ049_-.");
 const toolName = fc.string({ unit: nameChar, minLength: 1, maxLength: 8 });
 
-// Plain-text pieces never contain ">", so text regions cannot accidentally
-// assemble a complete control token; complete strippable tokens are generated as
-// noise segments instead.
+// Plain-text pieces never contain ">", so text regions cannot accidentally assemble a complete control token; complete
+// strippable tokens are generated as noise segments instead.
 const plainPiece = fc.string({ maxLength: 12 }).map((s) => s.replace(/>/g, ""));
 const tokenFragmentPiece = fc.constantFrom(
 	"<",
@@ -54,8 +52,7 @@ const textSegment: fc.Arbitrary<Segment> = fc
 	.array(fc.oneof(plainPiece, tokenFragmentPiece), { maxLength: 6 })
 	.map((pieces) => ({ kind: "text", text: pieces.join("") }));
 
-// Complete tokens the parser strips from visible text. They must vanish
-// identically whether they arrive whole or split across chunk boundaries.
+// Complete tokens the parser strips from visible text.
 const sectionChar = fc.constantFrom(..."abgtXZ049_-");
 const sectionName = fc.string({ unit: sectionChar, minLength: 1, maxLength: 8 });
 const noiseSegment: fc.Arbitrary<Segment> = fc
@@ -92,7 +89,7 @@ function renderSegment(segment: Segment): string {
 	return BEGIN + header + ARG_BEGIN + segment.args + (segment.argEnd ? ARG_END : "") + END;
 }
 
-/** A segment list plus arbitrary cut positions over its rendered length. Duplicate cuts yield empty chunks. */
+/** Duplicate cuts yield empty chunks. */
 const scenario = fc.array(fc.oneof(textSegment, callSegment, noiseSegment), { maxLength: 8 }).chain((segments) => {
 	const full = segments.map(renderSegment).join("");
 	return fc.record({

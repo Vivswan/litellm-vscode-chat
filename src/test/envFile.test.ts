@@ -2,10 +2,9 @@ import * as assert from "node:assert";
 import { composeSetting, parseEnvFile } from "./envFile";
 
 /**
- * Pins the .env grammar the docker stack scripts share with docker-compose and
- * the ${VAR:-fallback} resolution semantics: every stack script resolves ports,
- * keys, and wildcard emission through these two functions, so a divergence from
- * what compose reads surfaces as a stack that disagrees with its own config.
+ * Pins the .env grammar the docker stack scripts share with docker-compose and the ${VAR:-fallback} resolution
+ * semantics: every stack script resolves ports, keys, and wildcard emission through these two functions, so a
+ * divergence from what compose reads surfaces as a stack that disagrees with its own config.
  */
 
 suite("envFile: parseEnvFile", () => {

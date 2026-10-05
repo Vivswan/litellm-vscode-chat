@@ -34,7 +34,6 @@ function options(overrides: Partial<CapabilityOverrideOptions> = {}): Capability
 	};
 }
 
-/** A registered deployment entry for `id`, built through the production registration path. */
 function registered(item: LiteLLMModelItem) {
 	const { infos } = buildModelInfos([item], SERVER, 1, () => {});
 	const info = infos[0];
@@ -361,9 +360,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("the server's 0/0 stamp dies at ingest: registration and rebuilds see no cost fields at all", () => {
-			// The stamp is handled at the discovery mapping sites (serverCostsOf),
-			// so this drives the production ingest instead of hand-building a
-			// provider shape ingest can no longer produce.
+			// The stamp is handled at the discovery mapping sites (serverCostsOf), so this drives the production ingest
+			// instead of hand-building a provider shape ingest can no longer produce.
 			const parsed = parseModelInfoItem({
 				model_name: "gpt-test",
 				model_info: {
@@ -486,9 +484,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("sub-unit dust re-derives byte-identical: no $0 label sneaks in through the rebuild", () => {
-			// Both costs are real but round to 0 per million; registration withholds
-			// the label and badge, and the rebuild must reproduce that exactly (the
-			// relaxed zero-pair rule is for RAW user-written 0/0 only).
+			// Both costs are real but round to 0 per million; registration withholds the label and badge, and the
+			// rebuild must reproduce that exactly (the relaxed zero-pair rule is for RAW user-written 0/0 only).
 			const dust: LiteLLMModelItem = {
 				id: "gpt-test",
 				shape: {
@@ -550,8 +547,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 
 		suite("reasoningGate", () => {
 			test("the flag beats the params list at the same level", () => {
-				// One record carries both signals: the explicit flag wins the tie,
-				// matching the registration-side flag-beats-list rule.
+				// One record carries both signals: the explicit flag wins the tie, matching the registration-side
+				// flag-beats-list rule.
 				const out = applyCapabilityOverrides(
 					[registered(DEPLOYMENT)],
 					SERVER,
@@ -565,8 +562,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 			});
 
 			test("a user params list outranks the floor's no-signal false", () => {
-				// DEPLOYMENT reports no reasoning data, so the flag resolves at the
-				// floor - a backstop, not a demotion - and the params list decides.
+				// DEPLOYMENT reports no reasoning data, so the flag resolves at the floor - a backstop, not a
+				// demotion - and the params list decides.
 				const out = applyCapabilityOverrides(
 					[registered(DEPLOYMENT)],
 					SERVER,
@@ -676,9 +673,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 					logAdvisory: (message) => advisory.push(message),
 				})
 			);
-			// The unrecognized key applies as-is and rides the advisory sink, which
-			// bypasses the issue reporter's ring-buffer budget; the invalid value
-			// keeps the budget. One line each, never a value.
+			// The unrecognized key applies as-is and rides the advisory sink, which bypasses the issue reporter's
+			// ring-buffer budget; the invalid value keeps the budget.
 			assert.deepStrictEqual(advisory, ["Applying an unrecognized capability field as-is"]);
 			assert.deepStrictEqual(logged, ["Ignoring a modelCapabilities record problem"]);
 		});
@@ -800,8 +796,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("a declared model with an entry cost record registers priced", () => {
-			// No server level exists at all for a declared model; the user's cost
-			// record is the only price source and must reach the picker.
+			// No server level exists at all for a declared model; the user's cost record is the only price source and
+			// must reach the picker.
 			const infos = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),

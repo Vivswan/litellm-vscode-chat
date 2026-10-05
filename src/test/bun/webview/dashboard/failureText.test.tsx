@@ -1,8 +1,3 @@
-/**
- * The two-part failure rendering seam: error messages arrive as "headline\ndetail", and nothing in the webview
- * styles newlines, so the raw string would collapse into one run-on paragraph. FailureText splits the parts with
- * the same shared extraction the host notifier uses; pinned at the component and at every surface that renders it.
- */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { App } from "../../../../webview/dashboard/app";
 import { FailureText } from "../../../../webview/dashboard/failureText";
@@ -100,8 +95,7 @@ test("a two-part error keeps its technical half on its own line, under its own r
 	]);
 	const lines = [...root.querySelectorAll(".row-diagnostic")];
 	expect(lines.length).toBe(2);
-	// The readable half leads; the wire detail sits beneath it, dimmed, still
-	// selectable for an issue report.
+	// The readable half leads; the wire detail sits beneath it, dimmed, still selectable for an issue report.
 	expect(lines[0]?.querySelector(".row-diagnostic-headline")?.textContent).toContain(
 		"The server could not be reached."
 	);
@@ -111,7 +105,6 @@ test("a two-part error keeps its technical half on its own line, under its own r
 	// Each row owns its line, so there are no separators left to dangle.
 	expect(root.textContent).not.toContain("; Beta");
 	expect(lines[1]?.textContent).toContain("bang");
-	// A one-part error grows no empty detail line.
 	expect(lines[1]?.querySelector(".row-diagnostic-detail")).toBeNull();
 });
 
@@ -127,8 +120,8 @@ test("an expected two-part failure keeps its detail beneath its own headline", (
 	]);
 	const lines = [...root.querySelectorAll(".row-diagnostic")];
 	expect(lines.length).toBe(2);
-	// An expected failure still says what the server said - the reader who
-	// configured this months ago should not have to remember why.
+	// An expected failure still says what the server said - the reader who configured this months ago should not have
+	// to remember why.
 	expect(lines[0]?.textContent).toContain("Discovery is declared unavailable.");
 	expect(lines[0]?.querySelector(".row-diagnostic-detail")?.textContent).toBe("GET http://alpha.test/v1/models: 404");
 	expect(root.textContent).not.toContain("; Beta");

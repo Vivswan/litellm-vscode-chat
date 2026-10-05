@@ -152,8 +152,8 @@ describe("fitConsultPrompt", () => {
 	});
 
 	test("a tie between the floors keeps the intact question", async () => {
-		// With the one-token-per-character counter, a question exactly as long as
-		// the marker makes both below-floor candidates measure identically.
+		// With the one-token-per-character counter, a question exactly as long as the marker makes both below-floor
+		// candidates measure identically.
 		const question = "x".repeat(QUESTION_TRUNCATION_MARKER.length);
 		const base = assembleConsultPrompt(question, undefined);
 		expect(base.length).toBe(assembleConsultPrompt(QUESTION_TRUNCATION_MARKER, undefined).length);
@@ -238,8 +238,8 @@ describe("fitConsultPrompt", () => {
 	});
 
 	test("a field beyond the step cap still lands within the documented shortfall", async () => {
-		// Big enough that the bisection stops short of the exact boundary: the
-		// bound must bite, not pass vacuously at a zero shortfall.
+		// Big enough that the bisection stops short of the exact boundary: the bound must bite, not pass vacuously at a
+		// zero shortfall.
 		const bigContext = "c".repeat(1_000_000);
 		const markerOnly = assembleConsultPrompt(QUESTION, CONTEXT_TRUNCATION_MARKER);
 		const budget = markerOnly.length + 1 + 700_000;
@@ -308,9 +308,8 @@ describe("shapeConsultResult", () => {
 });
 
 describe("fitConsultReply", () => {
-	// tokenBudget governs what the tool EMITS - the reply is the only thing it
-	// adds to the calling model's context - so this is where the host's budget
-	// is spent, not on the outgoing prompt.
+	// tokenBudget governs what the tool EMITS - the reply is the only thing it adds to the calling model's context - so
+	// this is where the host's budget is spent, not on the outgoing prompt.
 	test("a reply within budget travels whole, measured exactly once", async () => {
 		const counter = lengthCounter(100);
 		const fit = await fitConsultReply("short answer", counter.options);
@@ -325,13 +324,12 @@ describe("fitConsultReply", () => {
 		expect(fit.text.length).toBeLessThanOrEqual(200);
 		expect(fit.text.endsWith(REPLY_TRUNCATION_MARKER)).toBe(true);
 		expect(fit.text.startsWith("AAA")).toBe(true);
-		// Exactly at the boundary: one more code unit would not have fit.
 		expect(fit.text.length).toBe(200);
 	});
 
 	test("the budget is a maximum: every finite budget is respected, the marker included", async () => {
-		// Below the marker's own length there is nothing left to say that fits,
-		// so the tool emits nothing rather than breaking the bound it was given.
+		// Below the marker's own length there is nothing left to say that fits, so the tool emits nothing rather than
+		// breaking the bound it was given.
 		const reply = "A".repeat(500);
 		for (let budget = 0; budget <= REPLY_TRUNCATION_MARKER.length + 4; budget += 1) {
 			const fit = await fitConsultReply(reply, lengthCounter(budget).options);
@@ -352,8 +350,8 @@ describe("fitConsultReply", () => {
 
 	test("a cut never strands half a surrogate pair", async () => {
 		const reply = "\u{1F600}".repeat(400);
-		// Budgets straddling the marker's own length, so both the marker-only
-		// floor and real cuts of the emoji run are exercised.
+		// Budgets straddling the marker's own length, so both the marker-only floor and real cuts of the emoji run are
+		// exercised.
 		const marker = REPLY_TRUNCATION_MARKER.length;
 		for (let budget = marker; budget <= marker + 8; budget += 1) {
 			const fit = await fitConsultReply(reply, lengthCounter(budget).options);
@@ -380,10 +378,9 @@ describe("fitConsultReply", () => {
 });
 
 describe("readConsultInput", () => {
-	// The contributed JSON schema is documentation for the calling model, not a
-	// host guarantee: VS Code forwards an input missing a `required` property
-	// as-is (proven in the wiring's live-host suite), so everything below is
-	// what actually stands between a malformed agent call and the prompt.
+	// The contributed JSON schema is documentation for the calling model, not a host guarantee: VS Code forwards an
+	// input missing a `required` property as-is (proven in the wiring's live-host suite), so everything below is what
+	// actually stands between a malformed agent call and the prompt.
 	test("a well-formed input passes through, context included", () => {
 		expect(readConsultInput({ question: QUESTION, context: CONTEXT })).toEqual({
 			question: QUESTION,

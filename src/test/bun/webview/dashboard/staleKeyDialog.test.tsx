@@ -1,10 +1,8 @@
 /**
- * The edit form's stale-key question: a Save that re-points the base URL while
- * keeping a secure-stored secret asks before posting anything, and each answer
- * maps onto the directives the host already honors - "Use same key" posts the
- * keep (the host re-stamps), "Clear key" posts the clear (the host deletes),
- * "Keep editing" posts nothing. Detection reads secret LOCATIONS only; no
- * stamp or secret value ever reaches this page.
+ * The edit form's stale-key question: a Save that re-points the base URL while keeping a secure-stored secret asks
+ * before posting anything, and each answer maps onto the directives the host already honors - "Use same key" posts the
+ * keep (the host re-stamps), "Clear key" posts the clear (the host deletes), "Keep editing" posts nothing. Detection
+ * reads secret LOCATIONS only; no stamp or secret value ever reaches this page.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { RequestPayload } from "../../../../dashboard/endpoints";
@@ -113,8 +111,7 @@ test("a moved OAuth token URL asks about the kept client secret; each answer map
 
 	const dialog = root.querySelector(".confirm-dialog");
 	expect(dialog).not.toBeNull();
-	// The detail names the destination the secret was saved for: the token URL,
-	// not the (unchanged) base URL.
+	// The detail names the destination the secret was saved for: the token URL, not the (unchanged) base URL.
 	expect(dialog?.textContent ?? "").toContain("https://idp-a.test/token");
 	fireClick(buttonByText(root, "Clear key"));
 	expect(savedSecrets().oauthClientSecret).toEqual({ action: "clear" });

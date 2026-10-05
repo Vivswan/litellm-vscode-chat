@@ -18,7 +18,6 @@ afterEach(() => {
 	cleanup();
 });
 
-/** Exposes one useRpc instance; the holder always carries the latest render's state. */
 function RpcProbe({ holder }: { holder: { current?: RpcState<"searchCatalog"> } }) {
 	const rpc = useRpc("searchCatalog");
 	holder.current = rpc;
@@ -50,12 +49,10 @@ test("useRpc latest-wins: a rapid re-request orphans the in-flight answer, and o
 	}
 	expect(first.id).not.toBe(second.id);
 
-	// The orphaned answer must not land: the view stays loading.
 	respondTo(first, { results: [{ id: "stale/model", name: "Stale" }] });
 	expect(output()).toBe("loading");
 	expect(holder.current?.data).toBeUndefined();
 
-	// The newest id lands; a late duplicate of the old one still cannot overwrite it.
 	respondTo(second, { results: [{ id: "fresh/model", name: "Fresh" }] });
 	expect(output()).toBe("fresh/model");
 	respondTo(first, { results: [{ id: "stale/model", name: "Stale" }] });
@@ -92,7 +89,6 @@ test("two useRpc instances of the same method are independent: each answer lands
 		throw new Error("both probes must post");
 	}
 
-	// Answering the second leaves the first in flight.
 	respondTo(beta, { results: [{ id: "beta/model", name: "Beta" }] });
 	expect(rootOne.querySelector("output")?.textContent).toBe("loading");
 	expect(rootTwo.querySelector("output")?.textContent).toBe("beta/model");
@@ -135,7 +131,6 @@ test("useIntentOutcome carries the latest ack or fail of its method, re-firing r
 		failureKind: "operation",
 	});
 
-	// Another method's notices never land here.
 	pushToWebview({ kind: "ack", id, method: "unhideServer" });
 	expect(holder.current?.outcome?.result).toBe("fail");
 });

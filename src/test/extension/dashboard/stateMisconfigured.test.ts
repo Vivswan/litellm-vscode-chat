@@ -55,8 +55,8 @@ suite("extension/dashboard/state misconfigured rows", () => {
 			entryReports: [
 				rejectedReport({ index: 0, label: undefined }),
 				rejectedReport({ index: 1, baseUrl: undefined }),
-				// A reject whose label an ACCEPTED entry already renders under: a
-				// second "Taken" row would read as two entries where one serves.
+				// A reject whose label an ACCEPTED entry already renders under: a second "Taken" row would read as two
+				// entries where one serves.
 				rejectedReport({ index: 2, label: "Taken" }),
 			],
 		});
@@ -104,11 +104,9 @@ suite("extension/dashboard/state misconfigured rows", () => {
 	});
 
 	test("a non-identity join raises one inactive notice per configured entry-only field family", () => {
-		// The serving group joined by URL only, so the request path's
-		// label-and-URL resolution applies none of this entry's entry-only
-		// fields; the row must name exactly which families went inactive.
-		// state.ts derives the notices from parallel same-shape branches, one
-		// per family, so one table drives them all.
+		// The serving group joined by URL only, so the request path's label-and-URL resolution applies none of this
+		// entry's entry-only fields; the row must name exactly which families went inactive. state.ts derives the
+		// notices from parallel same-shape branches, one per family, so one table drives them all.
 		const cases: readonly {
 			override: Partial<DeclaredServerView>;
 			notices: readonly DeclaredServerNotice[];

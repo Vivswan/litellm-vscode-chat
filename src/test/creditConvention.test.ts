@@ -11,11 +11,10 @@ import {
 } from "./creditConvention";
 
 /**
- * History guard for the crediting convention: every commit subject carrying
- * "(#N, thanks @login)" must have a row for that login in ACKNOWLEDGMENTS.md.
- * The commit-msg hook catches the crediting commit itself (not yet in `git log`
- * when this runs); this test is the safety net for what slipped past it. Tests
- * run from out/test, so the repo root is two levels up.
+ * The commit-msg hook catches the crediting commit itself (not yet in `git log` when this runs); this test is the
+ * safety net for what slipped past it. Tests run from out/test, so the repo root is two levels up.
+ *
+ *   every commit subject carrying "(#N, thanks @login)" -> must have a row for that login in ACKNOWLEDGMENTS.md
  */
 const repoRoot = path.resolve(__dirname, "..", "..");
 
@@ -117,9 +116,8 @@ suite("credit convention guard: subject grammar", () => {
 suite("credit convention guard: git history vs ACKNOWLEDGMENTS.md", () => {
 	test("every login credited in a commit subject since the file landed has a row", async function () {
 		this.timeout(30000);
-		// Shallow CI clones may not reach the boundary commit; scan whatever
-		// history is available then. Ancestry, not mere object existence: an
-		// unreachable boundary would scan the wrong history.
+		// Shallow CI clones may not reach the boundary commit; scan whatever history is available then. Ancestry, not
+		// mere object existence: an unreachable boundary would scan the wrong history.
 		const boundaryPresent = await git("merge-base", "--is-ancestor", ACKNOWLEDGMENTS_BOUNDARY, "HEAD").then(
 			() => true,
 			() => false
@@ -139,8 +137,8 @@ suite("credit convention guard: git history vs ACKNOWLEDGMENTS.md", () => {
 				);
 			}
 		}
-		// The strict grammar rejects near-miss credit forms silently; make those
-		// loud instead of letting a malformed credit land unguarded.
+		// The strict grammar rejects near-miss credit forms silently; make those loud instead of letting a malformed
+		// credit land unguarded.
 		const nearMisses = subjects.filter(
 			(subject) => /thanks\s+@/i.test(subject) && extractSubjectCredits(subject).length === 0
 		);
@@ -150,8 +148,8 @@ suite("credit convention guard: git history vs ACKNOWLEDGMENTS.md", () => {
 			"a subject thanks an @login in a form the credit grammar does not recognize; fix the subject or the grammar"
 		);
 		if (boundaryPresent) {
-			// Regex-rot canary: post-boundary history is known to contain credits,
-			// so extracting none means the grammar no longer matches reality.
+			// Regex-rot canary: post-boundary history is known to contain credits, so extracting none means the grammar
+			// no longer matches reality.
 			assert.ok(credited > 0, "the credit grammar matched no post-boundary subject; the extractor has drifted");
 		}
 	});

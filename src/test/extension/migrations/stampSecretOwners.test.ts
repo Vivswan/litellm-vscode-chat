@@ -55,8 +55,8 @@ suite("extension/migrations/stampSecretOwners", () => {
 
 		assert.strictEqual(await stampSecretOwnersFor(() => setting, store, quietLogger()), "nothing-to-do");
 		assert.deepStrictEqual((await readServerSecretsRecord(store, "A")).owners, { apiKey: "http://deliberate.test" });
-		// A leftover blob with no declared entry has no derivable destination: it
-		// stays unstamped (and keeps resolving for a future re-add, as before).
+		// A leftover blob with no declared entry has no derivable destination: it stays unstamped (and keeps resolving
+		// for a future re-add, as before).
 		assert.deepStrictEqual((await readServerSecretsRecord(store, "Leftover")).owners, {});
 	});
 
@@ -67,8 +67,7 @@ suite("extension/migrations/stampSecretOwners", () => {
 		assert.strictEqual(await stampSecretOwnersFor(() => setting, store, quietLogger()), "nothing-to-do");
 		assert.deepStrictEqual((await readServerSecretsRecord(store, "A")).owners, {});
 
-		// Once the entry declares its token URL, the pairing is derivable and the
-		// next activation stamps it.
+		// Once the entry declares its token URL, the pairing is derivable and the next activation stamps it.
 		const withOAuth = [
 			{ label: "A", baseUrl: "http://a.test", auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "c" } } },
 		];

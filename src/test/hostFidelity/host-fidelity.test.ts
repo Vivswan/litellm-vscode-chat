@@ -79,7 +79,6 @@ suite("Host-Fidelity Tests (capture)", () => {
 		}
 	});
 
-	/** Helper to send a request and get both captured body and stream parts. */
 	async function sendAndCapture(
 		messages: vscode.LanguageModelChatMessage[],
 		options?: vscode.LanguageModelChatRequestOptions
@@ -90,7 +89,6 @@ suite("Host-Fidelity Tests (capture)", () => {
 		return { body, parts };
 	}
 
-	/** Temporarily set modelParameters config for a single test and restore it afterward. */
 	async function withModelParameters<T>(
 		value: Record<string, Record<string, unknown>>,
 		fn: () => Promise<T>
@@ -115,13 +113,9 @@ suite("Host-Fidelity Tests (capture)", () => {
 		});
 
 		test("the model registers with the fixture's declared input limit, family, and pricing", () => {
-			// The model-info values the host's consumer object exposes must survive
-			// discovery, capability resolution, and registration exactly: the
-			// declared input limit (not the built-in floor or a catalog guess), the
-			// litellm_provider as family, and the pricing fields. The host copies no
-			// maxOutputTokens onto this object; the declared 12000 is pinned on the
-			// wire as max_tokens in the request contract suite. The fixture sits off
-			// the floors, so a floor-derived input (112000) fails here directly.
+			// The host copies no maxOutputTokens onto this object; the declared 12000 is pinned on the wire as
+			// max_tokens in the request contract suite. The fixture sits off the floors, so a floor-derived input
+			// (112000) fails here directly.
 			assert.deepStrictEqual(
 				{
 					maxInputTokens: model.maxInputTokens,
@@ -605,8 +599,8 @@ suite("Host-Fidelity Tests (capture)", () => {
 					}
 				}
 			} catch {
-				// Cancellation may surface as a thrown error; the part count below is
-				// what proves the stream actually stopped early.
+				// Cancellation may surface as a thrown error; the part count below is what proves the stream actually
+				// stopped early.
 			}
 
 			assert.ok(
@@ -616,9 +610,8 @@ suite("Host-Fidelity Tests (capture)", () => {
 		});
 
 		test("HTTP error statuses reject with their own classification through the host", async () => {
-			// The extension-host boundary flattens a thrown error to name, message,
-			// and code, so those three ARE the classification a vscode.lm consumer
-			// sees; the fixture's error bodies make every message deterministic.
+			// The extension-host boundary flattens a thrown error to name, message, and code, so those three ARE the
+			// classification a vscode.lm consumer sees; the fixture's error bodies make every message deterministic.
 			const cases: ReadonlyArray<{ scenario: string; name: string; code: unknown; message: string; reason: string }> = [
 				{
 					scenario: "error-400",
@@ -732,9 +725,8 @@ suite("Host-Fidelity Tests (multi-group)", () => {
 		return;
 	}
 
-	// Per-group-unique model IDs: the host exposes no group identity on the model
-	// object, so a unique ID is the only handle that attributes a model (and its
-	// chat traffic) to the group serving it.
+	// Per-group-unique model IDs: the host exposes no group identity on the model object, so a unique ID is the only
+	// handle that attributes a model (and its chat traffic) to the group serving it.
 	const modelIdA = uniqueName("openai/hf-multi-a");
 	const modelIdB = uniqueName("openai/hf-multi-b");
 	const labelA = uniqueName("hf-multi-a");
@@ -846,8 +838,7 @@ suite("Host-Fidelity Tests (multi-group)", () => {
 			await config.update(
 				"models.parameters",
 				{
-					// The prefix of the ID without the star is exact and no longer
-					// matches; the glob form does.
+					// The prefix of the ID without the star is exact and no longer matches; the glob form does.
 					[modelIdB.slice(0, 10)]: { temperature: 0.2 },
 					[`${modelIdB.slice(0, 10)}*`]: { temperature: 0.5 },
 				},
@@ -875,23 +866,23 @@ suite("Host-Fidelity Tests (multi-group)", () => {
 	});
 
 	suite("partial failure", () => {
-		// Deliberately the suite's last test: groups cannot be removed, so the
-		// dead group stays dead for the rest of the host's life.
+		// Deliberately the suite's last test: groups cannot be removed, so the dead group stays dead for the rest of
+		// the host's life.
 		test("a dead group's status goes error while the healthy group keeps serving", async function () {
 			this.timeout(60000);
 
 			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 			const originalTtl = config.inspect("discovery.cacheTtl")?.globalValue;
 			await serverB.close();
-			// The discovery cache would keep answering for the dead group for its
-			// whole TTL; zeroing it makes every poll a real fetch.
+			// The discovery cache would keep answering for the dead group for its whole TTL; zeroing it makes every
+			// poll a real fetch.
 			await config.update("discovery.cacheTtl", 0, vscode.ConfigurationTarget.Global);
 			try {
 				const failed = await waitForGroupStatus(labelB, (status) => status.state === "error", 30000);
 				assert.ok(failed.state === "error", "narrowed by the wait");
 				assert.strictEqual(failed.classification?.kind, "connection", "a dead port classifies as connection");
-				// A FRESH healthy refresh, not the setup-time status: the healthy
-				// group's ok must postdate the dead group's observed failure.
+				// A FRESH healthy refresh, not the setup-time status: the healthy group's ok must postdate the dead
+				// group's observed failure.
 				const failedAt = Date.parse(failed.lastChecked);
 				await waitForGroupStatus(
 					labelA,
@@ -899,9 +890,8 @@ suite("Host-Fidelity Tests (multi-group)", () => {
 					20000
 				);
 
-				// Both serving contracts as an exact multiset: the healthy group's
-				// model stays served, and the dead group's last known model is served
-				// flagged stale instead of vanishing.
+				// Both serving contracts as an exact multiset: the healthy group's model stays served, and the dead
+				// group's last known model is served flagged stale instead of vanishing.
 				const models = await waitForModels(
 					scopedExact(inUniverse, [modelIdA, modelIdB]),
 					20000,
@@ -941,8 +931,8 @@ suite("Host-Fidelity Tests (declared models)", () => {
 	let declaredModel: vscode.LanguageModelChat;
 	let entryInfos: vscode.LanguageModelChatInformation[] = [];
 
-	// writeServerEntry edits the real machine-scoped servers setting; the helper's
-	// hooks restore it even when a test dies between the write and the teardown.
+	// writeServerEntry edits the real machine-scoped servers setting; the helper's hooks restore it even when a test
+	// dies between the write and the teardown.
 	restoreServersSettingAfterRun();
 
 	suiteSetup(async function () {
@@ -953,9 +943,8 @@ suite("Host-Fidelity Tests (declared models)", () => {
 
 		await ensureActivated();
 		await catalogOff();
-		// discovery.declared lists a model discovery cannot list plus the
-		// DISCOVERED model (whose declaration must stay inert), and the entry's
-		// capability record patches the declared one.
+		// discovery.declared lists a model discovery cannot list plus the DISCOVERED model (whose declaration must stay
+		// inert), and the entry's capability record patches the declared one.
 		await writeServerEntry({
 			label,
 			baseUrl: `http://localhost:${server.port}`,
@@ -1053,10 +1042,9 @@ suite("Host-Fidelity Tests (live)", () => {
 
 		await ensureActivated();
 		await catalogOff();
-		// The live label's host runs the capture suites as skip stubs, so this
-		// entry's group must be the only litellm group the host resolves; a
-		// leftover group in a recycled user-data directory would be
-		// indistinguishable from it.
+		// The live label's host runs the capture suites as skip stubs, so this entry's group must be the only litellm
+		// group the host resolves; a leftover group in a recycled user-data directory would be indistinguishable from
+		// it.
 		assert.strictEqual(
 			(await vscode.lm.selectChatModels({ vendor: "litellm" })).length,
 			0,
@@ -1067,9 +1055,8 @@ suite("Host-Fidelity Tests (live)", () => {
 			{ label: liveLabel, baseUrl: REAL_BASE_URL, ...(REAL_API_KEY ? { auth: { apiKey: REAL_API_KEY } } : {}) },
 			30000
 		);
-		// Set equality after dedupe, not containment: wildcard servers list
-		// duplicate IDs, and containment alone could pass on a stale superset
-		// mid-propagation.
+		// Set equality after dedupe, not containment: wildcard servers list duplicate IDs, and containment alone could
+		// pass on a stale superset mid-propagation.
 		const expectedIds = new Set((await refreshEntryModels(liveLabel)).map((info) => info.id));
 		assert.ok(expectedIds.size > 0, "Expected at least one litellm model from the real server");
 		allModels = await waitForModels(
@@ -1248,8 +1235,8 @@ suite("Host-Fidelity Tests (live)", () => {
 			let endedAt = 0;
 			let timedOut = false;
 
-			// VS Code's stream iterator may not terminate on cancellation, so race
-			// the whole operation against a timeout.
+			// VS Code's stream iterator may not terminate on cancellation, so race the whole operation against a
+			// timeout.
 			await Promise.race([
 				(async () => {
 					try {

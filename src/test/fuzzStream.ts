@@ -3,18 +3,16 @@ import { fuzzSeedPrefix } from "./fuzzSeed";
 import { expectDefined } from "./pureHelpers";
 
 /**
- * Shared stream-fuzzing machinery: the event generators, the assembly oracle,
- * and the seed resolver. The docker fuzzer feeds generated streams through a
- * real LiteLLM proxy and the in-process property suites drive StreamProcessor
- * directly; keeping generators and oracle together means a shape either suite
- * finds is expressible as a FuzzEvent[] corpus entry for the other.
+ * Shared stream-fuzzing machinery: the event generators, the assembly oracle, and the seed resolver. The docker fuzzer
+ * feeds generated streams through a real LiteLLM proxy and the in-process property suites drive StreamProcessor
+ * directly; keeping generators and oracle together means a shape either suite finds is expressible as a FuzzEvent[]
+ * corpus entry for the other.
  */
 
 /**
- * The seed for fast-check property suites: FUZZ_SEED when set (so the nightly
- * workflow explores fresh inputs and its issue carries the exact repro),
- * otherwise a pinned default so PR and pre-commit runs stay deterministic. The
- * logged line's format is owned by fuzzSeed.ts and pinned by fuzzSeed.test.ts.
+ * The seed for fast-check property suites: FUZZ_SEED when set (so the nightly workflow explores fresh inputs and its
+ * issue carries the exact repro), otherwise a pinned default so PR and pre-commit runs stay deterministic. The logged
+ * line's format is owned by fuzzSeed.ts and pinned by fuzzSeed.test.ts.
  */
 let loggedSeed = false;
 export function resolveFuzzSeed(): number {
@@ -28,7 +26,6 @@ export function resolveFuzzSeed(): number {
 	return seed;
 }
 
-/** Deterministic PRNG (mulberry32). */
 export function mulberry32(seed: number): () => number {
 	let state = seed >>> 0;
 	return () => {
@@ -76,8 +73,7 @@ export interface GeneratorState {
 
 export function newGeneratorState(allowSurrogateSplit: boolean): GeneratorState {
 	return {
-		// Loudly unseeded: every construction path installs its own PRNG, so a
-		// silent fixed stream cannot slip in.
+		// Loudly unseeded: every construction path installs its own PRNG, so a silent fixed stream cannot slip in.
 		random: () => {
 			throw new Error("GeneratorState.random is unseeded; build events via makePropertyEvent/makeTailEvent");
 		},
@@ -88,10 +84,9 @@ export function newGeneratorState(allowSurrogateSplit: boolean): GeneratorState 
 }
 
 /**
- * Split `text` into 1..4 random slices, possibly mid-token. Cuts between the
- * halves of a surrogate pair only when the mode allows it: LiteLLM 500s the
- * whole request when a tool-argument fragment carries a lone surrogate, and
- * real providers never emit one.
+ * Split `text` into 1..4 random slices, possibly mid-token. Cuts between the halves of a surrogate pair only when the
+ * mode allows it: LiteLLM 500s the whole request when a tool-argument fragment carries a lone surrogate, and real
+ * providers never emit one.
  */
 function randomSlices(state: GeneratorState, text: string): string[] {
 	const cuts = Math.floor(state.random() * 4);
@@ -119,8 +114,8 @@ function words(state: GeneratorState, count: number): string {
 
 function toolCallSpec(state: GeneratorState): ExpectedToolCall {
 	const name = expectDefined(TOOL_NAMES[Math.floor(state.random() * TOOL_NAMES.length)]);
-	// The seq field keeps every generated name+args pair unique, so cross-channel
-	// dedup accounting never collapses two intended calls.
+	// The seq field keeps every generated name+args pair unique, so cross-channel dedup accounting never collapses two
+	// intended calls.
 	const args: Record<string, unknown> = {
 		[expectDefined(WORDS[Math.floor(state.random() * WORDS.length)])]: Math.floor(state.random() * 100),
 		seq: state.toolIndex,
@@ -134,7 +129,6 @@ function toolCallSpec(state: GeneratorState): ExpectedToolCall {
 	return { name, args };
 }
 
-/** Frames of one delta-channel tool call, arguments split across 1..4 chunks. */
 function deltaToolFrames(state: GeneratorState, call: ExpectedToolCall, index: number): unknown[] {
 	const slices = randomSlices(state, JSON.stringify(call.args));
 	const frames = [
@@ -150,7 +144,6 @@ function deltaToolFrames(state: GeneratorState, call: ExpectedToolCall, index: n
 	return frames;
 }
 
-/** The full inline control-token sequence for one call. */
 function inlineCallText(call: ExpectedToolCall, index: number): string {
 	return `<|tool_call_begin|>${call.name}:${index}<|tool_call_argument_begin|>${JSON.stringify(call.args)}<|tool_call_end|>`;
 }
@@ -159,8 +152,8 @@ function textEvent(state: GeneratorState): FuzzEvent {
 	const roll = state.random();
 	let text: string;
 	if (roll < 0.15) {
-		// Unicode: multi-byte characters must survive two serialization hops and
-		// arbitrary slicing, including surrogate pairs split across chunks.
+		// Unicode: multi-byte characters must survive two serialization hops and arbitrary slicing, including surrogate
+		// pairs split across chunks.
 		text = `${expectDefined(UNICODE_WORDS[Math.floor(state.random() * UNICODE_WORDS.length)])} `;
 	} else if (roll < 0.25) {
 		// One big chunk plus slices, exercising the line buffer.
@@ -182,13 +175,13 @@ function deltaToolEvent(state: GeneratorState): FuzzEvent {
 }
 
 /**
- * A no-parameter delta-channel call, OpenAI-style: `arguments: ""` in every
- * frame (or absent entirely). Must emit with the empty object at end of
- * stream (#281). A TAIL event: the emission is defined by end-of-stream
- * handling (the flush reads the empty accumulation as {}), so mid-stream
- * placement would diverge from the oracles' wire-order expectation. The name
- * embeds the index because empty args carry no `seq` to keep the
- * cross-channel dedup accounting unique.
+ * A no-parameter delta-channel call, OpenAI-style: `arguments: ""` in every frame (or absent entirely). Must emit with
+ * the empty object at end of stream (#281).
+ *
+ *   A TAIL event: the emission is defined by end-of-stream handling (the flush reads the empty accumulation as {})
+ *     -> mid-stream placement would diverge from the oracles' wire-order expectation
+ *   empty args carry no `seq` to keep the cross-channel dedup accounting unique
+ *     -> The name embeds the index
  */
 function emptyArgsDeltaToolEvent(state: GeneratorState): FuzzEvent {
 	const index = state.toolIndex++;
@@ -202,7 +195,6 @@ function emptyArgsDeltaToolEvent(state: GeneratorState): FuzzEvent {
 	};
 	const chunks: unknown[] = [chunkOf({ tool_calls: [first] })];
 	if (variant === 2) {
-		// A continuation frame that still carries nothing.
 		chunks.push(chunkOf({ tool_calls: [{ index, function: { arguments: "" } }] }));
 	}
 	return { label: "empty-args-delta-tool", tools: [call], deltaToolChannel: true, chunks };
@@ -213,8 +205,8 @@ function inlineToolEvent(state: GeneratorState): FuzzEvent {
 	const index = state.toolIndex++;
 	const pre = `${words(state, 1)} `;
 	const post = ` ${words(state, 1)} `;
-	// Sliced at arbitrary positions, including mid-token: the hold-back logic in
-	// the inline parser is exactly what this fuzzes.
+	// Sliced at arbitrary positions, including mid-token: the hold-back logic in the inline parser is exactly what this
+	// fuzzes.
 	const full = pre + inlineCallText(call, index) + post;
 	return {
 		label: "inline-tool",
@@ -259,8 +251,8 @@ function interleavedToolsEvent(state: GeneratorState): FuzzEvent {
 }
 
 function refusalEvent(state: GeneratorState): FuzzEvent {
-	// Direct-mode only: LiteLLM v1.93 drops refusal deltas once the stream also
-	// carries regular content (pure-refusal streams forward fine).
+	//   LiteLLM v1.93 drops refusal deltas once the stream also carries regular content
+	//     -> Direct-mode only
 	const parts = 1 + Math.floor(state.random() * 3);
 	const texts = Array.from({ length: parts }, () => `refused ${words(state, 1)} `);
 	return {
@@ -284,10 +276,9 @@ function citationEvent(state: GeneratorState): FuzzEvent {
 }
 
 /**
- * Reasoning-only streams are legitimate generator output: every fuzz consumer
- * runs in the pinned extension-host build, which exposes
- * LanguageModelThinkingPart, so reasoning emits as thinking parts instead of
- * the reasoning-only empty-response error a ctor-less host throws.
+ * Reasoning-only streams are legitimate generator output: every fuzz consumer runs in the pinned extension-host build,
+ * which exposes LanguageModelThinkingPart, so reasoning emits as thinking parts instead of the reasoning-only
+ * empty-response error a ctor-less host throws.
  */
 function reasoningEvent(state: GeneratorState): FuzzEvent {
 	const roll = state.random();
@@ -309,8 +300,8 @@ function reasoningEvent(state: GeneratorState): FuzzEvent {
 }
 
 function junkFieldsEvent(): FuzzEvent {
-	// Unknown extra fields on otherwise valid chunks; both the proxy and the
-	// extension must pass them through or ignore them.
+	// Unknown extra fields on otherwise valid chunks; both the proxy and the extension must pass them through or ignore
+	// them.
 	const chunk = chunkOf({ reasoning_content: "noise" }) as Record<string, unknown>;
 	chunk.fuzz_extra = { nested: [1, 2, 3] };
 	for (const choice of chunk.choices as Array<Record<string, unknown>>) {
@@ -320,8 +311,8 @@ function junkFieldsEvent(): FuzzEvent {
 }
 
 function malformedEvent(state: GeneratorState): FuzzEvent {
-	// Structurally broken chunks the extension must skip. The proxy aborts the
-	// whole stream on these, so they exist only in direct mode.
+	// Structurally broken chunks the extension must skip. The proxy aborts the whole stream on these, so they exist
+	// only in direct mode.
 	const shapes: unknown[] = [
 		{ fuzz: true },
 		{ choices: "not-an-array" },
@@ -344,7 +335,6 @@ function lenientDeltaToolEvent(state: GeneratorState): FuzzEvent {
 	const variant = Math.floor(state.random() * 3);
 	const chunks: unknown[] = [];
 	if (variant === 0) {
-		// Index as a numeric string, mixed with numeric on continuations.
 		chunks.push(
 			chunkOf({
 				tool_calls: [
@@ -369,7 +359,6 @@ function lenientDeltaToolEvent(state: GeneratorState): FuzzEvent {
 			chunks.push(chunkOf({ tool_calls: [{ index, function: { arguments: slice } }] }));
 		}
 	} else {
-		// The name arrives only on the second frame.
 		chunks.push(chunkOf({ tool_calls: [{ index, id: `call_fuzz_${index}`, function: { arguments: slices[0] } }] }));
 		chunks.push(
 			chunkOf({ tool_calls: [{ index, function: { name: call.name, arguments: slices.slice(1).join("") } }] })
@@ -442,12 +431,11 @@ function structuredContentEvent(state: GeneratorState): FuzzEvent {
 }
 
 /**
- * Stream-tail events: shapes whose contract is defined by end-of-stream
- * handling, so they must come last and nothing may follow them.
+ * Stream-tail events: shapes whose contract is defined by end-of-stream handling, so they must come last and nothing
+ * may follow them.
  */
 function unterminatedInlineTail(state: GeneratorState): FuzzEvent {
-	// A valid-JSON inline call whose end token never arrives: the flush path
-	// must still emit it exactly once.
+	// A valid-JSON inline call whose end token never arrives: the flush path must still emit it exactly once.
 	const call = toolCallSpec(state);
 	const index = state.toolIndex++;
 	const pre = `${words(state, 1)} `;
@@ -461,8 +449,8 @@ function unterminatedInlineTail(state: GeneratorState): FuzzEvent {
 }
 
 function truncatedTokenTail(state: GeneratorState): FuzzEvent {
-	// A partial control token at end of stream is protocol residue and must be
-	// dropped, while the text before it survives.
+	// A partial control token at end of stream is protocol residue and must be dropped, while the text before it
+	// survives.
 	const partials = ["<|tool_call_beg", "<|tool_call_argument_", "<|tool_c"];
 	const text = `${words(state, 1)} `;
 	const partial = expectDefined(partials[Math.floor(state.random() * partials.length)]);
@@ -491,9 +479,8 @@ export function generateEvents(random: () => number, directMode: boolean): FuzzE
 		}
 	}
 
-	// One optional tail whose behavior is defined by end-of-stream handling,
-	// drawn from the SAME registry the property suites use (equal slices, ~15%
-	// each), so the docker targets exercise every tail kind too.
+	// One optional tail whose behavior is defined by end-of-stream handling, drawn from the SAME registry the property
+	// suites use (equal slices, ~15% each), so the docker targets exercise every tail kind too.
 	const tailRoll = random();
 	const tailIndex = Math.floor(tailRoll / 0.15);
 	if (tailIndex < TAIL_EVENT_KINDS.length) {
@@ -505,11 +492,11 @@ export function generateEvents(random: () => number, directMode: boolean): FuzzE
 // ── Deterministic per-kind construction for the fast-check property suites ───
 
 /**
- * The single source of event kinds and their weights: generateEvents draws from
- * it, the property suites mirror it through fc.oneof, and PropertyEventKind
- * derives from it so a new kind cannot exist without a weight row. Everything
- * the direct docker target generates is valid in-process too: StreamProcessor
- * is the same code with no proxy in front to reject lenient shapes.
+ * Everything the direct docker target generates is valid in-process too: StreamProcessor is the same code with no proxy
+ * in front to reject lenient shapes.
+ *
+ *   generateEvents draws from it, the property suites mirror it through fc.oneof, and PropertyEventKind derives from it
+ *     -> a new kind cannot exist without a weight row
  */
 export const PROPERTY_EVENT_KIND_WEIGHTS = [
 	{ kind: "text", weight: 26, directOnly: false },
@@ -566,16 +553,15 @@ function buildEvent(kind: PropertyEventKind, state: GeneratorState): FuzzEvent {
 }
 
 /**
- * Build one event of the given kind from its own seed, sharing `state` so tool
- * and citation indices stay sequential across the stream. Kind and seed are the
- * shrinkable coordinates: this stays a pure function of (kind, seed, position).
+ * Build one event of the given kind from its own seed, sharing `state` so tool and citation indices stay sequential
+ * across the stream. Kind and seed are the shrinkable coordinates: this stays a pure function of (kind, seed,
+ * position).
  */
 export function makePropertyEvent(kind: PropertyEventKind, seed: number, state: GeneratorState): FuzzEvent {
 	state.random = mulberry32(seed);
 	return buildEvent(kind, state);
 }
 
-/** The one tail-kind dispatch, shared by generateEvents and makeTailEvent. */
 function buildTailEvent(kind: TailEventKind, state: GeneratorState): FuzzEvent {
 	switch (kind) {
 		case "unterminated-inline-tail":
@@ -599,9 +585,8 @@ export interface AssembledStream {
 	expectedText: string;
 	expectedToolCalls: ExpectedToolCall[];
 	/**
-	 * Thinking text the stream must surface as thinking parts, in stream order.
-	 * Empty when no event declares an expectation, in which case the oracle skips
-	 * the thinking assertion; corpus entries do declare one, so deleting
+	 * Thinking text the stream must surface as thinking parts, in stream order. Empty when no event declares an
+	 * expectation, in which case the oracle skips the thinking assertion; corpus entries do declare one, so deleting
 	 * reasoning extraction fails their replay instead of resolving quietly empty.
 	 */
 	expectedThinking: string;
@@ -616,8 +601,8 @@ export function assemble(events: FuzzEvent[]): AssembledStream {
 	let hintInserted = false;
 
 	for (const event of events) {
-		// The extension inserts a single space between already-emitted text and
-		// the first delta-channel tool call of the stream.
+		// The extension inserts a single space between already-emitted text and the first delta-channel tool call of
+		// the stream.
 		if (event.deltaToolChannel && expectedText.length > 0 && !hintInserted) {
 			expectedText += " ";
 			hintInserted = true;

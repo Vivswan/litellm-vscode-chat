@@ -1,7 +1,3 @@
-/**
- * The request boundary: parseDashboardRequest's envelope schema, readInlineSecretValues, and the intent value
- * validators.
- */
 import * as assert from "node:assert";
 import { parseDashboardRequest } from "../../../extension/dashboard/intentSchema";
 import {
@@ -14,7 +10,6 @@ import { inlineOnlyIdentity, KEEP_ALL, replaceIdentity, serverPayload } from "./
 
 suite("extension/dashboard/intents: request validation", () => {
 	suite("parseDashboardRequest", () => {
-		/** One well-formed request envelope; the payload is the case under test. */
 		const req = (method: string, payload: unknown, id = "req-1"): unknown => ({ kind: "request", id, method, payload });
 
 		test("accepts every request shape", () => {
@@ -90,8 +85,8 @@ suite("extension/dashboard/intents: request validation", () => {
 			const rejected: unknown[] = [
 				null,
 				"ready",
-				// The envelope frame itself: only kind "request", a bounded id, and
-				// a table method pass; the old flat message shape is malformed now.
+				// The envelope frame itself: only kind "request", a bounded id, and a table method pass; the old flat
+				// message shape is malformed now.
 				{ type: "ready" },
 				{ kind: "ready", id: "r", method: "ready", payload: null },
 				{ kind: "request", method: "ready", payload: null },
@@ -108,16 +103,16 @@ suite("extension/dashboard/intents: request validation", () => {
 				req("setBooleanSetting", { setting: "chat.promptCaching", value: "true" }),
 				req("resetSetting", { setting: "notASetting" }),
 				req("resetSetting", { setting: "chat.timeout", value: 1 }),
-				// revealSetting: only classification-listed ids cross - never
-				// arbitrary key text or fully-qualified ids.
+				// revealSetting: only classification-listed ids cross - never arbitrary key text or fully-qualified
+				// ids.
 				req("revealSetting", { setting: "serverSecrets" }),
 				req("revealSetting", { setting: "litellm-vscode-chat.chat.timeout" }),
 				req("revealSetting", {}),
 				req("revealSetting", { setting: "chat.timeout", extra: 1 }),
 				req("setHeaders", { value: { "x-bad": { nested: true } } }),
 				req("executeCommand", { command: "workbench.action.terminal.sendSequence" }),
-				// Syncing left the postable command set when the acked syncModels
-				// wire method took over; the old id must not quietly come back.
+				// Syncing left the postable command set when the acked syncModels wire method took over; the old id
+				// must not quietly come back.
 				req("executeCommand", { command: "syncModels" }),
 				req("ready", { extra: 1 }),
 				// saveServerSetting: strict everywhere, so no field rides along into the setting.
@@ -140,9 +135,8 @@ suite("extension/dashboard/intents: request validation", () => {
 					server: { label: "P", baseUrl: "http://x" },
 					secrets: { apiKey: { action: "keep" } },
 				}),
-				// The always-sent fields are required: a save rebuilds the whole entry,
-				// so an omission-tolerant schema would let a stale sender silently
-				// delete hand-written configuration.
+				// The always-sent fields are required: a save rebuilds the whole entry, so an omission-tolerant schema
+				// would let a stale sender silently delete hand-written configuration.
 				...(
 					["modelCapabilities", "expectedFailures", "includeModes", "headers", "declaredModels", "budget"] as const
 				).map((omitted) => {
@@ -152,8 +146,8 @@ suite("extension/dashboard/intents: request validation", () => {
 				}),
 				req("removeServerSetting", {}),
 				req("removeServerSetting", { label: 4 }),
-				// The size bounds: no honest value meets them, so anything over is a
-				// hostile page ballooning a settings write.
+				// The size bounds: no honest value meets them, so anything over is a hostile page ballooning a settings
+				// write.
 				req("removeServerSetting", { label: "x".repeat(1025) }),
 				req("saveServerSetting", {
 					server: serverPayload({ label: "P", baseUrl: `http://x/${"y".repeat(4096)}` }),
@@ -169,8 +163,7 @@ suite("extension/dashboard/intents: request validation", () => {
 				req("setModelParameters", { value: { [`m${"x".repeat(512)}`]: {} } }),
 				req("setModelParameters", { value: { "gpt-4": { note: "x".repeat(1024 * 1024) } } }),
 				req("saveServerSetting", {
-					// The closed enum caps the list length: a ballooned duplicate list
-					// must not ride into the setting.
+					// The closed enum caps the list length: a ballooned duplicate list must not ride into the setting.
 					server: serverPayload({
 						label: "P",
 						baseUrl: "http://x",
@@ -186,8 +179,8 @@ suite("extension/dashboard/intents: request validation", () => {
 					}),
 					secrets: KEEP_ALL,
 				}),
-				// testServerDraft: the save payload's strictness verbatim - no inline
-				// secret fields on the server object, no unknown fields riding along.
+				// testServerDraft: the save payload's strictness verbatim - no inline secret fields on the server
+				// object, no unknown fields riding along.
 				req("testServerDraft", { server: { label: "P", baseUrl: "http://x" } }),
 				req("testServerDraft", {
 					server: { label: "P", baseUrl: "http://x", apiKey: "inline-not-allowed-here" },
@@ -245,8 +238,8 @@ suite("extension/dashboard/intents: request validation", () => {
 				}),
 			];
 			for (const message of rejected) {
-				// The label is truncated: some fixtures are megabytes by design, and
-				// a failure message must stay readable.
+				// The label is truncated: some fixtures are megabytes by design, and a failure message must stay
+				// readable.
 				assert.strictEqual(
 					parseDashboardRequest(message).success,
 					false,
@@ -282,8 +275,8 @@ suite("extension/dashboard/intents: request validation", () => {
 		});
 
 		test("secure-side and absent fields get no key at all: absence, not an empty string", () => {
-			// "Secure" holds nothing inline; whatever its SecretStorage blob holds
-			// is not consulted here and must never come back.
+			// "Secure" holds nothing inline; whatever its SecretStorage blob holds is not consulted here and must never
+			// come back.
 			assert.deepStrictEqual(readInlineSecretValues(setting, inlineOnlyIdentity(setting, "Secure")), {});
 			const mixed = readInlineSecretValues(setting, inlineOnlyIdentity(setting, "Mixed"));
 			assert.deepStrictEqual(mixed, { apiKey: "sk-mixed" });
@@ -307,9 +300,8 @@ suite("extension/dashboard/intents: request validation", () => {
 		});
 
 		test("resolution agrees with parseServersSetting: a rejected same-label sibling cannot shadow the accepted entry", () => {
-			// The first raw entry carries the label but has no usable baseUrl, so
-			// the parser rejects it and the dashboard row describes the SECOND
-			// entry; the prefill must read that same entry.
+			// The first raw entry carries the label but has no usable baseUrl, so the parser rejects it and the
+			// dashboard row describes the SECOND entry; the prefill must read that same entry.
 			const shadowed = [
 				{ label: "Prod", auth: { apiKey: "sk-shadow" } },
 				{ label: "Prod", baseUrl: "http://real.test", auth: { apiKey: "sk-real" } },
@@ -320,8 +312,8 @@ suite("extension/dashboard/intents: request validation", () => {
 		});
 
 		test("a label the parser rejects yields nothing, even when a raw entry carries inline fields under it", () => {
-			// The dashboard never declares this entry (reserved label), so a
-			// crafted request must not be able to read its inline fields.
+			// The dashboard never declares this entry (reserved label), so a crafted request must not be able to read
+			// its inline fields.
 			const rejected = [{ label: "__proto__", baseUrl: "http://x.test", auth: { apiKey: "sk-hidden" } }];
 			assert.deepStrictEqual(
 				readInlineSecretValues(rejected, replaceIdentity("__proto__", "http://x.test", { apiKey: "settings" })),
@@ -340,9 +332,8 @@ suite("extension/dashboard/intents: request validation", () => {
 		});
 
 		test("an entry that no longer matches the displayed identity prefills nothing", () => {
-			// The same-label swap racing the prefill: the form displayed the entry
-			// at a.test; the label now carries one at b.test with its own inline
-			// key. The stale form must not receive the replacement's value.
+			// The same-label swap racing the prefill: the form displayed the entry at a.test; the label now carries one
+			// at b.test with its own inline key. The stale form must not receive the replacement's value.
 			const swapped = [{ label: "Inline", baseUrl: "http://b.test", auth: { apiKey: "sk-swapped" } }];
 			assert.deepStrictEqual(
 				readInlineSecretValues(swapped, replaceIdentity("Inline", "http://a.test", { apiKey: "settings" })),
@@ -351,8 +342,8 @@ suite("extension/dashboard/intents: request validation", () => {
 		});
 
 		test("moved secret locations prefill nothing either", () => {
-			// Same host, but the entry now inlines a key the form displayed as
-			// "none": a different credential shape is a different entry.
+			// Same host, but the entry now inlines a key the form displayed as "none": a different credential shape is
+			// a different entry.
 			const moved = [{ label: "Inline", baseUrl: "http://a.test", auth: { apiKey: "sk-moved-inline" } }];
 			assert.deepStrictEqual(readInlineSecretValues(moved, replaceIdentity("Inline", "http://a.test")), {});
 		});
@@ -386,9 +377,8 @@ suite("extension/dashboard/intents: request validation", () => {
 		});
 
 		test("validateNumberSetting refuses fractions for integer-only settings", () => {
-			// The message schema admits any finite number, so this host-side gate is
-			// what keeps a crafted payload from writing a fraction into a field whose
-			// contribution declares "integer", driven by the spec's integer flag.
+			// The message schema admits any finite number, so this host-side gate is what keeps a crafted payload from
+			// writing a fraction into a field whose contribution declares "integer", driven by the spec's integer flag.
 			const refused = validateNumberSetting("chat.maxToolsPerRequest", 2.5);
 			assert.ok(refused !== undefined, "a fractional tool cap is refused");
 			assert.ok(refused.split("\n")[1]?.includes("chat.maxToolsPerRequest"), refused);
@@ -401,8 +391,8 @@ suite("extension/dashboard/intents: request validation", () => {
 		});
 
 		test("number-setting refusals are two-part: a headline, then a detail line naming the setting id", () => {
-			// The banner is page-global and names no field, so the detail line must
-			// carry the setting id while the headline carries the unit-aware minimum.
+			// The banner is page-global and names no field, so the detail line must carry the setting id while the
+			// headline carries the unit-aware minimum.
 			const below = validateNumberSetting("chat.timeout", 999);
 			assert.ok(below !== undefined, "a below-minimum value is refused");
 			const [belowHeadline, belowDetail] = below.split("\n");

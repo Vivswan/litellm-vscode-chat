@@ -3,20 +3,17 @@ import * as vscode from "vscode";
 import { createCaptureServer } from "../capture-server";
 
 /**
- * Pins the host semantics serverSync's reconciliation and the dashboard's adopt
- * flow depend on, probed empirically (VS Code 1.130.0): the provider-group
- * command family is add-only, and a second add under an existing name is
- * REJECTED, never upserted. A failure here means the host grew new semantics
- * and serverSync's add-only tolerance should be revisited.
+ * Pins the host semantics serverSync's reconciliation and the dashboard's adopt flow depend on, probed empirically (VS
+ * Code 1.130.0): the provider-group command family is add-only, and a second add under an existing name is REJECTED,
+ * never upserted.
  */
 suite("host provider-group command semantics", () => {
 	test("the host registers no update or removal command in the provider-group family", async () => {
 		const commands = await vscode.commands.getCommands(true);
 		const groupCommands = commands.filter((id) => /languagemodelsprovidergroup/i.test(id));
-		// Non-exhaustive on purpose: the pinned property is the ABSENCE of a
-		// mutation path, not the family roster - an exhaustive list would go red
-		// the day the host ships an unrelated group command. Both known members
-		// are add-shaped (`add` from arguments, `migrate` from a legacy server).
+		// Non-exhaustive on purpose: the pinned property is the ABSENCE of a mutation path, not the family roster - an
+		// exhaustive list would go red the day the host ships an unrelated group command. Both known members are
+		// add-shaped (`add` from arguments, `migrate` from a legacy server).
 		assert.ok(groupCommands.includes("lm.addLanguageModelsProviderGroup"), groupCommands.join(", "));
 		assert.ok(groupCommands.includes("lm.migrateLanguageModelsProviderGroup"), groupCommands.join(", "));
 		const mutators = groupCommands.filter((id) => /remove|delete|update/i.test(id));

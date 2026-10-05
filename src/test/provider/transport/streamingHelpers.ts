@@ -1,8 +1,3 @@
-/**
- * Shared fixtures for the streaming suites: a counting tool-call ID source, a part
- * collector, the visible-text and event-sequence views of a response, and the
- * SSE stream plus replay loop that drive chunks through the real transport.
- */
 import * as vscode from "vscode";
 import type { StreamProcessor } from "../../../provider/transport/streaming";
 
@@ -36,7 +31,6 @@ export function visibleTextOf(parts: vscode.LanguageModelResponsePart[]): string
 		.join("");
 }
 
-/** Normalized event sequence: adjacent text parts merge, tool calls keep order. */
 export function eventSequenceOf(parts: vscode.LanguageModelResponsePart[]): string[] {
 	const events: string[] = [];
 	for (const part of parts) {

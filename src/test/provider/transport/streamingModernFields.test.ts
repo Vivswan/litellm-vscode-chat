@@ -1,7 +1,3 @@
-/**
- * StreamProcessor and the modern chunk fields: refusals and annotations, unhandled
- * fields passing through, and generated media with and without DataPart support.
- */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { StreamProcessor } from "../../../provider/transport/streaming";
@@ -285,8 +281,8 @@ suite("provider/streaming refusal and annotations", () => {
 	});
 
 	test("a source arriving after [DONE] still lands in the trailer", async () => {
-		// Mirrors the straggling usage trailer: [DONE] continues the loop, so
-		// the post-loop run is the one that renders the sources.
+		// Mirrors the straggling usage trailer: [DONE] continues the loop, so the post-loop run is the one that renders
+		// the sources.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([
@@ -322,8 +318,8 @@ suite("provider/streaming refusal and annotations", () => {
 	});
 
 	test("a citations-only stream without dropped reasoning resolves with its trailer", async () => {
-		// The trailer never counts as substantive output for the reasoning-only
-		// check, but with nothing dropped there is nothing to report.
+		// The trailer never counts as substantive output for the reasoning-only check, but with nothing dropped there
+		// is nothing to report.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 
@@ -340,8 +336,8 @@ suite("provider/streaming refusal and annotations", () => {
 
 suite("provider/streaming pass-through of unhandled modern fields", () => {
 	test("usage logging is restricted to the known numeric token counts", async () => {
-		// The usage record is response-owned: unknown keys and non-numeric values
-		// in known slots must never ride into the log data.
+		// The usage record is response-owned: unknown keys and non-numeric values in known slots must never ride into
+		// the log data.
 		const cases = [
 			{
 				usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
@@ -474,8 +470,8 @@ suite("provider/streaming generated media", () => {
 	});
 
 	test("base64 validation is canonical: truncated groups and noncanonical pad bits skip instead of corrupting", () => {
-		// Bare/short padding and noncanonical pad bits, which Buffer would silently
-		// decode to empty or truncated bytes, plus bad alphabet, length, URL-safe.
+		// Bare/short padding and noncanonical pad bits, which Buffer would silently decode to empty or truncated bytes,
+		// plus bad alphabet, length, URL-safe.
 		const rejected = ["=", "==", "AA=", "AAA==", "AB==", "U", "UklGRg", "AQI_", "AQI-", "@@@@", "AQ=A", "===="];
 		for (const payload of rejected) {
 			const logs: string[] = [];
@@ -530,8 +526,8 @@ suite("provider/streaming generated media", () => {
 	});
 
 	test("a model-controlled mime that is not a safe type/subtype is rejected at the source", () => {
-		// Each bad mime carries the marker "zq9" so the log assertion cannot
-		// trip on innocent substrings of the classification message itself.
+		// Each bad mime carries the marker "zq9" so the log assertion cannot trip on innocent substrings of the
+		// classification message itself.
 		const badMimes = ["not a zq9 mime", "imagezq9", "image/zq9; charset=x", `image/zq9${"y".repeat(120)}`, "a/zq9/c"];
 		for (const mime of badMimes) {
 			const logs: string[] = [];
@@ -679,8 +675,8 @@ suite("provider/streaming generated media", () => {
 		const { parts, progress } = collector();
 		const stream = mediaProcessor(progress, (msg) => logs.push(msg));
 
-		// "AQID" under text/html would otherwise round-trip its bytes back
-		// into assistant text on the next turn via the history converter.
+		// "AQID" under text/html would otherwise round-trip its bytes back into assistant text on the next turn via the
+		// history converter.
 		stream.processDelta({
 			choices: [
 				{
@@ -845,8 +841,8 @@ suite("provider/streaming generated media", () => {
 	});
 
 	test("an SSE stream carrying an audio delta surfaces the host's real LanguageModelDataPart", async () => {
-		// Default constructor arguments: the module probe finds the host's
-		// stable LanguageModelDataPart class in the extension test host.
+		// Default constructor arguments: the module probe finds the host's stable LanguageModelDataPart class in the
+		// extension test host.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([

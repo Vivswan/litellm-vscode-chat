@@ -1,8 +1,9 @@
 /**
  * The participant's prose: package.nls.json carries the "/" picker's copy of each command description, because the
  * host reads the manifest long before this process exists, while the registry resolves its own through the runtime
- * l10n bundle. The two cannot share a string, so they are pinned equal here. The manifest's structure (command set and
- * order, gates, categories) is generated from the tables and no longer read.
+ * l10n bundle. The two cannot share a string, so they are pinned equal here.
+ *
+ *   The manifest's structure -> generated from the tables and no longer read
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -11,7 +12,6 @@ import { builtinSlashCommands } from "../../../../../extension/features/particip
 import { quickFixSlashCommands } from "../../../../../extension/features/quickFixChatCommands";
 import { REPO_ROOT } from "../../../../util/repoRoot";
 
-/** Every nls table, so a key can be resolved in each locale that ships. English comes first. */
 function nlsTables(): { locale: string; table: Record<string, string> }[] {
 	return ["", "zh-cn", "zh-tw"].map((locale) => ({
 		locale: locale === "" ? "en" : locale,
@@ -23,8 +23,6 @@ function nlsTables(): { locale: string; table: Record<string, string> }[] {
 
 describe("extension/features/participant contribution prose", () => {
 	test("the manifest and the registry tell the user the same thing about each command", () => {
-		// Two runtimes, two string tables, so the prose cannot be shared by construction - but it can be pinned
-		// equal, which is what keeps the "/" picker and the in-chat listing from describing a command two ways.
 		const [english] = nlsTables();
 		for (const command of [...builtinSlashCommands(), ...quickFixSlashCommands()]) {
 			expect(

@@ -184,8 +184,8 @@ suite("shared/config/settings normalizeCustomHeaders", () => {
 		assert.strictEqual(logged.length, 3, "each rejected header logs exactly once");
 		for (const entry of logged) {
 			assert.ok(entry.msg.includes("cannot be sent as an HTTP header"), entry.msg);
-			// The classification names the header, never the value: these values
-			// can be secrets and the log buffer feeds public issue reports.
+			// The classification names the header, never the value: these values can be secrets and the log buffer
+			// feeds public issue reports.
 			assert.ok(!JSON.stringify(entry).includes("start"), "the rejected value must not reach the log");
 		}
 	});
@@ -211,9 +211,8 @@ suite("shared/config/settings normalizeCustomHeaders", () => {
 
 suite("shared/config/settings normalizeModelCapabilities", () => {
 	test("keeps the record-of-records shape and stays vocabulary-blind", () => {
-		// Shape only, deliberately: unknown keys and invalid values survive here
-		// so parseCapabilityRecord (the one vocabulary boundary) can diagnose
-		// them instead of them silently vanishing.
+		// Shape only, deliberately: unknown keys and invalid values survive here so parseCapabilityRecord (the one
+		// vocabulary boundary) can diagnose them instead of them silently vanishing.
 		const raw = {
 			"gpt-4": { context_length: 128000, supports_pdf_input: true, context_window: "128k" },
 			"http://a.test/claude": { _declare: true },
@@ -359,14 +358,12 @@ suite("shared/config/settings normalizeAdditionalToolSchemaKeywords", () => {
 
 suite("shared/config/settings appearance getters", () => {
 	test("a junk settings.json appearance value reads as the default, whatever kind it is", () => {
-		// The dashboard restamps the root element from these two on every state
-		// push, so a hand-edited settings.json holding a typo, a number, or null
-		// must not reach the webview as a data-theme nobody styles.
+		// The dashboard restamps the root element from these two on every state push, so a hand-edited settings.json
+		// holding a typo, a number, or null must not reach the webview as a data-theme nobody styles.
 		for (const junk of ["Dark", "", "system", 3, null, undefined, {}, ["dark"]]) {
 			assert.strictEqual(normalizeUiTheme(junk), DEFAULT_UI_THEME, JSON.stringify(junk) ?? "undefined");
 			assert.strictEqual(normalizeUiAccent(junk), DEFAULT_UI_ACCENT, JSON.stringify(junk) ?? "undefined");
 		}
-		// Every member of the vocabulary passes through untouched.
 		for (const theme of UI_THEMES) {
 			assert.strictEqual(normalizeUiTheme(theme), theme);
 		}
@@ -389,8 +386,8 @@ suite("shared/config/settings appearance getters", () => {
 
 suite("shared/config/settings token estimation getter", () => {
 	test("a junk chat.tokenEstimation value reads as the default, whatever kind it is", () => {
-		// The settings import path can write an arbitrary value into the key,
-		// and this normalizer is the only thing between that and the counter.
+		// The settings import path can write an arbitrary value into the key, and this normalizer is the only thing
+		// between that and the counter.
 		for (const junk of ["Auto", "", "gpt2", "o200k", 3, null, undefined, {}, ["auto"]]) {
 			assert.strictEqual(
 				normalizeTokenEstimationMode(junk),
@@ -415,9 +412,8 @@ suite("shared/config/settings token estimation getter", () => {
 
 suite("shared/config/settings currency symbol getter", () => {
 	test("any string passes verbatim - multi-character, spaced, and empty included", () => {
-		// The symbol is display-only, so the whole string space is legal: no
-		// trimming (the trailing space in "EUR " is load-bearing) and the empty
-		// string is a real choice (bare numbers), never coerced to the default.
+		// The symbol is display-only, so the whole string space is legal: no trimming (the trailing space in "EUR " is
+		// load-bearing) and the empty string is a real choice (bare numbers), never coerced to the default.
 		for (const symbol of ["$", "EUR ", "kr", "", " ", "USD "]) {
 			assert.strictEqual(normalizeCurrencySymbol(symbol), symbol);
 		}
@@ -519,8 +515,8 @@ suite("shared/config/settings feature model refs", () => {
 
 suite("shared/config/settings commit prompt getter", () => {
 	test("any string passes verbatim - whitespace and the empty built-in marker included", () => {
-		// Model-facing text: no trimming, and "" is the real "use the built-in
-		// instruction" value rather than a fallback.
+		// Model-facing text: no trimming, and "" is the real "use the built-in instruction" value rather than a
+		// fallback.
 		for (const prompt of ["", " ", "One line.", "line\nline"]) {
 			assert.strictEqual(normalizeCommitGenerationPrompt(prompt), prompt);
 		}

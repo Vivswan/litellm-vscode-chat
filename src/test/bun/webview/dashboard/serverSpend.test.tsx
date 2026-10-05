@@ -1,7 +1,6 @@
 /**
- * The Servers page's merged spend surface (docs/usage.md#the-usage-panel): the
- * per-row spend unit and its drawer, the absence rules (a dim dash plus the
- * reason, never a zero), the diagnostics tiers, the meta summary, the refresh gate.
+ * The Servers page's merged spend surface (docs/usage.md#the-usage-panel): the per-row spend unit and its drawer, the
+ * absence rules (a dim dash plus the reason, never a zero), the diagnostics tiers, the meta summary, the refresh gate.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { stalenessText } from "../../../../dashboard/spendFormat";
@@ -48,7 +47,6 @@ function mountServers(usage: DashboardUsage, servers: readonly DashboardServer[]
 	);
 }
 
-/** Open the first (or nth) server row's drawer and return the row element, drawer included. */
 function openRow(root: ParentNode, index = 0): HTMLElement {
 	const row = Array.from(root.querySelectorAll(".server-item"))[index];
 	if (!(row instanceof HTMLElement)) {
@@ -62,7 +60,6 @@ function openRow(root: ParentNode, index = 0): HTMLElement {
 	return row;
 }
 
-/** The value cell of one labelled fact in an opened drawer, by its label text. */
 function factOf(row: ParentNode, label: string): string {
 	const terms = Array.from(row.querySelectorAll(".server-facts dt"));
 	const term = terms.find((candidate) => (candidate.textContent ?? "").trim() === label);
@@ -79,8 +76,8 @@ describe("the spend unit", () => {
 			makeUsage({ servers: [makeUsageServer({ label: "Prod", spend: 21, spentFraction })] });
 		const cases: readonly [number, string, string][] = [
 			[0.42, "42%", "text-ok"],
-			// Reaching a threshold counts as crossing it (the fixture thresholds
-			// are 0.8 and 0.95); over budget shows the literal percentage.
+			// Reaching a threshold counts as crossing it (the fixture thresholds are 0.8 and 0.95); over budget shows
+			// the literal percentage.
 			[0.8, "80%", "text-warn"],
 			[1.12, "112%", "text-err"],
 		];
@@ -89,15 +86,13 @@ describe("the spend unit", () => {
 			const unit = root.querySelector(".server-usage .spend-unit") as HTMLElement;
 			// The hidden noun is the number's name - there is no column header.
 			expect(unit.querySelector(".visually-hidden")?.textContent).toContain("Budget spent");
-			// The figure exactly, hidden noun stripped: a substring check would let
-			// a rendered 142% pass as 42%.
+			// The figure exactly, hidden noun stripped: a substring check would let a rendered 142% pass as 42%.
 			const figure = unit.querySelector(`.${tone}`);
 			expect(figure).not.toBeNull();
 			const noun = figure?.querySelector(".visually-hidden")?.textContent ?? "";
 			expect((figure?.textContent ?? "").replace(noun, "").trim()).toBe(percent);
-			// The meter under the number: the axis marks the 100% extent and the
-			// fill carries its forced-colors colour, so the meter can never read
-			// as a measured zero when backgrounds flatten to Canvas.
+			// The meter under the number: the axis marks the 100% extent and the fill carries its forced-colors colour,
+			// so the meter can never read as a measured zero when backgrounds flatten to Canvas.
 			const meter = unit.querySelector(".spend-meter");
 			expect(meter?.classList.contains("border-axis")).toBe(true);
 			expect(meter?.classList.contains("border-b")).toBe(true);
@@ -124,14 +119,14 @@ describe("the spend unit", () => {
 		expect(unit.querySelector(".visually-hidden")?.textContent).toContain("Spent");
 		expect(unit.textContent).toContain("$3.07");
 		expect(unit.textContent).not.toContain("%");
-		// No axis either: a bare rule under no fill is a measured zero, which is
-		// the one thing a server with no budget must not appear to be.
+		// No axis either: a bare rule under no fill is a measured zero, which is the one thing a server with no budget
+		// must not appear to be.
 		expect(unit.querySelector(".spend-meter")).toBeNull();
 	});
 
 	test("a server without usage data gets an empty spend cell, not an unknown marker", () => {
-		// The usage snapshot tracks a different entry (usage joins by the store's
-		// label key), so this row has no numbers to show - and says nothing.
+		// The usage snapshot tracks a different entry (usage joins by the store's label key), so this row has no
+		// numbers to show - and says nothing.
 		const usage = makeUsage({ servers: [makeUsageServer({ label: "Other" })] });
 		const root = mountServers(usage);
 		const cell = root.querySelector(".server-row .server-usage") as HTMLElement;
@@ -141,9 +136,8 @@ describe("the spend unit", () => {
 	});
 
 	test("every non-fresh spend unit wears the one-word stale qualifier, whatever the cause", () => {
-		// The header's clause is "worst FRESH budget", so an unmarked stale number
-		// beneath it read as the header contradicting the page. The word is a unit
-		// qualifier; the cause stays in the diagnostic line or the drawer.
+		// The header's clause is "worst FRESH budget", so an unmarked stale number beneath it read as the header
+		// contradicting the page. The word is a unit qualifier; the cause stays in the diagnostic line or the drawer.
 		const stale = mountServers(makeUsage({ servers: [makeUsageServer({ label: "Prod", fresh: false })] }));
 		expect(textOf(stale, ".spend-note")).toBe("stale");
 		cleanup();
@@ -185,9 +179,8 @@ describe("the drawer", () => {
 		const line = root.querySelector("button.server-line") as HTMLButtonElement;
 		expect(line.getAttribute("aria-expanded")).toBe("false");
 		expect(root.querySelector(".server-drawer")).toBeNull();
-		// The disclosure mark is the model rows' chevron, not a text toggle: the
-		// state lives on aria-expanded, so the words "open"/"close" must not
-		// ride in the button's accessible name.
+		// The disclosure mark is the model rows' chevron, not a text toggle: the state lives on aria-expanded, so the
+		// words "open"/"close" must not ride in the button's accessible name.
 		expect(line.querySelector(".server-chevron")).not.toBeNull();
 		expect(line.textContent).not.toContain("open");
 
@@ -197,7 +190,6 @@ describe("the drawer", () => {
 		expect(factOf(row, "Base URL")).toBe("http://localhost:4000");
 		expect(factOf(row, "Authentication")).toBe("API key");
 		expect(factOf(row, "Models")).toBe("3 models");
-		// Unchecked: no time to show, and the way forward in place.
 		expect(factOf(row, "Discovery last checked")).toContain("no discovery pass has seen it yet");
 		expect(factOf(row, "Spend")).toBe("$40.00");
 		// Both budgets stay in view when the entry's value wins (docs/usage.md#budgets).
@@ -208,16 +200,14 @@ describe("the drawer", () => {
 		expect(factOf(row, "Cache hit rate")).toBe("37%");
 		expect(factOf(row, "Spend last updated")).toBe("1 min ago");
 
-		// And it closes again.
 		fireClick(line);
 		expect(line.getAttribute("aria-expanded")).toBe("false");
 		expect(root.querySelector(".server-drawer")).toBeNull();
 	});
 
 	test("the drawer's rates floor like every percent: a lossy rate never prints a clean 100%", () => {
-		// The rates ride the same formatPercent as the budget figures, so the
-		// floor semantics reach them too: 3 failures in 1841 must not read as
-		// a perfect run.
+		// The rates ride the same formatPercent as the budget figures, so the floor semantics reach them too: 3
+		// failures in 1841 must not read as a perfect run.
 		const usage = makeUsage({
 			servers: [
 				makeUsageServer({
@@ -292,8 +282,8 @@ describe("the drawer", () => {
 		const root = mountServers(usage);
 		expect(textOf(root, ".spend-note")).toBe("stale");
 		const updated = factOf(openRow(root), "Spend last updated");
-		// One staleness vocabulary: the drawer uses the row marker's word, never a
-		// hedged synonym ("possibly stale" once named the same state differently).
+		// One staleness vocabulary: the drawer uses the row marker's word, never a hedged synonym ("possibly stale"
+		// once named the same state differently).
 		expect(updated).toContain("stale");
 		expect(updated).not.toContain("possibly");
 		expect(updated).toContain("25 min ago");
@@ -342,11 +332,9 @@ describe("the drawer", () => {
 		const row = openRow(mountServers(usage));
 		expect(factOf(row, "Requests, 30 days")).toContain("96");
 		expect(factOf(row, "Requests, 30 days")).toContain("may be outdated");
-		// A rate the window does not carry stays absent rather than reading zero.
 		expect(factOf(row, "Cache hit rate")).toContain("-");
 		expect(factOf(row, "Cache hit rate")).not.toContain("0%");
 		expect(textOf(row, ".usage-detail")).toContain("LiteLLM /user/daily/activity: HTTP 500");
-		// An activity error stays a fact annotation, never a diagnostic line.
 		expect(row.querySelector(".row-diagnostic")).toBeNull();
 	});
 
@@ -357,9 +345,8 @@ describe("the drawer", () => {
 			mountServers(withActivity({ kind: "unavailable", reason: "unsupported", status: 404 }))
 		);
 		expect(factOf(unsupportedRow, "Requests, 30 days")).toContain("does not serve /user/daily/activity");
-		// The one cause is stated once, on the fact that owns the window: the
-		// two computed rates beneath it stay bare dashes rather than repeating
-		// the same clause in three consecutive cells.
+		// The one cause is stated once, on the fact that owns the window: the two computed rates beneath it stay bare
+		// dashes rather than repeating the same clause in three consecutive cells.
 		expect(factOf(unsupportedRow, "Success rate")).toBe("-not reported");
 		expect(factOf(unsupportedRow, "Cache hit rate")).toBe("-not reported");
 		expect(unsupportedRow.querySelector(".usage-detail")).toBeNull();
@@ -382,9 +369,8 @@ describe("the drawer", () => {
 	});
 
 	test("a denied card's drawer keeps the whole usage inventory, dashed - parity with a reporting server", () => {
-		// One reason per refused endpoint, on the fact that owns it; the rows
-		// computed from those stay bare dashes, and the remedy lives in the
-		// row's counted diagnostic rather than being restated per line.
+		// One reason per refused endpoint, on the fact that owns it; the rows computed from those stay bare dashes, and
+		// the remedy lives in the row's counted diagnostic rather than being restated per line.
 		const usage = makeUsage({
 			servers: [makeForbiddenUsageServer({ label: "Prod", baseUrl: "http://localhost:4000" })],
 		});
@@ -394,8 +380,7 @@ describe("the drawer", () => {
 		for (const label of ["Budget", "Next reset", "Success rate", "Cache hit rate", "Spend last updated"]) {
 			expect(factOf(row, label)).toBe("-not reported");
 		}
-		// Mixed cards keep the per-endpoint truth: an unsupported partner reads
-		// as unsupported, not as denied.
+		// Mixed cards keep the per-endpoint truth: an unsupported partner reads as unsupported, not as denied.
 		cleanup();
 		const mixed = makeUsage({
 			servers: [
@@ -413,9 +398,9 @@ describe("the drawer", () => {
 	});
 
 	test("both drawers' missing-number reasons come from the one standing-to-reason map", () => {
-		// One map per fact for BOTH drawers (reporting and denied): for every standing the two
-		// must answer word for word, so the prose cannot fork per drawer again - the forbidden
-		// spend wording had already drifted between them once.
+		// One map per fact for BOTH drawers (reporting and denied): for every standing the two must answer word for
+		// word, so the prose cannot fork per drawer again - the forbidden spend wording had already drifted between
+		// them once.
 		const spendReasonOf = (root: ParentNode) => factOf(openRow(root), "Spend");
 		const requestsReasonOf = (root: ParentNode) => factOf(openRow(root), "Requests, 30 days");
 		const normal = (overrides: Partial<UsageServerView>) =>
@@ -433,8 +418,8 @@ describe("the drawer", () => {
 		const forbidden = { kind: "unavailable", reason: "forbidden", status: 403 } as const;
 		const unsupported = { kind: "unavailable", reason: "unsupported", status: 404 } as const;
 
-		// The reconciled forbidden spend clause: a lowercase dash annotation, remedy-free (the
-		// remedy lives in the row's diagnostic), identical in both drawers.
+		// The reconciled forbidden spend clause: a lowercase dash annotation, remedy-free (the remedy lives in the
+		// row's diagnostic), identical in both drawers.
 		const forbiddenSpend = spendReasonOf(normal({ keyInfo: forbidden }));
 		expect(forbiddenSpend).toContain("this key isn't allowed to read its spend");
 		expect(forbiddenSpend).not.toContain("ask whoever issued");
@@ -479,7 +464,6 @@ describe("the drawer", () => {
 				onAddServer={() => {}}
 			/>
 		);
-		// No focusable tip inside the disclosure button; the badge is plain.
 		expect(root.querySelector("button.server-line .tip-wrap")).toBeNull();
 		const row = openRow(root);
 		expect(factOf(row, "Origin")).toContain("external");
@@ -489,9 +473,8 @@ describe("the drawer", () => {
 
 describe("the usage diagnostics", () => {
 	test("a key denied all usage becomes a DEGRADED diagnostic: counted, warn-tinted, both endpoints stated", () => {
-		// USER RULING (2026-08-14): denied usage keys are degraded, not advisory -
-		// only a human can change a permission, so the row carries something to
-		// act on and the attention count says so.
+		// USER RULING (2026-08-14): denied usage keys are degraded, not advisory - only a human can change a
+		// permission, so the row carries something to act on and the attention count says so.
 		const usage = makeUsage({
 			servers: [makeForbiddenUsageServer({ label: "Prod", baseUrl: "http://localhost:4000" })],
 		});
@@ -505,13 +488,11 @@ describe("the usage diagnostics", () => {
 			"LiteLLM /key/info: HTTP 403 - this key may not read usage data",
 			"LiteLLM /user/daily/activity: HTTP 403 - this key may not read usage data",
 		]);
-		// Counted: the meta line and the live region both carry the verdict.
 		expect(textOf(root, ".section-meta")).toContain("1 needs attention");
 		// The fix action posts the same fleet-wide refresh the header offers.
 		resetPosted();
 		fireClick(buttonByText(line, "Refresh now"));
 		expect(postedCalls()).toEqual([{ method: "refreshUsage", payload: null }]);
-		// No numbers anywhere: the row's spend cell stays empty.
 		expect((root.querySelector(".server-row .server-usage") as HTMLElement).textContent).toBe("");
 	});
 
@@ -549,8 +530,8 @@ describe("the usage diagnostics", () => {
 	});
 
 	test("spend denied while statistics still serve is degraded too: the user-ruled tier, per endpoint", () => {
-		// The /key/info-only denial. Retained history keeps rendering while the
-		// diagnostic counts, because only a human can change a key's permission.
+		// Retained history keeps rendering while the diagnostic counts, because only a human can change a key's
+		// permission.
 		const usage = makeUsage({
 			servers: [
 				makeUsageServer({
@@ -568,8 +549,8 @@ describe("the usage diagnostics", () => {
 		expect(line.textContent).toContain("Prod can't read its spend");
 		expect(line.textContent).toContain("LiteLLM /key/info: HTTP 401");
 		expect(textOf(root, ".section-meta")).toContain("1 needs attention");
-		// The retained number is not fresh, so it wears the one-word qualifier;
-		// the denial itself lives in the diagnostic line, not beside the number.
+		// The retained number is not fresh, so it wears the one-word qualifier; the denial itself lives in the
+		// diagnostic line, not beside the number.
 		expect(textOf(root, ".spend-note")).toBe("stale");
 		resetPosted();
 		fireClick(buttonByText(line, "Refresh now"));
@@ -577,9 +558,8 @@ describe("the usage diagnostics", () => {
 	});
 
 	test("a transient refresh failure is ADVISORY and still renders in full: headline, detail, fix action", () => {
-		// A spec requirement: only the tint and the attention count are reduced on
-		// the quiet tier - headline, English endpoint detail, and Refresh now all
-		// render exactly as a degraded line's would.
+		// A spec requirement: only the tint and the attention count are reduced on the quiet tier - headline, English
+		// endpoint detail, and Refresh now all render exactly as a degraded line's would.
 		const usage = makeUsage({
 			servers: [makeUsageServer({ label: "Prod", fresh: false, keyInfo: { kind: "error", status: 429 } })],
 		});
@@ -603,8 +583,8 @@ describe("the usage diagnostics", () => {
 		});
 		const line = mountServers(usage).querySelector(".row-diagnostic") as HTMLElement;
 		expect(line.textContent).toContain("background polling is off - use Refresh now to try again");
-		// The headline owns the retry story on both branches; the detail under it
-		// states the endpoint fact alone rather than saying it a second time.
+		// The headline owns the retry story on both branches; the detail under it states the endpoint fact alone rather
+		// than saying it a second time.
 		expect(textOf(line, ".row-diagnostic-detail")).toBe("LiteLLM /key/info: request failed on the last attempt");
 	});
 
@@ -624,9 +604,9 @@ describe("the usage diagnostics", () => {
 	});
 
 	test("every endpoint detail line renders exactly once across the row - never doubled, never dropped", () => {
-		// The drawer prints only the details the diagnostics report NOT carrying, so a changed
-		// emission condition either doubles a "LiteLLM <path>" line or drops it - this sweep
-		// fails on both, for every diagnostic-emitting standing combination.
+		// The drawer prints only the details the diagnostics report NOT carrying, so a changed emission condition
+		// either doubles a "LiteLLM <path>" line or drops it - this sweep fails on both, for every diagnostic-emitting
+		// standing combination.
 		const keyInfoCases: readonly { readonly standing: UsageServerView["keyInfo"]; readonly lines: number }[] = [
 			{ standing: { kind: "ok" }, lines: 0 },
 			{ standing: { kind: "unknown" }, lines: 0 },
@@ -692,27 +672,25 @@ describe("the usage diagnostics", () => {
 			text: (line.textContent ?? "").trim(),
 		}));
 		expect(lines).toEqual([
-			// The leading tier word is the shared severity vocabulary's hidden label
-			// (severityLabel): colour and geometry cannot reach a screen reader.
-			// Gateway's warn-tier sentence waits in the drawer (user-ruled placement).
-			// Over budget is past any error threshold, so the band paints the error
-			// tier (user-ruled) while the severity - the rank - stays degraded.
+			// The leading tier word is the shared severity vocabulary's hidden label (severityLabel): colour and
+			// geometry cannot reach a screen reader. Over budget is past any error threshold, so the band paints the
+			// error tier (user-ruled) while the severity - the rank - stays degraded.
+			//
+			//   Gateway's warn-tier sentence -> waits in the drawer (user-ruled placement)
 			{ tier: "tier-error", text: "Action needed: Prod is over its budget by $3.00." },
 		]);
-		// The pill and the attention count still read the FULL ranked list -
-		// only the sentence moved.
+		// The pill and the attention count still read the FULL ranked list - only the sentence moved.
 		expect(textOf(root, ".section-meta")).toContain("2 need attention");
-		// A closed drawer keeps the sentence in the ACCESSIBLE tree: the meter's
-		// tone is colour, which a screen reader never gets.
+		// A closed drawer keeps the sentence in the ACCESSIBLE tree: the meter's tone is colour, which a screen reader
+		// never gets.
 		const gatewayItem = Array.from(root.querySelectorAll(".server-item"))[1] as HTMLElement;
 		const hiddenTwin = Array.from(gatewayItem.querySelectorAll(".visually-hidden")).find((node) =>
 			(node.textContent ?? "").includes("close to its budget")
 		);
 		expect((hiddenTwin?.textContent ?? "").trim()).toBe("Action needed: Gateway is close to its budget: $6.50 left.");
 		const gateway = openRow(root, 1);
-		// The open drawer renders the sentence as its LEADING fact-register row
-		// (user-ruled): a severity glyph plus toned text, never a band nested
-		// inside the drawer card - and the hidden tier word still leads it.
+		// The open drawer renders the sentence as its LEADING fact-register row (user-ruled): a severity glyph plus
+		// toned text, never a band nested inside the drawer card - and the hidden tier word still leads it.
 		const drawer = gateway.querySelector(".server-drawer") as HTMLElement;
 		expect(drawer.querySelector(".row-diagnostic")).toBeNull();
 		const notice = drawer.firstElementChild as HTMLElement;
@@ -720,7 +698,6 @@ describe("the usage diagnostics", () => {
 		expect(notice.classList.contains("text-warn")).toBe(true);
 		expect(notice.querySelector("svg[aria-hidden='true']")).not.toBeNull();
 		expect((notice.textContent ?? "").trim()).toBe("Action needed: Gateway is close to its budget: $6.50 left.");
-		// First row of the inventory, above the Base URL fact.
 		expect(notice.nextElementSibling?.classList.contains("server-facts")).toBe(true);
 		// The visible drawer line replaces the twin; two copies would announce twice.
 		expect(
@@ -737,16 +714,14 @@ describe("the usage diagnostics", () => {
 		const root = mountServers(usage);
 		const line = root.querySelector(".row-diagnostic") as HTMLElement;
 		expect((line.textContent ?? "").trim()).toBe("Action needed: Prod is close to its budget: $1.50 left.");
-		// The same classifier as the meter: past the error threshold the band
-		// paints the error tier (the same paint as a blocking failure) even though
-		// the rank - and the tier word - stay degraded.
+		// The same classifier as the meter: past the error threshold the band paints the error tier (the same paint as
+		// a blocking failure) even though the rank - and the tier word - stay degraded.
 		expect(line.classList.contains("tier-error")).toBe(true);
 	});
 
 	test("over budget with alerts off (empty thresholds): meter fill and diagnostic both wear the error tone", () => {
-		// The regression this suite exists to forbid: the shared map owns the
-		// >1-is-error rule, so an ok-toned 130% meter can never sit beside an
-		// error-toned over-budget band.
+		// The regression this suite exists to forbid: the shared map owns the >1-is-error rule, so an ok-toned 130%
+		// meter can never sit beside an error-toned over-budget band.
 		const usage = makeUsage({
 			thresholds: [],
 			servers: [makeUsageServer({ label: "Prod", spend: 32.5, effectiveBudget: 25, spentFraction: 1.3 })],
@@ -761,9 +736,8 @@ describe("the usage diagnostics", () => {
 	});
 
 	test("the band and the meter agree on freshness: both wear the stale qualifier, or neither does", () => {
-		// One rule, the viewModel's `fresh` field: an over-budget row whose usage
-		// endpoint stops answering must not band an unqualified red beside a
-		// "stale"-marked meter.
+		// One rule, the viewModel's `fresh` field: an over-budget row whose usage endpoint stops answering must not
+		// band an unqualified red beside a "stale"-marked meter.
 		const rowFor = (fresh: boolean) =>
 			makeUsage({
 				servers: [makeUsageServer({ label: "Prod", spend: 28, effectiveBudget: 25, spentFraction: 1.12, fresh })],
@@ -782,11 +756,10 @@ describe("the usage diagnostics", () => {
 	});
 
 	test("the band's qualifier is the drawer's staleness fact verbatim, for every cause", () => {
-		// One staleness pipeline: whatever words the drawer's "Spend last updated"
-		// fact uses for the cause, the band uses unchanged - a denied key must not
-		// read "stale" on one surface and "denied" on another. The expected words
-		// are pinned against the shared vocabulary itself (stalenessText), the
-		// same function the status bar tooltip composes around.
+		// One staleness pipeline: whatever words the drawer's "Spend last updated" fact uses for the cause, the band
+		// uses unchanged - a denied key must not read "stale" on one surface and "denied" on another. The expected
+		// words are pinned against the shared vocabulary itself (stalenessText), the same function the status bar
+		// tooltip composes around.
 		const causes: readonly { keyInfo: UsageServerView["keyInfo"]; text: string }[] = [
 			{ keyInfo: { kind: "ok" }, text: "stale" },
 			{ keyInfo: { kind: "error", classification: "timeout" }, text: "last refresh failed" },
@@ -851,12 +824,10 @@ describe("the header", () => {
 		const root = mountServers(usage, [prodServer(), prodServer({ label: "Gateway", baseUrl: "http://gw.test" })]);
 		const meta = textOf(root, ".section-meta");
 		expect(meta).toContain("2 servers");
-		// The over-budget row still counts (its numbers are last-known), and the
-		// near-budget fresh row does too.
+		// The over-budget row still counts (its numbers are last-known), and the near-budget fresh row does too.
 		expect(meta).toContain("2 need attention");
-		// The worst FRESH fraction - a maximum, never a sum, never a stale one.
-		// The clause says "use" (a bare "budget 87%" reads as remaining) and
-		// glosses the exclusion while a stale row is visible.
+		// The worst FRESH fraction - a maximum, never a sum, never a stale one. The clause says "use" (a bare "budget
+		// 87%" reads as remaining) and glosses the exclusion while a stale row is visible.
 		expect(meta).toContain("worst budget use 87% (stale rows excluded)");
 		expect(meta).toContain("background polling off");
 	});
@@ -867,15 +838,14 @@ describe("the header", () => {
 		});
 		const root = mountServers(usage);
 		const meta = textOf(root, ".section-meta");
-		// No stale row exists, so the qualifier would gloss an exclusion that
-		// excluded nothing.
+		// No stale row exists, so the qualifier would gloss an exclusion that excluded nothing.
 		expect(meta).toContain("worst budget use 87%");
 		expect(meta).not.toContain("stale rows excluded");
 	});
 
 	test("the worst-budget clause reads the pushed spentFraction, never a re-division of spend by budget", () => {
-		// A deliberately inconsistent card: if the header divided 43.5/50 itself
-		// it would print 87% and this pin would catch the second pipeline.
+		// A deliberately inconsistent card: if the header divided 43.5/50 itself it would print 87% and this pin would
+		// catch the second pipeline.
 		const usage = makeUsage({
 			servers: [makeUsageServer({ label: "Prod", spend: 43.5, effectiveBudget: 50, spentFraction: 0.92, fresh: true })],
 		});
@@ -886,16 +856,14 @@ describe("the header", () => {
 	test("Refresh now posts the intent and disables while a pass is in flight", () => {
 		const root = mountServers(makeUsage({ servers: [makeUsageServer({ label: "Prod" })] }));
 		const resting = root.querySelector("button.refresh-usage") as HTMLButtonElement;
-		// At rest the mounted busy twin is aria-hidden as well as invisible: the
-		// accessible name must be exactly the resting label, since the `invisible`
-		// class alone is a CSS fact the accessible-name walk cannot see.
+		// At rest the mounted busy twin is aria-hidden as well as invisible: the accessible name must be exactly the
+		// resting label, since the `invisible` class alone is a CSS fact the accessible-name walk cannot see.
 		expect(accessibleNameOf(resting)).toBe("Refresh now");
 		fireClick(resting);
 		expect(postedCalls()).toEqual([{ method: "refreshUsage", payload: null }]);
 		cleanup();
-		// An EXPLICIT pass wears the busy label (and keeps the idle label
-		// mounted invisible as its width twin, so the swap cannot resize the
-		// button); disabled either way.
+		// An EXPLICIT pass wears the busy label (and keeps the idle label mounted invisible as its width twin, so the
+		// swap cannot resize the button); disabled either way.
 		const busy = mountServers(
 			makeUsage({ refreshing: true, refreshingExplicitly: true, servers: [makeUsageServer({ label: "Prod" })] })
 		);
@@ -905,15 +873,13 @@ describe("the header", () => {
 		expect(busyLabel.classList.contains("invisible")).toBe(false);
 		expect(busyLabel.querySelector(".spinner")).not.toBeNull();
 		expect((button.querySelector(".refresh-idle-label") as HTMLElement).classList.contains("invisible")).toBe(true);
-		// The mirror image: busy, the hidden idle twin is the aria-hidden one,
-		// so the name is exactly the busy label.
+		// The mirror image: busy, the hidden idle twin is the aria-hidden one, so the name is exactly the busy label.
 		expect(accessibleNameOf(button)).toBe("Refreshing...");
 	});
 
 	test("a background pass disables Refresh now without impersonating asked-for work", () => {
-		// Scheduled polls, backoff retries, and staleness passes set only
-		// `refreshing`: the button stays on its resting label (a busy label on
-		// unprompted work read as the app acting unasked) but refuses a second post.
+		// Scheduled polls, backoff retries, and staleness passes set only `refreshing`: the button stays on its resting
+		// label (a busy label on unprompted work read as the app acting unasked) but refuses a second post.
 		const root = mountServers(
 			makeUsage({ refreshing: true, refreshingExplicitly: false, servers: [makeUsageServer({ label: "Prod" })] })
 		);
@@ -929,9 +895,8 @@ describe("the header", () => {
 	});
 
 	test("a fleet-wide refresh announces through exactly one status region, however many rows it flips", () => {
-		// The refreshing flag rewords every row's Refresh now at once; a status
-		// region per actions cluster would announce every unrelated label once per
-		// row. One section-level announcement, text only, explicit passes only.
+		// The refreshing flag rewords every row's Refresh now at once; a status region per actions cluster would
+		// announce every unrelated label once per row. One section-level announcement, text only, explicit passes only.
 		const usage = makeUsage({
 			refreshing: true,
 			refreshingExplicitly: true,

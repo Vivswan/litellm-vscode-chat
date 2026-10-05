@@ -1,16 +1,11 @@
 /**
- * The fail-closed census on the auth-overlay scope: applyAuthOverlay captures
- * the sent OAuth token inside the scope it returns, and the ONE duty left at
- * each token-sending call site is routing the request's classified failure
- * through scope.fail. That routing cannot be made unforgettable by types (a
- * returned scope can be dropped), so this census pins it: every shipped call
- * site of applyAuthOverlay is registered here with its expected fail routing
- * count, and a new call site - or a site whose routing was removed - fails
- * this suite until the registry says what its invalidation story is. The
- * SEMANTICS of each routing are pinned behaviorally beside the transports
- * (oneShotClient.test.ts, oauthGroups.test.ts, spendClient.test.ts: a 401
- * makes the next call exchange afresh); this census is the guard that no
- * token-sending path exists outside those pins.
+ * The fail-closed census on the auth-overlay scope: applyAuthOverlay captures the sent OAuth token inside the scope it
+ * returns, and the ONE duty left at each token-sending call site is routing the request's classified failure through
+ * scope.fail. The SEMANTICS of each routing are pinned behaviorally beside the transports (oneShotClient.test.ts,
+ * oauthGroups.test.ts, spendClient.test.ts: a 401 makes the next call exchange afresh); this census is the guard that
+ * no token-sending path exists outside those pins.
+ *
+ *   That routing cannot be made unforgettable by types (a returned scope can be dropped) -> this census pins it
  */
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
@@ -33,8 +28,8 @@ const REGISTRY: Record<string, CallSiteRegistration> = {
 	// One overlay application (resolveAuthHeaders) serves two request paths;
 	// fetchModels and send each route their classified failure.
 	"src/provider/transport/chatClient.ts": { overlayCalls: 1, failRoutings: 2 },
-	// postJson routes its mapped failure; authHeaders composes headers the
-	// EDITOR sends, so no response of ours ever comes back to route.
+	// postJson routes its mapped failure; authHeaders composes headers the EDITOR sends, so no response of ours ever
+	// comes back to route.
 	"src/provider/transport/oneShotClient.ts": {
 		overlayCalls: 2,
 		failRoutings: 1,
@@ -76,8 +71,8 @@ describe("provider/transport auth-overlay scope census", () => {
 			if (overlayCalls === 0) {
 				continue;
 			}
-			// `.fail(` is the scope's one member; these transports use no other
-			// fail-named API, so the count is the routing count.
+			// `.fail(` is the scope's one member; these transports use no other fail-named API, so the count is the
+			// routing count.
 			observed.set(relative, { overlayCalls, failRoutings: countMatches(source, /\.fail\(/g) });
 		}
 
@@ -96,20 +91,19 @@ describe("provider/transport auth-overlay scope census", () => {
 });
 
 /**
- * The module that DECLARES TimeoutBudget; its `setting:` union member list
- * would read as a mint to the sweep below, so it is excluded and its own
- * totality is guarded in-code (timeoutError's satisfies-never default).
+ * The module that DECLARES TimeoutBudget; its `setting:` union member list would read as a mint to the sweep below, so
+ * it is excluded and its own totality is guarded in-code (timeoutError's satisfies-never default).
  */
 const BUDGET_MODULE = "src/provider/transport/auth.ts";
 
 /**
- * Every shipped TimeoutBudget mint: which setting identity each caller states
- * where it reads its timeout number. The advice pipeline renders whatever the
- * budget says, so THIS registry is where a wrong pairing is caught: a new
- * mint, a moved mint, or a changed setting fails here until the row says
- * which clock really bounds that caller. Reviewed against the read beside it
- * (e.g. getRequestTimeout pairs with "chat.timeout", getDiscoveryTimeout with
- * "discovery.timeout", a fixed in-code bound with undefined).
+ * Every shipped TimeoutBudget mint: which setting identity each caller states where it reads its timeout number. The
+ * advice pipeline renders whatever the budget says, so THIS registry is where a wrong pairing is caught: a new mint, a
+ * moved mint, or a changed setting fails here until the row says which clock really bounds that caller.
+ *
+ *   getRequestTimeout      -> "chat.timeout"
+ *   getDiscoveryTimeout    -> "discovery.timeout"
+ *   a fixed in-code bound  -> undefined
  */
 const BUDGET_MINTS: Record<string, { readonly [setting in "chat.timeout" | "discovery.timeout" | "fixed"]?: number }> =
 	{

@@ -21,8 +21,8 @@ suite("shared/conversion/tools", () => {
 			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 
-		// The wire schema is the SANITIZED input: the integer-like property name
-		// narrows to integer, so a verbatim pass-through cannot satisfy this.
+		// The wire schema is the SANITIZED input: the integer-like property name narrows to integer, so a verbatim
+		// pass-through cannot satisfy this.
 		assert.deepStrictEqual(out, {
 			tool_choice: "auto",
 			tools: [
@@ -201,8 +201,8 @@ suite("shared/conversion/tools additional schema keywords", () => {
 		assert.equal(pruned.propertyNames, undefined);
 
 		const kept = convertWith(schema, ["propertyNames"]);
-		// The extra keyword's VALUE passes through verbatim: the sanitizer only
-		// rewrites the structural built-ins it knows.
+		// The extra keyword's VALUE passes through verbatim: the sanitizer only rewrites the structural built-ins it
+		// knows.
 		assert.deepEqual(kept.propertyNames, { pattern: "^[a-z]+$" });
 	});
 
@@ -249,9 +249,8 @@ suite("shared/conversion/tools additional schema keywords", () => {
 		const schema = {
 			type: "object",
 			properties: {},
-			// If "__proto__" were admitted, copying this key would ASSIGN the
-			// sanitized object's prototype instead of forwarding an own keyword,
-			// and the inherited `maximum` would leak into later reads.
+			// If "__proto__" were admitted, copying this key would ASSIGN the sanitized object's prototype instead of
+			// forwarding an own keyword, and the inherited `maximum` would leak into later reads.
 			["__proto__"]: { maximum: 5 },
 		};
 		const params = convertWith(schema, ["__proto__", "constructor", "propertyNames"]);

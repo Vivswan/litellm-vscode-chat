@@ -1,10 +1,9 @@
 /**
- * setOwnedHeader and plainFetchBaseHeaders directly: the ownership and
- * fail-closed rules every plain-fetch transport (usage, one-shot chat, FIM)
- * rides on. Previously pinned only through consumers; the rules are
- * load-bearing enough to hold on their own - a header value the platform's
- * Headers would reject must never reach it, because the thrown TypeError
- * embeds the full plaintext value and these values are secrets.
+ * setOwnedHeader and plainFetchBaseHeaders directly: the ownership and fail-closed rules every plain-fetch transport
+ * (usage, one-shot chat, FIM) rides on.
+ *
+ *   the thrown TypeError embeds the full plaintext value and these values are secrets
+ *     -> a header value the platform's Headers would reject must never reach it
  */
 import * as assert from "node:assert";
 import { plainFetchBaseHeaders, setOwnedHeader } from "../../../provider/transport/authOverlay";
@@ -90,10 +89,9 @@ suite("provider/transport/authOverlay", () => {
 				userAgent: "ua/1.0",
 				customHeaders: {},
 			});
-			// buildDefaultHeaders sets X-API-Key from the key and the explicit
-			// Bearer goes through setOwnedHeader; both are value-filtered, so the
-			// header-illegal secret is dropped everywhere rather than thrown by
-			// the platform with the plaintext embedded.
+			// buildDefaultHeaders sets X-API-Key from the key and the explicit Bearer goes through setOwnedHeader; both
+			// are value-filtered, so the header-illegal secret is dropped everywhere rather than thrown by the platform
+			// with the plaintext embedded.
 			assert.deepStrictEqual(headers, { "User-Agent": "ua/1.0" });
 		});
 	});

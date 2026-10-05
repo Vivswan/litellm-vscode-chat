@@ -126,9 +126,8 @@ suite("provider groups", () => {
 	});
 
 	test("classified chat failures are thrown as LanguageModelError with the documented codes", async () => {
-		// What a vscode.lm consumer receives after the host round trip is the
-		// reconstructed LanguageModelError: only code and message are contract,
-		// since host serialization drops the cause.
+		// What a vscode.lm consumer receives after the host round trip is the reconstructed LanguageModelError: only
+		// code and message are contract, since host serialization drops the cause.
 		const provider = makeProvider();
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 		const infos = await provider.provideLanguageModelChatInformation(
@@ -166,8 +165,8 @@ suite("provider groups", () => {
 			});
 		}
 
-		// A status outside the documented codes stays the classified
-		// RequestError; inventing a code would misinform consumer backoff logic.
+		// A status outside the documented codes stays the classified RequestError; inventing a code would misinform
+		// consumer backoff logic.
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, () => HttpResponse.json({ error: { message: "boom" } }, { status: 500 }))
 		);
@@ -498,8 +497,8 @@ suite("provider groups", () => {
 	});
 
 	test("a suppressed group answers empty without a network call and reports a zero-model status", async () => {
-		// The extension injects the removal-tombstone predicate; the provider
-		// consults it with the group's status label and normalized base URL.
+		// The extension injects the removal-tombstone predicate; the provider consults it with the group's status label
+		// and normalized base URL.
 		const seen: [string, string][] = [];
 		let suppressed = true;
 		const provider = makeProvider(undefined, "test-key", undefined, {
@@ -539,8 +538,6 @@ suite("provider groups", () => {
 			"the status carries the cause so the presentation layers can name the removal"
 		);
 
-		// Unhidden (the predicate answers false again): the next re-resolution
-		// serves the models like any healthy group.
 		suppressed = false;
 		const restored = await provider.provideLanguageModelChatInformation(
 			groupOptions({ baseUrl: `${TEST_BASE_URL}/`, apiKey: "k", label: "Prod" }),
@@ -624,8 +621,6 @@ suite("provider groups", () => {
 				"the hover banner is anchored to the last successful sync, not the failure time"
 			);
 
-			// The window records the retained set ALONGSIDE the error status, and
-			// the snapshot the dashboard reads stays undecorated pre-attach data.
 			const snapshot = expectDefined(provider.getServerSnapshots().find((s) => s.status.state === "error"));
 			assert.strictEqual(snapshot.models.length, 1, "the retained models ride with the error status");
 			assert.ok(!("statusIcon" in expectDefined(snapshot.models[0])), "snapshots stay undecorated");
@@ -642,9 +637,8 @@ suite("provider groups", () => {
 	});
 
 	test("a mid-outage override edit reaches the recorded snapshot, not just the served stale set", async () => {
-		// The failure branch must record the very overridden set it serves:
-		// recording the window's undecorated stale models would leave the
-		// dashboard showing pre-edit limits while the picker serves edited ones.
+		// The failure branch must record the very overridden set it serves: recording the window's undecorated stale
+		// models would leave the dashboard showing pre-edit limits while the picker serves edited ones.
 		const provider = makeProvider();
 		let fail = false;
 		mswServer.use(
@@ -652,8 +646,7 @@ suite("provider groups", () => {
 			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
 		);
 
-		// withConfig reads this object live, so mutating it mid-callback is a
-		// real settings change between refreshes.
+		// withConfig reads this object live, so mutating it mid-callback is a real settings change between refreshes.
 		const config: Record<string, unknown> = { "discovery.cacheTtl": 0 };
 		await withConfig(config, async () => {
 			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
@@ -680,8 +673,8 @@ suite("provider groups", () => {
 	});
 
 	test("stale serving is bounded by the last successful discovery, not by the failure reports", async () => {
-		// Clock-injected: each failed refresh re-records the entry (refreshing its
-		// report timestamp), so only the success anchor can age the window out.
+		// Clock-injected: each failed refresh re-records the entry (refreshing its report timestamp), so only the
+		// success anchor can age the window out.
 		let nowMs = 1_000_000;
 		const provider = makeProvider(undefined, "test-key", undefined, { now: () => nowMs });
 		let fail = false;
@@ -775,9 +768,8 @@ suite("provider groups", () => {
 	});
 
 	test("raising discovery.staleServeWindow mid-outage restores serving after an out-of-window failure", async () => {
-		// The out-of-window failure report records an empty model list; the
-		// stale-serve source must survive it, or raising the setting after the
-		// models vanished could never bring them back.
+		// The out-of-window failure report records an empty model list; the stale-serve source must survive it, or
+		// raising the setting after the models vanished could never bring them back.
 		let nowMs = 1_000_000;
 		const provider = makeProvider(undefined, "test-key", undefined, { now: () => nowMs });
 		let fail = false;
@@ -786,15 +778,13 @@ suite("provider groups", () => {
 			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
 		);
 
-		// withConfig reads this object live, so mutating it mid-callback is a
-		// real settings change between refreshes.
+		// withConfig reads this object live, so mutating it mid-callback is a real settings change between refreshes.
 		const config: Record<string, unknown> = { "discovery.cacheTtl": 0 };
 		await withConfig(config, async () => {
 			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 
-			// Failing refreshes keep flowing (the host re-resolves on its own), so
-			// the report timestamp stays fresh and only the success anchor ages:
-			// eviction never fires.
+			// Failing refreshes keep flowing (the host re-resolves on its own), so the report timestamp stays fresh and
+			// only the success anchor ages: eviction never fires.
 			fail = true;
 			nowMs += 5 * 60_000;
 			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
@@ -834,8 +824,8 @@ suite("provider groups", () => {
 				"Test Connection must surface the failure, stale set or not"
 			);
 
-			// The throw serves nothing NOW, but the record deliberately stays the
-			// silent-pass view: the stale set every next silent refresh serves again.
+			// The throw serves nothing NOW, but the record deliberately stays the silent-pass view: the stale set every
+			// next silent refresh serves again.
 			const snapshot = expectDefined(provider.getServerSnapshots()[0]);
 			assert.ok(snapshot.status.state === "error", "the failure still records its error status");
 			assert.strictEqual(snapshot.status.servedModelCount, 1, "the error status keeps counting the stale set");
@@ -848,9 +838,8 @@ suite("provider groups", () => {
 	});
 
 	test("a non-Error group failure is rebuilt with the log-safe rendering as its English mirror", async () => {
-		// Rejected from inside the group serve's try without ever being an Error:
-		// the rebuild must keep the display rendering for the UI and the log-safe
-		// rendering for every public log surface.
+		// Rejected from inside the group serve's try without ever being an Error: the rebuild must keep the display
+		// rendering for the UI and the log-safe rendering for every public log surface.
 		const hostile = {
 			toString: () => "display text with RESPONSE-BODY-MARKER",
 			logClassification: "InjectedFailure(non-Error)",
@@ -892,8 +881,7 @@ suite("provider groups", () => {
 			http.get("http://litellm.test:8080/v1/models", () => emptyErrorResponse(500))
 		);
 
-		// The host starts every refresh cycle with the group-agnostic call, then
-		// fetches each group.
+		// The host starts every refresh cycle with the group-agnostic call, then fetches each group.
 		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		await provider.provideLanguageModelChatInformation(
@@ -967,9 +955,8 @@ suite("provider groups", () => {
 	});
 
 	test("two labeled groups sharing a base URL AND key get their own statuses under their labels", async () => {
-		// Two declared entries mirroring one server with one key: their group
-		// configurations differ only in the label the sync engine stamped, and that
-		// label must be enough for each to keep its own status-window entry.
+		// Two declared entries mirroring one server with one key: their group configurations differ only in the label
+		// the sync engine stamped, and that label must be enough for each to keep its own status-window entry.
 		const provider = makeProvider();
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
@@ -1001,9 +988,9 @@ suite("provider groups", () => {
 	});
 
 	test("identical sibling groups inside a groupless-marked sweep do not restart the status cycle", async () => {
-		// Two pre-label host groups can resolve to ONE identity (same URL, same key, no
-		// label). Within a host-driven sweep the second sibling's report must not read as
-		// "re-seen within one cycle" and evict entries the sweep has not reached yet.
+		// Two pre-label host groups can resolve to ONE identity (same URL, same key, no label). Within a host-driven
+		// sweep the second sibling's report must not read as "re-seen within one cycle" and evict entries the sweep has
+		// not reached yet.
 		const provider = makeProvider();
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
@@ -1016,8 +1003,6 @@ suite("provider groups", () => {
 		const fetchGroup = (baseUrl: string) =>
 			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl }), cancellation());
 
-		// Each sweep: the group-agnostic call, both identical siblings, then the
-		// other group.
 		await groupless();
 		await fetchGroup(TEST_BASE_URL);
 		await fetchGroup(TEST_BASE_URL);
@@ -1027,8 +1012,6 @@ suite("provider groups", () => {
 		await fetchGroup(TEST_BASE_URL);
 		await fetchGroup(TEST_BASE_URL);
 
-		// The other group reported last sweep: the one-cycle grace must hold it
-		// through this sweep, sibling duplicates notwithstanding.
 		const last = expectDefined(statuses.at(-1));
 		assert.strictEqual(
 			last.serverStatuses.length,
@@ -1084,8 +1067,6 @@ suite("provider groups", () => {
 		const fetchGroup = (baseUrl: string) =>
 			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl }), cancellation());
 
-		// One sweep sees both groups; the next two sweeps (with no group-agnostic
-		// call in between) only see the first, so the second must age out.
 		await fetchGroup(TEST_BASE_URL);
 		await fetchGroup("http://litellm.test:8080");
 		await fetchGroup(TEST_BASE_URL);
@@ -1118,8 +1099,8 @@ suite("provider groups", () => {
 		const realNow = Date.now;
 		Date.now = () => realNow() + 11 * 60 * 1000;
 		try {
-			// The repeat fetch starts a new cycle; the TTL evicts the other group
-			// immediately instead of after the usual one-cycle grace.
+			// The repeat fetch starts a new cycle; the TTL evicts the other group immediately instead of after the
+			// usual one-cycle grace.
 			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		} finally {
 			Date.now = realNow;
@@ -1169,8 +1150,8 @@ suite("provider groups", () => {
 		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		const before = discoveryHits;
 
-		// This provider instance is not registered with the host, so the change
-		// event goes nowhere and the bounded wait must fall back.
+		// This provider instance is not registered with the host, so the change event goes nowhere and the bounded wait
+		// must fall back.
 		await provider.refreshViaHost(300, 50);
 
 		assert.strictEqual(discoveryHits, before + 1, "the fallback must probe the observed group server");
@@ -1189,8 +1170,8 @@ suite("provider groups", () => {
 		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		const before = discoveryHits;
 
-		// A host that reacts with only the group-agnostic call produces zero
-		// per-group reports; the groupless report must not arm the settle wait.
+		// A host that reacts with only the group-agnostic call produces zero per-group reports; the groupless report
+		// must not arm the settle wait.
 		provider.onDidChangeLanguageModelChatInformation(() => {
 			void provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 		});
@@ -1213,8 +1194,6 @@ suite("provider groups", () => {
 		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		const before = discoveryHits;
 
-		// Simulates the host reacting to the change event with a full refresh
-		// cycle: the group-agnostic call, then one call per group.
 		provider.onDidChangeLanguageModelChatInformation(() => {
 			void (async () => {
 				await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
@@ -1293,8 +1272,8 @@ suite("provider groups: capability overrides and declared models", () => {
 			assert.strictEqual(status.state, "ok");
 			assert.strictEqual(status.servedModelCount, 2, "the declared model joins the picker count");
 			assert.strictEqual(expectDefined(statuses.at(-1)).totalModels, 2);
-			// Recorded is served: the window's snapshot lists the declared model
-			// beside the discovered one, carrying the marker the dashboard badges on.
+			// Recorded is served: the window's snapshot lists the declared model beside the discovered one, carrying
+			// the marker the dashboard badges on.
 			const snapshot = expectDefined(provider.getServerSnapshots()[0]);
 			assert.deepStrictEqual(
 				snapshot.models.map((info) => [info.id, info.litellm.declared]),
@@ -1340,8 +1319,6 @@ suite("provider groups: capability overrides and declared models", () => {
 				["test-model"],
 				"never two models with one ID"
 			);
-			// The inert declaration must not double-record either: the window holds
-			// the discovered model once, and it is the discovered one that wins.
 			const snapshot = expectDefined(provider.getServerSnapshots()[0]);
 			assert.deepStrictEqual(
 				snapshot.models.map((info) => [info.id, info.litellm.declared]),
@@ -1465,9 +1442,8 @@ suite("provider groups: capability overrides and declared models", () => {
 	});
 
 	test("a non-silent expected failure with a stale anchor records exactly the declared set it returns", async () => {
-		// The declared-only serve must not count the stale set the silent path
-		// would serve: recording stale+declared here once made totalModels claim
-		// models this serve never handed back.
+		// The declared-only serve must not count the stale set the silent path would serve: recording stale+declared
+		// here once made totalModels claim models this serve never handed back.
 		const state = { expected: false, declared: ["gw-model"] as readonly string[] };
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getExpectedFailures: () => (state.expected ? ["modelInfo", "modelListing"] : undefined),
@@ -1502,8 +1478,7 @@ suite("provider groups: capability overrides and declared models", () => {
 			assert.strictEqual(status.state === "error" && status.servedModelCount, 1, "recorded is what is served");
 			assert.strictEqual(expectDefined(statuses.at(-1)).totalModels, 1, "no stale overcount in the merged total");
 
-			// A declared ID the stale set contains must not be inert-suppressed out
-			// of the ONLY set this serve returns.
+			// A declared ID the stale set contains must not be inert-suppressed out of the ONLY set this serve returns.
 			state.declared = ["test-model"];
 			const declaredOnly = await provider.provideLanguageModelChatInformation(
 				groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" }, false),
@@ -1518,8 +1493,8 @@ suite("provider groups: capability overrides and declared models", () => {
 	});
 
 	test("a failing refresh merges declared models un-staled with the stale-decorated last known set", async () => {
-		// The declaration is entry-level and mutable, so the tail of the test
-		// can remove it and pin the immediate mid-outage disappearance.
+		// The declaration is entry-level and mutable, so the tail of the test can remove it and pin the immediate
+		// mid-outage disappearance.
 		let declared: readonly string[] | undefined = ["declared-model"];
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryDeclaredModels: () => declared,
@@ -1544,18 +1519,16 @@ suite("provider groups: capability overrides and declared models", () => {
 			const declaredInfo = expectDefined(served.find((info) => info.id === "declared-model"));
 			assert.ok(!("statusIcon" in declaredInfo), "declared models never carry the stale decoration");
 
-			// The window records exactly what the serve handed out - the stale
-			// discovered set plus the declared model - so the dashboard's list
-			// matches the picker's even mid-outage.
+			// The window records exactly what the serve handed out - the stale discovered set plus the declared model -
+			// so the dashboard's list matches the picker's even mid-outage.
 			const snapshot = expectDefined(provider.getServerSnapshots().find((s) => s.status.state === "error"));
 			assert.deepStrictEqual(
 				snapshot.models.map((info) => info.id),
 				["test-model", "declared-model"]
 			);
 
-			// With the declaration gone the next failing serve drops it
-			// mid-outage: no resurrection from stale snapshots, because the
-			// stale-serve anchor holds discovered models only.
+			// With the declaration gone the next failing serve drops it mid-outage: no resurrection from stale
+			// snapshots, because the stale-serve anchor holds discovered models only.
 			declared = undefined;
 			const withoutDeclared = await provider.provideLanguageModelChatInformation(group, cancellation());
 			assert.deepStrictEqual(

@@ -19,18 +19,17 @@ import { expectDefined } from "./pureHelpers";
  * Conversations run against gpt-5.2-mini, a single deployment so responses cannot vary by routing, and assert on
  * extracted content only because LiteLLM stamps its own created on every chunk.
  *
- *   %deployment excluded                 -> its oracle is relational, and a directed docker test covers it
- *   CONVERSATION_ITERATIONS (default 10) -> own knob, so nightly's FUZZ_ITERATIONS=500 cannot multiply
- *                                           multi-round-trip conversations into the job budget
- *   FUZZ_SEED=<seed>                     -> reproduces a run (shared with the stream fuzzer, always logged)
+ *   its oracle is relational, and a directed docker test covers it -> %deployment excluded
+ *   CONVERSATION_ITERATIONS (default 10) -> own knob
+ *   own knob -> nightly's FUZZ_ITERATIONS=500 cannot multiply multi-round-trip conversations into the job budget
+ *   FUZZ_SEED=<seed> -> reproduces a run (shared with the stream fuzzer, always logged)
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 
-// An explicit FUZZ_SEED reproduces exactly: one seed means one conversation
-// walk (see src/test/fuzzSeed.ts).
+// An explicit FUZZ_SEED reproduces exactly: one seed means one conversation walk (see src/test/fuzzSeed.ts).
 const SEED = resolveDockerFuzzSeed();
 const ITERATIONS = Math.max(1, Math.floor(Number(process.env.CONVERSATION_ITERATIONS)) || 10);
 
@@ -118,8 +117,8 @@ suite("Docker LiteLLM multi-turn conversations", () => {
 		this.timeout(90000);
 		await ensureActivated();
 		await catalogOff();
-		// The stack's ids are fixed, so a pre-existing copy of the playback model
-		// would be indistinguishable from this entry's; fail fast.
+		// The stack's ids are fixed, so a pre-existing copy of the playback model would be indistinguishable from this
+		// entry's; fail fast.
 		await assertIdsUnserved([PLAYBACK_MODEL.alias]);
 		await writeServerEntry(
 			{ label: uniqueName("Docker conversations"), baseUrl: BASE_URL, auth: { apiKey: API_KEY } },

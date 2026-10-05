@@ -1,9 +1,7 @@
 /**
- * The real draft probe (createDraftConnectionProbe): the connection's
- * expected-failure flags must reach the production fetchModels call, so an
- * endpoint the draft declares expected probes with a single attempt instead
- * of the idempotent-GET retry budget - the same contract production
- * discovery applies to declared entries.
+ * The real draft probe (createDraftConnectionProbe): the connection's expected-failure flags must reach the production
+ * fetchModels call, so an endpoint the draft declares expected probes with a single attempt instead of the
+ * idempotent-GET retry budget - the same contract production discovery applies to declared entries.
  */
 import * as assert from "node:assert";
 import { http } from "msw";
@@ -38,8 +36,8 @@ suite("extension/dashboard/testDraftConnection", () => {
 			(error: unknown) => error instanceof RequestError
 		);
 
-		// A 500 is retryable, so anything above one attempt per endpoint means
-		// the expected flags were dropped on the way to discovery.
+		// A 500 is retryable, so anything above one attempt per endpoint means the expected flags were dropped on the
+		// way to discovery.
 		assert.strictEqual(infoAttempts, 1, "expected modelInfo must disable the retry budget");
 		assert.strictEqual(modelsAttempts, 1, "expected modelListing must disable the retry budget");
 	});

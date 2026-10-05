@@ -1,8 +1,6 @@
 /**
- * The status-item slot registry's pins: the singleton-creation-points source scan, the
- * one-live-item-per-slot lifecycle, and the self-heal on double construction. The
- * lifecycle tests create REAL items on purpose - each ends with every created item
- * disposed, so nothing survives into the shared host's status bar.
+ * The lifecycle tests create REAL items on purpose - each ends with every created item disposed, so nothing survives
+ * into the shared host's status bar.
  */
 
 import * as assert from "node:assert";
@@ -20,10 +18,9 @@ import { Logger } from "../../../shared/logger";
 import { countOccurrences, shippedSources } from "../../sourceScan";
 
 /**
- * Each singleton vscode surface and the one file allowed to create it. A second creation
- * point bypasses the surface's ownership: a status item outside the slot registry escapes
- * the one-live-item-per-slot invariant, a second output channel splits the log stream the
- * issue-report buffer taps, and a second webview panel escapes the one-panel lifecycle.
+ * A second creation point bypasses the surface's ownership: a status item outside the slot registry escapes the
+ * one-live-item-per-slot invariant, a second output channel splits the log stream the issue-report buffer taps, and a
+ * second webview panel escapes the one-panel lifecycle.
  */
 const SINGLETON_CREATION_POINTS: readonly { readonly api: string; readonly file: string }[] = [
 	{ api: "createStatusBarItem", file: "src/extension/ui/status.ts" },
@@ -60,8 +57,7 @@ suite("extension/ui statusItemRegistry", () => {
 	test("every singleton vscode surface has exactly one creation call in src/", () => {
 		const sources = shippedSources();
 		for (const { api, file } of SINGLETON_CREATION_POINTS) {
-			// Match call expressions, not bare names: prose comments may name an
-			// API without calling it.
+			// Match call expressions, not bare names: prose comments may name an API without calling it.
 			const call = `${api}(`;
 			const callers = sources.filter((source) => source.text.includes(call));
 			assert.deepStrictEqual(
@@ -98,8 +94,6 @@ suite("extension/ui statusItemRegistry", () => {
 				log,
 			});
 			try {
-				// One live item per slot survives, and the double construction is
-				// observable in the log rather than as twin items.
 				assert.deepStrictEqual(liveStatusItemSlots(), ["usage"]);
 				assert.deepStrictEqual(lines, ["status-item slot replaced: usage"]);
 				// The stale holder's late dispose must not evict the live item.
@@ -138,7 +132,6 @@ suite("extension/ui statusItemRegistry", () => {
 		const first = makeManager();
 		const second = makeManager();
 		try {
-			// The double construction healed itself: exactly one live item.
 			assert.deepStrictEqual(liveStatusItemSlots(), ["connection"]);
 			assert.ok(lines.includes("status-item slot replaced: connection"));
 		} finally {
@@ -172,9 +165,8 @@ suite("extension/ui statusItemRegistry", () => {
 	});
 
 	test("a slot self-heal tears down the superseded OWNER: onDidDispose fires and stale writes no-op", () => {
-		// Disposing the stale ITEM is only half the fix: a superseded
-		// UsageStatusBar also holds a store subscription and a stale-edge timer,
-		// and without the hook it would keep rendering into a disposed item.
+		// Disposing the stale ITEM is only half the fix: a superseded UsageStatusBar also holds a store subscription
+		// and a stale-edge timer, and without the hook it would keep rendering into a disposed item.
 		const first = new StatusItem({
 			slot: "usage",
 			alignment: vscode.StatusBarAlignment.Right,
@@ -193,12 +185,11 @@ suite("extension/ui statusItemRegistry", () => {
 		});
 		try {
 			assert.strictEqual(ownerTeardowns, 1);
-			// The stale holder's surface writes are no-ops, never touches on a
-			// disposed vscode item (which would throw).
+			// The stale holder's surface writes are no-ops, never touches on a disposed vscode item (which would
+			// throw).
 			first.render({ text: "stale", tooltip: "stale", severity: "error" });
 			first.show();
 			first.hide();
-			// The hook fires once; a late double dispose stays silent.
 			first.dispose();
 			assert.strictEqual(ownerTeardowns, 1);
 			assert.deepStrictEqual(liveStatusItemSlots(), ["usage"]);
@@ -236,8 +227,7 @@ suite("extension/ui statusItemRegistry", () => {
 			getPollingOffWindowMs: () => 600_000,
 			getCurrencySymbol: () => "$",
 		});
-		// A second construction into the slot (the double-activation shape) must
-		// tear the first owner down entirely.
+		// A second construction into the slot (the double-activation shape) must tear the first owner down entirely.
 		const replacement = new StatusItem({
 			slot: "usage",
 			alignment: vscode.StatusBarAlignment.Right,

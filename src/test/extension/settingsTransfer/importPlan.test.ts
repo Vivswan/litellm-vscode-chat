@@ -24,8 +24,8 @@ function server(label: string, extra: Record<string, unknown> = {}): Record<stri
 	return { label, baseUrl: `http://${label.toLowerCase()}.test`, ...extra };
 }
 
-// The frozen signatures and result shapes are pinned at compile time: a drift
-// fails typecheck, so no runtime test restates what the types already prove.
+// The frozen signatures and result shapes are pinned at compile time: a drift fails typecheck, so no runtime test
+// restates what the types already prove.
 void (planSettingsImport satisfies (
 	envelopeSettings: Readonly<Record<string, unknown>>,
 	currentServersRaw: unknown,
@@ -118,16 +118,16 @@ suite("extension/settingsTransfer/importPlan", () => {
 				plan.incomingServers.map((entry) => entry.raw),
 				incoming
 			);
-			// The misconfigured-but-labeled entry imports (its report carries the
-			// problems for the preview); only label-less entries cannot.
+			// The misconfigured-but-labeled entry imports (its report carries the problems for the preview); only
+			// label-less entries cannot.
 			const broken = plan.incomingServers[4];
 			assert.ok(broken !== undefined && !broken.skipped && broken.report.problems.length > 0);
 			assert.strictEqual(broken.report.accepted, false);
 		});
 
 		test("an entry whose auth cannot be certified secret-free is skipped with the reason", () => {
-			// Landing it would write the presumed credential into the settings
-			// file, breaking the secrets-go-to-secure-storage promise.
+			// Landing it would write the presumed credential into the settings file, breaking the
+			// secrets-go-to-secure-storage promise.
 			const incoming = [server("A"), server("Malformed", { auth: [{ apiKey: "sk-hidden" }] })];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
 			assert.deepStrictEqual(
@@ -149,8 +149,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 		});
 
 		test("a skipped uncertifiable entry does not shadow a valid same-label entry's fingerprint", () => {
-			// The skipped element stays out of the fingerprint parse; the valid
-			// element resolution lands is the one the collision compares.
+			// The skipped element stays out of the fingerprint parse; the valid element resolution lands is the one the
+			// collision compares.
 			const incoming = [server("A", { auth: [{ apiKey: "sk-hidden" }] }), server("A")];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, [server("A")]);
 			assert.deepStrictEqual(plan.collisions, [{ label: "A", connectionChanged: false }]);
@@ -177,8 +177,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 			);
 			assert.deepStrictEqual(identical.collisions, [{ label: "A", connectionChanged: false }]);
 
-			// Fields buildGroupArgs excludes (models, headers, discovery, budget)
-			// never churn the group, so they must not flag.
+			// Fields buildGroupArgs excludes (models, headers, discovery, budget) never churn the group, so they must
+			// not flag.
 			const recordsOnly = planSettingsImport(
 				{
 					[SERVERS_SETTING_KEY]: [
@@ -194,8 +194,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 			);
 			assert.deepStrictEqual(recordsOnly.collisions, [{ label: "A", connectionChanged: false }]);
 
-			// The false direction of the buildGroupArgs agreement: a flag of
-			// false means the engine's own args rendering is identical too.
+			// The false direction of the buildGroupArgs agreement: a flag of false means the engine's own args
+			// rendering is identical too.
 			const currentEntry = acceptedEntry(current, "A")?.entry;
 			const recordsOnlyServers = recordsOnly.incomingServers.map((entry) => entry.raw);
 			const recordsOnlyEntry = acceptedEntry(recordsOnlyServers, "A")?.entry;
@@ -218,8 +218,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 			for (const variant of variants) {
 				const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [variant] }, current);
 				assert.deepStrictEqual(plan.collisions, [{ label: "A", connectionChanged: true }], JSON.stringify(variant));
-				// The flag must agree with the engine's own args rendering: with no
-				// stored secrets, group args differ exactly when the flag says so.
+				// The flag must agree with the engine's own args rendering: with no stored secrets, group args differ
+				// exactly when the flag says so.
 				const currentEntry = acceptedEntry(current, "A")?.entry;
 				const incomingEntry = acceptedEntry([variant], "A")?.entry;
 				assert.ok(currentEntry !== undefined && incomingEntry !== undefined);
@@ -268,14 +268,12 @@ suite("extension/settingsTransfer/importPlan", () => {
 				}).collisions,
 				[{ label: "A", connectionChanged: true }]
 			);
-			// A secret-less incoming entry against a stored secret still flags:
-			// the overwrite clears the label's blob.
+			// A secret-less incoming entry against a stored secret still flags: the overwrite clears the label's blob.
 			assert.deepStrictEqual(
 				planSettingsImport({ [SERVERS_SETTING_KEY]: [server("A")] }, current, { A: { apiKey: "sk-1" } }).collisions,
 				[{ label: "A", connectionChanged: true }]
 			);
-			// The current side's inline value wins over the supplied blob,
-			// mirroring buildGroupArgs.
+			// The current side's inline value wins over the supplied blob, mirroring buildGroupArgs.
 			assert.deepStrictEqual(
 				planSettingsImport(
 					{ [SERVERS_SETTING_KEY]: [server("A", { auth: { apiKey: "sk-inline" } })] },
@@ -287,8 +285,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 		});
 
 		test("storedSecrets under an Object.prototype member name resolves via hasOwn, never the prototype", () => {
-			// The blob record INHERITS a "toString" entry carrying a secret: a plain
-			// index read would find it and wrongly flag the collision.
+			// The blob record INHERITS a "toString" entry carrying a secret: a plain index read would find it and
+			// wrongly flag the collision.
 			const entry = server("toString");
 			const inherited = Object.create({ toString: { apiKey: "sk-ghost" } }) as Readonly<
 				Record<string, StoredServerSecrets>
@@ -319,8 +317,7 @@ suite("extension/settingsTransfer/importPlan", () => {
 				{ label: "B", baseUrl: "http://new-b.test" },
 				current[2],
 			]);
-			// Existing non-colliding entries ride through by reference: never
-			// mutated, never reordered.
+			// Existing non-colliding entries ride through by reference: never mutated, never reordered.
 			assert.strictEqual(application.serversValue?.[0], current[0]);
 			assert.strictEqual(application.serversValue?.[2], current[2]);
 			assert.deepStrictEqual(application.secretWrites, [
@@ -375,8 +372,7 @@ suite("extension/settingsTransfer/importPlan", () => {
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
 			const application = resolveImportPlan(plan, {});
 			assert.deepStrictEqual(application.serversValue, [server("Keys"), server("NoKeys")]);
-			// The empty record still matters at apply time: stale blob fields not
-			// among the writes are cleared.
+			// The empty record still matters at apply time: stale blob fields not among the writes are cleared.
 			assert.deepStrictEqual(application.secretWrites, [
 				{
 					label: "Keys",
@@ -389,10 +385,9 @@ suite("extension/settingsTransfer/importPlan", () => {
 		});
 
 		test("an entry's non-secret fields ride through verbatim, the mcp opt-in included", () => {
-			// Secret surgery rewrites the auth object and nothing else: a new
-			// per-entry field must survive an export/import round trip without
-			// joining any allow-list, or a user moving machines would silently
-			// lose it.
+			// Secret surgery rewrites the auth object and nothing else: a new per-entry field must survive an
+			// export/import round trip without joining any allow-list, or a user moving machines would silently lose
+			// it.
 			const incoming = [
 				server("Derived", { auth: { apiKey: "sk-1" }, mcp: true, budget: 25 }),
 				server("Named", { mcp: { url: "https://gw.example/tools/mcp" } }),
@@ -405,12 +400,10 @@ suite("extension/settingsTransfer/importPlan", () => {
 		});
 
 		test("a pre-redesign flat entry lands restructured, its flat secrets moved to secret storage", () => {
-			// Old-format export files (flat credential fields, envelope v1) must
-			// keep importing AND work immediately: the entry lands in the current
-			// shape (the same restructure the activation migration applies), so
-			// its group never syncs credential-less while waiting for the next
-			// activation. The lone oauthTokenUrl is a partial OAuth the old
-			// runtime ignored; the restructure drops it like the migration does.
+			// Old-format export files (flat credential fields, envelope v1) must keep importing AND work immediately:
+			// the entry lands in the current shape (the same restructure the activation migration applies), so its
+			// group never syncs credential-less while waiting for the next activation. The lone oauthTokenUrl is a
+			// partial OAuth the old runtime ignored; the restructure drops it like the migration does.
 			const incoming = [server("Old", { apiKey: "sk-test-flat", oauthTokenUrl: "http://idp.test/token" })];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
 			assert.strictEqual(plan.incomingServers[0]?.skipped, false, "the flat shape must not be skipped");
@@ -454,15 +447,15 @@ suite("extension/settingsTransfer/importPlan", () => {
 			const incoming = [server("A"), { baseUrl: "http://nolabel.test" }, server("A", { budget: 9 })];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
 			const application = resolveImportPlan(plan, {});
-			// The parser's first-entry-wins rule: the duplicate could never take
-			// effect, so it drops rather than landing a shadowed sibling.
+			// The parser's first-entry-wins rule: the duplicate could never take effect, so it drops rather than
+			// landing a shadowed sibling.
 			assert.deepStrictEqual(application.serversValue, [server("A")]);
 			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 2 });
 		});
 
 		test("a baseUrl-less fragment never shadows a valid same-label sibling, matching the parser's claim rule", () => {
-			// parseServersSetting would ignore the fragment (no usable baseUrl, so it
-			// claims no label); the import must land the entry the parser acts on.
+			// parseServersSetting would ignore the fragment (no usable baseUrl, so it claims no label); the import must
+			// land the entry the parser acts on.
 			const fragment = { label: "A", auth: { apiKey: "sk-frag" } };
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [fragment, server("A", { budget: 7 })] }, undefined);
 			assert.strictEqual(plan.secretFieldCount, 0, "only the representative's inline secrets count");
@@ -474,8 +467,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 			// With no claiming sibling, the fragment itself still imports.
 			const alone = resolveImportPlan(planSettingsImport({ [SERVERS_SETTING_KEY]: [fragment] }, undefined), {});
 			assert.deepStrictEqual(alone.serversValue, [{ label: "A" }]);
-			// The fragment has no usable baseUrl, so its secret is stamped for no
-			// destination ("") and stays refused until a deliberate re-pairing.
+			// The fragment has no usable baseUrl, so its secret is stamped for no destination ("") and stays refused
+			// until a deliberate re-pairing.
 			assert.deepStrictEqual(alone.secretWrites, [
 				{ label: "A", secrets: { apiKey: "sk-frag" }, owners: { apiKey: "" } },
 			]);
@@ -516,8 +509,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 		});
 
 		test("a colliding label named after an Object.prototype member falls back to skip, never to the inherited method", () => {
-			// A plain index read of decisions["toString"] would return the
-			// inherited function instead of the missing-decision fallback.
+			// A plain index read of decisions["toString"] would return the inherited function instead of the
+			// missing-decision fallback.
 			const label = "toString";
 			const current = [server(label)];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [server(label, { budget: 2 })] }, current);
@@ -546,9 +539,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 		}
 
 		test("an overwrite whose file carries no value emits the clear-by-omission write; no keep channel exists", () => {
-			// The write's empty secrets record is the whole contract: at apply
-			// time every stored field the record omits is cleared, so a stored
-			// key can never pair silently with imported configuration.
+			// The write's empty secrets record is the whole contract: at apply time every stored field the record omits
+			// is cleared, so a stored key can never pair silently with imported configuration.
 			const application = resolveImportPlan(repointedPlan(), { A: { action: "overwrite" } });
 			assert.deepStrictEqual(application.secretWrites, [{ label: "A", secrets: {}, owners: {} }]);
 			assert.deepStrictEqual(application.serversValue, [{ label: "A", baseUrl: "http://new.test" }]);

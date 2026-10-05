@@ -1,12 +1,7 @@
 /**
- * The @litellm participant's wiring: the enablement lifecycle (ON by default,
- * disposed and recreated as the setting flips) and the adapter that binds the
- * pure turn handler to the host's ChatRequestHandler. What the adapter must
- * get right is narrow but load-bearing: the REQUEST's own model does the
- * sending, the cancellation token rides along, streamed fragments reach the
- * response stream in order, and /models answers from the injected snapshots
- * without a single fetch (msw's onUnhandledRequest: "error" fails the suite on
- * any stray request).
+ * What the adapter must get right is narrow but load-bearing: the REQUEST's own model does the sending, the
+ * cancellation token rides along, streamed fragments reach the response stream in order, and /models answers from the
+ * injected snapshots without a single fetch (msw's onUnhandledRequest: "error" fails the suite on any stray request).
  */
 import * as assert from "node:assert";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -32,10 +27,9 @@ interface WiringSpies {
 }
 
 /**
- * Run `fn` with vscode.chat.createChatParticipant and the configuration
- * watcher recorded instead of real: a second live participant under the same
- * id conflicts in the shared host, and the watcher is captured so tests fire
- * it deterministically.
+ * Run `fn` with vscode.chat.createChatParticipant and the configuration watcher recorded instead of real: a second live
+ * participant under the same id conflicts in the shared host, and the watcher is captured so tests fire it
+ * deterministically.
  */
 async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): Promise<Awaited<T>> {
 	const participants: RecordedParticipant[] = [];
@@ -52,8 +46,8 @@ async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): P
 			dispose: () => {
 				record.disposed = true;
 			},
-			// The wiring assigns followupProvider onto the returned object, so the
-			// fake must let it land where the test can read it.
+			// The wiring assigns followupProvider onto the returned object, so the fake must let it land where the test
+			// can read it.
 			set followupProvider(value: vscode.ChatFollowupProvider) {
 				record.followupProvider = value;
 			},
@@ -99,17 +93,12 @@ function quietLogger(): { logger: Logger; lines: string[] } {
 	return { logger, lines };
 }
 
-/** One recorded call into the request model's sendRequest. */
 interface RecordedSend {
 	readonly messages: readonly vscode.LanguageModelChatMessage[];
 	readonly token: vscode.CancellationToken | undefined;
 }
 
-/**
- * A ChatRequest shaped like the host's, with a model whose sendRequest streams
- * `fragments` and records what it was handed. The whole point of the adapter
- * is that THIS model is what answers, so the fake is the assertion surface.
- */
+/** The whole point of the adapter is that THIS model is what answers, so the fake is the assertion surface. */
 function fakeRequest(
 	options: {
 		prompt?: string;
@@ -151,7 +140,6 @@ function fakeRequest(
 	return { request, sends };
 }
 
-/** A ChatResponseStream that records the markdown it is handed, in order. */
 function recordingStream(): { stream: vscode.ChatResponseStream; reported: string[] } {
 	const reported: string[] = [];
 	const stream = {
@@ -197,9 +185,8 @@ suite("extension/features/participant wiring", () => {
 				wireChatParticipant(fakeContext(), quietLogger().logger, { getSnapshots: () => [] })
 			);
 			assert.strictEqual(spies.participants.length, 0, "disabled must not create a participant");
-			// The readiness predicate follows the same lifecycle, because the quick
-			// fixes submit turns addressed to @litellm and must not do that into a
-			// name with nothing behind it.
+			// The readiness predicate follows the same lifecycle, because the quick fixes submit turns addressed to
+			// @litellm and must not do that into a name with nothing behind it.
 			assert.strictEqual(wiring.isRegistered(), false, "no participant means not ready");
 
 			await withConfig({ "chatParticipant.enabled": true }, () => {
@@ -224,9 +211,8 @@ suite("extension/features/participant wiring", () => {
 	});
 
 	test("a refusing host does not take activation down with it", async () => {
-		// createChatParticipant runs on the activation path and inside a
-		// configuration listener; a host that refuses the id must cost this
-		// feature and nothing else.
+		// createChatParticipant runs on the activation path and inside a configuration listener; a host that refuses
+		// the id must cost this feature and nothing else.
 		const originalCreate = vscode.chat.createChatParticipant;
 		(vscode.chat as Record<string, unknown>).createChatParticipant = () => {
 			throw new Error("id already registered");
@@ -256,16 +242,13 @@ suite("extension/features/participant wiring", () => {
 			lines.some((line) => line.includes("chat participant registration failed")),
 			"the refusal is classified, not swallowed"
 		);
-		// Channel-only by design: applyEnablement reruns on every configuration
-		// change, and a host that keeps refusing must not evict real errors from
-		// the issue-report ring.
+		//   a host that keeps refusing must not evict real errors from the issue-report ring -> Channel-only by design
 		assert.ok(
 			buffered.every((line) => !line.includes("chat participant registration failed")),
 			"the refusal advisory never reaches the issue-report buffer"
 		);
-		// The case the enable SETTING cannot see: it says on, and @litellm still
-		// cannot answer. A predicate that read the setting would say true here and
-		// send the quick fixes' turn nowhere.
+		// The case the enable SETTING cannot see: it says on, and @litellm still cannot answer. A predicate that read
+		// the setting would say true here and send the quick fixes' turn nowhere.
 		assert.strictEqual(wiring?.isRegistered(), false, "a refused registration must not read as ready");
 	});
 
@@ -304,8 +287,8 @@ suite("extension/features/participant wiring", () => {
 	});
 
 	test("an attached file's CONTENT reaches the model, not just the reference as authored", async () => {
-		// ChatRequest.prompt carries references as AUTHORED, so without resolving
-		// them "write tests for the selected function" arrives with no function.
+		// ChatRequest.prompt carries references as AUTHORED, so without resolving them "write tests for the selected
+		// function" arrives with no function.
 		const document = await vscode.workspace.openTextDocument({
 			content: "export function add(a, b) {\n\treturn a + b;\n}\n",
 			language: "typescript",
@@ -357,9 +340,8 @@ suite("extension/features/participant wiring", () => {
 	});
 
 	test("an outside-workspace attachment is labeled by its file name, never its absolute path", async () => {
-		// asRelativePath hands back the ABSOLUTE path for a file no workspace
-		// folder contains, so a raw call here used to ship /Users/<name>/... into
-		// the prompt; the shared documentLabel pipeline answers the bare name.
+		// asRelativePath hands back the ABSOLUTE path for a file no workspace folder contains, so a raw call here used
+		// to ship /Users/<name>/... into the prompt; the shared documentLabel pipeline answers the bare name.
 		const dir = await mkdtemp(path.join(tmpdir(), "lvt-label-"));
 		const filePath = path.join(dir, "outside-workspace.ts");
 		await writeFile(filePath, "const outside = 1;\n");
@@ -379,8 +361,8 @@ suite("extension/features/participant wiring", () => {
 				const content = String((sends[0]?.messages[0]?.content[0] as { value?: unknown } | undefined)?.value ?? "");
 				assert.ok(content.includes("const outside = 1;"), "the file's content still rides along");
 				assert.ok(content.includes("outside-workspace.ts"), `the label names the file, got:\n${content}`);
-				// fsPath is exactly the string the raw host API used to hand back
-				// for an uncontained URI, so this is the leak, verbatim, per platform.
+				// fsPath is exactly the string the raw host API used to hand back for an uncontained URI, so this is
+				// the leak, verbatim, per platform.
 				assert.ok(
 					!content.includes(vscode.Uri.file(filePath).fsPath),
 					`the absolute path must never reach the prompt:\n${content}`
@@ -392,11 +374,9 @@ suite("extension/features/participant wiring", () => {
 	});
 
 	test("multi-root: same-named attachments in different roots keep distinct labels", async () => {
-		// A faithful stand-in for the host's multi-root asRelativePath: the
-		// workspace-folder name is prepended for contained files unless the caller
-		// opts out. If the shared label pipeline opted out, both attachments below
-		// would collapse into one "src/index.ts" and the model could not tell the
-		// user's two files apart in one turn.
+		// A faithful stand-in for the host's multi-root asRelativePath: the workspace-folder name is prepended for
+		// contained files unless the caller opts out. If the shared label pipeline opted out, both attachments below
+		// would collapse into one "src/index.ts" and the model could not tell the user's two files apart in one turn.
 		const original = vscode.workspace.asRelativePath;
 		(vscode.workspace as Record<string, unknown>).asRelativePath = (
 			pathOrUri: vscode.Uri | string,
@@ -416,8 +396,8 @@ suite("extension/features/participant wiring", () => {
 				});
 				const handler = spies.participants[0]?.handler;
 				assert.ok(handler !== undefined);
-				// Nonexistent on purpose: the unreadable branch still labels through
-				// the shared pipeline, and it needs no files on disk to prove this.
+				// Nonexistent on purpose: the unreadable branch still labels through the shared pipeline, and it needs
+				// no files on disk to prove this.
 				const { request, sends } = fakeRequest({
 					prompt: "compare these",
 					references: [
@@ -471,8 +451,8 @@ suite("extension/features/participant wiring", () => {
 	});
 
 	test("/models and the command listing never open an attachment", async () => {
-		// Reading attachments costs document opens; a command that answers without
-		// the user's code must not pay for context it discards.
+		// Reading attachments costs document opens; a command that answers without the user's code must not pay for
+		// context it discards.
 		const document = await vscode.workspace.openTextDocument({ content: "some file", language: "plaintext" });
 		const reference = { id: "vscode.implicit.file", value: document.uri } as vscode.ChatPromptReference;
 		const originalOpen = vscode.workspace.openTextDocument;
@@ -494,9 +474,8 @@ suite("extension/features/participant wiring", () => {
 				}
 				assert.strictEqual(opens, 0, "neither path may read an attachment");
 
-				// And the positive control: a path that DOES use the code reads it,
-				// EXACTLY once - "at least once" would still pass with memoization
-				// removed, which is the property the thunk exists for.
+				// And the positive control: a path that DOES use the code reads it, EXACTLY once - "at least once"
+				// would still pass with memoization removed, which is the property the thunk exists for.
 				const { request } = fakeRequest({ prompt: "write tests", command: "tests", references: [reference] });
 				await handler(request, EMPTY_CONTEXT, recordingStream().stream, new vscode.CancellationTokenSource().token);
 				assert.strictEqual(opens, 1, "a prompt-shaping command reads the attachment once");
@@ -526,7 +505,6 @@ suite("extension/features/participant wiring", () => {
 					name: "twice",
 					description: "asks for its attachments more than once",
 					run: async (turn) => {
-						// Sequential and concurrent, both through the memo.
 						const first = await turn.attachments();
 						const [second, third] = await Promise.all([turn.attachments(), turn.attachments()]);
 						seen = [[...first], [...second], [...third]];
@@ -542,7 +520,6 @@ suite("extension/features/participant wiring", () => {
 				await handler(request, EMPTY_CONTEXT, recordingStream().stream, new vscode.CancellationTokenSource().token);
 				assert.strictEqual(opens, 1, "three asks, one read");
 				assert.strictEqual(seen.length, 3);
-				// The same resolved list every time, not three independent reads.
 				assert.deepStrictEqual(seen[1], seen[0]);
 				assert.deepStrictEqual(seen[2], seen[0]);
 			});
@@ -583,8 +560,7 @@ suite("extension/features/participant wiring", () => {
 			assert.strictEqual(sends.length, 0, "/models must not reach a model");
 			const markdown = reported.join("");
 			assert.ok(markdown.includes("### Team proxy"), "the group's label heads its section");
-			// The answer shows the mint-stamped RAW id, which is what the user
-			// writes in settings.
+			// The answer shows the mint-stamped RAW id, which is what the user writes in settings.
 			assert.ok(markdown.includes("`gpt-4o-mini`"), `raw model id missing from:\n${markdown}`);
 			assert.ok(!markdown.includes("srv-1/"), "no server-namespaced id may leak into the answer");
 			assert.ok(
@@ -664,9 +640,8 @@ suite("extension/features/participant wiring", () => {
 	});
 
 	test("a throwing snapshot source fails the turn like any other, through the one error path", async () => {
-		// Lazily read and inside the handler's own try, so a snapshot failure is
-		// one friendly text plus one classification - not a half-answer pairing
-		// "could not read the servers" with "no servers are connected".
+		// Lazily read and inside the handler's own try, so a snapshot failure is one friendly text plus one
+		// classification - not a half-answer pairing "could not read the servers" with "no servers are connected".
 		await withWiringSpies(async (spies) => {
 			const { logger, lines } = quietLogger();
 			await withConfig({}, () => {

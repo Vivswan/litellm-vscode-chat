@@ -6,7 +6,6 @@ import type { OpenAIFunctionToolDef } from "../../../shared/conversion/wire";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
-// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
 
 function isPlainRecord(value: unknown): boolean {
@@ -14,8 +13,8 @@ function isPlainRecord(value: unknown): boolean {
 }
 
 /**
- * Recursive schema-shaped values: real JSON Schema keywords with nested branches, salted with
- * arbitrary JSON so unknown and malformed keywords get exercised alongside meaningful ones.
+ * Recursive schema-shaped values: real JSON Schema keywords with nested branches, salted with arbitrary JSON so unknown
+ * and malformed keywords get exercised alongside meaningful ones.
  */
 const schemaShaped = fc.letrec<{ schema: unknown }>((tie) => ({
 	schema: fc.oneof(

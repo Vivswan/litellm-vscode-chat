@@ -5,12 +5,10 @@ import * as path from "node:path";
 import { REPO_ROOT } from "../util/repoRoot";
 
 /**
- * The template-managed `.bun-version` is the one bun pin; every mirror of it -
- * the repo-owned workflows' setup-bun steps, package.json's packageManager, the
- * @types/bun stubs, compose's oven/bun image, the devcontainer's bun feature, and
- * the bun running this suite - must agree, or local, CI, and the fake stack
- * transpile the same source differently. A workflow the platform manages runs the
- * platform's own scripts on the platform's pin, so it is not a mirror.
+ * The template-managed `.bun-version` is the one bun pin; every mirror of it - the repo-owned workflows' setup-bun
+ * steps, package.json's packageManager, the @types/bun stubs, compose's oven/bun image, the devcontainer's bun feature,
+ * and the bun running this suite - must agree, or local, CI, and the fake stack transpile the same source differently.
+ * A workflow the platform manages runs the platform's own scripts on the platform's pin, so it is not a mirror.
  */
 
 const RELEASE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -32,7 +30,6 @@ function majorMinor(version: string): string {
 
 const MANAGED_HEADER = "# This file is managed by Vivswan/repo-platform.";
 
-/** Every setup-bun step of a repo-owned workflow, with the file and job that own it. */
 function setupBunSteps(file: string): { at: string; step: WorkflowStep }[] {
 	const source = read(`.github/workflows/${file}`);
 	if (source.startsWith(MANAGED_HEADER)) {

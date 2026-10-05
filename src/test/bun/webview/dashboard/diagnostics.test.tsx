@@ -1,8 +1,4 @@
-/**
- * The Diagnostics destination's support section and links, plus the guard that
- * the per-server outcome grid stays deleted. The connection facts are asserted
- * through Copy diagnostics here; servers.test.tsx pins their on-screen twins.
- */
+/** The connection facts are asserted through Copy diagnostics here; servers.test.tsx pins their on-screen twins. */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { DOCS_GETTING_STARTED_URL } from "../../../../shared/util/links";
 import { App } from "../../../../webview/dashboard/app";
@@ -33,9 +29,8 @@ function mountDiagnostics(overrides?: Parameters<typeof makeState>[0]) {
 			)
 		)
 	);
-	// By id, not by text: a rail item's text includes its badge count, so
-	// matching "Diagnostics" exactly finds nothing the moment the state under
-	// test carries a diagnostic.
+	// By id, not by text: a rail item's text includes its badge count, so matching "Diagnostics" exactly finds nothing
+	// the moment the state under test carries a diagnostic.
 	fireClick(root.querySelector("#tab-diagnostics") as HTMLElement);
 	return root;
 }
@@ -50,7 +45,6 @@ function anchorByText(root: ParentNode, text: string): HTMLAnchorElement {
 	return found;
 }
 
-/** Copies through the button and returns what landed on the clipboard. */
 function copyDiagnostics(root: ParentNode): string {
 	const written: string[] = [];
 	Object.defineProperty(navigator, "clipboard", {
@@ -81,16 +75,11 @@ test("the per-server outcome grid is gone: the server rows own every fact it rep
 	});
 	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
 	expect(panel.querySelector("table.diag-grid")).toBeNull();
-	// Not merely the table: none of its facts are restated here. The row on the
-	// Servers destination is where a status, a URL, a model count, an error and
-	// a last-checked reading now live, next to the controls that fix them.
 	expect(panel.textContent).not.toContain("connect ECONNREFUSED");
 	expect(panel.textContent).not.toContain("http://localhost:4001");
 	expect(panel.textContent).not.toContain("Servers configured");
 	expect(panel.textContent).not.toContain("Last checked");
-	// The destination opens on what the reader can act on: one page-level
-	// header, the vertical action stack, then the sections. Support is not a
-	// section - its links close the stack as a quiet nav, with no heading.
+	// Support is not a section - its links close the stack as a quiet nav, with no heading.
 	const pageHeadings = Array.from(panel.querySelectorAll("h2")).map((h) => (h.textContent ?? "").trim());
 	expect(pageHeadings).toEqual(["Diagnostics"]);
 	const headings = Array.from(panel.querySelectorAll("h3")).map((h) => (h.textContent ?? "").trim());
@@ -115,9 +104,7 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 	const iconPath = () => button.querySelector("svg path")?.getAttribute("d") ?? "";
 	const copyIconPath = iconPath();
 
-	// The exact plain-text format: verdict, facts, one line per server through
-	// serverOutcomeText, then the configuration diagnostics. Fully English by
-	// policy, timestamp included: a plain ISO instant, never a locale date.
+	// Fully English by policy, timestamp included: a plain ISO instant, never a locale date.
 	expect(copyDiagnostics(root)).toBe(
 		[
 			"Degraded (2 models, some servers failed)",
@@ -132,8 +119,8 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 });
 
 test("Copy diagnostics never carries URL credentials", () => {
-	// The copy block is a paste-into-issues surface: a base URL configured
-	// with userinfo must land on the clipboard without it.
+	// The copy block is a paste-into-issues surface: a base URL configured with userinfo must land on the clipboard
+	// without it.
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", baseUrl: "http://user:sekret@localhost:4000", servedModelCount: 1 })],
 		models: [makeModel()],
@@ -144,9 +131,8 @@ test("Copy diagnostics never carries URL credentials", () => {
 });
 
 test("Copy diagnostics carries the configuration diagnostics, worst first, in English", () => {
-	// The page's subject is configuration, and for as long as this action
-	// existed the copy carried only connections - so an issue about an inert
-	// matcher key pasted a report that never mentioned it.
+	// The page's subject is configuration, and for as long as this action existed the copy carried only connections -
+	// so an issue about an inert matcher key pasted a report that never mentioned it.
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1 })],
 		models: [makeModel()],
@@ -165,8 +151,7 @@ test("Copy diagnostics carries the configuration diagnostics, worst first, in En
 				diagnostic: { kind: "invalid-matcher", recordKey: "gpt*5", key: "gpt*5" },
 				severity: "warning",
 			},
-			// Dropped, exactly as on screen: a reject with a row of its own has
-			// its problems on that row.
+			// Dropped, exactly as on screen: a reject with a row of its own has its problems on that row.
 			{
 				kind: "entry",
 				label: "broken",
@@ -187,19 +172,17 @@ test("Copy diagnostics carries the configuration diagnostics, worst first, in En
 			'  advisory models.capabilities unrecognized-key "gpt-4" / "supports_web_search"',
 		].join("\n")
 	);
-	// Composed from classifications and structural keys, never translated from
-	// the on-screen sentences, so a Chinese UI copies this same block.
+	// Composed from classifications and structural keys, never translated from the on-screen sentences, so a Chinese UI
+	// copies this same block.
 	expect(copied).not.toContain("Nothing in record");
 	expect(copied).not.toContain("bad auth shape");
 });
 
 test("the copied verdict quotes the served count, not the model-table row count", () => {
-	// A plumbing pin on a hand-built state: the two counts are deliberately
-	// unequal so the wire is discriminated (production's divergence runs the
-	// other way - a multi-claimant snapshot's rows overcount the served sum).
-	// The paste must quote the served window (state.servedModelCount), and the
-	// per-server line must name the same total with the declared subset as
-	// qualifier.
+	// A plumbing pin on a hand-built state: the two counts are deliberately unequal so the wire is discriminated
+	// (production's divergence runs the other way - a multi-claimant snapshot's rows overcount the served sum). The
+	// paste must quote the served window (state.servedModelCount), and the per-server line must name the same total
+	// with the declared subset as qualifier.
 	const root = mountDiagnostics({
 		servers: [
 			makeDeclaredServer({
@@ -238,8 +221,8 @@ test("a world with no server rows reads not configured and disables Test connect
 });
 
 test("Copy diagnostics substitutes a row's English error mirror", () => {
-	// The copied block lands in public issue reports, which stay English by
-	// policy; the localized error the chat UI showed renders on the server row.
+	// The copied block lands in public issue reports, which stay English by policy; the localized error the chat UI
+	// showed renders on the server row.
 	const root = mountDiagnostics({
 		servers: [
 			makeDeclaredServer({
@@ -277,9 +260,8 @@ test("Open output log posts the openOutput command in place of the old output-ch
 });
 
 test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped record keys are redacted", () => {
-	// migrations/settingsRedesign/hints.ts: base URLs and header names "must
-	// never reach logs or issue reports". A URL-scoped key IS a base URL and can
-	// carry credentials, so the copy keeps the classification and drops the value.
+	// A URL-scoped key IS a base URL and can carry credentials, so the copy keeps the classification and drops the
+	// value.
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1 })],
 		models: [makeModel()],
@@ -291,9 +273,8 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 				detail: "models.parameters",
 				severity: "warning",
 			},
-			// A record key can be URL-shaped too - that is exactly what the
-			// legacy leftover IS - so the redaction cannot live only on the
-			// legacy arm.
+			// A record key can be URL-shaped too - that is exactly what the legacy leftover IS - so the redaction
+			// cannot live only on the legacy arm.
 			{
 				kind: "record",
 				setting: "models.parameters",
@@ -309,8 +290,7 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 	const copied = copyDiagnostics(root);
 	expect(copied).not.toContain("hunter2");
 	expect(copied).not.toContain("litellm.internal");
-	// The classification and the setting survive, which is what makes the line
-	// worth pasting at all.
+	// The classification and the setting survive, which is what makes the line worth pasting at all.
 	expect(copied).toContain("blocking inert-url-scoped-key (models.parameters)");
 	expect(copied).toContain('degraded models.parameters invalid-value <url-scoped key> / "temperature"');
 	// The page itself still shows the real key: local is not a public issue.
@@ -319,11 +299,9 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 });
 
 test("Copy diagnostics reports an entry whose problems no server row states, and the hidden-group count", () => {
-	// The entry branch splices the parser's free-form English problems, and
-	// hidden groups contribute no server row at all - a hidden-only install
-	// would otherwise paste "Configuration diagnostics: 0". The count reads
-	// state.hiddenGroups (the same source the verdict reads), never the
-	// hidden-groups diagnostic's labels.
+	// The entry branch splices the parser's free-form English problems, and hidden groups contribute no server row at
+	// all - a hidden-only install would otherwise paste "Configuration diagnostics: 0". The count reads
+	// state.hiddenGroups (the same source the verdict reads), never the hidden-groups diagnostic's labels.
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1 })],
 		hiddenGroups: [
@@ -368,36 +346,33 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 	for (const [text, href] of expectations) {
 		const anchor = anchorByText(root, text);
 		expect(anchor.getAttribute("href"), text).toBe(href);
-		// Both glyphs (the leading subject icon and the trailing external-link
-		// marker) stay decorative; the visible text is the accessible name.
+		// Both glyphs (the leading subject icon and the trailing external-link marker) stay decorative; the visible
+		// text is the accessible name.
 		for (const icon of Array.from(anchor.querySelectorAll("svg.icon"))) {
 			expect(icon.getAttribute("aria-hidden"), text).toBe("true");
 		}
 		expect(anchor.querySelectorAll("svg.icon").length, text).toBe(2);
 	}
-	// Label plus icon plus external-link glyph names each destination, so no
-	// muted gloss beside it. Pinned: a link list is where explanatory one-liners
-	// regrow. The links close the page's action stack in a heading-less nav.
+	// Label plus icon plus external-link glyph names each destination, so no muted gloss beside it. Pinned: a link list
+	// is where explanatory one-liners regrow.
 	const support = root.querySelector('#panel-diagnostics nav[aria-label="Support"]') as HTMLElement;
 	expect(support).not.toBeNull();
 	expect(support.querySelector("h3")).toBeNull();
 	expect(support.querySelectorAll(".feedback-links .hint")).toHaveLength(0);
 	expect(support.textContent).not.toContain("Leave a review");
 	expect(support.textContent).not.toContain("Source code, releases");
-	// The Support section's own standing paragraph went the same way; the
-	// tools' explanation lives on the PAGE header's help affordance, beside
-	// the heading of the page whose tools it describes.
+	// The Support section's own standing paragraph went the same way; the tools' explanation lives on the PAGE header's
+	// help affordance, beside the heading of the page whose tools it describes.
 	expect(support.querySelectorAll("p.hint")).toHaveLength(0);
 	const pageHead = root.querySelector("#diagnostics-section > .section-head") as HTMLElement;
 	expect(pageHead.querySelector(".tip-bubble")?.textContent).toContain("Copy diagnostics");
-	// The four tools open the stack as their own vertical list (plain <ul>: the
-	// buttons name themselves and list semantics carry the count) before the
-	// Support links, with the header's actions slot empty.
+	// The four tools open the stack as their own vertical list (plain <ul>: the buttons name themselves and list
+	// semantics carry the count) before the Support links, with the header's actions slot empty.
 	expect(pageHead.querySelector(".section-actions")).toBeNull();
 	const tools = root.querySelector("#panel-diagnostics ul.diagnostics-tools") as HTMLElement;
 	expect(tools).not.toBeNull();
-	// One button per list item: the list-semantics claim (a reader hears
-	// "list, 4 items") holds only while each tool is its own <li>.
+	// One button per list item: the list-semantics claim (a reader hears "list, 4 items") holds only while each tool is
+	// its own <li>.
 	expect(tools.querySelectorAll(":scope > li")).toHaveLength(4);
 	expect(Array.from(tools.querySelectorAll("button")).map((button) => (button.textContent ?? "").trim())).toEqual([
 		"Test connection",
@@ -405,9 +380,8 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 		"Copy diagnostics",
 		"Report a bug",
 	]);
-	// All four tools carry the primary rank: they are the page's whole content,
-	// with nothing louder to rank under, and the Support links below them take
-	// the quiet link tier - the rank order the stack reads in.
+	// All four tools carry the primary rank: they are the page's whole content, with nothing louder to rank under, and
+	// the Support links below them take the quiet link tier - the rank order the stack reads in.
 	for (const button of Array.from(tools.querySelectorAll("button"))) {
 		expect(button.getAttribute("data-variant"), (button.textContent ?? "").trim()).toBe("default");
 	}

@@ -1,7 +1,6 @@
 /**
- * The server edit destination: a place, not a dialog (no scrim, no X, no focus
- * trap), whose every exit is a REQUEST that a dirty draft turns into the one
- * focus-trapped alertdialog left. Rendered through App - claims about wiring.
+ * The server edit destination: a place, not a dialog (no scrim, no X, no focus trap), whose every exit is a REQUEST
+ * that a dirty draft turns into the one focus-trapped alertdialog left. Rendered through App - claims about wiring.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -37,7 +36,6 @@ afterEach(() => {
 	cleanup();
 });
 
-/** With no server configured the add destination opens from the guided start's CTA. */
 function openAddForm(root: HTMLElement): void {
 	const opener = buttonByText(root, "Add your first server");
 	opener.focus();
@@ -52,7 +50,10 @@ function page(root: ParentNode): HTMLElement {
 	return found as HTMLElement;
 }
 
-/** The discard question's modal, or null while no question stands. It renders beside the pane, never inside the page. */
+/**
+ * The discard question's modal, or null while no question stands. It renders beside the pane, never inside the
+ * page.
+ */
 function confirmDialog(): HTMLElement | null {
 	return document.querySelector<HTMLElement>(".confirm-dialog");
 }
@@ -77,12 +78,11 @@ test("the destination fills the pane with the rail still on screen, and takes fo
 	expect(surface.getAttribute("role")).toBeNull();
 	expect(root.querySelector(".scrim")).toBeNull();
 	expect(root.querySelector("button[aria-label='Close']")).toBeNull();
-	// The rail is still there and still operable - the reason this is a
-	// destination rather than a panel over the page.
+	// The rail is still there and still operable - the reason this is a destination rather than a panel over the page.
 	expect(root.querySelector(".rail")).not.toBeNull();
 	expect((buttonByText(root, "Sync models") as HTMLButtonElement).isConnected).toBe(true);
-	// Focus travels with the navigation, or Tab would carry on from the row
-	// the reader left behind on a pane that is no longer showing.
+	// Focus travels with the navigation, or Tab would carry on from the row the reader left behind on a pane that is no
+	// longer showing.
 	expect(document.activeElement).toBe(inputByLabel(surface, "Label"));
 });
 
@@ -106,12 +106,10 @@ test("Esc on a dirty page asks before discarding, and Esc never destroys: only t
 	fireKeyDown(label, "Escape");
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 	expect(openConfirmDialog().textContent).toContain("Discard unsaved changes?");
-	// The question is not part of the page's own save bar any more.
 	expect(page(root).querySelector(".confirm-dialog")).toBeNull();
 
-	// A second Esc reads as "keep editing" (a reflexive Esc-Esc must not
-	// destroy a half-typed draft). The modal holds focus, so the second press
-	// lands on it; the dialog closes, the draft survives.
+	// A second Esc reads as "keep editing" (a reflexive Esc-Esc must not destroy a half-typed draft). The modal holds
+	// focus, so the second press lands on it; the dialog closes, the draft survives.
 	fireKeyDown(document.activeElement as HTMLElement, "Escape");
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 	expect(confirmDialog()).toBeNull();
@@ -122,7 +120,6 @@ test("Esc on a dirty page asks before discarding, and Esc never destroys: only t
 	expect(confirmDialog()).toBeNull();
 	expect(inputByLabel(page(root), "Label").value).toBe("Prod");
 
-	// The explicit Discard button is the only path that destroys the draft.
 	fireKeyDown(label, "Escape");
 	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
@@ -149,13 +146,10 @@ test("a rail click is a navigation the guard sees first, and the answer decides 
 	fireClick(buttonByText(root, "Edit"));
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 
-	// Dirty: the click raises the question instead of navigating, and the
-	// draft is still there behind it.
 	fireClick(document.getElementById("tab-models") as HTMLElement);
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 	expect(confirmDialog()).not.toBeNull();
 
-	// Keeping goes nowhere: the reader stays on the page they were editing.
 	fireClick(buttonByText(openConfirmDialog(), "Keep editing"));
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 	expect(document.getElementById("tab-models")?.getAttribute("aria-selected")).toBe("false");
@@ -220,7 +214,6 @@ test("focus falls back to the section's rail item when the opener left with the 
 	fireClick(cta);
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 
-	// A background sync lands a server: the guided card (and the opener) unmounts.
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
 	fireKeyDown(page(root), "Escape");
 	expect(root.querySelector(".server-edit-page")).toBeNull();
@@ -252,9 +245,8 @@ test("an entry deleted under an open page says so instead of editing something t
 });
 
 test("an unproven row is no edit target: the page waits, and the proving push opens the form on the PROVEN identity", () => {
-	// The pre-first-pass fallback cannot read secret blobs, so its rows carry
-	// unproven locations. A form mounted over a guessed "none" would freeze a
-	// wrong identity and earn a spurious refusal on save; the page must wait.
+	// The pre-first-pass fallback cannot read secret blobs, so its rows carry unproven locations. A form mounted over a
+	// guessed "none" would freeze a wrong identity and earn a spurious refusal on save; the page must wait.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeUnprovenServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -264,8 +256,8 @@ test("an unproven row is no edit target: the page waits, and the proving push op
 	expect(page(root).querySelector("input")).toBeNull();
 	expect(page(root).textContent).not.toContain("This server is gone");
 
-	// The first pass proves a secure key; the SAME open request resolves into
-	// the form, whose frozen identity is the proven one - never fallback "none".
+	// The first pass proves a secure key; the SAME open request resolves into the form, whose frozen identity is the
+	// proven one - never fallback "none".
 	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "secure" }, { label: "Prod" })] })));
 	expect(inputByLabel(page(root), "Label").value).toBe("Prod");
 	resetPosted();
@@ -289,10 +281,9 @@ test("the waiting page is never a trap: Back to servers leaves it like any clean
 });
 
 test("a row turning unproven under an open form does not tear it down: the draft survives later uncertainty", () => {
-	// A degraded sync pass (an unreadable blob) can mark a row unproven AFTER
-	// the form opened on its proven push. Swapping the form for the waiting
-	// card would silently drop the draft; the form keeps its last proven
-	// target, and the frozen identity still guards the save extension-side.
+	// A degraded sync pass (an unreadable blob) can mark a row unproven AFTER the form opened on its proven push.
+	// Swapping the form for the waiting card would silently drop the draft; the form keeps its last proven target, and
+	// the frozen identity still guards the save extension-side.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -313,22 +304,18 @@ test("a pending adopt never traps the reader: leaving works and the late ack sti
 	fireClick(buttonByText(page(root), "Adopt"));
 	const posted = lastRequest("adoptServer");
 
-	// Esc on the edited page asks the usual question; Discard leaves with the
-	// intent still running extension-side.
 	fireKeyDown(page(root), "Escape");
 	expect(confirmDialog()).not.toBeNull();
 	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 
-	// The late ack still raises the post-adoption notice on the list.
 	pushToWebview({ kind: "ack", id: posted.id, method: "adoptServer" });
 	expect(root.textContent).toContain("Models appear twice");
 });
 
 test("a draft whose entry is deleted stops being a draft: every way out still works", () => {
-	// The form died with the entry, so there is nothing to save and nothing to
-	// ask about. A dirty flag outliving it would raise a question nothing
-	// renders on every exit - the trail, Esc, the rail - trapping the reader.
+	// The form died with the entry, so there is nothing to save and nothing to ask about. A dirty flag outliving it
+	// would raise a question nothing renders on every exit - the trail, Esc, the rail - trapping the reader.
 	const server = makeDeclaredServer({ label: "Prod" });
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [server] })));
@@ -343,9 +330,8 @@ test("a draft whose entry is deleted stops being a draft: every way out still wo
 });
 
 test("an entry deleted while the question stands takes the question with it", () => {
-	// The modal outliving its draft would ask about edits nobody can keep, and
-	// a navigation intent left behind would fire on some later exit the reader
-	// never asked for.
+	// The modal outliving its draft would ask about edits nobody can keep, and a navigation intent left behind would
+	// fire on some later exit the reader never asked for.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -362,9 +348,9 @@ test("an entry deleted while the question stands takes the question with it", ()
 });
 
 test("only the target's disappearance dismisses the standing question", () => {
-	// The dismissal rides the page's explicit target-gone channel, never the dirty report:
-	// a push that keeps the entry - whatever it does to the draft's evidence - leaves the
-	// question to the reader, and only the push that deletes the entry takes it along.
+	// The dismissal rides the page's explicit target-gone channel, never the dirty report: a push that keeps the
+	// entry - whatever it does to the draft's evidence - leaves the question to the reader, and only the push that
+	// deletes the entry takes it along.
 	const root = mount(<App />);
 	const server = makeDeclaredServer({ label: "Prod" });
 	pushToWebview(statePush(makeState({ servers: [server] })));
@@ -373,11 +359,9 @@ test("only the target's disappearance dismisses the standing question", () => {
 	fireClick(document.getElementById("tab-models") as HTMLElement);
 	expect(confirmDialog()).not.toBeNull();
 
-	// The entry survives this push: the question stands.
 	pushToWebview(statePush(makeState({ servers: [server] })));
 	expect(confirmDialog()).not.toBeNull();
 
-	// The entry leaves: the question goes with it, draft and intent included.
 	pushToWebview(statePush(makeState({ servers: [] })));
 	expect(confirmDialog()).toBeNull();
 });
@@ -388,12 +372,9 @@ test("keeping the page answers the navigation too: the abandoned destination doe
 	fireClick(buttonByText(root, "Edit"));
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 
-	// Ask to go to Models, then say no.
 	fireClick(document.getElementById("tab-models") as HTMLElement);
 	fireClick(buttonByText(openConfirmDialog(), "Keep editing"));
 
-	// Leaving through the page's own control now goes back where the reader
-	// came from, not to the destination they declined.
 	fireClick(buttonByText(page(root), "Discard changes"));
 	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
@@ -407,21 +388,19 @@ test("a question raised from the rail returns focus to the page on keep editing,
 	fireClick(buttonByText(root, "Edit"));
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 
-	// The click leaves focus on the rail item and raises the question there.
 	const railItem = document.getElementById("tab-models") as HTMLElement;
-	// Focusing the rail blurs the field, which the form reacts to; act keeps
-	// that update inside the test's own render pass.
+	// Focusing the rail blurs the field, which the form reacts to; act keeps that update inside the test's own render
+	// pass.
 	void act(() => railItem.focus());
 	fireClick(railItem);
-	// The modal takes focus wherever the raise came from, so Esc answers it
-	// without hunting for the right listener.
+	// The modal takes focus wherever the raise came from, so Esc answers it without hunting for the right listener.
 	expect(document.activeElement).toBe(buttonByText(openConfirmDialog(), "Keep editing"));
 
 	fireKeyDown(document.activeElement as HTMLElement, "Escape");
 	expect(confirmDialog()).toBeNull();
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
-	// The reader said "stay", so focus lands in the page they stayed on -
-	// handing it back to the rail would say the opposite.
+	// The reader said "stay", so focus lands in the page they stayed on - handing it back to the rail would say the
+	// opposite.
 	expect(document.activeElement?.id).toBe("server-edit-page");
 });
 
@@ -445,11 +424,9 @@ test("the trail back routes through the same guard as Esc and the rail", () => {
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
 
-	// Clean: it just leaves.
 	fireClick(buttonByText(page(root), "Servers"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 
-	// Dirty: it asks, like every other way out.
 	fireClick(buttonByText(root, "Edit"));
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 	fireClick(buttonByText(page(root), "Servers"));
@@ -458,9 +435,8 @@ test("the trail back routes through the same guard as Esc and the rail", () => {
 });
 
 test("two adopts resolve independently: an abandoned one still lands its notice while the next page is open", () => {
-	// The page owns one adopt at a time and remounts per open (App keys it),
-	// so a second adopt cannot inherit the first's request. That remount is
-	// load-bearing, which is why this is pinned rather than reasoned about.
+	// The page owns one adopt at a time and remounts per open (App keys it), so a second adopt cannot inherit the
+	// first's request.
 	const alpha = makeExternalServer({ label: "Alpha", adoptHandle: "handle-a", baseUrl: "http://a.example:4000" });
 	const beta = makeExternalServer({ label: "Beta", adoptHandle: "handle-b", baseUrl: "http://b.example:4000" });
 	const root = mount(<App />);
@@ -476,27 +452,23 @@ test("two adopts resolve independently: an abandoned one still lands its notice 
 	fireKeyDown(page(root), "Escape");
 	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 
-	// A second adopt, from the other row, while the first is still running.
 	fireClick(editButtons()[1] as HTMLButtonElement);
 	fireInput(inputByLabel(page(root), "Label"), "Adopted Beta");
 	resetPosted();
 	fireClick(buttonByText(page(root), "Adopt"));
 	const betaId = lastRequest("adoptServer").id;
 
-	// Alpha's ack raises its notice without disturbing Beta's open page.
 	pushToWebview({ kind: "ack", id: alphaId, method: "adoptServer" });
 	expect(root.textContent).toContain("Models appear twice");
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 
-	// Beta's own ack is the one that leaves.
 	pushToWebview({ kind: "ack", id: betaId, method: "adoptServer" });
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 });
 
 test("a validation failure keeps the reader here and says why, where they are", () => {
-	// The servers list has its own failure banner, and the list is BEHIND this
-	// page: a message rendered only there is a message nobody sees while the
-	// form that caused it is still open.
+	// The servers list has its own failure banner, and the list is BEHIND this page: a message rendered only there is a
+	// message nobody sees while the form that caused it is still open.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -514,14 +486,12 @@ test("a validation failure keeps the reader here and says why, where they are", 
 	});
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 	expect(page(root).querySelector(".banner-error")?.textContent).toContain("this label is reserved");
-	// The draft survives to be fixed.
 	expect(inputByLabel(page(root), "Base URL").value).toBe("http://localhost:9999");
 });
 
 test("a rename's own push cannot strand a successful save on the gone card", () => {
-	// Saving a rename makes the old label stop resolving, and the write's state
-	// push can beat the ack: reading that as "deleted" would unmount the form
-	// and leave a save that worked reading as an entry that vanished.
+	// Saving a rename makes the old label stop resolving, and the write's state push can beat the ack: reading that as
+	// "deleted" would unmount the form and leave a save that worked reading as an entry that vanished.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -530,11 +500,9 @@ test("a rename's own push cannot strand a successful save on the gone card", () 
 	fireClick(buttonByText(page(root), "Save"));
 	const posted = lastRequest("saveServerSetting");
 
-	// The push lands first, under the still-open page.
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Renamed" })] })));
 	expect(page(root).textContent).not.toContain("This server is gone");
 
-	// The ack then leaves, as it would have without the race.
 	pushToWebview({ kind: "ack", id: posted.id, method: "saveServerSetting" });
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 });
@@ -558,9 +526,8 @@ test("a second navigation changes where the reader is going, it does not answer 
 
 	fireClick(document.getElementById("tab-models") as HTMLElement);
 	expect(confirmDialog()).not.toBeNull();
-	// A different destination arriving while the question stands (deep links
-	// still get through the scrim) is a new intent, not a toggle: leaving the
-	// question up is the only reading that is not the app ignoring the request.
+	// A different destination arriving while the question stands (deep links still get through the scrim) is a new
+	// intent, not a toggle: leaving the question up is the only reading that is not the app ignoring the request.
 	pushToWebview({ kind: "focusSection", section: "diagnostics" });
 	expect(confirmDialog()).not.toBeNull();
 	fireClick(buttonByText(openConfirmDialog(), "Discard"));
@@ -568,9 +535,8 @@ test("a second navigation changes where the reader is going, it does not answer 
 });
 
 test("focus follows the page when the form under it goes away, so the keyboard keeps working", () => {
-	// The gone card replaces the form, taking the focused field with it. If
-	// focus fell to the body it would be outside the shell that hears Esc, and
-	// the reader's keyboard would stop working on a page still in front of them.
+	// The gone card replaces the form, taking the focused field with it. If focus fell to the body it would be outside
+	// the shell that hears Esc, and the reader's keyboard would stop working on a page still in front of them.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -604,9 +570,8 @@ test("a retry starts clean: the failure banner belongs to the round trip, not to
 });
 
 test("a commit freezes the entry it is committing, so its own push cannot re-arm Save", () => {
-	// A secret moving from secure into settings changes the pushed entry's shape
-	// (inline secrets prefill). Reading that push mid-save would restart the
-	// prefill, leave the saving phase, and re-arm Save: one click, two writes.
+	// A secret moving from secure into settings changes the pushed entry's shape (inline secrets prefill). Reading that
+	// push mid-save would restart the prefill, leave the saving phase, and re-arm Save: one click, two writes.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "secure" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -617,7 +582,6 @@ test("a commit freezes the entry it is committing, so its own push cannot re-arm
 	fireClick(buttonByText(page(root), "Save"));
 	const posted = lastRequest("saveServerSetting");
 
-	// The write lands as a push before the ack.
 	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "settings" })] })));
 	expect((buttonByText(page(root), "Saving...") as HTMLButtonElement).disabled).toBe(true);
 	expect(
@@ -629,9 +593,7 @@ test("a commit freezes the entry it is committing, so its own push cannot re-arm
 });
 
 test("a deep link that arrives in the same tick as the first state still lands on its destination", () => {
-	// panel.ts open() does reveal(), pushState(), flushPendingFocus() back to
-	// back, and the render harness dispatches a fixture's messages in one
-	// synchronous loop; one act reproduces that ordering exactly.
+	//   panel.ts open() -> does reveal(), pushState(), flushPendingFocus() back to back
 	const root = mount(<App />);
 	void act(() => {
 		window.dispatchEvent(new MessageEvent("message", { data: statePush(makeState()) }));
@@ -644,8 +606,6 @@ test("a deep link that arrives in the same tick as the first state still lands o
 });
 
 test("a deep link still asks a dirty page before taking the reader off it", () => {
-	// Recording the intent and applying it on the next commit must still route
-	// through the same question a rail click raises.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -659,9 +619,8 @@ test("a deep link still asks a dirty page before taking the reader off it", () =
 });
 
 test("a deep link that beats the first state push is remembered, not dropped", () => {
-	// The likeliest real ordering: the request arrives while the dashboard is
-	// still the loading skeleton, so there is no guard to route it through yet
-	// and nothing to apply it to.
+	// The likeliest real ordering: the request arrives while the dashboard is still the loading skeleton, so there is
+	// no guard to route it through yet and nothing to apply it to.
 	const root = mount(<App />);
 	pushToWebview({ kind: "focusSection", section: "models" });
 	expect(root.querySelector(".rail")).not.toBeNull();
@@ -672,9 +631,8 @@ test("a deep link that beats the first state push is remembered, not dropped", (
 });
 
 test("a deep link that arrives with the push that deleted the entry lands where it asked", () => {
-	// One tick brings both the push that removes the entry and a deep link
-	// elsewhere. The draft died with the entry, so there is nothing to ask
-	// about - which the shell only knows if the page's report is current.
+	// One tick brings both the push that removes the entry and a deep link elsewhere. The draft died with the entry, so
+	// there is nothing to ask about - which the shell only knows if the page's report is current.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -722,9 +680,8 @@ test("the dialog's Esc closes nothing else: the page below never hears the key",
 	const keep = buttonByText(openConfirmDialog(), "Keep editing");
 	expect(document.activeElement).toBe(keep);
 
-	// A bubble listener past the React root: if the dialog's stopPropagation
-	// ever went missing, the shell's guard would hear the key and re-raise the
-	// question this press just answered - and so would this listener.
+	// A bubble listener past the React root: if the dialog's stopPropagation ever went missing, the shell's guard would
+	// hear the key and re-raise the question this press just answered - and so would this listener.
 	let leaked = false;
 	const listener = (event: KeyboardEvent) => {
 		if (event.key === "Escape") {
@@ -737,7 +694,6 @@ test("the dialog's Esc closes nothing else: the page below never hears the key",
 
 	expect(leaked).toBe(false);
 	expect(confirmDialog()).toBeNull();
-	// One press peeled one surface: the page under the question is untouched.
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 	expect(inputByLabel(page(root), "Base URL").value).toBe("http://localhost:9999");
 });
@@ -758,8 +714,6 @@ test("the dialog traps Tab both ways, so the page below is unreachable by keyboa
 		});
 	};
 
-	// Tab off the last control wraps to the first; Shift-Tab off the first
-	// comes back around. The form's fields never get a turn.
 	void act(() => discard.focus());
 	fireTab(discard, false);
 	expect(document.activeElement).toBe(keep);
@@ -784,9 +738,8 @@ test("keep editing returns focus to the exact field the question interrupted", (
 });
 
 test("a hover tip left open under the modal cannot steal its Esc: one press answers the question", () => {
-	// The tip's own Escape lives on a window-capture listener, so the dialog
-	// listens on window capture too; stopPropagation skips other NODES, not
-	// other listeners on the same window, so the tip closes WITH the press.
+	// The tip's own Escape lives on a window-capture listener, so the dialog listens on window capture too;
+	// stopPropagation skips other NODES, not other listeners on the same window, so the tip closes WITH the press.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -795,8 +748,8 @@ test("a hover tip left open under the modal cannot steal its Esc: one press answ
 	fireMouseEnter(helpWrap);
 	expect(helpWrap.querySelector(".tip-bubble")?.getAttribute("data-open")).toBe("true");
 
-	// A deep link raises the question with the hover-held tip still open: the
-	// pointer never moved, so nothing told the tip to close.
+	// A deep link raises the question with the hover-held tip still open: the pointer never moved, so nothing told the
+	// tip to close.
 	pushToWebview({ kind: "focusSection", section: "models" });
 	const dialog = openConfirmDialog();
 
@@ -808,8 +761,8 @@ test("a hover tip left open under the modal cannot steal its Esc: one press answ
 });
 
 test("a benign state push under the open question leaves it standing", () => {
-	// The extension re-pushes the whole state on every store change; a sync
-	// finishing while the reader weighs the question must not blink it away.
+	// The extension re-pushes the whole state on every store change; a sync finishing while the reader weighs the
+	// question must not blink it away.
 	const server = makeDeclaredServer({ label: "Prod" });
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [server] })));

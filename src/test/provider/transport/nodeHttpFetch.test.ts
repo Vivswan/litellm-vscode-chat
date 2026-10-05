@@ -22,10 +22,7 @@ interface Echo {
 	headers: Record<string, string | undefined>;
 }
 
-/**
- * The routes the adapter is exercised against. `peer` is the other origin, so a
- * cross-origin redirect can be observed end to end on real sockets.
- */
+/** `peer` is the other origin, so a cross-origin redirect can be observed end to end on real sockets. */
 function routes(peer: () => string): http.RequestListener {
 	return (req, res) => {
 		const path = req.url ?? "/";
@@ -84,14 +81,16 @@ function routes(peer: () => string): http.RequestListener {
 					res.write(Buffer.from([0]));
 					return;
 				case "/encoded/gzip-gzip-padded": {
-					// Two stages, complete response: the inner member ends early, the outer stage still has padding to feed.
+					// Two stages, complete response: the inner member ends early, the outer stage still has padding
+					// to feed.
 					const inner = Buffer.concat([zlib.gzipSync("hello"), Buffer.alloc(128 * 1024)]);
 					res.writeHead(200, { "content-type": "text/plain", "content-encoding": "gzip, gzip" });
 					res.end(zlib.gzipSync(inner));
 					return;
 				}
 				case "/encoded/gzip-big":
-					// The whole compressed body lands at once; decoding it takes many reads after the response has ended.
+					// The whole compressed body lands at once; decoding it takes many reads after the response has
+					// ended.
 					res.writeHead(200, { "content-type": "text/plain", "content-encoding": "gzip" });
 					res.end(zlib.gzipSync(Buffer.alloc(4 * 1024 * 1024, 120)));
 					return;
@@ -187,7 +186,9 @@ function routes(peer: () => string): http.RequestListener {
 interface TestServer {
 	readonly url: string;
 	readonly server: http.Server;
-	/** Sockets opened and closed on the server side; with keep-alive off, a gap between them is a client holding one. */
+	/**
+	 * Sockets opened and closed on the server side; with keep-alive off, a gap between them is a client holding one.
+	 */
 	readonly openedSockets: number;
 	readonly closedSockets: number;
 }

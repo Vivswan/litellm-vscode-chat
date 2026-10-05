@@ -8,31 +8,25 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-// The msw-backed properties cap at 2000 runs (each run is a real intercepted
-// HTTP round trip); the pure usageUnavailabilityOf properties scale unbounded.
+// The msw-backed properties cap at 2000 runs (each run is a real intercepted HTTP round trip); the pure
+// usageUnavailabilityOf properties scale unbounded.
 const MSW_RUNS_CAP = 2000;
 const SEED = resolveFuzzSeed();
-
-/**
- * Wire-payload properties for the spend client: every payload shape resolves to a typed
- * outcome (never an exception escaping the parse), unavailability classification is a
- * pure function of the error's structure, and NO response-derived text reaches an error
- * message, cause, log line, or the parsed result.
- */
 
 const KEY_INFO_URL = `${TEST_BASE_URL}/key/info`;
 const USER_INFO_URL = `${TEST_BASE_URL}/user/info`;
 const DAILY_ACTIVITY_URL = `${TEST_BASE_URL}/user/daily/activity`;
 const WINDOW = { startDate: "2026-07-01", endDate: "2026-07-30" };
 
-/** Response-derived text a leak would carry; never a valid YYYY-MM-DD, so pattern-validated day keys cannot alias it. */
+/**
+ * Response-derived text a leak would carry; never a valid YYYY-MM-DD, so pattern-validated day keys cannot alias it.
+ */
 const MARKER = "sk-hashed-key-material-FUZZ";
 
 const connection = { label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "sk-test", headers: {} } as const;
 
 /**
- * A client with a recording logger. The spend client constructs errors and
- * throws WITHOUT logging (the poller boundary logs one classification), so the
+ * The spend client constructs errors and throws WITHOUT logging (the poller boundary logs one classification), so the
  * suites assert the recording stays EMPTY.
  */
 function recordingClient(): { client: UsageClient; logs: string[] } {
@@ -47,7 +41,6 @@ function recordingClient(): { client: UsageClient; logs: string[] } {
 	return { client, logs };
 }
 
-/** Every text surface of a thrown error: message, English mirror, classification, and the cause chain. */
 function errorTextSurfaces(error: unknown): string {
 	const parts: string[] = [];
 	let current: unknown = error;
@@ -68,7 +61,6 @@ function assertNoMarker(text: string, where: string): void {
 	assert.ok(!text.includes(MARKER), `${where} must never carry response-derived text`);
 }
 
-/** A usage-number slot as the parser must leave it: absent, or a finite non-negative number. */
 function assertUsageNumber(value: number | undefined, field: string): void {
 	assert.ok(
 		value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0),
@@ -96,9 +88,6 @@ function assertTypedUserUsage(user: UserUsage): void {
 	);
 }
 
-// -- Payload arbitraries ------------------------------------------------------
-
-/** Field values the endpoints could serve: usable numbers, junk types, huge numbers, nested garbage, marker text. */
 const junkFieldValue = fc.oneof(
 	fc.double({ noNaN: true, min: -1e12, max: 1e12 }),
 	fc.constantFrom<unknown>(
@@ -118,9 +107,8 @@ const junkFieldValue = fc.oneof(
 		[MARKER],
 		{ nested: { deep: MARKER } },
 		{ usd: 1 },
-		// Date-shaped strings for the epoch slots, plus the Date range edges and a NUMERIC
-		// epoch - which must read as absent, because usageEpochMs only accepts strings.
-		// "user-1" populates hasUser.
+		// Date-shaped strings for the epoch slots, plus the Date range edges and a NUMERIC epoch - which must read as
+		// absent, because usageEpochMs only accepts strings. "user-1" populates hasUser.
 		"2026-09-01T00:00:00.000Z",
 		"2026-09-01",
 		"2026-02-30T00:00:00Z",
@@ -132,7 +120,6 @@ const junkFieldValue = fc.oneof(
 	fc.jsonValue({ maxDepth: 2 })
 );
 
-/** An info-shaped record whose recognized keys carry junk, plus noise keys. */
 const infoRecordArb = fc
 	.tuple(
 		fc.dictionary(
@@ -144,7 +131,6 @@ const infoRecordArb = fc
 	)
 	.map(([known, noise]) => ({ ...noise, ...known }));
 
-/** A whole key-info or user-info payload: targeted shapes and outright junk. */
 const rollupPayloadArb = fc.oneof(
 	{ weight: 3, arbitrary: infoRecordArb.map((info) => ({ key: MARKER, info })) },
 	{ weight: 3, arbitrary: infoRecordArb.map((info) => ({ user_id: MARKER, user_info: info })) },
@@ -157,7 +143,6 @@ const dayKeyArb = fc.oneof(
 	fc.constantFrom("2026-7-1", "not-a-day", "", MARKER, "2026-07-01T00:00:00Z", "2026-07-011")
 );
 
-/** One daily-activity results element: day-shaped records with junk metrics, and outright junk. */
 const dailyEntryArb = fc.oneof(
 	{
 		weight: 3,
@@ -193,8 +178,8 @@ const dailyPayloadArb = fc.oneof(
 		arbitrary: fc
 			.tuple(
 				fc.array(dailyEntryArb, { maxLength: 8 }),
-				// The metadata slot carries the canary explicitly: a regression
-				// that trusts or logs response metadata must trip the marker check.
+				// The metadata slot carries the canary explicitly: a regression that trusts or logs response metadata
+				// must trip the marker check.
 				fc.oneof(fc.jsonValue({ maxDepth: 1 }), fc.constant<unknown>({ total_spend: 12345, secret: MARKER }))
 			)
 			.map(([results, metadata]) => ({ results, metadata })),
@@ -225,8 +210,8 @@ suite("extension/servers/usage spendClient payload properties", () => {
 
 	test("key-info and user-info parsing is total and typed over arbitrary payloads; nothing response-derived rides into the result", async function () {
 		this.timeout(240000);
-		// One stable handler pair reading mutable state: use() inside the
-		// property would stack handlers per run and never honor a high FUZZ_RUNS.
+		// One stable handler pair reading mutable state: use() inside the property would stack handlers per run and
+		// never honor a high FUZZ_RUNS.
 		let served: unknown;
 		mswServer.use(
 			http.get(KEY_INFO_URL, () => HttpResponse.json(served as never)),
@@ -240,8 +225,6 @@ suite("extension/servers/usage spendClient payload properties", () => {
 				const user = await client.fetchUserInfo(connection);
 				assertTypedKeyUsage(key);
 				assertTypedUserUsage(user);
-				// The one string the payload could smuggle out is gone: results are
-				// numbers, epoch timestamps, and booleans only.
 				assertNoMarker(JSON.stringify(key) + JSON.stringify(user), "a parsed rollup");
 			}),
 			{ numRuns: Math.min(NUM_RUNS, MSW_RUNS_CAP), seed: SEED }
@@ -259,8 +242,6 @@ suite("extension/servers/usage spendClient payload properties", () => {
 				served = payload;
 				const daily = await client.fetchDailyActivity(connection, WINDOW);
 
-				// A malformed day drops itself, not the window: the retained set is
-				// exactly the record-shaped entries with a pattern-valid date.
 				assert.deepStrictEqual(
 					daily.days.map((day) => day.date),
 					expectedDayKeys(payload)
@@ -277,14 +258,14 @@ suite("extension/servers/usage spendClient payload properties", () => {
 							typeof value === "number" && Number.isFinite(value) && value >= 0,
 							`day.${field} must be a finite non-negative number`
 						);
-						// Same accumulation order as the client's reduce, so the
-						// floating-point result must agree bit for bit.
+						// Same accumulation order as the client's reduce, so the floating-point result must agree bit
+						// for bit.
 						expectedTotals[field] = (expectedTotals[field] as number) + value;
 					}
 				}
-				// Totals are summed from the retained days, never trusted from the response
-				// metadata. The sum follows IEEE float semantics on purpose (the contract is
-				// that totals AGREE WITH THE DAYS SHOWN), but can never go negative or NaN.
+				// Totals are summed from the retained days, never trusted from the response metadata. The sum follows
+				// IEEE float semantics on purpose (the contract is that totals AGREE WITH THE DAYS SHOWN), but can
+				// never go negative or NaN.
 				assert.deepStrictEqual({ ...daily.totals }, expectedTotals);
 				for (const [field, total] of Object.entries(daily.totals)) {
 					assert.ok(!Number.isNaN(total) && (total as number) >= 0, `totals.${field} must be a non-negative number`);
@@ -312,20 +293,18 @@ suite("extension/servers/usage spendClient payload properties", () => {
 				fc.oneof(
 					fc.constantFrom(`${MARKER}`, `not json ${MARKER}`, `<html>${MARKER}</html>`, `{"broken": ${MARKER}`, ""),
 					fc.string({ maxLength: 40 }).map((prefix) => `${prefix}${MARKER}`),
-					// Valid JSON with the marker inside a string: the success branch
-					// below is reachable and must still come out marker-free.
+					// Valid JSON with the marker inside a string: the success branch below is reachable and must still
+					// come out marker-free.
 					fc.constant(JSON.stringify({ info: { spend: 1, note: MARKER } }))
 				),
-				// The content type is deliberately inert: the client reads text()
-				// and parses it itself, so a mislabeled body must behave identically.
+				// The content type is deliberately inert: the client reads text() and parses it itself, so a mislabeled
+				// body must behave identically.
 				fc.constantFrom("text/plain", "text/html", "application/json", "application/octet-stream"),
 				async (body, contentType) => {
 					servedBody = body;
 					servedContentType = contentType;
 					try {
 						const parsed = await client.fetchKeyInfo(connection);
-						// The valid-JSON body lands here whatever its content type says:
-						// typed fields only, the marker string narrowed away.
 						assertTypedKeyUsage(parsed);
 						assertNoMarker(JSON.stringify(parsed), "a parsed rollup");
 					} catch (error) {
@@ -343,9 +322,9 @@ suite("extension/servers/usage spendClient payload properties", () => {
 
 	test("non-OK statuses classify deterministically from the status alone; bodies never leak", async function () {
 		this.timeout(240000);
-		// 4xx fails on the first attempt, so the property stays cheap; 501 and 5xx ride
-		// the retry budget first, so the retried path gets one pinned example below.
-		// The status-to-verdict mapping is pure and covered by its own property.
+		// 4xx fails on the first attempt, so the property stays cheap; 501 and 5xx ride the retry budget first, so the
+		// retried path gets one pinned example below. The status-to-verdict mapping is pure and covered by its own
+		// property.
 		let servedStatus = 400;
 		mswServer.use(
 			http.get(KEY_INFO_URL, () =>
@@ -373,9 +352,8 @@ suite("extension/servers/usage spendClient payload properties", () => {
 					const thrown = await expectFailure(status);
 					assert.strictEqual(thrown.kind, status === 401 || status === 403 ? "auth" : "http");
 
-					// The documented mapping, and its determinism: classifying the same
-					// error twice can never disagree (the availability standing the
-					// poller stores from this verdict is permanent).
+					// The documented mapping, and its determinism: classifying the same error twice can never disagree
+					// (the availability standing the poller stores from this verdict is permanent).
 					const expected =
 						status === 401 || status === 403
 							? "forbidden"
@@ -388,12 +366,12 @@ suite("extension/servers/usage spendClient payload properties", () => {
 			),
 			{ numRuns: Math.min(NUM_RUNS, MSW_RUNS_CAP), seed: SEED }
 		);
-		// The one retried non-OK verdict: a 501 exhausts the retry budget and
-		// still reads as permanently unsupported, body unread throughout.
+		// The one retried non-OK verdict: a 501 exhausts the retry budget and still reads as permanently unsupported,
+		// body unread throughout.
 		const routeMissing = await expectFailure(501);
 		assert.strictEqual(usageUnavailabilityOf(routeMissing), "unsupported");
-		// A 500 exhausts the same budget and stays transient, marker-free on
-		// every surface (the property above skips 5xx to dodge the backoff).
+		// A 500 exhausts the same budget and stays transient, marker-free on every surface (the property above skips
+		// 5xx to dodge the backoff).
 		const exhausted = await expectFailure(500);
 		assert.strictEqual(exhausted.kind, "http");
 		assert.strictEqual(usageUnavailabilityOf(exhausted), undefined, "5xx must not read as permanently unavailable");
@@ -402,9 +380,8 @@ suite("extension/servers/usage spendClient payload properties", () => {
 
 	test("a network failure exhausts the retries into a typed error whose cause chain carries no response text", async function () {
 		this.timeout(30000);
-		// HttpResponse.error() makes fetch itself throw, driving the one path
-		// that attaches a cause to the thrown RequestError - so the cause-chain
-		// walk in errorTextSurfaces is exercised for real, not vacuously.
+		// HttpResponse.error() makes fetch itself throw, driving the one path that attaches a cause to the thrown
+		// RequestError - so the cause-chain walk in errorTextSurfaces is exercised for real, not vacuously.
 		mswServer.use(http.get(KEY_INFO_URL, () => HttpResponse.error()));
 		const { client, logs } = recordingClient();
 		let thrown: unknown;
@@ -456,8 +433,8 @@ suite("extension/servers/usage usageUnavailabilityOf properties", () => {
 			fc.property(
 				fc.oneof(
 					fc.anything(),
-					// Duck-typed lookalikes: the verdict must gate on the RequestError
-					// class, never on a status field readable off any object.
+					// Duck-typed lookalikes: the verdict must gate on the RequestError class, never on a status field
+					// readable off any object.
 					fc.record({ status: fc.constantFrom(400, 401, 403, 404, 501), kind: fc.constant("http") }),
 					fc
 						.constantFrom(400, 401, 403, 404, 405, 501)

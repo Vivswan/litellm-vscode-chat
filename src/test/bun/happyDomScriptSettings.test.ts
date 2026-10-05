@@ -2,8 +2,10 @@
  * happy-dom can reach child_process.execFileSync through synchronous script loading (SyncFetch behind a `<script src>`
  * once JavaScript evaluation is on), a spawn no test deadline covers. The preload turns that off from the first window
  * and pins the three script settings non-writable, and this proves the pin executed: a shape check over the preload's
- * source could not, since a pin moved into an uncalled function reads the same. The pin covers the one window the
- * suites share; a test that builds a second Window and turns script loading on there is deliberate, and out of scope.
+ * source could not, since a pin moved into an uncalled function reads the same.
+ *
+ *   The pin                                                               -> covers the one window the suites share
+ *   a test that builds a second Window and turns script loading on there  -> deliberate, and out of scope
  */
 
 import { expect, test } from "bun:test";

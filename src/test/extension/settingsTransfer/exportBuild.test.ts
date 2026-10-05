@@ -110,9 +110,8 @@ suite("extension/settingsTransfer/exportBuild", () => {
 	});
 
 	test("a stored value stamped for another destination never materializes into the file", async () => {
-		// Materializing it inline would hand the retired credential to the
-		// entry's current host on any import: inline values bypass the ownership
-		// check, so the export must apply it here instead.
+		// Materializing it inline would hand the retired credential to the entry's current host on any import: inline
+		// values bypass the ownership check, so the export must apply it here instead.
 		const servers = [{ label: "A", baseUrl: "http://a.test" }];
 		const result = await buildSettingsExport(
 			env({
@@ -130,14 +129,13 @@ suite("extension/settingsTransfer/exportBuild", () => {
 			})
 		);
 		assert.deepStrictEqual(result.envelope.settings[SERVERS_SETTING_KEY], [
-			// The matching-stamp virtualKeyValue has no header home in this entry,
-			// so it counts unmaterialized; the mismatched apiKey is refused.
+			// The matching-stamp virtualKeyValue has no header home in this entry, so it counts unmaterialized; the
+			// mismatched apiKey is refused.
 			{ label: "A", baseUrl: "http://a.test" },
 		]);
-		// Both stale-stamped fields count mismatched, the inert one included:
-		// the oauthClientSecret has no active OAuth unit here, so it refuses
-		// nothing (the one wire rule), but its omission from the file must not
-		// be silent - the export reads the mismatched superset, not refused.
+		// Both stale-stamped fields count mismatched, the inert one included: the oauthClientSecret has no active OAuth
+		// unit here, so it refuses nothing (the one wire rule), but its omission from the file must not be silent - the
+		// export reads the mismatched superset, not refused.
 		assert.strictEqual(result.mismatchedSecretCount, 2);
 		assert.strictEqual(result.unmaterializedSecretCount, 1);
 		assert.ok(!JSON.stringify(result.envelope).includes("sk-retired"));
@@ -166,8 +164,8 @@ suite("extension/settingsTransfer/exportBuild", () => {
 	test("an entry whose auth shape cannot be certified secret-free is omitted from a no-secrets export", async () => {
 		const servers = [
 			{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-a" } },
-			// A malformed auth container the strip cannot walk; the secret inside
-			// it must not ride out of an exclude-secrets export.
+			// A malformed auth container the strip cannot walk; the secret inside it must not ride out of an
+			// exclude-secrets export.
 			{ label: "B", baseUrl: "http://b.test", auth: [{ apiKey: "sk-hidden" }] },
 		];
 		const withoutSecrets = await buildSettingsExport(
@@ -180,7 +178,6 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		assert.strictEqual(withoutSecrets.omittedUnsanitizableCount, 1, "the omitted entry is reported, not silent");
 		assert.ok(!JSON.stringify(withoutSecrets.envelope).includes("sk-hidden"));
 
-		// The same entry rides verbatim into a with-secrets export.
 		const withSecrets = await buildSettingsExport(
 			env({ includeSecrets: true, readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }) })
 		);
@@ -190,9 +187,8 @@ suite("extension/settingsTransfer/exportBuild", () => {
 	});
 
 	test("an entry carrying the pre-redesign flat credential shape exports with the secret stripped", async () => {
-		// A flat top-level apiKey maps 1:1 onto the blob's field id, so the
-		// no-secrets export keeps the entry and removes the value - the same
-		// lossless take the import relies on for old-format files.
+		// A flat top-level apiKey maps 1:1 onto the blob's field id, so the no-secrets export keeps the entry and
+		// removes the value - the same lossless take the import relies on for old-format files.
 		const servers = [
 			{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-a" } },
 			{ label: "B", baseUrl: "http://b.test", apiKey: "sk-test-flat" },

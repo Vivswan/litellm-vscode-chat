@@ -11,10 +11,9 @@ import {
 } from "../../../../shared/conversion/textTokens";
 
 /**
- * A realistic Chinese chat message: 54 Han characters plus ASCII punctuation
- * and spaces (60 UTF-16 units). The plain chars/4 heuristic prices it at 15
- * tokens while real tokenizers see 45 (o200k_base) and 58 (cl100k_base) - the
- * 3-4x undercount this module's modes exist to close.
+ * A realistic Chinese chat message: 54 Han characters plus ASCII punctuation and spaces (60 UTF-16 units). The plain
+ * chars/4 heuristic prices it at 15 tokens while real tokenizers see 45 (o200k_base) and 58 (cl100k_base) - the 3-4x
+ * undercount this module's modes exist to close.
  */
 const CHINESE_FIXTURE =
 	"请把这个函数重构成纯函数, 并为它补上完整的单元测试。注意保持原有的错误处理逻辑不变, 同时把所有网络调用移动到调用方。";
@@ -27,8 +26,8 @@ describe("shared/conversion/textTokens: the CJK undercount demonstration", () =>
 	test("the plain heuristic undercounts the Chinese fixture 3-4x against real tokenizers", () => {
 		const heuristic = plainTextTokenEstimate(CHINESE_FIXTURE);
 		assert.strictEqual(heuristic, 15);
-		// Frozen encodings, so the counts are stable: o200k_base packs common
-		// Chinese tighter than cl100k_base, hence 3x against its 3.9x.
+		// Frozen encodings, so the counts are stable: o200k_base packs common Chinese tighter than cl100k_base, hence
+		// 3x against its 3.9x.
 		assert.strictEqual(o200kCountTokens(CHINESE_FIXTURE), 45);
 		assert.strictEqual(cl100kCountTokens(CHINESE_FIXTURE), 58);
 		assert.ok(o200kCountTokens(CHINESE_FIXTURE) >= 3 * heuristic);
@@ -69,16 +68,16 @@ describe("shared/conversion/textTokens: the two-band estimate", () => {
 		const extG = "\u{30000}".repeat(8);
 		assert.strictEqual(twoBandTextTokenEstimate(extG), 32);
 		assert.ok(twoBandTextTokenEstimate(extG) >= o200kCountTokens(extG));
-		// Halfwidth katakana (fullwidth/halfwidth block): priced 2; o200k prices
-		// it just under 2 per character, so the 1-token band undercounted 2x.
+		// Halfwidth katakana (fullwidth/halfwidth block): priced 2; o200k prices it just under 2 per character, so the
+		// 1-token band undercounted 2x.
 		const halfwidth = "ｱｲｳｴｵｶｷｸ";
 		assert.strictEqual(twoBandTextTokenEstimate(halfwidth), 16);
 		assert.ok(twoBandTextTokenEstimate(halfwidth) >= o200kCountTokens(halfwidth));
 	});
 
 	test("fullwidth ASCII prices 2 per code point: over a fullwidth date, never under halfwidth kana", () => {
-		// 7 fullwidth digits at 2 plus 3 Han at 1 = 17; o200k meters the date at 8.
-		// No code point in the block meters above 2, so the band cannot undercount.
+		// 7 fullwidth digits at 2 plus 3 Han at 1 = 17; o200k meters the date at 8. No code point in the block meters
+		// above 2, so the band cannot undercount.
 		const date = "２０２６年８月１３日";
 		assert.strictEqual(twoBandTextTokenEstimate(date), 17);
 		assert.ok(twoBandTextTokenEstimate(date) >= o200kCountTokens(date));
@@ -102,8 +101,8 @@ describe("shared/conversion/textTokens: the installed counting mode", () => {
 	});
 
 	test("a throwing tokenizer falls back to the two-band estimate instead of escaping", () => {
-		// gpt-tokenizer's default options throw on special-token text; the
-		// loader permits them, and this pins the backstop for anything else.
+		// gpt-tokenizer's default options throw on special-token text; the loader permits them, and this pins the
+		// backstop for anything else.
 		setTextTokenCounting({
 			kind: "tokenizer",
 			countTokens: () => {
@@ -174,8 +173,8 @@ describe("shared/conversion/textTokens: the non-Latin detection threshold", () =
 	});
 
 	test("the deliberate breadth: emoji and Vietnamese fire, because chars/4 underprices both", () => {
-		// o200k meters an emoji at 1-3 tokens and Vietnamese diacritics well above
-		// the plain rule, so the breadth buys accuracy rather than waste.
+		// o200k meters an emoji at 1-3 tokens and Vietnamese diacritics well above the plain rule, so the breadth buys
+		// accuracy rather than waste.
 		assert.strictEqual(detections("🚀🎉🔥🌟💡🎯🚨😀"), 1);
 		assert.strictEqual(
 			detections(
@@ -189,8 +188,8 @@ describe("shared/conversion/textTokens: the non-Latin detection threshold", () =
 		assert.strictEqual(detections("a".repeat(4000)), 0);
 		// Accented Latin (French) stays below the 0x0370 line.
 		assert.strictEqual(detections("Réécrivez cette fonction en une fonction pure, s'il vous plaît déjà."), 0); // typos: ignore
-		// Curly quotes and dashes live in the excluded 0x2000-0x2E7F blocks
-		// (escaped so the fixture itself passes the repo's typography gate).
+		// Curly quotes and dashes live in the excluded 0x2000-0x2E7F blocks (escaped so the fixture itself passes the
+		// repo's typography gate).
 		assert.strictEqual(detections("\u201Cquoted\u201D \u2014 \u2018more\u2019 \u2013 again".repeat(4)), 0);
 	});
 

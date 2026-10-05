@@ -26,12 +26,11 @@ function connection(overrides: Partial<OneShotConnection> = {}): OneShotConnecti
 }
 
 function callOptions(timeoutMs = 5000): { timeout: TimeoutBudget; token: vscode.CancellationToken } {
-	// A representative one-shot budget; the shipped caller-to-setting pairings
-	// are pinned by the mint census in authOverlayScope.test.ts, not here.
+	// A representative one-shot budget; the shipped caller-to-setting pairings are pinned by the mint census in
+	// authOverlayScope.test.ts, not here.
 	return { timeout: { ms: timeoutMs, setting: "chat.timeout" }, token: new vscode.CancellationTokenSource().token };
 }
 
-/** A completed non-streaming chat body carrying one assistant message. */
 function chatJson(content: string): Response {
 	return HttpResponse.json({ choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }] });
 }
@@ -75,8 +74,8 @@ suite("provider/transport/oneShotClient", () => {
 
 		assert.strictEqual(result, "feat: add the thing");
 		assert.ok(seenBody, "the request must carry a JSON body");
-		// The body key set is the whole contract: nothing injected beyond the
-		// provider-owned fields, and max_tokens absent when the caller set none.
+		// The body key set is the whole contract: nothing injected beyond the provider-owned fields, and max_tokens
+		// absent when the caller set none.
 		assert.deepStrictEqual(Object.keys(seenBody).sort(), ["messages", "model", "stream"]);
 		assert.strictEqual(seenBody.model, "gpt-test");
 		assert.strictEqual(seenBody.stream, false);
@@ -150,20 +149,17 @@ suite("provider/transport/oneShotClient", () => {
 		assert.strictEqual(error.status, 401);
 		assert.strictEqual(exchanges, 1);
 
-		// The rejected token is gone, so the second call exchanges anew.
 		const second = await oneShot.completeChatOnce(conn, request, "commitGeneration", callOptions());
 		assert.strictEqual(exchanges, 2);
 		assert.strictEqual(second, "answered with Bearer tok-2");
 
-		// And a token the server accepted stays cached: no third exchange.
 		await oneShot.completeChatOnce(conn, request, "commitGeneration", callOptions());
 		assert.strictEqual(exchanges, 2, "an accepted token must be served from cache, not re-exchanged");
 	});
 
 	test("the body's error envelope drives classification, exactly like the streaming chat path", async () => {
-		// Pins the APIError.generate bridging: generate extracts the body's
-		// `error` field itself, so it must be handed the TOP-LEVEL parsed body -
-		// passing the inner envelope loses every envelope-driven classification.
+		// Pins the APIError.generate bridging: generate extracts the body's `error` field itself, so it must be handed
+		// the TOP-LEVEL parsed body - passing the inner envelope loses every envelope-driven classification.
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, () =>
 				HttpResponse.json(
@@ -184,8 +180,8 @@ suite("provider/transport/oneShotClient", () => {
 		assert.match(budget.message, /budget is used up/);
 		assert.strictEqual(budget.logClassification, "RequestError(http, status 429, budget_exceeded)");
 
-		// The upstream-auth split reads the same envelope: a proxy-wrapped
-		// upstream failure must not blame the extension's key.
+		// The upstream-auth split reads the same envelope: a proxy-wrapped upstream failure must not blame the
+		// extension's key.
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, () =>
 				HttpResponse.json({ error: { message: "litellm.AuthenticationError: bad upstream key" } }, { status: 401 })
@@ -202,10 +198,8 @@ suite("provider/transport/oneShotClient", () => {
 		);
 		assert.match(upstream.message, /upstream/);
 
-		// The likeliest failure for a feature that ships 80000 characters of
-		// diff: a 400 context-window rejection must render the commit surface's
-		// own headline - there is no conversation to trim and no new chat to
-		// start.
+		// The likeliest failure for a feature that ships 80000 characters of diff: a 400 context-window rejection must
+		// render the commit surface's own headline - there is no conversation to trim and no new chat to start.
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, () =>
 				HttpResponse.json(
@@ -230,8 +224,8 @@ suite("provider/transport/oneShotClient", () => {
 	});
 
 	test("a 404 gets the commit surface's own advice, never the chat path's Sync Models hint", async () => {
-		// Sync Models refreshes the chat catalog; the commit model setting never
-		// reads it, so the chat advice would misdirect.
+		// Sync Models refreshes the chat catalog; the commit model setting never reads it, so the chat advice would
+		// misdirect.
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, () =>
 				HttpResponse.json({ error: { message: "model not found", type: "invalid_request_error" } }, { status: 404 })
@@ -251,17 +245,16 @@ suite("provider/transport/oneShotClient", () => {
 		assert.strictEqual(error.status, 404);
 		assert.match(error.message, /commit message model/);
 		assert.ok(!error.message.includes("Sync Models"), "Sync Models does not touch the commit model setting");
-		// The commit boundary shows this in a VS Code notification, which
-		// flattens newlines: the two-part join must carry the Details lead-in.
+		// The commit boundary shows this in a VS Code notification, which flattens newlines: the two-part join must
+		// carry the Details lead-in.
 		assert.match(error.message, /\n\nDetails: LiteLLM 404/);
 		assert.strictEqual(error.logClassification, "RequestError(http, status 404, commitGeneration)");
 		assert.strictEqual(error.englishMessage, error.message);
 	});
 
 	test("a header-illegal virtual-key value is dropped fail-closed, never handed to fetch", async () => {
-		// The platform's Headers would throw a TypeError embedding the plaintext
-		// value; the overlay drops the header instead, so the request still goes
-		// out (and fails honestly server-side if the key was required).
+		// The platform's Headers would throw a TypeError embedding the plaintext value; the overlay drops the header
+		// instead, so the request still goes out (and fails honestly server-side if the key was required).
 		let seenVirtual: string | null = "unset";
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
@@ -286,8 +279,8 @@ suite("provider/transport/oneShotClient", () => {
 		mswServer.use(
 			http.post(TOKEN_URL, () => {
 				exchanges += 1;
-				// tok-1 is born already due for refresh, so the next call performs
-				// its own exchange instead of reusing it.
+				// tok-1 is born already due for refresh, so the next call performs its own exchange instead of reusing
+				// it.
 				return HttpResponse.json({ access_token: `tok-${exchanges}`, expires_in: exchanges === 1 ? 0 : 3600 });
 			}),
 			http.post(CHAT_COMPLETIONS_URL, async ({ request }) => {
@@ -316,9 +309,8 @@ suite("provider/transport/oneShotClient", () => {
 
 		await expectRequestError(straggler, "auth");
 
-		// Keyed invalidation: the straggler's 401 named tok-1, so tok-2 survives
-		// and the next call is served from cache. An unconditional invalidation
-		// would exchange a third token here.
+		// Keyed invalidation: the straggler's 401 named tok-1, so tok-2 survives and the next call is served from
+		// cache. An unconditional invalidation would exchange a third token here.
 		const after = await oneShot.completeChatOnce(conn, request, "commitGeneration", callOptions());
 		assert.strictEqual(after, "answered with Bearer tok-2");
 		assert.strictEqual(exchanges, 2, "a straggling 401 must not discard the token that already replaced it");
@@ -395,8 +387,7 @@ suite("provider/transport/oneShotClient", () => {
 		);
 
 		assert.match(error.message, /commit message generation timed out after 50ms/);
-		// chat.timeout IS this call's bound, so unlike the FIM surface the
-		// advice names the setting to raise.
+		// chat.timeout IS this call's bound, so unlike the FIM surface the advice names the setting to raise.
 		assert.match(error.message, /chat\.timeout/);
 		assert.strictEqual(error.englishMessage, error.message);
 	});
@@ -442,8 +433,8 @@ suite("provider/transport/oneShotClient", () => {
 
 			assert.strictEqual(result, "d(a, b) {");
 			assert.ok(seenBody, "the request must carry a JSON body");
-			// The exact key set IS the zero-injection guard: no parameters record
-			// field, no temperature, nothing beyond the five provider-owned keys.
+			// The exact key set IS the zero-injection guard: no parameters record field, no temperature, nothing beyond
+			// the five provider-owned keys.
 			assert.deepStrictEqual(Object.keys(seenBody).sort(), ["max_tokens", "model", "prompt", "stream", "suffix"]);
 			assert.strictEqual(seenBody.model, "codestral-fim");
 			assert.strictEqual(seenBody.prompt, "function ad");
@@ -576,8 +567,8 @@ suite("provider/transport/oneShotClient", () => {
 	});
 
 	test("the surface parameter is caller-owned: the same 404 renders the caller's surface copy", async () => {
-		// completeChatOnce serves several features, each under its own error
-		// surface; the transport must not hardcode any one of them.
+		// completeChatOnce serves several features, each under its own error surface; the transport must not hardcode
+		// any one of them.
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, () =>
 				HttpResponse.json({ error: { message: "model not found", type: "invalid_request_error" } }, { status: 404 })
@@ -600,8 +591,8 @@ suite("provider/transport/oneShotClient", () => {
 
 	suite("authHeaders", () => {
 		test("composes what a request would carry, without making one", async () => {
-			// No msw handler is registered for the server: any request would fail
-			// the suite through onUnhandledRequest: "error".
+			// No msw handler is registered for the server: any request would fail the suite through onUnhandledRequest:
+			// "error".
 			const headers = await client().authHeaders(
 				connection({ headers: { "x-routing-env": "prod" }, virtualKey: { header: "x-litellm-key", value: "vk-1" } }),
 				"discovery",
@@ -616,9 +607,8 @@ suite("provider/transport/oneShotClient", () => {
 		});
 
 		test("a token-exchange timeout keeps the OAuth-specific message, not the surface's request wording", async () => {
-			// The call has no whole-call bound of its own precisely so the
-			// exchange's own bound wins: a second timer sharing the budget would
-			// race it and re-attribute the failure to "model discovery timed out".
+			// The call has no whole-call bound of its own precisely so the exchange's own bound wins: a second timer
+			// sharing the budget would race it and re-attribute the failure to "model discovery timed out".
 			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
 			const error = await expectRequestError(
 				client().authHeaders(
@@ -646,9 +636,8 @@ suite("provider/transport/oneShotClient", () => {
 
 	suite("header precedence", () => {
 		test("a virtual key named Content-Type still owns that header, as it always has", async () => {
-			// The overlay runs AFTER the body's Content-Type is set, so what a
-			// credential displaces stays the overlay's decision. Nonsensical
-			// placement, but changing it is not the transport refactor's call.
+			// The overlay runs AFTER the body's Content-Type is set, so what a credential displaces stays the overlay's
+			// decision.
 			let seen: string | null = null;
 			mswServer.use(
 				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {

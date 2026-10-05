@@ -1,9 +1,7 @@
 /**
- * The webview half of the cross-surface serving-vocabulary pin (the host suite
- * covers the status bar, notifier, paste line, and the state-builder mirror;
- * src/test/statusVocabulary.ts is the shared table): for every window state,
- * the hero's word and tone and the server rows' pills - words AND dot tones -
- * must say what the table says.
+ * The webview half of the cross-surface serving-vocabulary pin (the host suite covers the status bar, notifier, paste
+ * line, and the state-builder mirror; src/test/statusVocabulary.ts is the shared table): for every window state, the
+ * hero's word and tone and the server rows' pills - words AND dot tones - must say what the table says.
  */
 import { afterEach, expect, test } from "bun:test";
 import { classifyOverall } from "../../../../dashboard/presenters";
@@ -14,11 +12,9 @@ import { type ALL_PILL_WORDS, WINDOW_STATE_ROWS } from "../../../statusVocabular
 import { cleanup, mount } from "../harness";
 
 /**
- * The table's word list against the webview vocabulary, compile-pinned both
- * ways: a word added on either side fails this assignment until the other
- * side lists it. This project can reach the
- * .tsx module; the host-importable table cannot, which is why the pin lives
- * here rather than beside the list.
+ * The table's word list against the webview vocabulary, compile-pinned both ways: a word added on either side fails
+ * this assignment until the other side lists it. This project can reach the .tsx module; the host-importable table
+ * cannot, which is why the pin lives here rather than beside the list.
  */
 const _pillWordsMatchVocabulary: [
 	Exclude<ServerPillWord, (typeof ALL_PILL_WORDS)[number]>,
@@ -44,9 +40,8 @@ test("the hero reads each window state with the table's word and tone", () => {
 	for (const row of WINDOW_STATE_ROWS) {
 		const hiddenGroupCount = row.hiddenGroups ?? 0;
 		expect(classifyOverall(row.rows, { hiddenGroupCount }), row.name).toBe(row.expect.verdict);
-		// The counts the production shell passes: the merged served count (the
-		// table's totalModels pins it to the builder's servedModelCount) and the
-		// hidden-groups count.
+		// The counts the production shell passes: the merged served count (the table's totalModels pins it to the
+		// builder's servedModelCount) and the hidden-groups count.
 		const hero = overallState(row.rows, row.totalModels, hiddenGroupCount);
 		expect(hero.word, `${row.name}: hero word`).toBe(row.expect.hero.word);
 		expect(hero.tone, `${row.name}: hero tone`).toBe(row.expect.hero.tone);
@@ -72,8 +67,8 @@ test("the row pills say each window state with the table's words and tones", () 
 			if (pill === undefined) {
 				throw new Error(`${row.name}: pill ${index} missing`);
 			}
-			// The word alone and exactly: a substring check would let "Connected"
-			// pass on a rendered "Not Connected", and the pill's time span ride in.
+			// The word alone and exactly: a substring check would let "Connected" pass on a rendered "Not Connected",
+			// and the pill's time span ride in.
 			expect(ownText(pill), `${row.name}: pill ${index} word`).toBe(expected.word);
 			expect(pill.classList.contains(`tone-${expected.tone}`), `${row.name}: pill ${index} tone-${expected.tone}`).toBe(
 				true

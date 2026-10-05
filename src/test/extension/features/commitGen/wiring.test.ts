@@ -1,8 +1,7 @@
 /**
- * The commit-generation wiring's dashboard probe: the real prompt assembly
- * over the canned sample, the feature's own send (featureChatSend under the
- * commitGeneration surface), and the same fence-stripped emptiness rule the
- * command applies - so a green probe proves what a real generation would do.
+ *   the real prompt assembly over the canned sample, the feature's own send (featureChatSend under the
+ *   commitGeneration surface), and the same fence-stripped emptiness rule the command applies
+ *     -> a green probe proves what a real generation would do
  */
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
@@ -11,7 +10,6 @@ import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
 
-/** The settings that make the probe live against the msw-mocked server. */
 const ENABLED_CONFIG = {
 	"commitGeneration.enabled": true,
 	"commitGeneration.model": { server: "alpha", model: "gpt-test" },
@@ -32,7 +30,6 @@ function fakeSecrets(): Parameters<typeof createCommitProbe>[0] {
 	} as unknown as Parameters<typeof createCommitProbe>[0];
 }
 
-/** One canned reply, capturing the request body the probe sent. */
 function answerWith(content: string): { body: () => Record<string, unknown>; prompt: () => string } {
 	let seen: Record<string, unknown> = {};
 	mswServer.use(
@@ -55,8 +52,8 @@ suite("extension/features/commitGen wiring probe", () => {
 		const probe = createCommitProbe(fakeSecrets(), client(), () => {});
 		const answer = await withConfig(ENABLED_CONFIG, () => probe(MODEL));
 		assert.strictEqual(answer, "feat: add a retry to the upload path");
-		// The pass-through contract on this path: the body is exactly
-		// model/messages/stream:false, no max_tokens, no parameter records.
+		// The pass-through contract on this path: the body is exactly model/messages/stream:false, no max_tokens, no
+		// parameter records.
 		assert.deepStrictEqual(Object.keys(observed.body()).sort(), ["messages", "model", "stream"]);
 		assert.strictEqual(observed.body().stream, false);
 		assert.strictEqual(observed.body().model, "gpt-test");

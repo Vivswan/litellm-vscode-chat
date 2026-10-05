@@ -3,9 +3,8 @@ import * as assert from "node:assert";
 import { DOCKER_TEST_LABELS, parseOnlyLabels } from "../dockerTestLabels";
 
 /**
- * Pins the label grammar behind `bun run test:docker --only ...`, which the CI
- * shard matrices drive: canonical order (docker-monkey last) regardless of flag
- * order, and loud rejection of anything unknown or empty.
+ * Pins the label grammar behind `bun run test:docker --only ...`, which the CI shard matrices drive: canonical order
+ * (docker-monkey last) regardless of flag order, and loud rejection of anything unknown or empty.
  */
 
 describe("dockerTestLabels: parseOnlyLabels", () => {

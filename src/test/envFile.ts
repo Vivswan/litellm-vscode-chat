@@ -1,19 +1,16 @@
 /**
- * .env parsing and variable resolution for the local docker stack, shared by the
- * scripts and pinned by the unit suite. The grammar follows what Docker Compose
- * itself reads: `export ` prefixes are stripped, whole-value single or double
- * quotes are removed, an unquoted value ends at the first `#` preceded by
- * whitespace (so `4100 # local` is "4100" and `a#b` stays intact), a comment may
- * follow a closing quote, and an empty value with a trailing comment is empty.
- * Quote stripping is ONE layer only. Deliberately NOT supported, so the shared
- * blind spot is stated rather than discovered: multi-line quoted values and
+ * The grammar follows what Docker Compose itself reads: `export ` prefixes are stripped, whole-value single or double
+ * quotes are removed, an unquoted value ends at the first `#` preceded by whitespace (so `4100 # local` is "4100" and
+ * `a#b` stays intact), a comment may follow a closing quote, and an empty value with a trailing comment is empty.
+ * Deliberately NOT supported, so the shared blind spot is stated rather than discovered: multi-line quoted values and
  * variable interpolation inside values.
+ *
+ *   Quote stripping -> ONE layer only
  */
 
 /**
- * The docker stack's default connection settings, one per compose variable.
- * The compose file, .env.example, and docs/development.md restate them
- * (stackDrift.test.ts pins the docs); the scripts and docker suites take their
+ * The docker stack's default connection settings, one per compose variable. The compose file, .env.example, and
+ * docs/development.md restate them (stackDrift.test.ts pins the docs); the scripts and docker suites take their
  * fallbacks from here, so a rotated default changes every consumer at once.
  */
 export const STACK_DEFAULTS = {
@@ -22,11 +19,7 @@ export const STACK_DEFAULTS = {
 	LITELLM_MASTER_KEY: "sk-test-1234",
 } as const;
 
-/**
- * Parse .env file content into key/value pairs (pure; no filesystem). Diverging
- * from compose here would make config generation disagree with what the
- * containers receive.
- */
+/** Diverging from compose here would make config generation disagree with what the containers receive. */
 export function parseEnvFile(content: string): Record<string, string> {
 	const values: Record<string, string> = {};
 	for (const rawLine of content.split(/\r?\n/)) {
@@ -53,21 +46,17 @@ function parseValue(rest: string): string {
 	if (quote === '"' || quote === "'") {
 		const closing = rest.indexOf(quote, 1);
 		if (closing !== -1) {
-			// Anything after the closing quote (whitespace, a comment) is ignored.
 			return rest.slice(1, closing);
 		}
 	}
-	// Unquoted: the value ends at the first '#' preceded by whitespace; a '#'
-	// glued to the value is part of it. `rest` is pre-trimmed, so a leading '#'
-	// means the whole value is a comment and the value is empty.
+	// `rest` is pre-trimmed, so a leading '#' means the whole value is a comment and the value is empty.
 	const comment = rest.search(/(^|\s)#/);
 	return (comment === -1 ? rest : rest.slice(0, comment)).trim();
 }
 
 /**
- * A variable with docker compose's `${VAR:-fallback}` semantics: the shell
- * environment wins over .env even when set to empty, and an empty resolved value
- * takes the fallback. Diverging would make generation disagree with what the
+ * A variable with docker compose's `${VAR:-fallback}` semantics: the shell environment wins over .env even when set to
+ * empty, and an empty resolved value takes the fallback. Diverging would make generation disagree with what the
  * container actually receives.
  */
 export function composeSetting(

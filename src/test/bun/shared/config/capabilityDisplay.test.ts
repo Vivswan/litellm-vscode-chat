@@ -1,9 +1,9 @@
 /**
- * The capability display helpers: the $/M cost formatter's rounding rules (both inspectors render through it), the
- * unit label, and the parameter count. The formatter contract: zero is "$0", a dollar and up rounds to cents,
- * sub-dollar values keep three significant digits with trailing zeros trimmed but never below two decimals, and
- * NOTHING ever renders in scientific notation - the raw wire values (5e-7) stringify exponentially, the regression
- * this pins against.
+ * The capability display helpers: the $/M cost formatter's rounding rules (both inspectors render through it), the unit
+ * label, and the parameter count. The formatter contract: zero is "$0", a dollar and up rounds to cents, sub-dollar
+ * values keep three significant digits with trailing zeros trimmed but never below two decimals, and NOTHING ever
+ * renders in scientific notation - the raw wire values (5e-7) stringify exponentially, the regression this pins
+ * against.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -45,7 +45,6 @@ describe("shared/config/capabilityDisplay formatCostPerMillion", () => {
 	});
 
 	test("no input in the representable range ever renders scientific notation", () => {
-		// A sweep across magnitudes, including the denormal-adjacent tail.
 		for (let exponent = -18; exponent <= 12; exponent += 1) {
 			const rendered = formatCostPerMillion(3.21 * 10 ** exponent, "$");
 			assert.doesNotMatch(rendered, /e/i, `10^${exponent} rendered as ${rendered}`);

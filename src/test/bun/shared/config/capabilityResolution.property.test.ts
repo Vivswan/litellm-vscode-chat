@@ -1,17 +1,8 @@
 /**
- * The capability resolver's safety argument, mirrored from the
- * parameterResolution property suite: over random capability records (valid and
- * invalid consumed values, verbatim extras, directives, exact and glob keys cut
- * from generated raw IDs so matches are the common case, inert pre-migration
- * URL keys), the boundary parse is the only gate - invalid consumed values
- * contribute nothing anywhere, the walk is total over the core fields, an
- * injected higher-precedence field always wins, and the overrides resolution
- * and the full walk never disagree on a field the overrides set. The open
- * vocabulary is pinned three ways: a frozen copy of the closed-world resolver
- * agrees on core-only configurations, unknown-key extras never move a core
- * field, and every user-set extra resolves with exact provenance against a
- * naive per-field walk. Registration and the dashboard consume the same
- * resolveModelCapabilities, so these pins keep the two surfaces aligned.
+ * Registration and the dashboard consume the same resolveModelCapabilities, so these pins keep the two surfaces
+ * aligned.
+ *
+ *   The capability resolver's safety argument -> mirrored from the parameterResolution property suite
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -114,9 +105,8 @@ const serverValuesArb: fc.Arbitrary<Partial<ServerCapabilityValues>> = fc
 	)
 	.map(([core, consumed]) => ({ ...core, ...consumed }));
 
-// Values land on kind-matched and kind-mismatched fields alike, so both the
-// valid path and the invalid-value fallthrough stay common; structured JSON
-// values keep the verbatim-extras path alive.
+// Values land on kind-matched and kind-mismatched fields alike, so both the valid path and the invalid-value
+// fallthrough stay common; structured JSON values keep the verbatim-extras path alive.
 const fieldValueArb = fc.oneof(
 	{ arbitrary: validNumber, weight: 3 },
 	{ arbitrary: fc.boolean(), weight: 3 },
@@ -127,8 +117,7 @@ const recordKeyArb = fc.oneof(
 	{ arbitrary: fc.constantFrom<string>(...FIELD_NAMES), weight: 5 },
 	{ arbitrary: fc.constantFrom<string>(...CONSUMED_EXTRA_NAMES), weight: 2 },
 	{ arbitrary: noSlashKey, weight: 1 },
-	// Prototype-named fields must behave like any other extra (the
-	// own-property guard's regression surface).
+	// Prototype-named fields must behave like any other extra (the own-property guard's regression surface).
 	{ arbitrary: fc.constantFrom("toString", "valueOf", "constructor", "hasOwnProperty"), weight: 1 },
 	{ arbitrary: noSlashKey.map((key) => `_${key}`), weight: 1 }
 );
@@ -141,8 +130,8 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 		fc.option(fc.oneof(fc.constantFrom<unknown>(...DIRECTIVE_POOL), fc.constantFrom<unknown>("", 7)), {
 			nil: undefined,
 		}),
-		// _fallback: all-fields, a list of names (valid and bogus alike), or an
-		// invalid shape - each of the parse branches stays a common case.
+		// _fallback: all-fields, a list of names (valid and bogus alike), or an invalid shape - each of the parse
+		// branches stays a common case.
 		fc.option(
 			fc.oneof(
 				{ arbitrary: fc.boolean(), weight: 2 },
@@ -154,8 +143,7 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	)
 	.map(([base, declare, openrouterModel, fallback]) => ({
 		...base,
-		// _declare is retired; it stays as inert underscore-key noise that
-		// resolution must ignore everywhere.
+		// _declare is retired; it stays as inert underscore-key noise that resolution must ignore everywhere.
 		...(declare !== undefined ? { _declare: declare } : {}),
 		...(openrouterModel !== undefined ? { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel } : {}),
 		...(fallback !== undefined ? { [FALLBACK_DIRECTIVE]: fallback } : {}),
@@ -168,7 +156,6 @@ const serverDeclaredArb: fc.Arbitrary<ServerDeclaredCapabilities> = fc.oneof(
 		.map(({ values, outputDeclared }): ServerDeclaredCapabilities => ({ kind: "discovered", values, outputDeclared }))
 );
 
-/** Exact IDs and unambiguous post-vendor suffixes answer found, several suffix hits answer ambiguous. */
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
 	const byExactId = (id: string): CatalogLookupResult => {
 		const fields = entries[id];
@@ -195,11 +182,9 @@ interface Scenario {
 }
 
 /**
- * A raw ID plus capability records whose keys are glob or exact cuts of it
- * (matches are the common case), a cut of an unrelated ID keeping the
- * no-match branch alive, the catch-all "*", inert pre-migration URL keys,
- * directives pointing into and past the generated catalog, and independent
- * server and catalog layers.
+ * A raw ID plus capability records whose keys are glob or exact cuts of it (matches are the common case), a cut of an
+ * unrelated ID keeping the no-match branch alive, the catch-all "*", inert pre-migration URL keys, directives pointing
+ * into and past the generated catalog, and independent server and catalog layers.
  */
 const scenario: fc.Arbitrary<Scenario> = fc
 	.record({
@@ -274,11 +259,9 @@ const scenario: fc.Arbitrary<Scenario> = fc
 	});
 
 /**
- * The independent statement of what parseCapabilityRecord accepts, so the
- * fallthrough property below is not the parser checking itself: keep
- * kind-valid consumed fields, EVERY extra verbatim (the open vocabulary),
- * non-blank `_openrouter_model`, and boolean-or-array `_fallback`; drop only
- * invalid consumed values.
+ * The independent statement of what parseCapabilityRecord accepts, so the fallthrough property below is not the parser
+ * checking itself: keep kind-valid consumed fields, EVERY extra verbatim (the open vocabulary), non-blank
+ * `_openrouter_model`, and boolean-or-array `_fallback`; drop only invalid consumed values.
  */
 function sanitizeRecord(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
 	const sanitized: Record<string, unknown> = {};
@@ -324,9 +307,8 @@ function coreProjection(fields: EffectiveCapabilityFields): Record<string, Effec
 }
 
 // --- The frozen closed-world resolver -------------------------------------
-// A local copy of the pre-redesign parse, layering, and walk over the core
-// seven, built on the shared chain engine with THIS file's frozen parser so
-// the live parseCapabilityRecord is not checking itself.
+// A local copy of the pre-redesign parse, layering, and walk over the core seven, built on the shared chain engine with
+// THIS file's frozen parser so the live parseCapabilityRecord is not checking itself.
 
 interface FrozenParsed extends ParsedRecord {
 	readonly openrouterModel?: string | undefined;
@@ -387,11 +369,9 @@ interface FrozenCandidate {
 }
 
 /**
- * The frozen walk: per core field, entry override > global override >
- * directive field > server > entry fallback > global fallback > catalog >
- * backstop (floor, or the context-minus-output derivation for
- * max_input_tokens), with the same shadow stacking and provenance rules the
- * old resolver had.
+ * The frozen walk: per core field, entry override > global override > directive field > server > entry fallback >
+ * global fallback > catalog > backstop (floor, or the context-minus-output derivation for max_input_tokens), with the
+ * same shadow stacking and provenance rules the old resolver had.
  */
 function frozenResolve(input: ResolveModelCapabilitiesInput): {
 	fields: Record<string, EffectiveCapabilityField>;
@@ -510,7 +490,6 @@ function frozenResolve(input: ResolveModelCapabilitiesInput): {
 	return { fields, outputLimitSource, directive };
 }
 
-/** Restrict every record of a map to core fields plus underscore directives: a closed-world configuration. */
 function coreOnlyRecords(records: ModelCapabilitiesRecord | undefined): ModelCapabilitiesRecord | undefined {
 	if (records === undefined) {
 		return undefined;
@@ -525,7 +504,6 @@ function coreOnlyRecords(records: ModelCapabilitiesRecord | undefined): ModelCap
 	);
 }
 
-/** Restrict a server baseline to the core seven, mirroring the closed world's typing. */
 function coreOnlyServer(serverDeclared: ServerDeclaredCapabilities): ServerDeclaredCapabilities {
 	if (serverDeclared.kind === "declared") {
 		return serverDeclared;
@@ -586,9 +564,6 @@ describe("shared/config capabilityResolution properties", () => {
 					assert.strictEqual(max_input_tokens.value, Math.max(1, context_length.value - max_output_tokens.value));
 					assert.deepStrictEqual(max_input_tokens.shadowed, [], "the derivation only runs when nothing shadows it");
 				}
-				// Open fields never take a backstop: whatever resolved carries a
-				// real level, and the floor/derived levels stay core-only; the
-				// directive and catalog levels carry core catalog fields only.
 				for (const [name, field] of Object.entries(fields)) {
 					if (field !== undefined && !Object.hasOwn(CAPABILITY_FIELDS, name)) {
 						assert.notStrictEqual(field.level, "floor", `${name} has no floor`);
@@ -623,9 +598,8 @@ describe("shared/config capabilityResolution properties", () => {
 			fc.property(scenario, injection, ({ input }, { name, number, boolean }) => {
 				const value: CapabilityFieldValues[CapabilityFieldName] =
 					CAPABILITY_FIELDS[name] === "number" ? number : boolean;
-				// The injected field must be an override, so a generated _fallback on
-				// the exact record is dropped (a fallback-demoted field sits below
-				// server), and so is a generated _inherit_from (an exclusive list
+				// The injected field must be an override, so a generated _fallback on the exact record is dropped (a
+				// fallback-demoted field sits below server), and so is a generated _inherit_from (an exclusive list
 				// could re-import a broader fallback marking onto the same field).
 				const {
 					[FALLBACK_DIRECTIVE]: _fallback,
@@ -651,9 +625,8 @@ describe("shared/config capabilityResolution properties", () => {
 				const overrides = resolveCapabilityOverrides(input);
 				const overrideFields: ResolvedCapabilityOverrideFields = overrides.fields;
 				const effective = resolveModelCapabilities(input);
-				// Own-property reads throughout (the exported accessor): the bags are
-				// plain objects, and a prototype-named field must never read as the
-				// inherited member.
+				// Own-property reads throughout (the exported accessor): the bags are plain objects, and a
+				// prototype-named field must never read as the inherited member.
 				const names = new Set([...FIELD_NAMES, ...Object.keys(overrideFields), ...Object.keys(effective.fields)]);
 				for (const name of names) {
 					const override: ResolvedCapabilityOverrideField | undefined = capabilityField(overrideFields, name);
@@ -671,8 +644,6 @@ describe("shared/config capabilityResolution properties", () => {
 						assert.strictEqual(field.key, override.key);
 						assert.deepStrictEqual(field.shadowed.slice(0, override.shadowed.length), override.shadowed);
 					}
-					// A field the walk resolves at a fallback level is exactly the
-					// first fallback candidate - nothing above it carried a value.
 					if (field !== undefined && (field.level === "entry-fallback" || field.level === "global-fallback")) {
 						const level: CapabilityFallbackLevel = field.level;
 						const [candidate] = capabilityField(overrides.fallbackFields, name) ?? [];
@@ -776,8 +747,8 @@ describe("shared/config capabilityResolution properties", () => {
 					if (globalOverride !== undefined) {
 						return { level: "global", ...globalOverride };
 					}
-					// Own-property read: a prototype-named field must not surface
-					// Object.prototype's member as a server value.
+					// Own-property read: a prototype-named field must not surface Object.prototype's member as a server
+					// value.
 					const server = capabilityField(serverValues, name);
 					if (server !== undefined) {
 						return { level: "server", value: server };
@@ -811,8 +782,6 @@ describe("shared/config capabilityResolution properties", () => {
 					assert.strictEqual(field.key, expected.key, name);
 					assert.strictEqual(field.inheritedBy, expected.inheritedBy, name);
 				}
-				// And nothing else: every non-core effective field is a user-set or
-				// server-carried extra from the sets above.
 				for (const name of Object.keys(effective.fields)) {
 					if (!Object.hasOwn(CAPABILITY_FIELDS, name)) {
 						assert.ok(extraNames.has(name), `${name} resolved without any level carrying it`);

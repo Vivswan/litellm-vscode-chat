@@ -1,8 +1,7 @@
 /**
- * The shared status-bar test harness: a recording render surface and a
- * StatusBarManager factory over an in-memory context, so every suite that
- * drives the status bar injects a fake instead of re-implementing one (and
- * can never create a real, visible item in the shared test host).
+ * The shared status-bar test harness: a recording render surface and a StatusBarManager factory over an in-memory
+ * context, so every suite that drives the status bar injects a fake instead of re-implementing one (and can never
+ * create a real, visible item in the shared test host).
  */
 
 import * as assert from "node:assert";
@@ -13,7 +12,6 @@ import { StatusBarManager } from "../../../extension/ui/status";
 import { LAST_CONNECTION_STATUS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
 
-/** A recording status-bar surface, so suites can pin rendered text and severity. */
 export class RecordingItem implements StatusItemLike {
 	command: string | vscode.Command | undefined = undefined;
 	views: StatusItemView[] = [];
@@ -33,11 +31,7 @@ export class RecordingItem implements StatusItemLike {
 	}
 }
 
-/**
- * A StatusBarManager over a fresh in-memory Memento, ALWAYS on a recording
- * surface unless the caller injects its own StatusItemLike. The context is
- * returned so the caller owns disposing its subscriptions.
- */
+/** The context is returned so the caller owns disposing its subscriptions. */
 export function createStatusBarManager(
 	options: {
 		persistedStatus?: unknown;

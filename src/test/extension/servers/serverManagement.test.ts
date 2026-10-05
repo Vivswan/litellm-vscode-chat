@@ -5,8 +5,8 @@ import { expectDefined } from "../../pureHelpers";
 import { resolveNls } from "../../util/nls";
 
 suite("extension/servers/serverManagement", () => {
-	// The activated extension already owns the litellm.manage command IDs, so the
-	// suite captures the handler through a stubbed registerCommand and invokes it.
+	// The activated extension already owns the litellm.manage command IDs, so the suite captures the handler through a
+	// stubbed registerCommand and invokes it.
 	function captureManageServersHandler(): () => Promise<void> {
 		const handlers = new Map<string, () => Promise<void>>();
 		const origRegister = vscode.commands.registerCommand;
@@ -53,9 +53,6 @@ suite("extension/servers/serverManagement", () => {
 		}
 
 		test("litellm.manageServers opens the dashboard without showing the hub", async () => {
-			// The direct route for callers that promise configuration; the legacy
-			// quick-pick flows retired with the registry, so the dashboard is the
-			// only server-management surface.
 			const run = await runManageServers();
 			assert.deepStrictEqual(run.executed, [{ command: "litellm.openDashboard", args: [] }]);
 			assert.strictEqual(run.quickPicksShown, 0, "configuration routes must not land on the hub menu");
@@ -73,8 +70,8 @@ suite("extension/servers/serverManagement", () => {
 			const extension = expectDefined(vscode.extensions.getExtension("vivswan.litellm-vscode-chat"));
 			const walkthroughs = (extension.packageJSON as { contributes: { walkthroughs: { steps: WalkthroughStep[] }[] } })
 				.contributes.walkthroughs;
-			// The host localizes the manifest's %key% references before exposing
-			// packageJSON; resolveNls also covers a host handing back the raw manifest.
+			// The host localizes the manifest's %key% references before exposing packageJSON; resolveNls also covers a
+			// host handing back the raw manifest.
 			return expectDefined(walkthroughs[0]).steps.map((step) => ({
 				...step,
 				description: resolveNls(step.description),
@@ -85,9 +82,9 @@ suite("extension/servers/serverManagement", () => {
 			const steps = walkthroughSteps();
 			const fineTune = expectDefined(steps.find((step) => step.id === "litellm.walkthrough.fineTune"));
 
-			// The walkthrough renderer parses the link as a URI and JSON-decodes the query
-			// into the command's arguments; replicating that makes a typo on either side
-			// fail loudly instead of silently opening an unfiltered settings view.
+			// The walkthrough renderer parses the link as a URI and JSON-decodes the query into the command's
+			// arguments; replicating that makes a typo on either side fail loudly instead of silently opening an
+			// unfiltered settings view.
 			const match = expectDefined(
 				fineTune.description.match(/\(command:workbench\.action\.openSettings\?([^)]+)\)/) ?? undefined,
 				"the fine-tune step must carry an openSettings button with arguments"
@@ -100,8 +97,7 @@ suite("extension/servers/serverManagement", () => {
 			const steps = walkthroughSteps();
 			const connect = expectDefined(steps.find((step) => step.id === "litellm.walkthrough.connectServer"));
 
-			// The dashboard is the configuration surface; no walkthrough button
-			// may point at a native editor.
+			// The dashboard is the configuration surface; no walkthrough button may point at a native editor.
 			assert.ok(connect.description.includes("(command:litellm.openDashboard)"), connect.description);
 			assert.deepStrictEqual(connect.completionEvents, ["onCommand:litellm.openDashboard"]);
 		});

@@ -1,12 +1,11 @@
 /**
- * The fail-closed guard on the cross-feature import ban: features may not
- * import each other, and the ban must not fail OPEN when the next feature
- * directory lands. Biome's noRestrictedImports matches import SPECIFIERS, so a
- * generic features-wide override cannot except "the importing file's own
- * tree"; the ban is per-feature by necessity. What must not be per-feature is
- * REMEMBERING it: this guard derives the required overrides from the directory
- * listing itself, so a new feature directory fails here until its own ban
- * names every sibling and every existing ban names it.
+ * Biome's noRestrictedImports matches import SPECIFIERS, so a generic features-wide override cannot except "the
+ * importing file's own tree"; the ban is per-feature by necessity. What must not be per-feature is REMEMBERING it: this
+ * guard derives the required overrides from the directory listing itself, so a new feature directory fails here until
+ * its own ban names every sibling and every existing ban names it.
+ *
+ *   features                         -> may not import each other
+ *   the next feature directory lands -> the ban must not fail OPEN
  */
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
@@ -45,8 +44,7 @@ describe("extension/features cross-feature import ban", () => {
 					candidate.includes?.length === 1 && candidate.includes[0] === `src/extension/features/${feature}/**`
 			);
 			expect(override, `biome.json has no override for src/extension/features/${feature}/**`).toBeDefined();
-			// The right groups under a disabled rule ban nothing: the level is part
-			// of the guard, not an assumption.
+			// The right groups under a disabled rule ban nothing: the level is part of the guard, not an assumption.
 			expect(
 				override?.linter?.rules?.style?.noRestrictedImports?.level,
 				`${feature}'s override must enforce at level "error"`
@@ -56,8 +54,8 @@ describe("extension/features cross-feature import ban", () => {
 			);
 			for (const sibling of features) {
 				if (sibling === feature) {
-					// A ban naming the feature's OWN directory would break its
-					// internal imports; the guard refuses that misconfiguration too.
+					// A ban naming the feature's OWN directory would break its internal imports; the guard refuses that
+					// misconfiguration too.
 					expect(groups, `${feature}'s override bans its own tree`).not.toContain(`**/${sibling}/**`);
 					continue;
 				}
@@ -67,13 +65,11 @@ describe("extension/features cross-feature import ban", () => {
 	});
 
 	test("exactly one features/-root file bridges into a feature directory", () => {
-		// The features/ root sits outside every per-feature biome override, so a
-		// root file CAN import from a feature tree - which is how the one
-		// declared cross-feature bridge (quickFixChatCommands.ts, teaching the
-		// participant /fix and /explain) works at all. That reachability must
-		// not become a habit: everything else outside features/<feature>/
-		// reaches a feature only through its wiring module, so a second bridge
-		// fails here until it is a deliberate, named decision.
+		// The features/ root sits outside every per-feature biome override, so a root file CAN import from a feature
+		// tree - which is how the one declared cross-feature bridge (quickFixChatCommands.ts, teaching the participant
+		// /fix and /explain) works at all. That reachability must not become a habit: everything else outside
+		// features/<feature>/ reaches a feature only through its wiring module, so a second bridge fails here until it
+		// is a deliberate, named decision.
 		const featuresDir = path.join(REPO_ROOT, "src", "extension", "features");
 		const entries = readdirSync(featuresDir, { withFileTypes: true });
 		const featureDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
@@ -91,12 +87,10 @@ describe("extension/features cross-feature import ban", () => {
 	});
 
 	test("outside the features tree, only a feature's wiring module is imported from its directory", () => {
-		// The documented convention: everything outside features/<feature>/
-		// reaches a feature only through its wiring module. Biome cannot express
-		// this (the per-feature overrides govern the feature trees themselves),
-		// so this leg walks every shipped source file outside the features tree
-		// and fails on any import reaching features/<dir>/<module> where the
-		// module is not the wiring seam.
+		// The documented convention: everything outside features/<feature>/ reaches a feature only through its wiring
+		// module. Biome cannot express this (the per-feature overrides govern the feature trees themselves), so this
+		// leg walks every shipped source file outside the features tree and fails on any import reaching
+		// features/<dir>/<module> where the module is not the wiring seam.
 		const srcDir = path.join(REPO_ROOT, "src");
 		const featuresDir = path.join(srcDir, "extension", "features");
 		const featureDirs = readdirSync(featuresDir, { withFileTypes: true })

@@ -9,10 +9,9 @@ import {
 	truncationMarker,
 } from "../../../../shared/util/text";
 
-// Drift pins for the consolidated text helpers: these cases are ported from
-// the consumers' suites (commitGen's fence edge cases, fim's surrogate
-// boundaries), so the shared module cannot drift from the semantics the
-// consumers shipped with.
+// Drift pins for the consolidated text helpers: these cases are ported from the consumers' suites (commitGen's fence
+// edge cases, fim's surrogate boundaries), so the shared module cannot drift from the semantics the consumers shipped
+// with.
 
 describe("shared/util/text stripMarkdownFences", () => {
 	const cases: readonly { readonly name: string; readonly reply: string; readonly expected: string }[] = [
@@ -72,8 +71,6 @@ describe("shared/util/text truncateKeepingTail", () => {
 	});
 
 	test("a cut landing inside a surrogate pair drops the severed low half", () => {
-		// The cut severs an emoji, leaving its low surrogate at the head; the
-		// lone unit is dropped rather than sent.
 		const text = `${"\u{1F600}".repeat(4)}b`; // 9 units
 		const cut = truncateKeepingTail(text, 8);
 		assert.strictEqual(cut.length, 7);
@@ -111,7 +108,6 @@ describe("shared/util/text truncateKeepingHead", () => {
 	});
 
 	test("a cut landing inside a surrogate pair drops the severed high half", () => {
-		// The mirror rule: the cut leaves a high surrogate at the tail.
 		const text = `c${"\u{1F600}".repeat(4)}`; // 9 units
 		const cut = truncateKeepingHead(text, 8);
 		assert.strictEqual(cut.length, 7);

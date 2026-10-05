@@ -67,13 +67,11 @@ test("hoverable: the pointer can travel from the trigger onto the tip without th
 	fireMouseEnter(wrap);
 	expect(isOpen(bubble)).toBe(true);
 
-	// Pointer moves off the trigger content onto the bubble itself: the bubble
-	// is a descendant of the hover boundary, so no leave is synthesized and
-	// the tip persists - the reader can hover the text to select or magnify it.
+	// Pointer moves off the trigger content onto the bubble itself: the bubble is a descendant of the hover boundary,
+	// so no leave is synthesized and the tip persists - the reader can hover the text to select or magnify it.
 	fireMouseLeave(wrap, bubble);
 	expect(isOpen(bubble)).toBe(true);
 
-	// Leaving the bubble outward is a real departure and closes the tip.
 	fireMouseLeave(bubble);
 	expect(isOpen(bubble)).toBe(false);
 });
@@ -90,9 +88,8 @@ test("dismissible: Escape hides a hover-shown tip without moving focus, and cons
 	fireMouseEnter(wrap);
 	expect(isOpen(bubble)).toBe(true);
 
-	// The page's Escape layers are bubble-phase and none re-check
-	// defaultPrevented, so the tip must swallow the event first; this listener
-	// stands in for them and must stay unheard.
+	// The page's Escape layers are bubble-phase and none re-check defaultPrevented, so the tip must swallow the event
+	// first; this listener stands in for them and must stay unheard.
 	let heardBelow = 0;
 	const below = () => {
 		heardBelow += 1;
@@ -106,13 +103,11 @@ test("dismissible: Escape hides a hover-shown tip without moving focus, and cons
 	expect(claimed).toBe(true);
 	expect(heardBelow).toBe(0);
 
-	// Escape with nothing shown claims nothing and reaches the layers below.
 	document.addEventListener("keydown", below);
 	expect(pressEscape().claimed).toBe(false);
 	document.removeEventListener("keydown", below);
 	expect(heardBelow).toBe(1);
 
-	// A fresh hover is fresh intent: leaving and returning re-reveals.
 	fireMouseLeave(wrap);
 	fireMouseEnter(wrap);
 	expect(isOpen(bubble)).toBe(true);
@@ -127,12 +122,10 @@ test("focus-visible reveal: keyboard focus shows the tip, Escape dismisses in pl
 	expect(document.activeElement).toBe(wrap);
 	expect(isOpen(bubble)).toBe(true);
 
-	// Escape hides the tip and focus stays exactly where it was.
 	pressEscape();
 	expect(isOpen(bubble)).toBe(false);
 	expect(document.activeElement).toBe(wrap);
 
-	// Persistent until focus moves: refocusing reveals again, blur closes.
 	fireFocus(wrap);
 	expect(isOpen(bubble)).toBe(true);
 	void act(() => {
@@ -150,11 +143,9 @@ test("persistent: the tip stays open while pointer and focus each hold it, closi
 	});
 	expect(isOpen(bubble)).toBe(true);
 
-	// The pointer leaves while focus remains: still shown.
 	fireMouseLeave(wrap);
 	expect(isOpen(bubble)).toBe(true);
 
-	// Focus leaves too: closed.
 	void act(() => {
 		wrap.blur();
 	});
@@ -164,9 +155,8 @@ test("persistent: the tip stays open while pointer and focus each hold it, closi
 
 test("the visible tip text is the trigger's accessible description, not a duplicate announcement", () => {
 	const { wrap, bubble } = mountHoverTip();
-	// aria-describedby points at the bubble, whose aria-hidden keeps the text
-	// out of the wrapper's name-from-contents: description-referenced nodes
-	// are read even when hidden, so the text is announced once, as description.
+	// aria-describedby points at the bubble, whose aria-hidden keeps the text out of the wrapper's name-from-contents:
+	// description-referenced nodes are read even when hidden, so the text is announced once, as description.
 	expect(wrap.getAttribute("aria-describedby")).toBe(bubble.id);
 	expect(bubble.getAttribute("role")).toBe("tooltip");
 	expect(bubble.getAttribute("aria-hidden")).toBe("true");
@@ -223,8 +213,8 @@ test("collapsed rail controls carry paint-only tips: name echoes, hidden from as
 		expect(bubble.textContent).toContain(label);
 		expect(bubble.getAttribute("data-placement")).toBe("beside");
 		expect(bubble.getAttribute("aria-hidden")).toBe("true");
-		// The tip text IS the control's accessible name, so it is not also its
-		// description - that would announce the name twice.
+		// The tip text IS the control's accessible name, so it is not also its description - that would announce the
+		// name twice.
 		expect(tab.hasAttribute("aria-describedby")).toBe(false);
 	}
 	for (const action of Array.from(root.querySelectorAll<HTMLElement>(".rail-action"))) {
@@ -232,9 +222,8 @@ test("collapsed rail controls carry paint-only tips: name echoes, hidden from as
 		expect(label.length).toBeGreaterThan(0);
 		expect(action.querySelector(".tip-bubble")?.textContent).toBe(label);
 	}
-	// The verdict pill's tip is paint-only like the tabs': its word is already
-	// the pill's own text and its time is the sync line below, so the tab stop's
-	// description points at that line and each fact is announced once.
+	// The verdict pill's tip is paint-only like the tabs': its word is already the pill's own text and its time is the
+	// sync line below, so the tab stop's description points at that line and each fact is announced once.
 	const word = root.querySelector(".rail-word")?.textContent ?? "";
 	expect(word.length).toBeGreaterThan(0);
 	const pill = root.querySelector(".rail-status") as HTMLElement;
@@ -247,11 +236,9 @@ test("collapsed rail controls carry paint-only tips: name echoes, hidden from as
 });
 
 test("an icon rail tab names itself on hover AND on keyboard focus: the icon is the only other clue", () => {
-	// On the collapsed rail a tab paints an icon and nothing else, so the tip IS
-	// the route to its name for a sighted reader - by pointer and by Tab alike.
-	// The pointer half is pinned above; this is the keyboard half, on the rail
-	// rather than on the primitive, because only the rail hides the name in the
-	// first place.
+	// On the collapsed rail a tab paints an icon and nothing else, so the tip IS the route to its name for a sighted
+	// reader - by pointer and by Tab alike. The pointer half is pinned above; this is the keyboard half, on the rail
+	// rather than on the primitive, because only the rail hides the name in the first place.
 	const root = mountCollapsedApp();
 	for (const tab of Array.from(root.querySelectorAll<HTMLElement>("[role='tab']"))) {
 		const label = tab.querySelector(".rail-label")?.textContent ?? "";
@@ -288,8 +275,8 @@ test("a never-synced verdict pill describes nothing: there is no second fact to 
 });
 
 test("clicking a tip bubble does not activate the control underneath", () => {
-	// The bubble is hoverable by design and sits inside its trigger, so a
-	// reader selecting the tip's text would otherwise press the button.
+	// The bubble is hoverable by design and sits inside its trigger, so a reader selecting the tip's text would
+	// otherwise press the button.
 	const root = mountCollapsedApp();
 	const inactive = Array.from(root.querySelectorAll<HTMLElement>("[role='tab']")).find(
 		(tab) => tab.getAttribute("aria-selected") === "false"
@@ -306,31 +293,32 @@ test("at full width the rail renders no tip bubbles: the labels are painted righ
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
 	expect(root.querySelector(".rail .tip-bubble")).toBeNull();
 
-	// And a full-width hover holds no invisible tip open: Escape stays with
-	// the page (the shell's leave-edit, a panel) instead of a tip nobody sees.
+	// And a full-width hover holds no invisible tip open: Escape stays with the page (the shell's leave-edit, a panel)
+	// instead of a tip nobody sees.
 	fireMouseEnter(root.querySelector("[role='tab']") as HTMLElement);
 	expect(pressEscape().claimed).toBe(false);
 });
 
 test("the bubble is fixed-position in the stylesheet, which is what escapes every ancestor clip", () => {
-	// happy-dom runs no cascade, so a tip renders identically whether it is fixed
-	// or absolute: deleting `position: fixed` leaves every suite green while
-	// every tip inside a scrollport gets clipped again. Read from the sheet.
+	// Read from the sheet.
+	//
+	//   a tip renders identically whether it is fixed or absolute -> deleting `position: fixed` leaves every suite
+	//                                                                green while every tip inside a scrollport gets
+	//                                                                clipped again
 	const sheet = readFileSync(join(import.meta.dir, "../../../../webview/dashboard/styles/dashboard.css"), "utf8");
 	const block = /\.tip-bubble \{([^}]*)\}/.exec(sheet)?.[1];
 	if (block === undefined) {
 		throw new Error("no .tip-bubble rule in dashboard.css");
 	}
 	expect(block).toContain("position: fixed");
-	// Hoverability's half of the same block: a tip the pointer cannot land on
-	// fails 1.4.13 no matter what the component state does.
+	// Hoverability's half of the same block: a tip the pointer cannot land on fails 1.4.13 no matter what the component
+	// state does.
 	expect(block).not.toContain("pointer-events: none");
 });
 
 /**
- * The `enabled` flip the rail performs at its collapse width, driven directly:
- * happy-dom's matchMedia fires `change` when a query starts matching but not
- * when it stops, so the rail's own collapse cannot be exercised both ways here.
+ * The `enabled` flip the rail performs at its collapse width, driven directly: happy-dom's matchMedia fires `change`
+ * when a query starts matching but not when it stops, so the rail's own collapse cannot be exercised both ways here.
  */
 function EnabledProbe({ enabled }: { enabled: boolean }) {
 	const tip = useTip("above", enabled);
@@ -353,8 +341,8 @@ test("disabling a tip closes it and releases its claim on Escape; re-enabling ho
 	expect(isOpen(bubble)).toBe(false);
 	expect(pressEscape().claimed).toBe(false);
 
-	// The pointer never left the trigger, so the flip back reveals the tip it
-	// was owed - there is no new mouseover to ask again.
+	// The pointer never left the trigger, so the flip back reveals the tip it was owed - there is no new mouseover to
+	// ask again.
 	render(<EnabledProbe enabled={true} />, root);
 	expect(isOpen(bubble)).toBe(true);
 });
@@ -362,8 +350,8 @@ test("disabling a tip closes it and releases its claim on Escape; re-enabling ho
 test("a collapsed rail tip escapes the 48px rail: anchored beside the [data-tip-edge] box", () => {
 	const root = mountCollapsedApp();
 	const rail = root.querySelector("nav.rail") as HTMLElement;
-	// The rail declares itself the shared x edge, so a column of controls of
-	// different widths shows a column of tips at one x.
+	// The rail declares itself the shared x edge, so a column of controls of different widths shows a column of tips at
+	// one x.
 	expect(rail.hasAttribute("data-tip-edge")).toBe(true);
 	const railRect = { left: 0, top: 0, right: 48, bottom: 700, width: 48, height: 700, x: 0, y: 0, toJSON: () => ({}) };
 	rail.getBoundingClientRect = () => railRect as DOMRect;
@@ -378,17 +366,16 @@ test("a collapsed rail tip escapes the 48px rail: anchored beside the [data-tip-
 	expect(bubble.style.left).toBe("56px");
 	expect(bubble.style.top).toBe("119px");
 
-	// A resize re-measures the shown tip: dragging a splitter moves the rail
-	// under a hovered or focused control without any new pointer event.
+	// A resize re-measures the shown tip: dragging a splitter moves the rail under a hovered or focused control without
+	// any new pointer event.
 	stubBoundingRect(tab, { left: 4, top: 200, bottom: 238 });
 	void act(() => {
 		window.dispatchEvent(new Event("resize"));
 	});
 	expect(bubble.style.top).toBe("219px");
 
-	// So does a scroll, and it must be heard on capture: scroll does not
-	// bubble, so a wheel over a table's scrollport or a panel would otherwise
-	// leave the fixed bubble behind while its row moves.
+	// So does a scroll, and it must be heard on capture: scroll does not bubble, so a wheel over a table's scrollport
+	// or a panel would otherwise leave the fixed bubble behind while its row moves.
 	stubBoundingRect(tab, { left: 4, top: 300, bottom: 338 });
 	void act(() => {
 		(root.querySelector(".rail-inner") as HTMLElement).dispatchEvent(new Event("scroll"));
@@ -397,9 +384,8 @@ test("a collapsed rail tip escapes the 48px rail: anchored beside the [data-tip-
 });
 
 test("the horizontal clamp measures the bubble, so a short tip stays beside a right-edge trigger", () => {
-	// A worst-case (350px) clamp would shove a SHORT tip hundreds of pixels left
-	// of a right-edge trigger, opening a gap no pointer could cross. happy-dom
-	// lays nothing out, so offsetWidth is stubbed as a browser would report it.
+	// A worst-case (350px) clamp would shove a SHORT tip hundreds of pixels left of a right-edge trigger, opening a gap
+	// no pointer could cross. happy-dom lays nothing out, so offsetWidth is stubbed as a browser would report it.
 	const root = mount(
 		<HoverTip tip="short">
 			<span>badge</span>
@@ -413,9 +399,8 @@ test("the horizontal clamp measures the bubble, so a short tip stays beside a ri
 	stubBoundingRect(wrap, { left: triggerLeft, top: 300, bottom: 320 });
 	fireMouseEnter(wrap);
 
-	// Both halves, and the worst-case clamp satisfied only the first: the whole
-	// box stays on screen, AND its x range still reaches the trigger, so there
-	// is a pointer path from one to the other.
+	// Both halves, and the worst-case clamp satisfied only the first: the whole box stays on screen, AND its x range
+	// still reaches the trigger, so there is a pointer path from one to the other.
 	const left = Number.parseInt(bubble.style.left, 10);
 	expect(left + 60).toBeLessThanOrEqual(window.innerWidth);
 	expect(left).toBeLessThanOrEqual(triggerLeft);

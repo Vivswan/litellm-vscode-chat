@@ -38,9 +38,8 @@ async function expectRequestError(promise: Promise<unknown>, kind: RequestError[
 	} catch (error) {
 		assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
 		assert.strictEqual(error.kind, kind);
-		// Every construction site localizes its display message and must carry
-		// the full English mirror; under the test host's English fallback the
-		// two coincide.
+		// Every construction site localizes its display message and must carry the full English mirror; under the test
+		// host's English fallback the two coincide.
 		assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
 		return error;
 	}
@@ -169,8 +168,8 @@ suite("extension/servers/usage spendClient", () => {
 		});
 
 		test("auth overlays replace same-named custom headers case-insensitively, never combine with them", async () => {
-			// This is a plain-object fetch: two spellings of one header name in
-			// the object would COMBINE into "custom, Bearer tok-1" on the wire.
+			// This is a plain-object fetch: two spellings of one header name in the object would COMBINE into "custom,
+			// Bearer tok-1" on the wire.
 			let seenAuthorization: string | null = null;
 			let seenVirtual: string | null = null;
 			mswServer.use(
@@ -196,9 +195,8 @@ suite("extension/servers/usage spendClient", () => {
 		});
 
 		test("a credentialed base URL never echoes its userinfo in usage error messages", async () => {
-			// fetch itself refuses credentialed URLs, so every attempt throws and
-			// the failure surfaces as the network tail; the echoed URL must carry
-			// no userinfo whichever error shape renders it.
+			// fetch itself refuses credentialed URLs, so every attempt throws and the failure surfaces as the network
+			// tail; the echoed URL must carry no userinfo whichever error shape renders it.
 			const error = await expectRequestError(
 				client().fetchKeyInfo(connection({ baseUrl: "http://user:sekret@usage.test:4000" })),
 				"network"
@@ -411,8 +409,8 @@ suite("extension/servers/usage spendClient", () => {
 		});
 
 		test('the entry\'s apiVersion rides the connection, with "" kept distinct from absent', () => {
-			// Pins the ...(entry.apiVersion !== undefined) spread: without it the
-			// usage URLs silently revert to the auto rule and the suite stays green.
+			// Pins the ...(entry.apiVersion !== undefined) spread: without it the usage URLs silently revert to the
+			// auto rule and the suite stays green.
 			const custom = usageConnectionFor({ label: "a", baseUrl: TEST_BASE_URL, apiVersion: "v2" }, {});
 			assert.strictEqual(custom.apiVersion, "v2");
 			const none = usageConnectionFor({ label: "a", baseUrl: TEST_BASE_URL, apiVersion: "" }, {});
@@ -424,8 +422,8 @@ suite("extension/servers/usage spendClient", () => {
 		test("normalizes a trailing-slash base URL so endpoint paths cannot double the slash", () => {
 			const resolved = usageConnectionFor({ label: "alpha", baseUrl: `${TEST_BASE_URL}//` }, {});
 			assert.strictEqual(resolved.baseUrl, TEST_BASE_URL);
-			// The URL a fetch would really hit: a double slash here would 404 on
-			// LiteLLM and misclassify the server as usage-unsupported.
+			// The URL a fetch would really hit: a double slash here would 404 on LiteLLM and misclassify the server as
+			// usage-unsupported.
 			assert.strictEqual(keyInfoUrl(resolved.baseUrl, undefined), KEY_INFO_URL);
 		});
 
@@ -486,13 +484,10 @@ suite("extension/servers/usage spendClient", () => {
 			assert.strictEqual(usageUnavailabilityOf(error), "forbidden", "a usage-endpoint 401 still reads as forbidden");
 			assert.strictEqual(exchanges, 1, "the rejected poll itself is never retried");
 
-			// The rejected token was dropped, so the next poll exchanges anew and
-			// succeeds with the fresh one.
 			const second = await usage.fetchKeyInfo(conn);
 			assert.strictEqual(exchanges, 2);
 			assert.strictEqual(second.spend, 4);
 
-			// An accepted token stays cached: no third exchange.
 			await usage.fetchKeyInfo(conn);
 			assert.strictEqual(exchanges, 2, "an accepted token must be served from cache, not re-exchanged");
 		});
