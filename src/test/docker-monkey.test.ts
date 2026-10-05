@@ -77,7 +77,7 @@ suite("Docker LiteLLM monkey fuzzer", () => {
 
 	test(`runs ${WALKS} monkey walks (seed ${SEED})`, async function () {
 		this.timeout(Math.max(WALK_BUDGET_MS, WALKS * WALK_BUDGET_MS + MAX_SHRINK_RUNS * WALK_BUDGET_MS));
-		// Nightly's failure handler greps this exact format for the repro command.
+		// scripts/ci/nightly-fuzz-leg.ts parses this line (parseLastFuzzSeedLine) for the replay command.
 		logFuzzSeed(SEED, WALKS, "monkey");
 		const random = mulberry32(SEED ^ 0x6d6f6e6b);
 

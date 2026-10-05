@@ -58,47 +58,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      # The fuzzer-related path set and the no-diff fallbacks live in the script.
       - name: Match changed files against the fuzzer paths
         id: diff
-        shell: bash
         env:
           EVENT: ${{ github.event_name }}
           # pull_request carries the base sha; push carries the pre-push sha.
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          # Fuzzer-related: the stream and monkey fuzzers with their corpus
-          # and seed plumbing, the fast-check property suites, the canned
-          # stream scenarios, the fake stack the fuzzers drive, the streaming
-          # transport whose leniency contract the fuzzer pins, the bun leg's
-          # root and preload, which decide what the ported property suites
-          # run under, and the orchestrator plus its label list, which decide
-          # what --only runs.
-          pattern='^src/test/(bun/)?(fuzz|monkey|scenarios|fakeStack/|docker-(fuzz|conversation|monkey)\.test\.ts)|^src/test/bun/preload\.ts$|^bunfig\.toml$|^src/provider/transport/streaming/|^scripts/stack/fake-openai-server\.ts$|^scripts/docker-test\.ts$|^src/test/dockerTestLabels\.ts$|\.property\.test\.ts$'
-          if [ "$EVENT" != "push" ] && [ "$EVENT" != "pull_request" ]; then
-            # Dispatched gate runs have no diff to inspect.
-            echo "hit=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            # First push of a branch or an unfetchable base: fuzz rather
-            # than guess.
-            echo "no usable diff base, running the fuzz pass"
-            echo "hit=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # A history rewrite can leave BASE present as an object but with no
-          # merge base against HEAD; the three-dot diff dies fatally there.
-          if ! changed="$(git diff --name-only "$BASE...HEAD" 2>/dev/null)"; then
-            echo "no merge base with $BASE, running the fuzz pass"
-            echo "hit=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          printf '%s\n' "$changed"
-          if printf '%s\n' "$changed" | grep -qE "$pattern"; then
-            echo "hit=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "hit=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: bun scripts/ci/fuzz-paths-hit.ts
 
   # Elevated fuzz passes in the gate when fuzzer-related code changes; on
   # everything else they skip, which the aggregate `checks` result reports

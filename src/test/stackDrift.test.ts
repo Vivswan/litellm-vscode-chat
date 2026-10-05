@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { DOCKER_SKIP_FLAGS, DOCKER_TEST_LABELS } from "./dockerTestLabels";
+import { DOCKER_SKIP_FLAGS, DOCKER_TEST_LABELS, SEEDED_FUZZ_LABELS } from "./dockerTestLabels";
 import { STACK_DEFAULTS } from "./envFile";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { COPILOT_TOKEN_DIR, REAL_PROVIDERS } from "./fakeStack/proxyConfig";
@@ -185,16 +185,15 @@ suite("stack drift guard: checks.yml docker shards", () => {
 	test("the fuzz-docker shards cover exactly the seeded fuzz labels", () => {
 		// A deleted shard would silently end that leg's elevated pass in the gate while every other guard stays green.
 		const sharded = shardLabels("fuzz-docker").flat().sort();
-		assert.deepStrictEqual(sharded, ["docker-conversation", "docker-fuzz", "docker-monkey"], "fuzz-docker shard union");
+		assert.deepStrictEqual(sharded, [...SEEDED_FUZZ_LABELS].sort(), "fuzz-docker shard union");
 	});
 });
 
 suite("stack drift guard: nightly-fuzz legs", () => {
 	/**
-	 * nightly-fuzz.yml restates the orchestrator's label vocabulary twice: the seeded docker legs name their labels
-	 * through --only, and the unseeded leg runs the complement through --skip-* flags. Neither list can import
-	 * DOCKER_SKIP_FLAGS, so without these guards a label seeded but not skipped would run twice per night, and a seeded
-	 * label whose skip flag went stale after a rename would land in the unseeded leg, unfuzzed.
+	 * scripts/ci/nightly-fuzz-leg.ts runs SEEDED_FUZZ_LABELS on the seeded legs and their skip flags on the unseeded
+	 * one, so the label vocabulary is shared; what the matrix still restates is which rows are seeded and their salts,
+	 * which the script reads as strings and cannot judge.
 	 */
 	const workflow = () => read(".github/workflows/nightly-fuzz.yml");
 
@@ -216,8 +215,8 @@ suite("stack drift guard: nightly-fuzz legs", () => {
 	}
 
 	test("every docker leg declares seeded as literally true or false", () => {
-		// The seeded/unseeded split is inferred from this value by a shell string comparison, so a typo would quietly
-		// turn a seeded leg into a second unseeded run; the workflow validates family itself, not this.
+		// The leg script compares SEEDED to the string "true", so a typo would quietly turn a seeded leg into a second
+		// unseeded run; the workflow validates family itself, not this.
 		for (const row of matrixRows()) {
 			if (row.family === "docker") {
 				assert.ok(
@@ -229,8 +228,9 @@ suite("stack drift guard: nightly-fuzz legs", () => {
 	});
 
 	test("exactly one unseeded docker leg runs the skip-flag complement", () => {
-		// The complement equation below holds only with ONE unseeded row: with none, the eight non-seeded labels stop
-		// running at night while every seeded leg stays green; with two, they run twice.
+		// The unseeded leg runs the complement of SEEDED_FUZZ_LABELS, which covers the rest only with ONE such row: with
+		// none, the eight non-seeded labels stop running at night while every seeded leg stays green; with two, they run
+		// twice.
 		assert.strictEqual(
 			matrixRows().filter((row) => row.family === "docker" && row.seeded === "false").length,
 			1,
@@ -239,38 +239,18 @@ suite("stack drift guard: nightly-fuzz legs", () => {
 	});
 
 	test("every seeded label has a skip flag, so the unseeded leg can exclude it", () => {
-		// A seeded label with no --skip flag (today only "docker" lacks one) drops out of the expected-flags set below
-		// unnoticed, and that suite then runs seeded AND in the complement.
-		const seededRows = matrixRows().filter((row) => row.family === "docker" && row.seeded === "true");
-		assert.ok(seededRows.length >= 1, "the matrix declares at least one seeded docker leg");
-		for (const row of seededRows) {
-			for (const label of (row.labels ?? "").split(",").map((entry) => entry.trim())) {
-				assert.ok(
-					DOCKER_SKIP_FLAGS[label as (typeof DOCKER_TEST_LABELS)[number]] !== undefined,
-					`seeded label "${label}" has no --skip flag, so the unseeded leg cannot exclude it`
-				);
-			}
-		}
-	});
-
-	test("the unseeded leg's skip flags are exactly the seeded labels' flags", () => {
-		// The coverage equation: the unseeded leg runs the complement of its skip flags, so skips == seeded labels
-		// means every label in DOCKER_TEST_LABELS is covered at night (seeded labels by their seeded legs, each with
-		// its own salt; the rest once, in the complement), including any label added later without touching the
-		// workflow.
-		const seededLabels = new Set(
-			matrixRows()
-				.filter((row) => row.family === "docker" && row.seeded === "true")
-				.flatMap((row) => (row.labels ?? "").split(",").map((label) => label.trim()))
+		// A seeded label with no --skip flag (today only "docker" lacks one) would fail the unseeded leg at night, the
+		// first time the script maps it; here it fails on the push.
+		assert.ok(
+			matrixRows().some((row) => row.family === "docker" && row.seeded === "true"),
+			"the matrix declares at least one seeded docker leg"
 		);
-		const skipLine = /^ +set -- (--skip-\S+(?: --skip-\S+)*)$/m.exec(workflow());
-		assert.ok(skipLine, "nightly-fuzz.yml's unseeded branch sets --skip-* flags");
-		const skips = (skipLine[1] as string).split(/\s+/).sort();
-		const expected = [...seededLabels]
-			.map((label) => DOCKER_SKIP_FLAGS[label as (typeof DOCKER_TEST_LABELS)[number]])
-			.filter((flag): flag is string => flag !== undefined)
-			.sort();
-		assert.deepStrictEqual(skips, expected, "unseeded-leg skip flags must mirror the seeded labels");
+		for (const label of SEEDED_FUZZ_LABELS) {
+			assert.ok(
+				DOCKER_SKIP_FLAGS[label] !== undefined,
+				`seeded label "${label}" has no --skip flag, so the unseeded leg cannot exclude it`
+			);
+		}
 	});
 
 	test("every leg carries a distinct salt", () => {
