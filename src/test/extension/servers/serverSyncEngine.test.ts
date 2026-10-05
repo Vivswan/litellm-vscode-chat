@@ -1934,7 +1934,10 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 		);
 		const toast = toasts[0] ?? "";
 		assert.strictEqual(toasts.length, 1, "one notice");
-		assert.ok(toast.includes("hidden for this session only") && toast.includes("Secret storage is unavailable"), toast);
+		assert.ok(
+			toast.includes("hidden for this session only") && toast.includes("cannot be kept across restarts"),
+			toast
+		);
 	});
 
 	test("a removed entry tombstones its stamped leftover and, by client ID, the pre-label groups the event names", async () => {

@@ -149,11 +149,11 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void
 		const message =
 			unreported.length === 1
 				? l10n.t(
-						"Removed {0} from the servers setting. VS Code has not reported its provider group this session, so its models stay until the group is next reported; delete it in Manage Language Models, or remove its object from the models file and reload the window.",
+						"Removed {0} from the servers setting. VS Code has not reported its provider group this session, so its models may still appear; delete it in Manage Language Models, or remove its object from the models file and reload the window.",
 						labels
 					)
 				: l10n.t(
-						"Removed {0} from the servers setting. VS Code has not reported their provider groups this session, so their models stay until each group is next reported; delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
+						"Removed {0} from the servers setting. VS Code has not reported their provider groups this session, so their models may still appear; delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
 						labels
 					);
 		void showActionableMessage("info", message, await leftoverGroupActions(unreported));
@@ -177,11 +177,11 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void
 		const message =
 			hiddenThisSession.length === 1
 				? l10n.t(
-						"Removed {0} from the servers setting; its models are hidden for this session only. Secret storage is unavailable, so the hide cannot be kept across restarts. VS Code still keeps a provider group named {0}: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
+						"Removed {0} from the servers setting; its models are hidden for this session only, because the hide cannot be kept across restarts. VS Code still keeps a provider group named {0}: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
 						labels
 					)
 				: l10n.t(
-						"Removed {0} from the servers setting; their models are hidden for this session only. Secret storage is unavailable, so the hides cannot be kept across restarts. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
+						"Removed {0} from the servers setting; their models are hidden for this session only, because the hides cannot be kept across restarts. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
 						labels
 					);
 		void showActionableMessage("info", message, await leftoverGroupActions(hiddenThisSession));
