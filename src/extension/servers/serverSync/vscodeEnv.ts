@@ -6,7 +6,7 @@
 
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import type { GroupCredentials } from "../../../provider/catalog/groupModels";
+import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
 import { CMD, HOST_CMD, INTERNAL_CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getMaskSecretInputs, SERVERS_SETTING_KEY } from "../../../shared/config/settings";
@@ -269,15 +269,14 @@ export function currentDeclaredServers(): DeclaredServer[] {
 /**
  * The provider's credential-overlay resolver over the real setting and
  * SecretStorage channels (see entryCredentials.ts for the resolution rules).
- * Never rejects: the overlay's callers treat a failure as "keep the baked
- * credentials", so any escape degrades to undefined with one log line here.
+ * Never rejects: any escape is the unavailable answer with one log line here.
  */
 export async function readEntryCredentials(
 	secrets: vscode.SecretStorage,
 	logger: Logger,
 	label: string,
 	baseUrl: string
-): Promise<GroupCredentials | undefined> {
+): Promise<GroupCredentialsResolution> {
 	try {
 		return await entryGroupCredentialsFor(
 			readRawServersSetting,
@@ -288,7 +287,7 @@ export async function readEntryCredentials(
 		);
 	} catch (error) {
 		logger.log("Resolving entry credentials for the overlay failed", { label, error: errorLabel(error) });
-		return undefined;
+		return { kind: "unavailable", reason: "secretsUnreadable" };
 	}
 }
 

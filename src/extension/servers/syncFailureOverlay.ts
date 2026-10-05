@@ -1,7 +1,7 @@
 /**
  * Sync failures never enter the provider's status window: an entry whose group
- * upsert failed has no group to report, and a blocked or skipped entry's live
- * group keeps reporting its OLD configuration as healthy. This module owns the
+ * upsert failed has no group to report, and a blocked entry's live group keeps
+ * reporting its OLD configuration as healthy. This module owns the
  * one precedence rule for what a declared entry's sync failure means beside
  * its live status, and the overlay that applies it to the status bar's and
  * notifier's input; the dashboard's row builder (declaredOutcome) consumes the

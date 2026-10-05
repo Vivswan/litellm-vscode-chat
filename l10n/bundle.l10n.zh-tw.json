@@ -1116,6 +1116,7 @@
 	"Unhide": "取消隱藏",
 	"Unhiding the group failed:": "取消隱藏群組失敗:",
 	"Unknown error": "未知錯誤",
+	"This server entry's credentials could not be resolved, so its stored copy in VS Code was not used. Check the server row on the dashboard, then run LiteLLM: Sync Models Now.": "無法解析此伺服器項目的認證, 因此沒有使用 VS Code 中儲存的副本。請檢查儀表板上的伺服器列, 然後執行 LiteLLM: Sync Models Now。",
 	"Unpaired tool call IDs: {0}.": "未配對的工具呼叫 ID: {0}。",
 	"Usage": "用量",
 	"Usage alert thresholds": "用量警示閾值",

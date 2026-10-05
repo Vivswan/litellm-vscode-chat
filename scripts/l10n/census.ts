@@ -404,4 +404,6 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"writeFailureText",
 	"glyphTrail",
 	"catalogStatusParts",
+	"credentialsUnavailableError",
+	"overlayEntryCredentials",
 ];

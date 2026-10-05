@@ -1,6 +1,8 @@
+import * as l10n from "@vscode/l10n";
 import type { LanguageModelChatInformation } from "vscode";
 import { ThemeIcon } from "vscode";
 import type { EffectiveOutputLimitSource, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
+import { localizedError, type MirroredError } from "../../shared/mirroredError";
 import type {
 	NonSecretOptionalFieldId,
 	NonSecretOptionalFields,
@@ -98,7 +100,7 @@ export type GroupCredentials = Pick<GroupServer, "apiKey" | "oauth" | "virtualKe
  * Wholesale, never merged: the entry's resolved credential set is the complete truth, so an entry that dropped its
  * OAuth unit (or virtual key) must strip the baked one rather than keep authenticating with it.
  */
-export function overlayGroupCredentials(server: GroupServer, credentials: GroupCredentials): GroupServer {
+function overlayGroupCredentials(server: GroupServer, credentials: GroupCredentials): GroupServer {
 	return {
 		baseUrl: server.baseUrl,
 		apiKey: credentials.apiKey,
@@ -106,6 +108,63 @@ export function overlayGroupCredentials(server: GroupServer, credentials: GroupC
 		...(credentials.oauth !== undefined ? { oauth: credentials.oauth } : {}),
 		...(credentials.virtualKey !== undefined ? { virtualKey: credentials.virtualKey } : {}),
 	};
+}
+
+/** The same reasons the sync engine skips an entry for (secretsUnreadable, secretsMismatched); see syncFailureOf. */
+type CredentialsUnavailableReason = "secretsUnreadable" | "secretsMismatched" | "unusable";
+
+/**
+ * The entry-credentials resolver's answer for a labeled group. The baked credentials are the copy the host stored at
+ * group creation, which a rotation retires.
+ *   external (no declared entry at this label and normalized base URL) -> the baked set stays; a leftover group
+ *   resolved                                                           -> the entry's current set overlays it
+ *   unavailable(reason)                                                -> a classified failure, never the baked key
+ */
+export type GroupCredentialsResolution =
+	| { readonly kind: "external" }
+	| { readonly kind: "resolved"; readonly credentials: GroupCredentials }
+	| { readonly kind: "unavailable"; readonly reason: CredentialsUnavailableReason };
+
+/** The one failure a serve or request raises for a declared entry whose credentials did not resolve. */
+function credentialsUnavailableError(reason: CredentialsUnavailableReason): MirroredError {
+	return localizedError(
+		l10n.t(
+			"This server entry's credentials could not be resolved, so its stored copy in VS Code was not used. Check the server row on the dashboard, then run LiteLLM: Sync Models Now."
+		),
+		"entry credentials unavailable",
+		`EntryCredentialsUnavailable(${reason})`
+	);
+}
+
+/** The extension layer's resolver of a declared entry's current credentials; see GroupCredentialsResolution. */
+export type EntryCredentialsResolver = (label: string, baseUrl: string) => Promise<GroupCredentialsResolution>;
+
+/**
+ * The one overlay for both consumers of a labeled group's credentials.
+ *   serve path (provider/index.ts)      -> the failure rides beside the baked server as the discovery preflight failure
+ *   request path (transport/chatClient) -> the failure is thrown before anything is sent
+ */
+export async function overlayEntryCredentials(
+	server: GroupServer,
+	resolve: EntryCredentialsResolver | undefined
+): Promise<{ server: GroupServer; failure?: MirroredError }> {
+	if (server.label === undefined || resolve === undefined) {
+		return { server };
+	}
+	let resolution: GroupCredentialsResolution;
+	try {
+		resolution = await resolve(server.label, server.baseUrl);
+	} catch {
+		resolution = { kind: "unavailable", reason: "secretsUnreadable" };
+	}
+	switch (resolution.kind) {
+		case "external":
+			return { server };
+		case "resolved":
+			return { server: overlayGroupCredentials(server, resolution.credentials) };
+		case "unavailable":
+			return { server, failure: credentialsUnavailableError(resolution.reason) };
+	}
 }
 
 /** Client-cache IDs for group servers, disjoint from any other server id shape (see isGroupClientId). */

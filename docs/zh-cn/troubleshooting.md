@@ -267,7 +267,7 @@ VS Code 的提供程序组 API 可以创建组, 但永远无法更新或删除�
 - **"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry."** 这一轮读取失败; 条目只是被跳过, 不是永久失败 - 下一轮 (或 "LiteLLM: Sync Models Now") 会再次读取。
 - **"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session."** 扩展无法确认它的同步状态能在本会话之后留存, 所以宁可什么都不同步, 也不去猜。
 
-两种状态下条目都只是本轮被跳过: 它的活动提供程序组继续提供最近一次同步的模型, 什么都不会丢。常见原因是操作系统的钥匙串或钥匙环不可用 - 在 Linux 上, 没有钥匙环服务 (gnome-keyring、KWallet) 的桌面会话是最常见的情况。恢复钥匙环, 重启 VS Code, 然后运行 "LiteLLM: Sync Models Now"。
+两种状态下条目都只是本轮被跳过, 什么都不会丢: 它的活动提供程序组继续提供模型。当密钥本身无法读取时, 该组在 `discovery.staleServeWindow` 允许的时间内以过期标记继续提供最近一次发现的模型, 服务器行显示错误, 而不是用组中存储的凭据副本进行认证。常见原因是操作系统的钥匙串或钥匙环不可用 - 在 Linux 上, 没有钥匙环服务 (gnome-keyring、KWallet) 的桌面会话是最常见的情况。恢复钥匙环, 重启 VS Code, 然后运行 "LiteLLM: Sync Models Now"。
 
 ## 来自旧版本的设置
 

@@ -1,7 +1,9 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { classifyOverall } from "../dashboard/presenters";
 import type { DeclaredServerView } from "../extension/servers/serverSync";
 import { GROUP_UPDATE_UNAVAILABLE_MESSAGE } from "../extension/servers/serverSync";
+import { applySyncFailures } from "../extension/servers/syncFailureOverlay";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import { MODEL_CAPABILITIES_SETTING_KEY, SERVERS_SETTING_KEY } from "../shared/config/settings";
@@ -477,17 +479,37 @@ suite("Docker server sync", () => {
 			await new Promise((resolve) => setTimeout(resolve, 250));
 		}
 		// Re-declaring the identity clears the tombstone. The re-add itself is refused by the add-only host (the
-		// label's fingerprint was pruned with the entry), which must not matter: the models returning without a
-		// successful add is the proof the host group survived the removal.
+		// label's fingerprint was pruned with the entry); the host serving the label's group at this URL confirms
+		// that refusal as the synced steady state (#398), so the models return and the entry reads in sync.
 		await declareServer({ label: LABEL_STORED, baseUrl: BASE_URL });
 		await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_STORED);
-		assert.strictEqual(
-			view.syncFailure?.message,
-			GROUP_UPDATE_UNAVAILABLE_MESSAGE,
-			"the re-add hits the add-only rejection"
-		);
+		assert.strictEqual(view.syncFailure, undefined, "the surviving group confirms the re-add's duplicate refusal");
 		assert.strictEqual(view.secrets.apiKey, "secure", "the re-added label reads its kept SecretStorage blob");
+		// The window verdict the status bar and the dashboard judge: the overlaid row of this entry alone, since the
+		// suite's earlier scenarios leave rows that fail on purpose.
+		const row = expectDefined(
+			((await vscode.commands.executeCommand("litellm._test.getServerStatuses")) as ServerStatus[]).find(
+				(status) => status.entryLabel === LABEL_STORED
+			),
+			`status for ${LABEL_STORED}`
+		);
+		const judged = applySyncFailures([row], await getDeclared());
+		assert.strictEqual(classifyOverall(judged), "connected", "the re-added entry's row reads connected");
+		assert.ok(expectDefined(judged[0]).servedModelCount > 0, "the restored group serves its models");
+		// The next forced pass re-attempts the add and the host's duplicate answer confirms silently: no sync line for
+		// the label, neither a landed add nor a conflict. (The unforced no-call branch is the engine unit test's pin.)
+		const before = (await sessionLogLines()).length;
+		await syncNow();
+		const passLines = (await sessionLogLines()).slice(before);
+		assert.deepStrictEqual(
+			passLines.filter(
+				(line) => line.includes(LABEL_STORED) && /Synced server entry|no update path|upsert failed/.test(line)
+			),
+			[],
+			"the confirmed duplicate neither lands an add nor reports a conflict"
+		);
+		assert.strictEqual((await declaredFor(LABEL_STORED)).syncFailure, undefined);
 	});
 
 	test("scenario 8: two same-URL entries each send their own per-entry model parameters", async function () {

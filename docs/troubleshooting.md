@@ -267,7 +267,7 @@ Two server-row messages mean VS Code's secret storage, not your server, is the p
 - **"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry."** The read failed this pass; the entry is skipped, not failed permanently - the next pass (or "LiteLLM: Sync Models Now") reads again.
 - **"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session."** The extension could not confirm its sync state would survive the session, so it syncs nothing rather than guess.
 
-In both states the entry is only skipped for the pass: its live provider group keeps serving the last synced models, and nothing is lost. The usual cause is the operating system's keychain or keyring being unavailable - on Linux, a desktop session without a keyring service (gnome-keyring, KWallet) is the common case. Restore the keyring, restart VS Code, and run "LiteLLM: Sync Models Now".
+In both states the entry is only skipped for the pass, and nothing is lost: its live provider group keeps serving. When the secrets themselves cannot be read, that group serves its last discovered models as stale while `discovery.staleServeWindow` allows and its row reads an error, rather than authenticating with the group's stored copy of the credential. The usual cause is the operating system's keychain or keyring being unavailable - on Linux, a desktop session without a keyring service (gnome-keyring, KWallet) is the common case. Restore the keyring, restart VS Code, and run "LiteLLM: Sync Models Now".
 
 ## Settings from an older version
 
