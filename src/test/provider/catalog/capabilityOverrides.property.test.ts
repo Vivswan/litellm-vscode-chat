@@ -2,8 +2,8 @@
  * The registration-side equivalence twin of the capabilityResolution property suite: for
  * generated discovery shapes run through the REAL registration path and generated
  * capability records, the models applyCapabilityOverrides serves advertise exactly what
- * resolveModelCapabilities resolves - on the rebuilt path AND on the object-identity fast
- * path, which is the claim that lets untouched models skip the rebuild.
+ * resolveModelCapabilities resolves, on every pass, since every served model is rebuilt from
+ * the effective fields.
  * synthesizeDeclaredModels is pinned to the same walk over the declared baseline, and the
  * whole application is idempotent because the untouched baseline rides each model.
  */
@@ -337,7 +337,7 @@ function assertAdvertisesEffective(info: PreAttachModelInfo, effective: Effectiv
 }
 
 suite("provider/catalog capabilityOverrides properties", () => {
-	test("every served model advertises exactly the resolver's effective capabilities, fast path included", () => {
+	test("every served model advertises exactly the resolver's effective capabilities on every pass", () => {
 		fc.assert(
 			fc.property(scenario, (s) => {
 				const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {});

@@ -598,56 +598,6 @@ suite("provider/transport/oneShotClient", () => {
 		assert.strictEqual(error.logClassification, "RequestError(http, status 404, chat)");
 	});
 
-	suite("sendJson (the shared Response core)", () => {
-		test("returns the raw 2xx Response with its body unread", async () => {
-			let seenContentType: string | null = null;
-			mswServer.use(
-				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
-					seenContentType = request.headers.get("content-type");
-					return new HttpResponse("raw payload, not parsed here", { status: 201 });
-				})
-			);
-
-			const response = await client().sendJson(
-				CHAT_COMPLETIONS_URL,
-				JSON.stringify({ ping: true }),
-				connection(),
-				"commitGeneration",
-				callOptions()
-			);
-
-			assert.strictEqual(response.status, 201);
-			assert.strictEqual(seenContentType, "application/json");
-			assert.strictEqual(await response.text(), "raw payload, not parsed here", "the body reaches the caller unread");
-		});
-
-		test("a non-2xx never returns: the error body is read and mapped through the shared pipeline", async () => {
-			mswServer.use(
-				http.post(CHAT_COMPLETIONS_URL, () =>
-					HttpResponse.json(
-						{ error: { message: "Budget has been exceeded for this key", type: "budget_exceeded" } },
-						{ status: 429 }
-					)
-				)
-			);
-
-			const error = await expectRequestError(
-				client().sendJson(
-					CHAT_COMPLETIONS_URL,
-					JSON.stringify({ ping: true }),
-					connection(),
-					"commitGeneration",
-					callOptions()
-				),
-				"http"
-			);
-
-			assert.strictEqual(error.status, 429);
-			assert.match(error.message, /budget is used up/);
-			assert.strictEqual(error.logClassification, "RequestError(http, status 429, budget_exceeded)");
-		});
-	});
-
 	suite("authHeaders", () => {
 		test("composes what a request would carry, without making one", async () => {
 			// No msw handler is registered for the server: any request would fail

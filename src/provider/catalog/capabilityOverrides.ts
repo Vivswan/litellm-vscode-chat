@@ -10,12 +10,10 @@ import type {
 	CapabilityCatalogLookup,
 	CapabilityDiagnostic,
 	CapabilityLevel,
-	EffectiveCapabilities,
 	EffectiveCapabilityFields,
 	ModelCapabilitiesRecord,
 } from "../../shared/config/capabilityResolution";
 import {
-	CAPABILITY_FIELDS,
 	CAPABILITY_LEVEL_ORDER,
 	capabilityField,
 	consumedFieldsOfKind,
@@ -25,7 +23,7 @@ import { getCurrencySymbol } from "../../shared/config/settings";
 import type { ServerConfig } from "../../shared/servers";
 import type { PreAttachModelInfo } from "./groupModels";
 import { buildExposedModelId } from "./modelCatalog";
-import { effectiveReasoningLevels, reasoningEffortPickerValues, reasoningEffortSchema } from "./modelConfiguration";
+import { effectiveReasoningLevels, reasoningEffortSchema } from "./modelConfiguration";
 import type { ModelPricing } from "./registration";
 import { COMMON_MODEL_FIELDS, pricingFromCosts, serverDisplayContext } from "./registration";
 import type { DeclaredPerTokenCosts } from "./schemas";
@@ -53,27 +51,7 @@ export interface CapabilityOverrideOptions {
 	readonly logAdvisory: (message: string, data?: unknown) => void;
 }
 
-const LEVEL_TRIGGERS_REBUILD: Readonly<Record<CapabilityLevel, boolean>> = {
-	entry: true,
-	global: true,
-	directive: true,
-	server: false,
-	"entry-fallback": true,
-	"global-fallback": true,
-	catalog: true,
-	derived: false,
-	floor: false,
-};
-
 const COST_FIELDS = consumedFieldsOfKind("cost");
-
-const REGISTRATION_CONSUMED_FIELDS: readonly string[] = [
-	...Object.keys(CAPABILITY_FIELDS),
-	...COST_FIELDS,
-	"supports_prompt_caching",
-	"supported_openai_params",
-	"reasoning_effort_levels",
-];
 
 /**
  * Rebuild the picker's pricing block from the effective cost fields, through the SAME converter registration used. A
@@ -114,26 +92,6 @@ export function reasoningGate(fields: EffectiveCapabilityFields): boolean {
 
 function promptCachingFrom(fields: EffectiveCapabilityFields): boolean {
 	return capabilityField(fields, "supports_prompt_caching")?.value === true;
-}
-
-/**
- * The enum comparison goes through the same builder the schema uses, so a levels change can never freeze a stale menu
- * behind the fast path.
- */
-function advertisesReasoningMenu(
-	schema: PreAttachModelInfo["configurationSchema"],
-	fields: EffectiveCapabilityFields
-): boolean {
-	if (!reasoningGate(fields)) {
-		return schema === undefined;
-	}
-	const advertised: unknown = schema?.properties?.reasoningEffort?.enum;
-	const expected = reasoningEffortPickerValues(effectiveReasoningLevels(fields));
-	return (
-		Array.isArray(advertised) &&
-		advertised.length === expected.length &&
-		expected.every((value, index) => advertised[index] === value)
-	);
 }
 
 /**
@@ -181,47 +139,21 @@ function withoutPricing<T extends ModelPricing>(info: T): Omit<T, keyof ModelPri
 	return rest as unknown as Omit<T, keyof ModelPricing>;
 }
 
-function advertisesPricing(info: ModelPricing, expected: ModelPricing): boolean {
-	return MODEL_PRICING_KEYS.every((key) => info[key] === expected[key]);
-}
-
 /**
- * The fast path must verify this rather than assume it: the status window's stale-served copies were rebuilt under an
- * EARLIER configuration, so after an override is removed mid-outage the stored values still carry the old override -
- * identity would freeze it in place, and the verified rebuild heals it instead. A field missed here would either
- * rebuild forever or freeze a stale value, so every rebuilt artifact has its clause.
+ * Every model is rebuilt from the effective fields on every pass, never returned as-is: the status window's
+ * stale-served copies were rebuilt under an EARLIER configuration, so a copy that looks settled may still carry a
+ * removed override, and an unconditional rebuild heals it with no field-by-field check to miss. Pricing is re-derived
+ * from the effective cost fields, which the walk never fills from the catalog.
  */
-function advertisesEffective(
-	info: PreAttachModelInfo,
-	effective: EffectiveCapabilities,
-	currencySymbol: string
-): boolean {
-	const fields = effective.fields;
-	return (
-		info.maxInputTokens === fields.max_input_tokens.value &&
-		info.maxOutputTokens === fields.max_output_tokens.value &&
-		Boolean(info.capabilities?.toolCalling) === fields.supports_function_calling.value &&
-		Boolean(info.capabilities?.imageInput) === fields.supports_vision.value &&
-		(info.litellm.supportsAudioInput === true) === fields.supports_audio_input.value &&
-		info.litellm.supportsPromptCaching === promptCachingFrom(fields) &&
-		info.litellm.outputLimitSource === effective.outputLimitSource &&
-		advertisesReasoningMenu(info.configurationSchema, fields) &&
-		advertisesPricing(info, pricingFieldsFromEffective(fields, currencySymbol))
-	);
-}
-
-/** Pricing is re-derived from the effective cost fields, which the walk never fills from the catalog. */
 export function applyCapabilityOverrides(
 	infos: readonly PreAttachModelInfo[],
 	server: ServerConfig,
 	opts: CapabilityOverrideOptions
 ): readonly PreAttachModelInfo[] {
-	let changed = false;
 	const logDiagnostics = diagnosticLogger(opts);
-	// Read once per pass: every rebuilt pricing label carries the same symbol, and a symbol change since registration
-	// fails advertisesPricing's exact compare, so the verified fast path itself heals stale labels here.
+	// Read once per pass, so every rebuilt pricing label carries the same symbol.
 	const currencySymbol = getCurrencySymbol();
-	const out = infos.map((info) => {
+	return infos.map((info) => {
 		const rawModelId = info.litellm.rawModelId;
 		const effective = opts.resolution.resolveCapabilities(server.id, rawModelId, {
 			globalCapabilities: opts.globalCapabilities,
@@ -231,18 +163,8 @@ export function applyCapabilityOverrides(
 		});
 		logDiagnostics(effective.diagnostics);
 		const fields = effective.fields;
-		const needsRebuild = REGISTRATION_CONSUMED_FIELDS.some((name) => {
-			const field = capabilityField(fields, name);
-			return field !== undefined && LEVEL_TRIGGERS_REBUILD[field.level];
-		});
-		if (!needsRebuild && effective.directive === undefined && advertisesEffective(info, effective, currencySymbol)) {
-			return info;
-		}
-		changed = true;
-		// The schema is removed on demotion by destructuring it away, then rebuilt from the effective level list only
-		// when the gate holds - a fresh build every rebuild, because the menu's contents are effective fields too. The
-		// pricing block is stripped the same way and re-derived from the effective cost fields.
-		//   a price the walk no longer justifies -> never survives a rebuild
+		// The menu's contents and the price are effective fields too, so both rebuild from scratch: a price the walk
+		// no longer justifies never survives.
 		const { configurationSchema: _replaced, ...rest } = info;
 		const base = withoutPricing(rest);
 		return {
@@ -266,7 +188,6 @@ export function applyCapabilityOverrides(
 			},
 		} satisfies PreAttachModelInfo;
 	});
-	return changed ? out : infos;
 }
 
 /**
