@@ -602,7 +602,12 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.hidden, [
 				{ by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test" },
 			]);
-			assert.deepStrictEqual(recorded.unhidden, [{ label: "Prod", baseUrl: "http://prod.test" }]);
+			assert.deepStrictEqual(
+				recorded.retracted,
+				[{ by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test" }],
+				"only the record this hide added is taken back, never the pair's other tombstones"
+			);
+			assert.deepStrictEqual(recorded.unhidden, []);
 		});
 
 		test("hideExternalServer refuses an unusable base URL before any lookup", async () => {

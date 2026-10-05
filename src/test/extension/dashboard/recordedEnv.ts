@@ -166,6 +166,8 @@ export interface RecordedEnv {
 	duringHide?: () => void;
 	/** Replace the visible servers setting outright: another window's write landing between two reads. */
 	setSetting: (value: unknown) => void;
+	/** Every retractHide call: the exact record a compensated hide took back. */
+	retracted: TombstoneIdentity[];
 	/** Every unhideGroup call; unhideResult is what the fake reports back. */
 	unhidden: { label: string; baseUrl: string }[];
 	unhideResult: boolean;
@@ -211,6 +213,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		setSetting: (value) => {
 			currentSetting = value;
 		},
+		retracted: [],
 		unhidden: [],
 		unhideResult: true,
 		hiddenIdentities: [],
@@ -308,6 +311,9 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 				recorded.hidden.push({ ...identity });
 				recorded.duringHide?.();
 				return "durable";
+			},
+			retractHide: async (identity) => {
+				recorded.retracted.push({ ...identity });
 			},
 			unhideGroup: async (identity) => {
 				recorded.unhidden.push({ ...identity });

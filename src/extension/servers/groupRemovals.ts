@@ -416,6 +416,23 @@ export class GroupRemovalStore {
 		return true;
 	}
 
+	/** Take back exactly one record (the one a compensated hide added); the identity's other tombstones stand. */
+	async retractTombstone(identity: TombstoneIdentity): Promise<boolean> {
+		const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
+		const current = this.tombstoneRegion.list();
+		const next = current.filter((existing) => !sameTombstoneIdentity(existing, normalized));
+		if (next.length === current.length) {
+			return false;
+		}
+		this.tombstoneRegion.commit(next);
+		try {
+			this.didChangeListener?.();
+		} finally {
+			await this.tombstoneRegion.persistCommitted();
+		}
+		return true;
+	}
+
 	/**
 	 * The automatic clear: a declared entry whose group a tombstone hides (re)appeared, so the group is wanted again
 	 * and must never stay suppressed. The sync engine's pass calls this with every current declared entry and the live

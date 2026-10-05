@@ -50,6 +50,24 @@ suite("extension/servers/groupRemovals", () => {
 			assert.deepStrictEqual(next.tombstones(), [{ by: "entry", label: "Prod", baseUrl: "http://prod.test" }]);
 		});
 
+		test("retracting one group-keyed record leaves the pair's other tombstones hiding", async () => {
+			// Two groups can share a displayed label and URL (different credentials); a compensated hide of one must
+			// not reach the other's record, which is what the pair-wide Unhide does on purpose.
+			const { store, changes } = makeStore();
+			const a = { by: "group" as const, groupId: "group:a", label: "Prod", baseUrl: "http://prod.test" };
+			const b = { by: "group" as const, groupId: "group:b", label: "Prod", baseUrl: "http://prod.test" };
+			await store.addTombstone(a);
+			await store.addTombstone(b);
+			assert.strictEqual(await store.retractTombstone(b), true);
+			assert.deepStrictEqual(store.tombstones(), [a]);
+			assert.strictEqual(
+				store.isTombstoned({ groupId: "group:a", label: "Prod", entryLabel: undefined, baseUrl: "http://prod.test" }),
+				true
+			);
+			assert.strictEqual(await store.retractTombstone(b), false, "a second retraction finds nothing");
+			assert.deepStrictEqual(changes, [1, 2, 3]);
+		});
+
 		test("a group-keyed tombstone under a durable salt persists as every other record", async () => {
 			const { store, storage } = makeStore();
 			assert.strictEqual(

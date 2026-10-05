@@ -835,7 +835,7 @@ export interface RegisterDashboardOptions {
 export interface IntentEnvironmentDeps {
 	readonly provider: Pick<LiteLLMChatModelProvider, "getServerSnapshots" | "getGroupServer">;
 	readonly syncEngine: Pick<ServerSyncEngine, "requestSync" | "resolveDeclaredIdentities">;
-	readonly removals: Pick<GroupRemovalStore, "addTombstone" | "removeTombstone" | "hasTombstone">;
+	readonly removals: Pick<GroupRemovalStore, "addTombstone" | "retractTombstone" | "removeTombstone" | "hasTombstone">;
 	readonly settingsAccess: SettingsAccess;
 	readonly secrets: SecretStore;
 	readonly logger: Pick<Logger, "log">;
@@ -903,6 +903,9 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 		// models leave (or return to) the picker without waiting for the next
 		// background refresh.
 		hideGroup: (identity) => removals.addTombstone(identity),
+		retractHide: async (identity) => {
+			await removals.retractTombstone(identity);
+		},
 		unhideGroup: (identity) => removals.removeTombstone(identity),
 		isGroupHidden: (identity) => removals.hasTombstone(identity.label, identity.baseUrl),
 		openManageLanguageModels: (search) => openManageLanguageModels(search),

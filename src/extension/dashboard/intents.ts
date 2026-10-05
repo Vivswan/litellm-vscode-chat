@@ -155,6 +155,8 @@ export interface IntentEnvironment {
 	resolveExternalGroup(baseUrl: string, sourceHandle: string): Promise<ExternalGroupResolution>;
 	/** Record one removed-group tombstone; the group answers with no models until unhidden. */
 	hideGroup(identity: TombstoneIdentity): Promise<TombstonePersistence>;
+	/** Take back exactly the record a hide added; the identity's other tombstones stand. */
+	retractHide(identity: TombstoneIdentity): Promise<void>;
 	/** Clear the tombstones shown under this identity. Resolves false when none matched. */
 	unhideGroup(identity: { label: string; baseUrl: string }): Promise<boolean>;
 	/** Whether a removed-group tombstone is shown under this identity right now. */
@@ -767,7 +769,7 @@ export async function executeDashboardIntent(
 			try {
 				requireSettingUnchanged(env, resolved.setting);
 			} catch (error) {
-				await env.unhideGroup({ label: resolved.identity.label, baseUrl: resolved.identity.baseUrl });
+				await env.retractHide(resolved.identity);
 				throw error;
 			}
 			return undefined;
