@@ -11,21 +11,23 @@ const tsconfigPath = path.resolve(__dirname, "../../tsconfig.prod.json");
 const { seen, refused } = scanOutputChannelAccess(tsconfigPath);
 
 if (seen === 0) {
-	console.error(
+	process.stderr.write(
 		"No output-channel access found at all: src/extension.ts creates the channel, so the scan could not resolve " +
-			"vscode's types (run bun install) and would pass every write"
+			"vscode's types (run bun install) and would pass every write\n"
 	);
 	process.exit(1);
 }
 if (refused.length > 0) {
 	for (const access of refused) {
-		console.error(`${access.file}:${access.line}:${access.column}: .${access.member} writes to the output channel`);
+		process.stderr.write(
+			`${access.file}:${access.line}:${access.column}: ${access.member} writes to the output channel\n`
+		);
 	}
-	console.error(
+	process.stderr.write(
 		`Output-channel text is written only by src/shared/logger.ts, where redaction lives; route these through the ` +
 			`Logger. Members that write nothing (${[...NON_WRITING_MEMBERS].join(", ")}) are allowed anywhere; the ` +
-			`channel itself lives in ${[...CHANNEL_OWNERS].join(" and ")}.`
+			`channel itself lives in ${[...CHANNEL_OWNERS].join(" and ")}.\n`
 	);
 	process.exit(1);
 }
-console.log(`Output channel: ${seen} member accesses, none writing outside the Logger`);
+process.stdout.write(`Output channel: ${seen} member accesses, none writing outside the Logger\n`);

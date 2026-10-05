@@ -37,6 +37,12 @@ export function writes(): void {
 	let assigned: vscode.OutputChannel["appendLine"];
 	({ appendLine: assigned } = channel); // refused
 	assigned.call(channel, "text");
+	Reflect.get(channel, "appendLine").call(channel, "text"); // refused
+	globalThis.Reflect.get(channel, "appendLine").call(channel, "text"); // refused
+	// biome-ignore lint/complexity/useLiteralKeys: the computed-key reflection shape
+	Reflect["get"](channel, "appendLine").call(channel, "text"); // refused
+	const reflect = Reflect.get;
+	reflect(channel, "appendLine").call(channel, "text"); // refused
 	channel.show(true); // allowed
 	sink.info("text");
 	new Map<string, string>().clear();

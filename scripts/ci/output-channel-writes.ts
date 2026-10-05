@@ -112,6 +112,39 @@ function isChannelMember(checker: ts.TypeChecker, receiver: ts.Type, key: string
 	);
 }
 
+/** Reflection reaches every member by name at runtime, so a channel handed to Reflect is a write whatever the member. */
+function reflectedOn(checker: ts.TypeChecker, node: ts.Node): string | undefined {
+	if (!ts.isCallExpression(node)) {
+		return undefined;
+	}
+	const declaration = checker.getResolvedSignature(node)?.declaration;
+	const target = node.arguments[0];
+	if (
+		declaration === undefined ||
+		target === undefined ||
+		!ts.isFunctionDeclaration(declaration) ||
+		declaration.name === undefined ||
+		!declaration.getSourceFile().isDeclarationFile ||
+		!ts.isModuleBlock(declaration.parent) ||
+		declaration.parent.parent.name.text !== "Reflect"
+	) {
+		return undefined;
+	}
+	// appendLine is declared on OutputChannel, which LogOutputChannel extends, so it is the membership probe.
+	return isChannelMember(checker, checker.getTypeAtLocation(target), "appendLine")
+		? `Reflect.${declaration.name.text}`
+		: undefined;
+}
+
+function channelMembersAt(checker: ts.TypeChecker, node: ts.Node): string[] {
+	const reflected = reflectedOn(checker, node);
+	if (reflected !== undefined) {
+		return [reflected];
+	}
+	const read = memberRead(checker, node);
+	return read === undefined ? [] : read.keys.filter((key) => isChannelMember(checker, read.receiver, key));
+}
+
 function parseConfig(tsconfigPath: string): ts.ParsedCommandLine {
 	const host: ts.ParseConfigFileHost = {
 		...ts.sys,
@@ -141,14 +174,11 @@ export function scanOutputChannelAccess(tsconfigPath: string, fileNames?: readon
 		}
 		const file = path.relative(rootDir, sourceFile.fileName).split(path.sep).join("/");
 		const visit = (node: ts.Node): void => {
-			const read = memberRead(checker, node);
-			for (const member of read?.keys ?? []) {
-				if (read !== undefined && isChannelMember(checker, read.receiver, member)) {
-					seen += 1;
-					if (!CHANNEL_OWNERS.has(file) && !NON_WRITING_MEMBERS.has(member)) {
-						const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-						refused.push({ file, line: line + 1, column: character + 1, member });
-					}
+			for (const member of channelMembersAt(checker, node)) {
+				seen += 1;
+				if (!CHANNEL_OWNERS.has(file) && !NON_WRITING_MEMBERS.has(member)) {
+					const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+					refused.push({ file, line: line + 1, column: character + 1, member });
 				}
 			}
 			ts.forEachChild(node, visit);
