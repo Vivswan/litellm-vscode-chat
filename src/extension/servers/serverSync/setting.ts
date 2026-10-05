@@ -80,6 +80,42 @@ function usableString(value: unknown): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/**
+ * The one "is this slot an object" judgment; what a wrong shape costs is the slot's policy, and the report says so.
+ *
+ *   ignored  -> the slot reads as absent and the entry stays usable (headers, models and its records, discovery, mcp)
+ *   rejects  -> the caller returns its problems; a wrong-shaped auth form has no repair
+ */
+function objectSlot(
+	value: unknown,
+	noun: string,
+	policy: "ignored" | "rejects",
+	report: (what: string) => void,
+	legalShapes = "an object"
+): Record<string, unknown> | undefined {
+	if (isRecord(value)) {
+		return value;
+	}
+	report(`has ${noun} that is not ${legalShapes}${policy === "ignored" ? ", ignored" : ""}`);
+	return undefined;
+}
+
+function listSlot(value: unknown, path: string, report: (what: string) => void): readonly unknown[] | undefined {
+	if (value === undefined || Array.isArray(value)) {
+		return value;
+	}
+	report(`has a ${path} value that is not a list, ignored`);
+	return undefined;
+}
+
+function optionalSlot(
+	value: unknown,
+	path: string,
+	report: (what: string) => void
+): Record<string, unknown> | undefined {
+	return value === undefined ? undefined : objectSlot(value, `a ${path} value`, "ignored", report);
+}
+
 /** An entry's manual usage budget in USD: finite and above zero (a zero budget could only read as fully spent). */
 function usableBudget(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
@@ -101,22 +137,22 @@ function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn |
 	if (raw === false) {
 		return undefined;
 	}
-	if (!isRecord(raw)) {
-		report("has an mcp value that is not true, false, or an object, ignored");
+	const mcp = objectSlot(raw, "an mcp value", "ignored", report, "true, false, or an object");
+	if (mcp === undefined) {
 		return undefined;
 	}
 	// Named on purpose, like the unknown auth and discovery keys: a typo silently reading as "the default endpoint"
 	// would be invisible.
-	for (const key of Object.keys(raw)) {
+	for (const key of Object.keys(mcp)) {
 		if (key !== "url") {
 			report(`has an unknown mcp key "${key}", ignored`);
 		}
 	}
-	if (raw.url !== undefined && typeof raw.url !== "string") {
+	if (mcp.url !== undefined && typeof mcp.url !== "string") {
 		report("has an mcp.url that is not a string, ignored");
 		return true;
 	}
-	const url = usableString(raw.url);
+	const url = usableString(mcp.url);
 	return url !== undefined ? { url } : true;
 }
 
@@ -127,11 +163,12 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 	if (raw === undefined) {
 		return { fields };
 	}
-	if (!isRecord(raw)) {
-		return { problems: ["has an auth value that is not an object"] };
-	}
 	const problems: string[] = [];
-	const keys = Object.keys(raw);
+	const auth = objectSlot(raw, "an auth value", "rejects", (what) => problems.push(what));
+	if (auth === undefined) {
+		return { problems };
+	}
+	const keys = Object.keys(auth);
 	const known = ["apiKey", "oauth", "virtualKey"];
 	for (const key of keys) {
 		if (!known.includes(key)) {
@@ -139,15 +176,15 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 			problems.push(`has an unknown auth key "${key}"`);
 		}
 	}
-	const hasOAuth = raw.oauth !== undefined;
-	const hasApiKey = raw.apiKey !== undefined;
-	const hasVirtualKey = raw.virtualKey !== undefined;
+	const hasOAuth = auth.oauth !== undefined;
+	const hasApiKey = auth.apiKey !== undefined;
+	const hasVirtualKey = auth.virtualKey !== undefined;
 	if (!hasOAuth && !hasApiKey && !hasVirtualKey && problems.length === 0) {
 		problems.push("has an auth object that configures no form (expected one of apiKey, oauth, virtualKey)");
 	}
 	if (hasOAuth && (hasApiKey || hasVirtualKey)) {
 		for (const key of ["apiKey", "virtualKey"] as const) {
-			if (raw[key] !== undefined) {
+			if (auth[key] !== undefined) {
 				problems.push(`has auth.${key} beside auth.oauth; move it to auth.oauth.${key}`);
 			}
 		}
@@ -157,26 +194,26 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 	}
 
 	if (hasOAuth) {
-		const oauthProblems = parseOAuthForm(raw.oauth, fields);
+		const oauthProblems = parseOAuthForm(auth.oauth, fields);
 		if (oauthProblems.length > 0) {
 			return { problems: oauthProblems };
 		}
-		assignNestedSecrets(raw, fields);
+		assignNestedSecrets(auth, fields);
 		return { fields };
 	}
-	if (hasApiKey && typeof raw.apiKey !== "string") {
+	if (hasApiKey && typeof auth.apiKey !== "string") {
 		return { problems: ["has an auth.apiKey that is not a string"] };
 	}
 	if (hasVirtualKey) {
 		// Alone it is the virtualKey form; beside apiKey it is that form's companion. The flat fields are identical -
 		// primacy already decides the wire semantics.
-		const virtualKey = parseVirtualKeyObject(raw.virtualKey, "auth.virtualKey");
+		const virtualKey = parseVirtualKeyObject(auth.virtualKey, "auth.virtualKey");
 		if ("problems" in virtualKey) {
 			return virtualKey;
 		}
 		Object.assign(fields, virtualKey.fields);
 	}
-	assignNestedSecrets(raw, fields);
+	assignNestedSecrets(auth, fields);
 	return { fields };
 }
 
@@ -249,29 +286,30 @@ export function collectableEntries(raw: unknown): CollectableEntry[] {
 }
 
 function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
-	if (!isRecord(raw)) {
-		return ["has an auth.oauth value that is not an object"];
-	}
 	const problems: string[] = [];
+	const form = objectSlot(raw, "an auth.oauth value", "rejects", (what) => problems.push(what));
+	if (form === undefined) {
+		return problems;
+	}
 	const known = ["tokenUrl", "clientId", "clientSecret", "scopes", "apiKey", "virtualKey"];
-	for (const key of Object.keys(raw)) {
+	for (const key of Object.keys(form)) {
 		if (!known.includes(key)) {
 			problems.push(`has an unknown auth.oauth key "${key}"`);
 		}
 	}
-	const tokenUrl = typeof raw.tokenUrl === "string" ? usableString(raw.tokenUrl) : undefined;
-	const clientId = typeof raw.clientId === "string" ? usableString(raw.clientId) : undefined;
+	const tokenUrl = typeof form.tokenUrl === "string" ? usableString(form.tokenUrl) : undefined;
+	const clientId = typeof form.clientId === "string" ? usableString(form.clientId) : undefined;
 	if (tokenUrl === undefined || clientId === undefined) {
 		problems.push("has an incomplete auth.oauth (tokenUrl and clientId are required)");
 	}
 	for (const key of ["clientSecret", "scopes", "apiKey"] as const) {
-		if (raw[key] !== undefined && typeof raw[key] !== "string") {
+		if (form[key] !== undefined && typeof form[key] !== "string") {
 			problems.push(`has an auth.oauth.${key} that is not a string`);
 		}
 	}
 	let companionVirtualKey: FlatAuthFields | undefined;
-	if (raw.virtualKey !== undefined) {
-		const virtualKey = parseVirtualKeyObject(raw.virtualKey, "auth.oauth.virtualKey");
+	if (form.virtualKey !== undefined) {
+		const virtualKey = parseVirtualKeyObject(form.virtualKey, "auth.oauth.virtualKey");
 		if ("problems" in virtualKey) {
 			problems.push(...virtualKey.problems);
 		} else {
@@ -286,7 +324,7 @@ function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 	}
 	fields.oauthTokenUrl = tokenUrl;
 	fields.oauthClientId = clientId;
-	const scopes = usableString(raw.scopes);
+	const scopes = usableString(form.scopes);
 	if (scopes !== undefined) {
 		fields.oauthScopes = scopes;
 	}
@@ -300,22 +338,23 @@ function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
  * shape problems - never both, so no caller can act on a half-parsed object.
  */
 function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFields } | { problems: string[] } {
-	if (!isRecord(raw)) {
-		return { problems: [`has a ${path} value that is not an object`] };
-	}
 	const problems: string[] = [];
-	for (const key of Object.keys(raw)) {
+	const object = objectSlot(raw, `an ${path} value`, "rejects", (what) => problems.push(what));
+	if (object === undefined) {
+		return { problems };
+	}
+	for (const key of Object.keys(object)) {
 		if (key !== "header" && key !== "value") {
 			problems.push(`has an unknown ${path} key "${key}"`);
 		}
 	}
-	const header = typeof raw.header === "string" ? usableString(raw.header) : undefined;
+	const header = typeof object.header === "string" ? usableString(object.header) : undefined;
 	if (header === undefined) {
 		problems.push(`has a ${path} without a usable header name`);
 	} else if (!HEADER_NAME_PATTERN.test(header)) {
 		problems.push(`has a ${path} header that is not a valid HTTP header name`);
 	}
-	if (raw.value !== undefined && typeof raw.value !== "string") {
+	if (object.value !== undefined && typeof object.value !== "string") {
 		problems.push(`has a ${path}.value that is not a string`);
 	}
 	if (problems.length > 0 || header === undefined) {
@@ -385,12 +424,13 @@ export function serverSettingReports(raw: unknown): ServerEntryReport[] {
 
 /** Unknown tokens are counted in the report, never echoed - they are user text. */
 function knownTokens<T extends string>(
-	raw: unknown,
-	isKnown: (value: unknown) => value is T,
+	discovery: Record<string, unknown>,
 	field: string,
+	isKnown: (value: unknown) => value is T,
 	report: (what: string) => void
 ): T[] {
-	if (!Array.isArray(raw)) {
+	const raw = listSlot(discovery[field], `discovery.${field}`, report);
+	if (raw === undefined) {
 		return [];
 	}
 	const known = raw.filter(isKnown);
@@ -470,45 +510,44 @@ function acceptEntries(
 			}
 		}
 
-		if (record.headers !== undefined) {
+		const headers = optionalSlot(record.headers, "headers", report);
+		if (headers !== undefined) {
 			// Header names are structural configuration (the same class the request-path narrowing logs); values never
 			// enter the report.
-			const headers = normalizeCustomHeaders(record.headers, (message, data) => {
+			const normalized = normalizeCustomHeaders(headers, (message, data) => {
 				const name = isRecord(data) && typeof data.name === "string" ? ` ("${data.name}")` : "";
 				report(`headers: ${message}${name}`);
 			});
-			if (Object.keys(headers).length > 0) {
-				entry.headers = headers;
+			if (Object.keys(normalized).length > 0) {
+				entry.headers = normalized;
 			}
 		}
 
-		// The models records are lenient like the global settings' own normalization: non-record values and malformed
-		// sub-entries drop silently, and an empty result reads as absent. The capability vocabulary is enforced
-		// downstream by parseCapabilityRecord.
-		if (record.models !== undefined && !isRecord(record.models)) {
-			report("has a models value that is not an object, ignored");
-		} else if (isRecord(record.models)) {
+		// The models records are lenient like the global settings' own normalization: malformed sub-entries drop silently
+		// and an empty result reads as absent. The capability vocabulary is enforced downstream by parseCapabilityRecord.
+		const models = optionalSlot(record.models, "models", report);
+		if (models !== undefined) {
 			// Named on purpose, like the unknown auth keys: a typo silently reading as "no per-entry records" would be
 			// invisible.
-			for (const key of Object.keys(record.models)) {
+			for (const key of Object.keys(models)) {
 				if (key !== "parameters" && key !== "capabilities") {
 					report(`has an unknown models key "${key}", ignored`);
 				}
 			}
-			const modelParameters = normalizeModelParameters(record.models.parameters);
+			const parameters = optionalSlot(models.parameters, "models.parameters", report);
+			const modelParameters = parameters === undefined ? {} : normalizeModelParameters(parameters);
 			if (Object.keys(modelParameters).length > 0) {
 				entry.modelParameters = modelParameters;
 			}
-			const modelCapabilities = normalizeModelCapabilities(record.models.capabilities);
+			const capabilities = optionalSlot(models.capabilities, "models.capabilities", report);
+			const modelCapabilities = capabilities === undefined ? {} : normalizeModelCapabilities(capabilities);
 			if (Object.keys(modelCapabilities).length > 0) {
 				entry.modelCapabilities = modelCapabilities;
 			}
 		}
 
-		if (record.discovery !== undefined && !isRecord(record.discovery)) {
-			report("has a discovery value that is not an object, ignored");
-		} else if (isRecord(record.discovery)) {
-			const discovery = record.discovery;
+		const discovery = optionalSlot(record.discovery, "discovery", report);
+		if (discovery !== undefined) {
 			// Named on purpose: a typo silently reading as "no expected failures", "nothing declared", or "nothing
 			// included" would be invisible.
 			for (const key of Object.keys(discovery)) {
@@ -516,19 +555,15 @@ function acceptEntries(
 					report(`has an unknown discovery key "${key}", ignored`);
 				}
 			}
-			const expectedFailures = knownTokens(
-				discovery.expectedFailures,
-				isExpectedFailureCategory,
-				"expectedFailures",
-				report
-			);
+			const expectedFailures = knownTokens(discovery, "expectedFailures", isExpectedFailureCategory, report);
 			if (expectedFailures.length > 0) {
 				entry.expectedFailures = expectedFailures;
 			}
-			if (Array.isArray(discovery.declared)) {
-				const ids = discovery.declared.map(usableString).filter((id): id is string => id !== undefined);
-				if (ids.length < discovery.declared.length) {
-					const dropped = discovery.declared.length - ids.length;
+			const declared = listSlot(discovery.declared, "discovery.declared", report);
+			if (declared !== undefined) {
+				const ids = declared.map(usableString).filter((id): id is string => id !== undefined);
+				if (ids.length < declared.length) {
+					const dropped = declared.length - ids.length;
 					report(`lists ${dropped} unusable discovery.declared value(s), ignored`);
 				}
 				const unique = [...new Set(ids)];
@@ -536,7 +571,7 @@ function acceptEntries(
 					entry.declaredModels = unique;
 				}
 			}
-			const includeModes = knownTokens(discovery.includeModes, isNonChatMode, "includeModes", report);
+			const includeModes = knownTokens(discovery, "includeModes", isNonChatMode, report);
 			if (includeModes.length > 0) {
 				entry.includeModes = includeModes;
 			}
