@@ -14,7 +14,8 @@ import { validatedStringRecord } from "../../../shared/util/json";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import type { MessageAction } from "../../ui/notifier";
 import { showActionableMessage } from "../../ui/notifier";
-import type { GroupRemovalStore } from "../groupRemovals";
+import type { GroupKey, GroupRemovalStore, TombstoneIdentity } from "../groupRemovals";
+import { tombstoneHides } from "../groupRemovals";
 import { manageLanguageModelsAvailable, openManageLanguageModels } from "../manageLanguageModels";
 import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engine";
 import { entryGroupCredentialsFor } from "./entryCredentials";
@@ -67,7 +68,38 @@ const quoted = (labels: readonly string[]) => labels.map((label) => `"${label}"`
  * to delete and where: the group survives (VS Code offers extensions no removal), so the notice leads with the Manage
  * Language Models editor (its Delete action) and keeps the models file as the fallback.
  */
-async function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): Promise<void> {
+/** What one removal did to the groups the host serves, read from the tombstones it recorded over the live snapshots. */
+export type RemovalOutcome = "hidden" | "shared" | "unreported";
+
+/**
+ * Derived from the hide result, never asserted: hidden when a group the host reports is hidden right now by one of
+ * the tombstones this removal recorded (an Unhide between the record and this read un-hides it), shared when the
+ * group the entry joined is also another present entry's and so was kept, unreported otherwise.
+ */
+export function removalOutcome(
+	event: Extract<RemovedEntryEvent, { kind: "removed" }>,
+	recorded: readonly TombstoneIdentity[],
+	snapshots: readonly ServerModelsSnapshot[],
+	isHidden: (group: GroupKey) => boolean
+): RemovalOutcome {
+	const keys = snapshots.map((snapshot) => ({
+		groupId: snapshot.status.serverId,
+		label: snapshot.status.label,
+		entryLabel: snapshot.entryLabel,
+		baseUrl: snapshot.status.baseUrl,
+	}));
+	if (keys.some((key) => isHidden(key) && recorded.some((record) => tombstoneHides(record, key)))) {
+		return "hidden";
+	}
+	return keys.some((key) => event.sharedGroupIds.includes(key.groupId)) ? "shared" : "unreported";
+}
+
+/** A removal event with what its reconciliation did, for the notice. */
+type NoticeEvent =
+	| Extract<RemovedEntryEvent, { kind: "renamed" }>
+	| (Extract<RemovedEntryEvent, { kind: "removed" }> & { readonly outcome: RemovalOutcome | undefined });
+
+async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void> {
 	const hidden: string[] = [];
 	const shared: string[] = [];
 	const unreported: string[] = [];
@@ -76,11 +108,11 @@ async function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): Promis
 	for (const event of events) {
 		if (event.kind === "renamed") {
 			renamed.push(event);
-		} else if (event.baseUrl === undefined) {
+		} else if (event.baseUrl === undefined || event.outcome === undefined) {
 			untracked.push(event.label);
-		} else if (event.leftover === "hidden") {
+		} else if (event.outcome === "hidden") {
 			hidden.push(event.label);
-		} else if (event.leftover === "shared") {
+		} else if (event.outcome === "shared") {
 			shared.push(event.label);
 		} else {
 			unreported.push(event.label);
@@ -213,10 +245,9 @@ export function createServerSyncEnv(
 			} catch (error) {
 				logger.error("Clearing removed-group tombstones failed", error);
 			}
-			// The notice claims "hidden" once the store accepted the tombstone (its in-memory list now hides the group;
-			// persistence is the store's own best-effort concern). A throw here degrades the event to the untracked
-			// wording rather than promising a hiding that may not have reached the provider.
-			const noticeEvents: RemovedEntryEvent[] = [];
+			// A throw here degrades the event to the untracked wording rather than promising a hiding that may not have
+			// reached the provider.
+			const noticeEvents: NoticeEvent[] = [];
 			for (const event of events) {
 				try {
 					if (event.kind === "renamed") {
@@ -234,16 +265,23 @@ export function createServerSyncEnv(
 							baseUrl: event.baseUrl,
 							origin: { kind: "removed-entry-leftover", removedLabel: event.label },
 						});
-						await removals.addTombstone({ by: "entry", label: event.label, baseUrl: event.baseUrl });
 						// A pre-label group carries no stamp: it hides by the identity the removed entry joined it by.
-						for (const groupId of event.groupIds) {
-							await removals.addTombstone({ by: "group", groupId, label: event.label, baseUrl: event.baseUrl });
+						const { label, baseUrl } = event;
+						const recorded: TombstoneIdentity[] = [
+							{ by: "entry", label, baseUrl },
+							...event.groupIds.map((groupId): TombstoneIdentity => ({ by: "group", groupId, label, baseUrl })),
+						];
+						for (const tombstone of recorded) {
+							await removals.addTombstone(tombstone);
 						}
-						noticeEvents.push(event);
+						noticeEvents.push({
+							...event,
+							outcome: removalOutcome(event, recorded, observedSnapshots(), (group) => removals.isTombstoned(group)),
+						});
 					} else {
 						// The ledger predates this label, so no group identity can be resolved: no tombstone, no
 						// provenance, only the notice - never suppress on a guess.
-						noticeEvents.push(event);
+						noticeEvents.push({ ...event, outcome: undefined });
 					}
 				} catch (error) {
 					logger.error("Recording removed-group bookkeeping failed", error);
@@ -253,7 +291,8 @@ export function createServerSyncEnv(
 							label: event.label,
 							baseUrl: undefined,
 							groupIds: [],
-							leftover: "unreported",
+							sharedGroupIds: [],
+							outcome: undefined,
 						});
 					} else {
 						noticeEvents.push(event);

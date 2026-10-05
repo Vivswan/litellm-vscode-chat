@@ -5,7 +5,7 @@
  */
 import * as assert from "node:assert";
 import type { RequestPayload } from "../../../dashboard/endpoints";
-import type { DashboardState } from "../../../dashboard/viewModels";
+import type { DashboardServer, DashboardState } from "../../../dashboard/viewModels";
 import { adoptSourceHandle, modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import { storedSecretHolders } from "../../../extension/dashboard/declaredJoin";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
@@ -277,9 +277,10 @@ interface Scenario {
 		 * expect the push before the intent, minus exactly the hidden group.
 		 */
 		readonly push?: {
-			readonly rows: readonly [string, string, string, string][];
-			/** Each model as "serverLabel/id". */
-			readonly models: readonly string[];
+			/** The rows the move adds, as label, origin, state, URL; every other row and model is compared whole. */
+			readonly added: readonly [string, string, string, string][];
+			/** Row fields the move legitimately changes on rows present before and after; none in these windows. */
+			readonly changed?: readonly string[];
 		};
 	};
 }
@@ -425,14 +426,8 @@ const WINDOWS: Record<string, Scenario> = {
 		after: {
 			setting: [A_ENTRY, L1_ENTRY],
 			secrets: { A: keyBlob("http://a.test", A_KEY), L1: keyBlob(H) },
-			// The pass's views predate L1, so its stamped group still draws external until the next pass.
-			push: {
-				rows: [
-					["A", "declared", "ok", "http://a.test"],
-					["L1", "external", "ok", H],
-				],
-				models: ["A/A-model", "L1/L1-model"],
-			},
+			// The pass's views predate L1, so its stamped group still draws external until the next pass: no row moves.
+			push: { added: [] },
 		},
 		intents: ["adopt", "hide"],
 		adopt: "rejects",
@@ -466,13 +461,7 @@ const WINDOWS: Record<string, Scenario> = {
 			secrets: {},
 			// No pass has published views, so the settings fallback declares L1 without join keys: the native group
 			// stays an external row beside it until the pass runs.
-			push: {
-				rows: [
-					["h.test", "external", "ok", H],
-					["L1", "declared", "unchecked", H],
-				],
-				models: ["h.test/native-model"],
-			},
+			push: { added: [["L1", "declared", "unchecked", H]] },
 		},
 		intents: ["adopt"],
 		adopt: "rejects",
@@ -834,13 +823,7 @@ const WINDOWS: Record<string, Scenario> = {
 		after: {
 			setting: [L1_INLINE],
 			secrets: {},
-			push: {
-				rows: [
-					["h.test", "external", "ok", H],
-					["L1", "declared", "unchecked", H],
-				],
-				models: ["h.test/native-model"],
-			},
+			push: { added: [["L1", "declared", "unchecked", H]] },
 		},
 		intents: ["hide"],
 		adopt: "rejects",
@@ -865,19 +848,19 @@ const WINDOWS: Record<string, Scenario> = {
 function assertOutcome(
 	fixture: Fixture,
 	scenario: Scenario,
-	before: { writes: number; hostCalls: number; secretOps: number; state: DashboardState },
+	before_: { writes: number; hostCalls: number; secretOps: number; state: DashboardState },
 	settingsWrites: readonly unknown[][],
 	acted: { readonly handle: string; readonly hidden?: readonly { label: string; baseUrl: string }[] }
 ): void {
-	assert.deepStrictEqual(fixture.writes.slice(before.writes), settingsWrites);
+	assert.deepStrictEqual(fixture.writes.slice(before_.writes), settingsWrites);
 	assert.deepStrictEqual(fixture.currentSetting(), settingsWrites.at(-1) ?? scenario.after.setting);
 	assert.deepStrictEqual(fixture.secretsSnapshot(), scenario.after.secrets);
 	assert.deepStrictEqual(
-		fixture.secretOps.slice(before.secretOps),
+		fixture.secretOps.slice(before_.secretOps),
 		[],
 		"an intent routing nothing to secure storage writes no blob"
 	);
-	assert.strictEqual(fixture.host.attempted.length, before.hostCalls, "an intent never calls the host");
+	assert.strictEqual(fixture.host.attempted.length, before_.hostCalls, "an intent never calls the host");
 	const tombstones = fixture.removals.tombstones();
 	assert.deepStrictEqual(
 		tombstones.map(({ label, baseUrl }) => ({ label, baseUrl })),
@@ -897,16 +880,28 @@ function assertOutcome(
 		"the Copy row appears only through the settings fallback after a landed adoption"
 	);
 	if (scenario.after.push !== undefined) {
-		assert.deepStrictEqual(
-			after.servers.map((server) => [server.label, server.origin, server.state, server.baseUrl]),
-			scenario.after.push.rows
-		);
-		assert.deepStrictEqual(
-			after.models.map((model) => `${model.serverLabel}/${model.id}`),
-			scenario.after.push.models
-		);
-		assert.deepStrictEqual(after.hiddenGroups, []);
-		assert.strictEqual(after.servedModelCount, scenario.after.push.models.length);
+		// Rows present before and after compare whole (handles and scope keys included) minus the fields the move
+		// legitimately changes; the move's added rows are named by identity.
+		const identity = (server: DashboardServer) => JSON.stringify([server.origin, server.label, server.baseUrl]);
+		const before = new Map(before_.state.servers.map((server) => [identity(server), server]));
+		const changed = new Set(scenario.after.push.changed ?? []);
+		const strip = (server: DashboardServer) =>
+			Object.fromEntries(Object.entries(server).filter(([field]) => !changed.has(field)));
+		const added: [string, string, string, string][] = [];
+		for (const server of after.servers) {
+			const earlier = before.get(identity(server));
+			if (earlier === undefined) {
+				added.push([server.label, server.origin, server.state, server.baseUrl]);
+			} else {
+				assert.deepStrictEqual(strip(server), strip(earlier), `${identity(server)} changed beyond the move`);
+				before.delete(identity(server));
+			}
+		}
+		assert.deepStrictEqual([...before.keys()], [], "a row the move did not touch left the push");
+		assert.deepStrictEqual(added, scenario.after.push.added);
+		assert.deepStrictEqual(after.models, before_.state.models);
+		assert.deepStrictEqual(after.hiddenGroups, before_.state.hiddenGroups);
+		assert.strictEqual(after.servedModelCount, before_.state.servedModelCount);
 		return;
 	}
 	const hiddenId =
@@ -917,23 +912,23 @@ function assertOutcome(
 	const liveRows = (state: DashboardState) => state.servers.filter((server) => server.origin !== "declared");
 	assert.deepStrictEqual(
 		liveRows(after),
-		liveRows(before.state).filter((server) => hiddenId === undefined || server.adoptHandle !== acted.handle)
+		liveRows(before_.state).filter((server) => hiddenId === undefined || server.adoptHandle !== acted.handle)
 	);
 	assert.deepStrictEqual(
 		after.servers.filter((server) => server.origin === "declared" && server.label !== "Copy"),
-		before.state.servers.filter((server) => server.origin === "declared")
+		before_.state.servers.filter((server) => server.origin === "declared")
 	);
 	assert.deepStrictEqual(
 		after.models,
-		before.state.models.filter((model) => hiddenId === undefined || model.scopeKey !== modelScopeKey(hiddenId))
+		before_.state.models.filter((model) => hiddenId === undefined || model.scopeKey !== modelScopeKey(hiddenId))
 	);
-	assert.strictEqual(after.servedModelCount, before.state.servedModelCount - (hiddenId === undefined ? 0 : 1));
+	assert.strictEqual(after.servedModelCount, before_.state.servedModelCount - (hiddenId === undefined ? 0 : 1));
 	assert.deepStrictEqual(
 		after.hiddenGroups,
 		hiddenId === undefined
-			? before.state.hiddenGroups
+			? before_.state.hiddenGroups
 			: [
-					...before.state.hiddenGroups,
+					...before_.state.hiddenGroups,
 					...(acted.hidden ?? []).map((group) => ({ ...group, reason: "removed" as const })),
 				]
 	);

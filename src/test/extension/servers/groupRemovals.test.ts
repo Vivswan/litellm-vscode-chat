@@ -78,6 +78,25 @@ suite("extension/servers/groupRemovals", () => {
 			assert.deepStrictEqual(store.tombstones(), []);
 		});
 
+		test("a status record and an entry record under one shown identity are two tombstones, cleared apart", async () => {
+			// A pre-keyed record hides the unstamped group reporting h.test; removing an entry labeled h.test adds the
+			// stamp record. Re-declaring L1 joined to the unstamped group lifts the status record only: the stamped
+			// group the removal hid stays hidden.
+			const { store } = makeStore({
+				[REMOVED_GROUP_TOMBSTONES_KEY]: { version: "1", records: [{ label: "h.test", baseUrl: "http://h.test" }] },
+			});
+			await store.addTombstone({ by: "entry", label: "h.test", baseUrl: "http://h.test" });
+			assert.strictEqual(store.tombstones().length, 2, "different kinds under one identity both stand");
+			const unstamped = { groupId: "group:g", label: "h.test", entryLabel: undefined, baseUrl: "http://h.test" };
+			await store.clearTombstonesFor([{ label: "L1", baseUrl: "http://h.test", group: unstamped }]);
+			assert.deepStrictEqual(store.tombstones(), [{ by: "entry", label: "h.test", baseUrl: "http://h.test" }]);
+			assert.strictEqual(
+				store.isTombstoned({ groupId: "group:s", label: "h.test", entryLabel: "h.test", baseUrl: "http://h.test" }),
+				true,
+				"the stamped group the removal hid stays hidden"
+			);
+		});
+
 		test("a persisted record without a key keeps hiding by the status label and URL it carried", () => {
 			const { store } = makeStore({
 				[REMOVED_GROUP_TOMBSTONES_KEY]: {

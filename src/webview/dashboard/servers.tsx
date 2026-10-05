@@ -16,6 +16,7 @@ import { FailureText } from "./failureText";
 import { helpServersSection } from "./helpText";
 import { useIntentOutcome } from "./hooks";
 import { IconAdd } from "./icons";
+import { tupleKey } from "./keys";
 import type { ServerHealthVerdict, SpendContext } from "./serverDiagnostics";
 import { ServerDiagnosticLine, serverDiagnostics, serverHealth } from "./serverDiagnostics";
 import { ServerDrawer, SpendUnit, UrlBreaks, urlParts } from "./serverDrawer";
@@ -36,13 +37,13 @@ import { sendRequest } from "./vscodeApi";
 function serverRowKey(server: DashboardServer): string {
 	switch (server.origin) {
 		case "legacy":
-			return JSON.stringify([server.origin, server.groupHandle]);
+			return tupleKey(server.origin, server.groupHandle);
 		case "external":
-			return JSON.stringify([server.origin, server.adoptHandle]);
+			return tupleKey(server.origin, server.adoptHandle);
 		default:
 			// The URL is part of the key so a re-pointed entry is a new row: an armed Remove or declare never follows
-			// the label onto its successor. A JSON array, never a joined string: labels and URLs both carry ":".
-			return JSON.stringify([server.origin, server.label, server.baseUrl]);
+			// the label onto its successor.
+			return tupleKey(server.origin, server.label, server.baseUrl);
 	}
 }
 
@@ -437,7 +438,7 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 				<ul id={listId}>
 					{hidden.map((group) => (
 						// A removed group and a superseded leftover can share the pair; the reason tells them apart.
-						<li key={`${group.reason}:${group.label}:${group.baseUrl}`}>
+						<li key={tupleKey(group.reason, group.label, group.baseUrl)}>
 							<span className="hidden-label">{group.label}</span> <span className="url">{group.baseUrl}</span>{" "}
 							{group.reason === "superseded" ? (
 								<span className="hidden-reason">

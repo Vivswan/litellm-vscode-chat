@@ -122,15 +122,11 @@ export type RemovedEntryEvent =
 			readonly baseUrl: string | undefined;
 			/**
 			 * The one live group the removed entry joined by its last readable identity and no present entry shares
-			 * (ServerSyncEngine.joinedGroupOf): what a pre-label leftover hides by. Empty unless `leftover` is
-			 * "hidden".
+			 * (ServerSyncEngine.joinedGroupOf): what a pre-label leftover hides by.
 			 */
 			readonly groupIds: readonly string[];
-			/**
-			 * What the removal did to the entry's live group: hidden by `groupIds`; shared, when an entry still present
-			 * joins the same group, so it keeps serving; unreported, when no live group answers to the identity.
-			 */
-			readonly leftover: "hidden" | "shared" | "unreported";
+			/** The live groups the entry joined that an entry still present joins too: kept, not tombstoned. */
+			readonly sharedGroupIds: readonly string[];
 	  }
 	| { readonly kind: "renamed"; readonly oldLabel: string; readonly newLabel: string; readonly baseUrl: string };
 
@@ -432,7 +428,6 @@ export class ServerSyncEngine implements vscode.Disposable {
 				};
 	}
 
-	/** The host's live groups; a throwing env reads as none served. */
 	private liveSnapshots(): readonly ServerModelsSnapshot[] {
 		try {
 			return this.env.observedSnapshots();
@@ -1094,7 +1089,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				//   A rename's other half -> is remembered only within the session
 				if (carried === undefined) {
 					this.unresolvedRemovals.set(label, newLabels);
-					events.push({ kind: "removed", label, baseUrl, groupIds: [], leftover: "unreported" });
+					events.push({ kind: "removed", label, baseUrl, groupIds: [], sharedGroupIds: [] });
 				}
 				continue;
 			}
@@ -1113,7 +1108,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				)
 			);
 			const ownGroup = this.joinedGroupOf(own, snapshots);
-			const leftover = ownGroup === undefined ? "unreported" : shared.has(ownGroup.groupId) ? "shared" : "hidden";
+			const isShared = ownGroup !== undefined && shared.has(ownGroup.groupId);
 			events.push(
 				renamedTo !== undefined
 					? { kind: "renamed", oldLabel: label, newLabel: renamedTo, baseUrl }
@@ -1121,8 +1116,8 @@ export class ServerSyncEngine implements vscode.Disposable {
 							kind: "removed",
 							label,
 							baseUrl,
-							groupIds: leftover === "hidden" && ownGroup !== undefined ? [ownGroup.groupId] : [],
-							leftover,
+							groupIds: ownGroup !== undefined && !isShared ? [ownGroup.groupId] : [],
+							sharedGroupIds: isShared && ownGroup !== undefined ? [ownGroup.groupId] : [],
 						}
 			);
 		}

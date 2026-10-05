@@ -80,7 +80,7 @@ import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
 import type { TombstoneIdentity } from "../servers/groupRemovals";
-import { tombstoneHides } from "../servers/groupRemovals";
+import { sameGroupIdentity, tombstoneHides } from "../servers/groupRemovals";
 import type { DeclaredServerView, DrawableReject, ServerEntryReport } from "../servers/serverSync";
 import { drawableRejects, rejectedCarrierLabels, supersedingBaseUrl } from "../servers/serverSync";
 import { declaredPresentation } from "../servers/syncFailureOverlay";
@@ -282,11 +282,7 @@ function buildServers(
 	// Provenance is keyed by the snapshot's own status label (never the display label, which can carry a collision
 	// ordinal) plus the normalized base URL.
 	const originFor = (snapshot: ServerModelsSnapshot) =>
-		removedGroups.origins.find(
-			(record) =>
-				record.label === snapshot.status.label &&
-				normalizeBaseUrl(record.baseUrl) === normalizeBaseUrl(snapshot.status.baseUrl)
-		)?.origin;
+		removedGroups.origins.find((record) => sameGroupIdentity(record, snapshot.status))?.origin;
 	// Countable claimant labels per snapshot, in declared order, with the first claimant of any state as the
 	// render-at-least-once fallback. Built whole before any row, because a shared snapshot's rows need the full
 	// claimant picture to report their own served counts.

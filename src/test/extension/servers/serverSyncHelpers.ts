@@ -117,8 +117,8 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 
 /**
  * The removal/rename events the recorded env saw, flattened across passes (most passes record none), without the
- * removed entries' group IDs and leftover class: the IDs are fingerprint-derived, so a suite reads those straight
- * from the reconcile it compares against the captured view.
+ * removed entries' group IDs: those are fingerprint-derived, so a suite reads them straight from the reconcile it
+ * compares against the captured view.
  */
 export function recordedEvents(recorded: Recorded): RemovedEntryEvent[] {
 	return recorded.reconciles.flatMap((reconcile) =>
@@ -126,7 +126,7 @@ export function recordedEvents(recorded: Recorded): RemovedEntryEvent[] {
 			if (event.kind !== "removed") {
 				return event;
 			}
-			const { groupIds: _groupIds, leftover: _leftover, ...rest } = event;
+			const { groupIds: _groupIds, sharedGroupIds: _sharedGroupIds, ...rest } = event;
 			return rest as RemovedEntryEvent;
 		})
 	);

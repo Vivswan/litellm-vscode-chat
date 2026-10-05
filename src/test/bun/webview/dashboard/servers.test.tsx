@@ -5,6 +5,7 @@ import type { DashboardServer } from "../../../../dashboard/viewModels";
 import { SETUP_HINT_DOCS_URLS } from "../../../../shared/util/links";
 import { App } from "../../../../webview/dashboard/app";
 import { helpEntryModelParameterPrefix } from "../../../../webview/dashboard/helpText";
+import { tupleKey } from "../../../../webview/dashboard/keys";
 import type { ServerEditRequest } from "../../../../webview/dashboard/serverEditPage";
 import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
 import { ServersSection } from "../../../../webview/dashboard/servers";
@@ -900,6 +901,13 @@ test("an external row's drawer states the provenance classification, or the hone
 	expect(renamedTip).toContain("Leftover");
 	const defaultTip = origins.find((tip) => tip.includes("predates"));
 	expect(defaultTip).toContain("added outside this extension");
+});
+
+test("row keys built from user strings never collide where a joined string would", () => {
+	// "A:https://h.test/" at "https://g.test" and "A" at "https://h.test/:https://g.test" join to one string.
+	expect(tupleKey("removed", "A:https://h.test/", "https://g.test")).not.toBe(
+		tupleKey("removed", "A", "https://h.test/:https://g.test")
+	);
 });
 
 test("a legacy row carries the badge and the Origin fact, and offers neither Edit nor Remove", () => {

@@ -13,6 +13,7 @@ import {
 	ServerSyncEngine,
 } from "../../../extension/servers/serverSync";
 import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
+import { removalOutcome } from "../../../extension/servers/serverSync/vscodeEnv";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
 import { groupClientId } from "../../../provider/catalog/groupModels";
 import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
@@ -239,7 +240,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 					label: "Prod",
 					baseUrl: "http://h.test",
 					groupIds: [prod.expectedClientId],
-					leftover: "hidden",
+					sharedGroupIds: [],
 				},
 			]);
 
@@ -269,7 +270,15 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.deepStrictEqual(
 				recorded.reconciles.flatMap((reconcile) => reconcile.events),
-				[{ kind: "removed", label: "L1", baseUrl: "http://h.test", groupIds: [], leftover: "shared" }],
+				[
+					{
+						kind: "removed",
+						label: "L1",
+						baseUrl: "http://h.test",
+						groupIds: [],
+						sharedGroupIds: [l1.expectedConnectionId],
+					},
+				],
 				"the pre-label group under the shared connection stays L2's"
 			);
 
@@ -291,7 +300,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 						label: "L1",
 						baseUrl: "http://h.test",
 						groupIds: [l1.expectedClientId],
-						leftover: "hidden",
+						sharedGroupIds: [],
 					},
 				],
 				"L1's own group only"
@@ -320,7 +329,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 					label: "L1",
 					baseUrl: "http://old.test",
 					groupIds: [live.expectedConnectionId],
-					leftover: "hidden",
+					sharedGroupIds: [],
 				},
 			]);
 		});
@@ -350,7 +359,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 						label: "L1",
 						baseUrl: "http://h.test",
 						groupIds: [live.expectedConnectionId],
-						leftover: "hidden",
+						sharedGroupIds: [],
 					},
 				],
 				"the identity the live group carries, not the credential-less one the failed pass computed"
@@ -1777,11 +1786,46 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 		};
 	}
 
+	test("the removal notice reads what the tombstones did to the live groups: hidden, shared, or unreported", () => {
+		// Cold start: the ledger named Old at H, New now declares H, and the host serves a group stamped Old. No
+		// identity this session ties them, so the event names no group, yet the entry tombstone it records hides that
+		// group, for as long as the store still holds the tombstone.
+		const stamped = {
+			status: makeServerStatus({ serverId: "group:old", label: "Old", baseUrl: "http://h.test" }),
+			models: [],
+			entryLabel: "Old",
+		};
+		const removed = {
+			kind: "removed" as const,
+			label: "Old",
+			baseUrl: "http://h.test",
+			groupIds: [],
+			sharedGroupIds: [],
+		};
+		const entryRecord = { by: "entry" as const, label: "Old", baseUrl: "http://h.test" };
+		const stillHeld = () => true;
+		assert.strictEqual(removalOutcome(removed, [entryRecord], [stamped], stillHeld), "hidden");
+		assert.strictEqual(
+			removalOutcome(removed, [entryRecord], [stamped], () => false),
+			"unreported",
+			"an Unhide between the record and the read leaves nothing hidden to claim"
+		);
+		assert.strictEqual(removalOutcome(removed, [entryRecord], [], stillHeld), "unreported");
+		const unstamped = {
+			status: makeServerStatus({ serverId: "group:conn", label: "h.test", baseUrl: "http://h.test" }),
+			models: [],
+		};
+		assert.strictEqual(
+			removalOutcome({ ...removed, sharedGroupIds: ["group:conn"] }, [entryRecord], [unstamped], stillHeld),
+			"shared"
+		);
+	});
+
 	test("a removed entry tombstones its stamped leftover and, by client ID, the pre-label groups the event names", async () => {
 		const { env, removals } = makeEnv("durable");
 		await env.reconcileEntryIdentities(
 			[{ label: "L2", baseUrl: "http://h.test", group: undefined }],
-			[{ kind: "removed", label: "L1", baseUrl: "http://h.test", groupIds: ["group:l1"], leftover: "hidden" }]
+			[{ kind: "removed", label: "L1", baseUrl: "http://h.test", groupIds: ["group:l1"], sharedGroupIds: [] }]
 		);
 		assert.deepStrictEqual(removals.tombstones(), [
 			{ by: "entry", label: "L1", baseUrl: "http://h.test" },

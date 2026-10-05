@@ -48,19 +48,32 @@ export interface GroupKey {
 	readonly baseUrl: string;
 }
 
-export function tombstoneHides(record: TombstoneIdentity, group: GroupKey): boolean {
-	switch (record.by) {
+export function sameGroupIdentity(a: GroupIdentity, b: GroupIdentity): boolean {
+	return a.label === b.label && normalizeBaseUrl(a.baseUrl) === normalizeBaseUrl(b.baseUrl);
+}
+
+function sameTombstoneIdentity(a: TombstoneIdentity, b: TombstoneIdentity): boolean {
+	switch (a.by) {
 		case "group":
-			return record.groupId === group.groupId;
+			return b.by === "group" && a.groupId === b.groupId;
 		case "entry":
-			return (
-				group.entryLabel !== undefined &&
-				record.label === group.entryLabel &&
-				record.baseUrl === normalizeBaseUrl(group.baseUrl)
-			);
 		case "status":
-			return record.label === group.label && record.baseUrl === normalizeBaseUrl(group.baseUrl);
+			return a.by === b.by && sameGroupIdentity(a, b);
 	}
+}
+
+function groupIdentities(group: GroupKey): TombstoneIdentity[] {
+	return [
+		{ by: "group", groupId: group.groupId, label: group.label, baseUrl: group.baseUrl },
+		...(group.entryLabel === undefined
+			? []
+			: [{ by: "entry" as const, label: group.entryLabel, baseUrl: group.baseUrl }]),
+		{ by: "status", label: group.label, baseUrl: group.baseUrl },
+	];
+}
+
+export function tombstoneHides(record: TombstoneIdentity, group: GroupKey): boolean {
+	return groupIdentities(group).some((identity) => sameTombstoneIdentity(record, identity));
 }
 
 /**
@@ -147,16 +160,6 @@ function parseProvenanceList(raw: unknown): OrphanedGroupRecord[] {
 		}
 	}
 	return records;
-}
-
-function sameIdentity(a: GroupIdentity, label: string, baseUrl: string): boolean {
-	return a.label === label && a.baseUrl === normalizeBaseUrl(baseUrl);
-}
-
-function sameTombstone(a: TombstoneIdentity, b: TombstoneIdentity): boolean {
-	return a.by === "group" || b.by === "group"
-		? a.by === "group" && b.by === "group" && a.groupId === b.groupId
-		: sameIdentity(a, b.label, b.baseUrl);
 }
 
 /** One persisted blob: the region's records plus the adoption counter (a decimal string on the wire). */
@@ -341,13 +344,13 @@ export class GroupRemovalStore {
 
 	/** Whether a tombstone is shown under this identity: what the hidden-groups line's rows act on. */
 	hasTombstone(label: string, baseUrl: string): boolean {
-		return this.tombstoneRegion.list().some((record) => sameIdentity(record, label, baseUrl));
+		return this.tombstoneRegion.list().some((record) => sameGroupIdentity(record, { label, baseUrl }));
 	}
 
 	async addTombstone(identity: TombstoneIdentity): Promise<void> {
 		const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
 		const current = this.tombstoneRegion.list();
-		const changed = !current.some((existing) => sameTombstone(existing, normalized));
+		const changed = !current.some((existing) => sameTombstoneIdentity(existing, normalized));
 		if (!changed) {
 			await this.tombstoneRegion.persistCommitted();
 			return;
@@ -365,7 +368,7 @@ export class GroupRemovalStore {
 	/** Clear every tombstone shown under the identity (the line's row), whatever key each hides by. */
 	async removeTombstone(identity: GroupIdentity): Promise<boolean> {
 		const current = this.tombstoneRegion.list();
-		const next = current.filter((existing) => !sameIdentity(existing, identity.label, identity.baseUrl));
+		const next = current.filter((existing) => !sameGroupIdentity(existing, identity));
 		if (next.length === current.length) {
 			return false;
 		}
@@ -380,23 +383,17 @@ export class GroupRemovalStore {
 
 	/**
 	 * The automatic clear: a declared entry whose group a tombstone hides (re)appeared, so the group is wanted again
-	 * and must never stay suppressed. The sync engine's pass calls this with every current declared entry and the
-	 * group the ownership joins it to; the match is the one tombstoneHides makes, over that group's key with the
-	 * entry's own label as the stamp, so a re-added entry also lifts the record its removal wrote.
+	 * and must never stay suppressed. The sync engine's pass calls this with every current declared entry and the live
+	 * group the ownership joins it to; a record clears when it equals one of that group's identities or the entry's
+	 * own stamp identity, the equality the suppression reads.
 	 */
 	async clearTombstonesFor(claims: readonly DeclaredGroupClaim[]): Promise<boolean> {
+		const wanted = claims.flatMap((claim): TombstoneIdentity[] => [
+			...(claim.group === undefined ? [] : groupIdentities(claim.group)),
+			{ by: "entry", label: claim.label, baseUrl: claim.baseUrl },
+		]);
 		const current = this.tombstoneRegion.list();
-		const next = current.filter(
-			(existing) =>
-				!claims.some((claim) =>
-					tombstoneHides(existing, {
-						groupId: claim.group?.groupId ?? "",
-						label: claim.group?.label ?? "",
-						entryLabel: claim.label,
-						baseUrl: claim.baseUrl,
-					})
-				)
-		);
+		const next = current.filter((existing) => !wanted.some((identity) => sameTombstoneIdentity(existing, identity)));
 		if (next.length === current.length) {
 			return false;
 		}
@@ -414,7 +411,7 @@ export class GroupRemovalStore {
 	}
 
 	originFor(label: string, baseUrl: string): OrphanedGroupOrigin | undefined {
-		return this.provenanceRegion.list().find((record) => sameIdentity(record, label, baseUrl))?.origin;
+		return this.provenanceRegion.list().find((record) => sameGroupIdentity(record, { label, baseUrl }))?.origin;
 	}
 
 	/** One record per identity: a newer event replaces an older one, since keeping both would make the badge lie. */
@@ -424,9 +421,7 @@ export class GroupRemovalStore {
 			baseUrl: normalizeBaseUrl(record.baseUrl),
 			origin: record.origin,
 		};
-		const rest = this.provenanceRegion
-			.list()
-			.filter((existing) => !sameIdentity(existing, normalized.label, normalized.baseUrl));
+		const rest = this.provenanceRegion.list().filter((existing) => !sameGroupIdentity(existing, normalized));
 		this.provenanceRegion.commit([...rest, normalized]);
 		await this.provenanceRegion.persistCommitted();
 	}

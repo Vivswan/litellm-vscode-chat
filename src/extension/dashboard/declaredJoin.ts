@@ -8,7 +8,7 @@
 import type { GroupServer } from "../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { sameGroupIdentity } from "../servers/groupRemovals";
 import type { DeclaredGroupIdentity } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 
@@ -113,9 +113,7 @@ export function resolveGroupOwnership(inputs: GroupOwnershipInputs): GroupOwners
 		},
 		{
 			pass: "label-url",
-			match: (snapshot, view) =>
-				snapshot.status.label === view.label &&
-				normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
+			match: (snapshot, view) => sameGroupIdentity(snapshot.status, view),
 		},
 	];
 	for (const pass of passes) {

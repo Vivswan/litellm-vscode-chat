@@ -32,6 +32,7 @@ import { isExpectedFailureCategory, isNonChatMode, NON_SECRET_OPTIONAL_FIELD_IDS
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
+import { sameGroupIdentity } from "../groupRemovals";
 
 export type EntryModelParameters = EntryViewFieldValues["modelParameters"];
 
@@ -656,7 +657,7 @@ export function stillDeclaredIn(raw: unknown): (label: string) => boolean {
  */
 export function matchedEntryFor(raw: unknown, label: string, baseUrl: string): DeclaredServer | undefined {
 	const match = acceptedEntry(raw, label);
-	if (match === undefined || normalizeBaseUrl(match.entry.baseUrl) !== normalizeBaseUrl(baseUrl)) {
+	if (match === undefined || !sameGroupIdentity(match.entry, { label, baseUrl })) {
 		return undefined;
 	}
 	return match.entry;
