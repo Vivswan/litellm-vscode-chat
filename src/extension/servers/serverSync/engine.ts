@@ -29,6 +29,7 @@ import {
 	acceptedEntry,
 	parseServersSetting,
 	rawDeclaredLabels,
+	rejectedCarrierInlineSecrets,
 	rejectedCarrierLabels,
 	serverSettingReports,
 	stillDeclaredIn,
@@ -254,6 +255,14 @@ const IDENTITY_READ_ATTEMPTS = 3;
 
 const SETTING_UNSTABLE_MESSAGE =
 	"The servers setting or its stored secrets changed on every read while identities were being resolved; retry";
+
+/** A carrier's stored record with the values it still carries inline laid over, so a holder of either is its leftover. */
+function withInlineSecrets(
+	record: StoredSecretsRecord,
+	inline: Readonly<Partial<Record<SecretFieldId, string>>> | undefined
+): StoredSecretsRecord {
+	return inline === undefined ? record : { values: { ...record.values, ...inline }, owners: record.owners };
+}
 
 /** The live resolution's refusal of a setting the pass treats as declaring every old label; nothing can join on it. */
 export class IndeterminateServersSettingError extends Error {
@@ -534,11 +543,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 			storedSecrets.set(entry.label, record);
 			entries.push({ entry, stored: resolveOwnedSecrets(entry, record).values });
 		}
-		const carriers = rejectedCarrierLabels(serverSettingReports(setting));
+		const reports = serverSettingReports(setting);
+		const carriers = rejectedCarrierLabels(reports);
+		const inline = rejectedCarrierInlineSecrets(setting, reports);
 		for (const label of carriers) {
-			if (!storedSecrets.has(label)) {
-				storedSecrets.set(label, await this.env.readSecrets(label));
-			}
+			const record = storedSecrets.get(label) ?? (await this.env.readSecrets(label));
+			storedSecrets.set(label, withInlineSecrets(record, inline.get(label)));
 		}
 		return { setting, entries, carriers, storedSecrets };
 	}
@@ -936,12 +946,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 			});
 		}
 
-		for (const label of rejectedCarrierLabels(serverSettingReports(rawSetting))) {
-			if (storedSecrets.has(label)) {
-				continue;
-			}
+		const rawReports = serverSettingReports(rawSetting);
+		const carrierInline = rejectedCarrierInlineSecrets(rawSetting, rawReports);
+		for (const label of rejectedCarrierLabels(rawReports)) {
 			try {
-				storedSecrets.set(label, await this.env.readSecrets(label));
+				const record = storedSecrets.get(label) ?? (await this.env.readSecrets(label));
+				storedSecrets.set(label, withInlineSecrets(record, carrierInline.get(label)));
 			} catch (error) {
 				carryStoredSecrets(label);
 				this.env.log("Reading a rejected entry's stored secrets failed", { label, error: errorLabel(error) });

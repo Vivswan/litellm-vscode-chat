@@ -26,6 +26,7 @@ import type {
 	NonSecretOptionalFields,
 	OptionalEntryFieldId,
 	OptionalEntryFields,
+	SecretFieldId,
 } from "../../../shared/serverEntry";
 import { isExpectedFailureCategory, isNonChatMode, NON_SECRET_OPTIONAL_FIELD_IDS } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
@@ -300,6 +301,55 @@ export type DrawableReject = ServerEntryReport & { readonly label: string; reado
  */
 export function rejectedCarrierLabels(entryReports: readonly ServerEntryReport[]): string[] {
 	return entryReports.flatMap((report) => (report.accepted || report.label === undefined ? [] : [report.label]));
+}
+
+/**
+ * The secret values a rejected carrier still carries inline, by label: the parser refused the entry whole, but the
+ * values sit in the setting, so a group holding one is the label's leftover like a stored value makes it (the
+ * group ownership's holder evidence). Read at the auth grammar's paths, strings only; a shape the grammar never
+ * accepts carries nothing here.
+ */
+export function rejectedCarrierInlineSecrets(
+	raw: unknown,
+	entryReports: readonly ServerEntryReport[]
+): ReadonlyMap<string, Readonly<Partial<Record<SecretFieldId, string>>>> {
+	const inline = new Map<string, Readonly<Partial<Record<SecretFieldId, string>>>>();
+	if (!Array.isArray(raw)) {
+		return inline;
+	}
+	const stringAt = (value: unknown, path: readonly string[]): string | undefined => {
+		let cursor: unknown = value;
+		for (const key of path) {
+			if (!isRecord(cursor)) {
+				return undefined;
+			}
+			cursor = cursor[key];
+		}
+		return typeof cursor === "string" && cursor.length > 0 ? cursor : undefined;
+	};
+	for (const report of entryReports) {
+		if (report.accepted || report.label === undefined) {
+			continue;
+		}
+		const auth = isRecord(raw[report.index]) ? (raw[report.index] as Record<string, unknown>).auth : undefined;
+		const values: { -readonly [K in SecretFieldId]?: string } = {};
+		const apiKey = stringAt(auth, ["apiKey"]) ?? stringAt(auth, ["oauth", "apiKey"]);
+		const oauthClientSecret = stringAt(auth, ["oauth", "clientSecret"]);
+		const virtualKeyValue = stringAt(auth, ["virtualKey", "value"]) ?? stringAt(auth, ["oauth", "virtualKey", "value"]);
+		if (apiKey !== undefined) {
+			values.apiKey = apiKey;
+		}
+		if (oauthClientSecret !== undefined) {
+			values.oauthClientSecret = oauthClientSecret;
+		}
+		if (virtualKeyValue !== undefined) {
+			values.virtualKeyValue = virtualKeyValue;
+		}
+		if (Object.keys(values).length > 0) {
+			inline.set(report.label, { ...(inline.get(report.label) ?? {}), ...values });
+		}
+	}
+	return inline;
 }
 
 /**
