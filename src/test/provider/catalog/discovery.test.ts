@@ -542,7 +542,7 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(provider.input_cost_per_token, 0.000001, "base costs still pass through untouched");
 		});
 
-		test("wire provider entries cannot forge the internal discriminants or smuggle malformed costs", async () => {
+		test("a /v1/models provider entry's declared limit is sent whole and a malformed cost re-narrows", async () => {
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => emptyErrorResponse(500)),
 				http.get(MODELS_URL, () =>
@@ -555,8 +555,6 @@ suite("provider/catalog/discovery", () => {
 									{
 										provider: "openai",
 										status: "active",
-										// A forged output_limit_source would demote the genuinely declared limit below.
-										output_limit_source: "defaults",
 										max_output_tokens: 8000,
 										input_cost_per_token: "0.000001",
 									},
@@ -570,16 +568,7 @@ suite("provider/catalog/discovery", () => {
 			const { models } = await fetchModels(request());
 			const model = expectDefined(models[0]);
 			const provider = expectDefined(expectShape(model, "group").providers[0], "the wire cannot mint a deployment");
-			assert.strictEqual(
-				provider.output_limit_source,
-				undefined,
-				"the merge's provenance marker is discovery-authored, never wire-supplied"
-			);
-			assert.strictEqual(
-				deriveTokenConstraints(provider).outputLimitSource,
-				"provider",
-				"the declared 8000 output limit stays server-declared despite the forged demotion"
-			);
+			assert.strictEqual(deriveTokenConstraints(provider).defaultMaxTokens, 8000, "a declared limit is the default");
 			assert.strictEqual(provider.input_cost_per_token, undefined, "a string cost is re-narrowed to absent");
 		});
 
@@ -958,10 +947,15 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(models.length, 1, "One deployment entry per model_name must collapse to one model");
 			const model = expectDefined(models[0]);
 			assert.strictEqual(model.id, "balanced-model");
-			const provider = expectShape(model, "deployment").provider;
-			assert.strictEqual(provider.max_input_tokens, 64000);
-			assert.strictEqual(provider.max_output_tokens, 8000);
-			assert.strictEqual(provider.context_length, 64000);
+			const { provider, limits } = expectShape(model, "deployment");
+			assert.strictEqual(limits.maxInputTokens, 64000);
+			assert.strictEqual(limits.maxOutputTokens, 8000);
+			assert.strictEqual(limits.contextLength, 64000);
+			assert.strictEqual(
+				limits.defaultMaxTokens,
+				8000,
+				"every deployment declared a limit, so the minimum is sent whole"
+			);
 			assert.strictEqual(provider.supports_tools, true);
 			assert.strictEqual(provider.supports_reasoning, true);
 			assert.strictEqual(provider.supports_prompt_caching, false);
@@ -1453,7 +1447,7 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(merged.provider.input_cost_per_token, null, "no declaration ever agreed");
 			assert.strictEqual(merged.provider.output_cost_per_token, null);
 			const { infos } = buildModelInfos(
-				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider } }],
+				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
 				() => {}
@@ -1475,7 +1469,7 @@ suite("provider/catalog/discovery", () => {
 			]);
 			assert.deepStrictEqual(merged.provider.reasoning_effort_levels, [], "the raw intersection is empty");
 			const { infos } = buildModelInfos(
-				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider } }],
+				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
 				() => {}
@@ -1512,7 +1506,7 @@ suite("provider/catalog/discovery", () => {
 				}),
 			]);
 			const { infos } = buildModelInfos(
-				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider } }],
+				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
 				() => {}
@@ -1540,8 +1534,8 @@ suite("provider/catalog/discovery", () => {
 			const b = deployment({ max_tokens: 8000 });
 			const merged = mergeModelDeployments([a, b]);
 
-			const standalone = [a, b].map((d) => deriveTokenConstraints(d.provider));
-			const constraints = deriveTokenConstraints(merged.provider);
+			const standalone = [a, b].map((d) => d.limits);
+			const constraints = merged.limits;
 			assert.strictEqual(constraints.maxOutputTokens, Math.min(...standalone.map((c) => c.maxOutputTokens)));
 			assert.strictEqual(constraints.contextLength, Math.min(...standalone.map((c) => c.contextLength)));
 			assert.strictEqual(constraints.maxInputTokens, Math.min(...standalone.map((c) => c.maxInputTokens)));
@@ -1554,74 +1548,45 @@ suite("provider/catalog/discovery", () => {
 			const limited = deployment({ max_output_tokens: 32000, max_input_tokens: 128000 });
 			const unlimited = deployment({ max_input_tokens: 128000 });
 			const merged = mergeModelDeployments([limited, unlimited]);
-			const constraints = deriveTokenConstraints(merged.provider);
 			assert.strictEqual(
-				constraints.maxOutputTokens,
+				merged.limits.maxOutputTokens,
 				CAPABILITY_FLOOR.max_output_tokens,
 				"standalone, the second deployment would advertise the floor output limit; the merge must not exceed it"
 			);
 		});
 
-		test("the merged output limit counts as server-declared only when every deployment declared one", () => {
-			const allDeclared = mergeModelDeployments([
-				deployment({ max_output_tokens: 16000 }),
-				deployment({ max_tokens: 8000 }),
-			]);
-			assert.strictEqual(deriveTokenConstraints(allDeclared.provider).outputLimitSource, "provider");
-
-			const oneUndeclared = mergeModelDeployments([
-				deployment({ max_output_tokens: 16000 }),
-				deployment({ max_input_tokens: 128000 }),
-			]);
-			assert.strictEqual(
-				deriveTokenConstraints(oneUndeclared.provider).outputLimitSource,
-				"defaults",
-				"a floor-filled deployment must demote the merged limit, even though the merge stores it in provider fields"
-			);
-		});
-
-		test("limits no deployment reported are not stored back as if the server declared them", () => {
-			// A defaults-filled number stored as a provider field would occupy the capability walk's server level and
-			// block the catalog from backfilling.
+		test("limits no deployment reported stay off the baseline, so lower walk levels can fill them", () => {
 			const merged = mergeModelDeployments([deployment({}), deployment({ supports_vision: true })]);
-			assert.strictEqual(merged.provider.context_length, undefined);
-			assert.strictEqual(merged.provider.max_output_tokens, undefined);
-			assert.strictEqual(merged.provider.max_tokens, undefined);
-			assert.strictEqual(merged.provider.max_input_tokens, undefined);
 			assert.deepStrictEqual(
-				deriveTokenConstraints(merged.provider),
-				deriveTokenConstraints(deployment({}).provider),
-				"the merged advertisement equals the all-floor standalone one"
+				merged.limits,
+				deployment({}).limits,
+				"the merged limits equal the all-floor standalone ones"
 			);
+			const { infos } = buildModelInfos(
+				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				1,
+				() => {}
+			);
+			const declared = expectDefined(infos[0]).litellm.serverDeclared;
+			assert.ok(declared.kind === "discovered");
+			for (const field of ["context_length", "max_input_tokens", "max_output_tokens"] as const) {
+				assert.ok(!(field in declared.values), `a floor fill must not occupy the server level's ${field}`);
+			}
 		});
 
-		test("a limit some deployment reported stays stored as the conservative collapse", () => {
+		test("a limit some deployment reported is the conservative collapse, and counts as reported", () => {
 			const merged = mergeModelDeployments([deployment({ max_output_tokens: 32000 }), deployment({})]);
 			assert.strictEqual(
-				merged.provider.max_output_tokens,
+				merged.limits.maxOutputTokens,
 				Math.min(32000, CAPABILITY_FLOOR.max_output_tokens),
 				"a floor-filled deployment can still contribute the minimum"
 			);
+			assert.strictEqual(merged.limits.reported.output, true);
 			// mapModelInfoEntry grounds context_length in max_tokens, so the reporting deployment reports context too
-			// and the collapse stores it.
-			assert.strictEqual(merged.provider.context_length, 32000);
-		});
-
-		test("a passed-through output_limit_source can demote but never promote", () => {
-			// normalizeModelItem strips the marker from wire entries, so only merged providers carry it; this pins
-			// deriveTokenConstraints' defense in depth: a "provider" claim without declared limit fields must not lift
-			// the cap.
-			const spoofed = deriveTokenConstraints({ provider: "wire", status: "ok", output_limit_source: "provider" });
-			assert.strictEqual(spoofed.outputLimitSource, "defaults");
-
-			const demoted = deriveTokenConstraints({
-				provider: "wire",
-				status: "ok",
-				max_output_tokens: 8000,
-				output_limit_source: "defaults",
-			});
-			assert.strictEqual(demoted.outputLimitSource, "defaults");
-			assert.strictEqual(demoted.maxOutputTokens, 8000, "the demoted value still bounds the advertisement");
+			// and the collapse carries it.
+			assert.strictEqual(merged.limits.contextLength, 32000);
+			assert.strictEqual(merged.limits.reported.context, true);
 		});
 
 		test("tool support holds only when every deployment supports it", () => {

@@ -29,7 +29,6 @@ import type {
 	CatalogLookupResult,
 	CostCapabilityField,
 	EffectiveCapabilityField,
-	EffectiveOutputLimitSource,
 	ModelCapabilitiesRecord,
 	ParsedCapabilityRecord,
 	ResolveModelCapabilitiesInput,
@@ -52,6 +51,7 @@ import { FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE } from "../../../shared/
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { getCurrencySymbol } from "../../../shared/config/settings";
 import { resolveFuzzSeed } from "../../fuzzStream";
+import { deploymentShape } from "../../pureHelpers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
@@ -281,8 +281,10 @@ const serverValuesArb: fc.Arbitrary<Partial<ServerCapabilityValues>> = fc
 const serverDeclaredArb: fc.Arbitrary<ServerDeclaredCapabilities> = fc.oneof(
 	fc.constant<ServerDeclaredCapabilities>({ kind: "declared" }),
 	fc
-		.record({ values: serverValuesArb, outputDeclared: fc.boolean() })
-		.map(({ values, outputDeclared }): ServerDeclaredCapabilities => ({ kind: "discovered", values, outputDeclared }))
+		.record({ values: serverValuesArb, defaultMaxTokens: fc.integer({ min: 1, max: 500000 }) })
+		.map(
+			({ values, defaultMaxTokens }): ServerDeclaredCapabilities => ({ kind: "discovered", values, defaultMaxTokens })
+		)
 );
 
 function valueForField(name: string): fc.Arbitrary<unknown> {
@@ -463,7 +465,7 @@ const architectureArb = fc.option(fc.record({ input_modalities: fc.subarray(["te
 
 const modelShapeArb = fc.oneof(
 	fc.constant<{ kind: "bare" }>({ kind: "bare" }),
-	providerArb.map((provider) => ({ kind: "deployment" as const, provider })),
+	providerArb.map((provider) => deploymentShape(provider)),
 	fc.array(providerArb, { minLength: 1, maxLength: 3 }).map((providers) => ({
 		kind: "group" as const,
 		providers: providers as [LiteLLMProvider, ...LiteLLMProvider[]],
@@ -517,7 +519,7 @@ function seamProjection(info: PreAttachModelInfo) {
 		hasReasoningSchema: info.configurationSchema !== undefined,
 		supportsPromptCaching: info.litellm.supportsPromptCaching,
 		supportsAudioInput: info.litellm.supportsAudioInput === true,
-		outputLimitSource: info.litellm.outputLimitSource,
+		defaultMaxTokens: info.litellm.defaultMaxTokens,
 		pricing: Object.fromEntries(MODEL_PRICING_KEYS.map((key) => [key, info[key]])),
 	};
 }
@@ -563,7 +565,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 						values: recordFromEntries(
 							Object.entries(serverDeclared.values).filter(([name]) => Object.hasOwn(CAPABILITY_FIELDS, name))
 						) as Partial<ServerCapabilityValues>,
-						outputDeclared: serverDeclared.outputDeclared,
+						defaultMaxTokens: serverDeclared.defaultMaxTokens,
 					};
 		fc.assert(
 			fc.property(resolverScenario, ({ input }) => {
@@ -575,7 +577,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 					serverDeclared: restrictServer(input.serverDeclared),
 				});
 				assert.deepStrictEqual(coreProjection(full.fields), coreProjection(stripped.fields));
-				assert.strictEqual(full.outputLimitSource, stripped.outputLimitSource);
+				assert.strictEqual(full.defaultMaxTokens, stripped.defaultMaxTokens);
 				assert.deepStrictEqual(full.directive, stripped.directive);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
@@ -716,15 +718,14 @@ suite("provider/catalog capability cross-layer properties", () => {
 				for (const name of [...entry.fields.keys(), ...global.fields.keys()]) {
 					assert.ok(capabilityField(effective.fields, name) !== undefined, `${name} is user-set and must resolve`);
 				}
-				const outputLevel = naiveFields.max_output_tokens?.level;
-				const expectedSource: EffectiveOutputLimitSource = USER_SET_LEVELS.some((level) => level === outputLevel)
-					? "user"
-					: outputLevel === "server" &&
-							input.serverDeclared.kind === "discovered" &&
-							input.serverDeclared.outputDeclared
-						? "provider"
-						: "defaults";
-				assert.strictEqual(effective.outputLimitSource, expectedSource);
+				const outputLimit = naiveFields.max_output_tokens;
+				assert.ok(outputLimit !== undefined);
+				const expectedDefault = USER_SET_LEVELS.some((level) => level === outputLimit.level)
+					? outputLimit.value
+					: outputLimit.level === "server" && input.serverDeclared.kind === "discovered"
+						? input.serverDeclared.defaultMaxTokens
+						: Math.min(4096, outputLimit.value as number);
+				assert.strictEqual(effective.defaultMaxTokens, expectedDefault);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
@@ -868,7 +869,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 					...item,
 					shape:
 						item.shape.kind === "deployment"
-							? { kind: "deployment" as const, provider: costFree(item.shape.provider) }
+							? deploymentShape(costFree(item.shape.provider))
 							: item.shape.kind === "group"
 								? {
 										kind: "group" as const,

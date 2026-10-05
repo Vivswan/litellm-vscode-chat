@@ -377,7 +377,8 @@ export interface OldWalkResult {
 	readonly fields: OldEffectiveCapabilityValues;
 	/**
 	 * Old USER_SET_LEVELS semantics: override and fallback levels are "user" (uncapped on the wire), the server level
-	 * is "provider" only under outputDeclared, and default-setting and floor stay "defaults" (min(4096, limit)).
+	 * is "provider" only when the baseline's request default is the limit itself, and default-setting and floor stay
+	 * "defaults" (min(4096, limit)).
 	 */
 	readonly outputLimitSource: "user" | "provider" | "defaults";
 }
@@ -425,7 +426,7 @@ export function resolveOldModelCapabilities(input: {
 			? "user"
 			: maxOutput.level === "server" &&
 					input.serverDeclared.kind === "discovered" &&
-					input.serverDeclared.outputDeclared
+					input.serverDeclared.defaultMaxTokens === maxOutputTokens
 				? "provider"
 				: "defaults";
 	const maxInputCandidates: (number | boolean | undefined)[] = [

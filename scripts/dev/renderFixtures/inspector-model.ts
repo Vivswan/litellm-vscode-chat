@@ -52,7 +52,7 @@ const fixture: RenderFixture = {
 							shadowed: [],
 						},
 					],
-					maxTokens: { source: "declared", value: 16384 },
+					maxTokens: { source: "limit", value: 16384 },
 					diagnostics: [],
 				},
 			},
@@ -63,7 +63,7 @@ const fixture: RenderFixture = {
 				globalRecordKey: "gpt-5*",
 				capabilities: {
 					fields: worstCaseCapabilityFields(),
-					outputLimitSource: "provider",
+					defaultMaxTokens: 16384,
 					diagnostics: [],
 				},
 			},

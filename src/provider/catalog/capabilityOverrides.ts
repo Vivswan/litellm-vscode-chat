@@ -183,7 +183,7 @@ export function applyCapabilityOverrides(
 			litellm: {
 				...info.litellm,
 				supportsPromptCaching: promptCachingFrom(fields),
-				outputLimitSource: effective.outputLimitSource,
+				defaultMaxTokens: effective.defaultMaxTokens,
 				supportsAudioInput: fields.supports_audio_input.value,
 			},
 		} satisfies PreAttachModelInfo;
@@ -252,7 +252,7 @@ export function synthesizeDeclaredModels(
 			litellm: {
 				rawModelId: spec.rawId,
 				supportsPromptCaching: promptCachingFrom(fields),
-				outputLimitSource: effective.outputLimitSource,
+				defaultMaxTokens: effective.defaultMaxTokens,
 				supportsAudioInput: fields.supports_audio_input.value,
 				declared: true,
 				serverDeclared: { kind: "declared" },

@@ -438,9 +438,9 @@ suite("provider/catalog/groupModels", () => {
 					litellm: {
 						rawModelId: "test-model",
 						supportsPromptCaching: false,
-						outputLimitSource: "defaults",
+						defaultMaxTokens: 4096,
 						supportsAudioInput: true,
-						serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+						serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 4096 },
 					},
 				}),
 				identity
@@ -457,7 +457,7 @@ suite("provider/catalog/groupModels", () => {
 			assert.strictEqual(parseModelMetadata(makeModelInfo()).supportsAudioInput, false);
 			const junk = {
 				...makeModelInfo(),
-				litellm: { supportsPromptCaching: false, outputLimitSource: "defaults", supportsAudioInput: "yes" },
+				litellm: { supportsPromptCaching: false, defaultMaxTokens: 4096, supportsAudioInput: "yes" },
 			} as unknown as LiteLLMModelInfo;
 			assert.strictEqual(parseModelMetadata(junk).supportsAudioInput, false);
 		});

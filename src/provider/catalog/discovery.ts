@@ -14,7 +14,7 @@ import { mapSdkError, RequestError, timeoutRequestError } from "../transport/err
 import { retryIdempotent } from "../transport/retry";
 import type { DiscoveryLog } from "./discoveryLog";
 import { discoveryLineWriter, failureKindOf, parseWire } from "./discoveryLog";
-import { collapseTokenConstraints, reportedLimits } from "./modelCatalog";
+import { collapseTokenLimits, deriveTokenConstraints } from "./modelCatalog";
 import { reasoningEffortLevelsFromFlags } from "./modelConfiguration";
 import type {
 	LiteLLMArchitecture,
@@ -24,6 +24,7 @@ import type {
 	LongContextCostField,
 	PerTokenCosts,
 	RawModelItem,
+	TokenConstraints,
 } from "./schemas";
 import {
 	dataEnvelopeSchema,
@@ -122,15 +123,12 @@ export function normalizeModelItem(raw: RawModelItem, log: DiscoveryLog): LiteLL
 			// the same trust basis as the rest of the entry.
 			const entry = wire as LiteLLMProvider;
 			// Pass-through entries keep their raw keys.
-			//   the internal `output_limit_source` marker -> is cleared so a wire entry cannot forge it
-			//   the four token limits                     -> are narrowed to positive numbers (numeric strings parse,
-			//                                                 null and junk degrade to undefined, so downstream reads
-			//                                                 take the fields as-is)
-			//   the costs                                  -> are authored under the zero-pair rule
-			//   the long-context tier costs                -> are synthesized
+			//   the four token limits       -> are narrowed to positive numbers (numeric strings parse, null and junk
+			//                                  degrade to undefined, so downstream reads take the fields as-is)
+			//   the costs                   -> are authored under the zero-pair rule
+			//   the long-context tier costs -> are synthesized
 			providers.push({
 				...entry,
-				output_limit_source: undefined,
 				reasoning_effort_levels: reasoningEffortLevelsFromFlags(entry),
 				context_length: normalizePositiveNumber(entry.context_length),
 				max_tokens: normalizePositiveNumber(entry.max_tokens),
@@ -155,6 +153,8 @@ export function normalizeModelItem(raw: RawModelItem, log: DiscoveryLog): LiteLL
 export interface MappedModelInfo {
 	id: string;
 	provider: LiteLLMProvider;
+	/** Derived once at ingest; the merge min-collapses these, so a merged record never re-derives from itself. */
+	limits: TokenConstraints;
 	inputModalities: readonly string[];
 }
 
@@ -199,13 +199,13 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo {
 		inputModalities.push("audio");
 	}
 
-	return { id: item.modelId, provider, inputModalities };
+	return { id: item.modelId, provider, limits: deriveTokenConstraints(provider), inputModalities };
 }
 
 function toModelItem(mapped: MappedModelInfo): LiteLLMModelItem {
 	return {
 		id: mapped.id,
-		shape: { kind: "deployment", provider: mapped.provider },
+		shape: { kind: "deployment", provider: mapped.provider, limits: mapped.limits },
 		architecture: mapped.inputModalities.length > 0 ? { input_modalities: [...mapped.inputModalities] } : undefined,
 	};
 }
@@ -234,11 +234,9 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
  * LiteLLM reports one /v1/model/info entry per deployment of a load-balanced model_name; unmerged, the
  * model would register duplicate IDs and overwrite its own routes.
  *
- *   limits            -> stored ONLY when some deployment reported them; a stored floor fill would occupy the
- *                        capability walk's server level and block catalog backfill
- *   outputLimitSource -> keeps a floor-filled contributor from laundering its guess into a declared output limit
- *   pricing           -> only when every deployment agrees; routing picks the serving deployment, so either
- *                        differing number would lie
+ *   limits  -> the min-collapse of every deployment's own, carried beside the merged record (see ModelShape)
+ *   pricing -> only when every deployment agrees; routing picks the serving deployment, so either differing number
+ *              would lie
  */
 export function mergeModelDeployments(deployments: ModelDeployments): MappedModelInfo {
 	const [first, ...rest] = deployments;
@@ -249,17 +247,10 @@ export function mergeModelDeployments(deployments: ModelDeployments): MappedMode
 		first.provider,
 		...rest.map((deployment) => deployment.provider),
 	];
-	const collapsed = collapseTokenConstraints(providers);
-	const reported = reportedLimits(providers);
 	const provider: LiteLLMProvider = {
 		provider: first.provider.provider,
 		status: first.provider.status,
 		supports_tools: providers.every(supportsTools),
-		context_length: reported.context ? collapsed.contextLength : undefined,
-		max_tokens: reported.output ? collapsed.maxOutputTokens : undefined,
-		max_input_tokens: reported.any ? collapsed.maxInputTokens : undefined,
-		max_output_tokens: reported.output ? collapsed.maxOutputTokens : undefined,
-		output_limit_source: collapsed.outputLimitSource,
 		supports_prompt_caching: everyDeploymentSupports(providers.map((p) => p.supports_prompt_caching)),
 		supports_response_schema: everyDeploymentSupports(providers.map((p) => p.supports_response_schema)),
 		supports_reasoning: everyDeploymentSupports(providers.map((p) => p.supports_reasoning)),
@@ -271,7 +262,12 @@ export function mergeModelDeployments(deployments: ModelDeployments): MappedMode
 	const inputModalities = first.inputModalities.filter((modality) =>
 		rest.every((deployment) => deployment.inputModalities.includes(modality))
 	);
-	return { id: first.id, provider, inputModalities };
+	return {
+		id: first.id,
+		provider,
+		limits: collapseTokenLimits([first.limits, ...rest.map((deployment) => deployment.limits)]),
+		inputModalities,
+	};
 }
 
 export interface FetchModelsResult {

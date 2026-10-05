@@ -7,7 +7,7 @@ import { App } from "../../../../webview/dashboard/app";
 import type { ModelCapabilitiesResponse, ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../../webview/dashboard/modelInspector";
 import { makeSettings } from "../../../dashboardSettingsFixture";
-import { makeDeclaredServer, makeExternalServer, makeModel, makeState, statePush } from "../fixtures";
+import { makeCapabilities, makeDeclaredServer, makeExternalServer, makeModel, makeState, statePush } from "../fixtures";
 import {
 	cleanup,
 	fireClick,
@@ -66,27 +66,10 @@ function mountParamsAnswered(options: {
 				? undefined
 				: { label: options.entryLabel ?? "Prod", parameters: options.entryParameters },
 		maxOutputTokens: inspected.maxOutputTokens,
-		outputLimitDeclared: inspected.outputLimitDeclared,
+		defaultMaxTokens: inspected.defaultMaxTokens,
 	});
 	respondTo(request, { projection, chains: options.chains });
 	return container;
-}
-
-function makeCapabilities(overrides: Partial<EffectiveCapabilities> = {}): EffectiveCapabilities {
-	return {
-		fields: {
-			context_length: { value: 128000, level: "floor", shadowed: [] },
-			max_input_tokens: { value: 112000, level: "derived", shadowed: [] },
-			max_output_tokens: { value: 16000, level: "floor", shadowed: [] },
-			supports_function_calling: { value: true, level: "floor", shadowed: [] },
-			supports_vision: { value: false, level: "floor", shadowed: [] },
-			supports_reasoning: { value: false, level: "floor", shadowed: [] },
-			supports_audio_input: { value: false, level: "floor", shadowed: [] },
-		},
-		outputLimitSource: "defaults",
-		diagnostics: [],
-		...overrides,
-	};
 }
 
 /**
@@ -172,7 +155,7 @@ test("the Parameters section leads with the answer: table, supported params, max
 			// after the table).
 			globalParameters: { "gpt-4*": { temperature: 0.2 }, "gpt*4o": { top_p: 0.5 } },
 			maxOutputTokens: model.maxOutputTokens,
-			outputLimitDeclared: model.outputLimitDeclared,
+			defaultMaxTokens: model.defaultMaxTokens,
 		}),
 		chains: [
 			{
@@ -275,7 +258,7 @@ test("a state push leaves the record path on screen instead of hiding it under t
 				rawModelId: model.rawId,
 				globalParameters: { "gpt-4*": { temperature: 0.2 } },
 				maxOutputTokens: model.maxOutputTokens,
-				outputLimitDeclared: model.outputLimitDeclared,
+				defaultMaxTokens: model.defaultMaxTokens,
 			}),
 			chains,
 		});
@@ -401,7 +384,7 @@ test("a params response for another request id is ignored; the loading note stay
 				rawModelId: model.rawId,
 				globalParameters: { "gpt-4*": { temperature: 0.2 } },
 				maxOutputTokens: model.maxOutputTokens,
-				outputLimitDeclared: model.outputLimitDeclared,
+				defaultMaxTokens: model.defaultMaxTokens,
 			}),
 		},
 	});
@@ -572,13 +555,13 @@ test("the max_tokens derivation states the configured branch with its attributio
 test("the max_tokens derivation states the declared and capped-default branches", () => {
 	// Neither derived branch has a record to point at, so neither wears a badge: they say in words where the number
 	// came from.
-	const declared = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, outputLimitDeclared: true } });
+	const declared = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, defaultMaxTokens: 32000 } });
 	// The derivation line formats its count like the tables do: the same number in two renderings on one screen reads
 	// as two numbers.
-	expect(normOf(declared, ".max-tokens")).toBe("max_tokens 32,000 the model's declared output limit");
+	expect(normOf(declared, ".max-tokens")).toBe("max_tokens 32,000 the model's output limit");
 	expect(declared.querySelector(".max-tokens .prov")).toBeNull();
 
-	const capped = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, outputLimitDeclared: false } });
+	const capped = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, defaultMaxTokens: 4096 } });
 	expect(normOf(capped, ".max-tokens")).toBe("max_tokens 4,096 min(4,096, model max) - a default, not declared");
 });
 
@@ -687,7 +670,7 @@ test("the header keeps ONE orientation line - family and capability chips - and 
 			family: "gpt",
 			maxInputTokens: 128000,
 			maxOutputTokens: 4096,
-			outputLimitDeclared: false,
+			defaultMaxTokens: 4096,
 			inputCost: 2.5,
 			outputCost: 10,
 			cacheReadCost: 0.25,
@@ -1200,18 +1183,25 @@ test("the declared badge follows the model's verdict: a discovered model shows n
 test("the output-limit note names the limit's source and nothing the request does", () => {
 	// It says only where the limit came from: what the REQUEST sends is conditional (a configured or forced max_tokens
 	// beats the limit), and the max_tokens line owns it.
-	const user = mountCapsAnswered(makeCapabilities({ outputLimitSource: "user" }));
+	const withOutputLimit = (level: CapabilityLevel, defaultMaxTokens: number) =>
+		makeCapabilities({
+			fields: { ...makeCapabilities().fields, max_output_tokens: { value: 16000, level, shadowed: [] } },
+			defaultMaxTokens,
+		});
+	const user = mountCapsAnswered(withOutputLimit("entry", 16000));
 	expect(textOf(user, ".output-limit dt")).toBe("Output limit");
 	expect(textOf(user, ".output-limit dd")).toBe("User-set.");
 	// The branch every screenshot renders needs its own pin, not just the two edge branches.
 	cleanup();
 	resetPosted();
-	expect(textOf(mountCapsAnswered(makeCapabilities({ outputLimitSource: "provider" })), ".output-limit dd")).toBe(
-		"Server-declared."
-	);
+	expect(textOf(mountCapsAnswered(withOutputLimit("server", 16000)), ".output-limit dd")).toBe("Server-declared.");
+	// A server minimum some floor-filled deployment supplied: the default sits under the value.
 	cleanup();
 	resetPosted();
-	const defaults = mountCapsAnswered(makeCapabilities({ outputLimitSource: "defaults" }));
+	expect(textOf(mountCapsAnswered(withOutputLimit("server", 4096)), ".output-limit dd")).toBe("A default.");
+	cleanup();
+	resetPosted();
+	const defaults = mountCapsAnswered(makeCapabilities());
 	expect(textOf(defaults, ".output-limit dd")).toBe("A default.");
 	// Never a cap claim: a configured max_tokens beats the limit, and this section cannot see whether one exists.
 	expect(defaults.textContent).not.toContain("capped at");
@@ -1308,7 +1298,7 @@ test("the anchor stops re-scrolling for good once both feeds have answered", () 
 					rawModelId: model.rawId,
 					globalParameters: {},
 					maxOutputTokens: model.maxOutputTokens,
-					outputLimitDeclared: model.outputLimitDeclared,
+					defaultMaxTokens: model.defaultMaxTokens,
 				}),
 			});
 			respondTo(lastRequest("readModelCapabilities"), { capabilities: makeCapabilities() });

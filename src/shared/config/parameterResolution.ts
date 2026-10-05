@@ -26,7 +26,7 @@ export type { ModelRecordMap } from "./modelMatcher";
 
 /**
  * Cap on the fallback max_tokens when neither runtime options nor configured model parameters set one and the model's
- * output limit is a defaults-derived guess rather than server-declared.
+ * output limit is a guess rather than declared; applied where the limit is derived (guessedMaxTokensDefault).
  */
 export const DEFAULT_MAX_TOKENS_CAP = 4096;
 
@@ -304,22 +304,27 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 	};
 }
 
-export type MaxTokensSource = "forced" | "runtime" | "configured" | "declared" | "capped-default";
+export type MaxTokensSource = "forced" | "runtime" | "configured" | "limit" | "capped";
 
-export interface ResolveMaxTokensInput {
+export interface OutputLimits {
+	readonly maxOutputTokens: number;
+	/** See LiteLLMModelMetadataBase.defaultMaxTokens (groupModels.ts). */
+	readonly defaultMaxTokens: number;
+}
+
+export interface ResolveMaxTokensInput extends OutputLimits {
 	/** The merged forced parameters' max_tokens, untyped: only a number counts. Beats even runtime options. */
 	readonly forcedMaxTokens?: unknown;
 	/** options.modelOptions?.max_tokens, untyped: only a number counts. */
 	readonly runtimeMaxTokens: unknown;
 	/** The merged configured parameters' max_tokens, untyped: only a number counts. */
 	readonly configuredMaxTokens: unknown;
-	/** The model's advertised max output tokens. */
-	readonly maxOutputTokens: number;
-	/** True when the server declared the output limit ("provider" provenance); only then is it sent uncapped. */
-	readonly outputLimitDeclared: boolean;
 }
 
-/** The one home of the max_tokens fallback chain. */
+/**
+ * The one home of the max_tokens fallback chain. The fallback is the decided default as-is; the two source names only
+ * tell the inspector whether that default is the advertised limit itself or the cap under a guessed one.
+ */
 export function resolveMaxTokens(input: ResolveMaxTokensInput): { value: number; source: MaxTokensSource } {
 	if (typeof input.forcedMaxTokens === "number") {
 		return { value: input.forcedMaxTokens, source: "forced" };
@@ -330,10 +335,10 @@ export function resolveMaxTokens(input: ResolveMaxTokensInput): { value: number;
 	if (typeof input.configuredMaxTokens === "number") {
 		return { value: input.configuredMaxTokens, source: "configured" };
 	}
-	if (input.outputLimitDeclared) {
-		return { value: input.maxOutputTokens, source: "declared" };
-	}
-	return { value: Math.min(DEFAULT_MAX_TOKENS_CAP, input.maxOutputTokens), source: "capped-default" };
+	return {
+		value: input.defaultMaxTokens,
+		source: input.defaultMaxTokens < input.maxOutputTokens ? "capped" : "limit",
+	};
 }
 
 export interface EffectiveParameterRow {
@@ -358,15 +363,13 @@ export interface ProjectedMaxTokens {
 	readonly configuredSource?: ParameterSourceRef | undefined;
 }
 
-export interface EffectiveParametersInput {
+export interface EffectiveParametersInput extends OutputLimits {
 	readonly rawModelId: string;
 	readonly globalParameters: ModelParametersRecord;
 	/**
 	 * The declared entry's record together with its label: entry-layer refs carry the label, so the two travel as one.
 	 */
 	readonly entry?: { readonly label: string; readonly parameters: ModelParametersRecord } | undefined;
-	readonly maxOutputTokens: number;
-	readonly outputLimitDeclared: boolean;
 }
 
 export interface EffectiveParametersProjection {
@@ -389,7 +392,7 @@ export function projectEffectiveParameters(input: EffectiveParametersInput): Eff
 		}),
 		{
 			maxOutputTokens: input.maxOutputTokens,
-			outputLimitDeclared: input.outputLimitDeclared,
+			defaultMaxTokens: input.defaultMaxTokens,
 		},
 		input.entry?.label
 	);
@@ -404,7 +407,7 @@ export function projectEffectiveParameters(input: EffectiveParametersInput): Eff
  */
 export function projectResolvedParameters(
 	resolved: ResolvedModelParameters,
-	limits: { readonly maxOutputTokens: number; readonly outputLimitDeclared: boolean },
+	limits: OutputLimits,
 	entryLabel?: string
 ): EffectiveParametersProjection {
 	const sourceRef = (ref: ResolvedSourceRef): ParameterSourceRef => {
@@ -448,8 +451,7 @@ export function projectResolvedParameters(
 		forcedMaxTokens: resolved.forcedParams.max_tokens,
 		runtimeMaxTokens: undefined,
 		configuredMaxTokens,
-		maxOutputTokens: limits.maxOutputTokens,
-		outputLimitDeclared: limits.outputLimitDeclared,
+		...limits,
 	});
 	const configuredSource = maxTokensConfigured ? resolved.sources.get("max_tokens")?.source : undefined;
 	const maxTokens: ProjectedMaxTokens = {

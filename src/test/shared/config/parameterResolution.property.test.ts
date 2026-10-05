@@ -86,7 +86,7 @@ interface Scenario {
 	globalParameters: ModelParametersRecord;
 	entryParameters: ModelParametersRecord | undefined;
 	maxOutputTokens: number;
-	outputLimitDeclared: boolean;
+	defaultMaxTokens: number;
 }
 
 /**
@@ -117,7 +117,7 @@ const scenarioArb: fc.Arbitrary<Scenario> = fc
 			{ nil: undefined }
 		),
 		maxOutputTokens: fc.integer({ min: 1, max: 100000 }),
-		outputLimitDeclared: fc.boolean(),
+		defaultMaxTokens: fc.integer({ min: 1, max: 100000 }),
 	})
 	.chain((spec) => {
 		const keyOf = (form: string, cut: number) => {
@@ -168,7 +168,7 @@ const scenarioArb: fc.Arbitrary<Scenario> = fc
 					// fixed label satisfies that.
 					entry: entryParameters === undefined ? undefined : { label: "entry", parameters: entryParameters },
 					maxOutputTokens: spec.maxOutputTokens,
-					outputLimitDeclared: spec.outputLimitDeclared,
+					defaultMaxTokens: spec.defaultMaxTokens,
 				};
 			});
 	});
@@ -190,7 +190,7 @@ suite("shared/config parameterResolution equivalence properties", () => {
 					runtimeMaxTokens: modelOptions?.max_tokens,
 					configuredMaxTokens: resolved.params.max_tokens,
 					maxOutputTokens: s.maxOutputTokens,
-					outputLimitDeclared: s.outputLimitDeclared,
+					defaultMaxTokens: s.defaultMaxTokens,
 				});
 				const modelConfiguration: ModelConfigurationRequestParams | undefined =
 					pickerEffort === undefined ? undefined : { reasoning_effort: pickerEffort };

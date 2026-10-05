@@ -123,6 +123,8 @@ export function systemMessage(text: string): vscode.LanguageModelChatRequestMess
 export interface CapturedRequest {
 	body: Record<string, unknown>;
 	headers: Record<string, string>;
+	/** The model object the request went out with: the discovered one under useDiscoveredModel, else the attached copy. */
+	model: LiteLLMModelInfo;
 }
 
 export interface CaptureRequestOverrides {
@@ -151,7 +153,7 @@ export async function captureRequest(
 	opts: unknown,
 	overrides: CaptureRequestOverrides = {}
 ): Promise<CapturedRequest> {
-	let captured: CapturedRequest | undefined;
+	let captured: Omit<CapturedRequest, "model"> | undefined;
 	const discoveryPayload = overrides.discoveryPayload ?? DEFAULT_DISCOVERY_PAYLOAD;
 	mswServer.use(
 		...discoveryHandlers(discoveryPayload),
@@ -187,7 +189,7 @@ export async function captureRequest(
 		{ report: () => {} },
 		token
 	);
-	return expectDefined(captured, "no chat request reached the mock server");
+	return { ...expectDefined(captured, "no chat request reached the mock server"), model: sent };
 }
 
 export async function captureRequestBody(

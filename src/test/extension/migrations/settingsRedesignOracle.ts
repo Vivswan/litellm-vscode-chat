@@ -93,26 +93,18 @@ export function applyPlanToSnapshot(
 
 export const WALK_BASELINES: readonly ServerDeclaredCapabilities[] = [
 	{ kind: "declared" },
-	{ kind: "discovered", values: {}, outputDeclared: false },
+	{ kind: "discovered", values: {}, defaultMaxTokens: 4096 },
 	{
 		kind: "discovered",
 		values: { context_length: 100000, max_output_tokens: 8000, max_input_tokens: 90000, supports_vision: true },
-		outputDeclared: true,
+		defaultMaxTokens: 8000,
 	},
 ];
 
-export interface WalkView {
+interface WalkView {
 	readonly fields: Record<string, number | boolean>;
-	readonly outputLimitSource: "user" | "provider" | "defaults";
-}
-
-/**
- * The wire max_tokens one walk implies when nothing else sets it: the effective output limit, clamped to min(4096,
- * limit) exactly when its provenance is "defaults" - the same rule on both sides of the redesign.
- */
-export function wireMaxTokens(walk: WalkView): number {
-	const limit = walk.fields.max_output_tokens as number;
-	return walk.outputLimitSource === "defaults" ? Math.min(4096, limit) : limit;
+	/** The max_tokens sent when nothing else sets it; the old side clamps a "defaults" limit to min(4096, limit). */
+	readonly wireMaxTokens: number;
 }
 
 /** One comparable meaning of a configuration for (server, model). */
@@ -399,7 +391,11 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 			tokenDefaults,
 			liftDeclareFallbackBan: true,
 		});
-		return { fields: { ...walk.fields }, outputLimitSource: walk.outputLimitSource };
+		const limit = walk.fields.max_output_tokens as number;
+		return {
+			fields: { ...walk.fields },
+			wireMaxTokens: walk.outputLimitSource === "defaults" ? Math.min(4096, limit) : limit,
+		};
 	});
 
 	// The trio-fill flow corners: the OLD trio applied to every model regardless of other records, while the migrated
@@ -537,7 +533,7 @@ export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, mode
 		const effective = resolveModelCapabilities({ ...capsInput, serverDeclared });
 		return {
 			fields: Object.fromEntries(OLD_CAPABILITY_FIELD_NAMES.map((field) => [field, effective.fields[field].value])),
-			outputLimitSource: effective.outputLimitSource,
+			wireMaxTokens: effective.defaultMaxTokens,
 		};
 	});
 

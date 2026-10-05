@@ -161,11 +161,11 @@ suite("extension/dashboard/resolvedModels", () => {
 									litellm: {
 										rawModelId: "gpt-4",
 										supportsPromptCaching: false,
-										outputLimitSource: "defaults",
+										defaultMaxTokens: 4096,
 										serverDeclared: {
 											kind: "discovered",
 											values: { input_cost_per_token: 0.000002, supports_pdf_input: true },
-											outputDeclared: false,
+											defaultMaxTokens: 4096,
 										},
 									},
 								}),

@@ -300,8 +300,8 @@ export interface DashboardModel {
 	readonly serverLabel: string;
 	readonly maxInputTokens: number;
 	readonly maxOutputTokens: number;
-	/** Whether the server declared the output limit; gates the request's max_tokens cap (see resolveMaxTokens). */
-	readonly outputLimitDeclared: boolean;
+	/** The request's max_tokens when nothing configures one; under maxOutputTokens when a guessed limit exceeds the cap. */
+	readonly defaultMaxTokens: number;
 	readonly inputCost?: number | undefined;
 	readonly outputCost?: number | undefined;
 	readonly cacheReadCost?: number | undefined;

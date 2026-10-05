@@ -1131,8 +1131,8 @@ suite("extension/dashboard/state", () => {
 				litellm: {
 					rawModelId: "claude",
 					supportsPromptCaching: true,
-					outputLimitSource: "provider",
-					serverDeclared: { kind: "discovered", values: {}, outputDeclared: true },
+					defaultMaxTokens: 8000,
+					serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 8000 },
 				},
 			});
 			const state = buildState([{ status: makeServerStatus(), models: [info] }], makeReader({}));
@@ -1148,7 +1148,7 @@ suite("extension/dashboard/state", () => {
 				serverLabel: "Prod",
 				maxInputTokens: 100000,
 				maxOutputTokens: 8000,
-				outputLimitDeclared: true,
+				defaultMaxTokens: 8000,
 				inputCost: 3,
 				outputCost: 15,
 				cacheReadCost: 0.3,
@@ -1479,8 +1479,8 @@ suite("extension/dashboard/state", () => {
 								litellm: {
 									rawModelId: "gpt-4:cheapest",
 									supportsPromptCaching: false,
-									outputLimitSource: "defaults",
-									serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+									defaultMaxTokens: 4096,
+									serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 4096 },
 								},
 							}),
 						],
@@ -1496,7 +1496,7 @@ suite("extension/dashboard/state", () => {
 			);
 		});
 
-		test("group models are already raw, and outputLimitDeclared mirrors the litellm provenance", () => {
+		test("group models are already raw, and defaultMaxTokens mirrors the litellm stamp", () => {
 			const state = buildState(
 				[
 					{
@@ -1509,8 +1509,8 @@ suite("extension/dashboard/state", () => {
 								litellm: {
 									rawModelId: "claude",
 									supportsPromptCaching: false,
-									outputLimitSource: "provider",
-									serverDeclared: { kind: "discovered", values: {}, outputDeclared: true },
+									defaultMaxTokens: 8000,
+									serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 8000 },
 								},
 							}),
 						],
@@ -1519,10 +1519,10 @@ suite("extension/dashboard/state", () => {
 				makeReader({})
 			);
 			assert.deepStrictEqual(
-				state.models.map((model) => [model.rawId, model.outputLimitDeclared]),
+				state.models.map((model) => [model.rawId, model.defaultMaxTokens]),
 				[
-					["gpt-4", false],
-					["claude", true],
+					["gpt-4", 4096],
+					["claude", 8000],
 				]
 			);
 		});
