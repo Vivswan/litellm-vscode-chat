@@ -52,6 +52,9 @@ export interface ExternalGroupResolution {
  * The still-external snapshot a row handle names, bound to the intent's base URL. `declared` is the engine's live
  * resolution (ServerSyncEngine.resolveDeclaredIdentities), so a stale or forged handle cannot land on a group the
  * setting declares now, and cannot re-point at another host.
+ *
+ *   identity with client IDs      -> joinDeclared's passes claim one group for it (by ID, else by label and URL, else by URL alone)
+ *   identity with none (a reject) -> its group is any group at its URL, so every one of them stays off limits
  */
 function resolveExternalSnapshot(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -61,10 +64,16 @@ function resolveExternalSnapshot(
 ): ServerModelsSnapshot | undefined {
 	const labeled = labeledSnapshots(snapshots);
 	const { unmatched } = joinDeclared(labeled, declared);
+	const reserved = new Set(
+		declared
+			.filter((identity) => identity.expectedClientId === undefined && identity.expectedConnectionId === undefined)
+			.map((identity) => normalizeBaseUrl(identity.baseUrl))
+	);
 	return [...unmatched].find(
 		(entry) =>
 			adoptSourceHandle(entry.snapshot.status.serverId) === sourceHandle &&
-			normalizeBaseUrl(entry.snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl)
+			normalizeBaseUrl(entry.snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl) &&
+			!reserved.has(normalizeBaseUrl(entry.snapshot.status.baseUrl))
 	)?.snapshot;
 }
 

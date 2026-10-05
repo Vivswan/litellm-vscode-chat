@@ -220,7 +220,7 @@ interface Scenario {
 	/** What adopt does with the handle: the plain entry with the caveat, or the refusal with nothing written. */
 	adopt: "plain-entry" | "rejects";
 	/** What hide throws, and adopt when it rejects: the stale-row validation error, or the failed secrets read. */
-	refusal: RegExp | typeof DashboardValidationError;
+	refusal: RegExp | typeof DashboardValidationError | ((error: unknown) => boolean);
 	/** The declared setting and the stored API keys once the intent has run, the window's mid-intent changes included. */
 	after: { readonly setting: unknown; readonly secrets: Readonly<Record<string, unknown>> };
 }
@@ -232,6 +232,11 @@ const L1_INLINE = { label: "L1", baseUrl: H, auth: { apiKey: SECRET } };
 const L1_REJECTED = { label: "L1", baseUrl: H, auth: { oauth: { tokenUrl: "https://idp.test/token" } } };
 /** The blob a secure API key stored for an entry at `baseUrl` leaves, owner stamp included. */
 const keyBlob = (baseUrl: string) => ({ apiKey: SECRET, _owner: { apiKey: secretDestination({ baseUrl }, "apiKey") } });
+/** A refusal the webview renders as validation text, not as the generic failure: the class and the message both. */
+const validation =
+	(message: RegExp) =>
+	(error: unknown): boolean =>
+		error instanceof DashboardValidationError && message.test(error.message);
 
 /**
  * Windows in which a live group carries L1's secret and a resolution short of one consistent, fully read
@@ -247,6 +252,8 @@ const keyBlob = (baseUrl: string) => ({ apiKey: SECRET, _owner: { apiKey: secret
  *   rejected-entry            -> L1's auth block was hand-edited into a shape the parser refuses after its group, key baked in, was created
  *   label-only-entry          -> L1 was hand-edited down to its label; the pass keeps the label declared, yet nothing can join its group
  *   non-array-setting         -> the setting is mid-edit; the pass keeps every old label declared, yet nothing can join any group
+ *   rejected-entry-shared-url -> the rejected L1's key lives in an unlabeled legacy group at H, beside another group at H the URL join would claim first
+ *   malformed-after-resolution -> the setting turns into a non-array in the continuation between the resolution's return and the write
  */
 const WINDOWS: Record<string, Scenario> = {
 	"mid-pass": {
@@ -412,7 +419,7 @@ const WINDOWS: Record<string, Scenario> = {
 		after: { setting: [{ label: "L1" }], secrets: { L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
 		adopt: "rejects",
-		refusal: /without a base URL/,
+		refusal: validation(/without a base URL/),
 		open: async (fixture) => {
 			const { engine, env, pushedHandle } = fixture;
 			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("L1", H) }, env);
@@ -428,7 +435,7 @@ const WINDOWS: Record<string, Scenario> = {
 		after: { setting: "not an array", secrets: { L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
 		adopt: "rejects",
-		refusal: /not an array/,
+		refusal: validation(/not an array/),
 		open: async (fixture) => {
 			const { engine, env, pushedHandle } = fixture;
 			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("L1", H) }, env);
@@ -437,6 +444,44 @@ const WINDOWS: Record<string, Scenario> = {
 			await engine.syncNow();
 			const handle = pushedHandle("L1");
 			assert.ok(handle !== undefined, "the pass's views omit the entry, so its live group reads as external");
+			return { handle, close: async () => {} };
+		},
+	},
+	"rejected-entry-shared-url": {
+		after: { setting: [L1_REJECTED], secrets: { L1: keyBlob(H) } },
+		intents: ["adopt", "hide"],
+		adopt: "plain-entry",
+		refusal: DashboardValidationError,
+		open: async (fixture) => {
+			const { engine, host, pushedHandle } = fixture;
+			fixture.declare([L1_ENTRY]);
+			fixture.storeSecureKey("L1", SECRET);
+			fixture.declare([L1_REJECTED]);
+			await host.addProviderGroup({ name: "a-ext", vendor: "litellm", baseUrl: H });
+			await host.addProviderGroup({ name: "legacy", vendor: "litellm", baseUrl: H, apiKey: SECRET });
+			await engine.syncNow();
+			const handle = pushedHandle("legacy");
+			assert.ok(handle !== undefined, "the legacy group carrying L1's key reads as external beside another group at H");
+			return { handle, close: async () => {} };
+		},
+	},
+	"malformed-after-resolution": {
+		after: { setting: "not an array", secrets: {} },
+		intents: ["adopt", "hide"],
+		adopt: "rejects",
+		refusal: validation(/changed while this action ran|not an array/),
+		open: async (fixture) => {
+			const { engine, host, pushedHandle } = fixture;
+			await host.addProviderGroup({ name: "native", vendor: "litellm", baseUrl: H, apiKey: SECRET });
+			await engine.syncNow();
+			const handle = pushedHandle("native");
+			assert.ok(handle !== undefined);
+			const resolve = engine.resolveDeclaredIdentities.bind(engine);
+			engine.resolveDeclaredIdentities = async () => {
+				const resolved = await resolve();
+				fixture.declare("not an array");
+				return resolved;
+			};
 			return { handle, close: async () => {} };
 		},
 	},

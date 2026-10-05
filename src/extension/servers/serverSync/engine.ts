@@ -450,13 +450,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
-	 * One full reading: the cloned setting, each accepted entry's owned secrets, and the label plus base URL of each
-	 * parser-rejected carrier that draws a Misconfigured row. A valid earlier shape of such an entry may have created
-	 * its group, and that group stays declared, joined by label and URL. A setting the pass would treat as declaring a
-	 * label without giving it a base URL to join on is indeterminate, and the reading rejects.
+	 * A valid earlier shape of a now-rejected entry may have created its group, and the pass still treats a present
+	 * label as declared (stillDeclaredIn; finishPass on a non-array container).
 	 *
-	 *   container not an array           -> a pass keeps every old label as present (finishPass); nothing can join
-	 *   a raw label with no usable URL    -> stillDeclaredIn keeps its group alive; nothing can join it
+	 *   drawable reject                                          -> a label-and-URL identity, so its group stays declared
+	 *   a label with no URL to join on, or a non-array container -> indeterminate; the reading rejects
 	 */
 	private async readDeclaredPair(): Promise<{
 		setting: unknown;
