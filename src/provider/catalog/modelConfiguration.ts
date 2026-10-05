@@ -126,10 +126,23 @@ export function reasoningEffortSchema(levels: readonly string[]): LanguageModelC
 const REASONING_LEVEL_FLAG = /^supports_(.+)_reasoning_effort$/;
 
 /**
+ * The one menu order: known levels in the built-in order, unknown ones after them as they arrived. The flag-derived
+ * list and modelCatalog's cross-deployment union both sort through here, so a known level's place never depends on
+ * which deployment the server listed first.
+ */
+export function orderedReasoningLevels(levels: Iterable<string>): string[] {
+	const present = new Set(levels);
+	const known = DEFAULT_REASONING_EFFORT_LEVELS.filter((level) => present.has(level));
+	const unknown = [...present].filter(
+		(level) => !(DEFAULT_REASONING_EFFORT_LEVELS as readonly string[]).includes(level)
+	);
+	return [...known, ...unknown];
+}
+
+/**
  * LiteLLM stamps `supports_<level>_reasoning_effort` per level onto model info, `true`/`false`/`null`; only an explicit
  * `true` counts, and a report whose every flag is false or null reads as no signal rather than an empty menu (a user
- * record can still write the exact list). Known levels come back in the built-in menu order, unknown flagged levels
- * after them in report order.
+ * record can still write the exact list).
  */
 export function reasoningEffortLevelsFromFlags(source: unknown): string[] | undefined {
 	if (!isRecord(source)) {
@@ -142,14 +155,7 @@ export function reasoningEffortLevelsFromFlags(source: unknown): string[] | unde
 			flagged.add(level);
 		}
 	}
-	if (flagged.size === 0) {
-		return undefined;
-	}
-	const known = DEFAULT_REASONING_EFFORT_LEVELS.filter((level) => flagged.has(level));
-	const unknown = [...flagged].filter(
-		(level) => !(DEFAULT_REASONING_EFFORT_LEVELS as readonly string[]).includes(level)
-	);
-	return [...known, ...unknown];
+	return flagged.size > 0 ? orderedReasoningLevels(flagged) : undefined;
 }
 
 /**

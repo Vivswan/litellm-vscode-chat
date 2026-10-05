@@ -10,7 +10,7 @@ import {
 	parseModelInfoItem,
 } from "../../../provider/catalog/discovery";
 import { deriveTokenConstraints } from "../../../provider/catalog/modelCatalog";
-import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
+import { reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem, ModelShape } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
@@ -962,8 +962,8 @@ suite("provider/catalog/discovery", () => {
 			assert.deepStrictEqual(provider.supported_openai_params, ["temperature"]);
 			assert.deepStrictEqual(
 				provider.reasoning_effort_levels,
-				["low", "max"],
-				"the flag-derived level lists intersect like the supported params"
+				["low", "high", "xhigh", "max"],
+				"the flag-derived level lists union in menu order, unlike the supported params"
 			);
 			assert.strictEqual(model.architecture, undefined, "Vision holds only when every deployment advertises it");
 		});
@@ -1462,12 +1462,12 @@ suite("provider/catalog/discovery", () => {
 			assert.ok(!("output_cost_per_token" in declared.values));
 		});
 
-		test("disjoint per-level reasoning flags collapse to no signal, never an empty menu", () => {
+		test("deployments flagging disjoint levels register their union, not every default", () => {
 			const merged = mergeModelDeployments([
-				deployment({ supports_reasoning: true, supports_low_reasoning_effort: true }),
 				deployment({ supports_reasoning: true, supports_high_reasoning_effort: true }),
+				deployment({ supports_reasoning: true, supports_low_reasoning_effort: true }),
 			]);
-			assert.deepStrictEqual(merged.provider.reasoning_effort_levels, [], "the raw intersection is empty");
+			assert.deepStrictEqual(merged.provider.reasoning_effort_levels, ["low", "high"], "menu order, not arrival order");
 			const { infos } = buildModelInfos(
 				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
@@ -1477,15 +1477,12 @@ suite("provider/catalog/discovery", () => {
 			const info = expectDefined(infos[0]);
 			assert.deepStrictEqual(
 				info.configurationSchema,
-				reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS),
-				"an empty intersection reads as no signal, so the menu falls back to the built-in list"
+				reasoningEffortSchema(["low", "high"]),
+				"the picker offers what either deployment accepts, never the seven built-in levels"
 			);
 			const declared = info.litellm.serverDeclared;
 			assert.ok(declared.kind === "discovered");
-			assert.ok(
-				!("reasoning_effort_levels" in declared.values),
-				"the baseline omits the field so the walk's server level cannot pin an empty menu"
-			);
+			assert.deepStrictEqual(declared.values.reasoning_effort_levels, ["low", "high"]);
 		});
 
 		test("a merged deployment's baseline never claims more than the merge advertised", () => {
