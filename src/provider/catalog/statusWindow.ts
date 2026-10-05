@@ -8,6 +8,19 @@ import type { ServerStatus } from "../../shared/servers";
 import type { GroupServer, PreAttachModelInfo } from "./groupModels";
 
 /**
+ * The identity a credential rotation leaves intact; the serve-generation claim (groupDiscovery.ts) and the window's
+ * entry both key on it. Undefined for an unlabeled group, whose client ID is its only identity. A JSON array, so it can
+ * never collide with a `group:` client ID.
+ */
+export function logicalGroupId(groupServer: Pick<GroupServer, "label" | "baseUrl">): string | undefined {
+	return groupServer.label !== undefined ? JSON.stringify([groupServer.label, groupServer.baseUrl]) : undefined;
+}
+
+function groupIdentity(groupServer: Pick<GroupServer, "label" | "baseUrl">, clientId: string): string {
+	return logicalGroupId(groupServer) ?? clientId;
+}
+
+/**
  * The configured stale-serve window only GROWS eviction beyond this floor, never shrinks it: eviction anchors to the
  * last report of any kind, and a short window would evict mid-sweep entries the one-cycle grace exists to keep visible.
  */
@@ -130,9 +143,12 @@ export class StatusWindow {
 	 * cycleMarked.
 	 *   a group reporting again within one unmarked cycle -> a fresh cycle begins and true is reported so the caller
 	 *                                                        can prune alongside
+	 *   a rotated client ID                                -> not a re-sight: advancing on it evicted a live group's
+	 *                                                        stale anchor before that group was re-reached
 	 */
-	beginCycleOnReSight(serverId: string): boolean {
-		if (this.cycleMarked || this.entries.get(serverId)?.cycle !== this.cycle) {
+	beginCycleOnReSight(clientId: string, groupServer: Pick<GroupServer, "label" | "baseUrl">): boolean {
+		const entry = this.entries.get(groupIdentity(groupServer, clientId));
+		if (this.cycleMarked || entry === undefined || entry.status.serverId !== clientId || entry.cycle !== this.cycle) {
 			return false;
 		}
 		this.advanceCycle();
@@ -144,9 +160,9 @@ export class StatusWindow {
 		this.cycleMarked = false;
 		const now = this.now();
 		const ttl = this.evictionTtlMs();
-		for (const [serverId, entry] of this.entries) {
+		for (const [identity, entry] of this.entries) {
 			if (entry.cycle < this.cycle - 1 || now - entry.at > ttl) {
-				this.entries.delete(serverId);
+				this.entries.delete(identity);
 			}
 		}
 	}
@@ -171,18 +187,10 @@ export class StatusWindow {
 		groupServer: GroupServer,
 		observations: DiscoveryObservations = {}
 	): void {
-		// A credential rotation mints a new client ID for the same logical group. The retired identity is evicted at
-		// once rather than left to age out: a lingering twin double-counts the merged status and renders as a ghost
-		// external row whose Hide would tombstone the label the REAL group serves under.
-		//   Its last success -> carries into the successor as the stale-serve anchor
-		const twin = this.labeledTwin(status.serverId, groupServer);
-		if (twin !== undefined) {
-			this.entries.delete(twin[0]);
-		}
-		const previous = this.entries.get(status.serverId) ?? twin?.[1];
-		// A twin's successor is the same logical group: not an entry.
+		const identity = groupIdentity(groupServer, status.serverId);
+		const previous = this.entries.get(identity);
 		const entered = groupServer.label !== undefined && previous === undefined;
-		this.entries.set(status.serverId, {
+		this.entries.set(identity, {
 			cycle: this.cycle,
 			at: this.now(),
 			lastSuccess: status.state === "ok" ? { at: this.now(), models: served.discovered } : previous?.lastSuccess,
@@ -212,10 +220,15 @@ export class StatusWindow {
 
 	/**
 	 * This is the extension layer's one path to a group's credentials; the value is handed to the caller only and must
-	 * never be logged or pushed into webview state.
+	 * never be logged or pushed into webview state. The dashboard's handle is a snapshot's `status.serverId`.
 	 */
-	getGroupServer(serverId: string): GroupServer | undefined {
-		return this.entries.get(serverId)?.groupServer;
+	getGroupServer(clientId: string): GroupServer | undefined {
+		for (const entry of this.entries.values()) {
+			if (entry.status.serverId === clientId) {
+				return entry.groupServer;
+			}
+		}
+		return undefined;
 	}
 
 	/**
@@ -236,8 +249,9 @@ export class StatusWindow {
 		return [...urls];
 	}
 
+	/** The current client ID of every entry; the facade's prune keep-set. */
 	serverIds(): string[] {
-		return [...this.entries.keys()];
+		return [...this.entries.values()].map((entry) => entry.status.serverId);
 	}
 
 	/** The resolved connections of every group in the window; same handling rules as getGroupServer. */
@@ -253,42 +267,15 @@ export class StatusWindow {
 	 * disabled).
 	 */
 	staleServableModels(
-		serverId: string,
-		groupServer?: Pick<GroupServer, "label" | "baseUrl">
+		clientId: string,
+		groupServer: Pick<GroupServer, "label" | "baseUrl">
 	): { models: readonly PreAttachModelInfo[]; discoveredRawIds: readonly string[]; lastSuccessAt: number } | undefined {
-		// A rotated identity has no record until its first report lands, but its labeled twin's last success is the
-		// same logical group's models.
-		const entry = this.entries.get(serverId) ?? this.labeledTwin(serverId, groupServer)?.[1];
+		const entry = this.entries.get(groupIdentity(groupServer, clientId));
 		const lastSuccess = entry?.lastSuccess;
 		const windowMs = this.staleServeWindowMs();
 		if (entry === undefined || lastSuccess === undefined || windowMs <= 0 || this.now() - lastSuccess.at > windowMs) {
 			return undefined;
 		}
 		return { models: lastSuccess.models, discoveredRawIds: entry.discoveredRawIds, lastSuccessAt: lastSuccess.at };
-	}
-
-	/**
-	 * The labeled twin of a server ID: an entry for the SAME logical group (same label, same base URL) recorded under
-	 * a different, usually retired, identity.
-	 *
-	 * Both base URLs are NormalizedBaseUrl by construction.
-	 */
-	private labeledTwin(
-		serverId: string,
-		groupServer: Pick<GroupServer, "label" | "baseUrl"> | undefined
-	): [string, StatusWindowEntry] | undefined {
-		if (groupServer?.label === undefined) {
-			return undefined;
-		}
-		for (const [id, entry] of this.entries) {
-			if (
-				id !== serverId &&
-				entry.groupServer.label === groupServer.label &&
-				entry.groupServer.baseUrl === groupServer.baseUrl
-			) {
-				return [id, entry];
-			}
-		}
-		return undefined;
 	}
 }

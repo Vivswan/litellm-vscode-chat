@@ -56,17 +56,17 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 
 		clock.nowMs += DEFAULT_WINDOW_MS;
 		window.record(errorStatus(), NOTHING_SERVED, groupServer);
-		expect(window.staleServableModels("s1")?.models).toEqual(models);
+		expect(window.staleServableModels("s1", groupServer)?.models).toEqual(models);
 
 		clock.nowMs += 1;
-		expect(window.staleServableModels("s1")).toBeUndefined();
+		expect(window.staleServableModels("s1", groupServer)).toBeUndefined();
 	});
 
 	test("a zero window never serves stale, even right after the success", () => {
 		const { window } = makeWindow(0);
 		window.record(okStatus(), served, groupServer, { discoveredRawIds: ["test-model"] });
 		window.record(errorStatus(), NOTHING_SERVED, groupServer);
-		expect(window.staleServableModels("s1")).toBeUndefined();
+		expect(window.staleServableModels("s1", groupServer)).toBeUndefined();
 	});
 
 	test("a longer window serves past ten minutes and honors its own bound", () => {
@@ -75,11 +75,11 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 
 		clock.nowMs += 30 * MINUTE_MS;
 		window.record(errorStatus(), NOTHING_SERVED, groupServer);
-		expect(window.staleServableModels("s1")?.models).toEqual(models);
+		expect(window.staleServableModels("s1", groupServer)?.models).toEqual(models);
 
 		clock.nowMs += 31 * MINUTE_MS;
 		window.record(errorStatus(), NOTHING_SERVED, groupServer);
-		expect(window.staleServableModels("s1")).toBeUndefined();
+		expect(window.staleServableModels("s1", groupServer)).toBeUndefined();
 	});
 
 	test("a settings change reaches the next read without re-recording", () => {
@@ -87,10 +87,10 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 		window.record(okStatus(), served, groupServer, { discoveredRawIds: ["test-model"] });
 		clock.nowMs += 30 * MINUTE_MS;
 		window.record(errorStatus(), NOTHING_SERVED, groupServer);
-		expect(window.staleServableModels("s1")).toBeUndefined();
+		expect(window.staleServableModels("s1", groupServer)).toBeUndefined();
 
 		config.windowMs = 60 * MINUTE_MS;
-		expect(window.staleServableModels("s1")?.models).toEqual(models);
+		expect(window.staleServableModels("s1", groupServer)?.models).toEqual(models);
 	});
 
 	test("eviction grows with the window: a report gap longer than the floor keeps the anchor alive", () => {
@@ -104,7 +104,7 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 		window.beginCycle();
 		expect(window.serverIds()).toEqual(["s1"]);
 		window.record(errorStatus(), NOTHING_SERVED, groupServer);
-		expect(window.staleServableModels("s1")?.models).toEqual(models);
+		expect(window.staleServableModels("s1", groupServer)?.models).toEqual(models);
 	});
 
 	test("eviction keeps its ten-minute floor with the default window (today's behavior)", () => {
@@ -137,7 +137,7 @@ describe("provider/catalog/statusWindow: the failure-record contract", () => {
 
 		clock.nowMs += MINUTE_MS;
 		window.record(errorStatus(), NOTHING_SERVED, groupServer);
-		expect(window.staleServableModels("s1")?.discoveredRawIds).toEqual(["test-model"]);
+		expect(window.staleServableModels("s1", groupServer)?.discoveredRawIds).toEqual(["test-model"]);
 	});
 
 	test("a failure report structurally cannot carry observations", () => {
@@ -146,7 +146,7 @@ describe("provider/catalog/statusWindow: the failure-record contract", () => {
 
 		// @ts-expect-error - the failure overload has no observations parameter
 		window.record(errorStatus(), NOTHING_SERVED, groupServer, { discoveredRawIds: ["smuggled"] });
-		expect(window.staleServableModels("s1")?.discoveredRawIds).toEqual(["test-model"]);
+		expect(window.staleServableModels("s1", groupServer)?.discoveredRawIds).toEqual(["test-model"]);
 	});
 });
 
@@ -171,8 +171,60 @@ describe("provider/catalog/statusWindow: declared models in the served record", 
 		// declaration and collide with the fresh synthesis.
 		clock.nowMs += MINUTE_MS;
 		window.record(errorStatus(), { discovered: [], declared }, groupServer);
-		expect(window.staleServableModels("s1")?.models).toEqual(models);
+		expect(window.staleServableModels("s1", groupServer)?.models).toEqual(models);
 		expect(window.snapshots().map((snapshot) => snapshot.models.map((info) => info.id))).toEqual([["declared-model"]]);
+	});
+});
+
+describe("provider/catalog/statusWindow: a labeled group's entry keys on its identity, never its credentials", () => {
+	test("a credential rotation updates the one entry in place: new client ID, last success carried, no entry event", () => {
+		// The incident: a rotation minted a second entry beside the retired one, double-counting the merged status
+		// and rendering a ghost external row whose Hide tombstoned the label the real group serves under.
+		const clock = { nowMs: 1_000_000 };
+		let entered = 0;
+		const window = new StatusWindow(
+			() => clock.nowMs,
+			() => DEFAULT_WINDOW_MS,
+			() => {
+				entered += 1;
+			}
+		);
+		window.record(okStatus("s1"), served, groupServer, { discoveredRawIds: ["test-model"] });
+		const rotated: GroupServer = { ...groupServer, apiKey: "k2" };
+
+		// The failing serve reads the anchor BEFORE its own record lands, under the client ID no report has used yet.
+		clock.nowMs += MINUTE_MS;
+		expect(window.staleServableModels("s2", rotated)?.models).toEqual(models);
+		window.record(errorStatus("s2"), NOTHING_SERVED, rotated);
+		expect(window.serverIds()).toEqual(["s2"]);
+		expect(window.getGroupServer("s1")).toBeUndefined();
+		expect(window.getGroupServer("s2")?.apiKey).toBe("k2");
+		expect(window.staleServableModels("s2", rotated)?.discoveredRawIds).toEqual(["test-model"]);
+		expect(entered).toBe(1);
+
+		const relabeled: GroupServer = { ...groupServer, label: "Other" };
+		const moved: GroupServer = { ...groupServer, baseUrl: normalizeBaseUrl("http://moved.test") };
+		window.record(errorStatus("s3"), NOTHING_SERVED, relabeled);
+		window.record(errorStatus("s4"), NOTHING_SERVED, moved);
+		expect(window.serverIds()).toEqual(["s2", "s3", "s4"]);
+		expect(window.staleServableModels("s3", relabeled)).toBeUndefined();
+		expect(entered).toBe(3);
+	});
+
+	test("on unmarked cycles only the same client ID re-sighted advances the cycle; a rotation leaves the other groups alone", () => {
+		// The regression the identity key invited: a rotated client ID read as a re-sight advanced the cycle twice
+		// in a row and evicted a live group (its stale anchor with it) before the sweep re-reached it.
+		const { window } = makeWindow(DEFAULT_WINDOW_MS);
+		const other: GroupServer = { ...groupServer, label: "Other" };
+		window.record(okStatus("a1"), served, groupServer, { discoveredRawIds: ["test-model"] });
+		window.record(okStatus("b1"), served, other, { discoveredRawIds: ["test-model"] });
+		expect(window.beginCycleOnReSight("a1", groupServer)).toBe(true);
+		window.record(okStatus("a1"), served, groupServer, { discoveredRawIds: ["test-model"] });
+
+		expect(window.beginCycleOnReSight("a2", groupServer)).toBe(false);
+		window.record(errorStatus("a2"), NOTHING_SERVED, { ...groupServer, apiKey: "k2" });
+		expect(window.serverIds()).toEqual(["a2", "b1"]);
+		expect(window.staleServableModels("b1", other)?.models).toEqual(models);
 	});
 });
 

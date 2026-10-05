@@ -198,8 +198,7 @@ suite("provider/catalog/groupModels", () => {
 
 		test("entries sharing a base URL and every credential get distinct identities from their labels", () => {
 			// Two declared entries, one server, one key. Without the label both
-			// would collapse to one status-window entry and the second could never
-			// report.
+			// would share one client ID, the dashboard's handle to a group.
 			const prod = expectDefined(
 				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
 			);
