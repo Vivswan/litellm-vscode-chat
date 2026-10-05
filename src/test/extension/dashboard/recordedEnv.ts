@@ -164,6 +164,8 @@ export interface RecordedEnv {
 	/** Every hideGroup call; duringHide runs inside the fake, before it answers, for mutations racing the hide. */
 	hidden: TombstoneIdentity[];
 	duringHide?: () => void;
+	/** Whether the fake reports the hide as inserting a record (false: an identical record already stood). */
+	hideAdded: boolean;
 	/** Replace the visible servers setting outright: another window's write landing between two reads. */
 	setSetting: (value: unknown) => void;
 	/** Every retractHide call: the exact record a compensated hide took back. */
@@ -210,6 +212,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		reviewProbes: [],
 		reviewProbeResult: undefined,
 		hidden: [],
+		hideAdded: true,
 		setSetting: (value) => {
 			currentSetting = value;
 		},
@@ -310,7 +313,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			hideGroup: async (identity) => {
 				recorded.hidden.push({ ...identity });
 				recorded.duringHide?.();
-				return "durable";
+				return { persistence: "durable", added: recorded.hideAdded };
 			},
 			retractHide: async (identity) => {
 				recorded.retracted.push({ ...identity });

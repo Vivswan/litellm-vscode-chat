@@ -610,6 +610,21 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.unhidden, []);
 		});
 
+		test("a repeated hide whose setting changed takes back nothing: the record is the first request's", async () => {
+			const recorded = makeEnv([]);
+			recorded.externalGroup = { by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test" };
+			recorded.hideAdded = false;
+			recorded.duringHide = () => recorded.setSetting([{ label: "L1", baseUrl: "http://prod.test" }]);
+			await assert.rejects(
+				executeDashboardIntent(
+					{ method: "hideExternalServer", payload: { baseUrl: "http://prod.test", sourceHandle: "handle-1" } },
+					recorded.env
+				),
+				/changed while this action ran/
+			);
+			assert.deepStrictEqual(recorded.retracted, []);
+		});
+
 		test("hideExternalServer refuses an unusable base URL before any lookup", async () => {
 			const recorded = makeEnv();
 			await assert.rejects(

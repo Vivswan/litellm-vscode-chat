@@ -29,17 +29,22 @@ suite("extension/servers/groupRemovals", () => {
 			// salt-independent and persist as before.
 			const { store, storage, changes } = makeStore({}, "session-only");
 			const group = { groupId: "group:x", label: "h.test", entryLabel: undefined, baseUrl: "http://h.test" };
-			assert.strictEqual(
+			assert.deepStrictEqual(
 				await store.addTombstone({ by: "group", groupId: "group:x", label: "h.test", baseUrl: "http://h.test" }),
-				"session-only"
+				{ persistence: "session-only", added: true }
+			);
+			assert.deepStrictEqual(
+				await store.addTombstone({ by: "group", groupId: "group:x", label: "h.test", baseUrl: "http://h.test" }),
+				{ persistence: "session-only", added: false },
+				"an identical record is not inserted twice"
 			);
 			assert.strictEqual(store.isTombstoned(group), true, "the hide applies now");
 			assert.deepStrictEqual(changes, [1], "the provider still re-resolves");
 			assert.strictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), undefined, "nothing reached storage");
-			assert.strictEqual(
-				await store.addTombstone({ by: "entry", label: "Prod", baseUrl: "http://prod.test" }),
-				"durable"
-			);
+			assert.deepStrictEqual(await store.addTombstone({ by: "entry", label: "Prod", baseUrl: "http://prod.test" }), {
+				persistence: "durable",
+				added: true,
+			});
 			assert.deepStrictEqual(
 				(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { records: unknown[] }).records,
 				[{ by: "entry", label: "Prod", baseUrl: "http://prod.test" }],
@@ -70,9 +75,9 @@ suite("extension/servers/groupRemovals", () => {
 
 		test("a group-keyed tombstone under a durable salt persists as every other record", async () => {
 			const { store, storage } = makeStore();
-			assert.strictEqual(
+			assert.deepStrictEqual(
 				await store.addTombstone({ by: "group", groupId: "group:x", label: "h.test", baseUrl: "http://h.test" }),
-				"durable"
+				{ persistence: "durable", added: true }
 			);
 			assert.deepStrictEqual(
 				(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { records: unknown[] }).records,

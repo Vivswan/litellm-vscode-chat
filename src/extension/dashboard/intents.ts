@@ -47,7 +47,7 @@ import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
-import type { TombstoneIdentity, TombstonePersistence } from "../servers/groupRemovals";
+import type { TombstoneIdentity, TombstoneRecording } from "../servers/groupRemovals";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
@@ -154,7 +154,7 @@ export interface IntentEnvironment {
 	 */
 	resolveExternalGroup(baseUrl: string, sourceHandle: string): Promise<ExternalGroupResolution>;
 	/** Record one removed-group tombstone; the group answers with no models until unhidden. */
-	hideGroup(identity: TombstoneIdentity): Promise<TombstonePersistence>;
+	hideGroup(identity: TombstoneIdentity): Promise<TombstoneRecording>;
 	/** Take back exactly the record a hide added; the identity's other tombstones stand. */
 	retractHide(identity: TombstoneIdentity): Promise<void>;
 	/** Clear the tombstones shown under this identity. Resolves false when none matched. */
@@ -763,13 +763,16 @@ export async function executeDashboardIntent(
 				);
 			}
 			requireSettingUnchanged(env, resolved.setting);
-			await env.hideGroup(resolved.identity);
+			const recording = await env.hideGroup(resolved.identity);
 			// The store awaits a secret-storage read before it commits, so a write from another window can land between
-			// the check above and the commit; a hide resolved against a setting that no longer stands is taken back.
+			// the check above and the commit; a hide resolved against a setting that no longer stands is taken back,
+			// and only when this call inserted the record (a repeated Hide owns nothing to take back).
 			try {
 				requireSettingUnchanged(env, resolved.setting);
 			} catch (error) {
-				await env.retractHide(resolved.identity);
+				if (recording.added) {
+					await env.retractHide(resolved.identity);
+				}
 				throw error;
 			}
 			return undefined;

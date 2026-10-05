@@ -205,7 +205,7 @@ function makeHarness(): Harness {
 		requestServerSync: () => {},
 		resolveAdoptionCredentials: async () => ({ source: { credentials: undefined }, setting: harness.serversSetting }),
 		resolveExternalGroup: async () => ({ identity: undefined, setting: harness.serversSetting }),
-		hideGroup: async () => "durable",
+		hideGroup: async () => ({ persistence: "durable", added: true }),
 		retractHide: async () => {},
 		unhideGroup: async () => false,
 		isGroupHidden: () => false,

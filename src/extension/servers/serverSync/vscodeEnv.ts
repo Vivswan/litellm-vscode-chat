@@ -303,7 +303,7 @@ export function createServerSyncEnv(
 						];
 						const recorded: RecordedTombstone[] = [];
 						for (const identity of identities) {
-							recorded.push({ identity, persistence: await removals.addTombstone(identity) });
+							recorded.push({ identity, persistence: (await removals.addTombstone(identity)).persistence });
 						}
 						noticeEvents.push({
 							...event,

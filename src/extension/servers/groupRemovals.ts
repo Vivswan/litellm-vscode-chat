@@ -42,6 +42,12 @@ export type TombstoneIdentity =
  */
 export type TombstonePersistence = "durable" | "session-only";
 
+/** What one addTombstone call did: whether it inserted the record (an identical one may already stand) and its reach. */
+export interface TombstoneRecording {
+	readonly persistence: TombstonePersistence;
+	readonly added: boolean;
+}
+
 export interface DeclaredGroupClaim {
 	readonly label: string;
 	readonly baseUrl: string;
@@ -371,23 +377,27 @@ export class GroupRemovalStore {
 	}
 
 	/**
-	 * Record one tombstone; it hides from the commit on. The result says whether a later session will still hold it:
-	 * confirmed at the write, like the sync engine's fingerprints, because the salt can downgrade mid-session.
+	 * Record one tombstone; it hides from the commit on. The result says whether this call inserted it (a caller
+	 * compensating its own hide must not take back an earlier request's record) and whether a later session will still
+	 * hold it: confirmed at the write, like the sync engine's fingerprints, because the salt can downgrade mid-session.
 	 */
-	async addTombstone(identity: TombstoneIdentity): Promise<TombstonePersistence> {
+	async addTombstone(identity: TombstoneIdentity): Promise<TombstoneRecording> {
 		const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
 		const persistence: TombstonePersistence =
 			normalized.by === "group" && (await this.salt.confirmDurable()) !== "durable" ? "session-only" : "durable";
 		const current = this.tombstoneRegion.list();
 		const changed = !current.some((existing) => sameTombstoneIdentity(existing, normalized));
 		if (!changed) {
-			await this.tombstoneRegion.persistCommitted();
-			return persistence;
+			// The re-persist heals an earlier failed write; a session-only record has nothing of its own to write.
+			if (persistence === "durable") {
+				await this.tombstoneRegion.persistCommitted();
+			}
+			return { persistence, added: false };
 		}
 		if (persistence === "session-only") {
 			this.tombstoneRegion.commitTransient(normalized);
 			this.didChangeListener?.();
-			return persistence;
+			return { persistence, added: true };
 		}
 		this.tombstoneRegion.commit([...current, normalized]);
 		try {
@@ -397,7 +407,7 @@ export class GroupRemovalStore {
 			// storage.
 			await this.tombstoneRegion.persistCommitted();
 		}
-		return persistence;
+		return { persistence, added: true };
 	}
 
 	/** Clear every tombstone shown under the identity (the line's row), whatever key each hides by. */
