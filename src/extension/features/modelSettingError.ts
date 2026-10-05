@@ -36,7 +36,8 @@ export function configuredServerUnavailable(
 					featureDisplayName(feature, "sentence"),
 					serverLabel
 				),
-				`The ${featureEnglishName(feature)} model setting names server "${serverLabel}", but a stored secret for that entry was saved for a different server address. Set the secret again (edit the server in the dashboard, or run LiteLLM: Set Server Secret), or remove the stored value.`,
+				`The ${featureEnglishName(feature)} model setting names server "${serverLabel}", but a stored secret for that entry was saved for a different server address. ` +
+					"Set the secret again (edit the server in the dashboard, or run LiteLLM: Set Server Secret), or remove the stored value.",
 				`${featureLogSurface(feature)}(stored secrets stamped for another destination)`
 			);
 		case "secretsUnreadable":
