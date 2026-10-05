@@ -22,8 +22,8 @@ import { resolveFuzzSeed } from "../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
 
-// Reserved names are rejected by validation, and assembly trims keys, so the
-// clean domain is trimmed non-empty keys outside the reserved set.
+// Reserved names are rejected by validation, and assembly trims keys, so the clean domain is trimmed non-empty keys
+// outside the reserved set.
 const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 const recordKeyChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-/");
@@ -34,9 +34,8 @@ const recordKey = fc
 const paramsRecord = fc.dictionary(recordKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 5 });
 const modelParametersRecord = fc.dictionary(recordKey, paramsRecord, { maxKeys: 5 });
 
-// The clean capability domain: known fields with correctly typed values, plus
-// the two directives. Unknown keys are legal too (hint, not block) but stay out
-// because their values are free JSON.
+// The clean capability domain: known fields with correctly typed values, plus the two directives. Unknown keys are
+// legal too (hint, not block) but stay out because their values are free JSON.
 const capabilityFieldEntry: fc.Arbitrary<[string, unknown]> = fc.oneof(
 	fc.tuple(
 		fc.constantFrom("context_length", "max_input_tokens", "max_output_tokens"),
@@ -68,9 +67,8 @@ const headerName = fc
 
 const finiteNumber = fc.double({ noNaN: true, noDefaultInfinity: true }).map((n) => (Object.is(n, -0) ? 0 : n));
 
-// The request path drops values outside the shared header-value charset (no
-// CR/LF or other control octets; empty is legal) and parseHeaderValue trims, so
-// the clean domain is trim-stable strings without line breaks.
+// The request path drops values outside the shared header-value charset (no CR/LF or other control octets; empty is
+// legal) and parseHeaderValue trims, so the clean domain is trim-stable strings without line breaks.
 const headerValueString = fc.string({ maxLength: 20 }).map((s) => s.replace(/[\r\n]/g, " ").trim());
 
 const headerScalar: fc.Arbitrary<HeaderScalar> = fc.oneof(fc.boolean(), finiteNumber, headerValueString);
@@ -134,9 +132,8 @@ describe("dashboard/recordDraft round-trip properties", () => {
 	});
 });
 
-// The advisory-hint coupling domain: records mixing OPEN fields with consumed
-// fields carrying VALID values and no directives, so unknown-key is the only
-// hint either side can emit. The charsets carry no underscore, so an open key
+// The advisory-hint coupling domain: records mixing OPEN fields with consumed fields carrying VALID values and no
+// directives, so unknown-key is the only hint either side can emit. The charsets carry no underscore, so an open key
 // can never collide with a consumed or core name.
 const openFieldRecord = fc.dictionary(recordKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 3, noNullPrototype: true });
 const validConsumedEntry: fc.Arbitrary<[string, unknown]> = fc.oneof(
@@ -154,7 +151,10 @@ const mixedFieldsRecord: fc.Arbitrary<Record<string, unknown>> = fc
 	.tuple(openFieldRecord, fc.array(validConsumedEntry, { maxLength: 3 }))
 	.map(([open, consumed]) => ({ ...open, ...Object.fromEntries(consumed) }));
 const advisoryRecordMap = fc.dictionary(recordKey, mixedFieldsRecord, { maxKeys: 3, noNullPrototype: true });
-/** The evidence side: absent entirely, or a mix of open-shaped keys and consumed names (an observed key is real either way). */
+/**
+ * The evidence side: absent entirely, or a mix of open-shaped keys and consumed names (an observed key is real either
+ * way).
+ */
 const observedKeySet = fc.option(
 	fc.array(fc.oneof(recordKey, fc.constantFrom(...Object.keys(CONSUMED_CAPABILITY_FIELDS))), { maxLength: 6 }),
 	{ nil: undefined }
@@ -163,9 +163,8 @@ const observedKeySet = fc.option(
 describe("dashboard/recordDraft advisory-hint coupling properties", () => {
 	test("the editor's live unknown-key hints equal the host filter's surviving diagnostics, record for record", () => {
 		// The twice-implemented boundary: the host path (lintCapabilityRecords ->
-		// filterUnrecognizedKeyDiagnostics) and the editor path must hint the same
-		// (record key, field key) set, or live drafts drift from what the
-		// Diagnostics tab shows after the save.
+		// filterUnrecognizedKeyDiagnostics) and the editor path must hint the same (record key, field key) set, or live
+		// drafts drift from what the Diagnostics tab shows after the save.
 		fc.assert(
 			fc.property(advisoryRecordMap, observedKeySet, (record, observed) => {
 				const value = JSON.parse(JSON.stringify(record)) as Record<string, Record<string, unknown>>;

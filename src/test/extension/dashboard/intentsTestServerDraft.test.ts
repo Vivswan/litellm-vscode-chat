@@ -1,6 +1,3 @@
-/**
- * executeDashboardIntent's testServerDraft: the draft probe's inputs, outcomes, and secret handling.
- */
 import * as assert from "node:assert";
 import type { RequestPayload } from "../../../dashboard/endpoints";
 import type { IntentAckNotice } from "../../../extension/dashboard/intents";
@@ -14,9 +11,8 @@ import { displayedReplace, KEEP_ALL, makeEnv, type RecordedEnv, replaceIdentity,
 
 suite("extension/dashboard/intents: testServerDraft", () => {
 	suite("executeDashboardIntent: testServerDraft", () => {
-		// Every probe carries the draft's expectedFailures in discovery's
-		// per-endpoint shape, so expected endpoints probe with a single
-		// attempt like production; a draft without any declares both false.
+		// Every probe carries the draft's expectedFailures in discovery's per-endpoint shape, so expected endpoints
+		// probe with a single attempt like production; a draft without any declares both false.
 		const NO_EXPECTED = { modelInfo: false, modelListing: false };
 		const draftTest = (
 			recorded: RecordedEnv,
@@ -35,8 +31,8 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 			);
 
 		test("validateTestServerDraft: connection rules apply, label rules do not", () => {
-			// The probe cares about the connection only: an empty or reserved
-			// label must not block it (the button gates on the base URL alone).
+			// The probe cares about the connection only: an empty or reserved label must not block it (the button gates
+			// on the base URL alone).
 			assert.strictEqual(
 				validateTestServerDraft(serverPayload({ label: "", baseUrl: "http://x" }), KEEP_ALL),
 				undefined
@@ -92,12 +88,10 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 			assert.deepStrictEqual(recorded.probes, [
 				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "sk-draft", expected: NO_EXPECTED },
 			]);
-			// Zero models is the shared zero-model warning, never a green success.
 			assert.deepStrictEqual(notice, {
 				message: "Connected - 0 models. The server answered but listed no models.",
 				tone: "warning",
 			});
-			// The no-mutation contract: a probe leaves every store untouched.
 			assert.deepStrictEqual(recorded.serverWrites, []);
 			assert.deepStrictEqual(recorded.secretOps, []);
 			assert.deepStrictEqual(recorded.updates, []);
@@ -135,9 +129,8 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 		});
 
 		test("the draft's declared models join the count when not discovered; discovered ones stay inert", async () => {
-			// The probe reports what a save would produce: the payload's declared
-			// list. The stored entry's conflicting list pins payload-wins - it must
-			// not leak into the count.
+			// The probe reports what a save would produce: the payload's declared list. The stored entry's conflicting
+			// list pins payload-wins - it must not leak into the count.
 			const recorded = makeEnv([
 				{ label: "Prod", baseUrl: "http://prod.test", discovery: { declared: ["stored-only"] } },
 			]);
@@ -150,7 +143,6 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 				}),
 				replace: await displayedReplace(recorded, "Prod"),
 			});
-			// gpt-4 is discovered, so its declaration is inert; my-model adds one.
 			assert.strictEqual(notice, "Connected - 2 models (1 declared)");
 		});
 
@@ -165,9 +157,8 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 		});
 
 		test("the probe carries the draft's custom headers, exactly what a save would write", async () => {
-			// A gateway requiring a header must not report a false probe failure for
-			// a configuration that works once saved. The stored entry's conflicting
-			// record pins payload-wins: the probe sends the draft's value.
+			// A gateway requiring a header must not report a false probe failure for a configuration that works once
+			// saved. The stored entry's conflicting record pins payload-wins: the probe sends the draft's value.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", headers: { "x-cf-access": "stale" } }]);
 			recorded.probeResult = ["m1"];
 			await draftTest(recorded, {
@@ -197,8 +188,6 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 				replace: await displayedReplace(recorded, "Prod"),
 			});
 			assert.strictEqual(notice, "Discovery failed (expected) - serving 1 declared model");
-			// The draft's expectedFailures reach the probe in discovery's
-			// per-endpoint shape, so an expected endpoint gets a single attempt.
 			assert.deepStrictEqual(recorded.probes, [
 				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "", expected: { modelInfo: false, modelListing: true } },
 			]);
@@ -286,9 +275,8 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 		});
 
 		test("a fresh label ignores an orphan secure blob: keep on a create resolves nothing, exactly as a save would", async () => {
-			// The form showed no stored credential (a create's fields all read
-			// "none"), so the probe must not authenticate with a removed label's
-			// leftover blob.
+			// The form showed no stored credential (a create's fields all read "none"), so the probe must not
+			// authenticate with a removed label's leftover blob.
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-orphan" });
 			await draftTest(recorded);
@@ -299,8 +287,8 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 		});
 
 		test("an orphan OAuth or virtual-key blob does not block a create's test-connection", async () => {
-			// An orphan resolving into the pairing check would refuse the probe on
-			// fields the create form does not render.
+			// An orphan resolving into the pairing check would refuse the probe on fields the create form does not
+			// render.
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Prod", { oauthClientSecret: "cs-orphan", virtualKeyValue: "vk-orphan" });
 			await draftTest(recorded);
@@ -311,9 +299,8 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 		});
 
 		test("the add form over a taken label probes credential-less: no replace identity, nothing resolves", async () => {
-			// The add form never names an entry to replace, so neither the entry's
-			// inline key nor the label's stored blob may be probed against the newly
-			// typed base URL - the save writes the same credential-less entry.
+			// The add form never names an entry to replace, so neither the entry's inline key nor the label's stored
+			// blob may be probed against the newly typed base URL - the save writes the same credential-less entry.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test", auth: { apiKey: "sk-inline-old" } }]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-stored-old" });
 			await draftTest(recorded, { server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }) });
@@ -324,9 +311,8 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 		});
 
 		test("a rename draft's keep resolves the source entry alone, never the new label's orphan blob", async () => {
-			// The edit form showed "Old", which holds nothing, so the retired
-			// label's leftover under the typed new label must not ride the probe -
-			// the same rule the save applies when it wipes that blob.
+			// The edit form showed "Old", which holds nothing, so the retired label's leftover under the typed new
+			// label must not ride the probe - the same rule the save applies when it wipes that blob.
 			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("New", { apiKey: "sk-orphan" });
 			await draftTest(recorded, {
@@ -414,10 +400,9 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 		});
 
 		test("a probe for an entry swapped underneath the form is refused before any network call", async () => {
-			// The form displayed Prod at old.test with no credentials; another
-			// window replaced the entry with one at old.test carrying an inline
-			// key. A label-only lookup would resolve THAT key for "keep" and send
-			// it wherever the draft's base URL points; the identity refuses first.
+			// The form displayed Prod at old.test with no credentials; another window replaced the entry with one at
+			// old.test carrying an inline key. A label-only lookup would resolve THAT key for "keep" and send it
+			// wherever the draft's base URL points; the identity refuses first.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test", auth: { apiKey: "sk-swapped-in" } }]);
 			await assert.rejects(
 				draftTest(recorded, {
@@ -430,9 +415,8 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 		});
 
 		test("a probe whose entry's OAuth destination changed is refused before the token exchange", async () => {
-			// Same label, base URL, and locations, but the stored client secret
-			// now belongs to another token URL; probing would exchange it at the
-			// endpoint the stale form displays.
+			// Same label, base URL, and locations, but the stored client secret now belongs to another token URL;
+			// probing would exchange it at the endpoint the stale form displays.
 			const recorded = makeEnv([
 				{
 					label: "Prod",

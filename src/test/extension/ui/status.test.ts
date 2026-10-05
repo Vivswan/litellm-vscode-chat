@@ -9,8 +9,6 @@ import { markLogSafe } from "../../../shared/logger";
 import type { ServerStatus } from "../../../shared/servers";
 import { createStatusBarManager, RecordingItem } from "./statusBarHarness";
 
-// Managers create real, visible status bar items in the shared test host, so
-// every created context is tracked and disposed after each test.
 const createdContexts: vscode.ExtensionContext[] = [];
 
 function createManager(
@@ -19,15 +17,13 @@ function createManager(
 	recorder?: { appendLog(line: string): void; recordError(source: string, error: unknown): void },
 	item?: StatusItemLike
 ): StatusBarManager {
-	// ALWAYS a recording surface (the harness defaults to one): a suite can
-	// never create a real, visible status bar item in the shared test host
-	// (the guard test below pins the invariant).
+	// ALWAYS a recording surface (the harness defaults to one): a suite can never create a real, visible status bar
+	// item in the shared test host (the guard test below pins the invariant).
 	const harness = createStatusBarManager({ persistedStatus, hasConfiguredServers, recorder, item });
 	createdContexts.push(harness.context);
 	return harness.manager;
 }
 
-/** The single restored element, narrowed to the error variant or failing loudly. */
 function expectErrorElement(serverStatuses: readonly ServerStatus[]): ServerStatus & { state: "error" } {
 	assert.strictEqual(serverStatuses.length, 1, "the element must survive the restore");
 	const element = serverStatuses[0];
@@ -38,18 +34,16 @@ function expectErrorElement(serverStatuses: readonly ServerStatus[]): ServerStat
 }
 
 /**
- * The version-stamped envelope updateStatusBar persists. The stamp is pinned
- * literally: it is the on-disk format, so a version bump must consciously
- * visit every restore expectation here.
+ * The stamp is pinned literally: it is the on-disk format, so a version bump must consciously visit every restore
+ * expectation here.
  */
 function stamped(status: unknown): unknown {
 	return { v: 2, status };
 }
 
 suite("extension/ui/status", () => {
-	// The regression pin for the duplicate-status-item class: NOTHING in this
-	// suite may create a real status bar item in the shared test host. The real
-	// createStatusBarItem is wrapped for the suite; any call fails its test.
+	// The regression pin for the duplicate-status-item class: NOTHING in this suite may create a real status bar item
+	// in the shared test host.
 	const realCreateStatusBarItem = vscode.window.createStatusBarItem;
 	let realItemCreations = 0;
 	suiteSetup(() => {
@@ -100,8 +94,7 @@ suite("extension/ui/status", () => {
 				totalModels: 7,
 				silent: true,
 			});
-			// updateStatusBar persists the status before rendering it; let that
-			// microtask chain settle.
+			// updateStatusBar persists the status before rendering it; let that microtask chain settle.
 			await new Promise((resolve) => setImmediate(resolve));
 
 			assert.strictEqual(item.last.text, "$(check) LiteLLM");
@@ -136,9 +129,8 @@ suite("extension/ui/status", () => {
 	});
 
 	test("an all-failed report logs the log-safe rendering, never the display error", () => {
-		// The "All servers failed" line lands in the issue-report buffer, which
-		// prefills public GitHub issues, so it must carry logSafeError; the
-		// display error (which embeds response bodies) stays on the UI surfaces.
+		// The "All servers failed" line lands in the issue-report buffer, which prefills public GitHub issues, so it
+		// must carry logSafeError; the display error (which embeds response bodies) stays on the UI surfaces.
 		const bufferLines: string[] = [];
 		const manager = createManager(undefined, () => true, {
 			appendLog: (line) => bufferLines.push(line),
@@ -201,9 +193,8 @@ suite("extension/ui/status", () => {
 		manager.handleAggregatedStatus({ serverStatuses: [ok], totalModels: 0, silent: true });
 		await new Promise((resolve) => setImmediate(resolve));
 		const zeroModels = manager.connectionStatus;
-		// The zero-model judgment is not a transport failure: the state stays the
-		// honest "connected" (which carries no classification by construction)
-		// and the bar renders the shared warning.
+		// The zero-model judgment is not a transport failure: the state stays the honest "connected" (which carries no
+		// classification by construction) and the bar renders the shared warning.
 		assert.ok(zeroModels.state === "connected");
 		assert.strictEqual(item.last.severity, "warning");
 	});
@@ -228,8 +219,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a hidden group explains the zero models: the verdict names the count and the recovery, never the proxy", async () => {
-			// The only working server's group was hidden by the user's configuration,
-			// and every surface used to blame the server ("Connection failed").
+			// The only working server's group was hidden by the user's configuration, and every surface used to blame
+			// the server ("Connection failed").
 			const bufferLines: string[] = [];
 			const item = new RecordingItem();
 			const manager = createManager(
@@ -242,8 +233,8 @@ suite("extension/ui/status", () => {
 			manager.handleAggregatedStatus({ serverStatuses: [hiddenGroup()], totalModels: 0, silent: true });
 			await new Promise((resolve) => setImmediate(resolve));
 
-			// The state is the honest "connected" (nothing failed); the rendering
-			// carries the warning, one severity with the notifier and the commands.
+			// The state is the honest "connected" (nothing failed); the rendering carries the warning, one severity
+			// with the notifier and the commands.
 			const status = manager.connectionStatus;
 			assert.ok(status.state === "connected");
 			assert.strictEqual(status.totalModels, 0);
@@ -345,8 +336,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a restored zero-model verdict with a hidden group still gates the issue reporter", () => {
-			// Cold start: the persisted verdict must gate exactly like the fresh
-			// one, or the first Report Issue after a restart opens a blank issue.
+			// Cold start: the persisted verdict must gate exactly like the fresh one, or the first Report Issue after a
+			// restart opens a blank issue.
 			const manager = createManager(
 				stamped({
 					state: "connected",
@@ -366,8 +357,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a restored error that lost its server statuses keeps the connection-failure rendering", async () => {
-			// The restore normalization fails closed on an empty status list:
-			// without the statuses there is no proof the servers answered.
+			// The restore normalization fails closed on an empty status list: without the statuses there is no proof
+			// the servers answered.
 			const item = new RecordingItem();
 			const manager = createManager(
 				stamped({ state: "error", error: "boom", logSafeError: "RequestError(connection)" }),
@@ -391,9 +382,9 @@ suite("extension/ui/status", () => {
 		});
 
 		test("renders as connecting while configured servers have not reported", () => {
-			// Cold start on a group-configured install: the groupless refresh reports an
-			// empty window before the per-group refreshes arrive. The persisted state
-			// feeds public issue reports, so the honest verdict is "connecting".
+			// Cold start on a group-configured install: the groupless refresh reports an empty window before the
+			// per-group refreshes arrive. The persisted state feeds public issue reports, so the honest verdict is
+			// "connecting".
 			const manager = createManager(undefined, () => true);
 
 			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
@@ -403,8 +394,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a second consecutive empty report degrades connecting to needs-attention", () => {
-			// Evidence of persistence: a declared entry whose sync keeps failing, or
-			// a deleted native group behind a sticky latch, must not spin forever.
+			// Evidence of persistence: a declared entry whose sync keeps failing, or a deleted native group behind a
+			// sticky latch, must not spin forever.
 			const manager = createManager(undefined, () => true);
 
 			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
@@ -435,8 +426,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a restored persisted connecting state starts degraded, not spinning", () => {
-			// The state survived a whole session boundary without resolving, so the
-			// stale spinner from last session must not render indefinitely.
+			// The state survived a whole session boundary without resolving, so the stale spinner from last session
+			// must not render indefinitely.
 			const manager = createManager(stamped({ state: "connecting" }), () => true);
 
 			assert.strictEqual(manager.connectionStatus.state, "connecting");
@@ -444,8 +435,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a transient loading state does not clear the connecting attention", async () => {
-			// The connection test overwrites the status with "loading" before it
-			// runs; an empty report arriving mid-test must not reset the warning.
+			// The connection test overwrites the status with "loading" before it runs; an empty report arriving
+			// mid-test must not reset the warning.
 			const manager = createManager(undefined, () => true);
 
 			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
@@ -473,9 +464,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a restored degraded connecting survives the connection test's loading overwrite", async () => {
-			// The restore path seeds the manager's carry directly (no report has
-			// arrived yet), so last session's degraded verdict must survive a
-			// loading overwrite and an empty report.
+			// The restore path seeds the manager's carry directly (no report has arrived yet), so last session's
+			// degraded verdict must survive a loading overwrite and an empty report.
 			const manager = createManager(stamped({ state: "connecting" }), () => true);
 			assert.strictEqual(manager.connectingAttention, true);
 
@@ -520,9 +510,8 @@ suite("extension/ui/status", () => {
 		};
 
 		test("the all-expected/no-declared case is neutral on BOTH surfaces: needs-declare and the attention warning", () => {
-			// The two headline surfaces must move together: the dashboard's shared
-			// verdict says needs-declare, and the status bar shows the actionable
-			// warning instead of the zero-model red branch.
+			// The two headline surfaces must move together: the dashboard's shared verdict says needs-declare, and the
+			// status bar shows the actionable warning instead of the zero-model red branch.
 			assert.strictEqual(classifyOverall([{ state: "error", expected: true, servedModelCount: 0 }]), "needs-declare");
 			const manager = createManager(undefined, () => true);
 			manager.handleAggregatedStatus({ serverStatuses: [expectedFailure()], totalModels: 0, silent: true });
@@ -571,9 +560,6 @@ suite("extension/ui/status", () => {
 			const degraded = manager.connectionStatus;
 			assert.strictEqual(degraded.state, "degraded");
 
-			// The mixed all-failed case pins both surfaces together: an expected
-			// failure beside an unexpected one is degraded, never the red
-			// all-failed verdict, on the dashboard AND the status bar.
 			assert.strictEqual(
 				classifyOverall([
 					{ state: "error", servedModelCount: 0 },
@@ -598,9 +584,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("an all-failed window still serving its stale-window models reads degraded, never dead", async () => {
-			// The serving test precedes the all-failed verdict: a failed group whose
-			// stale window (or declarations) still serves models cannot show a red
-			// "Connection failed" while the picker serves them.
+			// The serving test precedes the all-failed verdict: a failed group whose stale window (or declarations)
+			// still serves models cannot show a red "Connection failed" while the picker serves them.
 			assert.strictEqual(classifyOverall([{ state: "error", servedModelCount: 5 }]), "degraded");
 			const item = new RecordingItem();
 			const manager = createManager(undefined, () => true, undefined, item);
@@ -626,8 +611,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("the degraded tooltip counts only unexpected failures, like both command toasts", async () => {
-			// One expected + one real failure once showed a count of 1 here and
-			// 2 in the toasts; the shared count pins the surfaces together.
+			// One expected + one real failure once showed a count of 1 here and 2 in the toasts; the shared count pins
+			// the surfaces together.
 			const item = new RecordingItem();
 			const manager = createManager(undefined, () => true, undefined, item);
 			manager.handleAggregatedStatus({
@@ -642,8 +627,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("expected, servedModelCount, and declaredModelCount survive the persisted round trip; junk drops the smallest thing", () => {
-			// Junk in a required count drops the whole element (it cannot render
-			// honestly); junk in an optional field drops only that field.
+			// Junk in a required count drops the whole element (it cannot render honestly); junk in an optional field
+			// drops only that field.
 			const manager = createManager(
 				stamped({
 					state: "degraded",
@@ -696,9 +681,8 @@ suite("extension/ui/status", () => {
 
 	suite("persisted status restore accepts exactly the current version-stamped shape", () => {
 		test("the write and the restore share one envelope: this session's report round-trips into the next", async () => {
-			// The fixture carries EVERY field the live path can stamp on a window
-			// element (statusReporting sets hasOAuth on every group status), so a
-			// restore that silently drops a current-shape field fails this pin.
+			// The fixture carries EVERY field the live path can stamp on a window element (statusReporting sets
+			// hasOAuth on every group status), so a restore that silently drops a current-shape field fails this pin.
 			const first = createStatusBarManager({ hasConfiguredServers: () => true });
 			createdContexts.push(first.context);
 			const ok: ServerStatus = {
@@ -733,8 +717,8 @@ suite("extension/ui/status", () => {
 			first.manager.handleAggregatedStatus({ serverStatuses: [ok, failed], totalModels: 3, silent: true });
 			await new Promise((resolve) => setImmediate(resolve));
 
-			// Serialized through JSON like the real Memento boundary, so the pin
-			// compares persisted DATA, never the in-memory object graph with itself.
+			// Serialized through JSON like the real Memento boundary, so the pin compares persisted DATA, never the
+			// in-memory object graph with itself.
 			const persisted: unknown = JSON.parse(JSON.stringify(first.context.globalState.get(LAST_CONNECTION_STATUS_KEY)));
 			assert.deepStrictEqual(
 				persisted,
@@ -746,16 +730,15 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a restore-less start on a configured install claims connecting, never not-configured", () => {
-			// The one-time reset after a version bump: the persisted state feeds
-			// the setup gate and the diagnostics snapshot that lands in public
-			// issue reports, so a configured install must not claim "not
-			// configured" while it waits for the first report.
+			// The one-time reset after a version bump: the persisted state feeds the setup gate and the diagnostics
+			// snapshot that lands in public issue reports, so a configured install must not claim "not configured"
+			// while it waits for the first report.
 			const manager = createManager({ state: "connected", totalModels: 3, serverStatuses: [] }, () => true);
 
 			assert.deepStrictEqual(manager.connectionStatus, { state: "connecting", attention: false });
 
-			// The seed is not evidence of persistence: the FIRST empty report after
-			// it stays the neutral spinner, and only the second one escalates.
+			// The seed is not evidence of persistence: the FIRST empty report after it stays the neutral spinner, and
+			// only the second one escalates.
 			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
 			assert.strictEqual(manager.connectingAttention, false, "the seed must not make the first report consecutive");
 			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
@@ -763,8 +746,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a connected blob missing its counts is not the current shape and restores as undefined", () => {
-			// The live path always writes the counts; a blob without them can only
-			// be junk, and the display cache restores from scratch.
+			// The live path always writes the counts; a blob without them can only be junk, and the display cache
+			// restores from scratch.
 			const manager = createManager(stamped({ state: "connected" }));
 
 			assert.deepStrictEqual(manager.connectionStatus, { state: "not-configured" });
@@ -787,9 +770,8 @@ suite("extension/ui/status", () => {
 		}
 
 		test("an error blob without its log rendering is not the current shape and restores as undefined", () => {
-			// The log slot may never be rebuilt from the display message (which can
-			// embed response text), and the current shape always carries it, so a
-			// blob without one restores as nothing at all.
+			// The log slot may never be rebuilt from the display message (which can embed response text), and the
+			// current shape always carries it, so a blob without one restores as nothing at all.
 			const manager = createManager(stamped({ state: "error", error: "boom" }));
 
 			assert.deepStrictEqual(manager.connectionStatus, { state: "not-configured" });
@@ -812,10 +794,7 @@ suite("extension/ui/status", () => {
 
 		suite("error classification", () => {
 			// The persisted shape is enum ids plus an integer status, never message text.
-			// Junk drops the smallest thing containing it: a junk optional field keeps
-			// the rest, a junk kind drops the field, and nothing ever drops the element.
 			const classification = { kind: "connection", setupHint: "proxy-not-running" };
-			/** A current-shape persisted error element carrying the given classification. */
 			const errorElement = (elementClassification: unknown) => ({
 				label: "Prod",
 				baseUrl: "http://prod.test",
@@ -937,8 +916,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("an error blob that lost its message is not the current shape and restores as undefined", () => {
-			// The message cannot be invented, and the live path always writes one,
-			// so a message-less error blob restores as nothing at all.
+			// The message cannot be invented, and the live path always writes one, so a message-less error blob
+			// restores as nothing at all.
 			const manager = createManager(stamped({ state: "error", logSafeError: "RequestError(connection)" }));
 
 			assert.deepStrictEqual(manager.connectionStatus, { state: "not-configured" });
@@ -957,9 +936,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a loading blob persisted with a carried attention flag restores neutral and never counts as consecutive", () => {
-			// The loading variant carries no attention flag, so a stray one on a
-			// stamped blob is an unknown field the loose parse drops; the session
-			// boundary must not let it degrade this session.
+			// The loading variant carries no attention flag, so a stray one on a stamped blob is an unknown field the
+			// loose parse drops; the session boundary must not let it degrade this session.
 			const manager = createManager(stamped({ state: "loading", attention: true }), () => true);
 
 			assert.deepStrictEqual(manager.connectionStatus, { state: "loading" });
@@ -996,10 +974,9 @@ suite("extension/ui/status", () => {
 		});
 
 		test("an ok element without its served count and an error element without its message slots are malformed", () => {
-			// The shapes the diagnostics renderer refuses to print ("OK (undefined
-			// models)", "Error: undefined") never survive the restore; an empty
-			// error message counts as none, and a missing log rendering may never
-			// be rebuilt from the display message.
+			// The shapes the diagnostics renderer refuses to print ("OK (undefined models)", "Error: undefined") never
+			// survive the restore; an empty error message counts as none, and a missing log rendering may never be
+			// rebuilt from the display message.
 			const manager = createManager(
 				stamped({
 					state: "connected",

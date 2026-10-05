@@ -14,7 +14,6 @@ import type {
 	RpcRequestType,
 } from "../../../dashboard/endpoints";
 
-/** Every message the page posted to the (stubbed) extension host, in order. */
 export const postedMessages: RpcRequestType[] = [];
 
 export function resetPosted(): void {
@@ -32,7 +31,6 @@ export function installAcquireVsCodeApi(): void {
 
 const roots = new Map<HTMLElement, Root>();
 
-/** Render a component tree into a fresh container under document.body. */
 export function mount(vnode: ReactNode): HTMLElement {
 	const container = document.createElement("div");
 	document.body.appendChild(container);
@@ -75,8 +73,8 @@ export function pushToWebview(message: unknown): void {
 
 /** The posted requests of one method, in order; tests correlate through these instead of minting ids. */
 export function postedRequests<K extends DashboardMethod>(method: K): RpcRequest<K>[] {
-	// The cast rebuilds the method-payload correlation the union filter proves
-	// but TypeScript cannot carry through a generic predicate.
+	// The cast rebuilds the method-payload correlation the union filter proves but TypeScript cannot carry through a
+	// generic predicate.
 	return postedMessages.filter((message) => message.method === method) as RpcRequest<K>[];
 }
 
@@ -85,7 +83,6 @@ export function postedCalls(): { method: DashboardMethod; payload: unknown }[] {
 	return postedMessages.map(({ method, payload }) => ({ method, payload }));
 }
 
-/** The latest posted request of one method; fails the test when none was posted. */
 export function lastRequest<K extends DashboardMethod>(method: K): RpcRequest<K> {
 	const requests = postedRequests(method);
 	const last = requests.at(-1);
@@ -95,7 +92,6 @@ export function lastRequest<K extends DashboardMethod>(method: K): RpcRequest<K>
 	return last;
 }
 
-/** Deliver one read's response envelope for the given posted request. */
 export function respondTo<K extends ReadMethod>(request: RpcRequest<K>, payload: ResponseFor<K>): void {
 	pushToWebview({ kind: "response", id: request.id, method: request.method, payload });
 }
@@ -218,9 +214,9 @@ export function fireKeyDown(element: HTMLElement, key: string, init?: KeyboardEv
 }
 
 /**
- * Everywhere a secret could surface in the page: attributes, input/textarea value properties (a value
- * assigned via JS never appears in outerHTML), the serialized document HTML, and document textContent.
- * Returns human-readable findings; assert equality with [] so a failure names the leak site.
+ * Everywhere a secret could surface in the page: attributes, input/textarea value properties (a value assigned via JS
+ * never appears in outerHTML), the serialized document HTML, and document textContent. Returns human-readable
+ * findings; assert equality with [] so a failure names the leak site.
  */
 export function findSentinel(sentinel: string): string[] {
 	const findings: string[] = [];
@@ -248,7 +244,6 @@ export function findSentinel(sentinel: string): string[] {
 	return findings;
 }
 
-/** The rendered text of the first element matching the selector, trimmed. */
 export function textOf(root: ParentNode, selector: string): string {
 	const element = root.querySelector(selector);
 	if (element === null) {
@@ -257,7 +252,6 @@ export function textOf(root: ParentNode, selector: string): string {
 	return (element.textContent ?? "").trim();
 }
 
-/** One element's contribution to an accessible name: its text nodes in tree order, aria-hidden subtrees excluded. */
 function visibleTextOf(node: Node): string {
 	if (node.nodeType === Node.TEXT_NODE) {
 		return node.textContent ?? "";
@@ -288,9 +282,8 @@ function referencedTextOf(target: Element): string {
 }
 
 /**
- * The accessible name a control computes: aria-labelledby, then aria-label, then the subtree's text nodes in
- * tree order with aria-hidden subtrees excluded. Deliberately blind to CSS (happy-dom runs no layout), which
- * is what lets it catch a width twin that lost its aria-hidden while keeping `invisible`.
+ * Deliberately blind to CSS (happy-dom runs no layout), which is what lets it catch a width twin that lost its
+ * aria-hidden while keeping `invisible`.
  */
 export function accessibleNameOf(element: HTMLElement): string {
 	const labelledBy = element.getAttribute("aria-labelledby");
@@ -326,7 +319,6 @@ export function accessibleDescriptionOf(element: HTMLElement): string {
 		.trim();
 }
 
-/** The button whose visible text matches exactly, after trimming. */
 export function buttonByText(root: ParentNode, text: string): HTMLButtonElement {
 	const button = Array.from(root.querySelectorAll("button")).find(
 		(candidate) => (candidate.textContent ?? "").trim() === text
@@ -337,7 +329,6 @@ export function buttonByText(root: ParentNode, text: string): HTMLButtonElement 
 	return button as HTMLButtonElement;
 }
 
-/** The input whose associated label text matches exactly (for/id pairing). */
 export function inputByLabel(root: ParentNode, labelText: string): HTMLInputElement {
 	const label = Array.from(root.querySelectorAll("label")).find(
 		(candidate) => (candidate.textContent ?? "").trim() === labelText

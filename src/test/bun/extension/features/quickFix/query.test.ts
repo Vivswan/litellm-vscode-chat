@@ -212,9 +212,9 @@ describe("extension/features/quickFix/query", () => {
 		});
 
 		test("a diagnostic cannot smuggle chat syntax into the submitted query", () => {
-			// Diagnostic text routinely quotes workspace-controlled source, and this
-			// query is SUBMITTED rather than shown for review, so a "#toolname" in a
-			// message would otherwise resolve to a real tool reference on the turn.
+			// Diagnostic text routinely quotes workspace-controlled source, and this query is SUBMITTED rather than
+			// shown for review, so a "#toolname" in a message would otherwise resolve to a real tool reference on the
+			// turn.
 			const query = buildChatQuery("fix", [
 				makeDiagnostic("Cannot find #codebase or @workspace, see ##double and @@at"),
 			]);
@@ -224,8 +224,8 @@ describe("extension/features/quickFix/query", () => {
 		});
 
 		test("defusing takes only the sigil, and only where it could name something", () => {
-			// "#include not found" must still read as a diagnostic, and a sigil that
-			// cannot begin a reference (mid-word, or standing alone) is left alone.
+			// "#include not found" must still read as a diagnostic, and a sigil that cannot begin a reference
+			// (mid-word, or standing alone) is left alone.
 			assert.strictEqual(
 				buildChatQuery("fix", [makeDiagnostic("#include not found in a@b.c and # alone")]),
 				"@litellm /fix include not found in a@b.c and # alone"
@@ -235,8 +235,6 @@ describe("extension/features/quickFix/query", () => {
 
 	describe("buildFallbackPrompt", () => {
 		const base = {
-			// The mode-invariant properties below are pinned on the fix prompt; the
-			// two modes' own wording has its own test at the end of this suite.
 			mode: "fix",
 			path: "/work/src/example.ts",
 			languageId: "typescript",
@@ -415,13 +413,10 @@ describe("extension/features/quickFix/query", () => {
 		});
 
 		test("an excerpt inside the budget is passed through verbatim, with no truncation marker", () => {
-			// The private helper this builder used to call trimmed a trailing lone
-			// surrogate even when NOTHING was cut, which deleted a unit of the
-			// user's own code and then appended a truncation marker to an excerpt
-			// that had never been truncated. The marker now means exactly one
-			// thing: the excerpt did not fit.
-			// The lone unit must be LAST: the old helper only inspected the final
-			// code unit, so a surrogate anywhere else would not discriminate.
+			// The private helper this builder used to call trimmed a trailing lone surrogate even when NOTHING was cut,
+			// which deleted a unit of the user's own code and then appended a truncation marker to an excerpt that had
+			// never been truncated. The lone unit must be LAST: the old helper only inspected the final code unit, so a
+			// surrogate anywhere else would not discriminate.
 			const excerpt = 'const s = "a\uD800';
 			const prompt = buildFallbackPrompt({ ...base, excerpt, diagnostics: [makeDiagnostic("d")] });
 			assert.ok(!prompt.includes("(excerpt truncated)"), "nothing was cut, so nothing may claim it was");
@@ -451,23 +446,22 @@ describe("extension/features/quickFix/query", () => {
 		});
 
 		test("an empty selection yields a headed but empty diagnostics section", () => {
-			// Phase 2 offers the action only when the selection is nonempty; this
-			// pins the total-function shape rather than a supported call path.
+			// Phase 2 offers the action only when the selection is nonempty; this pins the total-function shape rather
+			// than a supported call path.
 			const prompt = buildFallbackPrompt({ ...base, diagnostics: [] });
 			assert.ok(prompt.includes("Diagnostics:\n\nCode excerpt:"));
 			assert.ok(!prompt.includes("- "));
 		});
 
 		test("the two modes ask different questions, as they do on the chat path", () => {
-			// The fallback runs when the chat view is unavailable, which is not a
-			// reason for Explain to start rewriting the user's code.
+			// The fallback runs when the chat view is unavailable, which is not a reason for Explain to start rewriting
+			// the user's code.
 			const diagnostics = [makeDiagnostic("type mismatch")];
 			const fix = buildFallbackPrompt({ ...base, mode: "fix", diagnostics });
 			const explain = buildFallbackPrompt({ ...base, mode: "explain", diagnostics });
 			assert.ok(fix.includes("propose a fix"));
 			assert.ok(!explain.includes("propose a fix"));
 			assert.ok(explain.includes("Explain rather than rewrite"));
-			// Everything below the request line is the same material either way.
 			assert.ok(explain.includes("- Error at line 1: type mismatch"));
 			assert.ok(explain.includes("Code excerpt:"));
 		});

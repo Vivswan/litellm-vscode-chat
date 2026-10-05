@@ -34,11 +34,9 @@ function selectorParts(prelude: string): string[] {
 }
 
 /**
- * The last compound of one complex selector - what the rule actually targets - with the arguments of `:has()` and
- * `:not()` and the contents of attribute selectors blanked. The compound split walks nesting depth, so a
- * combinator or comma inside a functional pseudo does not cut the compound. The blanking is selective on purpose:
- * a `.server-actions` inside the subject's own `:is()`/`:where()` can BE the cluster and must keep the rule in
- * scope, while one inside `:has()`/`:not()` names a different element (or its absence) and must not claim it.
+ * The blanking is selective on purpose: a `.server-actions` inside the subject's own `:is()`/`:where()` can BE the
+ * cluster and must keep the rule in scope, while one inside `:has()`/`:not()` names a different element (or its
+ * absence) and must not claim it.
  */
 function subjectOf(part: string): string {
 	const compounds: string[] = [];
@@ -62,7 +60,6 @@ function subjectOf(part: string): string {
 		compounds.push(current);
 	}
 	const subject = compounds.at(-1) ?? "";
-	// Blank what cannot make the subject the cluster: :has()/:not() arguments and [attr] contents.
 	let blanked = "";
 	let blankDepth = 0;
 	for (const char of subject) {
@@ -97,12 +94,10 @@ function subjectOf(part: string): string {
 
 const TARGETS_CLUSTER = /\.server-actions(?![\w-])/;
 
-/** A width tier: the one scope this pin defers, because the tiers rewrite the cover deliberately. */
 const WIDTH_SCOPED = /^@(?:container|media)\b[^{]*\bwidth\b/;
 
 /**
- * Every compiled rule outside the width tiers whose selector subject targets the actions cluster. Feature
- * queries (forced-colors, reduced-motion) stay IN scope: check-geometry measures the width tiers but never
+ * Feature queries (forced-colors, reduced-motion) stay IN scope: check-geometry measures the width tiers but never
  * those, so excluding them would leave a place-self inside forced-colors caught by nothing.
  */
 async function clusterRules(): Promise<readonly Block[]> {
@@ -115,9 +110,8 @@ async function clusterRules(): Promise<readonly Block[]> {
 }
 
 /**
- * Each family declaration across the rules, in cascade (source) order, tagged with the first cluster-targeting
- * selector part of its rule. Families bundle longhands with the shorthands that reset them, so `place-self`
- * cannot slip past an `align-self` pin.
+ * Families bundle longhands with the shorthands that reset them, so `place-self` cannot slip past an `align-self`
+ * pin.
  */
 function familyDeclarations(rules: readonly Block[], family: RegExp): { selector: string; declaration: string }[] {
 	return rules.flatMap((rule) => {

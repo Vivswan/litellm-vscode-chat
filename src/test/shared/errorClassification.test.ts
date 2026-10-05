@@ -24,8 +24,8 @@ suite("shared/errorClassification", () => {
 	test("a kind-only shape extracts without status or setupHint properties", () => {
 		const extracted = transportClassificationOf({ kind: "network" });
 		assert.deepStrictEqual(extracted, { kind: "network" });
-		// Absent fields are truly absent, not present-as-undefined
-		// (exactOptionalPropertyTypes consumers spread these into literals).
+		// Absent fields are truly absent, not present-as-undefined (exactOptionalPropertyTypes consumers spread these
+		// into literals).
 		assert.ok(extracted !== undefined && !("status" in extracted) && !("setupHint" in extracted));
 	});
 
@@ -82,8 +82,8 @@ suite("shared/errorClassification", () => {
 		);
 		assert.strictEqual(transportClassificationOf(hostileKind), undefined);
 
-		// A valid kind whose OTHER fields throw must not poison the extraction
-		// either: the whole read is guarded, so it degrades to undefined.
+		// A valid kind whose OTHER fields throw must not poison the extraction either: the whole read is guarded, so it
+		// degrades to undefined.
 		const hostileStatus = {
 			kind: "http",
 			get status(): number {

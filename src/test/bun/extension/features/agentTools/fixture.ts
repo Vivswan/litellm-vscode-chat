@@ -1,11 +1,9 @@
 /**
- * The one dashboard state the agent-tools suites plan against. Built so every
- * planner rule has a row to trip on: a proven entry with stored config, an
- * OAuth entry whose secret's destination is the token URL rather than the
- * host, an unproven entry, two external groups sharing one base URL under
- * different labels (adoption and hiding must pick by label), a hidden
- * tombstone, and record settings whose `effective` view differs from the edit
- * scope's own `value` (the merge hazard planEditModelRecords must not fall into).
+ * The one dashboard state the agent-tools suites plan against. Built so every planner rule has a row to trip on: a
+ * proven entry with stored config, an OAuth entry whose secret's destination is the token URL rather than the host, an
+ * unproven entry, two external groups sharing one base URL under different labels (adoption and hiding must pick by
+ * label), a hidden tombstone, and record settings whose `effective` view differs from the edit scope's own `value` (the
+ * merge hazard planEditModelRecords must not fall into).
  */
 import type { DashboardState } from "../../../../../dashboard/viewModels";
 import { makeSettings } from "../../../../dashboardSettingsFixture";

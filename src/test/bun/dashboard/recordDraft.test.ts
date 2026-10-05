@@ -92,9 +92,8 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("matcher and parameter keys persist verbatim, and the record's prototype is ordinary", () => {
-			// The matcher grammar and parseParameterRecord trim nothing: a padded
-			// matcher is an exact key for the padded ID and a padded parameter is
-			// its own live field, so Apply must not silently canonicalize either.
+			// The matcher grammar and parseParameterRecord trim nothing: a padded matcher is an exact key for the
+			// padded ID and a padded parameter is its own live field, so Apply must not silently canonicalize either.
 			const assembled = parsedValue(
 				parseGroups([{ prefix: " gpt-4 ", params: [newParamRow(" temperature ", "0.2")] }])
 			);
@@ -104,9 +103,8 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("a padded sibling-directive spelling is a live field: no ignored hint, saved verbatim", () => {
-			// " _fallback" does not start with "_", so the resolver passes it
-			// through to LiteLLM as a parameter named " _fallback"; only the
-			// exact "_fallback" spelling is the wrong-record-type directive.
+			// " _fallback" does not start with "_", so the resolver passes it through to LiteLLM as a parameter named
+			// " _fallback"; only the exact "_fallback" spelling is the wrong-record-type directive.
 			const parse = parseGroups([
 				{ prefix: "gpt-4", params: [newParamRow(" _fallback", '"x"'), newParamRow("_fallback", "true")] },
 			]);
@@ -236,9 +234,8 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("unknown keys parse as JSON and stay silent with no evidence; underscore keys pass silently too", () => {
-			// No recognizedKeys (no server reported a /model/info key set): the
-			// host's advisory filter drops every unknown-key hint, and the live
-			// draft must mirror it.
+			// No recognizedKeys (no server reported a /model/info key set): the host's advisory filter drops every
+			// unknown-key hint, and the live draft must mirror it.
 			const parse = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
@@ -265,16 +262,16 @@ describe("dashboard/recordDraft", () => {
 				hintOf(new Set(["max_output_tokens"]))?.includes("applied as an override as-is"),
 				"evidence lacking the key hints, and the wording says the field still applies"
 			);
-			// A consumed key parses typed, so it can never hint as unknown even
-			// when the evidence lacks it - the host filter's backstop, mirrored.
+			// A consumed key parses typed, so it can never hint as unknown even when the evidence lacks it - the host
+			// filter's backstop, mirrored.
 			const consumed = parseCapabilityGroups(
 				[{ prefix: "gpt-4", params: [newParamRow("supports_pdf_input", "true")] }],
 				new Set(["max_output_tokens"])
 			);
 			assert.ok(consumed.ok);
 			assert.strictEqual(consumed.issues[0]?.rows[0]?.hint, undefined, "consumed keys never hint as unknown");
-			// Prototype-named open fields ride the same path without touching
-			// Object.prototype ("toString" is a legal /model/info key).
+			// Prototype-named open fields ride the same path without touching Object.prototype ("toString" is a legal
+			// /model/info key).
 			const proto = parseCapabilityGroups(
 				[{ prefix: "gpt-4", params: [newParamRow("toString", "1")] }],
 				new Set(["toString"])
@@ -305,8 +302,8 @@ describe("dashboard/recordDraft", () => {
 			assert.ok(rows[3]?.hint?.includes("ignored"), "a non-boolean flag hints");
 			assert.strictEqual(rows[4]?.hint, undefined, "a list of non-empty strings is valid");
 			assert.ok(rows[5]?.hint?.includes("ignored"), "a string cost hints");
-			// The values are kept verbatim either way: the setting is lenient and
-			// the resolver diagnoses at resolution, exactly like unknown keys.
+			// The values are kept verbatim either way: the setting is lenient and the resolver diagnoses at resolution,
+			// exactly like unknown keys.
 			assert.deepStrictEqual(parse.value["gpt-4"], {
 				input_cost_per_token: 0,
 				output_cost_per_token: 0.000002,
@@ -394,8 +391,8 @@ describe("dashboard/recordDraft", () => {
 				unknown.issues[0]?.rows[1]?.hint?.includes("max_output_tokens"),
 				"a listed field the prefix does not set is named in the hint"
 			);
-			// The vocabulary is open: any set field is _fallback-eligible, so a
-			// list naming an open field's own row hints nothing.
+			// The vocabulary is open: any set field is _fallback-eligible, so a list naming an open field's own row
+			// hints nothing.
 			const openField = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
@@ -407,11 +404,9 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("an invalid consumed VALUE strands the marks naming it, exactly as the resolver reads them", () => {
-			// The resolver drops an invalid-valued consumed field from its kept
-			// set, so a _fallback or _inheritable mark naming it is diagnosed and
-			// ignored there - the parse's hints say so BEFORE the save, from the
-			// same row verdicts. Checkbox ELIGIBILITY stays key-shaped: the box
-			// still renders, only the hint is value-aware.
+			// The resolver drops an invalid-valued consumed field from its kept set, so a _fallback or _inheritable
+			// mark naming it is diagnosed and ignored there - the parse's hints say so BEFORE the save, from the same
+			// row verdicts. Checkbox ELIGIBILITY stays key-shaped: the box still renders, only the hint is value-aware.
 			const parse = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
@@ -451,11 +446,9 @@ describe("dashboard/recordDraft", () => {
 	});
 
 	describe("wrong-record-type directive hints", () => {
-		// The pin: each editor's hint set IS the registry's sibling row - the same
-		// names the resolver later diagnoses wrong-record-type - over the whole
-		// directive vocabulary plus an unknown underscore key. Expectations read
-		// the registry ROWS directly, so an editor cannot drift from the
-		// resolver's vocabulary past this suite.
+		// The pin: each editor's hint set IS the registry's sibling row - the same names the resolver later diagnoses
+		// wrong-record-type - over the whole directive vocabulary plus an unknown underscore key. Expectations read the
+		// registry ROWS directly, so an editor cannot drift from the resolver's vocabulary past this suite.
 		const universe = [
 			...Object.values(RECORD_TYPE_DIRECTIVES).flat(),
 			INHERITABLE_DIRECTIVE,
@@ -492,10 +485,9 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("a wrong-type row with an unreadable value blocks AND hints: the key alone decides", () => {
-			// _openrouter_model in a parameters group is the live case: the
-			// capability editor teaches bare catalog IDs, which are not JSON. The
-			// JSON problem still blocks the save, but fixing the value would not
-			// make the key any less ignored, so the hint rides beside the problem.
+			// _openrouter_model in a parameters group is the live case: the capability editor teaches bare catalog IDs,
+			// which are not JSON. The JSON problem still blocks the save, but fixing the value would not make the key
+			// any less ignored, so the hint rides beside the problem.
 			const parse = parseGroups([
 				{ prefix: "gpt-4", params: [newParamRow(OPENROUTER_MODEL_DIRECTIVE, "openai/gpt-4o")] },
 			]);
@@ -549,16 +541,15 @@ describe("dashboard/recordDraft", () => {
 	describe("directive checkboxes (_fallback / _force)", () => {
 		test("eligibility: _fallback marks any set field (open vocabulary), _force refuses owned and underscore keys", () => {
 			assert.ok(directiveEligible("_fallback", "context_length"));
-			// The vocabulary is open and the resolver's _fallback accepts any set
-			// field, consumed or unknown alike.
+			// The vocabulary is open and the resolver's _fallback accepts any set field, consumed or unknown alike.
 			assert.ok(directiveEligible("_fallback", "supports_pdf_input"), "consumed fields carry the checkbox");
 			assert.ok(directiveEligible("_fallback", "supports_web_search"), "open fields carry the checkbox");
 			assert.ok(!directiveEligible("_fallback", "_openrouter_model"), "directives carry no checkbox");
 			assert.ok(!directiveEligible("_fallback", ""), "an unnamed row carries no checkbox");
 			assert.ok(directiveEligible("_force", "temperature"));
 			assert.ok(!directiveEligible("_force", "model"), "provider-owned keys are unforceable");
-			// max_tokens is the one provider-owned key _force may mark:
-			// user-settable by design, so the checkbox must agree with the wire.
+			// max_tokens is the one provider-owned key _force may mark: user-settable by design, so the checkbox must
+			// agree with the wire.
 			assert.ok(directiveEligible("_force", "max_tokens"), "max_tokens is forceable by design");
 			assert.ok(!directiveEligible("_force", "_meta"), "underscore keys are unforceable");
 			assert.ok(!directiveEligible("_force", ""), "an unnamed row is unforceable");
@@ -573,9 +564,8 @@ describe("dashboard/recordDraft", () => {
 			assert.deepStrictEqual([...directiveMarkedFields("params", rows("false"), "_force")], []);
 			assert.deepStrictEqual([...directiveMarkedFields("params", rows("not json"), "_force")], []);
 			assert.deepStrictEqual([...directiveMarkedFields("params", rows('["temperature"]'), "_force")], ["temperature"]);
-			// A partly invalid list still marks its string entries: the resolver
-			// salvages those, so the checkbox must not read a forced field as
-			// unmarked. Toggling keeps the non-string junk in place.
+			// A partly invalid list still marks its string entries: the resolver salvages those, so the checkbox must
+			// not read a forced field as unmarked. Toggling keeps the non-string junk in place.
 			assert.deepStrictEqual(
 				[...directiveMarkedFields("params", rows('[42, "temperature"]'), "_force")],
 				["temperature"]
@@ -658,9 +648,8 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("capability list entries read and save trimmed, the resolver's own parse boundary", () => {
-			// parseCapabilityRecord trims `_fallback`/`_inheritable` entries, so a
-			// padded entry is ACTIVE host-side: the checkbox must read it as
-			// marking its field, never hint it stranded, and save it trimmed.
+			// parseCapabilityRecord trims `_fallback`/`_inheritable` entries, so a padded entry is ACTIVE host-side:
+			// the checkbox must read it as marking its field, never hint it stranded, and save it trimmed.
 			const group = {
 				prefix: "gpt-4",
 				params: [newParamRow("context_length", "128000"), newParamRow("_fallback", '[" context_length "]')],
@@ -670,8 +659,8 @@ describe("dashboard/recordDraft", () => {
 			assert.ok(parse.ok);
 			assert.deepStrictEqual(parse.value, { "gpt-4": { context_length: 128000, _fallback: ["context_length"] } });
 			assert.strictEqual(parse.issues[0]?.rows[1]?.hint, undefined, "an active mark is never hinted stranded");
-			// Unchecking removes every spelling that names the field: the padded
-			// entry cannot survive its own checkbox and reactivate on reload.
+			// Unchecking removes every spelling that names the field: the padded entry cannot survive its own checkbox
+			// and reactivate on reload.
 			const untoggled = toggleDirectiveField("caps", group, "_fallback", "context_length", false);
 			assert.deepStrictEqual(
 				untoggled.params.map((param) => param.key),
@@ -681,8 +670,8 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("parameter list entries match verbatim: a padded entry marks nothing and hints stranded", () => {
-			// parseParameterRecord matches `_force` entries against field keys
-			// exactly, so "temperature " does not force "temperature".
+			// parseParameterRecord matches `_force` entries against field keys exactly, so "temperature " does not
+			// force "temperature".
 			const group = {
 				prefix: "gpt-4",
 				params: [newParamRow("temperature", "0.2"), newParamRow("_force", '["temperature "]')],
@@ -731,8 +720,8 @@ describe("dashboard/recordDraft", () => {
 			assert.strictEqual(matcherKind("/re/i"), "regex");
 			assert.strictEqual(matcherKind("gpt-4*"), "glob");
 			assert.strictEqual(matcherKind("anthropic/claude-4"), "exact");
-			// Whitespace is part of the key: " gpt-4 " is an exact key for the
-			// ID " gpt-4 ", and a trailing space after a star is no glob.
+			// Whitespace is part of the key: " gpt-4 " is an exact key for the ID " gpt-4 ", and a trailing space after
+			// a star is no glob.
 			assert.strictEqual(matcherKind(" gpt-4 "), "exact");
 			assert.strictEqual(matcherKind("gpt-4* "), "invalid");
 			assert.strictEqual(matcherKind("bad*key"), "invalid");

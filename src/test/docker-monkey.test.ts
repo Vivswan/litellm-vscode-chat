@@ -21,8 +21,8 @@ const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 
-// An explicit FUZZ_SEED reproduces exactly; otherwise a fresh pid- and
-// time-mixed seed is drawn (see src/test/fuzzSeed.ts).
+// An explicit FUZZ_SEED reproduces exactly; otherwise a fresh pid- and time-mixed seed is drawn (see
+// src/test/fuzzSeed.ts).
 const SEED = resolveDockerFuzzSeed();
 const WALKS = Math.max(1, Math.floor(Number(process.env.MONKEY_ITERATIONS)) || 5);
 const MIN_STEPS = 12;
@@ -67,8 +67,8 @@ suite("Docker LiteLLM monkey fuzzer", () => {
 	}
 
 	test("replays the regression corpus", async function () {
-		// Shrink time is budgeted like the walks test: a regressing corpus
-		// entry must emit its minimal trace, not die at the mocha timeout.
+		// Shrink time is budgeted like the walks test: a regressing corpus entry must emit its minimal trace, not die
+		// at the mocha timeout.
 		this.timeout(Math.max(60000, (MONKEY_CORPUS.length + MAX_SHRINK_RUNS) * WALK_BUDGET_MS));
 		for (const entry of MONKEY_CORPUS) {
 			await runReported(`corpus-${entry.name}`, `corpus entry "${entry.name}"`, entry.actions);
@@ -89,8 +89,8 @@ suite("Docker LiteLLM monkey fuzzer", () => {
 	});
 
 	test("the walk generator is deterministic for a fixed seed", () => {
-		// The cheap in-process half of the determinism contract: identical seeds
-		// must yield identical action traces, or FUZZ_SEED replays lie.
+		// The cheap in-process half of the determinism contract: identical seeds must yield identical action traces, or
+		// FUZZ_SEED replays lie.
 		const first = generateWalk(mulberry32(SEED ^ 0x6d6f6e6b), 20);
 		const second = generateWalk(mulberry32(SEED ^ 0x6d6f6e6b), 20);
 		assert.deepStrictEqual(first, second);

@@ -1,6 +1,3 @@
-/**
- * How a stream ends: the end-of-stream policy, reasoning-only empty responses, and the SSE transport itself.
- */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { RequestError } from "../../../provider/transport/errorMapping";
@@ -16,9 +13,8 @@ suite("provider/streaming end-of-stream policy", () => {
 	}
 
 	test("an in-band error frame terminates the stream with a classified error, prior text intact", async () => {
-		// The shape LiteLLM streams when an upstream dies after the 200: valid
-		// chunks, then data: {"error": {...}}, then a clean end. Swallowing it
-		// would deliver a silent truncation; aborts must be observable.
+		// The shape LiteLLM streams when an upstream dies after the 200: valid chunks, then data: {"error": {...}},
+		// then a clean end. Swallowing it would deliver a silent truncation; aborts must be observable.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([
@@ -43,8 +39,8 @@ suite("provider/streaming end-of-stream policy", () => {
 	});
 
 	test("an error frame alongside usable choices does not terminate the stream", async () => {
-		// The termination rule is scoped to frames with NO usable choices; a chunk
-		// still carrying deltas keeps the log-and-skip spirit.
+		// The termination rule is scoped to frames with NO usable choices; a chunk still carrying deltas keeps the
+		// log-and-skip spirit.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([
@@ -203,10 +199,9 @@ suite("provider/streaming end-of-stream policy", () => {
 	});
 
 	test("a no-argument tool call (arguments empty throughout) emits with empty input instead of failing (#281)", async () => {
-		// The OpenAI-style shape for a no-parameter tool: `arguments: ""` in
-		// every frame. At end of stream no more deltas can arrive, so the empty
-		// accumulation reads as the empty object - the same rule the inline
-		// parser and outbound history conversion already apply.
+		// The OpenAI-style shape for a no-parameter tool: `arguments: ""` in every frame. At end of stream no more
+		// deltas can arrive, so the empty accumulation reads as the empty object - the same rule the inline parser and
+		// outbound history conversion already apply.
 		for (const frames of [
 			// [DONE] route, empty string args.
 			[
@@ -248,8 +243,8 @@ suite("provider/streaming end-of-stream policy", () => {
 	});
 
 	test("a COMPLETE inline call with an explicit empty argument section emits with empty input", async () => {
-		// The end token proves the argument section is final; only a call with
-		// no argument-begin token gets the parser's own synthesized "{}".
+		// The end token proves the argument section is final; only a call with no argument-begin token gets the
+		// parser's own synthesized "{}".
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([
@@ -289,8 +284,8 @@ suite("provider/streaming end-of-stream policy", () => {
 	});
 
 	test("a name-only call cut by the output limit classifies instead of emitting an empty call", async () => {
-		// The limit arrived before ANY argument bytes: emitting {} would run a
-		// tool the model never finished parameterizing.
+		// The limit arrived before ANY argument bytes: emitting {} would run a tool the model never finished
+		// parameterizing.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([
@@ -378,8 +373,8 @@ suite("provider/streaming end-of-stream policy", () => {
 	});
 
 	test("cancellation drops an empty-args call instead of emitting it (#281)", async () => {
-		// A name-only call at cancellation is an unfinished call, not a
-		// no-argument one: emitting {} could run a tool the user just cancelled.
+		// A name-only call at cancellation is an unfinished call, not a no-argument one: emitting {} could run a tool
+		// the user just cancelled.
 		for (const frames of [
 			// Delta channel, name arrived, arguments never did.
 			['data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":""}}]}}]}\n'],
@@ -457,8 +452,8 @@ suite("provider/streaming end-of-stream policy", () => {
 						)
 					);
 				} else if (pullCount === 2) {
-					// Cancellation lands while this read is pending, so the finish
-					// chunk is still processed but must no longer throw.
+					// Cancellation lands while this read is pending, so the finish chunk is still processed but must no
+					// longer throw.
 					source.cancel();
 					controller.enqueue(encoder.encode('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n'));
 				} else {
@@ -514,9 +509,8 @@ suite("provider/streaming reasoning-only empty responses", () => {
 			(e: unknown) => {
 				assert.ok(e instanceof Error, `expected an Error, got ${String(e)}`);
 				assert.strictEqual(e.message, REASONING_ONLY_MESSAGE, "the message is a fixed string, never response-derived");
-				// The display message localizes; under the English fallback its mirror
-				// must be the identical string, so English-by-policy log surfaces
-				// stay English in every locale.
+				// The display message localizes; under the English fallback its mirror must be the identical string, so
+				// English-by-policy log surfaces stay English in every locale.
 				assert.strictEqual(
 					(e as Error & { englishMessage?: string }).englishMessage,
 					e.message,
@@ -581,16 +575,14 @@ suite("provider/streaming reasoning-only empty responses", () => {
 			source.cancel()
 		);
 
-		// finishedNormally is false, so the empty-response error must not fire.
 		await stream.processStreamingResponse(body, source.token);
 
 		assert.strictEqual(parts.length, 0);
 	});
 
 	test("an empty stream with no reasoning keeps today's silent empty resolution", async () => {
-		// A model that genuinely returned nothing dropped nothing, so the request
-		// resolves empty. Only the reasoning-drop case errors, because there the
-		// extension itself discarded the output.
+		// A model that genuinely returned nothing dropped nothing, so the request resolves empty. Only the
+		// reasoning-drop case errors, because there the extension itself discarded the output.
 		const logs: Array<{ msg: string; data?: unknown }> = [];
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), progress, null);
@@ -603,8 +595,8 @@ suite("provider/streaming reasoning-only empty responses", () => {
 	});
 
 	test("a host class whose constructor always throws is the same empty response and rejects identically", async () => {
-		// Issue #215's symptom via the other route: the class exists but every
-		// construction fails, so the request would still resolve with zero parts.
+		// Issue #215's symptom via the other route: the class exists but every construction fails, so the request would
+		// still resolve with zero parts.
 		const logs: Array<{ msg: string; data?: unknown }> = [];
 		const throwingCtor = class {
 			constructor() {
@@ -648,9 +640,8 @@ suite("provider/streaming reasoning-only empty responses", () => {
 				e instanceof Error &&
 				e.message.startsWith("The model sent a broken tool call") &&
 				e.message.endsWith("\n\nDetails: 1 tool call arrived with arguments that were not valid JSON") &&
-				// The English mirror deliberately diverges from the localized
-				// display: it is the distinctive count-only line the output channel
-				// and issue-report buffer record.
+				// The English mirror deliberately diverges from the localized display: it is the distinctive count-only
+				// line the output channel and issue-report buffer record.
 				(e as Error & { englishMessage?: string }).englishMessage ===
 					"Tool call flush failed at end of stream: 1 tool call(s) with invalid JSON arguments"
 		);
@@ -675,8 +666,8 @@ suite("provider/streaming reasoning-only empty responses", () => {
 	});
 
 	test("a reasoning-dropping stream whose only other output is citations throws instead of resolving as sources", async () => {
-		// The Sources trailer is not the response: it must not satisfy the
-		// empty-response check, and the terminal checks run before it would emit.
+		// The Sources trailer is not the response: it must not satisfy the empty-response check, and the terminal
+		// checks run before it would emit.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress, null);
 		const body = sseStream([
@@ -693,8 +684,8 @@ suite("provider/streaming reasoning-only empty responses", () => {
 	});
 
 	test("a request failing on an in-band error frame still logs the drop aggregate", async () => {
-		// The error frame throws out of the transport loop before any finishStream
-		// runs; the cleanup path must still tie the lost reasoning to this turn.
+		// The error frame throws out of the transport loop before any finishStream runs; the cleanup path must still
+		// tie the lost reasoning to this turn.
 		const logs: Array<{ msg: string; data?: unknown }> = [];
 		const { progress } = collector();
 		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), progress, null);
@@ -731,8 +722,8 @@ suite("provider/streaming SSE transport", () => {
 		assert.equal(visibleTextOf(parts), "Hi there");
 		const skipped = logs.filter((l) => l.msg === "Skipping malformed SSE line");
 		assert.equal(skipped.length, 1, "Exactly the malformed line is skipped");
-		// Classifications only: raw line content (and V8's JSON error message,
-		// which quotes the input) must never reach the issue-report buffer.
+		// Classifications only: raw line content (and V8's JSON error message, which quotes the input) must never reach
+		// the issue-report buffer.
 		assert.deepEqual(expectDefined(skipped[0]).data, { length: "{oops".length, errorClass: "SyntaxError" });
 	});
 });

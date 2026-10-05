@@ -14,12 +14,10 @@ import { OPENROUTER_MODELS_URL, type OpenRouterFetchFailure } from "../../../../
 import { REPO_ROOT } from "../../../util/repoRoot";
 
 /**
- * The fetch script's failure classification, asserted on the whole message
- * and on the shared reason behind it: a CI operator reads that one line and
- * nothing else, and the retry loop reads the reason and nothing else. The
- * stall case is the one that motivated the module - headers 200 from a CDN
- * edge, body never finishing - and it used to read "the response body is not
- * JSON" because the abort landed in a discarded catch.
+ * The fetch script's failure classification, asserted on the whole message and on the shared reason behind it: a CI
+ * operator reads that one line and nothing else, and the retry loop reads the reason and nothing else. The stall case
+ * is the one that motivated the module - headers 200 from a CDN edge, body never finishing - and it used to read "the
+ * response body is not JSON" because the abort landed in a discarded catch.
  */
 
 const encoder = new TextEncoder();
@@ -29,9 +27,8 @@ const BUDGET_MS = 50;
 type Fetch = (url: string, init: { readonly signal: AbortSignal }) => Promise<Response>;
 
 /**
- * A 200 whose body sends `head` and then never closes. With a signal, the
- * stream errors on abort the way a real fetch body does; without one it is a
- * plain fake nothing releases, as a hand-built Response in a test is.
+ * A 200 whose body sends `head` and then never closes. With a signal, the stream errors on abort the way a real fetch
+ * body does; without one it is a plain fake nothing releases, as a hand-built Response in a test is.
  */
 function stalledResponse(head: string, signal?: AbortSignal): Response {
 	const stream = new ReadableStream<Uint8Array>({
@@ -149,9 +146,6 @@ describe("fetchOnce classification", () => {
 	});
 
 	test("the stall is reported against the attempt's own clock, not a slow success", async () => {
-		// Same stalled body, generous budget; the stream is closed by hand
-		// before the budget runs out, so the read completes and only the parse
-		// can fail: the timeout message must not appear.
 		let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
 		const stream = new ReadableStream<Uint8Array>({
 			start(c) {
@@ -195,12 +189,11 @@ describe("fetchLivePayload retry cadence", () => {
 	}
 
 	/**
-	 * The shared rule as the script lives it (isRetryableOpenRouterFailure,
-	 * mirrored by the runtime refresh's own table): a retryable failure spends
-	 * the whole ladder - three attempts, 5 s then 15 s, the third escaping
-	 * without a sleep - and a settled answer escapes after ONE attempt with the
-	 * same evidence message, sleeping never. The harness scripts exactly
-	 * `attempts` responses, so an extra attempt fails as an over-read.
+	 * The harness scripts exactly `attempts` responses, so an extra attempt fails as an over-read.
+	 *
+	 *   a retryable failure -> spends the whole ladder - three attempts, 5 s then 15 s, the third escaping without a
+	 *                          sleep
+	 *   a settled answer    -> escapes after ONE attempt with the same evidence message, sleeping never
 	 */
 	const status = (code: number) => async () =>
 		new Response(HTML, { status: code, headers: { "content-type": "text/html" } });
@@ -288,10 +281,9 @@ describe("fetchLivePayload retry cadence", () => {
 });
 
 /**
- * The operator-facing words for an UnreachableError, asserted as the whole
- * outcome per reason: main()'s fatal path prints exactly these two lines and
- * failureExit's ::warning:: reuses the headline, so this table is where the
- * fatal path's strings are pinned - main() itself is not unit-tested.
+ * The operator-facing words for an UnreachableError, asserted as the whole outcome per reason: main()'s fatal path
+ * prints exactly these two lines and failureExit's ::warning:: reuses the headline, so this table is where the fatal
+ * path's strings are pinned - main() itself is not unit-tested.
  */
 describe("unreachableVerdict", () => {
 	const transient = {
@@ -321,12 +313,10 @@ describe("unreachableVerdict", () => {
 });
 
 /**
- * The script's exit on a failure, asserted as the whole outcome: the lenient
- * mode downgrades every UnreachableError to one annotation line and a green
- * exit, with the headline read from the shared retry rule - transient for a
- * retryable reason, settled for one the loop did not retry - and nothing else:
- * schema drift is the signal the check exists for, so it stays red in every
- * mode.
+ * The script's exit on a failure, asserted as the whole outcome: the lenient mode downgrades every UnreachableError to
+ * one annotation line and a green exit, with the headline read from the shared retry rule - transient for a retryable
+ * reason, settled for one the loop did not retry - and nothing else: schema drift is the signal the check exists for,
+ * so it stays red in every mode.
  */
 describe("failureExit", () => {
 	class DriftError extends Error {}

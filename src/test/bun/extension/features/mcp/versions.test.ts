@@ -5,19 +5,15 @@ import type { DeclaredServer } from "../../../../../extension/servers/serverSync
 import { MCP_ENTRY_VERSIONS_KEY } from "../../../../../shared/config/storageKeys";
 
 /**
- * The rotation counter. Two things are load-bearing and neither is obvious:
- * a rotation must always be REPORTED (the editor would otherwise keep offering
- * tools authenticated by a credential that no longer works), and activation
- * must never be announced as one (every window would prompt a tool refresh).
- * Reporting is exactly-once: a rotation whose counter write then fails is not
- * retried, because the next rotation bumps the counter anyway.
+ * Two things are load-bearing and neither is obvious: a rotation must always be REPORTED (the editor would otherwise
+ * keep offering tools authenticated by a credential that no longer works), and activation must never be announced as
+ * one (every window would prompt a tool refresh). Reporting is exactly-once: a rotation whose counter write then fails
+ * is not retried, because the next rotation bumps the counter anyway.
  */
 
 /**
- * `slow` makes the write actually yield before it lands. A store that writes
- * synchronously closes the read-modify-write window by accident and would let
- * an unserialized counter pass; the real Memento does not, so the concurrency
- * test uses this one.
+ * A store that writes synchronously closes the read-modify-write window by accident and would let an unserialized
+ * counter pass; the real Memento does not, so the concurrency test uses this one.
  */
 function store(initial: unknown = undefined, slow = false): VersionStore & { value: unknown } {
 	return {
@@ -57,9 +53,8 @@ describe("extension/features/mcp/versions", () => {
 	});
 
 	test("concurrent bumps all land: the writes serialize instead of interleaving", async () => {
-		// Every bump is a read-modify-write of one shared record, and the events
-		// that trigger them are not awaited by VS Code. Unserialized, the later
-		// read would see the earlier value and one increment would vanish.
+		// Every bump is a read-modify-write of one shared record, and the events that trigger them are not awaited by
+		// VS Code. Unserialized, the later read would see the earlier value and one increment would vanish.
 		const backing = store(undefined, true);
 		const counters = new McpVersionCounters(backing);
 		await Promise.all([counters.bump("A"), counters.bump("A"), counters.bump("B"), counters.bump("A")]);
@@ -70,7 +65,6 @@ describe("extension/features/mcp/versions", () => {
 		for (const junk of [undefined, null, 42, "nope", [], { Main: -1 }, { Main: 1.5 }, { Main: "3" }]) {
 			assert.strictEqual(new McpVersionCounters(store(junk)).versionOf("Main"), 0);
 		}
-		// A well-formed neighbour still survives beside a junk one.
 		assert.strictEqual(new McpVersionCounters(store({ Main: 4, Other: "x" })).versionOf("Main"), 4);
 	});
 
@@ -88,9 +82,8 @@ describe("extension/features/mcp/versions", () => {
 		});
 
 		test("GAINING a first inline secret rotates, and so does losing and re-adding one", () => {
-			// The regression this guards: with "carries nothing" recorded as
-			// absence, a first secret would read as a first sighting and its
-			// rotation would go unannounced.
+			// The regression this guards: with "carries nothing" recorded as absence, a first secret would read as a
+			// first sighting and its rotation would go unannounced.
 			const counters = new McpVersionCounters(store());
 			const step = (declared: DeclaredServer): readonly string[] => counters.observeCredentials([declared]);
 			step(entry());
@@ -106,9 +99,8 @@ describe("extension/features/mcp/versions", () => {
 		});
 
 		test("non-secret fields that shape the sent headers rotate too", () => {
-			// What matters is whether the next session authenticates differently,
-			// and renaming the header a virtual key rides in does that as surely
-			// as rotating its value. Same for the OAuth text and custom headers.
+			// What matters is whether the next session authenticates differently, and renaming the header a virtual key
+			// rides in does that as surely as rotating its value. Same for the OAuth text and custom headers.
 			const cases: Partial<DeclaredServer>[] = [
 				{ virtualKeyHeader: "x-other-key" },
 				{ oauthTokenUrl: "https://idp2.test/token" },
@@ -136,10 +128,9 @@ describe("extension/features/mcp/versions", () => {
 		});
 
 		test("a base URL change rotates: it authorizes the credentials, it does not merely address them", () => {
-			// The regression: with a custom mcp.url the published endpoint does not
-			// move when baseUrl does, so nothing else would tell the editor that
-			// the same-origin verdict and the stored secret's stamped destination
-			// both just changed.
+			// The regression: with a custom mcp.url the published endpoint does not move when baseUrl does, so nothing
+			// else would tell the editor that the same-origin verdict and the stored secret's stamped destination both
+			// just changed.
 			const counters = new McpVersionCounters(store());
 			const at = (baseUrl: string): DeclaredServer =>
 				entry({ baseUrl, mcp: { url: "https://gw.example/mcp" }, apiKey: "sk-1" });
@@ -148,8 +139,8 @@ describe("extension/features/mcp/versions", () => {
 		});
 
 		test("a field that changes nothing about the sent headers does not rotate", () => {
-			// The digest is wider than "secrets" but not unbounded: a budget edit
-			// would churn every published version for nothing.
+			// The digest is wider than "secrets" but not unbounded: a budget edit would churn every published version
+			// for nothing.
 			const counters = new McpVersionCounters(store());
 			counters.observeCredentials([entry({ apiKey: "sk-1", budget: 10 })]);
 			assert.deepStrictEqual(counters.observeCredentials([entry({ apiKey: "sk-1", budget: 99 })]), []);
@@ -163,9 +154,8 @@ describe("extension/features/mcp/versions", () => {
 		});
 
 		test("an undeclared label is forgotten, so its return is a first sighting again", () => {
-			// A label that comes back is a new pairing; its stored counter keeps
-			// the rotations it already accumulated, but its re-appearance is not
-			// itself one.
+			// A label that comes back is a new pairing; its stored counter keeps the rotations it already accumulated,
+			// but its re-appearance is not itself one.
 			const counters = new McpVersionCounters(store());
 			counters.observeCredentials([entry({ apiKey: "sk-1" })]);
 			assert.deepStrictEqual(counters.observeCredentials([]), []);
@@ -180,10 +170,9 @@ describe("extension/features/mcp/versions", () => {
 		});
 
 		test("a failed counter write leaves the old counter, and the next rotation still bumps observably", async () => {
-			// The write can fail (globalState). Nothing retries it, deliberately:
-			// the version is an opaque change token, so the worst case is the
-			// editor serving the previous cached credential until the next
-			// rotation moves the counter anyway - which this pins.
+			// The write can fail (globalState). Nothing retries it, deliberately: the version is an opaque change
+			// token, so the worst case is the editor serving the previous cached credential until the next rotation
+			// moves the counter anyway - which this pins.
 			const backing = store();
 			let failNext = true;
 			const write = backing.update.bind(backing);
@@ -198,10 +187,8 @@ describe("extension/features/mcp/versions", () => {
 			counters.observeCredentials([entry({ apiKey: "sk-1" })]);
 			assert.deepStrictEqual(counters.observeCredentials([entry({ apiKey: "sk-2" })]), ["Main"]);
 			await assert.rejects(counters.bump("Main"));
-			// The old counter survives the failed write untouched.
 			assert.strictEqual(counters.versionOf("Main"), 0);
 			assert.strictEqual(backing.value, undefined);
-			// The next rotation is still detected, and its write bumps observably.
 			assert.deepStrictEqual(counters.observeCredentials([entry({ apiKey: "sk-3" })]), ["Main"]);
 			await counters.bump("Main");
 			assert.strictEqual(counters.versionOf("Main"), 1);

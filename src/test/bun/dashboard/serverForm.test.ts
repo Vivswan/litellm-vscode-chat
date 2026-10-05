@@ -165,10 +165,9 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("a cleared virtual key with stale typed text saves as clear instead of blocking on a disabled input", () => {
-			// The parse-once shape's regression: validation once read the raw input
-			// text where assembly read the clear directive, so stale text in a
-			// disabled input blocked Save on a problem the user could not edit
-			// away. A value that is going away cannot block.
+			// The parse-once shape's regression: validation once read the raw input text where assembly read the clear
+			// directive, so stale text in a disabled input blocked Save on a problem the user could not edit away. A
+			// value that is going away cannot block.
 			const parse = parseServerForm(
 				draft({ authForm: "virtualKey", virtualKeyValue: secret({ value: "a\nb", clear: true, existing: "secure" }) })
 			);
@@ -236,8 +235,8 @@ describe("dashboard/serverForm", () => {
 	describe("parseServerForm intent", () => {
 		test("trims fields and omits empty optionals entirely", () => {
 			const intent = intentOf(draft({ label: " Prod ", baseUrl: " http://localhost:4000 ", oauthScopes: "  " }));
-			// The entry-record and list fields ride every intent, even empty, so the
-			// save can tell a deliberate clear from a pre-editor payload.
+			// The entry-record and list fields ride every intent, even empty, so the save can tell a deliberate clear
+			// from a pre-editor payload.
 			assert.deepStrictEqual(intent.server, {
 				label: "Prod",
 				baseUrl: "http://localhost:4000",
@@ -253,8 +252,8 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("empty secret inputs become keep, typed values become set with their location, clear wins", () => {
-			// The kept client secret makes the draft OAuth-shaped, so the pair it
-			// demands is present: only clean drafts parse to an intent at all.
+			// The kept client secret makes the draft OAuth-shaped, so the pair it demands is present: only clean drafts
+			// parse to an intent at all.
 			const intent = intentOf(
 				draft({
 					authForm: "oauth",
@@ -424,8 +423,8 @@ describe("dashboard/serverForm", () => {
 			});
 			assert.deepStrictEqual(intent.server.expectedFailures, ["modelListing", "modelInfo"]);
 			assert.deepStrictEqual(intent.server.includeModes, ["completion"]);
-			// Empty drafts still send the fields: present-but-empty is the
-			// deliberate clear; absent is reserved for pre-editor payloads.
+			// Empty drafts still send the fields: present-but-empty is the deliberate clear; absent is reserved for
+			// pre-editor payloads.
 			const empty = intentOf(draft()).server;
 			assert.deepStrictEqual(empty.modelCapabilities, {});
 			assert.deepStrictEqual(empty.expectedFailures, []);
@@ -472,9 +471,8 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("an invalid stored inline virtual-key value blocks Save once prefilled, flagged on its own field", () => {
-			// Previously unreachable: the value input was always empty on edit, so a
-			// hand-written non-sendable inline value slid through. The problem must
-			// sit on the value field, not the header, and clear once it is edited.
+			// Previously unreachable: the value input was always empty on edit, so a hand-written non-sendable inline
+			// value slid through. The problem must sit on the value field, not the header, and clear once it is edited.
 			const base = draft({
 				authForm: "virtualKey",
 				virtualKeyHeader: "x-key",
@@ -491,11 +489,9 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("relocation race lifecycle: a location flip before the response arrives still relocates once it does", () => {
-			// The hazard the form's Save gate exists for: flipping the inline key's
-			// radio to secret storage and saving before the prefill lands would
-			// read the empty field as "keep" and drop the relocation, so
-			// servers.tsx holds the form in its prefill phase until the response
-			// arrives; the flipped location then survives the prefill.
+			//   The hazard the form's Save gate exists for -> flipping the inline key's radio to secret storage and
+			//                                                 saving before the prefill lands would read the empty
+			//                                                 field as "keep" and drop the relocation
 			const flipped = draft({ authForm: "apiKey", apiKey: secret({ existing: "settings", location: "secure" }) });
 			assert.deepStrictEqual(
 				intentOf(flipped).secrets.apiKey,
@@ -573,8 +569,8 @@ describe("dashboard/serverForm", () => {
 				oauthClientSecret: secret({ existing: "secure" }),
 			});
 			assert.deepStrictEqual(staleKeyFieldsOnSave(intentOf(moved, original)), ["oauthClientSecret"]);
-			// The token URL compares VERBATIM (the exchange fetches it exactly), so
-			// even a trailing slash is a different destination.
+			// The token URL compares VERBATIM (the exchange fetches it exactly), so even a trailing slash is a
+			// different destination.
 			const slashed = draft({
 				authForm: "oauth",
 				baseUrl: "http://old.test",
@@ -657,8 +653,8 @@ describe("dashboard/serverForm", () => {
 				authForm: "oauth",
 				label: "Renamed",
 				apiKey: secret({ value: " sk-typed ", location: "settings" }),
-				// A stored OAuth secret resolves through "keep", so the pairing rules
-				// require its token URL and client ID, for a test as for a save.
+				// A stored OAuth secret resolves through "keep", so the pairing rules require its token URL and client
+				// ID, for a test as for a save.
 				oauthTokenUrl: "https://idp.test/token",
 				oauthClientId: "client-1",
 				oauthClientSecret: secret({ existing: "secure" }),
@@ -676,12 +672,12 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("CONNECTION_FIELDS is exactly the field catalog minus label and the record, list, budget, and mcp fields", () => {
-			// A new connection-shaped field must join CONNECTION_FIELDS or this
-			// fails. modelCapabilities, expectedFailures, includeModes, declaredModels,
-			// and budget stay out by design: they shape the probe's OUTCOME
-			// presentation, never the connection it tests, and mcp names a second
-			// endpoint the probe never dials. The auth-form pick and the header
-			// rows ARE connection-shaped: the probe sends what they say.
+			// A new connection-shaped field must join CONNECTION_FIELDS or this fails. modelCapabilities,
+			// expectedFailures, includeModes, declaredModels, and budget stay out by design: they shape the probe's
+			// OUTCOME presentation, never the connection it tests, and mcp names a second endpoint the probe never
+			// dials.
+			//
+			//   the probe sends what they say -> The auth-form pick and the header rows ARE connection-shaped
 			const expected = SERVER_FORM_FIELD_ORDER.filter(
 				(field) =>
 					field !== "label" &&
@@ -754,9 +750,8 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("a translated message body behind the ASCII field prefix still routes to the field", () => {
-			// The intent boundary localizes only the body of a field-prefixed
-			// message; the "fieldId:" prefix stays untranslated ASCII, so the
-			// promotion must recognize the field in any language.
+			// The intent boundary localizes only the body of a field-prefixed message; the "fieldId:" prefix stays
+			// untranslated ASCII, so the promotion must recognize the field in any language.
 			assert.strictEqual(
 				sectionFailureText("Saving the server failed:", "label: 此标签的条目已存在"),
 				"Label: 此标签的条目已存在"
@@ -803,8 +798,8 @@ describe("dashboard/serverForm", () => {
 				apiKey: secret({ existing: "secure", prefill: undefined, value: "sk-stored" }),
 			};
 			assert.deepStrictEqual(changedServerFormFields(rebadged, baseline), []);
-			// The three things the user CAN change each count; the storage pick
-			// counts only on a field that holds a value (see the next test).
+			// The three things the user CAN change each count; the storage pick counts only on a field that holds a
+			// value (see the next test).
 			for (const patch of [{ value: "sk-other" }, { location: "settings" as const }, { clear: true }]) {
 				const edited = { ...baseline, apiKey: { ...baseline.apiKey, ...patch } };
 				assert.deepStrictEqual(changedServerFormFields(edited, baseline), ["apiKey"]);
@@ -812,8 +807,8 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("what the save would not write does not count: an empty field's storage pick, a reordered failure list", () => {
-			// parseSecret returns "keep" for an empty field whatever the radio
-			// says, so flipping it writes nothing and must not read as unsaved.
+			// parseSecret returns "keep" for an empty field whatever the radio says, so flipping it writes nothing and
+			// must not read as unsaved.
 			const empty = draft({ authForm: "apiKey", apiKey: secret({ existing: "secure" }) });
 			const flipped = { ...empty, apiKey: secret({ existing: "secure", location: "settings" }) };
 			assert.deepStrictEqual(changedServerFormFields(flipped, empty), []);
@@ -821,8 +816,7 @@ describe("dashboard/serverForm", () => {
 			const typed = draft({ authForm: "apiKey", apiKey: secret({ value: "sk-new" }) });
 			const relocated = { ...typed, apiKey: secret({ value: "sk-new", location: "settings" }) };
 			assert.deepStrictEqual(changedServerFormFields(relocated, typed), ["apiKey"]);
-			// The checkbox set canonicalizes its order; the stored entry keeps
-			// the author's. Same set, nothing to save.
+			// The checkbox set canonicalizes its order; the stored entry keeps the author's. Same set, nothing to save.
 			const stored = draft({ expectedFailures: ["modelInfo", "modelListing"] });
 			const toggled = draft({ expectedFailures: ["modelListing", "modelInfo"] });
 			assert.deepStrictEqual(changedServerFormFields(toggled, stored), []);
@@ -832,14 +826,14 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("whitespace-only and padded edits do not count; a trim-visible one does", () => {
-			// parseSecret trims, so a lone space still saves as "keep"; the save
-			// bar must not promise a write Save will not perform.
+			// parseSecret trims, so a lone space still saves as "keep"; the save bar must not promise a write Save will
+			// not perform.
 			const stored = draft({ authForm: "apiKey", apiKey: secret({ existing: "secure" }) });
 			const spaced = { ...stored, apiKey: { ...stored.apiKey, value: " " } };
 			assert.deepStrictEqual(intentOf(spaced).secrets.apiKey, { action: "keep" });
 			assert.deepStrictEqual(changedServerFormFields(spaced, stored), []);
-			// Trailing whitespace on an untouched inline prefill: still the
-			// prefill after the trim, so Save keeps and the count stays empty.
+			// Trailing whitespace on an untouched inline prefill: still the prefill after the trim, so Save keeps and
+			// the count stays empty.
 			const prefilled = draft({
 				authForm: "apiKey",
 				apiKey: secret({ existing: "settings", prefill: "sk-stored", value: "sk-stored", location: "settings" }),
@@ -857,8 +851,8 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("an inactive field's leftover text does not count; its remove mark still does", () => {
-			// Typed while OAuth was picked, then the form switched back: Save
-			// emits "keep" for the inactive client secret, so the bar stays quiet.
+			// Typed while OAuth was picked, then the form switched back: Save emits "keep" for the inactive client
+			// secret, so the bar stays quiet.
 			const baseline = draft({ authForm: "apiKey" });
 			const leftover = { ...baseline, oauthClientSecret: secret({ value: "s3cret" }) };
 			assert.deepStrictEqual(intentOf(leftover).secrets.oauthClientSecret, { action: "keep" });
@@ -870,8 +864,8 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("an inline prefill applied to draft and baseline alike counts as nothing to save", () => {
-			// What the form does when the readInlineSecrets response lands: the same
-			// transform runs over both, so a value the form filled in is not an edit.
+			// What the form does when the readInlineSecrets response lands: the same transform runs over both, so a
+			// value the form filled in is not an edit.
 			const opened = draft({ authForm: "apiKey", apiKey: secret({ existing: "settings" }) });
 			const values = { apiKey: "sk-inline" } as const;
 			assert.deepStrictEqual(
@@ -883,9 +877,8 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("leftover auth text on a form that does not send it does not count; the same text sent does", () => {
-			// Typed while OAuth was picked, then the selector switched to apiKey:
-			// Save excludes the inactive texts, so the bar stays quiet - and the
-			// connection caveat with it (both oauth fields are CONNECTION_FIELDS).
+			// Typed while OAuth was picked, then the selector switched to apiKey: Save excludes the inactive texts, so
+			// the bar stays quiet - and the connection caveat with it (both oauth fields are CONNECTION_FIELDS).
 			const baseline = draft({ authForm: "apiKey" });
 			const leftover = { ...baseline, oauthTokenUrl: "https://idp.test/token", oauthScopes: "read" };
 			assert.strictEqual(intentOf(leftover).server.oauthTokenUrl, undefined);
@@ -905,8 +898,7 @@ describe("dashboard/serverForm", () => {
 			assert.deepStrictEqual(changedServerFormFields({ ...baseline, budget: "5.0" }, baseline), []);
 			assert.deepStrictEqual(changedServerFormFields({ ...baseline, label: "Staging" }, baseline), ["label"]);
 			assert.deepStrictEqual(changedServerFormFields({ ...baseline, budget: "6" }, baseline), ["budget"]);
-			// Unsavable budget text still counts (trimmed): the bar must not go
-			// quiet on an edit Save will refuse.
+			// Unsavable budget text still counts (trimmed): the bar must not go quiet on an edit Save will refuse.
 			assert.deepStrictEqual(changedServerFormFields({ ...baseline, budget: "abc" }, baseline), ["budget"]);
 			assert.deepStrictEqual(
 				changedServerFormFields({ ...baseline, budget: " abc " }, { ...baseline, budget: "abc" }),
@@ -952,18 +944,17 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("the always-visible controls count by draft, even when the save would write the same payload", () => {
-			// The deliberate carve-out: the auth selector and the row grids are
-			// visible controls, so a move the user can see always registers. A
-			// switch that strands a stored credential is refused (the redesign
-			// suite pins that); a switch toward an unfilled form or between forms
-			// that still send everything stored stays byte-identical and counts.
+			// The deliberate carve-out: the auth selector and the row grids are visible controls, so a move the user
+			// can see always registers. A switch that strands a stored credential is refused (the redesign suite pins
+			// that); a switch toward an unfilled form or between forms that still send everything stored stays
+			// byte-identical and counts.
 			const baseline = draft({ authForm: "none" });
 			const switched = { ...baseline, authForm: "virtualKey" as const };
 			assert.deepStrictEqual(intentOf(switched).server, intentOf(baseline).server);
 			assert.deepStrictEqual(intentOf(switched).secrets, intentOf(baseline).secrets);
 			assert.deepStrictEqual(changedServerFormFields(switched, baseline), ["authForm"]);
-			// The stored shape of that remainder: apiKey carries the virtual-key
-			// companion, so nothing is stranded and the switch saves the same entry.
+			// The stored shape of that remainder: apiKey carries the virtual-key companion, so nothing is stranded and
+			// the switch saves the same entry.
 			const vkStored = draft({
 				authForm: "virtualKey",
 				virtualKeyHeader: "x-key",
@@ -973,9 +964,8 @@ describe("dashboard/serverForm", () => {
 			assert.deepStrictEqual(intentOf(toApiKey).server, intentOf(vkStored).server);
 			assert.deepStrictEqual(intentOf(toApiKey).secrets, intentOf(vkStored).secrets);
 			assert.deepStrictEqual(changedServerFormFields(toApiKey, vkStored), ["authForm"]);
-			// Matcher keys persist verbatim (the grammar trims nothing), so the
-			// byte-identical example is a padded VALUE: the JSON parse reads the
-			// same number, and the grid still reports the edit.
+			// Matcher keys persist verbatim (the grammar trims nothing), so the byte-identical example is a padded
+			// VALUE: the JSON parse reads the same number, and the grid still reports the edit.
 			const rows = draft({
 				modelCapabilities: [{ prefix: "gpt-5*", params: [newParamRow("max_output_tokens", "8")] }],
 			});
@@ -1003,8 +993,7 @@ describe("dashboard/serverForm", () => {
 			assert.deepStrictEqual(problemsOf(draft({ mcp: { enabled: true, url: "not a url" } })), {
 				mcp: "Must be a usable http(s) URL",
 			});
-			// Off, the same text is inert: the parse never reads a control the
-			// user turned off.
+			// Off, the same text is inert: the parse never reads a control the user turned off.
 			assert.deepStrictEqual(problemsOf(draft({ mcp: { enabled: false, url: "not a url" } })), {});
 		});
 
@@ -1029,8 +1018,8 @@ describe("dashboard/serverForm", () => {
 			assert.deepStrictEqual(changedServerFormFields(draft({ mcp: { enabled: true, url: " https://x.test " } }), off), [
 				"mcp",
 			]);
-			// Padding alone is not an edit; a blocking URL still counts, or the
-			// bar would go quiet on an edit that refuses to save.
+			// Padding alone is not an edit; a blocking URL still counts, or the bar would go quiet on an edit that
+			// refuses to save.
 			const url = draft({ mcp: { enabled: true, url: "https://x.test" } });
 			assert.deepStrictEqual(
 				changedServerFormFields(draft({ mcp: { enabled: true, url: " https://x.test " } }), url),

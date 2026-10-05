@@ -1,7 +1,3 @@
-/**
- * executeDashboardIntent against the servers setting: saveServerSetting and its
- * secret directives, removal, and the identity replacements a rename implies.
- */
 import * as assert from "node:assert";
 import type { ReplacedEntryIdentity, RequestPayload } from "../../../dashboard/endpoints";
 import type { ServerFormDraft } from "../../../dashboard/serverForm";
@@ -28,7 +24,6 @@ import {
 	serverPayload,
 } from "./recordedEnv";
 
-/** The intent body a clean draft parses to; fails the test if the draft has problems. */
 function parseClean(draft: ServerFormDraft, original: ReplacedEntryIdentity) {
 	const parse = parseServerForm(draft, { original });
 	assert.ok(parse.ok, "the draft must parse clean");
@@ -70,13 +65,11 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a fallback-window edit round-trips every registered entry field losslessly", async () => {
-			// The window before the first sync pass lands: the edit form prefills
-			// from declaredViewsFromSetting's views, and applySaveServerSetting
-			// rebuilds the WHOLE entry from the form's payload (any field the
-			// payload lacks is deleted by the save). Building the payload from the
-			// fallback view therefore pins the loss end to end: a field the view
-			// drops (mcp once was) arrives as its cleared sentinel and the save
-			// strips the user's setting.
+			// The window before the first sync pass lands: the edit form prefills from declaredViewsFromSetting's
+			// views, and applySaveServerSetting rebuilds the WHOLE entry from the form's payload (any field the payload
+			// lacks is deleted by the save). Building the payload from the fallback view therefore pins the loss end to
+			// end: a field the view drops (mcp once was) arrives as its cleared sentinel and the save strips the user's
+			// setting.
 			const raw = {
 				label: "Prod",
 				baseUrl: "http://prod.test",
@@ -94,8 +87,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			const recorded = makeEnv([raw]);
 			const view = declaredViewsFromSetting(recorded.env.readServersSetting()).views[0];
 			assert.ok(view);
-			// Registry-driven and fail-closed: a field added to ENTRY_VIEW_FIELD_SET
-			// does not pass until this fixture exercises it through the round trip.
+			// Registry-driven and fail-closed: a field added to ENTRY_VIEW_FIELD_SET does not pass until this fixture
+			// exercises it through the round trip.
 			for (const field of ENTRY_VIEW_FIELD_IDS) {
 				assert.notStrictEqual(view[field], undefined, `the fixture must exercise the registered field "${field}"`);
 			}
@@ -135,28 +128,25 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a kept stored secret stamped for another destination resolves nothing", async () => {
-			// The removal-keeps-blobs leftover under a re-declared label: the
-			// dashboard displayed the refused field as no credential (the engine's
-			// owned view), so the form's keep must resolve nothing - not hand the
-			// retired value to the entry's host through the save.
+			// The removal-keeps-blobs leftover under a re-declared label: the dashboard displayed the refused field as
+			// no credential (the engine's owned view), so the form's keep must resolve nothing - not hand the retired
+			// value to the entry's host through the save.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-retired" });
 			recorded.storedOwners.set("Prod", { apiKey: "http://retired.test" });
 			await save(recorded, { replace: await displayedReplace(recorded, "Prod") });
 
 			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
-			// The dormant mismatched field stays put (an edit wipes nothing); it
-			// simply never resolves for this entry.
+			// The dormant mismatched field stays put (an edit wipes nothing); it simply never resolves for this entry.
 			assert.deepStrictEqual(recorded.secretOps, []);
 			assert.deepStrictEqual(recorded.storedSecrets.get("Prod"), { apiKey: "sk-retired" });
 		});
 
 		test("an edit that re-points the host re-stamps a kept stored secret for the new destination", async () => {
-			// The form showed the field as stored and the user saved the entry
-			// around it while re-pointing the host: exactly the deliberate pairing
-			// a stamp records, so the value keeps working at the new destination.
-			// This is the "Use same key" answer of the edit form's stale-key
-			// question (the webview posts the parse unchanged).
+			// The form showed the field as stored and the user saved the entry around it while re-pointing the host:
+			// exactly the deliberate pairing a stamp records, so the value keeps working at the new destination. This
+			// is the "Use same key" answer of the edit form's stale-key question (the webview posts the parse
+			// unchanged).
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test" }]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-kept" });
 			recorded.storedOwners.set("Prod", { apiKey: "http://old.test" });
@@ -171,9 +161,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("an edit that re-points the host with a clear directive deletes the stored secret", async () => {
-			// The stale-key question's other answer: "Clear key" posts the same
-			// save with the field's clear directive, and the stored value dies
-			// with its stamp instead of riding to the new host.
+			// The stale-key question's other answer: "Clear key" posts the same save with the field's clear directive,
+			// and the stored value dies with its stamp instead of riding to the new host.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test" }]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-kept" });
 			recorded.storedOwners.set("Prod", { apiKey: "http://old.test" });
@@ -204,10 +193,9 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("the write merges over a fresh read: a concurrent sibling edit is never reverted", async () => {
-			// The guarded secret operations await between the plan's setting read
-			// and the settings write; a sibling entry edited in that window
-			// (another window, a hand edit) must ride into the written array
-			// instead of being silently reverted by the pass-start snapshot.
+			// The guarded secret operations await between the plan's setting read and the settings write; a sibling
+			// entry edited in that window (another window, a hand edit) must ride into the written array instead of
+			// being silently reverted by the pass-start snapshot.
 			const initial = [
 				{ label: "A", baseUrl: "http://a.test" },
 				{ label: "Prod", baseUrl: "http://prod.test" },
@@ -234,9 +222,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a target that drifted between the plan and the write refuses inside the guarded unit", async () => {
-			// The displayed-identity check ran against the plan-time read; a target
-			// swapped after it must refuse at write time too, with every staged
-			// secret rolled back - writing would land a mix of the drifted entry's
+			// The displayed-identity check ran against the plan-time read; a target swapped after it must refuse at
+			// write time too, with every staged secret rolled back - writing would land a mix of the drifted entry's
 			// array position and this form's fields.
 			const initial = [{ label: "Prod", baseUrl: "http://prod.test" }];
 			const drifted = [{ label: "Prod", baseUrl: "http://swapped.test" }];
@@ -272,9 +259,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a create over a removed label's orphan blob wipes it: the synced group never resurrects old credentials", async () => {
-			// The removal kept the blob; the create's form showed auth "None", so
-			// the saved entry must resolve NO credentials at sync time - the engine
-			// reads the label's blob unconditionally, so the blob must be gone.
+			// The removal kept the blob; the create's form showed auth "None", so the saved entry must resolve NO
+			// credentials at sync time - the engine reads the label's blob unconditionally, so the blob must be gone.
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Prod", {
 				apiKey: "sk-orphan",
@@ -318,9 +304,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("an orphan OAuth blob does not deadlock a create: the save lands clean under auth None", async () => {
-			// An orphan resolving into the pairing check would refuse the save (and
-			// test-connection) on fields the create form does not render, leaving
-			// the label unrecoverable from the UI.
+			// An orphan resolving into the pairing check would refuse the save (and test-connection) on fields the
+			// create form does not render, leaving the label unrecoverable from the UI.
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Prod", { oauthClientSecret: "cs-orphan" });
 			await save(recorded, {});
@@ -330,9 +315,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a create wipe whose settings write fails restores the orphan blob untouched", async () => {
-			// The failed create landed nothing, so the pre-save state - including
-			// the orphan blob a retried hand-written re-add may still want - is
-			// restored exactly.
+			// The failed create landed nothing, so the pre-save state - including the orphan blob a retried
+			// hand-written re-add may still want - is restored exactly.
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-orphan" });
 			recorded.failWrites = new Error("disk full");
@@ -343,9 +327,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("the add form saving onto a taken label replaces the entry without inheriting its credentials", async () => {
-			// No replace identity means the blank add form: it showed no credentials,
-			// so the replacement carries none - neither the replaced entry's inline
-			// key nor the label's stored blob may follow the new base URL.
+			// No replace identity means the blank add form: it showed no credentials, so the replacement carries none -
+			// neither the replaced entry's inline key nor the label's stored blob may follow the new base URL.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test", auth: { apiKey: "sk-inline-old" } }]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-stored-old" });
 			await save(recorded, { server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }) });
@@ -367,8 +350,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("the add form saving onto a parser-rejected raw entry's label replaces it, never appends beside it", async () => {
-			// The rejected entry still occupies its label; appending would land two
-			// raw entries under one label, with the parser refusing the second.
+			// The rejected entry still occupies its label; appending would land two raw entries under one label, with
+			// the parser refusing the second.
 			const recorded = makeEnv([
 				{ label: "A", baseUrl: "http://a.test" },
 				{ label: "Prod", baseUrl: "http://old.test", auth: {} },
@@ -390,9 +373,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a labeled fragment with no baseUrl counts as taken: a rename refuses it, the add form replaces it", async () => {
-			// Deliberately wider than the parser's occupancy set: two raw carriers
-			// under one label are refused even where the parser would have
-			// tolerated the second (a fragment never claims its label).
+			// Deliberately wider than the parser's occupancy set: two raw carriers under one label are refused even
+			// where the parser would have tolerated the second (a fragment never claims its label).
 			const refused = makeEnv([{ label: "A", baseUrl: "http://a.test" }, { label: "B" }]);
 			await assert.rejects(
 				save(refused, {
@@ -436,8 +418,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("an edit's empty always-sent fields deliberately clear the stored configuration", async () => {
-			// The save rebuilds the whole entry from the payload, which always
-			// carries every editable field, so an empty field means clear.
+			// The save rebuilds the whole entry from the payload, which always carries every editable field, so an
+			// empty field means clear.
 			const recorded = makeEnv([
 				{
 					label: "Prod",
@@ -482,8 +464,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("apiVersion lands in the written entry trimmed: omitted on auto, kept for none and custom", async () => {
-			// The form's three modes: absent (auto) writes no key; "" (none) and
-			// text (custom) both write it - "" is a real value, append nothing.
+			// The form's three modes: absent (auto) writes no key; "" (none) and text (custom) both write it - "" is a
+			// real value, append nothing.
 			const cases: readonly [string | undefined, string | undefined][] = [
 				[undefined, undefined],
 				["", ""],
@@ -515,8 +497,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("header and budget rules refuse a save before any effect", async () => {
-			// The acceptance matrix for the payload's new fields: names may be
-			// echoed in the message (structural configuration), values never are.
+			// The acceptance matrix for the payload's new fields: names may be echoed in the message (structural
+			// configuration), values never are.
 			const cases: readonly [
 				Record<string, string | number | boolean> | undefined,
 				number | null | undefined,
@@ -558,9 +540,9 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("the save target is the parser-accepted entry: a rejected same-label sibling is not edited", async () => {
-			// The first label carrier is rejected by parseServersSetting (no usable
-			// baseUrl), so the row - and this edit - describes the second entry: the
-			// save must replace THAT one, and the invalid sibling survives verbatim.
+			// The first label carrier is rejected by parseServersSetting (no usable baseUrl), so the row - and this
+			// edit - describes the second entry: the save must replace THAT one, and the invalid sibling survives
+			// verbatim.
 			const invalidSibling = { label: "Prod", auth: { apiKey: "sk-shadow" } };
 			const recorded = makeEnv([
 				invalidSibling,
@@ -618,8 +600,6 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		test("prefill round trip: an untouched inline value survives a save unchanged, still inline", async () => {
 			const entry = { label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-inline" } };
 			const recorded = makeEnv([entry]);
-			// The webview's edit flow end to end: prefill the draft from the
-			// entry's inline values, leave everything untouched, assemble, save.
 			const prefilled = applyInlinePrefill(
 				{
 					...EMPTY_SERVER_FORM,
@@ -686,8 +666,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a failed settings write also removes a secure value that had no predecessor", async () => {
-			// The unchanged entry resolves the label's blob, so a freshly stored
-			// value must not survive the failed write as its new secret.
+			// The unchanged entry resolves the label's blob, so a freshly stored value must not survive the failed
+			// write as its new secret.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			recorded.failWrites = new Error("disk full");
 			await assert.rejects(
@@ -749,8 +729,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a failed write whose rollback also fails reports an operation failure, not a clean validation one", async () => {
-			// The freshly stored secret survived the rollback and now resolves for
-			// the unchanged entry: durable state changed, so validation-kind would lie.
+			// The freshly stored secret survived the rollback and now resolves for the unchanged entry: durable state
+			// changed, so validation-kind would lie.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			recorded.failWrites = new Error("disk full");
 			recorded.failUnstore = new Error("keychain locked");
@@ -785,16 +765,15 @@ suite("extension/dashboard/intents: the servers setting", () => {
 				}),
 				(error: unknown) =>
 					error instanceof DashboardOperationError &&
-					// Only the fields a side actually held are reported: the wholesale
-					// restore's no-op deletes must not name secrets that never existed.
+					// Only the fields a side actually held are reported: the wholesale restore's no-op deletes must not
+					// name secrets that never existed.
 					error.message.includes("could not restore apiKey") &&
 					!error.message.includes("oauthClientSecret") &&
 					!error.message.includes("virtualKeyValue")
 			);
 
-			// No sync: the changed values sit under the NEW label, which the
-			// failed write left referenced by no entry - there is nothing a sync
-			// could truthfully pair them with.
+			// No sync: the changed values sit under the NEW label, which the failed write left referenced by no entry -
+			// there is nothing a sync could truthfully pair them with.
 			assert.strictEqual(recorded.syncRequests, 0, "an orphaned blob authorizes no sync");
 		});
 
@@ -833,8 +812,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("dormant-leftover cleanup failures after the settings write landed do not fail the intent", async () => {
-			// The stale secure copy behind a fresh inline value is outranked and
-			// the old rename blob is orphaned, so both failures are log-only.
+			// The stale secure copy behind a fresh inline value is outranked and the old rename blob is orphaned, so
+			// both failures are log-only.
 			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("Old", { apiKey: "sk-old" });
 			recorded.failUnstore = new Error("keychain locked");
@@ -875,9 +854,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a rename with keep directives never resolves an orphan blob under the new label", async () => {
-			// The form showed the source entry, which holds no virtual-key value,
-			// so the retired label's leftover must not satisfy the pair: the save
-			// refuses before any effect instead of adopting the orphan.
+			// The form showed the source entry, which holds no virtual-key value, so the retired label's leftover must
+			// not satisfy the pair: the save refuses before any effect instead of adopting the orphan.
 			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("New", { virtualKeyValue: "vk-orphan" });
 			await assert.rejects(
@@ -946,9 +924,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a non-empty old blob replaces the orphan wholesale on rename, and pairing tracks that", async () => {
-			// The copy overwrites the whole new-label blob, so a field only the
-			// orphan held does not survive; the pairing check must refuse like the
-			// engine would degrade.
+			// The copy overwrites the whole new-label blob, so a field only the orphan held does not survive; the
+			// pairing check must refuse like the engine would degrade.
 			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("Old", { apiKey: "sk-1" });
 			recorded.storedSecrets.set("New", { virtualKeyValue: "vk-orphan" });
@@ -1013,8 +990,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("renaming onto a label held only by a parser-rejected raw entry is refused too", async () => {
-			// The rejected sibling still occupies its label in the raw array; a
-			// rename landing beside it would leave two entries under one label.
+			// The rejected sibling still occupies its label in the raw array; a rename landing beside it would leave
+			// two entries under one label.
 			const recorded = makeEnv([
 				{ label: "A", baseUrl: "http://a.test" },
 				{ label: "B", baseUrl: "http://b.test", auth: {} },
@@ -1042,10 +1019,9 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("an edit whose label was re-pointed at another host while the form was open is refused", async () => {
-			// The form displayed Prod at old.test; another window swapped in an
-			// entry at attacker.test under the same label. A label-only lookup
-			// would resolve THAT entry's credentials for the "keep" directives and
-			// write a mixed entry; the displayed identity refuses instead.
+			// The form displayed Prod at old.test; another window swapped in an entry at attacker.test under the same
+			// label. A label-only lookup would resolve THAT entry's credentials for the "keep" directives and write a
+			// mixed entry; the displayed identity refuses instead.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://attacker.test", auth: { apiKey: "sk-new" } }]);
 			await assert.rejects(
 				save(recorded, {
@@ -1061,9 +1037,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("an edit whose secret locations moved underneath the form is refused too", async () => {
-			// Same label, same host, but the credential shape changed: the form
-			// showed no API key, the entry now carries an inline one. "keep" would
-			// silently adopt a credential the form never displayed.
+			// Same label, same host, but the credential shape changed: the form showed no API key, the entry now
+			// carries an inline one. "keep" would silently adopt a credential the form never displayed.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-swapped" } }]);
 			await assert.rejects(
 				save(recorded, { replace: replaceIdentity("Prod", "http://prod.test") }),
@@ -1075,9 +1050,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("an edit whose OAuth destination changed underneath the form is refused", async () => {
-			// Same label, same base URL, same secret locations - but the stored
-			// client secret now belongs to a DIFFERENT token URL. "keep" would
-			// send the rotated secret to the endpoint the stale form displays.
+			// Same label, same base URL, same secret locations - but the stored client secret now belongs to a
+			// DIFFERENT token URL. "keep" would send the rotated secret to the endpoint the stale form displays.
 			const recorded = makeEnv([
 				{
 					label: "Prod",
@@ -1115,10 +1089,9 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a re-point whose write and rollback both fail does NOT request a sync: the standing entry names the old host", async () => {
-			// The setting still holds Prod at old.test; the unrestored secure value
-			// is the credential typed for new.test. A sync here would hand the new
-			// credential to the old host, so the gate keeps it un-requested (the
-			// next save or manual sync serves truth).
+			// The setting still holds Prod at old.test; the unrestored secure value is the credential typed for
+			// new.test. A sync here would hand the new credential to the old host, so the gate keeps it un-requested
+			// (the next save or manual sync serves truth).
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test" }]);
 			recorded.failWrites = new Error("disk full");
 			recorded.failUnstore = new Error("keychain locked");
@@ -1136,11 +1109,9 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a same-host OAuth re-point landing mid-failure also suppresses the sync", async () => {
-			// The standing entry keeps the base URL but now points its OAuth
-			// exchange at another IdP; syncing would hand the stranded client
-			// secret to that endpoint. The gate compares the WHOLE non-secret
-			// destination identity against a fresh read, not the pass-start
-			// snapshot and not the host alone.
+			// The standing entry keeps the base URL but now points its OAuth exchange at another IdP; syncing would
+			// hand the stranded client secret to that endpoint. The gate compares the WHOLE non-secret destination
+			// identity against a fresh read, not the pass-start snapshot and not the host alone.
 			const setting: unknown[] = [
 				{
 					label: "Prod",
@@ -1153,8 +1124,7 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			const displayed = await displayedReplace(recorded, "Prod");
 			recorded.onSecretsRead = (label) => {
 				if (label === "Prod") {
-					// The concurrent edit lands after the identity check's parse:
-					// same host, different token URL.
+					// The concurrent edit lands after the identity check's parse: same host, different token URL.
 					(setting[0] as Record<string, unknown>).auth = {
 						oauth: { tokenUrl: "https://idp-b.test/token", clientId: "c1" },
 					};
@@ -1180,10 +1150,9 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a rename's copy writes the snapshot the form resolved, not a source blob edited mid-save", async () => {
-			// Another window rotates Old's stored key between this save's plan read
-			// and its guarded unit. The copy must carry the SNAPSHOT the form's
-			// keep directive meant; a copy re-reading the source would move the
-			// rotated value to the new label under a form that never showed it.
+			// Another window rotates Old's stored key between this save's plan read and its guarded unit. The copy must
+			// carry the SNAPSHOT the form's keep directive meant; a copy re-reading the source would move the rotated
+			// value to the new label under a form that never showed it.
 			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("Old", { apiKey: "sk-shown" });
 			recorded.onSecretsRead = (label) => {
@@ -1205,9 +1174,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a rename skips the old label's blob delete when a concurrent save re-declared the label", async () => {
-			// Between the settings write and the cleanup another window re-created
-			// an entry under Old; its blob is now live credentials, kept exactly
-			// like a removal keeps blobs.
+			// Between the settings write and the cleanup another window re-created an entry under Old; its blob is now
+			// live credentials, kept exactly like a removal keeps blobs.
 			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("Old", { apiKey: "sk-live" });
 			recorded.afterWrite = (current) => {
@@ -1307,8 +1275,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			});
 			assert.strictEqual(secureValue.serverWrites.length, 1, "an edit's kept secure value satisfies the pair");
 
-			// A CREATE never resolves the label's blob: the same header-only draft
-			// refuses like the form does, instead of pairing with an orphan value.
+			// A CREATE never resolves the label's blob: the same header-only draft refuses like the form does, instead
+			// of pairing with an orphan value.
 			const orphanValue = makeEnv([]);
 			orphanValue.storedSecrets.set("Prod", { virtualKeyValue: "vk-orphan" });
 			await assert.rejects(
@@ -1384,8 +1352,6 @@ suite("extension/dashboard/intents: the servers setting", () => {
 						label: "Ollama",
 						baseUrl: "http://localhost:11434",
 						headers: { "x-a": "1" },
-						// The unknown value the user typed survives; only the one category
-						// is appended.
 						discovery: { declared: ["m1"], expectedFailures: ["bogus-value", "modelListing", "modelInfo"] },
 					},
 				],
@@ -1475,9 +1441,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a chat-shaped probe answers in its own vocabulary, not the FIM one", async () => {
-			// The outcome copy is per-feature: only inline completions receive a
-			// "completion", and only they can be told to go find a FIM model served
-			// on /completions.
+			// The outcome copy is per-feature: only inline completions receive a "completion", and only they can be
+			// told to go find a FIM model served on /completions.
 			const recorded = makeEnv([]);
 			recorded.fimProbeResult = "Here is the fix.";
 			const notice = await executeDashboardIntent(
@@ -1521,10 +1486,9 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("the prGeneration probe reports in TITLE vocabulary, not the generic reply wording", async () => {
-			// Its probe returns the PARSED title, so both outcomes say title. The
-			// copy lives in the executor's per-feature switches; this is what pins
-			// that the PR case exists rather than falling through to the generic
-			// group.
+			// Its probe returns the PARSED title, so both outcomes say title. The copy lives in the executor's
+			// per-feature switches; this is what pins that the PR case exists rather than falling through to the
+			// generic group.
 			const recorded = makeEnv([]);
 			recorded.fimProbeResult = "feat: add a retry";
 			const notice = await executeDashboardIntent(
@@ -1548,14 +1512,12 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			assert.ok(typeof warning === "object" && warning !== null);
 			assert.strictEqual(warning.tone, "warning");
 			assert.match(warning.message, /pull request title/);
-			// The FIM advice must never surface for this feature.
 			assert.ok(!/text-completion \(FIM\)/.test(warning.message), warning.message);
 		});
 
 		test("a non-completion feature's probe reports a reply count, not a completion count", async () => {
-			// The other side of the probe copy: every shipped feature after inline
-			// completions lands here, and "Completion received" would be the wrong
-			// noun for a model that answered a chat request.
+			// The other side of the probe copy: every shipped feature after inline completions lands here, and
+			// "Completion received" would be the wrong noun for a model that answered a chat request.
 			const recorded = makeEnv([]);
 			recorded.reviewProbeResult = "LINE 3: reads past the end";
 			const notice = await executeDashboardIntent(
@@ -1588,9 +1550,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("the reviewComments probe reports in findings vocabulary, not the generic no-text wording", async () => {
-			// Its probe parses before it answers, so an empty result means the reply
-			// carried nothing the review parser could read - not that the model was
-			// silent. Same shape as the prGeneration case above: this pins that the
+			// Its probe parses before it answers, so an empty result means the reply carried nothing the review parser
+			// could read - not that the model was silent. Same shape as the prGeneration case above: this pins that the
 			// review case exists rather than falling through to the generic group.
 			for (const result of [undefined, ""]) {
 				const recorded = makeEnv([]);

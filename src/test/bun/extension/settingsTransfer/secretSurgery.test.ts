@@ -8,8 +8,8 @@ function entryWith(auth: unknown): Record<string, unknown> {
 	return { label: "A", baseUrl: "http://a.test", ...(auth === undefined ? {} : { auth }) };
 }
 
-// The frozen signatures are pinned at compile time: a drift fails typecheck,
-// so no runtime test restates what the types already prove.
+// The frozen signatures are pinned at compile time: a drift fails typecheck, so no runtime test restates what the
+// types already prove.
 void (stripEntrySecrets satisfies (rawEntry: Readonly<Record<string, unknown>>) => StrippedEntry);
 void (materializeEntrySecrets satisfies (
 	rawEntry: Readonly<Record<string, unknown>>,
@@ -76,8 +76,7 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 				const { entry, secrets, unsanitizable } = stripEntrySecrets(raw);
 				assert.deepStrictEqual(entry, raw, `apiKey=${JSON.stringify(junk)} is not a secret value`);
 				assert.deepStrictEqual(secrets, {});
-				// A container occupant could hold secret text the walk does not
-				// reach; textless scalars cannot.
+				// A container occupant could hold secret text the walk does not reach; textless scalars cannot.
 				const container = Array.isArray(junk) || (typeof junk === "object" && junk !== null);
 				assert.strictEqual(unsanitizable, container, `apiKey=${JSON.stringify(junk)}`);
 			}
@@ -124,9 +123,8 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 		});
 
 		test("shapes that could hide secret text flag unsanitizable; textless ones do not", () => {
-			// Text (or a text-capable container) anywhere but the grammar's known
-			// non-secret positions: the malformed shape could BE (or contain) the
-			// secret, so a no-secrets export must not trust it.
+			// Text (or a text-capable container) anywhere but the grammar's known non-secret positions: the malformed
+			// shape could BE (or contain) the secret, so a no-secrets export must not trust it.
 			for (const raw of [
 				entryWith("sk-in-a-bare-auth-string"),
 				entryWith([{ apiKey: "sk-in-an-array" }]),
@@ -136,8 +134,8 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 				entryWith({ oauth: { tokenUrl: "http://idp.test", virtualKey: ["vk"] } }),
 				entryWith({ apiKey: ["sk"] }),
 				entryWith({ apiKey: { nested: "sk" } }),
-				// Text at unknown auth keys: the parser rejects these shapes, but
-				// the text is presumed to be the credential the typo misplaced.
+				// Text at unknown auth keys: the parser rejects these shapes, but the text is presumed to be the
+				// credential the typo misplaced.
 				entryWith({ token: "sk-at-an-unknown-key" }),
 				entryWith({ oauth: { tokenUrl: "http://idp.test", clientId: "c", audience: "sk-ish" } }),
 				entryWith({ virtualKey: { header: "x-key", name: "sk-ish" } }),
@@ -146,7 +144,6 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 			]) {
 				assert.strictEqual(stripEntrySecrets(raw).unsanitizable, true, JSON.stringify(raw.auth));
 			}
-			// Textless misconfiguration and well-formed shapes are sanitizable.
 			for (const raw of [
 				entryWith(undefined),
 				entryWith(null),
@@ -173,9 +170,6 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 		});
 
 		test("flat top-level secret fields (the pre-redesign shape) move into the blob 1:1", () => {
-			// The strip both closes the export hole (no plaintext rides out) and
-			// keeps the import lossless (the value lands in SecretStorage under
-			// its unchanged field id).
 			const raw = {
 				label: "A",
 				baseUrl: "http://a.test",
@@ -191,8 +185,8 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 				oauthClientSecret: "sk-test-flat-cs",
 				virtualKeyValue: "sk-test-flat-vk",
 			});
-			// Non-secret flat fields ride through as inert junk for the
-			// activation-time restructure; the secret positions are emptied.
+			// Non-secret flat fields ride through as inert junk for the activation-time restructure; the secret
+			// positions are emptied.
 			assert.deepStrictEqual(stripped.entry, {
 				label: "A",
 				baseUrl: "http://a.test",
@@ -209,10 +203,9 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 		});
 
 		test("a record auth wins WHOLESALE: a flat secret beside it is discarded, never moved into the blob", () => {
-			// The settings-redesign migration drops every flat auth field once a
-			// nested auth object exists, so the transfer must too - taking the
-			// flat virtualKeyValue into the blob would make an export+import
-			// round trip send a credential the migrated live entry never sends.
+			// The settings-redesign migration drops every flat auth field once a nested auth object exists, so the
+			// transfer must too - taking the flat virtualKeyValue into the blob would make an export+import round trip
+			// send a credential the migrated live entry never sends.
 			const raw = {
 				label: "A",
 				baseUrl: "http://a.test",

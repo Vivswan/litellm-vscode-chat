@@ -15,15 +15,6 @@ import { resolveFuzzSeed } from "../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
-/**
- * Robustness properties for the servers-setting entry parser: parsing is total and
- * deterministic over user-authored garbage and never mutates its input, acceptance
- * matches an independently restated auth grammar, and a parse -> serialize -> parse round
- * trip is a fixed point whose flattened group args are byte-identical - the persisted
- * sync fingerprints hash exactly that JSON rendering, so drift here would silently
- * re-push every provider group.
- */
-
 const labelPool = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"] as const;
 
 const labelArb = fc.oneof(
@@ -86,7 +77,6 @@ const oauthArb = fc.oneof(
 	fc.constant({ tokenUrl: "http://idp.test/token", clientId: "c", bogus: 1 })
 );
 
-/** An entry's auth object: every form, valid and ambiguous companions, unknown keys, outright junk. */
 const authArb = fc.oneof(
 	{ weight: 2, arbitrary: fc.constant(undefined) },
 	{
@@ -182,7 +172,6 @@ const budgetArb = fc.oneof(
 	fc.constantFrom<unknown>(0, -5, 50, 0.01, 1e308, Number.NaN, Number.POSITIVE_INFINITY, "50", null, {})
 );
 
-/** One raw settings element: a nested-shape record with junk in every slot, or outright junk. */
 const rawEntryArb = fc.oneof(
 	{
 		weight: 5,
@@ -210,9 +199,9 @@ const storedArb: fc.Arbitrary<StoredServerSecrets> = fc.dictionary(
 ) as fc.Arbitrary<StoredServerSecrets>;
 
 /**
- * A parsed entry rendered back to the nested settings shape (the same assembly
- * saveServer.ts applies): flat credential fields fold into the auth grammar by rank, and
- * the extension-side fields return to their headers/models/discovery/budget slots.
+ * A parsed entry rendered back to the nested settings shape (the same assembly saveServer.ts applies): flat credential
+ * fields fold into the auth grammar by rank, and the extension-side fields return to their
+ * headers/models/discovery/budget slots.
  */
 function serializeEntry(entry: DeclaredServer): Record<string, unknown> {
 	const virtualKey =
@@ -285,10 +274,9 @@ function virtualKeyIsAcceptable(raw: unknown): boolean {
 }
 
 /**
- * The documented auth grammar (setting.ts's module docstring), restated independently of
- * parseAuth: exactly one form, ranked oauth > apiKey > virtualKey, companions of strictly
- * lower primacy only, unknown keys and type errors misconfigure, and a missing secret
- * VALUE is never misconfiguration. This oracle shares no code with the parser.
+ * The documented auth grammar (setting.ts's module docstring), restated independently of parseAuth: exactly one form,
+ * ranked oauth > apiKey > virtualKey, companions of strictly lower primacy only, unknown keys and type errors
+ * misconfigure, and a missing secret VALUE is never misconfiguration.
  */
 function authIsAcceptable(raw: unknown): boolean {
 	if (raw === undefined) {
@@ -335,9 +323,8 @@ function authIsAcceptable(raw: unknown): boolean {
 }
 
 /**
- * The raw indices the documented acceptance rules keep: an object element with
- * usable label and baseUrl, an unreserved label no earlier entry claimed (a
- * misconfigured entry still CLAIMS its label), and an acceptable auth shape.
+ * The raw indices the documented acceptance rules keep: an object element with usable label and baseUrl, an unreserved
+ * label no earlier entry claimed (a misconfigured entry still CLAIMS its label), and an acceptable auth shape.
  */
 function expectedAcceptedIndices(raw: readonly unknown[]): number[] {
 	const seen = new Set<string>();
@@ -364,9 +351,8 @@ function expectedAcceptedIndices(raw: readonly unknown[]): number[] {
 suite("extension/servers/serverSync setting parser properties (nested shape)", () => {
 	test("parsing is total, deterministic, and never mutates its input", () => {
 		fc.assert(
-			// fc.clone yields two structurally identical instances, so the mutation
-			// check compares against a pristine twin instead of a structuredClone
-			// (which would normalize null-prototype objects).
+			// fc.clone yields two structurally identical instances, so the mutation check compares against a pristine
+			// twin instead of a structuredClone (which would normalize null-prototype objects).
 			fc.property(fc.clone(fc.oneof(rawSettingArb, fc.jsonValue(), fc.anything()), 2), ([raw, pristine]) => {
 				const first = parseServersSetting(raw);
 				const second = parseServersSetting(raw);
@@ -393,8 +379,8 @@ suite("extension/servers/serverSync setting parser properties (nested shape)", (
 				const reports = serverSettingReports(raw);
 				assert.strictEqual(reports.length, raw.length, "one verdict per raw element");
 
-				// The oracle shares no code with acceptEntries: a parser bug accepting an
-				// ambiguous companion or a partial oauth unit would disagree here.
+				// The oracle shares no code with acceptEntries: a parser bug accepting an ambiguous companion or a
+				// partial oauth unit would disagree here.
 				assert.deepStrictEqual(
 					reports.filter((report) => report.accepted).map((report) => report.index),
 					expectedAcceptedIndices(raw),
@@ -409,20 +395,17 @@ suite("extension/servers/serverSync setting parser properties (nested shape)", (
 				);
 				for (const report of reports) {
 					if (!report.accepted) {
-						// A rejected element the dashboard would show as a row (usable
-						// label and baseUrl) must carry at least one concrete problem.
+						// A rejected element the dashboard would show as a row (usable label and baseUrl) must carry at
+						// least one concrete problem.
 						if (report.label !== undefined && report.baseUrl !== undefined) {
 							assert.ok(report.problems.length > 0, "a rejected row must explain itself");
 						}
-						// Nothing of a rejected element reaches group args: its label
-						// either resolves to nothing or to a different, accepted element.
 						if (report.label !== undefined) {
 							const resolved = acceptedEntry(raw, report.label);
 							assert.notStrictEqual(resolved?.index, report.index, "a rejected element must never resolve");
 						}
 					}
 				}
-				// acceptedEntry agrees element for element with the reports.
 				for (const report of accepted) {
 					const resolved = acceptedEntry(raw, report.label ?? "");
 					assert.ok(resolved !== undefined && resolved.index === report.index);
@@ -433,8 +416,8 @@ suite("extension/servers/serverSync setting parser properties (nested shape)", (
 	});
 
 	test("parse -> serialize -> parse is a fixed point with no problems", () => {
-		// Self-enforcing coverage: the round trip must actually see accepted
-		// entries, the oauth form, and oauth companions - not just empty lists.
+		// Self-enforcing coverage: the round trip must actually see accepted entries, the oauth form, and oauth
+		// companions - not just empty lists.
 		let acceptedTotal = 0;
 		let oauthForms = 0;
 		let oauthCompanions = 0;
@@ -475,8 +458,8 @@ suite("extension/servers/serverSync setting parser properties (nested shape)", (
 					const entry = entries[index] as DeclaredServer;
 					const roundTripped = reparsed[index] as DeclaredServer;
 					const args = buildGroupArgs(entry, stored);
-					// The negative half of the fingerprint contract (serverEntry.ts):
-					// headers, models.*, discovery.*, and budget never reach group args.
+					// The negative half of the fingerprint contract (serverEntry.ts): headers, models.*, discovery.*,
+					// and budget never reach group args.
 					for (const key of Object.keys(args)) {
 						assert.ok(canonicalKeys.includes(key), `group args must never carry "${key}"`);
 					}
@@ -490,8 +473,7 @@ suite("extension/servers/serverSync setting parser properties (nested shape)", (
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
 
-		// Deterministic pin: an entry carrying EVERY extension-side field still
-		// flattens to credential-only group args.
+		// Deterministic pin: an entry carrying EVERY extension-side field still flattens to credential-only group args.
 		const loaded = parseServersSetting([
 			{
 				label: "loaded",

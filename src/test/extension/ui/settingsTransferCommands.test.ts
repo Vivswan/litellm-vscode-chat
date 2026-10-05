@@ -63,12 +63,15 @@ interface FakeWorld {
 	armStoreFailureOnServersWrite: boolean;
 	/** SecretStorage keys whose store() fails (delete still works: a targeted mid-unit failure). */
 	failSecretStoreKeys: Set<string>;
-	/** Every mutation and sync request in arrival order: "settings:<key>", "secret-store:<key>", "secret-delete:<key>", "sync". */
+	/**
+	 * Every mutation and sync request in arrival order: "settings:<key>", "secret-store:<key>", "secret-delete:<key>",
+	 * "sync".
+	 */
 	ops: string[];
 	/**
-	 * A real engine wired as wiring/servers.ts wires it: woken by a changed secret value, a delete of a present key, the
-	 * servers setting write, and the flow's explicit request; held through the flow's hold. Undefined in the fake-only
-	 * tests.
+	 * A real engine wired as wiring/servers.ts wires it: woken by a changed secret value, a delete of a present key,
+	 * the servers setting write, and the flow's explicit request; held through the flow's hold. Undefined in the
+	 * fake-only tests.
 	 */
 	syncEngine: Pick<ServerSyncEngine, "requestSync" | "withHold"> | undefined;
 	/**
@@ -601,8 +604,7 @@ suite("settingsTransferCommands import flow", () => {
 		assert.strictEqual(world.settings.get("chat.timeout"), 1234);
 		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "new", baseUrl: "http://new:4000" }]);
 		assert.deepStrictEqual(blobOf(world, "new"), { apiKey: "MOVED-SECRET" });
-		// The import IS the deliberate pairing, so the moved value is stamped for
-		// the imported entry's destination.
+		// The import IS the deliberate pairing, so the moved value is stamped for the imported entry's destination.
 		assert.deepStrictEqual(ownersOf(world, "new"), { apiKey: "http://new:4000" });
 		assert.ok(world.syncRequests >= 1);
 		const note = onlyNotification(world);
@@ -675,9 +677,8 @@ suite("settingsTransferCommands import flow", () => {
 	}
 
 	test("an overwrite the file backs with no value always clears the stored key, stamped or not", async () => {
-		// The fail-safe direction: a stored secret is never silently paired with
-		// imported configuration - re-pointed address, stamped value, no prompt,
-		// no keep. The undo snapshot is the regret path.
+		// The fail-safe direction: a stored secret is never silently paired with imported configuration - re-pointed
+		// address, stamped value, no prompt, no keep. The undo snapshot is the regret path.
 		const stamped = stampedWorld();
 		stageEnvelope(stamped, { servers: [{ label: "a", baseUrl: "http://new:4000" }] });
 		stamped.answers.collisions = { a: "overwrite" };
@@ -899,8 +900,9 @@ suite("settingsTransferCommands import flow", () => {
 	});
 
 	/**
-	 * A failed rollback leaves the imported value under the pre-import entry, stamped for the imported destination; what
-	 * the add-only host then receives is the outcome. The entry carries a pending retry (the host refused its first add).
+	 * A failed rollback leaves the imported value under the pre-import entry, stamped for the imported destination;
+	 * what the add-only host then receives is the outcome. The entry carries a pending retry (the host refused its
+	 * first add).
 	 *
 	 *   re-pointed        -> the base URL changed, so the live entry refuses the key and makes no host call
 	 *   same-destination  -> the live entry owns the key too, so its retry lands with the imported key
@@ -1123,9 +1125,8 @@ suite("settingsTransferCommands undo flow", () => {
 	});
 
 	test("a structurally corrupt slot restores nothing", async () => {
-		// The builder records EVERY vocabulary key; the blob-corruption cases
-		// carry that full cover so their specific guards (not the partial-cover
-		// one) are what rejects them.
+		// The builder records EVERY vocabulary key; the blob-corruption cases carry that full cover so their specific
+		// guards (not the partial-cover one) are what rejects them.
 		const fullCover = () => Object.fromEntries(ALL_SETTING_KEYS.map((key) => [key, { present: false }]));
 		const corruptSlots = [
 			// a settings key outside the setting vocabulary.
@@ -1138,8 +1139,8 @@ suite("settingsTransferCommands undo flow", () => {
 			JSON.stringify({ settings: { "chat.timeout": { present: true } }, blobs: {}, at: "t" }),
 			// absent WITH a value: the flag cannot be trusted; "absent" deletes.
 			JSON.stringify({ settings: { "chat.timeout": { present: false, value: 1 } }, blobs: {}, at: "t" }),
-			// a partial settings record: the builder always writes the whole
-			// vocabulary, and restoring a subset would leave the rest imported.
+			// a partial settings record: the builder always writes the whole vocabulary, and restoring a subset would
+			// leave the rest imported.
 			JSON.stringify({ settings: {}, blobs: {}, at: "t" }),
 			// an absent blob record carrying a value.
 			JSON.stringify({ settings: fullCover(), blobs: { a: { present: false, value: { apiKey: "x" } } }, at: "t" }),
@@ -1149,8 +1150,8 @@ suite("settingsTransferCommands undo flow", () => {
 			JSON.stringify({ settings: fullCover(), blobs: { a: { present: true, value: { apiKey: 5 } } }, at: "t" }),
 			// a present-but-empty blob (the builder records those as absent).
 			JSON.stringify({ settings: fullCover(), blobs: { a: { present: true, value: {} } }, at: "t" }),
-			// labels a real entry can never carry (untrimmed, empty): restoring
-			// one would write a SecretStorage key no server entry can read.
+			// labels a real entry can never carry (untrimmed, empty): restoring one would write a SecretStorage key no
+			// server entry can read.
 			JSON.stringify({ settings: fullCover(), blobs: { " a": { present: true, value: { apiKey: "x" } } }, at: "t" }),
 			JSON.stringify({ settings: fullCover(), blobs: { "": { present: false } }, at: "t" }),
 		];
@@ -1198,17 +1199,20 @@ suite("settingsTransferCommands undo flow", () => {
 
 	/**
 	 * What the add-only host receives after an import whose add it refused (so the entry carries a pending retry) and
-	 * the undo of that import: a pass runs only once the restore is whole, and every value it sends was recorded for the
-	 * entry it rides with.
+	 * the undo of that import: a pass runs only once the restore is whole, and every value it sends was recorded for
+	 * the entry it rides with.
 	 *
 	 *   oauth            -> the recorded client secret, stamped for the recorded destination, rides with the old entry
 	 *   unstamped        -> a snapshot recorded without stamps restores stamped for the recorded entry
 	 *   orphan           -> the recorded setting declared no entry for the label; the value restores as recorded
-	 *   orphan-held      -> the same orphan while the servers write fails: nothing restores, the imported entry keeps its key
+	 *   orphan-held      -> the same orphan while the servers write fails: nothing restores, the imported entry keeps
+	 *                       its key
 	 *   oauth-held       -> the oauth row while the servers write fails: the imported entry keeps its own client secret
-	 *   legacy           -> a snapshot whose client-secret stamp is the token URL string; the restored entry still uses it
+	 *   legacy           -> a snapshot whose client-secret stamp is the token URL string; the restored entry still
+	 *                       uses it
 	 *   dormant-oauth    -> an unstamped client secret under an entry without OAuth: the empty destination is a stamp
-	 *   absent           -> no pre-import blob, so the imported one is removed after the setting; the old entry adds bare
+	 *   absent           -> the imported one is removed after the setting; the old entry adds bare
+	 *     no pre-import blob -> the imported one is removed after the setting
 	 *   legacy-collision -> a string stamp spelling the object form's JSON; only a structured stamp matches
 	 *   same-destination -> the imported key is owned by the restored entry too; only the hold keeps a pass from adding
 	 *                       it before the removal
@@ -1517,12 +1521,12 @@ suite("settingsTransferCommands undo flow", () => {
 	});
 
 	test("a stored value the entry's ownership stamp refuses does not count as a reconnect", async () => {
-		// Import a connection change, then hand-edit the baseUrl back to the
-		// pre-import value (the settings file is user-editable): the import's
-		// stored apiKey is now stamped for a destination the entry no longer
-		// names, so the entry resolves it as absent. The undo deletes only that
-		// dormant value - effective connection material never changes - so the
-		// note must not claim a reconnect. A raw .values read would count it.
+		// Import a connection change, then hand-edit the baseUrl back to the pre-import value (the settings file is
+		// user-editable): the import's stored apiKey is now stamped for a destination the entry no longer names, so the
+		// entry resolves it as absent. The undo deletes only that dormant value - effective connection material never
+		// changes - so the note must not claim a reconnect.
+		//
+		//   A raw .values read -> would count it
 		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://w:4000" }] });
 		stageEnvelope(world, {
 			servers: [{ label: "a", baseUrl: "http://x:4000", auth: { apiKey: "NEW-KEY" } }],
@@ -1539,10 +1543,9 @@ suite("settingsTransferCommands undo flow", () => {
 	});
 
 	test("a snapshot value the pre-import entry's stamp refuses does not count as a reconnect", async () => {
-		// The pre-import blob was dormant already: stamped for a destination the
-		// entry does not name, so neither the pre-import nor the post-import
-		// entry ever resolved it. Clearing it between import and undo changes
-		// no effective connection material, so restoring it is no reconnect.
+		// The pre-import blob was dormant already: stamped for a destination the entry does not name, so neither the
+		// pre-import nor the post-import entry ever resolved it. Clearing it between import and undo changes no
+		// effective connection material, so restoring it is no reconnect.
 		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://x:4000" }] });
 		world.secretValues.set(
 			serverSecretsKey("a"),
@@ -1640,8 +1643,7 @@ suite("settingsTransferCommands secret hygiene", () => {
 			servers: [
 				{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: SENTINEL } },
 				{ label: "b", baseUrl: "http://b:4000", auth: { apiKey: SENTINEL } },
-				// An uncertifiable auth shape: the entry skips whole, so its text
-				// never lands in the settings file.
+				// An uncertifiable auth shape: the entry skips whole, so its text never lands in the settings file.
 				{ label: "m", baseUrl: "http://m:4000", auth: [{ apiKey: SENTINEL }] },
 			],
 		});
@@ -1658,8 +1660,8 @@ suite("settingsTransferCommands secret hygiene", () => {
 	});
 
 	test("clearing a stamped stored key never leaks the value or its stamp beyond the label", async () => {
-		// The overwrite clears a STAMPED live sentinel key; everything the user
-		// or the log sees carries the label alone.
+		// The overwrite clears a STAMPED live sentinel key; everything the user or the log sees carries the label
+		// alone.
 		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] });
 		world.secretValues.set(
 			serverSecretsKey("a"),

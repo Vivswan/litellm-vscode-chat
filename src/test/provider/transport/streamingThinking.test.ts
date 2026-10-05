@@ -1,7 +1,3 @@
-/**
- * StreamProcessor's thinking channel: reasoning deltas as thinking parts and the
- * pass-through of already-shaped thinking parts.
- */
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
 import { StreamProcessor } from "../../../provider/transport/streaming";

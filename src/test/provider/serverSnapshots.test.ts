@@ -61,8 +61,8 @@ suite("provider server snapshots", () => {
 	});
 
 	test("a discovery 404 stamps the base-URL classification on the error status", async () => {
-		// The classification rides statusErrorTexts onto the ServerStatusError,
-		// so the extension's status surfaces can render the setup hint.
+		// The classification rides statusErrorTexts onto the ServerStatusError, so the extension's status surfaces can
+		// render the setup hint.
 		const provider = makeProvider();
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
@@ -79,9 +79,8 @@ suite("provider server snapshots", () => {
 		assert.deepStrictEqual(status.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
 	});
 
-	// msw cannot fabricate the transport's ECONNREFUSED cause chain, so this
-	// test injects the transport, which also keeps the request away from msw's
-	// unhandled-request guard.
+	// msw cannot fabricate the transport's ECONNREFUSED cause chain, so this test injects the transport, which also
+	// keeps the request away from msw's unhandled-request guard.
 	test("a refused connection stamps the proxy-not-running classification on the error status", async () => {
 		const provider = makeProvider(TEST_BASE_URL, undefined, undefined, {
 			fetch: async () => {
@@ -104,7 +103,6 @@ suite("provider server snapshots", () => {
 		const configuration = groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" });
 
 		await provider.provideLanguageModelChatInformation(configuration, cancellation());
-		// Second refresh in the same cycle is served from the discovery cache.
 		await provider.provideLanguageModelChatInformation(configuration, cancellation());
 
 		const snapshot = expectDefined(provider.getServerSnapshots()[0]);
@@ -112,9 +110,8 @@ suite("provider server snapshots", () => {
 	});
 
 	test("an apiVersion edit misses the discovery cache instead of serving the old root's models", async () => {
-		// The cache key composes the group client ID with the effective API root
-		// (the group configuration alone cannot cover apiVersion), so an edit
-		// lands on a fresh key and the old root's entry is unreachable.
+		// The cache key composes the group client ID with the effective API root (the group configuration alone cannot
+		// cover apiVersion), so an edit lands on a fresh key and the old root's entry is unreachable.
 		let apiVersion: string | undefined;
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryApiVersion: () => apiVersion,
@@ -147,10 +144,9 @@ suite("provider server snapshots", () => {
 	});
 
 	test("a serve that joins an in-flight old-root discovery refetches at the new root", async () => {
-		// Single-flight is keyed by the composed group+root cache key: a refresh
-		// arriving mid-flight after the apiVersion changed resolves a NEW key, so
-		// it can never join the old root's discovery - it starts (or joins) the
-		// corrected root's own fetch, and concurrent joiners share that one.
+		// Single-flight is keyed by the composed group+root cache key: a refresh arriving mid-flight after the
+		// apiVersion changed resolves a NEW key, so it can never join the old root's discovery - it starts (or joins)
+		// the corrected root's own fetch, and concurrent joiners share that one.
 		let apiVersion: string | undefined;
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryApiVersion: () => apiVersion,
@@ -187,10 +183,9 @@ suite("provider server snapshots", () => {
 	});
 
 	test("a root-rotated cache entry ages out at the prune instead of lingering with the old root's models", async () => {
-		// The prune keep-set composes through the SAME group+root key the serve
-		// path uses: after an apiVersion edit, the old root's entry is
-		// unreachable, and the next prune must drop it - kept alive, a revert of
-		// the edit would resurrect stale models without a network round trip.
+		// The prune keep-set composes through the SAME group+root key the serve path uses: after an apiVersion edit,
+		// the old root's entry is unreachable, and the next prune must drop it - kept alive, a revert of the edit would
+		// resurrect stale models without a network round trip.
 		let apiVersion: string | undefined;
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryApiVersion: () => apiVersion,
@@ -216,8 +211,8 @@ suite("provider server snapshots", () => {
 		await provider.provideLanguageModelChatInformation(configuration, cancellation());
 		assert.strictEqual(rootHits, 1);
 
-		// The group-agnostic sweep prunes with the live window's composed keys:
-		// only the CURRENT root's entry survives for this group.
+		// The group-agnostic sweep prunes with the live window's composed keys: only the CURRENT root's entry survives
+		// for this group.
 		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 		await provider.provideLanguageModelChatInformation(configuration, cancellation());
 		assert.strictEqual(rootHits, 1, "the current root's entry must survive the prune and serve from cache");
@@ -228,13 +223,10 @@ suite("provider server snapshots", () => {
 	});
 
 	test("an old-root fetch finishing late cannot clobber the new root's cache entry", async () => {
-		// The rotation race: a serve starts at the old root, the apiVersion
-		// changes, a serve at the new root completes and caches - then the old
-		// fetch lands. Under one shared per-group key its late store would
-		// overwrite the new entry (forcing the next serve back to the network);
-		// under the composed group+root key it parks unreachable beneath the old
-		// key, the new entry keeps serving, and the next prune clears the parked
-		// store.
+		// The rotation race: a serve starts at the old root, the apiVersion changes, a serve at the new root completes
+		// and caches - then the old fetch lands. Under one shared per-group key its late store would overwrite the new
+		// entry (forcing the next serve back to the network); under the composed group+root key it parks unreachable
+		// beneath the old key, the new entry keeps serving, and the next prune clears the parked store.
 		let apiVersion: string | undefined;
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryApiVersion: () => apiVersion,
@@ -278,12 +270,11 @@ suite("provider server snapshots", () => {
 
 		releaseOld();
 		const stale = await oldServe;
-		// The pre-edit caller gets the root its call was configured for when it
-		// started; correcting a call mid-flight would serve a config it never read.
+		// The pre-edit caller gets the root its call was configured for when it started; correcting a call mid-flight
+		// would serve a config it never read.
 		assert.strictEqual(expectDefined(stale[0]).id, "test-model");
-		// But the shared record is NOT the late serve's to overwrite: the status
-		// window (and with it the stale-serve anchor) must keep the newer root's
-		// models, so the old-root completion yields the record to the current
+		// But the shared record is NOT the late serve's to overwrite: the status window (and with it the stale-serve
+		// anchor) must keep the newer root's models, so the old-root completion yields the record to the current
 		// configuration.
 		const snapshot = expectDefined(provider.getServerSnapshots()[0]);
 		assert.strictEqual(
@@ -298,10 +289,9 @@ suite("provider server snapshots", () => {
 	});
 
 	test("a mid-outage declared ID the last discovery listed stays inert against the stale serve", async () => {
-		// The raw IDs discovery RETURNED ride the window across failure reports,
-		// apart from the registered infos: only synthetic variants register below,
-		// so without the carried set the declared ID would duplicate into the
-		// stale serve as a second multi-model.
+		// The raw IDs discovery RETURNED ride the window across failure reports, apart from the registered infos: only
+		// synthetic variants register below, so without the carried set the declared ID would duplicate into the stale
+		// serve as a second multi-model.
 		let declared: readonly string[] | undefined;
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryDeclaredModels: () => declared,
@@ -393,9 +383,8 @@ suite("provider server snapshots", () => {
 	});
 
 	test("a later fallback-only success replaces the observed keys with absence", async () => {
-		// Carry-forward is a failure-report rule only: a SUCCESSFUL refresh replaces
-		// the observations wholesale, so a server that degrades to the /models
-		// fallback stops claiming keys its current listing no longer reports.
+		// Carry-forward is a failure-report rule only: a SUCCESSFUL refresh replaces the observations wholesale, so a
+		// server that degrades to the /models fallback stops claiming keys its current listing no longer reports.
 		const provider = makeProvider();
 		let fallbackOnly = false;
 		mswServer.use(
@@ -419,20 +408,17 @@ suite("provider server snapshots", () => {
 
 	test("hasSeenGroupConfiguration latches when the host hands a group, before any snapshot exists", async () => {
 		const provider = makeProvider();
-		// A failing discovery, so the group produces no snapshot rows even though
-		// the host handed a group configuration: the latch must not depend on a
-		// successful fetch.
+		// A failing discovery, so the group produces no snapshot rows even though the host handed a group
+		// configuration: the latch must not depend on a successful fetch.
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
 			http.get(MODELS_URL, () => emptyErrorResponse(404))
 		);
 
-		// Cold start: no group configuration seen, no snapshots.
 		assert.strictEqual(provider.hasSeenGroupConfiguration(), false);
 		assert.strictEqual(provider.getServerSnapshots().length, 0);
 
-		// The host performs the groupless refresh first; it reports an empty
-		// window and must not flip the latch.
+		// The host performs the groupless refresh first; it reports an empty window and must not flip the latch.
 		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 		assert.strictEqual(
 			provider.hasSeenGroupConfiguration(),
@@ -440,8 +426,6 @@ suite("provider server snapshots", () => {
 			"the groupless refresh proves nothing about groups"
 		);
 
-		// Then a per-group refresh arrives: the latch flips the moment the host
-		// hands the configuration, independent of the fetch outcome.
 		await provider.provideLanguageModelChatInformation(
 			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" }),
 			cancellation()
@@ -459,9 +443,8 @@ suite("provider server snapshots", () => {
 	});
 
 	test("the recorded snapshot carries the declared models exactly as the serve handed them out", async () => {
-		// Declarations are entry-level: both declared models ride the Gateway entry.
-		// The window records the served set itself (no dashboard-side projection),
-		// so identity, names, and the entry layer cannot diverge from the serve.
+		// The window records the served set itself (no dashboard-side projection), so identity, names, and the entry
+		// layer cannot diverge from the serve.
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryDeclaredModels: (label, baseUrl) =>
 				label === "Gateway" && baseUrl === TEST_BASE_URL ? ["entry-model", "declared-model"] : undefined,

@@ -31,13 +31,11 @@ import {
 } from "../../testUtils";
 
 const modelInfo = makeModelInfo();
-/** The same model with its group connection attached, for direct provideLanguageModelChatResponse calls. */
 const attachedModelInfo = attachGroupServer(modelInfo, testGroupServer());
 
 /**
- * The live-configuration read of the configured-parameters merge, exactly as
- * the request path composes it (requests reach the same merge through the
- * provider's memoized ModelResolutionTable).
+ * The live-configuration read of the configured-parameters merge, exactly as the request path composes it (requests
+ * reach the same merge through the provider's memoized ModelResolutionTable).
  */
 function getModelParameters(
 	rawModelId: string,
@@ -134,8 +132,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("aggregates collapse to the minimum standalone constraints for cheapest/fastest entries", async () => {
-			// provider-a declares a max_input_tokens tighter than its context minus
-			// output; the aggregate must respect the declared input limit.
+			// provider-a declares a max_input_tokens tighter than its context minus output; the aggregate must respect
+			// the declared input limit.
 			const provider = makeProvider(TEST_BASE_URL);
 			mswServer.use(
 				...discoveryHandlers({
@@ -283,9 +281,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("a pre-migration URL-scoped key is inert in the global record", async () => {
-			// Server scoping is gone from the global records: a "https://host/model"
-			// key can never match a model ID. The upgrade migration moves such keys
-			// into the owning server entry.
+			// Server scoping is gone from the global records: a "https://host/model" key can never match a model ID.
+			// The upgrade migration moves such keys into the owning server entry.
 			const params = await withConfig(
 				{
 					"models.parameters": {
@@ -313,7 +310,6 @@ suite("provider/request contract", () => {
 	});
 
 	suite("per-entry models.parameters", () => {
-		/** A model whose attached group server carries the declared entry's label. */
 		const labeledModel = (label: string) =>
 			attachGroupServer(makeModelInfo(), { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "test-key", label });
 
@@ -339,9 +335,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("two entries sharing a base URL and key each send their own entry parameters", async () => {
-			// Base-URL scoping cannot tell these apart, the entry label can. The
-			// resolver is the real extension-side contract (entryModelParametersFor)
-			// over a declared setting, wired exactly as activation wires it.
+			// Base-URL scoping cannot tell these apart, the entry label can. The resolver is the real extension-side
+			// contract (entryModelParametersFor) over a declared setting, wired exactly as activation wires it.
 			const setting = [
 				{
 					label: "team-a",
@@ -370,8 +365,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("a label match at a different base URL yields only the global setting", async () => {
-			// A stale group can outlive a baseUrl edit and an external group can carry
-			// any label; neither may inherit a declared entry's parameters.
+			// A stale group can outlive a baseUrl edit and an external group can carry any label; neither may inherit a
+			// declared entry's parameters.
 			const setting = [
 				{
 					label: "team-a",
@@ -435,8 +430,8 @@ suite("provider/request contract", () => {
 			assert.strictEqual(body.temperature, 0.2, "the forced entry value beats the runtime option");
 			assert.strictEqual(body.reasoning_effort, "low", "the forced entry value beats the picker");
 			assert.strictEqual(body.seed, 7, "the forced global value beats the runtime option");
-			// 9999 exceeds min(4096, model max) on this undeclared-limit model: a
-			// forced max_tokens counts as user-set, so the guess cap never touches it.
+			// 9999 exceeds min(4096, model max) on this undeclared-limit model: a forced max_tokens counts as user-set,
+			// so the guess cap never touches it.
 			assert.strictEqual(body.max_tokens, 9999, "a forced max_tokens beats the runtime option, uncapped");
 			assert.strictEqual(body._force, undefined, "the directive key itself never reaches the wire");
 		});
@@ -453,8 +448,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("provider-owned keys in an entry record never reach the body; ordinary keys still do", async () => {
-			// The pass-through invariant test drives modelOptions; this drives the
-			// same hostile keys through the entry record.
+			// The pass-through invariant test drives modelOptions; this drives the same hostile keys through the entry
+			// record.
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryModelParameters: () => ({
 					"test-model": {
@@ -557,8 +552,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("includes a declared entry's custom headers on chat requests", async () => {
-			// Custom headers live on the server entry (there is no global headers
-			// setting), resolved through the injected per-entry seam.
+			// Custom headers live on the server entry (there is no global headers setting), resolved through the
+			// injected per-entry seam.
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryHeaders: (label, headerBaseUrl) =>
 					label === "Default" && headerBaseUrl === TEST_BASE_URL
@@ -691,9 +686,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("an unset picker sends no reasoning_effort key", async () => {
-			// Unset arrives as the resolved schema default ("default", the
-			// provider-default sentinel); a host without the schema sends no
-			// modelConfiguration at all.
+			// Unset arrives as the resolved schema default ("default", the provider-default sentinel); a host without
+			// the schema sends no modelConfiguration at all.
 			const sentinel = await captureRequestBody(createConfiguredProvider(), modelInfo, {
 				toolMode: vscode.LanguageModelChatToolMode.Auto,
 				modelConfiguration: { reasoningEffort: "default" },
@@ -767,9 +761,8 @@ suite("provider/request contract", () => {
 	});
 
 	suite("message conversion capability gates", () => {
-		// Pins the chatClient wiring, not the conversion itself (shared/messages
-		// tests own that): deleting either gate from the convertMessages call site
-		// must fail here.
+		// Pins the chatClient wiring, not the conversion itself (shared/messages tests own that): deleting either gate
+		// from the convertMessages call site must fail here.
 		const imageMessage = (): vscode.LanguageModelChatRequestMessage => ({
 			role: vscode.LanguageModelChatMessageRole.User,
 			content: [
@@ -842,7 +835,6 @@ suite("provider/request contract", () => {
 	});
 
 	suite("max_tokens precedence", () => {
-		/** A /v1/model/info listing for one "test-model" entry with the given model_info fields. */
 		const infoListing = (...modelInfos: Record<string, unknown>[]) => ({
 			data: modelInfos.map((modelInfo) => ({
 				model_name: "test-model",
@@ -850,7 +842,6 @@ suite("provider/request contract", () => {
 			})),
 		});
 
-		/** A /v1/models listing for one "test-model" with several tool-capable providers. */
 		const providersListing = (...providers: Record<string, unknown>[]) => ({
 			object: "list",
 			data: [
@@ -928,9 +919,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("a user-overridden output limit (modelCapabilities) is sent uncapped like a declared one", async () => {
-			// The capability override path stamps outputLimitSource: "user"; the
-			// request path must honor it like "provider" - the user's number is not
-			// a guess.
+			// The capability override path stamps outputLimitSource: "user"; the request path must honor it like
+			// "provider" - the user's number is not a guess.
 			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
@@ -1039,9 +1029,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("a wire payload claiming provider provenance without a declared limit stays capped end-to-end", async () => {
-			// The provider schema is a loose pass-through, so a server payload can
-			// carry the merge's internal output_limit_source marker; with no declared
-			// limit the request must stay under the cap.
+			// The provider schema is a loose pass-through, so a server payload can carry the merge's internal
+			// output_limit_source marker; with no declared limit the request must stay under the cap.
 			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
@@ -1099,7 +1088,6 @@ suite("provider/request contract", () => {
 			return system.content;
 		}
 
-		/** Every cache_control occurrence in the serialized request body. */
 		function countMarkers(body: Record<string, unknown>): number {
 			return JSON.stringify(body).split('"cache_control"').length - 1;
 		}
@@ -1188,9 +1176,8 @@ suite("provider/request contract", () => {
 
 	suite("request limits", () => {
 		/**
-		 * Record any provider request that escapes to the network. Scoped to the
-		 * test host's base URL so unrelated background HTTP from built-in
-		 * extensions cannot pollute the recording.
+		 * Scoped to the test host's base URL so unrelated background HTTP from built-in extensions cannot pollute the
+		 * recording.
 		 */
 		function trackUnexpectedRequests(): string[] {
 			const urls: string[] = [];
@@ -1220,10 +1207,9 @@ suite("provider/request contract", () => {
 		});
 
 		test("the pre-send estimate prices exactly the message array the request sends", async () => {
-			// The sandwich pins the budget to the wire array: at a limit equal to
-			// the estimate the request ships and its recorded messages price back
-			// to that number; one token lower rejects unsent. Any pass that alters
-			// the array between pricing and sending breaks one of the two legs.
+			// The sandwich pins the budget to the wire array: at a limit equal to the estimate the request ships and
+			// its recorded messages price back to that number; one token lower rejects unsent. Any pass that alters the
+			// array between pricing and sending breaks one of the two legs.
 			const messages = [userMessage("first message, some words"), userMessage("and a second one")];
 			const expected = estimateWireMessagesTokens(convertMessages(messages, { imageInput: false, audioInput: false }));
 			const body = await captureRequestBody(
@@ -1276,8 +1262,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("a chat.maxToolsPerRequest raised above 128 lets a 129-tool request reach the wire", async () => {
-			// The counterpart of the default-cap refusal above: the setting is not
-			// a display nicety, it decides what the request path sends.
+			// The counterpart of the default-cap refusal above: the setting is not a display nicety, it decides what
+			// the request path sends.
 			const tools = Array.from({ length: 129 }, (_, i) => ({
 				name: `tool_${i}`,
 				description: "a tool",
@@ -1295,9 +1281,8 @@ suite("provider/request contract", () => {
 	});
 
 	suite("localized display / English mirror pairs", () => {
-		// Every chatClient throw site pairs a localized display message with a full
-		// English mirror (localizedError). Under the test host's English fallback
-		// the two coincide, so these fail when a mirror drifts or is forgotten.
+		// Every chatClient throw site pairs a localized display message with a full English mirror (localizedError).
+		// Under the test host's English fallback the two coincide, so these fail when a mirror drifts or is forgotten.
 		function expectMirroredRejection(promise: Promise<unknown>, expected: RegExp): Promise<void> {
 			return assert.rejects(promise, (e: unknown) => {
 				assert.ok(e instanceof Error, `expected an Error, got ${String(e)}`);
@@ -1329,9 +1314,8 @@ suite("provider/request contract", () => {
 				send(client, makeModelInfo({ id: "ghost" })),
 				/^Model "ghost" is not registered with any configured server\. Refresh the model list and try again\.$/
 			);
-			// Every served model carries its group's connection, so a model without
-			// one is a boundary break and must fail as a classified error - the
-			// classification keeps the model ID out of public logs.
+			// Every served model carries its group's connection, so a model without one is a boundary break and must
+			// fail as a classified error - the classification keeps the model ID out of public logs.
 			await assert.rejects(send(client, makeModelInfo({ id: "ghost" })), (e: unknown) => {
 				assert.strictEqual(
 					(e as Error & { logClassification?: string }).logClassification,

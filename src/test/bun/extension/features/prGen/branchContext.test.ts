@@ -8,11 +8,6 @@ import {
 } from "../../../../../extension/features/prGen/branchContext";
 import { buildPrPrompt, PATCHES_CHAR_LIMIT } from "../../../../../extension/features/prGen/prompt";
 
-/**
- * The branch walk and the upstream-context ordering rule. Both are pure over
- * the injected Repository, so the whole thing runs without a git checkout.
- */
-
 function commit(hash: string, message: string, parents: string[] = ["p"]): Commit {
 	return { hash, message, parents };
 }
@@ -84,8 +79,7 @@ describe("extension/features/prGen ghprCommitOrder", () => {
 
 	test("a pushed, undiverged branch was collected from the compare API, oldest first", () => {
 		expect(ghprCommitOrder({ name: "feature", upstream: { remote: "origin", name: "feature" } })).toBe("oldestFirst");
-		// Counts git did not report read as in sync, which is the plain
-		// upstream-ref rule.
+		// Counts git did not report read as in sync, which is the plain upstream-ref rule.
 		expect(
 			ghprCommitOrder({ name: "feature", upstream: { remote: "origin", name: "feature" }, ahead: 0, behind: 0 })
 		).toBe("oldestFirst");
@@ -119,8 +113,8 @@ describe("extension/features/prGen oldestFirstMessages", () => {
 
 describe("extension/features/prGen collectBranchContext", () => {
 	const head: Branch = { name: "feature/x", commit: "abc" };
-	// The shape getBranchBase actually returns: a remote-tracking branch, whose
-	// `name` carries no remote prefix and whose `remote` names the remote.
+	// The shape getBranchBase actually returns: a remote-tracking branch, whose `name` carries no remote prefix and
+	// whose `remote` names the remote.
 	const base: Branch = { name: "main", remote: "origin", commit: "base-sha" };
 
 	test("collects the branch's commits oldest first and one patch block per changed file", async () => {
@@ -146,11 +140,11 @@ describe("extension/features/prGen collectBranchContext", () => {
 			{ patch: "@@ one", fileUri: "file:///repo/one.ts" },
 			{ patch: "@@ two", fileUri: "file:///repo/two.ts" },
 		]);
-		// The comparison runs from the merge base, not the base tip, so commits
-		// that landed on the base meanwhile are not this branch's work.
+		// The comparison runs from the merge base, not the base tip, so commits that landed on the base meanwhile are
+		// not this branch's work.
 		expect(calls.log?.range).toBe("base-sha..HEAD");
-		// And the base is addressed by its REMOTE ref: a bare "main" would name a
-		// local branch that may be missing or stale.
+		// And the base is addressed by its REMOTE ref: a bare "main" would name a local branch that may be missing or
+		// stale.
 		expect(calls.mergeBaseRefs).toEqual(["origin/main", "HEAD"]);
 		// Nothing the GitHub extension enriches is invented locally.
 		expect(outcome.context.template).toBeUndefined();
@@ -229,7 +223,6 @@ describe("extension/features/prGen collectBranchContext", () => {
 
 	test("no base branch and a nameless base read as noBase", async () => {
 		expect((await collectBranchContext(fakeRepo({ head, branchBase: undefined }))).kind).toBe("noBase");
-		// A nameless base cannot be addressed at all.
 		expect((await collectBranchContext(fakeRepo({ head, branchBase: { commit: "x" } }))).kind).toBe("noBase");
 	});
 
@@ -272,21 +265,18 @@ describe("extension/features/prGen collectBranchContext", () => {
 	});
 
 	test("a rejecting getBranchBase is the noBase advice, not an error", async () => {
-		// It writes the resolved base back to git config, so a read-only
-		// repository makes it throw.
+		// It writes the resolved base back to git config, so a read-only repository makes it throw.
 		const repo = fakeRepo({ head, calls: { branchBaseThrows: true } });
 		expect((await collectBranchContext(repo)).kind).toBe("noBase");
 	});
 
 	test("the walk count-bounds nothing: both ends reach the prompt, which thins the middle", async () => {
-		// Trimming one end here would hand the selection back to whichever end
-		// this function cut, which is exactly what the prompt's middle thinning
-		// exists to avoid.
+		// Trimming one end here would hand the selection back to whichever end this function cut, which is exactly what
+		// the prompt's middle thinning exists to avoid.
 		const many = Array.from({ length: 200 }, (_value, index) => commit(`c${index}`, `feat: change ${index}`));
 		const repo = fakeRepo({ head, branchBase: base, mergeBase: "base-sha", commits: many, changes: [] });
 		const outcome = await collectBranchContext(repo);
 		expect(outcome.kind === "collected" && outcome.context.commitMessages.length).toBe(200);
-		// The log answers newest first; the context is oldest first.
 		expect(outcome.kind === "collected" && outcome.context.commitMessages[0]).toBe("feat: change 199");
 		expect(outcome.kind === "collected" && outcome.context.commitMessages.at(-1)).toBe("feat: change 0");
 	});
@@ -311,7 +301,8 @@ describe("extension/features/prGen collectBranchContext", () => {
 	test("the collected patches survive prompt assembly whole - no tail file lost to the second cut", async () => {
 		// The paths must DIVERGE rather than merely run long, since patchBlocks relativizes against the common prefix
 		// and files sharing one deep directory collapse to bare basenames however long the URIs are. Sharing only
-		// "/repo/src/" leaves each header about 180 characters, a per-block cost impossible to under-reserve by accident.
+		// "/repo/src/" leaves each header about 180 characters, a per-block cost impossible to under-reserve by
+		// accident.
 		//
 		//   flat 32-character reserve -> accepts 60 blocks, the prompt truncates
 		//   per-block charge          -> accepts 55 blocks, the prompt stays whole
@@ -325,8 +316,8 @@ describe("extension/features/prGen collectBranchContext", () => {
 			mergeBase: "base-sha",
 			commits: [commit("a", "feat: x")],
 			changes: files.map(change),
-			// Each body carries its own marker: identical bodies would let a
-			// tail-block assertion match the FIRST block and prove nothing.
+			// Each body carries its own marker: identical bodies would let a tail-block assertion match the FIRST block
+			// and prove nothing.
 			patches: Object.fromEntries(files.map((file, index) => [file, `patch-${index}-${"x".repeat(2_000)}`])),
 		});
 		const outcome = await collectBranchContext(repo);
@@ -336,9 +327,8 @@ describe("extension/features/prGen collectBranchContext", () => {
 		}
 		const prompt = buildPrPrompt(outcome.context);
 		expect(prompt).not.toContain("[patches truncated]");
-		// Every block the walk collected reached the prompt - counted, not sampled,
-		// and the LAST one named by its own marker so the check cannot be
-		// satisfied by an earlier block.
+		// Every block the walk collected reached the prompt - counted, not sampled, and the LAST one named by its own
+		// marker so the check cannot be satisfied by an earlier block.
 		expect(outcome.context.patches.length).toBeGreaterThan(1);
 		expect((prompt.match(/^File: /gm) ?? []).length).toBe(outcome.context.patches.length);
 		const last = outcome.context.patches.at(-1) as { patch: string };
@@ -347,9 +337,8 @@ describe("extension/features/prGen collectBranchContext", () => {
 	});
 
 	test("a truncated patch is cut surrogate-safely - no lone half reaches the request body", async () => {
-		// The cut position depends on the file URI's length, so a single fixture
-		// could land on an even offset and pass even with a raw slice(). Two URIs
-		// differing by one character give the two cuts opposite parity, so one of
+		// The cut position depends on the file URI's length, so a single fixture could land on an even offset and pass
+		// even with a raw slice(). Two URIs differing by one character give the two cuts opposite parity, so one of
 		// them MUST fall inside a pair: a raw slice() fails this test.
 		for (const path of ["/repo/a.ts", "/repo/ab.ts"]) {
 			const repo = fakeRepo({
@@ -393,8 +382,8 @@ describe("extension/features/prGen collectBranchContext", () => {
 	});
 
 	test("a cancelled walk answers cancelled, so its partial gather is never sent", async () => {
-		// Returning the partial context would put repository content on the wire
-		// after the user asked for it to stop; answering noChanges would lie.
+		// Returning the partial context would put repository content on the wire after the user asked for it to stop;
+		// answering noChanges would lie.
 		const repo = fakeRepo({
 			head,
 			branchBase: base,
@@ -423,8 +412,8 @@ describe("extension/features/prGen collectBranchContext", () => {
 	});
 
 	test("a base whose leaf name matches the local branch is a real comparison, not a self-comparison", async () => {
-		// Standing on local "main" with base "origin/main" - the fork-from-main
-		// workflow. Refusing it would leave the user advice that fixes nothing.
+		// Standing on local "main" with base "origin/main" - the fork-from-main workflow. Refusing it would leave the
+		// user advice that fixes nothing.
 		const calls: FakeRepoParts["calls"] = {};
 		const repo = fakeRepo({
 			head: { name: "main", commit: "abc" },
@@ -446,8 +435,8 @@ describe("extension/features/prGen collectBranchContext", () => {
 			commits: [commit("a", "feat: x")],
 			changes: [],
 		});
-		// Its own kind, because "set the upstream" would be advice that cannot
-		// fix anything on a branch that already has one.
+		// Its own kind, because "set the upstream" would be advice that cannot fix anything on a branch that already
+		// has one.
 		expect((await collectBranchContext(repo)).kind).toBe("selfCompare");
 	});
 });

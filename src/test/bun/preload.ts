@@ -2,10 +2,11 @@
  * Preload for the bun test tree (bunfig.toml), loaded before any test module. A suite belongs in this tree only when
  * its transitive runtime imports reach neither vscode nor msw (msw stays host-side in the Mocha suites).
  *
- *   happy-dom registration  -> first; the harness import is dynamic so it cannot hoist past it
- *   fixed fingerprint salt  -> suites compute fingerprints without activation's salt load
- *   acquireVsCodeApi stub   -> vscodeApi.ts calls it at module top level
- *   build-time defines      -> links.ts reads one at module top level
+ *   happy-dom registration                     -> first
+ *   the harness import is dynamic              -> it cannot hoist past it
+ *   fixed fingerprint salt                     -> suites compute fingerprints without activation's salt load
+ *   vscodeApi.ts calls it at module top level  -> acquireVsCodeApi stub
+ *   links.ts reads one at module top level     -> build-time defines
  */
 import "../util/buildDefines";
 import { afterEach, beforeEach } from "bun:test";

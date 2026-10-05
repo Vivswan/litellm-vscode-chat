@@ -1,11 +1,9 @@
 /**
- * The provenance vocabulary's two registers cannot drift: every cell shape in
- * the registry below runs through BOTH - the badge register the inspectors
- * render (Provenance + CellMarks) and the diagnostics table's compact-phrase
- * register - and the words must agree, mark for mark and key for key. At
- * compile time a new capability level fails the total Record, and a wire
- * provenance field missing from the vocabulary types fails the satisfies
- * checks; a new cell shape still needs a row here by hand.
+ * The provenance vocabulary's two registers cannot drift: every cell shape in the registry below runs through BOTH -
+ * the badge register the inspectors render (Provenance + CellMarks) and the diagnostics table's compact-phrase
+ * register - and the words must agree, mark for mark and key for key. At compile time a new capability level fails the
+ * total Record, and a wire provenance field missing from the vocabulary types fails the satisfies checks; a new cell
+ * shape still needs a row here by hand.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ResolvedCapCell, ResolvedParamCell } from "../../../../dashboard/viewModels";
@@ -29,9 +27,9 @@ import { cleanup, mount } from "../harness";
 afterEach(cleanup);
 
 /**
- * The wire cells' provenance-bearing fields, total both ways, so a new wire field cannot ship until the
- * vocabulary types carry it. The Omit list is the one escape hatch, for a wire field that is genuinely not
- * provenance (a display hint, say). Pinned at compile time: a key added or dropped on either side fails typecheck.
+ * The wire cells' provenance-bearing fields, total both ways, so a new wire field cannot ship until the vocabulary
+ * types carry it. The Omit list is the one escape hatch, for a wire field that is genuinely not provenance (a display
+ * hint, say).
  */
 type ParamCellFields = Omit<ResolvedParamCell, "name" | "valueText">;
 type CapCellFields = Omit<ResolvedCapCell, "name" | "valueText">;
@@ -47,7 +45,6 @@ function capCellAsVocabularyInput(cell: CapCellFields): CapabilityCellProvenance
 	return cell;
 }
 
-/** Every capability level's registry key, total by type: a new level fails compilation here. */
 const CAPABILITY_LEVEL_KEYS: Record<CapabilityLevel, string | undefined> = {
 	entry: "gpt-4",
 	global: "gpt*",
@@ -60,13 +57,11 @@ const CAPABILITY_LEVEL_KEYS: Record<CapabilityLevel, string | undefined> = {
 	floor: undefined,
 };
 
-/** The registry: every level, bare and wearing the inherited mark, in the wire cell's own type. */
 const CAP_SHAPES: readonly CapCellFields[] = Object.entries(CAPABILITY_LEVEL_KEYS).flatMap(([level, key]) => [
 	{ level: level as CapabilityLevel, key },
 	{ level: level as CapabilityLevel, key, inheritedBy: "gpt-4.1" },
 ]);
 
-/** The registry: both layers crossed with every mark combination, in the wire cell's own type. */
 const PARAM_SHAPES: readonly ParamCellFields[] = (["entry", "global"] as const).flatMap((layer) =>
 	[{}, { forced: true as const }, { inheritedBy: "gpt-4*" }, { forced: true as const, inheritedBy: "gpt-4*" }].map(
 		(marks) => ({ layer, key: "gpt*", ...marks })
@@ -74,9 +69,8 @@ const PARAM_SHAPES: readonly ParamCellFields[] = (["entry", "global"] as const).
 );
 
 /**
- * The badge register's own words for a cell, read off the rendered DOM exactly
- * as the inspectors compose it, and re-joined with the phrase register's
- * separators. Tip sentences render outside .prov and .mark, so they never leak
+ * The badge register's own words for a cell, read off the rendered DOM exactly as the inspectors compose it, and
+ * re-joined with the phrase register's separators. Tip sentences render outside .prov and .mark, so they never leak
  * into the comparison - the registers share words, not tips.
  */
 function renderedPhrase(source: ProvenanceView, marks: readonly CellMark[]): string {
@@ -108,10 +102,6 @@ describe("webview/dashboard/provenance register agreement", () => {
 	});
 });
 
-/**
- * Every capability level's pinned phrase, total by type: a new CapabilityLevel
- * fails this Record before it can ship an unreviewed word.
- */
 const CAPABILITY_PHRASES: Record<CapabilityLevel, string> = {
 	entry: "entry gpt-4",
 	global: "settings gpt*",
@@ -133,16 +123,14 @@ describe("webview/dashboard/provenance phrase register", () => {
 	});
 
 	test("an inherited value appends the inherited mark naming the winning record, never the badge's own key", () => {
-		// Both resolvers emit inheritedBy only when the layer's winning record
-		// inherited the field, and always name that winner - the badge already
-		// names the source record, so the mark's key is the one the badge lacks.
+		// Both resolvers emit inheritedBy only when the layer's winning record inherited the field, and always name
+		// that winner - the badge already names the source record, so the mark's key is the one the badge lacks.
 		expect(capabilityProvenancePhrase({ level: "global", key: "gpt*", inheritedBy: "gpt-4.1" })).toBe(
 			"settings gpt*; inherited by gpt-4.1"
 		);
 		expect(capabilityProvenancePhrase({ level: "entry-fallback", key: "gpt-4", inheritedBy: "gpt-4.1" })).toBe(
 			"entry gpt-4; fallback, inherited by gpt-4.1"
 		);
-		// Absent means the winning record wrote the field itself: no mark.
 		expect(capabilityProvenancePhrase({ level: "entry", key: "gpt-4" })).toBe("entry gpt-4");
 	});
 

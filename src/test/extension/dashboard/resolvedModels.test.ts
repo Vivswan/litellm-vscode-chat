@@ -34,7 +34,6 @@ function makeQuery(overrides: Partial<ResolvedModelsQuery> = {}): ResolvedModels
 	};
 }
 
-/** Every node of a tree, flattened for lookups by key. */
 function flatten(nodes: readonly RecordTreeNode[]): RecordTreeNode[] {
 	return nodes.flatMap((node) => [node, ...flatten(node.children)]);
 }
@@ -57,8 +56,8 @@ suite("extension/dashboard/resolvedModels", () => {
 		assert.ok(row !== undefined);
 		assert.deepStrictEqual(row.matchedKeys, []);
 		assert.deepStrictEqual(row.parameters, []);
-		// Capabilities are total by construction: every field resolves at some
-		// level (here the floor and the derived input limit).
+		// Capabilities are total by construction: every field resolves at some level (here the floor and the derived
+		// input limit).
 		assert.strictEqual(row.capabilities.length, 7);
 		const toolCalling = row.capabilities.find((cell) => cell.name === "supports_function_calling");
 		assert.strictEqual(toolCalling?.level, "floor");
@@ -260,9 +259,8 @@ suite("extension/dashboard/resolvedModels", () => {
 		});
 
 		test("with no models at all, invalid keys still report and valid records root leafless", () => {
-			// Invalid matchers are seeded from the map's own keys, not harvested
-			// from per-model walks: an empty server must not launder "a*b" into a
-			// normal-looking tree root.
+			// Invalid matchers are seeded from the map's own keys, not harvested from per-model walks: an empty server
+			// must not launder "a*b" into a normal-looking tree root.
 			const view = buildResolvedModelsView(
 				makeQuery({
 					snapshots: [snapshotWith("g1", "Prod", [])],
@@ -283,8 +281,8 @@ suite("extension/dashboard/resolvedModels", () => {
 		});
 
 		test("entry maps tree per entry against that entry's models and count into recordCount", () => {
-			// The trees draw from the DECLARED views (an entry with zero models
-			// must still render); the entry's models join by the resolved label.
+			// The trees draw from the DECLARED views (an entry with zero models must still render); the entry's models
+			// join by the resolved label.
 			const view = buildResolvedModelsView(
 				makeQuery({
 					snapshots: [snapshotWith("g1", "Prod", ["gpt-4"]), snapshotWith("g2", "Staging", ["claude"])],
@@ -379,10 +377,9 @@ suite("extension/dashboard/resolvedModels", () => {
 				resolveEntryCapabilities: () => undefined,
 			};
 			assert.deepStrictEqual(resolveModelRecordChains(query, "parameters", modelScopeKey("gone"), "gpt-4"), []);
-			// A raw ID the matchers WOULD match but the snapshot no longer serves:
-			// the figure must answer empty like the responders, never invent one.
+			// A raw ID the matchers WOULD match but the snapshot no longer serves: the figure must answer empty like
+			// the responders, never invent one.
 			assert.deepStrictEqual(resolveModelRecordChains(query, "parameters", modelScopeKey("g1"), "claude-4"), []);
-			// A live model whose maps match nothing contributes no chain either.
 			const noMatch = { ...query, reader: makeReader({ "models.parameters": { "claude*": { temperature: 1 } } }) };
 			assert.deepStrictEqual(resolveModelRecordChains(noMatch, "parameters", modelScopeKey("g1"), "gpt-4"), []);
 		});

@@ -14,11 +14,10 @@ import { expectDefined } from "../../pureHelpers";
 import { collapseChunks } from "../../scenarios";
 
 /**
- * Property coverage for collapseChunks, the fake stack's own non-streaming
- * collapse: the fake backend answers stream:false requests with it and no docker
- * suite exercises that path, so these properties keep it honest. Inputs come
- * from the same fuzz generators the stream suites use, so the collapse sees the
- * exact chunk shapes the fake stack streams.
+ * Property coverage for collapseChunks, the fake stack's own non-streaming collapse: the fake backend answers
+ * stream:false requests with it and no docker suite exercises that path, so these properties keep it honest. Inputs
+ * come from the same fuzz generators the stream suites use, so the collapse sees the exact chunk shapes the fake stack
+ * streams.
  */
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -35,7 +34,6 @@ const kindArb = fc.oneof(
 const eventSpecArb = fc.tuple(kindArb, seedArb);
 const tailSpecArb = fc.option(fc.tuple(fc.constantFrom(...TAIL_EVENT_KINDS), seedArb), { nil: undefined });
 
-/** A whole stream as (kind, seed) coordinates, rebuilt deterministically per run. */
 const eventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	.tuple(fc.array(eventSpecArb, { minLength: 1, maxLength: 8 }), tailSpecArb)
 	.map(([specs, tail]) => {
@@ -48,11 +46,10 @@ const eventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	});
 
 /**
- * Streams built only from kinds whose tool calls ride the delta channel with
- * sequential numeric indices (text events are inert padding), so every flattened
- * ExpectedToolCall maps 1:1 onto a collapsed tool_calls entry. Inline-channel
- * kinds are excluded on purpose: collapseChunks does not parse control tokens
- * out of content, so inline calls stay in the text.
+ * Streams built only from kinds whose tool calls ride the delta channel with sequential numeric indices (text events
+ * are inert padding), so every flattened ExpectedToolCall maps 1:1 onto a collapsed tool_calls entry. Inline-channel
+ * kinds are excluded on purpose: collapseChunks does not parse control tokens out of content, so inline calls stay in
+ * the text.
  */
 const deltaToolEventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	.tuple(
@@ -79,7 +76,6 @@ interface CollapsedChoice {
 	finish_reason: string;
 }
 
-/** Pin the envelope (a chat.completion body with exactly one choice) and hand back that choice. */
 function soleChoiceOf(collapsed: Record<string, unknown>): CollapsedChoice {
 	assert.strictEqual(collapsed.object, "chat.completion", "collapsed body is not a chat.completion");
 	const choices = collapsed.choices as CollapsedChoice[];
@@ -89,10 +85,8 @@ function soleChoiceOf(collapsed: Record<string, unknown>): CollapsedChoice {
 }
 
 /**
- * The content oracle: the in-order concatenation of every string delta.content
- * across all chunks and choices. Deliberately re-derived from the raw chunks,
- * not from FuzzEvent.text, because collapseChunks must keep inline tool control
- * tokens and skip non-string content.
+ * Deliberately re-derived from the raw chunks, not from FuzzEvent.text, because collapseChunks must keep inline tool
+ * control tokens and skip non-string content.
  */
 function concatenatedContentOf(chunks: unknown[]): string {
 	let content = "";
@@ -148,11 +142,10 @@ describe("fakeStack/collapseChunks properties", () => {
 		() => {
 			fc.assert(
 				fc.property(deltaToolEventsArb, (events) => {
-					// This expectation leans on a generator guarantee: every event kind
-					// used here emits its first call's frames before its second's, so the
-					// Map insertion order matches both the numeric index order and the
-					// flattened tools[] position. A generator that ever emits a higher
-					// index first breaks this oracle, not the code.
+					// This expectation leans on a generator guarantee: every event kind used here emits its first
+					// call's frames before its second's, so the Map insertion order matches both the numeric index
+					// order and the flattened tools[] position. A generator that ever emits a higher index first
+					// breaks this oracle, not the code.
 					const expected = events
 						.flatMap((event) => event.tools ?? [])
 						.map((call, position) => ({
@@ -189,14 +182,9 @@ describe("fakeStack/collapseChunks properties", () => {
 					const collapsed = collapseChunks(chunks);
 					const choice = soleChoiceOf(collapsed);
 
-					// Pinning what the code does: every *string* finish_reason overwrites the
-					// previous one (so the last string wins), nulls are ignored, and the
-					// default with no string at all is "stop".
 					const strings = trailers.flatMap(([finish]) => (finish === null ? [] : [finish]));
 					assert.strictEqual(choice.finish_reason, strings[strings.length - 1] ?? "stop", "finish_reason diverged");
 
-					// Usage: the last value that is neither undefined nor null wins; a chunk
-					// with usage: null is ignored, and with no usage at all the key is absent.
 					const usages = trailers.map(([, usage]) => usage).filter((usage) => usage !== undefined && usage !== null);
 					if (usages.length > 0) {
 						assert.deepStrictEqual(collapsed.usage, usages[usages.length - 1], "usage diverged");

@@ -22,21 +22,16 @@ const SEED = resolveFuzzSeed();
 
 suite("provider", () => {
 	test("hostRefreshDeadlineMs floors at 8s and follows the discovery timeout plus its margin", () => {
-		// The floor: a pathologically low discovery timeout (clamped to 1000) must
-		// not make the host pass abandon almost instantly - the deadline also
-		// bounds the host's own re-resolve round trip.
+		// The floor: a pathologically low discovery timeout (clamped to 1000) must not make the host pass abandon
+		// almost instantly - the deadline also bounds the host's own re-resolve round trip.
 		assert.strictEqual(hostRefreshDeadlineMs(1000), 8000);
-		// At the default timeout the margin outlasts one full discovery attempt
-		// plus report plumbing, so raising discovery.timeout can never starve
-		// Sync Models Now's host pass.
 		assert.strictEqual(hostRefreshDeadlineMs(30000), 32000);
 		assert.strictEqual(hostRefreshDeadlineMs(120000), 122000);
 	});
 
 	test("the default refresh deadline follows discovery.timeout, never chat.timeout", async () => {
-		// refreshViaHost's default branch reads the DISCOVERY timeout. A swap to
-		// the chat timeout would pass every other test, which all supply explicit
-		// deadlines.
+		// refreshViaHost's default branch reads the DISCOVERY timeout. A swap to the chat timeout would pass every
+		// other test, which all supply explicit deadlines.
 		await withConfig({ "discovery.timeout": 45000, "chat.timeout": 1000 }, async () => {
 			assert.strictEqual(defaultHostRefreshDeadlineMs(), 47000);
 		});
@@ -196,15 +191,14 @@ suite("provider", () => {
 		assert.strictEqual(fetchCalled, false, "No request may be sent when the model has no attached server");
 	});
 
-	// This nested suite mocks the network with msw; the tests above inject their
-	// transport instead, so the interceptor never overlaps them.
+	// This nested suite mocks the network with msw; the tests above inject their transport instead, so the interceptor
+	// never overlaps them.
 	suite("all servers failing", () => {
 		useMsw();
 
 		test("a non-silent refresh rethrows the ORIGINAL classified error, never one rebuilt from the display string", async () => {
-			// 400 responses are not retried, so the failure is immediate; the body's
-			// marker must survive to the USER-FACING message while the
-			// classification keeps it out of anything that logs the throw.
+			// 400 responses are not retried, so the failure is immediate; the body's marker must survive to the
+			// USER-FACING message while the classification keeps it out of anything that logs the throw.
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => HttpResponse.json({ error: "internal-billing-host-MARKER" }, { status: 400 })),
 				http.get(MODELS_URL, () => HttpResponse.json({ error: "internal-billing-host-MARKER" }, { status: 400 }))
@@ -223,9 +217,8 @@ suite("provider", () => {
 		});
 
 		test("a non-Error failure reason is rebuilt with the log-safe rendering as its English mirror", async () => {
-			// Rejected from inside the group serve's try without ever being an Error:
-			// the rebuild must keep the display rendering for the UI and the log-safe
-			// rendering for every public log surface.
+			// Rejected from inside the group serve's try without ever being an Error: the rebuild must keep the display
+			// rendering for the UI and the log-safe rendering for every public log surface.
 			const hostile = {
 				toString: () => "display text with RESPONSE-BODY-MARKER",
 				logClassification: "InjectedFailure(non-Error)",
@@ -302,8 +295,8 @@ suite("provider", () => {
 		});
 	});
 
-	// This nested suite mocks the network with msw; the tests above inject their
-	// transport instead, so the interceptor never overlaps them.
+	// This nested suite mocks the network with msw; the tests above inject their transport instead, so the interceptor
+	// never overlaps them.
 	suite("registered model shape", () => {
 		useMsw();
 
@@ -454,9 +447,9 @@ suite("provider", () => {
 						},
 					},
 					{
-						// The stamp must arrive through the production /model/info ingest:
-						// discovery maps a raw 0/0 pair (and every cost beside it, tiered
-						// keys included) to undefined, so registration prices nothing.
+						// The stamp must arrive through the production /model/info ingest: discovery maps a raw 0/0
+						// pair (and every cost beside it, tiered keys included) to undefined, so registration prices
+						// nothing.
 						id: "stamped",
 						shape: {
 							kind: "deployment",
@@ -540,8 +533,8 @@ suite("provider", () => {
 			assert.ok(!("outputCost" in free), "a cost that overflows the per-million conversion is omitted, not Infinity");
 			assert.ok(!("priceCategory" in free), "one-sided pricing is an incomplete signal and derives no category");
 
-			// LiteLLM stamps 0/0 onto undeclared pricing (observed on v1.93), so the
-			// zero PAIR reads as undeclared and drops the whole block.
+			// LiteLLM stamps 0/0 onto undeclared pricing (observed on v1.93), so the zero PAIR reads as undeclared and
+			// drops the whole block.
 			const stamped = expectDefined(byId.get("stamped"));
 			for (const key of [
 				"inputCost",
@@ -722,8 +715,8 @@ suite("provider", () => {
 				...groq,
 				provider: "together",
 				supports_prompt_caching: false,
-				// A mixed-type pass-through list: the baseline's element-wise
-				// re-narrowing keeps only non-empty strings.
+				// A mixed-type pass-through list: the baseline's element-wise re-narrowing keeps only non-empty
+				// strings.
 				supported_openai_params: ["temperature", 42, ""] as unknown as string[],
 				input_cost_per_token: 0.000002,
 			};
@@ -735,8 +728,8 @@ suite("provider", () => {
 						architecture: { input_modalities: ["text", "image", "pdf"] },
 					},
 					{
-						// Built through the production ingest: the wire 0/0 stamp maps to
-						// undefined costs before registration ever sees the provider.
+						// Built through the production ingest: the wire 0/0 stamp maps to undefined costs before
+						// registration ever sees the provider.
 						id: "stamped",
 						shape: {
 							kind: "deployment",
@@ -824,8 +817,8 @@ suite("provider", () => {
 		});
 
 		test("open-field advisory notes bypass the issue-report buffer; record problems still consume it", async () => {
-			// The issue reporter's ring buffer holds 50 lines; open capability fields
-			// log on every serve pass, so their note must never evict real errors.
+			// The issue reporter's ring buffer holds 50 lines; open capability fields log on every serve pass, so their
+			// note must never evict real errors.
 			const channelLines: string[] = [];
 			const bufferLines: string[] = [];
 			const logger = new Logger(
@@ -860,8 +853,8 @@ suite("provider", () => {
 		});
 
 		test("priceCategory bands follow the blended base cost, unmoved by long-context tiers", () => {
-			// Symmetric input/output costs make the blend equal the per-million cost
-			// itself ((3x + x) / 4 = x), so each case pins one band boundary exactly.
+			// Symmetric input/output costs make the blend equal the per-million cost itself ((3x + x) / 4 = x), so each
+			// case pins one band boundary exactly.
 			const boundaries: ReadonlyArray<[number, string]> = [
 				[0.99, "low"],
 				[1, "medium"],
@@ -903,8 +896,8 @@ suite("provider", () => {
 		test("the blend weights input 3:1 over output, and sub-unit costs render as the numeric field's 0", () => {
 			const { infos } = buildModelInfos(
 				[
-					// Asymmetric pairs pin the 3:1 weighting: equal-cost boundary
-					// tests cannot tell (3x + y) / 4 from any other mix.
+					// Asymmetric pairs pin the 3:1 weighting: equal-cost boundary tests cannot tell (3x + y) / 4 from
+					// any other mix.
 					{
 						id: "output-heavy",
 						shape: {
@@ -949,8 +942,8 @@ suite("provider", () => {
 							provider: {
 								provider: "openai",
 								status: "ok",
-								// BOTH sides are sub-unit dust: positive raw costs that slip
-								// the 0/0 undeclared check but round to 0/0.
+								// BOTH sides are sub-unit dust: positive raw costs that slip the 0/0 undeclared check
+								// but round to 0/0.
 								input_cost_per_token: 1e-15,
 								output_cost_per_token: 1e-15,
 							},
@@ -985,11 +978,9 @@ suite("provider", () => {
 		});
 
 		test("a raw 0/0 pair prices as genuinely free (nightly seed 124443 counterexample, #282)", () => {
-			// The boundary the dust rule must not swallow: a RAW zero pair at this
-			// layer can only be user-written free (discovery maps the server's 0/0
-			// no-pricing stamp to undefined before registration), so it keeps the
-			// free label and the low badge - the zeroPair carve-out in
-			// pricingFromCosts.
+			// The boundary the dust rule must not swallow: a RAW zero pair at this layer can only be user-written free
+			// (discovery maps the server's 0/0 no-pricing stamp to undefined before registration), so it keeps the free
+			// label and the low badge - the zeroPair carve-out in pricingFromCosts.
 			const { infos } = buildModelInfos(
 				[
 					{
@@ -1017,8 +1008,8 @@ suite("provider", () => {
 		});
 
 		test("priceCategory is always one of the four literals the host renders", () => {
-			// The host renders any other string through a capitalized "<Foo> cost"
-			// fallback, so the derivation may only ever emit the known four.
+			// The host renders any other string through a capitalized "<Foo> cost" fallback, so the derivation may only
+			// ever emit the known four.
 			const KNOWN = ["low", "medium", "high", "very_high"];
 			const costArb = fc.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true });
 			fc.assert(
@@ -1050,17 +1041,16 @@ suite("provider", () => {
 						if (info.inputCost > 0 || info.outputCost > 0) {
 							assert.ok(info.priceCategory !== undefined, "a nonzero two-sided price always derives a category");
 						} else if (inputPerToken === 0 && outputPerToken === 0) {
-							// The RAW zero pair at this layer can only be user-written
-							// "genuinely free": discovery's serverCostsOf maps the
-							// server's 0/0 no-pricing stamp to undefined before any shape
-							// reaches registration, so the zeroPair carve-out keeps the
-							// free label and badge on purpose. Nightly seed 124443 caught
-							// the previous oracle asserting the opposite here (#282).
+							// The RAW zero pair at this layer can only be user-written "genuinely free": discovery's
+							// serverCostsOf maps the server's 0/0 no-pricing stamp to undefined before any shape
+							// reaches registration, so the zeroPair carve-out keeps the free label and badge on
+							// purpose. Nightly seed 124443 caught the previous oracle asserting the opposite here
+							// (#282).
 							assert.strictEqual(info.priceCategory, "low", "a raw 0/0 pair prices as genuinely free");
 							assert.ok(info.pricing !== undefined, "and carries the free display label");
 						} else {
-							// Both sides rounded to 0: sub-unit dust that slipped the raw
-							// 0/0 undeclared check must not present the model as free.
+							// Both sides rounded to 0: sub-unit dust that slipped the raw 0/0 undeclared check must not
+							// present the model as free.
 							assert.ok(!("priceCategory" in info), "a rounded-0/0 pair derives no category");
 							assert.ok(!("pricing" in info), "a rounded-0/0 pair derives no label");
 						}

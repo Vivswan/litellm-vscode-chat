@@ -17,11 +17,9 @@ import {
 } from "../../fakeStack/oauth";
 
 /**
- * Pins the fake identity provider's pure logic without a socket: tokens are
- * counter-numbered (deterministic), every grant outcome lands in the counters,
- * the bearer check accepts exactly the live tokens, and rejection bodies never
- * echo submitted material. The docker-serversync suite drives the same logic
- * over HTTP.
+ * Pins the fake identity provider's pure logic without a socket: tokens are counter-numbered (deterministic), every
+ * grant outcome lands in the counters, the bearer check accepts exactly the live tokens, and rejection bodies never
+ * echo submitted material. The docker-serversync suite drives the same logic over HTTP.
  */
 describe("fakeStack oauth provider logic", () => {
 	const goodParams = {
@@ -30,7 +28,6 @@ describe("fakeStack oauth provider logic", () => {
 		client_secret: FAKE_OAUTH_CLIENT_SECRET,
 	};
 
-	/** A grant that must succeed, narrowed to its token. */
 	function granted(state: OAuthProviderState, params: Record<string, string> = goodParams): string {
 		const outcome = grantToken(state, params);
 		if (outcome.status !== 200) {
@@ -39,7 +36,6 @@ describe("fakeStack oauth provider logic", () => {
 		return outcome.body.access_token;
 	}
 
-	/** A grant that must fail, narrowed to its error body. */
 	function denied(
 		state: OAuthProviderState,
 		params: Record<string, string>

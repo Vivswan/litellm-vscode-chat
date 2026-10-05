@@ -13,10 +13,12 @@
  *   scoped winner vs an entry record under a DIFFERENT key    -> two levels merged per field, one level now
  *                                                                resolves most-specific-wholesale
  *   old default* trio applied to EVERY model below records    -> the migrated "*" fill rides the matcher chain
- *   star-bearing old key, now an anchored-prefix regex        -> its TIER ranks below globs, so ordering against
- *                                                                another matching key can differ
- *   `_inheritable`/`_inherit_from` were inert underscore keys -> they would ACTIVATE under the new grammar, so the
- *                                                                migration rides them verbatim and generators never emit them
+ *   star-bearing old key, now an anchored-prefix regex        -> ordering against another matching key can differ
+ *   its TIER ranks below globs                                -> ordering against another matching key can differ
+ *   `_inheritable`/`_inherit_from` were inert underscore keys -> the migration rides them verbatim and generators
+ *                                                                never emit them
+ *   they would ACTIVATE under the new grammar                 -> the migration rides them verbatim and generators
+ *                                                                never emit them
  */
 
 import {
@@ -48,9 +50,8 @@ export interface OracleServer {
 }
 
 /**
- * The pre-redesign capability vocabulary, frozen LOCALLY like oldWorldResolvers'
- * constants: the old world had exactly these seven fields, so the oracle's
- * projections must not track the live (now open) vocabulary.
+ * The pre-redesign capability vocabulary, frozen LOCALLY like oldWorldResolvers' constants: the old world had exactly
+ * these seven fields, so the oracle's projections must not track the live (now open) vocabulary.
  */
 const OLD_CAPABILITY_FIELD_NAMES = [
 	"context_length",
@@ -63,8 +64,8 @@ const OLD_CAPABILITY_FIELD_NAMES = [
 ] as const;
 
 /**
- * Apply a plan the way the applier applies it to user settings: value writes
- * set the Global layer, undefined deletes it, other layers are untouched.
+ * Apply a plan the way the applier applies it to user settings: value writes set the Global layer, undefined deletes
+ * it, other layers are untouched.
  */
 export function applyPlanToSnapshot(
 	snapshot: Readonly<
@@ -90,11 +91,6 @@ export function applyPlanToSnapshot(
 	return sections;
 }
 
-/**
- * The fixed server baselines walk-level values compare under: a declared
- * model (no server side), a discovered model reporting nothing, and a
- * discovered model with typical token values.
- */
 export const WALK_BASELINES: readonly ServerDeclaredCapabilities[] = [
 	{ kind: "declared" },
 	{ kind: "discovered", values: {}, outputDeclared: false },
@@ -105,16 +101,14 @@ export const WALK_BASELINES: readonly ServerDeclaredCapabilities[] = [
 	},
 ];
 
-/** One full-walk view per WALK_BASELINES entry: effective values plus the output limit's wire provenance. */
 export interface WalkView {
 	readonly fields: Record<string, number | boolean>;
 	readonly outputLimitSource: "user" | "provider" | "defaults";
 }
 
 /**
- * The wire max_tokens one walk implies when nothing else sets it: the effective
- * output limit, clamped to min(4096, limit) exactly when its provenance is
- * "defaults" - the same rule on both sides of the redesign.
+ * The wire max_tokens one walk implies when nothing else sets it: the effective output limit, clamped to min(4096,
+ * limit) exactly when its provenance is "defaults" - the same rule on both sides of the redesign.
  */
 export function wireMaxTokens(walk: WalkView): number {
 	const limit = walk.fields.max_output_tokens as number;
@@ -123,13 +117,9 @@ export function wireMaxTokens(walk: WalkView): number {
 
 /** One comparable meaning of a configuration for (server, model). */
 export interface EffectiveView {
-	/** The effective configured request parameters (forced winners applied). */
 	readonly parameters: Record<string, unknown>;
-	/** The forced subset, entry over global. */
 	readonly forced: Record<string, unknown>;
-	/** Capability override values, entry over global, field by field. */
 	readonly capabilityOverrides: Record<string, unknown>;
-	/** Effective below-server fallback values, entry over global. */
 	readonly capabilityFallbacks: Record<string, unknown>;
 	/** The exact model IDs declared for this server, sorted. */
 	readonly declared: readonly string[];
@@ -149,9 +139,8 @@ export type OldWorldResolve = (
 	/** Skip only the walk-level comparison: the trio-fill flow corners live below the resolver views. */
 	skipWalks: boolean;
 	/**
-	 * Fields the RETIRED `_declare`+`_fallback` ban kept at override level in the
-	 * real old world. The view above is BAN-FREE, so the property characterizes
-	 * the ban separately through this list.
+	 * Fields the RETIRED `_declare`+`_fallback` ban kept at override level in the real old world. The view above is
+	 * BAN-FREE, so the property characterizes the ban separately through this list.
 	 */
 	banRescuedFields: readonly string[];
 	/** True when defaultMaxOutputTokens was explicitly configured: the one source of the documented clamp lift. */
@@ -183,7 +172,6 @@ function acceptedEntryRecord(rawServers: unknown, server: OracleServer): Record<
 	return undefined;
 }
 
-/** Every server identity the old acceptance rules admit from a raw servers value. */
 export function acceptedServers(rawServers: unknown): OracleServer[] {
 	if (!Array.isArray(rawServers)) {
 		return [];
@@ -216,13 +204,12 @@ function explicitMatcherKey(prefix: string): string {
 	return `${prefix}*`;
 }
 
-/** The record's own contribution, judged by the record type's parse: field keys plus its mark set. */
 function recordContribution(
 	record: Readonly<Record<string, unknown>>,
 	type: "params" | "caps"
 ): { fieldKeys: ReadonlySet<string>; markedFields: ReadonlySet<string>; marked: boolean; junkDirective: boolean } {
-	// A junk list-directive value blocks the colliding merge from taking
-	// additions (it stays as written), so arriving marks drop with it.
+	// A junk list-directive value blocks the colliding merge from taking additions (it stays as written), so arriving
+	// marks drop with it.
 	const directive = type === "params" ? "_force" : "_fallback";
 	const raw = Object.hasOwn(record, directive) ? record[directive] : undefined;
 	const junkDirective = raw !== undefined && typeof raw !== "boolean" && !Array.isArray(raw);
@@ -274,9 +261,8 @@ function descopingDiverges(
 		if (
 			replaced.marked ||
 			[...replaced.fieldKeys].some((key) => !scopedContribution.fieldKeys.has(key)) ||
-			// A scoped MARK on a field the replaced record also set diverges: the old
-			// replacement erased the unscoped value, while the new per-field merge
-			// lets it surface at the level the mark vacated.
+			// A scoped MARK on a field the replaced record also set diverges: the old replacement erased the unscoped
+			// value, while the new per-field merge lets it surface at the level the mark vacated.
 			intersects(scopedContribution.markedFields, replaced.fieldKeys)
 		) {
 			return true;
@@ -288,21 +274,20 @@ function descopingDiverges(
 	}
 	const remainder = scopedWinner.key.slice(scope.length + 1);
 	if (explicitMatcherKey(remainder) === explicitMatcherKey(entryWinner.key)) {
-		// Same post-migration key: the migration merges the two field by field with the
-		// entry winning. A mark crossing the boundary diverges (dropped rather than
-		// re-pointed, or an entry mark changing the level a scoped override used to win).
+		// Same post-migration key: the migration merges the two field by field with the entry winning. A mark crossing
+		// the boundary diverges (dropped rather than re-pointed, or an entry mark changing the level a scoped override
+		// used to win).
 		const entryContribution = recordContribution(entryWinner.value, type);
 		return (
 			intersects(scopedContribution.markedFields, entryContribution.fieldKeys) ||
 			intersects(entryContribution.markedFields, scopedContribution.fieldKeys) ||
-			// A junk directive on the entry side stays as written and cannot take the
-			// scoped marks, so a marked scoped record diverges under it.
+			// A junk directive on the entry side stays as written and cannot take the scoped marks, so a marked scoped
+			// record diverges under it.
 			(entryContribution.junkDirective && scopedContribution.marked)
 		);
 	}
-	// Post-migration both live in the entry level and the more specific key wins
-	// wholesale. The old world merged entry over scoped key by key, so divergence
-	// needs the losing record to have contributed something.
+	// Post-migration both live in the entry level and the more specific key wins wholesale. The old world merged entry
+	// over scoped key by key, so divergence needs the losing record to have contributed something.
 	const remainderKey = explicitMatcherKey(remainder);
 	const entryKey = explicitMatcherKey(entryWinner.key);
 	// exact > glob (literal length) > regex (star-bearing old keys) > "*".
@@ -317,9 +302,9 @@ function descopingDiverges(
 	const entryWins = specificity(entryKey) >= specificity(remainderKey);
 	const loser = entryWins ? scopedWinner.value : entryWinner.value;
 	const loserContribution = recordContribution(loser, type);
-	// In the old world the entry always won key by key, so a losing record still
-	// contributed its non-overlapping keys. A winner MARK on a field the loser also set
-	// diverges too: the new wholesale winner erases the loser's level entirely.
+	// In the old world the entry always won key by key, so a losing record still contributed its non-overlapping keys.
+	// A winner MARK on a field the loser also set diverges too: the new wholesale winner erases the loser's level
+	// entirely.
 	if (entryWins) {
 		const winner = recordContribution(entryWinner.value, type);
 		return (
@@ -332,9 +317,9 @@ function descopingDiverges(
 }
 
 /**
- * The star-ordering caveat: a record's effective old-matching keys diverge in ORDER when
- * a star-bearing key matches beside any other matching key, because the regex tier ranks
- * below globs while old longest-prefix ranked by literal length alone.
+ * The star-ordering caveat: a record's effective old-matching keys diverge in ORDER when a star-bearing key matches
+ * beside any other matching key, because the regex tier ranks below globs while old longest-prefix ranked by literal
+ * length alone.
  */
 function starOrderingDiverges(
 	record: Record<string, Record<string, unknown>>,
@@ -395,8 +380,8 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 		serverScopes: scopes,
 		...(hasEntryCapabilities ? { entryCapabilities } : {}),
 	};
-	// BAN-FREE resolution drives the comparable view; the real banned resolution
-	// rides along only to characterize the retired ban.
+	// BAN-FREE resolution drives the comparable view; the real banned resolution rides along only to characterize the
+	// retired ban.
 	const caps = resolveOldCapabilityOverrides({ ...capsInput, liftDeclareFallbackBan: true });
 	const capsWithBan = resolveOldCapabilityOverrides(capsInput);
 	const banRescuedFields = OLD_CAPABILITY_FIELD_NAMES.filter((field) => {
@@ -417,19 +402,17 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 		return { fields: { ...walk.fields }, outputLimitSource: walk.outputLimitSource };
 	});
 
-	// The trio-fill flow corners: the OLD trio applied to every model regardless of other
-	// records, while the migrated "*" fill rides the matcher chain, where a matching
-	// record setting the same field can block or drain it. Skips the WALK comparison only,
-	// whenever a configured trio field is also set by a matching unscoped global record.
+	// The trio-fill flow corners: the OLD trio applied to every model regardless of other records, while the migrated
+	// "*" fill rides the matcher chain, where a matching record setting the same field can block or drain it. Skips the
+	// WALK comparison only, whenever a configured trio field is also set by a matching unscoped global record.
 	const configuredTrioFields = [
 		...(tokenDefaults.contextLength.explicitlyConfigured ? (["context_length"] as const) : []),
 		...(tokenDefaults.maxOutputTokens.explicitlyConfigured ? (["max_output_tokens"] as const) : []),
 		...(tokenDefaults.maxInputTokens !== undefined ? (["max_input_tokens"] as const) : []),
 	];
 	const oldPrefixMatches = (key: string): boolean => key === "*" || modelId === key || modelId.startsWith(key);
-	// A BLOCKED trio merge is a documented lossy state, not an equivalence target: an
-	// unmergeable "*" record keeps the trio sources in place, which the new world never
-	// reads while the old walk did. Mirrors mergeTokenDefaults' gate.
+	// A BLOCKED trio merge is a documented lossy state, not an equivalence target: an unmergeable "*" record keeps the
+	// trio sources in place, which the new world never reads while the old walk did. Mirrors mergeTokenDefaults' gate.
 	const rawCatchAll = globalCapabilities["*"] ?? globalCapabilities[""];
 	const junkDirective = (record: Record<string, unknown>, directive: string): boolean => {
 		const raw = Object.hasOwn(record, directive) ? record[directive] : undefined;
@@ -493,9 +476,9 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 };
 
 /**
- * A hand-mixed old-world entry can already carry the NEW discovery.declared field; the
- * old runtime never read it, but the migration merges its list with the moved `_declare`
- * IDs (existing first, deduped), so the expected new-world declared set is the union.
+ * A hand-mixed old-world entry can already carry the NEW discovery.declared field; the old runtime never read it, but
+ * the migration merges its list with the moved `_declare` IDs (existing first, deduped), so the expected new-world
+ * declared set is the union.
  */
 function rawDeclaredList(entry: Record<string, unknown> | undefined): readonly string[] {
 	const discovery = entry !== undefined && isRecord(entry.discovery) ? entry.discovery : undefined;

@@ -1,10 +1,5 @@
 /**
- * Robustness fuzz over the agent tools' pure core: whatever an agent sends,
- * the envelope parse and the planner never throw, a plan only ever names a
- * dashboard method the tools may reach, every planned request is at least
- * frame-valid to the dashboard's own parser, and the renderers never throw
- * on the values they are handed. Seeded through the repo's fuzz seed so a
- * failure replays; a shrunk counterexample becomes a pinned case in the
+ * Seeded through the repo's fuzz seed so a failure replays; a shrunk counterexample becomes a pinned case in the
  * sibling suites.
  */
 import { describe, expect, test } from "bun:test";
@@ -73,7 +68,6 @@ const secretsArb = optional(
 	)
 );
 
-/** Inputs shaped like each tool's grammar, plus arbitrary JSON so the parse itself is exercised. */
 const shapedInput: Record<AgentToolId, fc.Arbitrary<unknown>> = {
 	diagnostics: fc.record({ includeLogs: optional(fc.boolean()) }, { requiredKeys: [] }),
 	configuration: fc.record(
@@ -173,10 +167,9 @@ const shapedInput: Record<AgentToolId, fc.Arbitrary<unknown>> = {
 };
 
 /**
- * Not fc.string at this length: it draws one character at a time, and 60k
- * draws per run is most of the suite's wall clock at the nightly's run count.
- * A repeated unit keeps backticks and URL shapes in reach of the fence and the
- * URL scrub.
+ * Not fc.string at this length: it draws one character at a time, and 60k draws per run is most of the suite's wall
+ * clock at the nightly's run count. A repeated unit keeps backticks and URL shapes in reach of the fence and the URL
+ * scrub.
  */
 const overBoundString = fc
 	.tuple(fc.string({ minLength: 1, maxLength: 20 }), fc.integer({ min: 60_001, max: 70_000 }))
@@ -206,10 +199,9 @@ function planFor(tool: AgentToolId, raw: unknown, acceptSecretValues: boolean): 
 }
 
 describe("agentTools core fuzz", () => {
-	// Drifts silently: a planner branch that throws on an odd but envelope-valid
-	// input would surface as an unclassified tool error in the agent's chat,
-	// where no test reads it; a plan naming an unreachable method would bypass
-	// the one fence between the agent and the dashboard's secret reads.
+	// Drifts silently: a planner branch that throws on an odd but envelope-valid input would surface as an unclassified
+	// tool error in the agent's chat, where no test reads it; a plan naming an unreachable method would bypass the one
+	// fence between the agent and the dashboard's secret reads.
 	test.each(AGENT_TOOL_IDS.map((tool) => [tool] as const))(
 		"%s: parse and plan never throw, plans stay reachable and frame-valid",
 		(tool) => {
@@ -236,8 +228,8 @@ describe("agentTools core fuzz", () => {
 							method: filled.method,
 							payload: filled.payload,
 						});
-						// The dashboard may refuse the VALUE (that is its job); the frame
-						// and method must always be the planned ones.
+						// The dashboard may refuse the VALUE (that is its job); the frame and method must always be the
+						// planned ones.
 						if (parsed.success) {
 							expect(parsed.request.method).toBe(planned.method);
 						} else {
@@ -251,15 +243,14 @@ describe("agentTools core fuzz", () => {
 		}
 	);
 
-	// Drifts silently: the cards render agent-written values; a value shape
-	// that throws inside a card builder would abort the confirmation and land
-	// nothing, with the agent seeing only an opaque error.
+	// Drifts silently: the cards render agent-written values; a value shape that throws inside a card builder would
+	// abort the confirmation and land nothing, with the agent seeing only an opaque error.
 	test("renderers never throw on arbitrary values and stay within the reply bound", () => {
 		fc.assert(
 			fc.property(
 				fc.jsonValue(),
-				// Values past the reply bound included, so the cut is exercised on
-				// generated input rather than on the fixture's fixed size.
+				// Values past the reply bound included, so the cut is exercised on generated input rather than on the
+				// fixture's fixed size.
 				fc.oneof(fc.jsonValue(), overBoundString),
 				fc.string({ maxLength: 40 }),
 				(before, after, key) => {

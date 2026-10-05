@@ -11,12 +11,12 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * The servers setting is user-authored JSON that decides which provider groups
- * exist and where credentials land, so its acceptance rules get property
- * coverage: parsing is total, labels are unique first-wins and never reserved,
- * acceptedEntry resolves exactly what parseServersSetting accepted, and
- * buildGroupArgs emits its keys in the frozen descriptor order the persisted
- * sync fingerprints hash.
+ * The servers setting is user-authored JSON that decides which provider groups exist and where credentials land, so its
+ * acceptance rules get property coverage:
+ *
+ *   parsing        -> is total
+ *   labels         -> are unique first-wins and never reserved
+ *   acceptedEntry  -> resolves exactly what parseServersSetting accepted
  */
 
 /** Mirror of the parser's usable-text rule, for the small acceptance oracle below. */
@@ -54,7 +54,6 @@ const optionalFieldsArb = fc.dictionary(
 	{ maxKeys: 4 }
 );
 
-/** One raw settings element: a plausible record, or outright junk. */
 const rawElementArb = fc.oneof(
 	{
 		weight: 4,
@@ -200,8 +199,6 @@ suite("extension/servers/serverSync buildGroupArgs properties", () => {
 						"the persisted fingerprint hashes this order; it must not depend on input shape"
 					);
 
-					// The same logical record with its keys inserted in another order
-					// must produce the byte-identical fingerprint payload.
 					const keys = Object.keys(record);
 					const reordered: Record<string, unknown> = {};
 					keys

@@ -10,7 +10,6 @@ import type {
 import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
-// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
 
 const textArb = fc.string({ maxLength: 30 });
@@ -50,9 +49,8 @@ const requestArb = fc.record({
 });
 
 /**
- * The message-level marker, probed structurally rather than through the wire
- * type (which admits it only on tool-role messages), so the budget property
- * also catches a marker misplaced on another role.
+ * The message-level marker, probed structurally rather than through the wire type (which admits it only on tool-role
+ * messages), so the budget property also catches a marker misplaced on another role.
  */
 function messageMarker(message: OpenAIChatMessage): unknown {
 	return (message as { cache_control?: unknown }).cache_control;
@@ -71,7 +69,6 @@ function countMarkers(result: PromptCachedRequest): number {
 	return count;
 }
 
-/** True when the message carries no marker anywhere. */
 function isUnmarked(message: OpenAIChatMessage): boolean {
 	return (
 		messageMarker(message) === undefined &&
@@ -80,7 +77,6 @@ function isUnmarked(message: OpenAIChatMessage): boolean {
 	);
 }
 
-/** The message's text, independent of string vs block-array form. */
 function messageText(message: OpenAIChatMessage): string {
 	if (typeof message.content === "string") {
 		return message.content;
@@ -138,8 +134,8 @@ describe("shared/promptCache properties", () => {
 	test("never mutates its input", () => {
 		fc.assert(
 			fc.property(requestArb, (request) => {
-				// structuredClone both sides: fast-check records carry a null prototype,
-				// which deepStrictEqual would otherwise flag.
+				// structuredClone both sides: fast-check records carry a null prototype, which deepStrictEqual would
+				// otherwise flag.
 				const snapshot = structuredClone(request);
 				applyPromptCacheBreakpoints(request);
 				assert.deepStrictEqual(structuredClone(request), snapshot);

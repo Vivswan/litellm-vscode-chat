@@ -1,12 +1,9 @@
 /**
- * The marking-directive grammar (`true` = every own field, `false` = none, a
- * validated name list, anything else diagnosed) is parsed once in
- * recordResolution.ts and consumed by `_inheritable`, `_force`, and
- * `_fallback`. Their rulings are user-visible in the Diagnostics tab, so this
- * suite holds the three consumers to identical answers: the seed-pinned
- * property feeds one directive value to all three parsers and demands the same
- * marks and the same grammar diagnoses; the tables pin each arm, plus
- * `_force`'s one sanctioned divergence (the forceability predicate).
+ * The marking-directive grammar (`true` = every own field, `false` = none, a validated name list, anything else
+ * diagnosed) is parsed once in recordResolution.ts and consumed by `_inheritable`, `_force`, and `_fallback`.
+ * Their rulings are user-visible in the Diagnostics tab, so this suite holds the three consumers to identical answers:
+ * the seed-pinned property feeds one directive value to all three parsers and demands the same marks and the same
+ * grammar diagnoses; the tables pin each arm, plus `_force`'s one sanctioned divergence (the forceability predicate).
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -21,9 +18,8 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
 const SEED = resolveFuzzSeed();
 
 /**
- * Field names legal and equivalent under all three parsers: not consumed
- * capability fields (a wrong-kind value would be diagnosed away there), not
- * provider-owned (all forceable), trim-stable (capability keys trim).
+ * Field names legal and equivalent under all three parsers: not consumed capability fields (a wrong-kind value would be
+ * diagnosed away there), not provider-owned (all forceable), trim-stable (capability keys trim).
  */
 const NAME_POOL = ["temperature", "top_p", "seed", "stop", "penalty"] as const;
 
@@ -130,8 +126,8 @@ describe("shared/config marking-directive arms", () => {
 	}
 
 	test("_force alone refuses unmarkable keys: a listed one by its own name, an own field silently under true", () => {
-		// "stream" is unforceable AND unset, so it pins the branch ORDER: the
-		// forceability refusal is reached before the own-field check.
+		// "stream" is unforceable AND unset, so it pins the branch ORDER: the forceability refusal is reached before
+		// the own-field check.
 		const listed = forceRuling({ model: "x", max_tokens: 9000, temperature: "0.5" }, [
 			"model",
 			"stream",

@@ -33,7 +33,6 @@ function change(fsPath: string, status: number): Change {
 	return { uri: { fsPath } as Change["uri"], status };
 }
 
-/** A fake git repository recording which diffs were asked for. */
 function fakeRepo(parts: {
 	staged?: string;
 	working?: string;
@@ -87,8 +86,6 @@ describe("extension/features/commitGen buildCommitPrompt", () => {
 
 		const overLimit = `${atLimit}TAIL-BEYOND-THE-LIMIT`;
 		const truncated = buildCommitPrompt({ customPrompt: "", diff: overLimit, recentSubjects: [], untrackedPaths: [] });
-		// The kept head, the line break, and the marker together sit exactly at
-		// the stated bound - the marker fits INSIDE the cap.
 		const kept = DIFF_CHAR_LIMIT - "\n[diff truncated]".length;
 		expect(truncated).toContain(`${"a".repeat(kept)}\n[diff truncated]`);
 		expect(truncated).not.toContain("a".repeat(kept + 1));
@@ -96,9 +93,8 @@ describe("extension/features/commitGen buildCommitPrompt", () => {
 	});
 
 	test("a diff cut landing inside a surrogate pair drops the severed half instead of sending it", () => {
-		// Pins that the truncation routes through the shared surrogate-safe rule:
-		// the cut at DIFF_CHAR_LIMIT severs the first emoji, and a raw slice
-		// would ship its lone high surrogate in the JSON body.
+		// Pins that the truncation routes through the shared surrogate-safe rule: the cut at DIFF_CHAR_LIMIT severs the
+		// first emoji, and a raw slice would ship its lone high surrogate in the JSON body.
 		const diff = `${"a".repeat(DIFF_CHAR_LIMIT - 1)}${"\u{1F600}".repeat(2)}`;
 		const prompt = buildCommitPrompt({ customPrompt: "", diff, recentSubjects: [], untrackedPaths: [] });
 		expect(prompt.isWellFormed()).toBe(true);
@@ -208,9 +204,8 @@ describe("extension/features/commitGen commitSubjects", () => {
 	});
 });
 
-// stripMarkdownFences moved to shared/util/text; its unit pins live in
-// src/test/bun/shared/util/text.test.ts, and the generateCommitMessage suite
-// below keeps the consumer-side fence-stripping integration pin.
+// stripMarkdownFences moved to shared/util/text; its unit pins live in src/test/bun/shared/util/text.test.ts, and the
+// generateCommitMessage suite below keeps the consumer-side fence-stripping integration pin.
 
 describe("extension/features/commitGen generateCommitMessage", () => {
 	test("no configured model is a typed outcome before any git call", async () => {

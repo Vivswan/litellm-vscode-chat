@@ -1,7 +1,6 @@
 /**
- * The shared log-safe error classifier: every log boundary that names a failed
- * action names it through this ONE export instead of carrying unpinnable
- * copies.
+ * The shared log-safe error classifier: every log boundary that names a failed action names it through this ONE export
+ * instead of carrying unpinnable copies.
  */
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
@@ -9,7 +8,6 @@ import path from "node:path";
 import { errorLabel } from "../../../../shared/util/errorLabel";
 import { REPO_ROOT } from "../../../util/repoRoot";
 
-/** Every .ts file under a source tree, recursively. */
 function sources(dir: string): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
 		const full = path.join(dir, entry.name);
@@ -48,10 +46,9 @@ describe("shared/util errorLabel", () => {
 	});
 
 	test("no tree declares its own copy: exactly one errorLabel exists in shipped source", () => {
-		// The drift pin behind the shared home. Two features once each carried
-		// their own classifier, and a copy is invisible to the suite above - it
-		// can diverge on exactly the hostile input the shared one was hardened
-		// against, and only the log (or a public issue report) would show it.
+		// Two features once each carried their own classifier, and a copy is invisible to the suite above - it can
+		// diverge on exactly the hostile input the shared one was hardened against, and only the log (or a public issue
+		// report) would show it.
 		const declarations = shippedSources().filter((file) =>
 			/\bfunction\s+errorLabel\s*\(|\berrorLabel\s*=\s*(?:function\b|\()/.test(readFileSync(file, "utf8"))
 		);
@@ -61,11 +58,9 @@ describe("shared/util errorLabel", () => {
 	});
 
 	test("no shipped log line open-codes the name-or-typeof fallback beside the shared classifier", () => {
-		// The idiom errorLabel replaced: `x instanceof Error ? x.name : typeof x`
-		// skips the logClassification a MirroredError carries, so a site that
-		// re-grows it logs a bare class name where the terse classification
-		// exists. Variable-name independent (a backreference, not a literal
-		// `error`), and fail-closed on any reappearance.
+		// The idiom errorLabel replaced: `x instanceof Error ? x.name : typeof x` skips the logClassification a
+		// MirroredError carries, so a site that re-grows it logs a bare class name where the terse classification
+		// exists.
 		const idiom = /instanceof\s+Error\s*\?\s*(\w+)\.name\s*:\s*typeof\s+\1\b/;
 		const offenders = shippedSources().filter((file) => idiom.test(readFileSync(file, "utf8")));
 		expect(offenders.map((file) => path.relative(REPO_ROOT, file))).toEqual([]);

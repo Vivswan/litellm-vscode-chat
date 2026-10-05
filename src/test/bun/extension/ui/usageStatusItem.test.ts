@@ -20,11 +20,9 @@ interface UsageStateOptions {
 	readonly lastUpdatedAt?: number | undefined;
 	readonly budgetResetAt?: number | undefined;
 	readonly keyInfoOk?: boolean;
-	/** The full /key/info standing, when a test drives the staleness cause; wins over keyInfoOk for the standing. */
 	readonly keyInfo?: UsageEndpointState;
 }
 
-/** A key-answering server state; spend/budget default to a healthy 42% position. */
 function usageState(label: string, options: UsageStateOptions = {}): ServerUsageState {
 	const spend = options.spend ?? 21;
 	const effectiveBudget = "effectiveBudget" in options ? options.effectiveBudget : 50;
@@ -39,8 +37,7 @@ function usageState(label: string, options: UsageStateOptions = {}): ServerUsage
 		endpoints,
 		availability: usageAvailabilityOf(endpoints),
 		lastUpdatedAt: "lastUpdatedAt" in options ? options.lastUpdatedAt : NOW - 60_000,
-		// The freshness rule and tooltip read the SPEND age; the tests' single
-		// lastUpdatedAt option means exactly that.
+		// The freshness rule and tooltip read the SPEND age; the tests' single lastUpdatedAt option means exactly that.
 		spendUpdatedAt: "lastUpdatedAt" in options ? options.lastUpdatedAt : NOW - 60_000,
 		lastAttemptAt: NOW - 60_000,
 		key: keyInfoOk
@@ -88,7 +85,6 @@ function render(
 	);
 }
 
-/** The visible view, or a loud failure when the renderer hid the item. */
 function expectVisible(result: ReturnType<typeof render>) {
 	assert.ok(result !== "hidden", "expected a visible view");
 	return result;
@@ -161,9 +157,8 @@ describe("extension/ui usageStatusItem renderUsageStatus", () => {
 	});
 
 	test("the background is the shared spend tone: one map for the meter, the diagnostic, and this item", () => {
-		// The cross-surface equality pin over the threshold edge cases, the empty
-		// list and past-100% included: whatever tone src/dashboard's map assigns,
-		// the item's severity is its fixed embodiment - never a second scale.
+		// The cross-surface equality pin over the threshold edge cases, the empty list and past-100% included: whatever
+		// tone src/dashboard's map assigns, the item's severity is its fixed embodiment - never a second scale.
 		const severityByTone = { ok: "plain", warn: "warning", error: "error" } as const;
 		for (const fraction of [0.42, 0.5, 0.8, 0.95, 1, 1.12]) {
 			for (const thresholds of [[], [0.5], [0.8, 0.95], [1]] as const) {
@@ -246,8 +241,8 @@ describe("extension/ui usageStatusItem renderUsageStatus", () => {
 		});
 
 		test("a four-figure amount prints exactly as the dashboard card would: the shared formatMoney, never toFixed", () => {
-			// The cross-surface money pin: one spend, one string, tooltip and card
-			// alike. formatMoney's own shape is pinned in the bun spendFormat suite.
+			// The cross-surface money pin: one spend, one string, tooltip and card alike. formatMoney's own shape is
+			// pinned in the bun spendFormat suite.
 			const view = expectVisible(render([usageState("prod", { spend: 1500, effectiveBudget: 2000, keyBudget: 2000 })]));
 			const tooltip = view.tooltipLines.join("\n");
 			assert.ok(tooltip.includes(`prod: ${formatMoney(1500, "$")} of ${formatMoney(2000, "$")} (75%)`), tooltip);
@@ -282,10 +277,9 @@ describe("extension/ui usageStatusItem renderUsageStatus", () => {
 		});
 
 		test("a stale line names its cause through the shared staleness vocabulary", () => {
-			// One staleness pipeline across surfaces: the tooltip composes its
-			// timestamp around the exact words the dashboard's row marker, drawer
-			// fact, and budget band use, so a denied key can never read "stale"
-			// in the status bar and "denied" on the Servers page.
+			// One staleness pipeline across surfaces: the tooltip composes its timestamp around the exact words the
+			// dashboard's row marker, drawer fact, and budget band use, so a denied key can never read "stale" in the
+			// status bar and "denied" on the Servers page.
 			const causes: readonly { keyInfo: UsageEndpointState; text: string }[] = [
 				{ keyInfo: { kind: "ok" }, text: "stale" },
 				{ keyInfo: { kind: "error", classification: "timeout" }, text: "last refresh failed" },

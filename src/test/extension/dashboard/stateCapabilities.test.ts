@@ -1,7 +1,3 @@
-/**
- * The state's capability side: expected failures, observed model_info keys, record-key specificity, and
- * resolveDashboardModelCapabilities.
- */
 import * as assert from "node:assert";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import {
@@ -200,9 +196,8 @@ suite("extension/dashboard/state: capabilities", () => {
 		});
 
 		test("an expected failure serving only the stale window raises no needs-declare notice", () => {
-			// The notice gates on servedModelCount, like every other serving
-			// verdict: a row quietly serving its last known list must not carry a
-			// paste line contradicting itself ("still served" beside "add IDs").
+			// The notice gates on servedModelCount, like every other serving verdict: a row quietly serving its last
+			// known list must not carry a paste line contradicting itself ("still served" beside "add IDs").
 			const state = buildState(
 				[
 					{
@@ -318,9 +313,8 @@ suite("extension/dashboard/state: capabilities", () => {
 				makeReader({})
 			);
 			assert.deepStrictEqual(state.observedModelInfoKeys, ["__proto__", "constructor"]);
-			// The union is Set-built; had a raw object keyed the accumulation, the
-			// "__proto__" write would have re-pointed the accumulator's prototype
-			// instead of recording the key. Fresh objects must stay pristine.
+			// The union is Set-built; had a raw object keyed the accumulation, the "__proto__" write would have
+			// re-pointed the accumulator's prototype instead of recording the key. Fresh objects must stay pristine.
 			assert.strictEqual(Object.getPrototypeOf({}), Object.prototype);
 		});
 
@@ -439,10 +433,9 @@ suite("extension/dashboard/state: capabilities", () => {
 		});
 
 		test("a claimed snapshot whose entry label differs from the group's still resolves its models", () => {
-			// The population the entry-capabilities-inactive notice exists for: entry
-			// "Prod", group label "x.test". The rows render under the entry label and
-			// their scope keys must still answer - the key hashes the server ID, so
-			// no label enters the resolution.
+			// The population the entry-capabilities-inactive notice exists for: entry "Prod", group label "x.test". The
+			// rows render under the entry label and their scope keys must still answer - the key hashes the server ID,
+			// so no label enters the resolution.
 			const divergent = [
 				{
 					status: makeServerStatus({
@@ -507,8 +500,8 @@ suite("extension/dashboard/state: capabilities", () => {
 			assert.strictEqual(resolveDashboardModelCapabilities(query, "s0", "gpt-4"), undefined);
 			assert.strictEqual(resolveDashboardModelCapabilities(query, "bogus", "gpt-4"), undefined);
 			assert.strictEqual(resolveDashboardModelCapabilities(query, modelScopeKey("g1"), "no-such-model"), undefined);
-			// A key minted for a server that left the window de-resolves; it can
-			// never re-point at whatever server the snapshot list now holds.
+			// A key minted for a server that left the window de-resolves; it can never re-point at whatever server the
+			// snapshot list now holds.
 			assert.strictEqual(resolveDashboardModelCapabilities(query, modelScopeKey("gone"), "gpt-4"), undefined);
 		});
 
@@ -581,10 +574,9 @@ suite("extension/dashboard/state: capabilities", () => {
 			});
 
 			suite("layered evidence: global hints use the cross-server union, entry hints the server's own set", () => {
-				// Server A serves nothing relevant but observed the key; server B
-				// serves the inspected model and did not. Each layer must be judged
-				// the way Configuration diagnostics and the settings editor judge it,
-				// or a click-through from a hint lands on a record that reads clean.
+				// Server A serves nothing relevant but observed the key; server B serves the inspected model and did
+				// not. Each layer must be judged the way Configuration diagnostics and the settings editor judge it, or
+				// a click-through from a hint lands on a record that reads clean.
 				const twoServers = (servingSet: readonly string[] | undefined, otherSet: readonly string[] | undefined) => [
 					{
 						status: makeServerStatus({ serverId: "gB", label: "B", baseUrl: "http://b.test" }),
@@ -614,9 +606,8 @@ suite("extension/dashboard/state: capabilities", () => {
 					);
 
 				test("a global hint drops when ANY server observed the key, even one not serving this model", () => {
-					// The regression shape: the SERVING server carries a real, non-empty
-					// set that lacks the key, and only the other server observed it. A
-					// serving-set-only filter fails here; the union must win.
+					// The regression shape: the SERVING server carries a real, non-empty set that lacks the key, and
+					// only the other server observed it. A serving-set-only filter fails here; the union must win.
 					const discriminating = resolveOnB(["known_key"], ["supports_web_search"]);
 					assert.deepStrictEqual(discriminating?.diagnostics, []);
 					// And the softer shape: the serving server has no set at all.

@@ -1,12 +1,10 @@
 /**
- * The recording double for the comments API. The real controller gives no way
- * to enumerate the threads it holds, so the suites drive a double and read the
- * threads back off it; wiring.test.ts pins the recorded shapes against the
- * real API in one separate test, so the double cannot drift into fiction.
+ * The real controller gives no way to enumerate the threads it holds, so the suites drive a double and read the threads
+ * back off it; wiring.test.ts pins the recorded shapes against the real API in one separate test, so the double cannot
+ * drift into fiction.
  */
 import * as vscode from "vscode";
 
-/** One thread the double created, with everything the feature sets on it. */
 export interface FakeThread {
 	readonly uri: vscode.Uri;
 	range: vscode.Range | undefined;
@@ -20,7 +18,6 @@ export interface FakeThread {
 	dispose(): void;
 }
 
-/** One controller the double created, and every thread it was asked for. */
 export interface FakeController {
 	readonly id: string;
 	readonly label: string;
@@ -29,10 +26,9 @@ export interface FakeController {
 	readonly threads: FakeThread[];
 	disposed: boolean;
 	/**
-	 * A thread the HOST made, not the feature: what VS Code hands the reply
-	 * command when the user starts a thread from the gutter. It is deliberately
-	 * NOT in `threads` - the controller never created it, and the point of the
-	 * adoption path is that it arrives unknown.
+	 * A thread the HOST made, not the feature: what VS Code hands the reply command when the user starts a thread from
+	 * the gutter. It is deliberately NOT in `threads` - the controller never created it, and the point of the adoption
+	 * path is that it arrives unknown.
 	 */
 	createHostThread(uri: vscode.Uri, range: vscode.Range): FakeThread;
 }
@@ -43,7 +39,6 @@ export interface CommentSpies {
 	fireConfigChange(): void;
 }
 
-/** A context whose workspaceState is a plain map, with every write recorded in order. */
 export interface FakeReviewContext extends vscode.ExtensionContext {
 	readonly writes: unknown[];
 }
@@ -68,9 +63,8 @@ export function fakeReviewContext(state: Readonly<Record<string, unknown>> = {})
 }
 
 /**
- * Run `fn` with the comments API, command registration, and the configuration
- * watcher recorded instead of real: real command registrations would collide
- * across tests in the shared host, and the watcher is captured so tests fire
+ * Run `fn` with the comments API, command registration, and the configuration watcher recorded instead of real: real
+ * command registrations would collide across tests in the shared host, and the watcher is captured so tests fire
  * configuration changes deterministically.
  */
 export async function withCommentSpies<T>(fn: (spies: CommentSpies) => T | Promise<T>): Promise<Awaited<T>> {
@@ -82,7 +76,6 @@ export async function withCommentSpies<T>(fn: (spies: CommentSpies) => T | Promi
 	const originalRegisterCommand = vscode.commands.registerCommand;
 	const originalOnDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration;
 
-	/** A thread object with everything the feature reads or writes on one. */
 	const makeThread = (uri: vscode.Uri, range: vscode.Range, comments: readonly vscode.Comment[]): FakeThread => {
 		const thread: FakeThread = {
 			uri,
@@ -165,7 +158,6 @@ export async function withCommentSpies<T>(fn: (spies: CommentSpies) => T | Promi
 	}
 }
 
-/** The threads a controller still holds, in creation order. */
 export function liveThreads(controller: FakeController | undefined): readonly FakeThread[] {
 	return (controller?.threads ?? []).filter((thread) => !thread.disposed);
 }

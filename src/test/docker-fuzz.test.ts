@@ -35,13 +35,11 @@ const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "")
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 // Trailing slashes stripped: the prefix concatenation below must not mint a double slash.
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
-// Explicit seeds reproduce exactly, including 0; anything unset or invalid
-// draws a fresh pid- and time-mixed seed (see src/test/fuzzSeed.ts).
+// Explicit seeds reproduce exactly, including 0; anything unset or invalid draws a fresh pid- and time-mixed seed (see
+// src/test/fuzzSeed.ts).
 const SEED = resolveDockerFuzzSeed();
 const ITERATIONS = Math.max(1, Math.floor(Number(process.env.FUZZ_ITERATIONS)) || 10);
 const MAX_SHRINK_RUNS = 32;
-
-// ── Suite plumbing ────────────────────────────────────────────────────────────
 
 async function registerScenario(name: string, config: Record<string, unknown>): Promise<void> {
 	const registered = await fetch(`${FAKE_URL}/_test/custom-scenario`, {
@@ -51,7 +49,6 @@ async function registerScenario(name: string, config: Record<string, unknown>): 
 	assert.ok(registered.ok, `custom-scenario registration failed (${name}): ${registered.status}`);
 }
 
-/** Run one assembled stream and assert the exact expected outcome. */
 async function runStream(model: vscode.LanguageModelChat, name: string, events: FuzzEvent[]): Promise<void> {
 	const assembled = assemble(events);
 	await registerScenario(name, { type: "sse", chunks: assembled.chunks });
@@ -85,9 +82,9 @@ async function runStream(model: vscode.LanguageModelChat, name: string, events: 
 }
 
 /**
- * Shrink a failing event list to a minimal one that still fails: remove spans, halving the span size down to
- * single events, bounded by MAX_SHRINK_RUNS extra runs. A transient infrastructure failure during a candidate
- * run counts as a reproduction, so the bound also limits how far a flake can distort the minimized output.
+ * Shrink a failing event list to a minimal one that still fails: remove spans, halving the span size down to single
+ * events, bounded by MAX_SHRINK_RUNS extra runs. A transient infrastructure failure during a candidate run counts as a
+ * reproduction, so the bound also limits how far a flake can distort the minimized output.
  */
 async function shrinkFailure(
 	model: vscode.LanguageModelChat,
@@ -147,7 +144,6 @@ async function fuzzIteration(
 	}
 }
 
-/** One server the fuzzed streams run against, and the model that carries them. */
 interface FuzzTarget {
 	readonly title: string;
 	/** Direct-mode targets skip the proxy, so the generator adds the shapes LiteLLM would reject. */
@@ -167,8 +163,8 @@ function fuzzSuite(target: FuzzTarget): void {
 			this.timeout(90000);
 			await ensureActivated();
 			await catalogOff();
-			// The stack's ids are fixed, so a pre-existing copy of the target model
-			// would be indistinguishable from this entry's; fail fast.
+			// The stack's ids are fixed, so a pre-existing copy of the target model would be indistinguishable from
+			// this entry's; fail fast.
 			await assertIdsUnserved([target.modelId]);
 			await writeServerEntry(target.entry, 60000);
 			// Single-deployment targets on purpose: responses cannot vary by routing.

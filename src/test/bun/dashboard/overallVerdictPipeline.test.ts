@@ -3,14 +3,10 @@ import * as assert from "node:assert";
 import { type ShippedSource, shippedSources } from "../../sourceScan";
 
 /**
- * The one-verdict-pipeline source guard: classifyOverall is the only place
- * implementing the overall branch rules, and unexpectedServerFailures /
- * unexpectedFailureCount the only place reading a failure's expectedness for
- * verdicts and counts. Every headline surface consumes them instead of
- * re-deriving the rules - the surfaces once drifted (one expected + one real
- * failure counted 1 in the tooltip and 2 in both toasts).
- * Greppable-shape checks in the statusItemRegistry idiom: comments may name an
- * API, so matches require the call or comparison form.
+ * Every headline surface consumes them instead of re-deriving the rules - the surfaces once drifted (one expected + one
+ * real failure counted 1 in the tooltip and 2 in both toasts).
+ *
+ *   The one-verdict-pipeline source guard -> classifyOverall is the only place implementing the overall branch rules
  */
 
 function filesContaining(sources: readonly ShippedSource[], needle: string): string[] {
@@ -40,8 +36,8 @@ describe("dashboard/presenters overall-verdict pipeline", () => {
 	});
 
 	test("the expectedness filter lives only in the shared helper and the classifier", () => {
-		// Any new `expected !== true` is a surface re-implementing the branch
-		// rules or the count; it must consume the shared readings instead.
+		// Any new `expected !== true` is a surface re-implementing the branch rules or the count; it must consume the
+		// shared readings instead.
 		const filterSites = filesContaining(sources, "expected !== true");
 		assert.deepStrictEqual(filterSites, ["src/dashboard/presenters.ts", "src/shared/servers.ts"]);
 		for (const { file, text } of sources) {

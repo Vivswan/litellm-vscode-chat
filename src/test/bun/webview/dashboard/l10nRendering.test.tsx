@@ -75,7 +75,6 @@ test("Copy diagnostics stays English under a configured bundle while the server 
 		)
 	);
 
-	// On screen, the server row's status pill resolves the translated marker.
 	const pill = root.querySelector("#panel-overview .pill .pill-time") as HTMLElement;
 	expect(pill.textContent).toContain("AGO[5]");
 

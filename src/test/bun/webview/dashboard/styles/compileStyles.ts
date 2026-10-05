@@ -39,7 +39,6 @@ export async function compileDashboard(): Promise<string> {
 	return (await Promise.all(stylesheets.map((output) => output.text()))).join("");
 }
 
-/** One compiled `@media (forced-colors: active)` block and where it sits. */
 export interface ForcedColorsBlock {
 	readonly text: string;
 	/**
@@ -53,7 +52,6 @@ export interface ForcedColorsBlock {
 	readonly unconditional: boolean;
 }
 
-/** One compiled rule: its own declarations, plus the same placement facts. */
 export interface StyleRule {
 	/** The rule's whole selector list, as the printer wrote it. */
 	readonly selectorList: string;
@@ -68,34 +66,30 @@ export interface StyleRule {
 	readonly start: number;
 }
 
-/** The forced-colors query, as the compiled at-rule prelude reads. */
 export const FORCED_COLORS_QUERY = "@media (forced-colors: active)";
 
-/** Outside every cascade layer, which is what it takes to beat a utility. */
 const isUnlayered = (context: readonly string[]): boolean => !context.some((prelude) => prelude.startsWith("@layer"));
 
-/** Inside no width, container, or feature query, so it applies everywhere. */
 const isUnconditional = (context: readonly string[]): boolean =>
 	!context.some((prelude) => /^@(?:media|container|supports)\b/.test(prelude));
 
-/** Every forced-colors block in a compiled sheet, with the at-rules around it. */
 export function forcedColorsBlocks(css: string): readonly ForcedColorsBlock[] {
 	return blocks(css)
 		.filter((block) => block.prelude === FORCED_COLORS_QUERY)
 		.map((block) => ({
 			text: block.text,
 			context: block.context,
-			// Asked separately on purpose: what a rule can BEAT is a layer question, WHEN it applies is a query one, and
-			// one field answering both reads as whichever the caller assumed.
+			// Asked separately on purpose: what a rule can BEAT is a layer question, WHEN it applies is a query one,
+			// and one field answering both reads as whichever the caller assumed.
 			unlayered: isUnlayered(block.context),
 			unconditional: isUnconditional(block.context),
 		}));
 }
 
 /**
- * Every rule whose selector list NAMES `selector` exactly, with its declarations and placement. The list is split
- * rather than substring-searched, so a longer selector ending in this one stays a different rule. The split is naive
- * about a comma inside `:is(a, b)`, which fails CLOSED: no part matches exactly, so the caller finds no rule.
+ * The list is split rather than substring-searched, so a longer selector ending in this one stays a different rule.
+ * The split is naive about a comma inside `:is(a, b)`, which fails CLOSED: no part matches exactly, so the caller
+ * finds no rule.
  */
 export function rulesFor(css: string, selector: string): readonly StyleRule[] {
 	return blocks(css)

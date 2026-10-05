@@ -90,8 +90,8 @@ suite("extension/ui usageAlerts", () => {
 
 		store.upsert(stateAt("prod", 0.858, [0.855]), [0.855]);
 
-		// The floored spend reads below the threshold it just crossed, which only
-		// "at least" makes true: 85% is a lower bound, 85.5% the exact trigger.
+		// The floored spend reads below the threshold it just crossed, which only "at least" makes true: 85% is a lower
+		// bound, 85.5% the exact trigger.
 		assert.strictEqual(toasts[0]?.message, 'LiteLLM: "prod" has used at least 85% of its budget (alert at 85.5%)');
 	});
 

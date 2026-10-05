@@ -49,9 +49,6 @@ describe("shared/logger", () => {
 	});
 
 	test("advisory writes the channel only: the issue-report buffer's budget is never consumed", () => {
-		// The buffer is the issue reporter's small ring; recurring informational
-		// notes (open capability fields applied as-is) must not evict the real
-		// errors it exists to carry.
 		const sinks = makeSinks();
 		const logger = new Logger(sinks.channel, sinks.recorder);
 
@@ -158,9 +155,6 @@ describe("shared/logger", () => {
 	});
 
 	test("a localized message defers to its English mirror on the channel, and to the classification in the buffer", () => {
-		// The seam every localized transport error rides: the display message reaches only
-		// the chat UI, the output channel renders the full English mirror, and the
-		// issue-report buffer records the terse classification when one exists.
 		const sinks = makeSinks();
 		const logger = new Logger(sinks.channel, sinks.recorder);
 		const err = Object.assign(new Error("LOCALIZED"), {
@@ -192,9 +186,8 @@ describe("shared/logger", () => {
 	});
 
 	test("the channel's stack line swaps a mirrored error's message prefix for the English form, keeping the frames", () => {
-		// The Stack trace: print is channel output too, and V8 bakes the
-		// (possibly localized) message into the stack's first line; the same
-		// length-strip publicErrorStack uses keeps the channel English.
+		// The Stack trace: print is channel output too, and V8 bakes the (possibly localized) message into the stack's
+		// first line; the same length-strip publicErrorStack uses keeps the channel English.
 		const sinks = makeSinks();
 		const logger = new Logger(sinks.channel, sinks.recorder);
 		const err = Object.assign(new Error("LOCALIZED"), { englishMessage: "ENGLISH" });
@@ -254,9 +247,8 @@ describe("shared/logger", () => {
 	});
 
 	test("Logger.error never throws on a fully hostile proxy", () => {
-		// The same throwing-getPrototypeOf proxy the helper tests use: the
-		// instanceof and stack reads inside error() must be guarded too, since
-		// a logging call must never throw.
+		// The same throwing-getPrototypeOf proxy the helper tests use: the instanceof and stack reads inside error()
+		// must be guarded too, since a logging call must never throw.
 		const sinks = makeSinks();
 		const logger = new Logger(sinks.channel, sinks.recorder);
 		const hostile = new Proxy(
@@ -320,8 +312,8 @@ describe("shared/logger errorMessageText", () => {
 		);
 		assert.strictEqual(errorMessageText(throwingProto), "[object Object]");
 
-		// A proxy that also throws on property reads defeats the tag too (it
-		// reads Symbol.toStringTag); the literal is the last resort.
+		// A proxy that also throws on property reads defeats the tag too (it reads Symbol.toStringTag); the literal is
+		// the last resort.
 		const fullyHostile = new Proxy(
 			{},
 			{
@@ -363,9 +355,8 @@ describe("shared/logger public renderings", () => {
 	});
 
 	test("publicErrorStack strips the message BY LENGTH: frame-shaped body lines never survive", () => {
-		// An http body can contain lines shaped like stack frames; a shape
-		// filter alone would keep them. The exact `${name}: ${message}` prefix
-		// strip removes the whole message before any line filtering runs.
+		// An http body can contain lines shaped like stack frames; a shape filter alone would keep them. The exact
+		// `${name}: ${message}` prefix strip removes the whole message before any line filtering runs.
 		const err = Object.assign(
 			new Error("LiteLLM API error: 502\n\tat com.acme.internal.BillingService.charge(BillingService.java:42)"),
 			{ logClassification: "RequestError(http, status 502)" }
@@ -389,12 +380,10 @@ describe("shared/logger public renderings", () => {
 	});
 });
 
-// Both public stack surfaces - the issue-report buffer's publicErrorStack and
-// the output channel's Stack trace line (the channel feeds issue reports too) -
-// sanitize through one helper. These tests drive the helper through BOTH
+// Both public stack surfaces - the issue-report buffer's publicErrorStack and the output channel's Stack trace line
+// (the channel feeds issue reports too) - sanitize through one helper. These tests drive the helper through BOTH
 // surfaces with the same hostile inputs, so hardening can never split.
 
-/** The channel's error lines from one Logger.error call. */
 function channelErrorLines(error: unknown): string[] {
 	const errorLines: string[] = [];
 	const logger = new Logger({ info: () => {}, error: (line: string) => errorLines.push(line) });
@@ -407,8 +396,8 @@ const RESPONSE_BODY =
 
 describe("shared/logger stack sanitization (both surfaces)", () => {
 	test("response-derived message text never survives either surface: stripped BY LENGTH, real frames kept", () => {
-		// The message embeds a frame-shaped body line; a shape filter alone would
-		// keep it. The length strip removes the whole message on both surfaces.
+		// The message embeds a frame-shaped body line; a shape filter alone would keep it. The length strip removes the
+		// whole message on both surfaces.
 		const err = Object.assign(new Error(RESPONSE_BODY), {
 			logClassification: "RequestError(http, status 502)",
 			englishMessage: "The server returned an error.",
@@ -430,10 +419,8 @@ describe("shared/logger stack sanitization (both surfaces)", () => {
 	});
 
 	test("a stack that lies about its message fails closed on both surfaces: no frames, no message", () => {
-		// The by-length property: when the first line is not the exact
-		// `${name}: ${message}` prefix, nothing marks where the message ends, so
-		// even genuine-looking frames could be message text. Both surfaces drop
-		// everything but their replacement line.
+		// The by-length property: when the first line is not the exact `${name}: ${message}` prefix, nothing marks
+		// where the message ends, so even genuine-looking frames could be message text.
 		const err = Object.assign(new Error("response body secret"), {
 			logClassification: "RequestError(http, status 502)",
 			englishMessage: "The server returned an error.",
@@ -445,10 +432,9 @@ describe("shared/logger stack sanitization (both surfaces)", () => {
 	});
 
 	test("a stack getter that turns hostile after its first read cannot inject frames on either surface", () => {
-		// The old code re-read error.stack between the check and the strip, so a
-		// getter could pass the check with an honest value and hand the strip an
-		// attacker one. Each surface now narrows the stack once and sanitizes
-		// that exact value.
+		// The old code re-read error.stack between the check and the strip, so a getter could pass the check with an
+		// honest value and hand the strip an attacker one. Each surface now narrows the stack once and sanitizes that
+		// exact value.
 		const makeErr = () => {
 			const err = Object.assign(new Error("response body secret"), {
 				logClassification: "RequestError(http, status 502)",
@@ -475,9 +461,8 @@ describe("shared/logger stack sanitization (both surfaces)", () => {
 	});
 
 	test("a hostile name getter keeps each surface's own catch fallback", () => {
-		// The shared helper may throw on hostile name/message reads; the public
-		// surface falls back to the classification, the channel prints no stack
-		// line at all, and neither throws.
+		// The shared helper may throw on hostile name/message reads; the public surface falls back to the
+		// classification, the channel prints no stack line at all, and neither throws.
 		const err = Object.assign(new Error("response body secret"), {
 			logClassification: "RequestError(http, status 502)",
 			englishMessage: "The server returned an error.",

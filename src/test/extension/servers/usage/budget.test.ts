@@ -6,7 +6,6 @@ import { normalizeUsageAlertThresholds, normalizeUsageStatusBarMode } from "../.
 
 const THRESHOLDS = [0.8, 0.95] as const;
 
-/** A resolution input with every field stated, overridden per test. */
 function input(overrides: Partial<ResolveBudgetInput> = {}): ResolveBudgetInput {
 	return {
 		entryBudget: undefined,
@@ -49,7 +48,6 @@ suite("extension/servers/usage budget resolution", () => {
 		assert.strictEqual(status.spentFraction, undefined);
 		assert.deepStrictEqual(status.crossedThresholds, []);
 
-		// An entry budget covers a zero-reporting key exactly like a missing one.
 		const withEntry = resolveBudget(input({ entryBudget: 50, keyBudget: 0, spend: 45 }));
 		assert.strictEqual(withEntry.effectiveBudget, 50);
 		assert.strictEqual(withEntry.budgetSource, "entry");

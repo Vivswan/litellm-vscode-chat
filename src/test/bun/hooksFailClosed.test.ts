@@ -12,7 +12,7 @@ import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
  * under .husky/_ are tracked because husky generates them only on install.
  *
  *   fresh worktree, no bun install  -> the hook refuses and names the fix (7a757c06: it ran no hooks at all)
- *   a hook script's shim            -> exists and is executable (git skips a non-executable hook silently)
+ *   a hook script's shim            -> exists and is executable
  */
 
 /** A deleted hook script leaves nothing to derive a requirement from, so the relied-on hooks are listed here. */
@@ -40,7 +40,8 @@ describe("hook layer fails closed", () => {
 		"a checkout that never ran bun install refuses the commit with an actionable message",
 		() => {
 			// The shim sources husky's runtime, which runs the hook script with sh -e from the cwd, a scratch directory
-			// without node_modules. Scratch HOME keeps ~/.config/husky/init.sh out; unset HUSKY keeps its =0 escape out.
+			// without node_modules.
+			// Scratch HOME keeps ~/.config/husky/init.sh out; unset HUSKY keeps its =0 escape out.
 			const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lvt-hooks-"));
 			try {
 				const { HUSKY: _husky, ...env } = process.env;
@@ -61,8 +62,8 @@ describe("hook layer fails closed", () => {
 	);
 
 	test("every hook script has an executable shim, so git actually invokes it", () => {
-		// git skips a shim it cannot execute, and husky's runtime runs the script behind it through `sh -e`, so only the
-		// shim's mode matters. Mode bits are a POSIX fact the Windows leg cannot read.
+		// git skips a shim it cannot execute, and husky's runtime runs the script behind it through `sh -e`, so only
+		// the shim's mode matters. Mode bits are a POSIX fact the Windows leg cannot read.
 		assert.ok(fs.existsSync(shimOf("h")), "the husky runtime the shims source is missing");
 		for (const hook of hookScripts()) {
 			assert.ok(fs.existsSync(shimOf(hook)), `.husky/_/${hook} is missing, so git never invokes .husky/${hook}`);

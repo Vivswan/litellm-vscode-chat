@@ -1,11 +1,9 @@
 /**
- * The sync-failure overlay's precedence rules: a sync error outranks the live
- * status (ok or error) while the served count stays the live truth, an
- * upsertFailed entry discovery never saw becomes an error serving nothing
- * (blocked and skipped entries wait for their group's report instead), and
- * entries without a sync error change nothing. The cross-surface vocabulary
- * suites pin what the bar and notifier make of the overlaid window; this
- * suite pins the overlay itself.
+ * The sync-failure overlay's precedence rules: a sync error outranks the live status (ok or error) while the served
+ * count stays the live truth, an upsertFailed entry discovery never saw becomes an error serving nothing (blocked and
+ * skipped entries wait for their group's report instead), and entries without a sync error change nothing. The
+ * cross-surface vocabulary suites pin what the bar and notifier make of the overlaid window; this suite pins the
+ * overlay itself.
  */
 
 import { expect, test } from "bun:test";
@@ -67,10 +65,9 @@ test("a sync failure outranks a live ok status while the served count stays the 
 	expect(status?.state).toBe("error");
 	expect(status?.error).toBe("blocked message");
 	expect(status?.servedModelCount).toBe(4);
-	// The log rendering is rebuilt from the failure class alone, never the
-	// message: log lines land in public issue reports.
+	// The log rendering is rebuilt from the failure class alone, never the message: log lines land in public issue
+	// reports.
 	expect(status?.state === "error" ? String(status.logSafeError) : "").toBe("provider group sync failed (blocked)");
-	// The live identity keeps riding: same snapshot, judged with the sync truth.
 	expect(status?.serverId).toBe("live");
 	expect(status?.baseUrl).toBe("http://live.test");
 	expect(status?.lastChecked).toBe(live.lastChecked);
@@ -87,8 +84,8 @@ test("a sync failure outranks a live error's text and drops its classification",
 	expect(status?.state).toBe("error");
 	expect(status?.error).toBe("sync failed");
 	expect(status?.servedModelCount).toBe(3);
-	// The masked transport error's classification must not advise on a failure
-	// the status no longer displays (the dashboard row drops it the same way).
+	// The masked transport error's classification must not advise on a failure the status no longer displays (the
+	// dashboard row drops it the same way).
 	expect(status !== undefined && "classification" in status && status.classification !== undefined).toBe(false);
 });
 
@@ -107,9 +104,9 @@ test("an upsertFailed entry discovery never saw becomes an error serving nothing
 });
 
 test("a blocked or skipped entry with no live status synthesizes nothing: its group reports later", () => {
-	// blocked proves a group with the name EXISTS (the duplicate refusal), and
-	// The skip classes mean the pass left live groups serving; a synthesized
-	// dead error would race the first discovery report red.
+	//   blocked          -> proves a group with the name EXISTS (the duplicate refusal)
+	//   The skip classes -> mean the pass left live groups serving; a synthesized dead error would race the first
+	//                       discovery report red
 	expect(
 		applySyncFailures([], [view({ label: "held", syncFailure: { class: "blocked", message: "name conflict" } })])
 	).toEqual([]);
@@ -135,7 +132,6 @@ test("a blocked or skipped entry with no live status synthesizes nothing: its gr
 
 test("claimants sharing one live snapshot overlay it once, keeping the live served count", () => {
 	const shared = okStatus({ serverId: "shared", servedModelCount: 3 });
-	// Both entries claim the snapshot through the shared connection identity.
 	const sharedView = (label: string) => ({
 		label,
 		baseUrl: "http://shared.test",
@@ -151,7 +147,6 @@ test("claimants sharing one live snapshot overlay it once, keeping the live serv
 
 test("entries without a sync failure change nothing: statuses pass through untouched", () => {
 	const live = okStatus({ serverId: "live", servedModelCount: 2 });
-	// An unchecked healthy entry stays out of the window too, exactly as before.
 	const result = applySyncFailures(
 		[live],
 		[view({ label: "live", expectedClientId: "live" }), view({ label: "fresh" })]

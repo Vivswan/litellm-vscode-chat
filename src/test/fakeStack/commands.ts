@@ -54,9 +54,8 @@ const MAX_TOOL_ARGS_BYTES = 16 * 1024;
 const ERROR_STATUSES = new Set([400, 401, 403, 404, 408, 409, 422, 429, 500, 502, 503, 504]);
 
 /**
- * The command sigil: the mandatory first byte of a command line. The whole
- * grammar derives from this constant, so swapping it is a one-character edit
- * here plus the prose doc (docs/development.md).
+ * The whole grammar derives from this constant, so swapping it is a one-character edit here plus the prose doc
+ * (docs/development.md).
  */
 export const COMMAND_SIGIL = "%";
 
@@ -78,7 +77,6 @@ function requestMessages(context: CommandContext): WireMessage[] {
 	return Array.isArray(messages) ? (messages as WireMessage[]) : [];
 }
 
-/** Concatenated text of a message: string content, or its text parts joined by newlines. */
 function messageText(message: WireMessage): string {
 	if (typeof message.content === "string") {
 		return message.content;
@@ -106,19 +104,15 @@ function lastUserIndex(messages: WireMessage[]): number {
 }
 
 /**
- * A chat host's envelope closer: a line that is EXACTLY an unindented closing
- * tag. Copilot Chat rebuilds the typed request as
- * "<userRequest>\n%help\n</userRequest>", so without transparency every
- * interactively typed command would get the fallback. An INDENTED closing tag
- * (the usual shape inside pasted markup) is not transparent.
+ * Copilot Chat rebuilds the typed request as "<userRequest>\n%help\n</userRequest>", so without transparency every
+ * interactively typed command would get the fallback. An INDENTED closing tag (the usual shape inside pasted markup)
+ * is not transparent.
  */
 const ENVELOPE_CLOSER = /^<\/[A-Za-z][A-Za-z0-9._-]*>$/;
 
 /**
- * The last non-empty, non-envelope-closer line with ONLY its trailing \r
- * stripped - never trimmed, so a leading space disqualifies the line from
- * being a command and %echo keeps trailing bytes. Whitespace-only lines count
- * as empty.
+ * The last non-empty, non-envelope-closer line with ONLY its trailing \r stripped - never trimmed, so a leading space
+ * disqualifies the line from being a command and %echo keeps trailing bytes.
  */
 function lastNonEmptyLine(text: string): string | undefined {
 	const lines = text.split("\n");
@@ -180,7 +174,6 @@ function wantsUsage(context: CommandContext): boolean {
 	);
 }
 
-/** Zero or one trailer chunks, per the include_usage gate. */
 function usageTrailerChunks(context: CommandContext, outputChars: number, reasoningChars = 0): unknown[] {
 	return wantsUsage(context) ? [usageTrailer(context, outputChars, reasoningChars)] : [];
 }
@@ -200,11 +193,6 @@ function usageTrailer(context: CommandContext, outputChars: number, reasoningCha
 	};
 }
 
-/**
- * Deterministic word-boundary chunking: pieces keep their trailing
- * whitespace, grouped in a fixed size cycle. Content too short to cut yields
- * a single delta; the chunker never refuses to cut cuttable text.
- */
 function chunkText(text: string): string[] {
 	const pieces = text.split(/(?<=\s)/).filter((piece) => piece !== "");
 	// The cycle starts at 1 so two cuttable pieces always yield two deltas.
@@ -221,7 +209,6 @@ function chunkText(text: string): string[] {
 	return chunks.length > 0 ? chunks : [""];
 }
 
-/** A streamed prose reply: role on the first delta, chunked content, finish, usage trailer. */
 function textResult(context: CommandContext, text: string, finishReason = "stop"): CommandResult {
 	const parts = chunkText(text);
 	const chunks = parts.map((part, index) =>
@@ -240,7 +227,10 @@ function diagnostic(context: CommandContext, command: CommandInfo): CommandResul
 	);
 }
 
-/** The numbered "chunkN " content deltas %stream and the transport verbs share; realism rules apply (role on the first delta). */
+/**
+ * The numbered "chunkN " content deltas %stream and the transport verbs share; realism rules apply (role on the first
+ * delta).
+ */
 function numberedChunks(context: CommandContext, count: number): unknown[] {
 	return Array.from({ length: count }, (_, i) =>
 		chunkOf(context, i === 0 ? { role: "assistant", content: "chunk1 " } : { content: `chunk${i + 1} ` })
@@ -255,11 +245,11 @@ function numberedChunks(context: CommandContext, count: number): unknown[] {
 // byte-exact and unformatted because the suites pin their bytes.
 
 /**
- * A code span around one variable value. Newlines collapse to spaces first (a
- * code span cannot contain a line ending, so a value carrying "\n\n# heading"
- * would inject real markdown structure). A value containing backticks gets a
- * longer padded fence, CommonMark's own escape, so no value closes the span
- * early. An empty value renders as `(empty)`: a bare "``" is not a code span.
+ * Newlines collapse to spaces first (a code span cannot contain a line ending, so a value carrying "\n\n# heading"
+ * would inject real markdown structure). A value containing backticks gets a longer padded fence, CommonMark's own
+ * escape, so no value closes the span early.
+ *
+ *   a bare "``" is not a code span -> An empty value renders as `(empty)`
  */
 function code(value: string): string {
 	const flat = value.replace(/\r\n?|\n/g, " ");
@@ -274,15 +264,13 @@ function code(value: string): string {
 	return `${fence} ${flat} ${fence}`;
 }
 
-/** One report bullet. */
 function bullet(fact: string): string {
 	return `- ${fact}`;
 }
 
 /**
- * Structured record lines render as bullets holding ONE code span each, so the
- * record's bytes stay grep- and regex-extractable (sha256 tokens stay bare hex)
- * and no fragment of the record can style the report.
+ * Structured record lines render as bullets holding ONE code span each, so the record's bytes stay grep- and
+ * regex-extractable (sha256 tokens stay bare hex) and no fragment of the record can style the report.
  */
 function recordBullets(records: string[]): string[] {
 	return records.map((record) => bullet(code(record)));
@@ -295,7 +283,6 @@ function sections(...blocks: string[][]): string {
 
 // ── Argument parsing ─────────────────────────────────────────────────────────
 
-/** Counts are positive integers within their cap; anything else is undefined. */
 function parseCount(text: string, max: number): number | undefined {
 	const trimmed = text.trim();
 	if (!/^\d+$/.test(trimmed)) {
@@ -316,10 +303,9 @@ function parseSeed(text: string): number | undefined {
 }
 
 /**
- * The %echon escape decoder: exactly two escapes, "\n" to a newline and "\\"
- * to a literal backslash, scanned left to right so "\\n" stays a literal
- * backslash-n. %echo stays the byte-exact oracle; this verb exists precisely
- * so that contract never gains interpretation.
+ * The %echon escape decoder: exactly two escapes, "\n" to a newline and "\\" to a literal backslash, scanned left to
+ * right so "\\n" stays a literal backslash-n. %echo stays the byte-exact oracle; this verb exists precisely so that
+ * contract never gains interpretation.
  */
 function decodeEchonEscapes(text: string): string {
 	return text.replace(/\\(n|\\)/g, (_, escaped: string) => (escaped === "n" ? "\n" : "\\"));
@@ -405,7 +391,6 @@ function seedFromInput(context: CommandContext): number {
 
 // ── Wire-part forensics (%messages, %cache, %attachments) ───────────────────
 
-/** JSON with object keys sorted lexicographically at every depth; arrays keep order. */
 function canonicalJson(value: unknown): string {
 	if (Array.isArray(value)) {
 		return `[${value.map(canonicalJson).join(",")}]`;
@@ -436,8 +421,8 @@ function decodeDataUrl(url: string): DataUrlPayload | undefined {
 		}
 		return { mime: mime as string, bytes: Buffer.from(decodeURIComponent(payload as string), "utf8") };
 	} catch {
-		// A malformed percent-escape or base64 payload must never escape the
-		// dispatcher as a thrown error; the caller hashes the raw URL instead.
+		// A malformed percent-escape or base64 payload must never escape the dispatcher as a thrown error; the caller
+		// hashes the raw URL instead.
 		return undefined;
 	}
 }
@@ -448,7 +433,6 @@ interface WirePart {
 	bytes: Uint8Array;
 }
 
-/** Classify one wire-level content part into its honest, hashable surface. */
 function classifyPart(part: unknown): WirePart {
 	if (typeof part === "object" && part !== null) {
 		const record = part as Record<string, unknown>;
@@ -479,7 +463,6 @@ function classifyPart(part: unknown): WirePart {
 	return { kind: "unknown", mime: "-", bytes: Buffer.from(canonicalJson(part), "utf8") };
 }
 
-/** One record line per wire part; empty when no message carries content. */
 function attachmentRecords(context: CommandContext): string[] {
 	const lines: string[] = [];
 	requestMessages(context).forEach((message, messageIndex) => {
@@ -518,7 +501,6 @@ function partShape(part: unknown): string {
 	return "unknown";
 }
 
-/** One record line per cache_control marker position; empty when none arrived. */
 function cacheMarkerRecords(context: CommandContext): string[] {
 	const lines: string[] = [];
 	const tools = Array.isArray(context.request.tools) ? context.request.tools : [];
@@ -548,10 +530,9 @@ function cacheMarkerRecords(context: CommandContext): string[] {
 
 // ── Generated media payloads (%image, %audio) ────────────────────────────────
 
-// Observed against LiteLLM v1.93: both media delta shapes below transit the
-// proxy VERBATIM, full base64 payload intact. The extension surfaces both as
-// vscode.LanguageModelDataPart, so LM-level tests assert DataPart byte fidelity
-// against the pinned hashes.
+// Observed against LiteLLM v1.93: both media delta shapes below transit the proxy VERBATIM, full base64 payload intact.
+// The extension surfaces both as vscode.LanguageModelDataPart, so LM-level tests assert DataPart byte fidelity against
+// the pinned hashes.
 
 /** 1x1 red PNG, byte-stable. */
 const PNG_BYTES = Buffer.from(
@@ -703,7 +684,6 @@ const COMMAND_TABLE: ReadonlyArray<{
 			if (offered.length === 0) {
 				return textResult(context, "no tools offered");
 			}
-			// Empty names and descriptions both take code()'s `(empty)` rendering.
 			const lines = offered.map((tool) => bullet(`${code(tool.name)}: ${code(tool.description)}`));
 			return textResult(context, lines.join("\n"));
 		}),
@@ -735,8 +715,8 @@ const COMMAND_TABLE: ReadonlyArray<{
 			if (markers.length === 0) {
 				return textResult(context, "no cache_control markers received (none sent, or stripped by the proxy)");
 			}
-			// The total is a closing PARAGRAPH, not a bullet: a bullet after the
-			// blank line would turn the whole marker list loose in CommonMark.
+			// The total is a closing PARAGRAPH, not a bullet: a bullet after the blank line would turn the whole marker
+			// list loose in CommonMark.
 			return textResult(context, sections(recordBullets(markers), [`total: ${markers.length}`]));
 		}),
 	},
@@ -799,8 +779,8 @@ const COMMAND_TABLE: ReadonlyArray<{
 	{
 		verb: "tool",
 		usage: `${COMMAND_SIGIL}tool:<name> [json]`,
-		// Angle-bracket tokens are backticked: a bare <name> renders unreliably
-		// across markdown renderers (HTML-allowing ones swallow it as a tag).
+		// Angle-bracket tokens are backticked: a bare <name> renders unreliably across markdown renderers
+		// (HTML-allowing ones swallow it as a tag).
 		description: "call the offered tool `<name>` with the JSON args; with a tool result present, summarize it",
 		run: runTool,
 	},
@@ -1013,9 +993,8 @@ interface ParsedCommand {
 }
 
 /**
- * The exact line recognition reads, exposed for the fake server's request log:
- * a command that fails to dispatch is diagnosable from the log alone.
- * parseCommand consumes this, so log and dispatch cannot disagree.
+ * The exact line recognition reads, exposed for the fake server's request log: a command that fails to dispatch is
+ * diagnosable from the log alone. parseCommand consumes this, so log and dispatch cannot disagree.
  */
 export function dispatchLine(context: CommandContext): string | undefined {
 	const messages = requestMessages(context);
@@ -1024,11 +1003,8 @@ export function dispatchLine(context: CommandContext): string | undefined {
 }
 
 /**
- * A command is recognized ONLY on the last non-empty line of the last user
- * message, with a mandatory leading "%". The verb matches case-insensitively
- * and tolerates trailing whitespace ONLY - trimEnd, never trim, so "%help "
- * and "%stream :50" dispatch while "% help" is plain text (see the header).
- * The argument is everything after the first colon, case preserved.
+ * The verb matches case-insensitively and tolerates trailing whitespace ONLY - trimEnd, never trim, so "%help " and
+ * "%stream :50" dispatch while "% help" is plain text (see the header).
  */
 function parseCommand(context: CommandContext): ParsedCommand | undefined {
 	const line = dispatchLine(context);

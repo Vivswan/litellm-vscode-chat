@@ -4,12 +4,6 @@ import { markLogSafe } from "../../../shared/logger";
 import type { ServerStatus } from "../../../shared/servers";
 import { unexpectedFailureCount, unexpectedServerFailures } from "../../../shared/servers";
 
-/**
- * The shared unexpected-failure reading behind every failed-server
- * count and failure verdict: a failure the entry's expectedFailures declares is
- * configured as normal and never counts.
- */
-
 function ok(serverId: string, servedModelCount = 3): ServerStatus {
 	return {
 		serverId,
@@ -38,8 +32,7 @@ function failure(serverId: string, overrides: { expected?: boolean; declaredMode
 
 describe("shared/servers unexpected failures", () => {
 	test("an expected failure never counts; an unexpected one always does", () => {
-		// The exact mix that once diverged across surfaces: one expected + one
-		// real failure must count 1, never 2.
+		// The exact mix that once diverged across surfaces: one expected + one real failure must count 1, never 2.
 		const window = [ok("srv1"), failure("srv2"), failure("srv3", { expected: true })];
 		assert.strictEqual(unexpectedFailureCount(window), 1);
 		assert.deepStrictEqual(
@@ -53,8 +46,8 @@ describe("shared/servers unexpected failures", () => {
 	});
 
 	test("declared models do not excuse an unexpected failure", () => {
-		// Serving declared models changes the verdict's serving side, never the
-		// failure side: the server is still failing.
+		// Serving declared models changes the verdict's serving side, never the failure side: the server is still
+		// failing.
 		assert.strictEqual(unexpectedFailureCount([failure("srv1", { declaredModelCount: 2 })]), 1);
 	});
 

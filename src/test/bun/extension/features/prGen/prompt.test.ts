@@ -78,8 +78,8 @@ describe("extension/features/prGen buildPrPrompt", () => {
 	});
 
 	test("a Windows drive letter is root metadata, not a shared segment - the account name never ships there either", () => {
-		// "/C:/Users/" would otherwise count two segments and pass, leaking the
-		// account name as the first segment of every header.
+		// "/C:/Users/" would otherwise count two segments and pass, leaking the account name as the first segment of
+		// every header.
 		for (const drive of ["C:", "c%3A"]) {
 			const prompt = buildPrPrompt(
 				context({
@@ -110,8 +110,8 @@ describe("extension/features/prGen buildPrPrompt", () => {
 	});
 
 	test("a shared TOP-LEVEL directory is not a shared directory - the account name never ships", () => {
-		// The prefix here is "file:///Users/", one segment deep. Stripping only
-		// that would leave the account name as the first segment of every header.
+		// The prefix here is "file:///Users/", one segment deep. Stripping only that would leave the account name as
+		// the first segment of every header.
 		const prompt = buildPrPrompt(
 			context({
 				patches: [
@@ -183,8 +183,6 @@ describe("extension/features/prGen buildPrPrompt", () => {
 		expect(untruncated).toContain(atLimit);
 		expect(untruncated).not.toContain("[patches truncated]");
 
-		// The kept head, the line break, and the marker together sit exactly at
-		// the stated bound - the marker fits INSIDE the cap.
 		const kept = PATCHES_CHAR_LIMIT - "\n[patches truncated]".length;
 		const overByOne = buildPrPrompt(context({ patches: [`${atLimit}Z`] }));
 		expect(overByOne).toContain(`${"a".repeat(kept)}\n[patches truncated]`);
@@ -224,15 +222,13 @@ describe("extension/features/prGen buildPrPrompt", () => {
 		const messages = Array.from({ length: COMMIT_MESSAGE_COUNT + 3 }, (_, i) => `feat: change ${i}`);
 		const prompt = buildPrPrompt(context({ commitMessages: [...messages, "   "] }));
 		expect(prompt).toContain("Commit messages on this branch");
-		// Both ends ride: the selection cannot depend on knowing which end is
-		// recent, because that end is inferred rather than known.
+		// Both ends ride: the selection cannot depend on knowing which end is recent, because that end is inferred
+		// rather than known.
 		expect(prompt).toContain("feat: change 0");
 		expect(prompt).toContain(`feat: change ${COMMIT_MESSAGE_COUNT + 2}`);
-		// The middle is dropped, and the gap is marked so the halves do not read
-		// as consecutive.
+		// The middle is dropped, and the gap is marked so the halves do not read as consecutive.
 		expect(prompt).not.toContain("feat: change 11\n");
 		expect(prompt).toContain("[3 more commit messages omitted]");
-		// Exactly the bound survives, plus the one elision line.
 		const kept = messages.filter((message) => prompt.includes(`${message}\n`) || prompt.endsWith(message));
 		expect(kept.length).toBe(COMMIT_MESSAGE_COUNT);
 		const none = buildPrPrompt(context({ commitMessages: ["", "  "] }));
@@ -263,7 +259,6 @@ describe("extension/features/prGen buildPrPrompt", () => {
 	});
 
 	test("a commit list that already fits is never truncated", () => {
-		// The budget exists to bound an over-long list, not to cut text that fits.
 		const messages = Array.from({ length: 5 }, (_value, i) => `feat: change ${i}${"m".repeat(100)}`);
 		const prompt = buildPrPrompt(context({ commitMessages: messages }));
 		expect(prompt).not.toContain("[commit messages truncated]");
@@ -273,8 +268,8 @@ describe("extension/features/prGen buildPrPrompt", () => {
 	});
 
 	test("the whole commit-message section stays within COMMIT_MESSAGES_CHAR_LIMIT, markers included", () => {
-		// A cut message pays for its own marker out of its share, so the marker
-		// cannot push the section past the bound the constant names.
+		// A cut message pays for its own marker out of its share, so the marker cannot push the section past the bound
+		// the constant names.
 		const messages = Array.from({ length: 6 }, (_value, i) => `${String(i)}${"m".repeat(COMMIT_MESSAGES_CHAR_LIMIT)}`);
 		const prompt = buildPrPrompt(context({ commitMessages: messages }));
 		const heading = "Commit messages on this branch, as content and style context:\n";
@@ -283,9 +278,8 @@ describe("extension/features/prGen buildPrPrompt", () => {
 	});
 
 	test("a list summing to exactly the limit still fits once its separators are counted", () => {
-		// The fast path: judged on message lengths ALONE this list fits, and the
-		// blank lines between the messages then push the assembled section past
-		// the bound. Both paths must charge the separators.
+		// The fast path: judged on message lengths ALONE this list fits, and the blank lines between the messages then
+		// push the assembled section past the bound. Both paths must charge the separators.
 		const count = 20;
 		const each = COMMIT_MESSAGES_CHAR_LIMIT / count;
 		const messages = Array.from({ length: count }, (_value, i) => `${String(i)}`.padEnd(each, "m"));
@@ -297,8 +291,8 @@ describe("extension/features/prGen buildPrPrompt", () => {
 	});
 
 	test("the budget water-fills: short messages keep their surplus for the long ones", () => {
-		// Two short messages plus one long one whose total exceeds the limit. An
-		// even split would cut all three; water-filling keeps the short ones whole.
+		// Two short messages plus one long one whose total exceeds the limit. An even split would cut all three;
+		// water-filling keeps the short ones whole.
 		const short = "feat: a short subject";
 		const long = "m".repeat(COMMIT_MESSAGES_CHAR_LIMIT);
 		const prompt = buildPrPrompt(context({ commitMessages: [short, short, long] }));
@@ -307,14 +301,13 @@ describe("extension/features/prGen buildPrPrompt", () => {
 	});
 
 	test("the character budget cannot decide which end of the list survives", () => {
-		// Head-truncating the JOINED text would keep whichever end came first,
-		// putting the whole selection back at the mercy of the inferred order.
+		// Head-truncating the JOINED text would keep whichever end came first, putting the whole selection back at the
+		// mercy of the inferred order.
 		const long = (tag: string) => `${tag}-${"m".repeat(COMMIT_MESSAGES_CHAR_LIMIT)}`;
 		const messages = ["FIRST", "MIDDLE", "LAST"].map(long);
 		const forward = buildPrPrompt(context({ commitMessages: messages }));
 		const reversed = buildPrPrompt(context({ commitMessages: [...messages].reverse() }));
 		for (const prompt of [forward, reversed]) {
-			// Every message is present and every one is trimmed: no end is dropped.
 			expect(prompt).toContain("FIRST-");
 			expect(prompt).toContain("MIDDLE-");
 			expect(prompt).toContain("LAST-");

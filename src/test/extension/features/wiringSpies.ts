@@ -1,11 +1,7 @@
 /**
- * The lm-tool wirings' shared host-surface spies. A wiring under test must not
- * touch the real host: a real registerTool collides with the activated
- * extension's own under the same name, a real setContext leaks into the
- * live-host suites whose contributions gate on the key, and the real
- * configuration watcher fires when the host decides rather than when the test
- * does. Every patch is restored in finally, so a failing suite cannot leave
- * the shared host patched for every later one.
+ * A wiring under test must not touch the real host: a real registerTool collides with the activated extension's own
+ * under the same name, a real setContext leaks into the live-host suites whose contributions gate on the key, and the
+ * real configuration watcher fires when the host decides rather than when the test does.
  */
 import * as vscode from "vscode";
 import { Logger } from "../../../shared/logger";
@@ -18,12 +14,10 @@ interface RecordedRegistration {
 
 export interface WiringSpies {
 	readonly registrations: RecordedRegistration[];
-	/** Every value the wiring published per context key, in order; a wiring that sets no key leaves this empty. */
 	readonly contextStates: Map<string, unknown[]>;
 	fireConfigChange(): void;
 }
 
-/** Run `fn` with tool registration, setContext, and the configuration watcher recorded instead of real. */
 export async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): Promise<Awaited<T>> {
 	const registrations: RecordedRegistration[] = [];
 	const contextStates = new Map<string, unknown[]>();

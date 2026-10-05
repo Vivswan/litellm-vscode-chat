@@ -9,16 +9,13 @@ import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
-// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
 
 /**
- * The one-pipeline guard: whatever part shapes a request holds, the text the
- * token estimate prices is exactly the text conversion ships. The estimate
- * reads conversion's own output, so this property is what makes a second
- * message-part walk impossible to reintroduce silently - the last one drifted,
- * the budget undercounted, the host skipped trimming, and the request
- * overflowed server-side.
+ * The one-pipeline guard: whatever part shapes a request holds, the text the token estimate prices is exactly the text
+ * conversion ships. The estimate reads conversion's own output, so this property is what makes a second message-part
+ * walk impossible to reintroduce silently - the last one drifted, the budget undercounted, the host skipped trimming,
+ * and the request overflowed server-side.
  */
 
 const textArb = fc.oneof(
@@ -92,8 +89,8 @@ const toolResultEntryArb: fc.Arbitrary<unknown> = fc.oneof(
 			throw new Error("boom");
 		},
 	}),
-	// A nested tool call is nothing the tool-result walk recognizes; it ships
-	// as the JSON fallback's rendering like any other stray object.
+	// A nested tool call is nothing the tool-result walk recognizes; it ships as the JSON fallback's rendering like any
+	// other stray object.
 	toolCallPartArb
 );
 
@@ -104,8 +101,8 @@ const toolResultPartArb = fc
 	);
 
 /**
- * Thinking-shaped history objects: signed, redacted, plain, and wrong-typed
- * fields, plus real host thinking parts when this host exposes the class.
+ * Thinking-shaped history objects: signed, redacted, plain, and wrong-typed fields, plus real host thinking parts when
+ * this host exposes the class.
  */
 const hostThinkingCtor = thinkingPartCtor;
 const thinkingShapedArb: fc.Arbitrary<unknown> = fc.oneof(
@@ -195,9 +192,9 @@ suite("shared/conversion/tokenEstimation properties", () => {
 				fc.property(messagesArb, gatesArb, (messages, gates) => {
 					priced.length = 0;
 					estimateMessagesTokens(messages, gates);
-					// The estimator converted internally; this second conversion must
-					// agree because every generated part serializes deterministically
-					// (only the unpriced generated tool-call ids differ between runs).
+					// The estimator converted internally; this second conversion must agree because every generated
+					// part serializes deterministically (only the unpriced generated tool-call ids differ between
+					// runs).
 					assert.deepStrictEqual(
 						priced,
 						shippedTextSegments(convertMessages(messages, gates)),

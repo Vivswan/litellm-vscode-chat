@@ -11,7 +11,6 @@ import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../..
 import { makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
 
-/** The settings that make the feature live against the msw-mocked server. */
 const ENABLED_CONFIG = {
 	"commitGeneration.enabled": true,
 	"commitGeneration.model": { server: "alpha", model: "gpt-test" },
@@ -27,9 +26,8 @@ interface FakeRepoParts {
 }
 
 /**
- * The vendored Repository members the commit flow never touches (they serve
- * the PR flow). Present so the fake satisfies the API as declared, and
- * rejecting so a flow that starts reaching for one fails loudly here.
+ * Present so the fake satisfies the API as declared, and rejecting so a flow that starts reaching for one fails loudly
+ * here.
  */
 const unusedRepositoryMembers = {
 	diffWith: () => Promise.reject(new Error("diffWith is not part of the commit flow")),
@@ -50,7 +48,6 @@ function fakeRepo(parts: FakeRepoParts): Repository {
 		inputBox: { value: "" },
 		state: { HEAD: undefined, indexChanges: [], workingTreeChanges: untrackedChanges, untrackedChanges: [] },
 		diff: (cached?: boolean) => Promise.resolve(cached === true ? (parts.staged ?? "") : (parts.working ?? "")),
-		// Declared by the vendored API subset; the commit flow never calls it.
 		diffWith: ((_ref: string, path?: string) =>
 			Promise.resolve(path === undefined ? [] : "")) as Repository["diffWith"],
 		log: () => Promise.resolve(parts.commits ?? []),
@@ -82,8 +79,8 @@ function client(): OneShotClient {
 suite("extension/features/commitGen generateCommitCommand", () => {
 	useMsw();
 
-	// Toast promises stay pending until dismissed in a live host, which would
-	// hang any await on showActionableMessage; the stubs record and resolve.
+	// Toast promises stay pending until dismissed in a live host, which would hang any await on showActionableMessage;
+	// the stubs record and resolve.
 	const shownMessages: string[] = [];
 	let origInfo: unknown;
 	let origWarn: unknown;
@@ -152,8 +149,7 @@ suite("extension/features/commitGen generateCommitCommand", () => {
 	});
 
 	test("disabled and model-less invocations send nothing", async () => {
-		// No msw handler for the chat endpoint: any request would fail the test
-		// through onUnhandledRequest: "error".
+		// No msw handler for the chat endpoint: any request would fail the test through onUnhandledRequest: "error".
 		const repo = fakeRepo({ staged: "+staged line" });
 
 		await withConfig({ ...ENABLED_CONFIG, "commitGeneration.enabled": false }, () =>
@@ -176,11 +172,9 @@ suite("extension/features/commitGen generateCommitCommand", () => {
 	});
 
 	test("a configured label matching no servers entry fails classified, without a request", async () => {
-		// The output channel gets the English mirror (indistinguishable from the
-		// localized text under the test host's English locale), so the
-		// discriminating pin is the issue-report buffer: publicErrorText prefers
-		// the logClassification, which exists only if localizedError was built
-		// with one.
+		// The output channel gets the English mirror (indistinguishable from the localized text under the test host's
+		// English locale), so the discriminating pin is the issue-report buffer: publicErrorText prefers the
+		// logClassification, which exists only if localizedError was built with one.
 		const buffered: string[] = [];
 		const logger = new Logger(
 			{ info: () => {}, error: () => {} },
@@ -214,12 +208,10 @@ suite("extension/features/commitGen generateCommitCommand", () => {
 		} as unknown as vscode.SecretStorage;
 		const deps = { ...makeDeps(), secrets };
 
-		// Stored-only: the entry carries no inline key, so the blob authenticates.
 		const storedOnly = fakeRepo({ staged: "+x" });
 		await withConfig({ ...ENABLED_CONFIG, servers: [{ label: "alpha", baseUrl: TEST_BASE_URL }] }, () =>
 			runGenerateCommitMessage(client(), deps, undefined, fakeGit(storedOnly))
 		);
-		// Inline wins: the same blob loses to the entry's inline auth.apiKey.
 		const inlineWins = fakeRepo({ staged: "+x" });
 		await withConfig(ENABLED_CONFIG, () => runGenerateCommitMessage(client(), deps, undefined, fakeGit(inlineWins)));
 

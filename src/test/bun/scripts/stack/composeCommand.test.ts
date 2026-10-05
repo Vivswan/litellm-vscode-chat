@@ -3,9 +3,8 @@ import * as assert from "node:assert";
 import { splitCommandWords } from "../../../../../scripts/stack/composeCommand";
 
 /**
- * COMPOSE_CMD word splitting: the resolved argv is spawned directly, never
- * re-parsed by a shell, so this split is the only place a quoted binary path
- * (Docker Desktop under "Program Files", say) either survives or breaks.
+ * COMPOSE_CMD word splitting: the resolved argv is spawned directly, never re-parsed by a shell, so this split is the
+ * only place a quoted binary path (Docker Desktop under "Program Files", say) either survives or breaks.
  */
 describe("splitCommandWords", () => {
 	test("plain words split on any whitespace run", () => {

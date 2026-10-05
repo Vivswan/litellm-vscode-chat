@@ -18,13 +18,11 @@ import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_UR
 import { expectDefined } from "../../pureHelpers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
 
 const tokenLimit = fc.option(fc.integer({ min: 1, max: 500000 }), { nil: undefined });
 const flag = fc.option(fc.boolean(), { nil: null });
 
-/** Random subsets of the model_info fields that feed token constraints and capabilities. */
 const modelInfoArb: fc.Arbitrary<ModelInfoFields> = fc.record({
 	max_tokens: tokenLimit,
 	max_input_tokens: tokenLimit,
@@ -37,7 +35,6 @@ const modelInfoArb: fc.Arbitrary<ModelInfoFields> = fc.record({
 	supports_prompt_caching: flag,
 } satisfies Partial<Record<keyof ModelInfoFields, fc.Arbitrary<unknown>>>);
 
-/** Random providers-array entries with the fields that feed token constraints; tool support varies. */
 const providerArb: fc.Arbitrary<LiteLLMProvider> = fc
 	.record({
 		context_length: tokenLimit,
@@ -75,9 +72,8 @@ suite("provider/discovery deployment merge properties", () => {
 	});
 
 	test("group entries never advertise more than the relevant providers' standalone constraints", () => {
-		// Registration aggregates and the untooled base entry collapse through the
-		// same collapseTokenConstraints home as deployment merging, so an inline
-		// formula (the shipped context-minus-output bug) fails here.
+		// Registration aggregates and the untooled base entry collapse through the same collapseTokenConstraints home
+		// as deployment merging, so an inline formula (the shipped context-minus-output bug) fails here.
 		fc.assert(
 			fc.property(fc.array(providerArb, { minLength: 1, maxLength: 5 }), (providers) => {
 				const first = expectDefined(providers[0]);

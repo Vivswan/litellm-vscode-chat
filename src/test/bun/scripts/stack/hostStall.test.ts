@@ -3,10 +3,10 @@ import * as assert from "node:assert";
 import { HOST_STALL_MARKER, HostStallDetector, stalledBeforeTests } from "../../../../../scripts/stack/hostStall";
 
 /**
- * The relaunch gate for a docker leg: what would drift silently is the line between "the runner
- * stalled the host before any test ran" (relaunch once) and "the tests ran and failed" (a verdict,
- * never relaunched). The nightly legs that died this way printed vscode-test's own progress, the
- * marker, and nothing from mocha; mocha's lines arrive colored, indented, and split anywhere.
+ * The relaunch gate for a docker leg: what would drift silently is the line between "the runner stalled the host before
+ * any test ran" (relaunch once) and "the tests ran and failed" (a verdict, never relaunched). The nightly legs that
+ * died this way printed vscode-test's own progress, the marker, and nothing from mocha; mocha's lines arrive colored,
+ * indented, and split anywhere.
  */
 describe("stalledBeforeTests", () => {
 	const nightly = [

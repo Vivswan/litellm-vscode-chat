@@ -2,12 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { ReviewPlacement } from "../../../../../extension/features/reviewComments/placements";
 import { type ReviewUnit, runReview } from "../../../../../extension/features/reviewComments/review";
 
-/**
- * The per-file review loop: what it sends, what it applies, what it counts,
- * and where it stops. The transport, the prompts and the threads are all
- * injected, so this suite is the loop alone.
- */
-
 const unit = (target: string, prompt: string, lineCount = 100): ReviewUnit<string> => ({ target, prompt, lineCount });
 
 interface Applied {
@@ -15,7 +9,6 @@ interface Applied {
 	readonly placements: readonly ReviewPlacement[];
 }
 
-/** A finished run with nothing surprising in it; tests override only what they are about. */
 const clean = { reviewed: 0, findings: 0, unusable: 0, stale: 0, cancelled: false };
 
 function harness(answers: readonly string[], options: { cancelAfter?: number; refuse?: boolean } = {}) {
@@ -69,8 +62,8 @@ describe("extension/features/reviewComments review", () => {
 	});
 
 	test("prose with no anchored finding is unusable, not a clean bill of health", async () => {
-		// The dangerous case: "Looks good to me!" must never be read as the
-		// sentinel, because reading it that way silently deletes real comments.
+		// The dangerous case: "Looks good to me!" must never be read as the sentinel, because reading it that way
+		// silently deletes real comments.
 		const { applied, deps } = harness(["Looks good to me! I did not spot anything."]);
 		const outcome = await runReview([unit("a.ts", "prompt A")], deps);
 

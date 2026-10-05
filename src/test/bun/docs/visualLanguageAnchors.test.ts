@@ -25,7 +25,6 @@ function resolveCitedFile(token: string): string {
 }
 
 interface Citation {
-	/** 1-based charter line, so a failure names the line to fix. */
 	readonly line: number;
 	readonly file: string;
 	readonly anchor: string | undefined;
@@ -41,9 +40,8 @@ function parseCharter(source: string): { citations: Citation[]; lineNumberForms:
 			lineNumberForms.push(`charter line ${index + 1}: ${text.trim()}`);
 		}
 	});
-	// Spans are scanned over the WHOLE document: markdown lets a backtick span
-	// wrap across a line break, and a wrapped citation that stopped parsing would
-	// be unchecked rot. Wrapped whitespace collapses to one space, as markdown
+	// Spans are scanned over the WHOLE document: markdown lets a backtick span wrap across a line break, and a wrapped
+	// citation that stopped parsing would be unchecked rot. Wrapped whitespace collapses to one space, as markdown
 	// renders it.
 	for (const match of source.matchAll(/`([^`]+)`/g)) {
 		const span = (match[1] ?? "").replace(/\s+/g, " ").trim();
@@ -63,10 +61,9 @@ function parseCharter(source: string): { citations: Citation[]; lineNumberForms:
 }
 
 /**
- * CSS with comments blanked and string contents kept EXCEPT structural
- * characters, so a comment cannot fake a prelude, a `content: "{"` cannot
- * unbalance the walk, and an attribute selector's quoted value still reads as
- * part of its prelude.
+ * CSS with comments blanked and string contents kept EXCEPT structural characters, so a comment cannot fake a prelude,
+ * a `content: "{"` cannot unbalance the walk, and an attribute selector's quoted value still reads as part of its
+ * prelude.
  */
 function blankCssNoise(css: string): string {
 	let out = "";
@@ -96,7 +93,6 @@ function blankCssNoise(css: string): string {
 	return out;
 }
 
-/** Every rule and at-rule prelude in the sheet, at any nesting depth. */
 function cssPreludes(css: string): string[] {
 	const blanked = blankCssNoise(css);
 	const preludes: string[] = [];
@@ -116,23 +112,22 @@ function cssPreludes(css: string): string[] {
 	return preludes;
 }
 
-/** Not part of a longer token on either side: the boundary set covers identifiers, class names, and custom properties. */
+/**
+ * Not part of a longer token on either side: the boundary set covers identifiers, class names, and custom properties.
+ */
 function hasTokenBoundaries(haystack: string, needle: string): boolean {
 	const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	return new RegExp(`(^|[^\\w$-])${escaped}($|[^\\w$-])`).test(haystack);
 }
 
 /**
- * TS/TSX with comments removed by the REAL parser, string and template contents
- * kept: an anchor satisfied only by a stale comment is the rot this suite
- * catches, while class names live in string literals and must keep counting.
- * Types are stripped with the comments, so an anchor must name a value, a
- * class-name token, or a JSX attribute.
+ * TS/TSX with comments removed by the REAL parser, string and template contents kept: an anchor satisfied only by a
+ * stale comment is the rot this suite catches, while class names live in string literals and must keep counting. Types
+ * are stripped with the comments, so an anchor must name a value, a class-name token, or a JSX attribute.
  */
 function stripTsComments(fileName: string, source: string): string {
-	// removeComments spares copyright headers, so "/*!" is demoted to an ordinary
-	// comment first. Inside a string literal the rewrite only shortens that
-	// string's text, and no legal anchor contains "/*!".
+	// removeComments spares copyright headers, so "/*!" is demoted to an ordinary comment first. Inside a string
+	// literal the rewrite only shortens that string's text, and no legal anchor contains "/*!".
 	return ts.transpileModule(source.replaceAll("/*!", "/* "), {
 		fileName,
 		compilerOptions: {
@@ -145,8 +140,7 @@ function stripTsComments(fileName: string, source: string): string {
 
 function anchorResolves(citedPath: string, anchor: string, source: string): boolean {
 	if (citedPath.endsWith(".css")) {
-		// Both routes read the sheet with comments blanked, so a commented-out
-		// declaration cannot satisfy a citation.
+		// Both routes read the sheet with comments blanked, so a commented-out declaration cannot satisfy a citation.
 		if (anchor.startsWith("--")) {
 			return new RegExp(`${anchor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:`).test(blankCssNoise(source));
 		}
@@ -160,8 +154,8 @@ test("every charter citation resolves against today's source", () => {
 	const charter = readFileSync(charterPath, "utf8");
 	const { citations, lineNumberForms } = parseCharter(charter);
 	expect(lineNumberForms).toEqual([]);
-	// The parser's positive control: a charter the scanner reads as citation-free
-	// would pass every resolution check vacuously.
+	// The parser's positive control: a charter the scanner reads as citation-free would pass every resolution check
+	// vacuously.
 	expect(citations.length).toBeGreaterThan(0);
 	const failures: string[] = [];
 	const sources = new Map<string, string | undefined>();

@@ -3,9 +3,8 @@ import * as assert from "node:assert";
 import { FUZZ_MODES, freshFuzzSeed, fuzzSeedLine, fuzzSeedPrefix, resolveDockerFuzzSeed } from "../fuzzSeed";
 
 describe("fuzzSeed contract", () => {
-	// nightly-fuzz.yml's extraction patterns, copied byte-for-byte from the
-	// workflow. Emitted shapes that stop satisfying them ship the nightly issue
-	// without a reproduction seed.
+	// nightly-fuzz.yml's extraction patterns, copied byte-for-byte from the workflow. Emitted shapes that stop
+	// satisfying them ship the nightly issue without a reproduction seed.
 	const workflowLine = /\[fuzz\] seed=[0-9]+[^"]*/;
 	const workflowSeed = /seed=[0-9]+/;
 	const workflowMode = /mode=[a-z-]+/;
@@ -21,8 +20,8 @@ describe("fuzzSeed contract", () => {
 	});
 
 	test("the unit harness prefix satisfies the seed grep on its own", () => {
-		// fuzzStream.ts logs only the prefix (no iterations/mode) into the unit
-		// leg's log; the seed extraction must still work there.
+		// fuzzStream.ts logs only the prefix (no iterations/mode) into the unit leg's log; the seed extraction must
+		// still work there.
 		const line = fuzzSeedPrefix(987);
 		assert.strictEqual(line.match(workflowLine)?.[0], line);
 		assert.strictEqual(line.match(workflowSeed)?.[0], "seed=987");

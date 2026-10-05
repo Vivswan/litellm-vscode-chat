@@ -15,12 +15,10 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * Property coverage (seed-pinned, FUZZ_RUNS-scaled) for the status bar's whole rendering
- * decision (docs/usage.md#the-status-bar): hidden exactly per the documented rules,
- * severity and percentage derived from the worst FRESH server only (stale servers never
- * contribute, past-100% ratios show literally), and the tooltip carrying exactly the
- * expected line count. The oracle restates the documented rules on top of the real
- * freshness module.
+ * Property coverage (seed-pinned, FUZZ_RUNS-scaled) for the status bar's whole rendering decision
+ * (docs/usage.md#the-status-bar): hidden exactly per the documented rules, severity and percentage derived from the
+ * worst FRESH server only (stale servers never contribute, past-100% ratios show literally), and the tooltip carrying
+ * exactly the expected line count. The oracle restates the documented rules on top of the real freshness module.
  */
 
 const NOW = Date.UTC(2026, 7, 1, 12);
@@ -59,8 +57,8 @@ const serverArb: fc.Arbitrary<GeneratedServer> = fc.record({
 		}
 	),
 	hasKey: fc.boolean(),
-	// Ages straddle the staleness boundary on purpose: strictly inside the
-	// window is fresh, exactly the window is already stale.
+	// Ages straddle the staleness boundary on purpose: strictly inside the window is fresh, exactly the window is
+	// already stale.
 	ageInWindows: fc.option(
 		fc.oneof(fc.double({ min: 0, max: 3, noNaN: true }), fc.constantFrom(0, 0.5, 0.999, 1, 1.001, 2)),
 		{ nil: undefined }
@@ -72,9 +70,8 @@ const serverArb: fc.Arbitrary<GeneratedServer> = fc.record({
 });
 
 /**
- * A fresh server whose spend fraction lands EXACTLY on a common threshold: these
- * integer quotients are bit-identical to the doubles thresholdsArb generates, so
- * the "reaching a threshold counts as crossing it" boundary (worst >= t) is
+ * A fresh server whose spend fraction lands EXACTLY on a common threshold: these integer quotients are bit-identical to
+ * the doubles thresholdsArb generates, so the "reaching a threshold counts as crossing it" boundary (worst >= t) is
  * really exercised - a >=-to-> regression must fail the run.
  */
 const boundaryServerArb: fc.Arbitrary<GeneratedServer> = fc
@@ -94,7 +91,6 @@ const boundaryServerArb: fc.Arbitrary<GeneratedServer> = fc
 
 const anyServerArb = fc.oneof({ weight: 4, arbitrary: serverArb }, { weight: 1, arbitrary: boundaryServerArb });
 
-/** Threshold lists as the setting could carry them: usable fractions, junk, duplicates, empty. */
 const thresholdsArb = fc.array(
 	fc.oneof(
 		{ weight: 5, arbitrary: fc.double({ min: 0.05, max: 1, noNaN: true }) },
@@ -161,7 +157,6 @@ const scenarioArb = fc
 		};
 	});
 
-/** The documented aggregation rules, restated: who contributes, the worst ratio, and the severity scale. */
 function oracle(
 	states: readonly ServerUsageState[],
 	nowMs: number,
@@ -203,8 +198,8 @@ describe("extension/ui renderUsageStatus properties", () => {
 					return;
 				}
 				assert.ok(view !== "hidden", "a contributing server must render");
-				// The literal worst-fresh ratio through the one shared formatter: 112%
-				// stays 112%, no clamping (the floor semantics are spendFormat's own pin).
+				// The literal worst-fresh ratio through the one shared formatter: 112% stays 112%, no clamping (the
+				// floor semantics are spendFormat's own pin).
 				assert.strictEqual(view.text, formatPercent(worst as number));
 				assert.strictEqual(view.severity, severity);
 			}),
@@ -213,8 +208,8 @@ describe("extension/ui renderUsageStatus properties", () => {
 	});
 
 	test("severity escalates at the usable thresholds only: warning at the lowest, error at the highest, single-threshold lists alarm directly", () => {
-		// Self-enforcing coverage: the boundary arm must actually land runs with
-		// worst EXACTLY on a usable threshold, and the warning band must fire.
+		// Self-enforcing coverage: the boundary arm must actually land runs with worst EXACTLY on a usable threshold,
+		// and the warning band must fire.
 		let boundaryHits = 0;
 		let warnings = 0;
 		fc.assert(
@@ -274,8 +269,8 @@ describe("extension/ui renderUsageStatus properties", () => {
 				(scenario, extras) => {
 					const { states, thresholds, mode, pollIntervalMs, nowMs } = scenario;
 					const windowMs = usageFreshnessWindowMs(pollIntervalMs, POLLING_OFF_WINDOW_MS);
-					// Each extra is spoiled out of the aggregation by construction,
-					// one spoiler per documented exclusion rule.
+					// Each extra is spoiled out of the aggregation by construction, one spoiler per documented
+					// exclusion rule.
 					const nonContributing = extras.map(([extra, spoiler], index) => {
 						const spoiled: GeneratedServer =
 							spoiler === "stale"
@@ -325,9 +320,6 @@ describe("extension/ui renderUsageStatus properties", () => {
 				if (view === "hidden") {
 					return;
 				}
-				// Every server with spend data keeps its row, stale or not: one
-				// headline line, plus one detail line when a reset or update stamp
-				// exists; plus at most one trailing "others over threshold" line.
 				const perServer = states.reduce((sum, state) => {
 					if (state.budget.spend === undefined) {
 						return sum;
@@ -336,8 +328,6 @@ describe("extension/ui renderUsageStatus properties", () => {
 					return sum + (hasDetails ? 2 : 1);
 				}, 0);
 				const { fractions, worst, lowest } = oracle(states, nowMs, pollIntervalMs, thresholds);
-				// Over an alert threshold, or over the whole budget - the latter
-				// counts even with an empty threshold list.
 				const tripped = (fraction: number) => fraction > 1 || (lowest !== undefined && fraction >= lowest);
 				const others = fractions.filter(tripped).length - (worst !== undefined && tripped(worst) ? 1 : 0);
 				const expected = perServer + (others > 0 ? 1 : 0);

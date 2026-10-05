@@ -1,8 +1,5 @@
 /**
- * The settings.json jump behind the dashboard's revealSetting intent: the pure
- * key search, the reveal flow over an injected editor, and the command's
- * refusal of junk arguments. The end-to-end open rides the host's
- * workbench.action.openSettingsJson, which the last tests exercise for real
+ * The end-to-end open rides the host's workbench.action.openSettingsJson, which the last tests exercise for real
  * against the test profile's settings.json.
  */
 import * as assert from "node:assert";
@@ -23,22 +20,20 @@ suite("extension/ui/openSettingKey", () => {
 			const globalStorage = vscode.Uri.file("/data/User/globalStorage/vivswan.litellm-vscode-chat");
 			const resolved = resolveUserSettingsUri(globalStorage);
 			assert.strictEqual(resolved.path, "/data/User/settings.json");
-			// A path still inside globalStorage means ".." was not applied - the
-			// guard would then never match the opened editor.
+			// A path still inside globalStorage means ".." was not applied - the guard would then never match the
+			// opened editor.
 			assert.ok(!resolved.path.includes("globalStorage"), resolved.path);
 		});
 	});
 
 	suite("the profile User-directory derivation has one home", () => {
-		// The two-levels-up walk was once encoded separately in two deep links
-		// (the settings reveal and the groups-file open), free to drift apart.
-		// This pin fails closed both ways: a re-minted walk anywhere in shipped
-		// source flags, and so does a deep link that stops consuming the helper.
+		// The two-levels-up walk was once encoded separately in two deep links (the settings reveal and the groups-file
+		// open), free to drift apart.
 		const helperFile = "src/extension/ui/profilePath.ts";
 
 		test("profileUserFileUri owns the only two-levels-up walk in shipped source", () => {
-			// A spelling pin, not a semantic one: it covers the joinPath walk's two
-			// plausible spellings, which is what a copy-paste re-mint would carry.
+			// A spelling pin, not a semantic one: it covers the joinPath walk's two plausible spellings, which is what
+			// a copy-paste re-mint would carry.
 			const walks = ['"..", ".."', '"../.."'];
 			const holders = shippedSources().filter((source) => walks.some((walk) => source.text.includes(walk)));
 			assert.deepStrictEqual(
@@ -78,8 +73,7 @@ suite("extension/ui/openSettingKey", () => {
 		test("an absent key - or a clean settings.json - is undefined, never a throw", () => {
 			assert.strictEqual(findSettingKeyRange("{}", "chat.timeout"), undefined);
 			assert.strictEqual(findSettingKeyRange("", "chat.timeout"), undefined);
-			// The quoted-needle search does not fire on the bare key text or on a
-			// same-suffix cousin's key.
+			// The quoted-needle search does not fire on the bare key text or on a same-suffix cousin's key.
 			assert.strictEqual(findSettingKeyRange("litellm-vscode-chat.chat.timeout", "chat.timeout"), undefined);
 			assert.strictEqual(findSettingKeyRange('{"other.chat.timeout": 1}', "chat.timeout"), undefined);
 		});
@@ -167,8 +161,6 @@ suite("extension/ui/openSettingKey", () => {
 		});
 
 		test("falls back to the plain opened file when the key is not configured", async () => {
-			// The test profile's settings.json does not set this key (the teardown
-			// above removed it); the command must still open the file cleanly.
 			await vscode.commands.executeCommand("litellm.openSettingKey", "discovery.cacheTtl");
 			try {
 				const editor = vscode.window.activeTextEditor;

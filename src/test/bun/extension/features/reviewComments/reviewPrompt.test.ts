@@ -38,8 +38,6 @@ describe("extension/features/reviewComments/reviewPrompt", () => {
 		expect(atLimit).not.toContain("[diff truncated]");
 		expect(atLimit).toContain("d".repeat(REVIEW_DIFF_CHAR_LIMIT));
 		const overLimit = buildDiffReviewPrompt({ path: "a", diff: `${"d".repeat(REVIEW_DIFF_CHAR_LIMIT)}TAIL` });
-		// The kept head, the line break, and the marker together sit exactly at
-		// the stated bound - the marker fits INSIDE the cap.
 		const kept = REVIEW_DIFF_CHAR_LIMIT - "\n[diff truncated]".length;
 		expect(overLimit).toContain(`${"d".repeat(kept)}\n[diff truncated]`);
 		expect(overLimit).not.toContain(`${"d".repeat(kept + 1)}`);
@@ -47,11 +45,10 @@ describe("extension/features/reviewComments/reviewPrompt", () => {
 	});
 
 	test("a truncation cut never leaves a lone surrogate in the body", () => {
-		// The cut delegates to the shared truncateKeepingHead, so an astral
-		// character straddling the bound loses the whole character rather than
-		// half of it - an unpaired surrogate is exactly what a gateway rejects.
-		// The cut lands at the limit minus the marker's inside-cap cost, so the
-		// emoji is placed to straddle exactly that boundary.
+		// The cut delegates to the shared truncateKeepingHead, so an astral character straddling the bound loses the
+		// whole character rather than half of it - an unpaired surrogate is exactly what a gateway rejects. The cut
+		// lands at the limit minus the marker's inside-cap cost, so the emoji is placed to straddle exactly that
+		// boundary.
 		const cut = REVIEW_DIFF_CHAR_LIMIT - "\n[diff truncated]".length;
 		const diff = `${"d".repeat(cut - 1)}\u{1F600}${"t".repeat(REVIEW_DIFF_CHAR_LIMIT)}`;
 		const prompt = buildDiffReviewPrompt({ path: "a", diff });
@@ -60,7 +57,6 @@ describe("extension/features/reviewComments/reviewPrompt", () => {
 			const code = unit.charCodeAt(0);
 			expect(code >= 0xd800 && code <= 0xdfff && unit.length === 1).toBe(false);
 		}
-		// The emoji straddled the bound, so neither half survives.
 		expect(prompt).not.toContain("\u{1F600}");
 	});
 
@@ -87,8 +83,6 @@ describe("extension/features/reviewComments/reviewPrompt", () => {
 			.map((line, index) => `${index + 1}: ${line}`)
 			.join("\n");
 		expect(naiveNumbered.length).toBeGreaterThan(REVIEW_FILE_CHAR_LIMIT);
-		// The marker rides inside the budget, so the kept head is the limit minus
-		// the marker line's cost.
 		const kept = REVIEW_FILE_CHAR_LIMIT - "\n[file truncated]".length;
 		const expected = `${naiveNumbered.slice(0, kept)}\n[file truncated]`;
 		expect(buildFileReviewPrompt({ path: "a", content })).toContain(expected);

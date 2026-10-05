@@ -41,7 +41,6 @@ describe("extension/features/inline/completionCache", () => {
 		const cache = new CompletionCache(2);
 		cache.set(key({ prefix: "a" }), "A");
 		cache.set(key({ prefix: "b" }), "B");
-		// Touch "a" so "b" becomes least recently used.
 		assert.strictEqual(cache.get(key({ prefix: "a" })), "A");
 		cache.set(key({ prefix: "c" }), "C");
 		assert.strictEqual(cache.size, 2);

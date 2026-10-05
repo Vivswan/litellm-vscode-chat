@@ -1,7 +1,6 @@
 /**
- * The matcher grammar's unit pins: the key forms, the whole-ID anchoring, the
- * invalid-key diagnostics, and the strict specificity tiers - including every
- * edge case docs/models.md#model-matching calls out (literal slashes, the
+ * The matcher grammar's unit pins: the key forms, the whole-ID anchoring, the invalid-key diagnostics, and the strict
+ * specificity tiers - including every edge case docs/models.md#model-matching calls out (literal slashes, the
  * trailing-star rule, underscore IDs, glob-beats-regex, dot-star vs "*").
  */
 import { describe, test } from "bun:test";

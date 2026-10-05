@@ -1,10 +1,6 @@
 /**
- * The consult tool's host surface: registration is fail-closed on BOTH the
- * enable boolean and the model ref, and the registered tool answers a real
- * vscode.lm.invokeTool round trip through the msw-mocked server - schema
- * validation, budget truncation, and the result text included. Anything the
- * pure core already pins (prompt assembly, the bisection, result shaping)
- * lives in its own suite; this one pins what only the host can prove.
+ * Anything the pure core already pins (prompt assembly, the bisection, result shaping) lives in its own suite; this
+ * one pins what only the host can prove.
  */
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
@@ -32,24 +28,20 @@ import { fakeContext, quietLogger, withWiringSpies } from "../wiringSpies";
 const MODEL_REF = { server: "alpha", model: "gpt-test" };
 const SERVER_ENTRY = { label: "alpha", baseUrl: TEST_BASE_URL, auth: { apiKey: "sk-test" } };
 
-/** The settings that make the tool live against the msw-mocked server. */
 const ENABLED_CONFIG = {
 	"consultTool.enabled": true,
 	"consultTool.model": MODEL_REF,
 	servers: [SERVER_ENTRY],
 };
 
-/** The values the wiring published for the readiness key, in order. */
 function readyStates(spies: WiringSpies): unknown[] {
 	return spies.contextStates.get(CONSULT_TOOL_READY_CONTEXT_KEY) ?? [];
 }
 
-/** The single-choice non-streaming reply shape the one-shot chat path parses. */
 function chatReply(content: string): Response {
 	return HttpResponse.json({ choices: [{ message: { role: "assistant", content } }] });
 }
 
-/** Invoke the recorded tool the way the host does, with no tokenization options unless given. */
 function invokeRecorded(
 	spies: WiringSpies,
 	input: unknown,
@@ -68,7 +60,6 @@ function invokeRecorded(
 	});
 }
 
-/** The one text part a consult result carries. */
 function resultText(result: vscode.LanguageModelToolResult): string {
 	assert.strictEqual(result.content.length, 1, "the tool answers with exactly one part");
 	const part = result.content[0];
@@ -105,7 +96,6 @@ suite("extension/features/consultTool wiring", () => {
 			assert.strictEqual(spies.registrations.length, 1);
 			assert.strictEqual(spies.registrations[0]?.name, TOOL_NAME);
 
-			// Clearing the model alone is enough to take the tool away.
 			await withConfig({ ...ENABLED_CONFIG, "consultTool.model": null }, () => {
 				spies.fireConfigChange();
 			});
@@ -120,9 +110,8 @@ suite("extension/features/consultTool wiring", () => {
 				spies.fireConfigChange();
 			});
 			assert.strictEqual(spies.registrations[1]?.disposed, true, "disabling must dispose the registration");
-			// The contribution's when-clause reads this key, so the tool picker
-			// tracks REGISTRATION rather than the enable boolean alone - the
-			// half-configured state (enabled, no model) must read false.
+			// The contribution's when-clause reads this key, so the tool picker tracks REGISTRATION rather than the
+			// enable boolean alone - the half-configured state (enabled, no model) must read false.
 			assert.deepStrictEqual(readyStates(spies), [true, false, true, false]);
 		});
 	});
@@ -164,27 +153,24 @@ suite("extension/features/consultTool wiring", () => {
 				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
 				return invokeRecorded(spies, { question: "How should I batch these writes?", context: "A busy write path." });
 			});
-			// The reply is trimmed and travels whole; nothing is summarized.
 			assert.strictEqual(resultText(result), "Use a queue.");
 		});
 		assert.ok(seenBody);
-		// The one-shot body is exactly what OneShotChatRequest declares: no
-		// max_tokens, no parameters record field, nothing else injected.
+		// The one-shot body is exactly what OneShotChatRequest declares: no max_tokens, no parameters record field,
+		// nothing else injected.
 		assert.deepStrictEqual(Object.keys(seenBody).sort(), ["messages", "model", "stream"]);
 		assert.strictEqual(seenBody.model, MODEL_REF.model);
 		assert.strictEqual(seenBody.stream, false);
 		const messages = seenBody.messages as { role: string; content: string }[];
 		assert.strictEqual(messages.length, 1);
 		assert.strictEqual(messages[0]?.role, "user");
-		// Both halves of the caller's input reached the consulted model.
 		assert.ok(messages[0]?.content.includes("How should I batch these writes?"));
 		assert.ok(messages[0]?.content.includes("A busy write path."));
 	});
 
 	test("the host's token budget bounds the REPLY, which is what it governs, and marks the cut", async () => {
-		// tokenBudget is documented as the maximum the tool may emit in its
-		// RESULT - the only thing this tool adds to the calling model's context -
-		// so it is the reply that must fit, not the outgoing prompt.
+		// tokenBudget is documented as the maximum the tool may emit in its RESULT - the only thing this tool adds to
+		// the calling model's context - so it is the reply that must fit, not the outgoing prompt.
 		const reply = "R".repeat(5000);
 		mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply(reply)));
 		const tokenizationOptions: vscode.LanguageModelToolTokenizationOptions = {
@@ -224,8 +210,8 @@ suite("extension/features/consultTool wiring", () => {
 				return chatReply("noted");
 			})
 		);
-		// A generous host budget must NOT license an unbounded body, and a small
-		// one must not shrink it: the outgoing cap is the code's own.
+		// A generous host budget must NOT license an unbounded body, and a small one must not shrink it: the outgoing
+		// cap is the code's own.
 		const context = "X".repeat(CONSULT_PROMPT_CHAR_LIMIT * 2);
 		await withWiringSpies(async (spies) =>
 			withConfig(ENABLED_CONFIG, async () => {
@@ -258,8 +244,8 @@ suite("extension/features/consultTool wiring", () => {
 	});
 
 	test("a label matching no entry throws the classified error, zero fetches", async () => {
-		// No msw handler for the chat URL is registered: any request would fail
-		// the suite through onUnhandledRequest: "error".
+		// No msw handler for the chat URL is registered: any request would fail the suite through onUnhandledRequest:
+		// "error".
 		await withWiringSpies(async (spies) => {
 			await withConfig({ ...ENABLED_CONFIG, servers: [] }, async () => {
 				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
@@ -277,8 +263,8 @@ suite("extension/features/consultTool wiring", () => {
 			await withConfig(ENABLED_CONFIG, () => {
 				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
 			});
-			// The registration happened while enabled; the settings then changed
-			// under it without the watcher having run.
+			// The registration happened while enabled; the settings then changed under it without the watcher having
+			// run.
 			await withConfig({ ...ENABLED_CONFIG, "consultTool.enabled": false }, async () => {
 				await assert.rejects(invokeRecorded(spies, { question: "anything?" }), (error: unknown) => {
 					assert.ok(error instanceof MirroredError);
@@ -300,8 +286,7 @@ suite("extension/features/consultTool wiring", () => {
 					new vscode.CancellationTokenSource().token
 				) as vscode.PreparedToolInvocation;
 				assert.ok(String(prepared.invocationMessage).includes(MODEL_REF.model));
-				// Read-only tool: a confirmation prompt would interrupt every agent
-				// turn for nothing.
+				// Read-only tool: a confirmation prompt would interrupt every agent turn for nothing.
 				assert.strictEqual(prepared.confirmationMessages, undefined);
 			});
 		});
@@ -337,10 +322,10 @@ suite("extension/features/consultTool wiring", () => {
 		let disposeWiring: () => void = () => {};
 
 		suiteSetup(async () => {
-			// Wait for the configuration event ITSELF, not a macrotask that hopes to outlast it and not vscode.lm.tools,
-			// which lists the CONTRIBUTION whether or not anything is registered under it. With the real model setting
-			// null the production wiring registers nothing, so the name is free, and if that stops holding the
-			// registerTool below throws on the duplicate name rather than quietly shadowing.
+			// Wait for the configuration event ITSELF, not a macrotask that hopes to outlast it and not
+			// vscode.lm.tools, which lists the CONTRIBUTION whether or not anything is registered under it. With the
+			// real model setting null the production wiring registers nothing, so the name is free, and if that stops
+			// holding the registerTool below throws on the duplicate name rather than quietly shadowing.
 			//
 			//   event lands inside a withConfig stub -> the production listener reads this suite's model ref and
 			//                                           registers the same name; which tool answers is a coin toss
@@ -353,8 +338,8 @@ suite("extension/features/consultTool wiring", () => {
 						resolve();
 					}
 				});
-				// A bounded fallback: an event the host coalesces away must not hang
-				// the suite, and a late one is caught by the duplicate-name throw.
+				// A bounded fallback: an event the host coalesces away must not hang the suite, and a late one is
+				// caught by the duplicate-name throw.
 				setTimeout(() => {
 					listener.dispose();
 					resolve();
@@ -374,17 +359,16 @@ suite("extension/features/consultTool wiring", () => {
 		});
 
 		suiteTeardown(async () => {
-			// Order matters: release the name before the setting that gates the
-			// production wiring goes back, so nothing races over it.
+			// Order matters: release the name before the setting that gates the production wiring goes back, so nothing
+			// races over it.
 			disposeWiring();
 			await config().update("consultTool.enabled", undefined, vscode.ConfigurationTarget.Global);
 		});
 
 		test("the tool registers under the contributed name and answers an lm.invokeTool call", async () => {
 			mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply("Batch them.")));
-			// The round trip IS the registration proof: the host resolves
-			// TOOL_NAME to something that answered, and what came back is the
-			// msw-backed reply this suite's wiring fetched.
+			// The round trip IS the registration proof: the host resolves TOOL_NAME to something that answered, and
+			// what came back is the msw-backed reply this suite's wiring fetched.
 			const result = await withConfig(ENABLED_CONFIG, () =>
 				Promise.resolve(
 					vscode.lm.invokeTool(
@@ -398,9 +382,8 @@ suite("extension/features/consultTool wiring", () => {
 		});
 
 		test("an input the schema calls invalid still reaches invoke, and the tool's own parse refuses it", async () => {
-			// No msw handler for the chat URL: a consultation escaping the parse
-			// would fail the suite through onUnhandledRequest: "error" - which is
-			// exactly how the missing host-side validation was found.
+			// No msw handler for the chat URL: a consultation escaping the parse would fail the suite through
+			// onUnhandledRequest: "error" - which is exactly how the missing host-side validation was found.
 			await withConfig(ENABLED_CONFIG, async () => {
 				await assert.rejects(
 					Promise.resolve(
@@ -411,8 +394,8 @@ suite("extension/features/consultTool wiring", () => {
 						)
 					),
 					(error: unknown) => {
-						// The host flattens a thrown error across the extension-host
-						// boundary, so the message is what survives to the caller.
+						// The host flattens a thrown error across the extension-host boundary, so the message is what
+						// survives to the caller.
 						assert.match(String((error as Error).message), /needs a question/);
 						return true;
 					}

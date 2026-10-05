@@ -1,10 +1,6 @@
 /**
- * The inline-completions wiring: opt-in by construction. Disabled means NO
- * provider registration, no language status row, and no toggle-command side
- * effects; enabled-without-model means everything registers but zero fetches
- * leave the process (msw's onUnhandledRequest: "error" would fail the test on
- * any stray request). The returned fimSend is the probe's pipeline, so its
- * template application and zero-injection body are pinned here end to end.
+ * The returned fimSend is the probe's pipeline, so its template application and zero-injection body are pinned here
+ * end to end.
  */
 import * as assert from "node:assert";
 import { http } from "msw";
@@ -40,10 +36,9 @@ interface WiringSpies {
 }
 
 /**
- * Run `fn` with the wiring's VS Code surfaces recorded instead of real: the
- * provider registration, the language status item, the toggle command (a real
- * registration would collide across tests in the shared host), and the
- * configuration watcher (captured so tests fire it deterministically).
+ * Run `fn` with the wiring's VS Code surfaces recorded instead of real: the provider registration, the language status
+ * item, the toggle command (a real registration would collide across tests in the shared host), and the configuration
+ * watcher (captured so tests fire it deterministically).
  */
 async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): Promise<Awaited<T>> {
 	const registrations: RecordedRegistration[] = [];
@@ -110,14 +105,12 @@ async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): P
 		});
 	} finally {
 		try {
-			// Heal the module-scope status-row slot before restoring the fakes: any
-			// test that ends enabled leaves its row live, and liveRow outlives this
-			// file into every later suite in this host (a fresh row self-heals the
-			// slot by disposing the stale holder, then releases it). The heal runs
-			// only when a row actually leaked, and it captures the constructor's
-			// "slot replaced" bug signal instead of silencing it: the deliberate
-			// replacement must fire it exactly once, so a vanished signal or an
-			// unexpected extra fails here rather than washing out as noise.
+			// Heal the module-scope status-row slot before restoring the fakes: any test that ends enabled leaves its
+			// row live, and liveRow outlives this file into every later suite in this host (a fresh row self-heals the
+			// slot by disposing the stale holder, then releases it). The heal runs only when a row actually leaked, and
+			// it captures the constructor's "slot replaced" bug signal instead of silencing it: the deliberate
+			// replacement must fire it exactly once, so a vanished signal or an unexpected extra fails here rather than
+			// washing out as noise.
 			if (liveInlineLanguageStatusRows() > 0) {
 				const slotSignals: string[] = [];
 				new InlineLanguageStatusRow({
@@ -168,8 +161,8 @@ suite("extension/features/inline wiring", () => {
 			});
 			assert.strictEqual(spies.registrations.length, 0);
 			assert.strictEqual(spies.statusItems.length, 0);
-			// The toggle command registers unconditionally (registration cannot
-			// follow the flag without races); it is inert without the row.
+			// The toggle command registers unconditionally (registration cannot follow the flag without races); it is
+			// inert without the row.
 			assert.deepStrictEqual(spies.commandIds, ["litellm.toggleInlineCompletionsLanguage"]);
 		});
 	});
@@ -203,8 +196,8 @@ suite("extension/features/inline wiring", () => {
 	});
 
 	test("enabled without a model makes zero fetches: the provider answers nothing and sends nothing", async () => {
-		// No msw handler for the completions URL is registered: any request
-		// would fail the suite through onUnhandledRequest: "error".
+		// No msw handler for the completions URL is registered: any request would fail the suite through
+		// onUnhandledRequest: "error".
 		await withWiringSpies(async (spies) => {
 			await withConfig({ "inlineCompletions.enabled": true }, async () => {
 				wireInlineCompletions(fakeContext(), quietLogger(), {
@@ -251,8 +244,6 @@ suite("extension/features/inline wiring", () => {
 			assert.strictEqual(result, "filled-in");
 		});
 		assert.ok(seenBody);
-		// Template applied: the prompt carries both sides and the wire suffix is
-		// omitted; nothing beyond the provider-owned keys rides along.
 		assert.deepStrictEqual(Object.keys(seenBody).sort(), ["max_tokens", "model", "prompt", "stream"]);
 		assert.strictEqual(seenBody.prompt, "<p>PRE</p><s>SUF</s>");
 		assert.strictEqual(seenBody.max_tokens, 256);
@@ -285,8 +276,8 @@ suite("extension/features/inline wiring", () => {
 			);
 		});
 		assert.ok(seenBody);
-		// models.parameters records do NOT apply to /completions: temperature and
-		// top_p stay off the wire, and only the native five keys go out.
+		// models.parameters records do NOT apply to /completions: temperature and top_p stay off the wire, and only the
+		// native five keys go out.
 		assert.deepStrictEqual(Object.keys(seenBody).sort(), ["max_tokens", "model", "prompt", "stream", "suffix"]);
 		assert.strictEqual(seenBody.prompt, "PRE");
 		assert.strictEqual(seenBody.suffix, "SUF");

@@ -20,10 +20,9 @@ import { REPO_ROOT } from "../../../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
 
 /**
- * The generator against the shipped docs: stamping must touch nothing but the
- * marker region, and every fail-closed edge must abort, not emit a partial.
- * Whether the committed docs are current is `docs:settings:check`'s question,
- * asked by check:static and CI's lint job, not here.
+ * The generator against the shipped docs: stamping must touch nothing but the marker region, and every fail-closed edge
+ * must abort, not emit a partial. Whether the committed docs are current is `docs:settings:check`'s question, asked by
+ * check:static and CI's lint job, not here.
  */
 
 const settings = readSpecSettings();
@@ -43,9 +42,8 @@ function unstamped(locale: DocLocale): string {
 describe("settings reference generation", () => {
 	for (const locale of DOC_LOCALES) {
 		test(`first stamping of ${locale} replaces the hand-kept table with the marked region and touches nothing else`, () => {
-			// A doc from before the markers existed: prose, a hand-kept table under
-			// the locale's header, prose. Hand-authored, so the case holds whether
-			// or not the shipped doc is current.
+			// A doc from before the markers existed: prose, a hand-kept table under the locale's header, prose.
+			// Hand-authored, so the case holds whether or not the shipped doc is current.
 			const table = buildReferenceTable(locale, settings);
 			const [header, separator] = table.split("\n");
 			const before = `# Settings\n\nIntro.\n\n${header}\n${separator}\n| \`old.setting\` | gone | gone |\n\nOutro.\n`;
@@ -85,9 +83,8 @@ describe("settings reference generation", () => {
 	});
 
 	test("every undocumented setting is named in one failure, not rediscovered one run at a time", () => {
-		// The forcing function for a future feature: land four settings without
-		// prose and the first run names all four, so documenting them is one
-		// pass instead of four regenerate-and-read cycles.
+		// The forcing function for a future feature: land four settings without prose and the first run names all four,
+		// so documenting them is one pass instead of four regenerate-and-read cycles.
 		const mutant: Record<string, SettingProse> = { ...SETTING_PROSE };
 		for (const id of ["chat.timeout", "usage.statusBar", "reviewComments.model"]) {
 			delete mutant[id];
@@ -108,9 +105,8 @@ describe("settings reference generation", () => {
 	});
 
 	test("a renamed setting reports the obsolete entry and the undocumented key together", () => {
-		// The shape a rename actually takes: prose still under the old name, the
-		// new name undocumented. Reporting one fault at a time would send the
-		// author back for a second run to learn the other half.
+		// The shape a rename actually takes: prose still under the old name, the new name undocumented. Reporting one
+		// fault at a time would send the author back for a second run to learn the other half.
 		const mutant: Record<string, SettingProse> = { ...SETTING_PROSE };
 		const orphaned = mutant["chat.timeout"];
 		assert.ok(orphaned);
@@ -137,8 +133,8 @@ describe("settings reference generation", () => {
 	});
 
 	test("a setting named after an Object.prototype member reports missing prose, not a TypeError", () => {
-		// Without the hasOwn check the row inherits Object.prototype.toString and
-		// dies later on a TypeError naming nothing useful.
+		// Without the hasOwn check the row inherits Object.prototype.toString and dies later on a TypeError naming
+		// nothing useful.
 		const order = [...settings.order, "toString"];
 		const defaults = new Map(settings.defaults);
 		defaults.set("toString", null);
@@ -156,8 +152,8 @@ describe("settings reference generation", () => {
 	});
 
 	test("a default that would break the table's code span fails generation", () => {
-		// No newline case: JSON.stringify escapes newlines inside string
-		// defaults, so a raw newline cannot reach a structured default's cell.
+		// No newline case: JSON.stringify escapes newlines inside string defaults, so a raw newline cannot reach a
+		// structured default's cell.
 		for (const bad of ["a`b", "a|b"]) {
 			const defaults = new Map(settings.defaults);
 			defaults.set("usage.currencySymbol", bad);
@@ -206,7 +202,6 @@ function makeTempDir(prefix: string): string {
 	return dir;
 }
 
-/** A disposable checkout shape: the three docs in their pre-stamping form. */
 function makeFixture(): string {
 	const root = makeTempDir("settings-reference-cli-");
 	for (const locale of DOC_LOCALES) {
@@ -245,8 +240,8 @@ describe("generate-settings-reference CLI", () => {
 	test(
 		"one locale's failure writes nothing anywhere",
 		() => {
-			// The zh-tw doc loses its table header, so its stamping throws; the
-			// two-phase CLI must leave the other locales untouched too.
+			// The zh-tw doc loses its table header, so its stamping throws; the two-phase CLI must leave the other
+			// locales untouched too.
 			const root = makeFixture();
 			const zhTwPath = path.join(root, SETTINGS_DOC_PATHS.zhTw);
 			fs.writeFileSync(zhTwPath, fs.readFileSync(zhTwPath, "utf8").replace(TABLE_HEADERS.zhTw, "| gone |"));
@@ -263,8 +258,8 @@ describe("generate-settings-reference CLI", () => {
 		() => {
 			const root = makeFixture();
 
-			// Unstamped docs are drift by definition: the final stamping run has not
-			// happened yet, so a wired check would fail until it does.
+			// Unstamped docs are drift by definition: the final stamping run has not happened yet, so a wired check
+			// would fail until it does.
 			const unstamped = runCli(root, "--check");
 			assert.strictEqual(unstamped.exitCode, 1);
 			assert.match(unstamped.stderr, /docs\/settings\.md is stale/);

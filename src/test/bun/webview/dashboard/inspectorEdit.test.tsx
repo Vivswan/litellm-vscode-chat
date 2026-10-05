@@ -1,8 +1,3 @@
-/**
- * The inspector's configure-jump into the record editors: the Configure button reuses the most specific matching
- * global record or asks for a fresh exact-ID draft, the per-row edit goes to the record that OWNS the value (server
- * entry included), and the editors' external-edit hook lands the jump.
- */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import type { ScopedRecordSetting } from "../../../../dashboard/viewModels";
@@ -49,7 +44,6 @@ function makeProjection(overrides: Partial<EffectiveParametersProjection> = {}):
 	};
 }
 
-/** Render the inspector, answer its readModelParameters post, and return the re-rendered root. */
 function mountAnswered(
 	response: ModelParametersResponse,
 	callbacks: {
@@ -87,8 +81,6 @@ describe("the inspector's parameters configure-jump", () => {
 		configure.click();
 		expect(recordJumps).toEqual([["parameters", "gpt-5*", false]]);
 
-		// The global-sourced row's edit goes to the record that owns the value;
-		// the entry-sourced row's edit opens the server entry's form instead.
 		const rowEdits = [...root.querySelectorAll<HTMLButtonElement>("button.row-edit")];
 		expect(rowEdits.map((button) => button.getAttribute("aria-label"))).toEqual([
 			'Edit record "gpt-5*" in settings',
@@ -127,7 +119,6 @@ describe("the inspector's parameters configure-jump", () => {
 });
 
 describe("the inspector's capabilities configure-jump", () => {
-	/** Render the inspector, answer its readModelCapabilities post, and return the re-rendered root. */
 	function mountCapsAnswered(
 		response: Record<string, unknown>,
 		callbacks: {
@@ -152,9 +143,8 @@ describe("the inspector's capabilities configure-jump", () => {
 	}
 
 	test("the Configure button and row edits route to the CAPABILITIES editor; entry rows to the entry form", () => {
-		// The merged callback discriminates by kind: a wrong literal would open
-		// the parameters editor for a capability row, so the caps half is
-		// pinned separately from the params half above.
+		// The merged callback discriminates by kind: a wrong literal would open the parameters editor for a capability
+		// row, so the caps half is pinned separately from the params half above.
 		const recordJumps: [string, string, boolean][] = [];
 		const entryJumps: string[] = [];
 		const root = mountCapsAnswered(
@@ -180,9 +170,6 @@ describe("the inspector's capabilities configure-jump", () => {
 		configure.click();
 		expect(recordJumps).toEqual([["capabilities", "gpt-5*", false]]);
 
-		// The global-sourced field's edit goes to the capabilities record that owns the value; the entry-level field's
-		// edit opens the entry's form. Each label names its LAYER, which for a screen reader is the only place the
-		// layer is stated - every visible layer word lives in a badge.
 		const rowEdits = [...root.querySelectorAll<HTMLButtonElement>("button.row-edit")];
 		expect(rowEdits.map((button) => button.getAttribute("aria-label"))).toEqual([
 			'Edit record "gpt-5*" in settings',
@@ -224,7 +211,6 @@ describe("the editors' external-edit landing", () => {
 		);
 	}
 
-	/** The capabilities twin of Harness: its landing effect is a separate copy. */
 	function CapsHarness({ external }: { external: ExternalRecordEdit | undefined }) {
 		return (
 			<ModelCapabilitiesEditor
@@ -235,7 +221,6 @@ describe("the editors' external-edit landing", () => {
 		);
 	}
 
-	/** The table rows' matcher keys in display order. */
 	function matcherKeys(root: HTMLElement): string[] {
 		return Array.from(root.querySelectorAll(".record-table .matcher-key")).map((cell) => cell.textContent ?? "");
 	}
@@ -247,8 +232,8 @@ describe("the editors' external-edit landing", () => {
 		});
 		await settle();
 
-		// The overlay is open on the existing record; the slide-over's own
-		// mount focus lands on its first input, the matcher key.
+		// The overlay is open on the existing record; the slide-over's own mount focus lands on its first input, the
+		// matcher key.
 		const overlay = root.querySelector<HTMLElement>(".matcher-editor");
 		if (overlay === null) {
 			throw new Error("the jump did not open the matcher editor overlay");
@@ -272,18 +257,17 @@ describe("the editors' external-edit landing", () => {
 			throw new Error("the jump did not open the matcher editor overlay");
 		}
 		expect(overlay.querySelector<HTMLInputElement>("input.key")?.value).toBe("claude-4");
-		// The draft group joined the table (sorted view: the exact ID lands
-		// after the glob) but is not applied - drafts only land on Apply.
+		// The draft group joined the table (sorted view: the exact ID lands after the glob) but is not applied - drafts
+		// only land on Apply.
 		expect(matcherKeys(root)).toEqual(["*", "gpt-5*", " gpt-4*", "claude-4"]);
 		expect(postedRequests("setModelParameters")).toHaveLength(0);
 	});
 
 	test("a padded stored matcher opens too, in BOTH editors: the jump compares keys RAW", async () => {
-		// The request carries the stored record key (field.sourceKey, verbatim
-		// from the settings map) and the draft holds the stored prefix; the
-		// matcher grammar trims neither, so a trimmed comparison on either side
-		// would leave the inspector's per-row jump silently dead. " gpt-4*" is a
-		// valid glob whose raw and trimmed spellings differ.
+		// The request carries the stored record key (field.sourceKey, verbatim from the settings map) and the draft
+		// holds the stored prefix; the matcher grammar trims neither, so a trimmed comparison on either side would
+		// leave the inspector's per-row jump silently dead. " gpt-4*" is a valid glob whose raw and trimmed spellings
+		// differ.
 		const root = mount(<Harness external={undefined} />);
 		void act(() => {
 			render(<Harness external={{ seq: 1, key: " gpt-4*", create: false }} />, root);
@@ -295,13 +279,11 @@ describe("the editors' external-edit landing", () => {
 			throw new Error("the jump did not open the padded record's matcher editor overlay");
 		}
 		expect(overlay.querySelector<HTMLInputElement>("input.key")?.value).toBe(" gpt-4*");
-		// Opened, not minted: the group count is unchanged and nothing applies.
 		expect(matcherKeys(root)).toEqual(["*", "gpt-5*", " gpt-4*"]);
 		expect(buttonByText(root, "Apply").disabled).toBe(true);
 
-		// The capabilities editor carries its own copy of the landing effect,
-		// so it is pinned separately: one trimmed side there would be the same
-		// dead affordance.
+		// The capabilities editor carries its own copy of the landing effect, so it is pinned separately: one trimmed
+		// side there would be the same dead affordance.
 		const capsRoot = mount(<CapsHarness external={undefined} />);
 		void act(() => {
 			render(<CapsHarness external={{ seq: 1, key: " gpt-4*", create: false }} />, capsRoot);

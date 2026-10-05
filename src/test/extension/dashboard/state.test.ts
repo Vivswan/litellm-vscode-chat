@@ -1,6 +1,3 @@
-/**
- * buildDashboardState: the server rows, secret-location proof, removed groups, and request scopes.
- */
 import * as assert from "node:assert";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import { buildDashboardState, resolveDashboardModelParameters } from "../../../extension/dashboard/state";
@@ -54,8 +51,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test('the "" never-checked sentinel maps to a deliberate absent lastChecked, never NaN', () => {
-			// restoreServerStatus and syncFailureOverlay's synthetic statuses write
-			// "" for a server no discovery pass has stamped; the push states absence.
+			// restoreServerStatus and syncFailureOverlay's synthetic statuses write "" for a server no discovery pass
+			// has stamped; the push states absence.
 			const state = buildState(
 				[{ status: makeServerStatus({ serverId: "g1", label: "Prod", lastChecked: "" }), models: [] }],
 				makeReader({})
@@ -83,10 +80,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("errorEnglish carries the status's log-safe rendering exactly when the display error is the transport error", () => {
-			// The copyable diagnostics block stays English by policy: the webview
-			// substitutes errorEnglish there while the row renders the possibly
-			// localized error. A sync error has no mirror, so a row showing one
-			// carries none.
+			// The copyable diagnostics block stays English by policy: the webview substitutes errorEnglish there while
+			// the row renders the possibly localized error. A sync error has no mirror, so a row showing one carries
+			// none.
 			const external = buildState(
 				[
 					{
@@ -132,8 +128,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("classification rides the error row under the same rule as errorEnglish", () => {
-			// The webview maps the setup-hint id to a troubleshooting link; only
-			// the classification crosses the boundary (enum ids, never text).
+			// The webview maps the setup-hint id to a troubleshooting link; only the classification crosses the
+			// boundary (enum ids, never text).
 			const classification = { kind: "connection", setupHint: "proxy-not-running" } as const;
 			const external = buildState(
 				[
@@ -160,8 +156,7 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(declared.servers[0]?.origin, "declared");
 			assert.deepStrictEqual(declared.servers[0]?.classification, classification);
 
-			// An unclassified failure carries no field at all (conditional spread,
-			// never an explicit undefined).
+			// An unclassified failure carries no field at all (conditional spread, never an explicit undefined).
 			const unclassified = buildState(
 				[{ status: makeServerStatus({ state: "error", error: "boom" }), models: [] }],
 				makeReader({})
@@ -169,9 +164,8 @@ suite("extension/dashboard/state", () => {
 			const unclassifiedRow = unclassified.servers[0];
 			assert.ok(unclassifiedRow !== undefined && !("classification" in unclassifiedRow));
 
-			// A sync error masks the transport error and must not borrow the
-			// masked error's classification: the hint would advise on a failure
-			// the row is not displaying.
+			// A sync error masks the transport error and must not borrow the masked error's classification: the hint
+			// would advise on a failure the row is not displaying.
 			const synced = buildState(
 				[
 					{
@@ -188,10 +182,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a down server's retained models list under its erroring row without a per-model stale marker", () => {
-			// The provider retains a failed group's last known models, so the
-			// snapshot pairs an error status with a non-empty model list. Listing
-			// them unmarked is deliberate: the server row they cite already renders
-			// the error and lastChecked, and no picker decoration enters this path.
+			// The provider retains a failed group's last known models, so the snapshot pairs an error status with a
+			// non-empty model list. Listing them unmarked is deliberate: the server row they cite already renders the
+			// error and lastChecked, and no picker decoration enters this path.
 			const state = buildState(
 				[
 					{
@@ -300,10 +293,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("entries sharing a base URL with different credentials join by group client ID, never swapped", () => {
-			// Both snapshots are host-labeled identically, so no label pass can tell
-			// them apart and the URL fallback would pair them by position; the sync
-			// engine's client-ID fingerprint is exact. The declared order is chosen
-			// so the positional fallback would swap them.
+			// Both snapshots are host-labeled identically, so no label pass can tell them apart and the URL fallback
+			// would pair them by position; the sync engine's client-ID fingerprint is exact. The declared order is
+			// chosen so the positional fallback would swap them.
 			const state = buildState(
 				[
 					{
@@ -344,8 +336,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an entry whose client ID matches no snapshot still joins by URL", () => {
-			// A stale fingerprint (a secret rotated but not yet re-synced) must
-			// degrade to the URL join, like an entry with no fingerprint at all.
+			// A stale fingerprint (a secret rotated but not yet re-synced) must degrade to the URL join, like an entry
+			// with no fingerprint at all.
 			const state = buildState(
 				[
 					{
@@ -367,10 +359,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("two declared entries mirroring one pre-label group share its snapshot instead of one reading unchecked", () => {
-			// Groups created before labels flowed into their configurations report
-			// under ONE label-agnostic identity, which both entries carry as
-			// expectedConnectionId: both rows must render the live status rather
-			// than leave one stuck on "not checked" forever.
+			// Groups created before labels flowed into their configurations report under ONE label-agnostic identity,
+			// which both entries carry as expectedConnectionId: both rows must render the live status rather than leave
+			// one stuck on "not checked" forever.
 			const state = buildState(
 				[
 					{
@@ -410,9 +401,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a snapshot shared by two declared entries lists its models under both labels", () => {
-			// The host registers a group's models once PER GROUP, so a pre-label
-			// snapshot claimed by several declared entries must attribute its
-			// models to every claimant, not render them once under the first label.
+			// The host registers a group's models once PER GROUP, so a pre-label snapshot claimed by several declared
+			// entries must attribute its models to every claimant, not render them once under the first label.
 			const state = buildState(
 				[
 					{
@@ -449,9 +439,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an upsertFailed claimant gets no models copy; its row still shows the shared status", () => {
-			// The second same-connection entry's group add FAILED outright, but the
-			// engine still emits its connection identity, so it claims the snapshot
-			// - and the picker has ONE group, so duplicating the models overcounts.
+			// The second same-connection entry's group add FAILED outright, but the engine still emits its connection
+			// identity, so it claims the snapshot - and the picker has ONE group, so duplicating the models
+			// overcounts.
 			const state = buildState(
 				[
 					{
@@ -498,8 +488,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a blocked claimant keeps its models copy: the duplicate refusal proves its group exists", () => {
-			// A name-conflict refusal means a live group with that name IS
-			// registering models; dropping the copy would under-report the picker.
+			// A name-conflict refusal means a live group with that name IS registering models; dropping the copy would
+			// under-report the picker.
 			const state = buildState(
 				[
 					{
@@ -535,8 +525,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a snapshot whose only claimant is upsertFailed still lists its models once, under that label", () => {
-			// The reporting group exists and serves, so the models cannot vanish
-			// just because the entry's last add failed: they render once, not zero times.
+			// The reporting group exists and serves, so the models cannot vanish just because the entry's last add
+			// failed: they render once, not zero times.
 			const state = buildState(
 				[
 					{
@@ -572,9 +562,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("two labeled groups on one connection each list their own copy of the models", () => {
-			// The post-identity shape of the same setup: distinct labeled
-			// snapshots carrying the same raw model IDs stay two registrations,
-			// one row per server per model, matching the picker.
+			// The post-identity shape of the same setup: distinct labeled snapshots carrying the same raw model IDs
+			// stay two registrations, one row per server per model, matching the picker.
 			const state = buildState(
 				[
 					{
@@ -618,9 +607,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an entry with modelParameters served by a pre-label group flags the inactive parameters", () => {
-			// The connection-identity join means the live group carries no label, so
-			// the request path never applies this entry's parameters: the row must
-			// warn instead of rendering healthy, via the classification alone.
+			// The connection-identity join means the live group carries no label, so the request path never applies
+			// this entry's parameters: the row must warn instead of rendering healthy, via the classification alone.
 			const state = buildState(
 				[
 					{
@@ -655,9 +643,9 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(byLabel.get("Prod")?.notices, ["entry-params-inactive"]);
 			assert.strictEqual(byLabel.get("Prod")?.state, "ok", "the notice never degrades the live status");
 			assert.strictEqual(byLabel.get("Staging")?.notices, undefined, "no entry parameters, nothing to flag");
-			// The classification itself rides both rows: the notices exist only for
-			// configured field families, but Staging's identity problem is the same,
-			// and the webview's declare offers key on the flag, not the evidence.
+			// The classification itself rides both rows: the notices exist only for configured field families, but
+			// Staging's identity problem is the same, and the webview's declare offers key on the flag, not the
+			// evidence.
 			assert.strictEqual(byLabel.get("Prod")?.entryFieldsInactive, true);
 			assert.strictEqual(byLabel.get("Staging")?.entryFieldsInactive, true);
 		});
@@ -692,9 +680,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an entry with modelParameters joined by the label-and-URL fallback still flags them", () => {
-			// The snapshot's display label is the URL host, so this pass can match an
-			// unlabeled group whose credentials differ from the entry. Only the exact
-			// labeled-identity join proves the group carries the entry's label.
+			// The snapshot's display label is the URL host, so this pass can match an unlabeled group whose credentials
+			// differ from the entry. Only the exact labeled-identity join proves the group carries the entry's label.
 			const state = buildState(
 				[
 					{
@@ -752,9 +739,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("the shared pass never crosses connections: a different-credential entry keeps its own outcome", () => {
-			// One live group under key A. The entry declaring key B shares only the
-			// URL, not the connection, so handing it key A's status would call a
-			// server it cannot reach healthy; it must stay unchecked.
+			// One live group under key A.
+			//
+			//   The entry declaring key B shares only the URL, not the connection -> it must stay unchecked
 			const state = buildState(
 				[
 					{
@@ -807,10 +794,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a sync error outranks a reachable group's ok state without erasing the live counts", () => {
-			// The host cannot update the group, so the reachable group runs the
-			// entry's OLD configuration: the row is an error carrying the sync text
-			// (the same shape the status bar's overlay judges), while the served
-			// count keeps the live truth.
+			// The host cannot update the group, so the reachable group runs the entry's OLD configuration: the row is
+			// an error carrying the sync text (the same shape the status bar's overlay judges), while the served count
+			// keeps the live truth.
 			const state = buildState(
 				[
 					{
@@ -835,7 +821,6 @@ suite("extension/dashboard/state", () => {
 		});
 
 		suite("secret-location proof", () => {
-			/** The one declared row of a state, narrowed for its config. */
 			function declaredRow(state: ReturnType<typeof buildState>) {
 				const server = state.servers[0];
 				assert.ok(server?.origin === "declared", "expected one declared row");
@@ -861,13 +846,10 @@ suite("extension/dashboard/state", () => {
 			});
 
 			test("the settings fallback pushes unproven, never proven-none, and its credential verdict is unknown", () => {
-				// The fallback cannot read secret blobs synchronously, so its "none"
-				// is only "no inline value". Pushing it as fact froze a wrong identity
-				// into edit forms opened in that window, whose saves then refused as
-				// "the entry changed"; the row must say unproven instead - and the
-				// unproven shape carries NO locations, so nothing can read one. The
-				// same guess must not become a credential denial either: a secure-side
-				// key exists exactly when this window matters.
+				// The fallback cannot read secret blobs synchronously, so its "none" is only "no inline value". Pushing
+				// it as fact froze a wrong identity into edit forms opened in that window, whose saves then refused as
+				// "the entry changed"; the row must say unproven instead - and the unproven shape carries NO locations,
+				// so nothing can read one.
 				const state = buildDashboardState({
 					snapshots: [],
 					reader: makeReader({}),
@@ -883,8 +865,8 @@ suite("extension/dashboard/state", () => {
 			});
 
 			test("a fallback view with every secret inline is proven by the setting itself", () => {
-				// Inline wins over any blob, so all-"settings" locations need no blob
-				// read: the setting alone proves them, and the row stays editable.
+				// Inline wins over any blob, so all-"settings" locations need no blob read: the setting alone proves
+				// them, and the row stays editable.
 				const state = buildDashboardState({
 					snapshots: [],
 					reader: makeReader({}),
@@ -933,8 +915,8 @@ suite("extension/dashboard/state", () => {
 			});
 
 			test("an inline key vouches for presence even while the row stays unproven", () => {
-				// Inline wins over any blob, so a fallback "settings" location is
-				// already fact; only the deny side waits for proof.
+				// Inline wins over any blob, so a fallback "settings" location is already fact; only the deny side
+				// waits for proof.
 				const state = buildDashboardState({
 					snapshots: [],
 					reader: makeReader({}),
@@ -967,9 +949,9 @@ suite("extension/dashboard/state", () => {
 			});
 
 			test("an engine view whose own blob read failed is as blind as the fallback: unproven", () => {
-				// The engine substitutes an empty blob when SecretStorage refuses the
-				// read (syncFailure class "secretsUnreadable"), so its "none" is the same
-				// guess the fallback makes; the engine tag alone must not prove it.
+				// The engine substitutes an empty blob when SecretStorage refuses the read (syncFailure class
+				// "secretsUnreadable"), so its "none" is the same guess the fallback makes; the engine tag alone must
+				// not prove it.
 				const state = buildDashboardState({
 					snapshots: [],
 					reader: makeReader({}),
@@ -988,9 +970,8 @@ suite("extension/dashboard/state", () => {
 			});
 
 			test("a salt-durability skip read its blob, so its locations stay proven under its own class", () => {
-				// Salt-durability skips carry their own "saltUnavailable" class and
-				// their secret read SUCCEEDED; marking those unproven would lock
-				// the row out of editing all session.
+				// Salt-durability skips carry their own "saltUnavailable" class and their secret read SUCCEEDED;
+				// marking those unproven would lock the row out of editing all session.
 				const state = buildDashboardState({
 					snapshots: [],
 					reader: makeReader({}),
@@ -1022,8 +1003,8 @@ suite("extension/dashboard/state", () => {
 								secrets: { apiKey: "settings", oauthClientSecret: "settings", virtualKeyValue: "settings" },
 								syncFailure: { class: "secretsUnreadable", message: SECRETS_READ_FAILED_MESSAGE },
 							}),
-							// An upsert failure happens AFTER a successful blob read, so
-							// its locations stay proven facts.
+							// An upsert failure happens AFTER a successful blob read, so its locations stay proven
+							// facts.
 							makeDeclared({
 								label: "Upsert",
 								baseUrl: "http://upsert.test",
@@ -1077,9 +1058,8 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(external?.origin, "external");
 			assert.ok(typeof external?.adoptHandle === "string" && external.adoptHandle.length > 0);
 			assert.strictEqual(byLabel.get("Prod")?.adoptHandle, undefined, "declared rows are not adoptable");
-			// The webview holds a handle across background refreshes, so a rebuild
-			// must mint the same one; and the handle must not leak what it derives
-			// from (the serverId embeds the group's credential fingerprint).
+			// The webview holds a handle across background refreshes, so a rebuild must mint the same one; and the
+			// handle must not leak what it derives from (the serverId embeds the group's credential fingerprint).
 			const rebuilt = buildState(snapshots, makeReader({}), declared);
 			assert.strictEqual(rebuilt.servers.find((s) => s.label === "ext.test")?.adoptHandle, external.adoptHandle);
 			assert.ok(!JSON.stringify(state).includes("fp-a"), "the handle never exposes the serverId it derives from");
@@ -1259,8 +1239,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("tombstones suppress by the raw status label, not the display ordinal", () => {
-			// Two external groups share a label, so the table would render "Dup
-			// (1)" and "Dup (2)"; the tombstone still stores the raw identity.
+			// Two external groups share a label, so the table would render "Dup (1)" and "Dup (2)"; the tombstone still
+			// stores the raw identity.
 			const state = buildState(
 				[
 					{
@@ -1285,8 +1265,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a declared row is never suppressed, even when a tombstone matches its identity", () => {
-			// The engine auto-clears such a tombstone on its next pass; until then
-			// the declared entry the user just wrote must keep rendering.
+			// The engine auto-clears such a tombstone on its next pass; until then the declared entry the user just
+			// wrote must keep rendering.
 			const state = buildState(
 				[
 					{
@@ -1304,15 +1284,16 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a live group carrying an entry's label at another URL is a superseded leftover: hidden, out of the join, no Unhide", () => {
-			// The entry "Prod" was re-pointed from old.test to new.test; the add-only
-			// host kept the group at old.test. A second entry declares old.test
-			// itself, so a plain URL join would hand it the leftover as its own
+			// The entry "Prod" was re-pointed from old.test to new.test; the add-only host kept the group at old.test.
+			// A second entry declares old.test itself, so a plain URL join would hand it the leftover as its own
 			// group - the leftover must leave the join pool before any pass runs.
-			// A tombstone on the same identity yields to the superseded reading:
-			// an Unhide could not lift that suppression. An UNLABELED group whose
-			// URL-host display label equals a declared label ("bare.test") is not
-			// a leftover of anything: its configuration carries no entry label, so
-			// it stays an external row.
+			//
+			//   an Unhide could not lift that suppression
+			//     -> A tombstone on the same identity yields to the superseded reading
+			//   An UNLABELED group whose URL-host display label equals a declared label ("bare.test")
+			//     -> is not a leftover of anything
+			//   its configuration carries no entry label
+			//     -> it stays an external row
 			const state = buildState(
 				[
 					{
@@ -1376,13 +1357,11 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a tombstone seen as a labeled group whose entry now declares another URL renders superseded even with no live snapshot", () => {
-			// An idle status window evicts and re-reports live groups, so the
-			// snapshot can be absent while the group exists; the tombstone's
-			// classification must not flip to "removed" (with an Unhide the
-			// suppression would ignore) in that gap. An identity only ever seen as
-			// an UNLABELED group is not an entry's leftover and stays removed with
-			// no synced name; a labeled one whose entry is gone stays removed and
-			// carries the name the sync gave the group.
+			// An idle status window evicts and re-reports live groups, so the snapshot can be absent while the group
+			// exists; the tombstone's classification must not flip to "removed" (with an Unhide the suppression would
+			// ignore) in that gap. An identity only ever seen as an UNLABELED group is not an entry's leftover and
+			// stays removed with no synced name; a labeled one whose entry is gone stays removed and carries the name
+			// the sync gave the group.
 			const state = buildDashboardState({
 				snapshots: [],
 				reader: makeReader({}),
@@ -1413,10 +1392,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a tombstone whose group was never observed this session is a ghost and stays off the hidden line", () => {
-			// A tombstoned group deleted from the models file is never called for
-			// after a restart, so offering Unhide would reference nothing. The
-			// panel's session-sticky observation set gates that; an observed
-			// identity keeps its row even with no live snapshot in this push.
+			// A tombstoned group deleted from the models file is never called for after a restart, so offering Unhide
+			// would reference nothing. The panel's session-sticky observation set gates that; an observed identity
+			// keeps its row even with no live snapshot in this push.
 			const state = buildDashboardState({
 				snapshots: [],
 				reader: makeReader({}),
@@ -1434,8 +1412,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("every external snapshot is tombstone-suppressible: the registry serving path is gone", () => {
-			// Every status-window snapshot is group-backed by construction now, so
-			// a tombstone matching an external row's identity always hides it.
+			// Every status-window snapshot is group-backed by construction now, so a tombstone matching an external
+			// row's identity always hides it.
 			const state = buildState(
 				[
 					{
@@ -1574,9 +1552,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("the injected resolver's entry parameters reach only the resolving snapshot's models", () => {
-			// Two same-label groups at one URL: the responder resolves by the scope
-			// key's server ID, so only the snapshot whose server ID resolves gets
-			// the entry's parameters - a label-keyed lookup would hand them to both.
+			// Two same-label groups at one URL: the responder resolves by the scope key's server ID, so only the
+			// snapshot whose server ID resolves gets the entry's parameters - a label-keyed lookup would hand them to
+			// both.
 			const entryParameters = { "*": { temperature: 0.2 } };
 			const snapshots = [
 				{

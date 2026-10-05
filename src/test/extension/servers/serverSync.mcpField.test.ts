@@ -2,10 +2,8 @@ import * as assert from "node:assert";
 import { parseServersSetting, serverSettingReports } from "../../../extension/servers/serverSync";
 
 /**
- * The `mcp` entry field's acceptance rules. The field is opt-in by presence,
- * so the negative space matters most: nothing here may reject an entry
- * outright, because MCP is not auth - a broken opt-in costs tools, never the
- * server.
+ * The `mcp` entry field's acceptance rules. The field is opt-in by presence, so the negative space matters most:
+ * nothing here may reject an entry outright, because MCP is not auth - a broken opt-in costs tools, never the server.
  */
 
 function entry(mcp: unknown): unknown {
@@ -65,8 +63,8 @@ suite("servers setting: the mcp entry field", () => {
 	});
 
 	test("a malformed opt-in never makes the entry misconfigured", () => {
-		// The Configuration diagnostics distinguish "reported" from "refused":
-		// only auth shape refuses an entry, and MCP must not join it.
+		// The Configuration diagnostics distinguish "reported" from "refused": only auth shape refuses an entry, and
+		// MCP must not join it.
 		const [report] = serverSettingReports([entry({ url: 42, endpoint: "x" })]);
 		assert.strictEqual(report?.accepted, true);
 		assert.deepStrictEqual([...(report?.problems ?? [])].sort(), [
@@ -76,9 +74,8 @@ suite("servers setting: the mcp entry field", () => {
 	});
 
 	test("the url is taken as written: the parser does not second-guess its shape", () => {
-		// The dashboard's write path enforces http(s); the setting stays as
-		// lenient here as it is for baseUrl, so a scheme we did not anticipate
-		// is the user's business.
+		// The dashboard's write path enforces http(s); the setting stays as lenient here as it is for baseUrl, so a
+		// scheme we did not anticipate is the user's business.
 		assert.deepStrictEqual(parseOne({ url: "not a url" }), { mcp: { url: "not a url" }, problems: [] });
 	});
 });

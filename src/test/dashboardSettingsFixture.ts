@@ -1,12 +1,12 @@
 /**
- * The ONE DashboardSettings builder behind every fixture surface: the bun
- * webview fixtures (src/test/bun/webview/fixtures.ts) and the render
- * fixtures' base state (scripts/dev/renderFixtures/shared.ts) both build on
- * it, so a DashboardSettings shape change lands here once instead of drifting
- * between two hand-maintained literals. Defaults mirror package.json's;
- * callers override per test or fixture. Pure data over protocol types - no
- * vscode, no DOM, no runtime imports - so every tsconfig project (root, bun,
- * scripts) can consume it.
+ * The ONE DashboardSettings builder behind every fixture surface: the bun webview fixtures
+ * (src/test/bun/webview/fixtures.ts) and the render fixtures' base state (scripts/dev/renderFixtures/shared.ts) both
+ * build on it, so a DashboardSettings shape change lands here once instead of drifting between two hand-maintained
+ * literals. Pure data over protocol types - no vscode, no DOM, no runtime imports - so every tsconfig project (root,
+ * bun, scripts) can consume it.
+ *
+ *   Defaults -> mirror package.json's
+ *   callers  -> override per test or fixture
  */
 import type { DashboardSettings } from "../dashboard/viewModels";
 

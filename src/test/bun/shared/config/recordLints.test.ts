@@ -1,8 +1,7 @@
 /**
- * Record-level lint pins: the map-wide problems the per-model chain resolution
- * can never report because no live model visits the record. The Diagnostics tab
- * renders these, so what counts as a problem - and what stays silent - is
- * pinned here at the source.
+ * Record-level lint pins: the map-wide problems the per-model chain resolution can never report because no live model
+ * visits the record. The Diagnostics tab renders these, so what counts as a problem - and what stays silent - is pinned
+ * here at the source.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -29,8 +28,8 @@ describe("shared/config record-level lints", () => {
 	});
 
 	test("an unknown _inherit_from key reports even on a record NO model matches - the lint's whole point", () => {
-		// The key matches nothing in any live catalog, so resolveRecordChain never
-		// walks it; only the record-level lint can surface the dangling name.
+		// The key matches nothing in any live catalog, so resolveRecordChain never walks it; only the record-level lint
+		// can surface the dangling name.
 		const diagnostics = lintParameterRecords({
 			"no-model-is-named-this*": { temperature: 1, _inherit_from: ["defaults"] },
 		});
@@ -86,15 +85,13 @@ describe("shared/config record-level lints", () => {
 			{ kind: "invalid-value", recordKey: "gpt*", key: "supports_vision" },
 			{ kind: "wrong-record-type", recordKey: "gpt*", key: "_force" },
 		]);
-		// The unrecognized field is advisory, not gating: the record keeps it.
 		assert.deepStrictEqual(parseCapabilityRecord({ supports_levitation: true }).fields, {
 			supports_levitation: true,
 		});
 	});
 
 	test("lintRecordMap deduplicates identical diagnostics from one record", () => {
-		// Two invalid _inheritable entries collapse to one report, matching the
-		// chain walk's dedup.
+		// Two invalid _inheritable entries collapse to one report, matching the chain walk's dedup.
 		const diagnostics = lintRecordMap({ "gpt*": { temperature: 1, _inheritable: [1, 2] } }, parseParameterRecord);
 		assert.deepStrictEqual(diagnostics, [{ kind: "invalid-directive", recordKey: "gpt*", key: "_inheritable" }]);
 	});

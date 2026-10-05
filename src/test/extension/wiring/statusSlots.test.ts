@@ -1,10 +1,3 @@
-/**
- * The wiring layer's status-item lane assignment: the two wiring modules that construct
- * status items claim DISTINCT slots (wiring/ui.ts the connection item, wiring/dashboard.ts
- * the usage item), each exactly once per activation, so composing both modules yields one
- * live item per slot.
- */
-
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { UsagePoller } from "../../../extension/servers/usage";
@@ -54,9 +47,8 @@ suite("extension/wiring statusSlots", () => {
 			onDidStartRefresh: () => ({ dispose() {} }),
 		} as unknown as Pick<UsagePoller, "store" | "onDidRefresh" | "onDidStartRefresh">;
 		try {
-			// The usage wiring registers openUsage, which the activated dev extension
-			// already owns in this host; capture instead of colliding. Stubbed inside
-			// the try so a throw below still restores it.
+			// The usage wiring registers openUsage, which the activated dev extension already owns in this host;
+			// capture instead of colliding. Stubbed inside the try so a throw below still restores it.
 			(vscode.commands as Record<string, unknown>).registerCommand = () => ({ dispose() {} });
 			wireStatusSurfaces(
 				context,
@@ -68,9 +60,7 @@ suite("extension/wiring statusSlots", () => {
 				usagePoller: fakePoller,
 				dashboard: { open: () => {}, refresh: () => {} },
 			});
-			// One live item per slot, both slots, and no self-heal replacement: each
-			// module stayed in its lane. The delta pins the wiring layer's whole
-			// status-item inventory, so a new slot must update it deliberately.
+			// The delta pins the wiring layer's whole status-item inventory, so a new slot must update it deliberately.
 			assert.deepStrictEqual([...liveStatusItemSlots()].sort(), ["connection", "usage"]);
 			assert.strictEqual(realStatusItemCreationCount() - before, 2);
 			assert.ok(

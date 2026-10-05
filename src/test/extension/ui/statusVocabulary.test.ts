@@ -1,9 +1,8 @@
 /**
- * The host half of the cross-surface serving-vocabulary pin (the bun webview
- * suite is the other half; src/test/statusVocabulary.ts is the shared table):
- * for every window state, the status bar, the notifier, the shared verdict,
- * and the diagnostics paste line must say what the table says, and the table's
- * hand-written dashboard rows must be what the REAL state builder produces.
+ * The host half of the cross-surface serving-vocabulary pin (the bun webview suite is the other half;
+ * src/test/statusVocabulary.ts is the shared table): for every window state, the status bar, the notifier, the shared
+ * verdict, and the diagnostics paste line must say what the table says, and the table's hand-written dashboard rows
+ * must be what the REAL state builder produces.
  */
 
 import * as assert from "node:assert";
@@ -36,9 +35,8 @@ const IMMEDIATE_TIMER: Timer = {
 const EMPTY_READER: SettingsReader = { get: () => undefined, inspect: () => ({ defaultValue: undefined }) };
 
 /**
- * The row's declared rows as sync-engine views: what the state builder joins
- * and what the bar's and notifier's overlay reads, with the row's sync
- * failures riding as syncFailure - the same one input on every surface.
+ * The row's declared rows as sync-engine views: what the state builder joins and what the bar's and notifier's overlay
+ * reads, with the row's sync failures riding as syncFailure - the same one input on every surface.
  */
 function declaredViews(row: WindowStateRow): DeclaredServerView[] {
 	return row.rows
@@ -56,10 +54,9 @@ function declaredViews(row: WindowStateRow): DeclaredServerView[] {
 }
 
 /**
- * The row's misconfigured rows as the parser's entry reports: what
- * serverSettingReports hands the state builder for an entry it refused, so the
- * mirror exercises the builder's misconfigured-row branch rather than assuming
- * the hand-written literal.
+ * The row's misconfigured rows as the parser's entry reports: what serverSettingReports hands the state builder for an
+ * entry it refused, so the mirror exercises the builder's misconfigured-row branch rather than assuming the
+ * hand-written literal.
  */
 function rejectedReports(row: WindowStateRow): ServerEntryReport[] {
 	return row.rows
@@ -110,13 +107,11 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 	});
 
 	test("the dashboard rows are what the REAL state builder makes of the window", () => {
-		// The one-vocabulary pin behind the modelCount/declaredModelCount split:
-		// the table's rows are hand-written for the bun suite, so this test
-		// rebuilds them through buildDashboardState and proves the mirror holds -
-		// same state, the SAME served count, same expectedness, same notices -
-		// field by field. Hidden window statuses become tombstones, the way the
-		// removal store feeds the real builder; parser-refused entries ride in as
-		// the entry reports serverSettingReports would produce for them.
+		// The one-vocabulary pin behind the modelCount/declaredModelCount split: the table's rows are hand-written for
+		// the bun suite, so this test rebuilds them through buildDashboardState and proves the mirror holds - same
+		// state, the SAME served count, same expectedness, same notices - field by field. Hidden window statuses become
+		// tombstones, the way the removal store feeds the real builder; parser-refused entries ride in as the entry
+		// reports serverSettingReports would produce for them.
 		for (const row of WINDOW_STATE_ROWS) {
 			const declaredRows = row.rows.filter((server) => server.origin === "declared");
 			const rejects = rejectedReports(row);
@@ -132,12 +127,12 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 					origins: [],
 				},
 			});
-			// Exactly the table's rows, no extras: a builder inventing a row would
-			// change every verdict without failing a per-row lookup.
+			// Exactly the table's rows, no extras: a builder inventing a row would change every verdict without failing
+			// a per-row lookup.
 			assert.strictEqual(state.servers.length, declaredRows.length + rejects.length, `${row.name}: row count`);
 			assert.strictEqual(state.hiddenGroups.length, row.hiddenGroups ?? 0, `${row.name}: hidden groups`);
-			// The builder's merged served count is the same reduce the bar's
-			// totalModels uses, so the hero can never contradict the table.
+			// The builder's merged served count is the same reduce the bar's totalModels uses, so the hero can never
+			// contradict the table.
 			assert.strictEqual(state.servedModelCount, row.totalModels, `${row.name}: servedModelCount`);
 			for (const expected of declaredRows) {
 				const built = state.servers.find((server) => server.label === expected.label);
@@ -163,8 +158,8 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 					assert.strictEqual(built.error, expected.error, `${row.name}: error of "${expected.label}"`);
 				}
 			}
-			// The misconfigured mirror is the whole row: the builder derives every
-			// field of a parser-refused entry's row from the report alone.
+			// The misconfigured mirror is the whole row: the builder derives every field of a parser-refused entry's
+			// row from the report alone.
 			for (const expected of row.rows.filter((server) => server.origin === "misconfigured")) {
 				const built = state.servers.find((server) => server.label === expected.label);
 				assert.ok(built !== undefined, `${row.name}: the builder must produce the "${expected.label}" reject row`);
@@ -174,9 +169,8 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 	});
 
 	test("the table's totalModels is the merged count reportMerged derives from the window", () => {
-		// The claim asserted against the REAL reporter: record the row's window
-		// into a StatusWindow and read the merged report back, so the table's
-		// count can never drift from the reduce reportMerged actually runs.
+		// The claim asserted against the REAL reporter: record the row's window into a StatusWindow and read the merged
+		// report back, so the table's count can never drift from the reduce reportMerged actually runs.
 		const groupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "" };
 		const nothingServed = { discovered: [], declared: [] } as const;
 		for (const row of WINDOW_STATE_ROWS) {
@@ -188,9 +182,8 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			const reports: AggregatedStatus[] = [];
 			reporter.setCallback((status) => reports.push(status));
 			for (const status of row.window) {
-				// The ok branch carries the observations parameter the error
-				// overload forbids; passing none, the arms differ only in which
-				// overload they satisfy, and merging them stops compiling.
+				// The ok branch carries the observations parameter the error overload forbids; passing none, the arms
+				// differ only in which overload they satisfy, and merging them stops compiling.
 				if (status.state === "ok") {
 					window.record(status, nothingServed, groupServer, {});
 				} else {
@@ -285,8 +278,8 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 	test("the notifier toasts each window state with the table's kind, or stays silent", () => {
 		for (const row of WINDOW_STATE_ROWS) {
 			toasts.length = 0;
-			// Zero grace on an immediate timer: the deferred no-servers claim (the
-			// not-configured row) fires inside the test instead of 15s later.
+			// Zero grace on an immediate timer: the deferred no-servers claim (the not-configured row) fires inside the
+			// test instead of 15s later.
 			const notifier = new Notifier(
 				() => row.configured,
 				() => declaredViews(row),

@@ -10,13 +10,6 @@ import { captureRequestBody, createConfiguredProvider, userMessage, withConfig }
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
-/**
- * The pass-through invariant, end to end: this suite drives
- * provideLanguageModelChatResponse through msw and asserts the captured HTTP body carries
- * exactly the provider-owned fields plus the user-set keys, with runtime options > picker
- * configuration > configured parameters.
- */
-
 const OWNED_KEYS = ["model", "messages", "stream", "stream_options", "max_tokens", "tools", "tool_choice"] as const;
 const OWNED_KEY_SET: ReadonlySet<string> = new Set(OWNED_KEYS);
 
@@ -26,9 +19,8 @@ const RESERVED_KEYS = new Set(["constructor", "prototype", "__proto__"]);
 const safeKeyChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
 const safeKey = fc.string({ unit: safeKeyChar, minLength: 1, maxLength: 10 }).filter((key) => !RESERVED_KEYS.has(key));
 
-// A small shared pool makes cross-source collisions common enough for the
-// precedence branch to run; reasoning_effort collides with the picker mapping on
-// purpose. max_tokens stays out: it has its own property below.
+// A small shared pool makes cross-source collisions common enough for the precedence branch to run; reasoning_effort
+// collides with the picker mapping on purpose. max_tokens stays out: it has its own property below.
 const SHARED_POOL_KEYS = ["temperature", "top_p", "seed", "reasoning_effort"] as const;
 
 const bodyKey = fc.oneof(
@@ -40,9 +32,8 @@ const bodyKey = fc.oneof(
 const sourceRecord = fc.dictionary(bodyKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 5 });
 
 /**
- * The picker's reasoningEffort choice: built-in levels, an unknown level
- * string (the vocabulary is open, so it forwards as-is), the default
- * sentinel, non-string junk, or no configuration at all.
+ * The picker's reasoningEffort choice: built-in levels, an unknown level string (the vocabulary is open, so it forwards
+ * as-is), the default sentinel, non-string junk, or no configuration at all.
  */
 const pickerArb = fc.constantFrom<unknown>(...DEFAULT_REASONING_EFFORT_LEVELS, "default", "extreme", 42, undefined);
 
@@ -61,7 +52,6 @@ const messagesArb = fc
 	.array(fc.string({ unit: safeKeyChar, minLength: 1, maxLength: 12 }), { minLength: 1, maxLength: 2 })
 	.map((texts) => texts.map(userMessage));
 
-/** Drop the keys the provider owns or reserves; what remains must pass through verbatim. */
 function passthrough(source: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(source).filter(([key]) => !OWNED_KEY_SET.has(key) && !key.startsWith("_")));
 }
@@ -84,8 +74,8 @@ suite("provider/request full-pipeline pass-through properties", () => {
 				toolsArb,
 				messagesArb,
 				async (modelParams, modelOptions, picker, tools, messages) => {
-					// captureRequestBody stacks a fresh handler set per call; reset so
-					// a long nightly run does not accumulate hundreds of handlers.
+					// captureRequestBody stacks a fresh handler set per call; reset so a long nightly run does not
+					// accumulate hundreds of handlers.
 					mswServer.resetHandlers();
 					const body = await withConfig({ "models.parameters": { "test-model": modelParams } }, () =>
 						captureRequestBody(
@@ -101,7 +91,6 @@ suite("provider/request full-pipeline pass-through properties", () => {
 						)
 					);
 
-					// Provider-owned fields are provider-authored, whatever the sources held.
 					assert.strictEqual(body.model, "test-model");
 					assert.strictEqual(body.stream, true);
 					assert.deepStrictEqual(body.stream_options, { include_usage: true });
@@ -116,9 +105,6 @@ suite("provider/request full-pipeline pass-through properties", () => {
 						assert.ok(!("tool_choice" in body));
 					}
 
-					// Everything else: the merged user-set keys, later sources winning.
-					// Any picked string except the sentinel is a user-set level (open
-					// vocabulary); non-strings drop.
 					const pickerMapped = typeof picker === "string" && picker !== "default" ? { reasoning_effort: picker } : {};
 					const expected = { ...passthrough(modelParams), ...pickerMapped, ...passthrough(modelOptions) };
 					const ownedAndTools: ReadonlySet<string> = new Set([...OWNED_KEYS]);
@@ -147,9 +133,8 @@ suite("provider/request full-pipeline pass-through properties", () => {
 								...(optionsMax !== undefined ? { modelOptions: { max_tokens: optionsMax } } : {}),
 							})
 					);
-					// The hand-built model info carries no server-declared output limit,
-					// so the fallback stays under the 4096 cap; the declared-uncapped arm
-					// is pinned by requestContract.test.ts.
+					// The hand-built model info carries no server-declared output limit, so the fallback stays under
+					// the 4096 cap; the declared-uncapped arm is pinned by requestContract.test.ts.
 					const expected = optionsMax ?? paramsMax ?? Math.min(4096, modelMax);
 					assert.strictEqual(body.max_tokens, expected);
 				}

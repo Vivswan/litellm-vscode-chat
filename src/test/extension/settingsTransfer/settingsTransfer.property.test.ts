@@ -139,17 +139,16 @@ suite("extension/settingsTransfer property: secret surgery", () => {
 						continue;
 					}
 					const stripped = stripEntrySecrets(raw);
-					// The stripped entry carries no inline secret, and a second strip
-					// finds nothing (idempotence), certification verdict included.
+					// The stripped entry carries no inline secret, and a second strip finds nothing (idempotence),
+					// certification verdict included.
 					const again = stripEntrySecrets(stripped.entry);
 					assert.deepStrictEqual(again.secrets, {});
 					assert.deepStrictEqual(again.entry, stripped.entry);
 					assert.strictEqual(again.unsanitizable, stripped.unsanitizable);
 
-					// Stripping never degrades an entry: an accepted one stays accepted
-					// with identical diagnostics, a rejected one keeps a subset of its
-					// problems or heals (stripping an ambiguous oauth-plus-apiKey shape
-					// is mandatory and can unmask diagnostics the early return hid).
+					// Stripping never degrades an entry: an accepted one stays accepted with identical diagnostics, a
+					// rejected one keeps a subset of its problems or heals (stripping an ambiguous oauth-plus-apiKey
+					// shape is mandatory and can unmask diagnostics the early return hid).
 					const beforeReport = serverSettingReports([raw])[0];
 					const afterReport = serverSettingReports([stripped.entry])[0];
 					const before = beforeReport?.problems ?? [];
@@ -261,9 +260,8 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 						const blob = blobs[original.label] ?? {};
 
 						if (!includeSecrets) {
-							// No placeholders, no secrets: the applied entry is the stripped
-							// original, and its group args are the original's minus every
-							// secret field.
+							// No placeholders, no secrets: the applied entry is the stripped original, and its group
+							// args are the original's minus every secret field.
 							assert.deepStrictEqual(write.secrets, {});
 							const expected = Object.fromEntries(
 								Object.entries(buildGroupArgs(original, {})).filter(
@@ -274,9 +272,8 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 							continue;
 						}
 
-						// With secrets: the written blob is the original EFFECTIVE value
-						// per field (inline, trimmed, beats stored) for every field the
-						// entry's shape gives a home; homeless stored fields count as
+						// With secrets: the written blob is the original EFFECTIVE value per field (inline, trimmed,
+						// beats stored) for every field the entry's shape gives a home; homeless stored fields count as
 						// unmaterialized.
 						const legal = (field: (typeof SECRET_FIELD_IDS)[number]): boolean =>
 							field === "apiKey" ||
@@ -290,8 +287,8 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 							}
 						}
 						assert.deepStrictEqual({ ...write.secrets }, expectedSecrets);
-						// The group args after import (stripped entry + written blob)
-						// match the original's minus its homeless stored fields.
+						// The group args after import (stripped entry + written blob) match the original's minus its
+						// homeless stored fields.
 						const prunedBlob = Object.fromEntries(
 							Object.entries(blob).filter(([field]) => legal(field as (typeof SECRET_FIELD_IDS)[number]))
 						) as StoredServerSecrets;
@@ -347,16 +344,15 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 					const currentEntry = acceptedEntry(servers, collision.label)?.entry;
 					const incomingEntry = acceptedEntry(incomingArray, collision.label)?.entry;
 					assert.ok(currentEntry !== undefined && incomingEntry !== undefined);
-					// The flag's ground truth: would the engine's group args actually
-					// change? The current side resolves against the label's blob; the
-					// incoming side's inline values become its blob at apply time.
+					// The flag's ground truth: would the engine's group args actually change? The current side resolves
+					// against the label's blob; the incoming side's inline values become its blob at apply time.
 					const argsChange =
 						JSON.stringify(buildGroupArgs(incomingEntry, {})) !==
 						JSON.stringify(buildGroupArgs(currentEntry, blobs[collision.label] ?? {}));
 					assert.strictEqual(collision.connectionChanged, argsChange, collision.label);
 				}
-				// The headline no-false-positive case: when every stored field found
-				// an inline home, a self-import changes nothing and none may flag.
+				// The headline no-false-positive case: when every stored field found an inline home, a self-import
+				// changes nothing and none may flag.
 				if (exported.unmaterializedSecretCount === 0) {
 					assert.deepStrictEqual(
 						plan.collisions.filter((collision) => collision.connectionChanged),
@@ -445,14 +441,13 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 	}
 
 	/**
-	 * The documented resolution rules restated from the RAW incoming array,
-	 * independently of resolveImportPlan and serverSettingReports: per label, the
-	 * parser's claimant (first element with a usable label AND baseUrl) lands, or
-	 * the first labeled element when nothing claims; collisions follow the
-	 * decisions; invalid rename targets, shadowed siblings, and uncertifiable
-	 * auth shapes drop. Landing labels carry their source index so the assertions
-	 * can pin WHICH element landed. Shares no resolution code with the
-	 * implementation, so the two cannot drift together.
+	 * The documented resolution rules restated from the RAW incoming array, independently of resolveImportPlan and
+	 * serverSettingReports: per label, the parser's claimant (first element with a usable label AND baseUrl) lands, or
+	 * the first labeled element when nothing claims; collisions follow the decisions; invalid rename targets, shadowed
+	 * siblings, and uncertifiable auth shapes drop. Landing labels carry their source index so the assertions can pin
+	 * WHICH element landed.
+	 *
+	 *   Shares no resolution code with the implementation -> the two cannot drift together
 	 */
 	function expectedOutcomes(
 		incoming: readonly unknown[],
@@ -575,9 +570,8 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 					assert.strictEqual(application.counts.overwritten, expected.overwritten.length);
 					assert.strictEqual(application.counts.skipped, expected.skipped);
 
-					// The entry and secrets a landing label carries are the oracle's
-					// representative element, stripped - pinned by content so a resolver
-					// picking the wrong same-label element cannot pass on counts alone.
+					// The entry and secrets a landing label carries are the oracle's representative element, stripped -
+					// pinned by content so a resolver picking the wrong same-label element cannot pass on counts alone.
 					const expectedLanding = (label: string, index: number) => {
 						const raw = incoming[index];
 						assert.ok(isRecord(raw));
@@ -610,8 +604,8 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 
 					if (application.serversValue !== undefined) {
 						assert.strictEqual(application.serversValue.length, base.length + expected.appended.length);
-						// The appended tail corresponds 1:1, in order and by content,
-						// to the landing new and renamed representatives.
+						// The appended tail corresponds 1:1, in order and by content, to the landing new and renamed
+						// representatives.
 						assert.deepStrictEqual(
 							application.serversValue.slice(base.length),
 							expected.appended.map((outcome) => expectedLanding(outcome.label, outcome.index).entry)
@@ -624,8 +618,7 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 								overwriteByLabel.has(label) &&
 								base.findIndex((candidate) => rawLabelOf(candidate) === label) === index;
 							if (isOverwriteTarget && label !== undefined) {
-								// Replaced IN PLACE: same index, and by content the
-								// representative element, stripped.
+								// Replaced IN PLACE: same index, and by content the representative element, stripped.
 								const sourceIndex = overwriteByLabel.get(label);
 								assert.ok(sourceIndex !== undefined);
 								assert.deepStrictEqual(application.serversValue?.[index], expectedLanding(label, sourceIndex).entry);

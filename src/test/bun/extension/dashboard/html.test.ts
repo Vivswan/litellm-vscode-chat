@@ -104,8 +104,8 @@ describe("extension/dashboard/html", () => {
 	});
 
 	test("an empty bundle still renders the inline script (defined means injected)", () => {
-		// Only undefined suppresses the script; {} rides through so the host's
-		// and the page's notion of "a bundle was provided" cannot diverge.
+		// Only undefined suppresses the script; {} rides through so the host's and the page's notion of "a bundle was
+		// provided" cannot diverge.
 		const html = buildDashboardHtml({ ...options, l10nBundle: {} });
 
 		assert.ok(html.includes(`<script nonce="${options.nonce}">window.__l10nBundle = {};</script>`), html);
@@ -114,8 +114,6 @@ describe("extension/dashboard/html", () => {
 		const html = buildDashboardHtml({ ...options, theme: "dark", accent: "violet" });
 		assert.ok(html.includes('data-theme="dark"'), html.slice(0, 200));
 		assert.ok(html.includes('data-accent="violet"'), html.slice(0, 200));
-		// Both are closed vocabularies extension-side, but the shell escapes
-		// everything it interpolates rather than trusting its callers.
 		assert.ok(!buildDashboardHtml({ ...options, theme: "auto" }).includes('data-theme="light"'));
 	});
 });

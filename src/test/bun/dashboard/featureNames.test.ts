@@ -1,10 +1,6 @@
 /**
- * The feature-name registry's resolution policy: both grammatical forms
- * resolve through l10n at call time (a configured bundle re-points them), the
- * sentence form's English mirror equals its own l10n key and ignores the
- * bundle, and the PascalCase log surface ignores it too. The keys themselves
- * are read off the registry under the empty bundle, where t() returns its key,
- * so this suite restates no table.
+ * The keys themselves are read off the registry under the empty bundle, where t() returns its key, so this suite
+ * restates no table.
  */
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -18,8 +14,8 @@ const FORMS = ["title", "sentence"] as const;
 
 describe("dashboard featureNames registry", () => {
 	beforeAll(() => {
-		// l10n configuration is module-global and sticky; pin the empty bundle so
-		// t() returns its keys here regardless of which suites ran before.
+		// l10n configuration is module-global and sticky; pin the empty bundle so t() returns its keys here regardless
+		// of which suites ran before.
 		l10n.config({ contents: {} });
 	});
 

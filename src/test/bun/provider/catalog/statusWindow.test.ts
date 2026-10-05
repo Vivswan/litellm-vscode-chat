@@ -1,10 +1,8 @@
 /**
- * The stale-serve window against the StatusWindow directly: the configured
- * discovery.staleServeWindow bounds staleServableModels exactly (0 disables
- * stale serving), while eviction only GROWS with the window and never shrinks
- * below its ten-minute floor. Both directions are load-bearing: a suspended
- * host must not lose the success anchor a longer window promises to serve from,
- * and a zero window must not evict mid-sweep entries the one-cycle grace keeps
+ * The stale-serve window against the StatusWindow directly: the configured discovery.staleServeWindow bounds
+ * staleServableModels exactly (0 disables stale serving), while eviction only GROWS with the window and never shrinks
+ * below its ten-minute floor. Both directions are load-bearing: a suspended host must not lose the success anchor a
+ * longer window promises to serve from, and a zero window must not evict mid-sweep entries the one-cycle grace keeps
  * visible.
  */
 import { describe, expect, test } from "bun:test";
@@ -24,9 +22,8 @@ const models = [{ id: "test-model" } as PreAttachModelInfo];
 const served = { discovered: models, declared: [] };
 const NOTHING_SERVED = { discovered: [], declared: [] };
 
-// Failure reports below record the EMPTY list, exactly like groupDiscovery's
-// out-of-window failure path: stale retention must come from the recorded
-// success, never from a failure report's payload.
+// Failure reports below record the EMPTY list, exactly like groupDiscovery's out-of-window failure path: stale
+// retention must come from the recorded success, never from a failure report's payload.
 
 function okStatus(serverId = "s1"): Extract<ServerStatus, { state: "ok" }> {
 	const common = { serverId, label: "Default", baseUrl: "http://litellm.test", lastChecked: "now" };
@@ -38,7 +35,6 @@ function errorStatus(serverId = "s1"): ServerStatusError {
 	return { ...common, state: "error", error: "boom", logSafeError: markLogSafe("boom"), servedModelCount: 0 };
 }
 
-/** A window on a fake clock with a mutable configured stale-serve window. */
 function makeWindow(initialWindowMs: number) {
 	const clock = { nowMs: 1_000_000 };
 	const config = { windowMs: initialWindowMs };
@@ -94,9 +90,8 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 	});
 
 	test("eviction grows with the window: a report gap longer than the floor keeps the anchor alive", () => {
-		// The suspended-host scenario: last report 30 minutes ago, then a new sweep
-		// begins. Under a fixed TTL the cycle boundary would evict the entry and
-		// lose the recorded success before the failing refresh could serve from it.
+		// The suspended-host scenario: last report 30 minutes ago, then a new sweep begins. Under a fixed TTL the cycle
+		// boundary would evict the entry and lose the recorded success before the failing refresh could serve from it.
 		const { window, clock } = makeWindow(60 * MINUTE_MS);
 		window.record(okStatus(), served, groupServer, { discoveredRawIds: ["test-model"] });
 
@@ -120,8 +115,6 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 		const { window, clock } = makeWindow(0);
 		window.record(okStatus(), served, groupServer, { discoveredRawIds: ["test-model"] });
 
-		// One cycle boundary minutes later: the one-cycle grace plus the
-		// eviction floor keep the entry visible for the merged status view.
 		clock.nowMs += 5 * MINUTE_MS;
 		window.beginCycle();
 		expect(window.serverIds()).toEqual(["s1"]);
@@ -130,8 +123,8 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 
 describe("provider/catalog/statusWindow: the failure-record contract", () => {
 	test("failure reports carry the last success's raw IDs forward into the stale bundle", () => {
-		// Declared-ID inertness during an outage judges against this set, so a
-		// mid-outage failure report must not blank it.
+		// Declared-ID inertness during an outage judges against this set, so a mid-outage failure report must not blank
+		// it.
 		const { window, clock } = makeWindow(DEFAULT_WINDOW_MS);
 		window.record(okStatus(), served, groupServer, { discoveredRawIds: ["test-model"] });
 
@@ -165,9 +158,8 @@ describe("provider/catalog/statusWindow: declared models in the served record", 
 		const { window, clock } = makeWindow(DEFAULT_WINDOW_MS);
 		window.record(okStatus(), { discovered: models, declared }, groupServer, { discoveredRawIds: ["test-model"] });
 
-		// A mid-outage failure still serving the declared model records it, but
-		// the stale-servable bundle must stay declared-free: declared models are
-		// config-rebuilt every serve, so a staled copy would resurrect a removed
+		// A mid-outage failure still serving the declared model records it, but the stale-servable bundle must stay
+		// declared-free: declared models are config-rebuilt every serve, so a staled copy would resurrect a removed
 		// declaration and collide with the fresh synthesis.
 		clock.nowMs += MINUTE_MS;
 		window.record(errorStatus(), { discovered: [], declared }, groupServer);
@@ -252,8 +244,8 @@ describe("provider/catalog/statusWindow: observed labeled group identities", () 
 		expect(window.observedGroupBaseUrls("bare.test")).toEqual([]);
 		expect(window.observedGroupBaseUrls("Never")).toEqual([]);
 
-		// Live, not historical: an evicted group is no evidence, and its return
-		// is an entry again (the sync engine re-runs on it).
+		// Live, not historical: an evicted group is no evidence, and its return is an entry again (the sync engine
+		// re-runs on it).
 		clock.nowMs += 3 * DEFAULT_WINDOW_MS;
 		window.beginCycle();
 		window.beginCycle();

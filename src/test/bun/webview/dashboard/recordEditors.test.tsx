@@ -1,8 +1,3 @@
-/**
- * The record editors: the table's cascade-sorted VIEW over unrewritten storage order, the combined field chips
- * with flag badges, the chip and [+] popovers, the full matcher editor overlay, the Edit-as-JSON side door,
- * the read-only other-scope tables, and the draft-and-apply lifecycle (useDraftRows).
- */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { newParamRow } from "../../../../dashboard/recordDraft";
@@ -62,7 +57,10 @@ function settingsWithCaps(value: Record<string, Record<string, unknown>>) {
 	return makeSettings({ modelCapabilities: { editScope: "global", value, otherScopes: [], effective: value } });
 }
 
-/** The posted record writes as method+value pairs (each envelope id asserted present); Apply mints a fresh id per post. */
+/**
+ * The posted record writes as method+value pairs (each envelope id asserted present); Apply mints a fresh id per
+ * post.
+ */
 function postedRecordWrites(): { type: string; value: unknown }[] {
 	return postedMessages.map((message) => {
 		expect(typeof message.id).toBe("string");
@@ -70,7 +68,6 @@ function postedRecordWrites(): { type: string; value: unknown }[] {
 	});
 }
 
-/** The last posted write's correlation id, for pushing its correlated outcome notice. */
 function lastRequestId(): string {
 	return (postedMessages.at(-1) as { id: string }).id;
 }
@@ -80,7 +77,6 @@ function ackLastWrite(method: "setModelParameters" | "setModelCapabilities" = "s
 	pushToWebview({ kind: "ack", id: lastRequestId(), method });
 }
 
-/** The open matcher editor overlay inside the scope; throws when none is open. */
 function overlayOf(scope: HTMLElement): HTMLElement {
 	const overlay = scope.querySelector<HTMLElement>(".matcher-editor");
 	if (overlay === null) {
@@ -89,7 +85,6 @@ function overlayOf(scope: HTMLElement): HTMLElement {
 	return overlay;
 }
 
-/** Open the full matcher editor for one table row through its pencil action. */
 function openEditorFor(scope: HTMLElement, prefix: string): HTMLElement {
 	const pencil = Array.from(scope.querySelectorAll("button")).find(
 		(candidate) => candidate.getAttribute("aria-label") === `Open the full editor for "${prefix}"`
@@ -101,7 +96,6 @@ function openEditorFor(scope: HTMLElement, prefix: string): HTMLElement {
 	return overlayOf(scope);
 }
 
-/** The field chip button whose visible key matches (editable tables render chips as buttons). */
 function chipFor(scope: HTMLElement, key: string): HTMLButtonElement {
 	const chip = Array.from(scope.querySelectorAll("button.chip-field")).find(
 		(candidate) => candidate.querySelector(".chip-key")?.textContent === key
@@ -112,7 +106,6 @@ function chipFor(scope: HTMLElement, key: string): HTMLButtonElement {
 	return chip as HTMLButtonElement;
 }
 
-/** The open chip popover inside the scope; throws when none is open. */
 function popoverOf(scope: HTMLElement): HTMLElement {
 	const popover = scope.querySelector<HTMLElement>(".chip-popover");
 	if (popover === null) {
@@ -121,19 +114,16 @@ function popoverOf(scope: HTMLElement): HTMLElement {
 	return popover;
 }
 
-/** The table rows' matcher keys in DISPLAY order. */
 function matcherKeys(scope: HTMLElement): string[] {
 	return Array.from(scope.querySelectorAll(".record-table .matcher-key")).map((cell) => cell.textContent ?? "");
 }
 
-/** The visible field-chip keys of the table (add chips excluded), flag badges not included. */
 function chipKeys(scope: HTMLElement): string[] {
 	return Array.from(scope.querySelectorAll(".record-table .chip-field:not(.chip-add) .chip-key")).map(
 		(key) => key.textContent ?? ""
 	);
 }
 
-/** The flag badges riding on the chip that carries the given key. */
 function chipFlagsOf(scope: HTMLElement, key: string): string[] {
 	const chip = Array.from(scope.querySelectorAll(".chip-field")).find(
 		(candidate) => candidate.querySelector(".chip-key")?.textContent === key
@@ -144,7 +134,6 @@ function chipFlagsOf(scope: HTMLElement, key: string): string[] {
 	return Array.from(chip.querySelectorAll(".chip-flag")).map((flag) => flag.textContent ?? "");
 }
 
-/** Build a fresh one-field draft through the real UI, leaving it dirty but unapplied. */
 function draftOneParam(section: () => HTMLElement, prefix: string, key: string, value: string): void {
 	fireClick(buttonByText(section(), "Add model matcher"));
 	const editor = () => overlayOf(section());
@@ -159,8 +148,8 @@ function draftOneParam(section: () => HTMLElement, prefix: string, key: string, 
 
 test("rows display in precedence order, lowest first, while the stored key order is never rewritten", () => {
 	const root = mount(<App />);
-	// Storage order is deliberately scrambled; regex precedence IS declaration
-	// order, so the JSON must keep exactly this order while the VIEW sorts.
+	// Storage order is deliberately scrambled; regex precedence IS declaration order, so the JSON must keep exactly
+	// this order while the VIEW sorts.
 	const record = {
 		"gpt-4": { temperature: 1 },
 		"/gpt-.*/": { top_p: 0.5 },
@@ -171,15 +160,12 @@ test("rows display in precedence order, lowest first, while the stored key order
 	pushToWebview(statePush(makeState({ settings: settingsWithParams(record) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	// Catch-all first, then the regex, then globs shorter-prefix-first, then
-	// the exact ID: the cascade reads baseline at the top, overrides below.
+	// Catch-all first, then the regex, then globs shorter-prefix-first, then the exact ID: the cascade reads baseline
+	// at the top, overrides below.
 	expect(matcherKeys(section())).toEqual(["*", "/gpt-.*/", "gpt-4*", "gpt-4-turbo*", "gpt-4"]);
-	// Kind annotations name each tier.
 	const kinds = Array.from(section().querySelectorAll(".matcher-kind")).map((el) => el.textContent);
 	expect(kinds).toEqual(["matches all models", "regex", "prefix match", "prefix match", "exact ID"]);
 
-	// The view order is not an edit: nothing is dirty, and the JSON side door
-	// shows the stored order verbatim.
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 	fireClick(buttonByText(section(), "Edit as JSON"));
 	expect(Object.keys(JSON.parse((section().querySelector("textarea") as HTMLTextAreaElement).value))).toEqual(
@@ -211,16 +197,14 @@ test("fields render as combined chips: key, value preview, and flag badges from 
 	);
 	const section = sectionByHeading(root, "Model parameters");
 
-	// The directive rows are absorbed: no _force or _inheritable chips; their
-	// state rides the field chips as badges.
 	expect(chipKeys(section)).toEqual(["temperature", "top_p"]);
 	expect(chipFlagsOf(section, "temperature")).toEqual(["force"]);
 	expect(chipFlagsOf(section, "top_p")).toEqual(["inheritable"]);
 });
 
 test("directives the controls cannot fully represent keep a raw chip instead of vanishing", () => {
-	// _force naming a parameter no row sets is a stranded mark no badge can
-	// carry, and 42 is no _inheritable value: both keep raw chips.
+	// _force naming a parameter no row sets is a stranded mark no badge can carry, and 42 is no _inheritable value:
+	// both keep raw chips.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
@@ -253,13 +237,11 @@ test("a row's inheritance mark reads everything, nothing, the listed keys, or cu
 		)
 	);
 	const section = sectionByHeading(root, "Model parameters");
-	// Row by row, so the default's blank is pinned to the row that takes it
-	// rather than inferred from a shorter list.
+	// Row by row, so the default's blank is pinned to the row that takes it rather than inferred from a shorter list.
 	const inherits = Array.from(section.querySelectorAll(".record-row")).map((row) => [
 		row.querySelector(".matcher-key")?.textContent,
 		row.querySelector(".inherit-cell")?.textContent ?? null,
 	]);
-	// Display order: *, gpt-4*, gpt-5*, gpt-5-mini*, claude-4.
 	expect(inherits).toEqual([
 		["*", null],
 		["gpt-4*", "inherits everything"],
@@ -267,8 +249,8 @@ test("a row's inheritance mark reads everything, nothing, the listed keys, or cu
 		["gpt-5-mini*", "inherits *"],
 		["claude-4", "inherits custom"],
 	]);
-	// The comma-containing key the Inherits control cannot round-trip keeps
-	// its raw chip; the readable list is absorbed into the column.
+	// The comma-containing key the Inherits control cannot round-trip keeps its raw chip; the readable list is absorbed
+	// into the column.
 	expect(chipKeys(section)).toContain("_inherit_from");
 	const gpt5MiniRow = Array.from(section.querySelectorAll(".record-table .record-row")).find((row) =>
 		row.querySelector(".matcher-key")?.textContent?.includes("gpt-5-mini")
@@ -279,9 +261,9 @@ test("a row's inheritance mark reads everything, nothing, the listed keys, or cu
 });
 
 test("the popover's edge flip measures where it would hang, so a flip holds instead of oscillating", () => {
-	// The flip itself needs layout this runtime does not have (the record-popover-flip render fixture proves it
-	// in a real viewport). What IS provable here is the decision: the popover measures where it WOULD hang
-	// rather than where it sits, so a flip holds through a second measurement instead of oscillating.
+	// The flip itself needs layout this runtime does not have (the record-popover-flip render fixture proves it in a
+	// real viewport). What IS provable here is the decision: the popover measures where it WOULD hang rather than where
+	// it sits, so a flip holds through a second measurement instead of oscillating.
 	const observed: string[] = [];
 	let disconnects = 0;
 	let fire: (() => void) | undefined;
@@ -307,7 +289,6 @@ test("the popover's edge flip measures where it would hang, so a flip holds inst
 		const section = sectionByHeading(root, "Model parameters");
 		fireClick(chipFor(section, "temperature"));
 		const popover = popoverOf(section);
-		// Resting position until something measures otherwise.
 		expect(popover.className).not.toContain("align-above");
 		expect(observed).toEqual(["chip-popover"]);
 		expect(disconnects).toBe(0);
@@ -324,8 +305,8 @@ test("the popover's edge flip measures where it would hang, so a flip holds inst
 
 		act(() => fire?.());
 		expect(popoverOf(section).className).toContain("align-above");
-		// The flip HOLDS: measuring the popover's CURRENT bottom instead would read the flipped position as
-		// having room, clear the flip, and drop it back over the edge once per content change.
+		// The flip HOLDS: measuring the popover's CURRENT bottom instead would read the flipped position as having
+		// room, clear the flip, and drop it back over the edge once per content change.
 		act(() => fire?.());
 		expect(popoverOf(section).className).toContain("align-above");
 
@@ -371,22 +352,18 @@ test("other-scope records render as the same table without edit affordances, chi
 
 	const other = sectionByHeading(root, "Model parameters").querySelector(".other-scope") as HTMLElement;
 	expect(other.textContent).toContain("Set in Workspace settings - edit there.");
-	// The state is information: the force mark shows as a badge on its chip.
 	expect(matcherKeys(other)).toEqual(["gpt-4"]);
 	expect(chipFlagsOf(other, "temperature")).toEqual(["force"]);
-	// No edit affordances: no chip buttons, no add chip, no pencil column.
 	expect(other.querySelector("button.chip-field")).toBeNull();
 	expect(other.querySelector(".chip-add")).toBeNull();
 	expect(other.querySelector(".edit-cell")).toBeNull();
-	// A quiet read-only frame closes flush: no footer row, no message slot.
 	expect(other.querySelector(".editor-actions")).toBeNull();
 });
 
 test("a read-only chip's ignored badge explains itself through the tip primitive", () => {
-	// The read-only chip opens no popover and a native title neither renders
-	// reliably in the webview host nor shows on keyboard focus, so the
-	// wrong-record-type sentence rides a HoverTip: one tab stop with the
-	// sentence as the chip's accessible description.
+	// The read-only chip opens no popover and a native title neither renders reliably in the webview host nor shows on
+	// keyboard focus, so the wrong-record-type sentence rides a HoverTip: one tab stop with the sentence as the chip's
+	// accessible description.
 	const root = mount(<App />);
 	const settings = makeSettings({
 		modelParameters: {
@@ -409,9 +386,9 @@ test("a read-only chip's ignored badge explains itself through the tip primitive
 });
 
 test("a read-only other-scope problem speaks in the frame's own message row", () => {
-	// A read-only chip's invalid mark is a border with no popover behind it, so the frame mounts its
-	// footer-position message row exactly while a problem stands. Static per push, so the conditional row
-	// shifts nothing under a live edit.
+	// A read-only chip's invalid mark is a border with no popover behind it, so the frame mounts its footer-position
+	// message row exactly while a problem stands. Static per push, so the conditional row shifts nothing under a live
+	// edit.
 	const root = mount(<App />);
 	const settings = makeSettings({
 		modelParameters: {
@@ -466,7 +443,6 @@ test("a chip click opens the popover; editing the value writes the draft live an
 	expect(value().value).toBe("0.2");
 	fireInput(value(), "0.7");
 
-	// The chip preview follows the draft keystroke for keystroke.
 	expect(section().querySelector(".chip-field .chip-value")?.textContent).toBe("0.7");
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
@@ -482,9 +458,8 @@ test("popover validation: a bad value marks the chip and blocks Apply; the messa
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
 	expect(popoverOf(section()).textContent).toContain("Not valid JSON");
 	expect(chipFor(section(), "temperature").classList.contains("invalid")).toBe(true);
-	// Regression pin: cn resolves conflicting utilities last-wins, so with the mark listed before the open
-	// state the open chip's border-border swallowed the red border - the chip being edited was the one without
-	// its mark. Plain and reveal-variant border classes must all resolve to the mark while open.
+	// Regression pin: cn resolves conflicting utilities last-wins, so with the mark listed before the open state the
+	// open chip's border-border swallowed the red border - the chip being edited was the one without its mark.
 	const openChip = chipFor(section(), "temperature");
 	expect(openChip.classList.contains("border-err-fill")).toBe(true);
 	expect(openChip.classList.contains("border-border")).toBe(false);
@@ -502,13 +477,12 @@ test("popover validation: a bad value marks the chip and blocks Apply; the messa
 });
 
 test("the popover's status slot is reserved and sits after its actions", () => {
-	// The slot is reserved and sits AFTER the actions, so a message landing per keystroke cannot shove Remove
-	// field under the pointer. The rows carry no slot; the card's verdict rides the footer's message slot.
+	// The slot is reserved and sits AFTER the actions, so a message landing per keystroke cannot shove Remove field
+	// under the pointer. The rows carry no slot; the card's verdict rides the footer's message slot.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	// Clean: no row carries a status line at all, and the card's verdict is unmounted.
 	const cleanRows = Array.from(section().querySelectorAll(".record-row"));
 	expect(cleanRows.length).toBeGreaterThan(0);
 	for (const row of cleanRows) {
@@ -519,8 +493,6 @@ test("the popover's status slot is reserved and sits after its actions", () => {
 	fireClick(chipFor(section(), "temperature"));
 	const popover = popoverOf(section());
 	fireInput(popover.querySelector("input.value") as HTMLInputElement, "not json");
-	// The popover's message renders in its reserved status slot, and the slot
-	// follows the actions in document order.
 	const status = popoverOf(section()).querySelector(".chip-popover-status");
 	expect(status?.querySelector(".error")?.textContent).toContain("Not valid JSON");
 	const actions = popoverOf(section()).querySelector(".chip-popover-actions");
@@ -529,7 +501,6 @@ test("the popover's status slot is reserved and sits after its actions", () => {
 		actions !== null && status !== null && actions.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING
 	).toBeTruthy();
 
-	// Closed, the card's verdict speaks, naming the matcher it belongs to.
 	fireClick(chipFor(section(), "temperature"));
 	const verdict = section().querySelector(".record-verdict");
 	expect(verdict?.classList.contains("error")).toBe(true);
@@ -538,8 +509,8 @@ test("the popover's status slot is reserved and sits after its actions", () => {
 });
 
 test("an invalid chip says so locally: aria-invalid plus its problem as a description", () => {
-	// The card's verdict names the matcher, not the field, and speaks for one
-	// problem at a time - so the chip carries its own, at zero geometry cost.
+	// The card's verdict names the matcher, not the field, and speaks for one problem at a time - so the chip carries
+	// its own, at zero geometry cost.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -552,13 +523,10 @@ test("an invalid chip says so locally: aria-invalid plus its problem as a descri
 	fireClick(chip());
 	expect(chip().getAttribute("aria-invalid")).toBe("true");
 	expect(accessibleDescriptionOf(chip())).toContain("Not valid JSON");
-	// The name still leads with the chip's own content, not the problem.
 	expect(accessibleNameOf(chip())).toContain("temperature");
 });
 
 test("the card's verdict counts the problems it is not showing", () => {
-	// Summarized, not dropped: the worst message plus a count of the rest, and
-	// fixing the worst promotes the next into the line.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 1, top_k: 2 } }) }))
@@ -575,15 +543,14 @@ test("the card's verdict counts the problems it is not showing", () => {
 	expect(section().querySelector(".record-verdict")?.textContent).toContain("(+1 more)");
 	spoil("top_k");
 	expect(section().querySelector(".record-verdict")?.textContent).toContain("(+2 more)");
-	// The count follows the open popover's suppression: the chip stating its
-	// own problem is not counted twice.
+	// The count follows the open popover's suppression: the chip stating its own problem is not counted twice.
 	fireClick(chipFor(section(), "temperature"));
 	expect(section().querySelector(".record-verdict")?.textContent).toContain("(+1 more)");
 });
 
 test("an unrelated popover does not erase the card's verdict", () => {
-	// The open popover states its OWN field's problem, so the verdict skips exactly that one: opening a clean
-	// chip elsewhere must not take the card's only explanation away with it.
+	// The open popover states its OWN field's problem, so the verdict skips exactly that one: opening a clean chip
+	// elsewhere must not take the card's only explanation away with it.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 1 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -591,18 +558,16 @@ test("an unrelated popover does not erase the card's verdict", () => {
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
 	fireClick(chipFor(section(), "temperature"));
 	expect(section().querySelector(".record-verdict")?.textContent).toContain("Not valid JSON");
-	// A clean chip's popover opens: the standing problem is still explained.
 	fireClick(chipFor(section(), "top_p"));
 	expect(section().querySelector(".record-verdict")?.textContent).toContain("Not valid JSON");
-	// The invalid chip's own popover states it, so the card stops repeating it.
 	fireClick(chipFor(section(), "top_p"));
 	fireClick(chipFor(section(), "temperature"));
 	expect(section().querySelector(".record-verdict")).toBeNull();
 });
 
 test("the card's verdict speaks worst first: the matcher's own problem outranks a field's", () => {
-	// One line, one message: with both standing, the structural problem (the matcher key) is the one to fix
-	// first, and the invalid chip's red border still marks the field for later.
+	// One line, one message: with both standing, the structural problem (the matcher key) is the one to fix first,
+	// and the invalid chip's red border still marks the field for later.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 }, " ": { top_p: 1 } }) }))
@@ -617,9 +582,9 @@ test("the card's verdict speaks worst first: the matcher's own problem outranks 
 });
 
 test("no chip suppresses the forced-colors border repaint, and an invalid mark survives the popover closing", () => {
-	// Forced-colors quirk: chips are FILLED at rest and forced colours flatten the fill, so the repainted
-	// transparent border is the resting boundary and a suppression utility would run two chips together. What
-	// marks a chip there is WIDTH - theme.css keys a 2px border on .invalid/.hinted, pinned here by class.
+	// Forced-colors quirk: chips are FILLED at rest and forced colours flatten the fill, so the repainted transparent
+	// border is the resting boundary and a suppression utility would run two chips together. What marks a chip there
+	// is WIDTH - theme.css keys a 2px border on .invalid/.hinted, pinned here by class.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -649,8 +614,8 @@ test("a hinted chip carries the hinted class the forced-colors width rule keys o
 	const hinted = chipFor(section(), "_inheritable");
 	expect(hinted.classList.contains("hinted")).toBe(true);
 	expect(chipFor(section(), "temperature").classList.contains("hinted")).toBe(false);
-	// The amber border is the chip's only resting mark and a border is invisible to a screen reader (a hint
-	// prints no visible row text), so the chip's aria-describedby points at a hidden copy of the hint.
+	// The amber border is the chip's only resting mark and a border is invisible to a screen reader (a hint prints no
+	// visible row text), so the chip's aria-describedby points at a hidden copy of the hint.
 	const describedBy = hinted.getAttribute("aria-describedby");
 	expect(describedBy).not.toBeNull();
 	const description = section().querySelector(`[id="${describedBy}"]`);
@@ -676,12 +641,12 @@ test("a capability directive in a parameters record badges its chip ignored, sen
 	for (const key of ["_openrouter_model", "_fallback"]) {
 		const badge = chipFor(section(), key).querySelector(".chip-flag-ignored");
 		expect(badge?.textContent).toBe("ignored");
-		// The warn text tier, not the accent the user-set flags wear: the tone
-		// is the approved constraint and nothing else pins it.
+		// The warn text tier, not the accent the user-set flags wear: the tone is the approved constraint and nothing
+		// else pins it.
 		expect(badge?.className).toContain("text-warn");
 		const sentence = `"${key}" belongs to capability records and is ignored here`;
-		// No native title: it neither renders reliably in the webview host nor
-		// shows on keyboard focus, so the sentence rides the description alone.
+		// No native title: it neither renders reliably in the webview host nor shows on keyboard focus, so the sentence
+		// rides the description alone.
 		expect(badge?.getAttribute("title")).toBeNull();
 		expect(accessibleDescriptionOf(chipFor(section(), key))).toContain(sentence);
 	}
@@ -730,9 +695,8 @@ test("a parameters directive in a capability record badges ignored; the home-rec
 	expect(accessibleDescriptionOf(chipFor(caps(), "_force"))).toContain(
 		'"_force" belongs to parameters records and is ignored here'
 	);
-	// The home-record directives stay unbadged: `_fallback` absorbs into its
-	// field's badge, the catalog chip is `_openrouter_model` at home, and the
-	// parameters record's own `_force` absorbs likewise.
+	// The home-record directives stay unbadged: `_fallback` absorbs into its field's badge, the catalog chip is
+	// `_openrouter_model` at home, and the parameters record's own `_force` absorbs likewise.
 	expect(caps().querySelectorAll(".chip-flag-ignored")).toHaveLength(1);
 	const params = () => sectionByHeading(root, "Model parameters");
 	expect(params().querySelector(".chip-flag-ignored")).toBeNull();
@@ -757,13 +721,10 @@ test("the matcher editor mounts the ignored badge in its flag cell and wires the
 	const sentence = '"_openrouter_model" belongs to capability records and is ignored here';
 	expect(badge?.textContent).toBe("ignored");
 	expect(badge?.getAttribute("title")).toBeNull();
-	// The overlay's aria-describedby story: the key input that carries the
-	// stranded directive is described by the sentence, not just bordered.
 	const keyInput = Array.from(editor.querySelectorAll<HTMLInputElement>(".rows input.key")).find(
 		(input) => input.value === "_openrouter_model"
 	) as HTMLInputElement;
 	expect(accessibleDescriptionOf(keyInput)).toBe(sentence);
-	// The plain parameter row keeps its checkbox cell and gains no description.
 	const plainKey = Array.from(editor.querySelectorAll<HTMLInputElement>(".rows input.key")).find(
 		(input) => input.value === "temperature"
 	) as HTMLInputElement;
@@ -790,7 +751,6 @@ test("the capability matcher editor badges a parameters directive the same way",
 		(input) => input.value === "_force"
 	) as HTMLInputElement;
 	expect(accessibleDescriptionOf(keyInput)).toBe(sentence);
-	// The capability row keeps its fallback checkbox cell, badge-free.
 	expect(editor.querySelector(`input[aria-label='Fall back for "context_length"']`)).not.toBeNull();
 });
 
@@ -803,7 +763,6 @@ test("the popover's force toggle writes the _force list without a raw chip, and 
 	const force = () => popoverOf(section()).querySelector(`input[aria-label='Force "temperature"']`) as HTMLInputElement;
 	expect(force().checked).toBe(false);
 	fireCheck(force(), true);
-	// The badge is the mark's representation; no _force chip materializes.
 	expect(chipFlagsOf(section(), "temperature")).toEqual(["force"]);
 	expect(chipKeys(section())).toEqual(["temperature"]);
 	resetPosted();
@@ -812,7 +771,6 @@ test("the popover's force toggle writes the _force list without a raw chip, and 
 		{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, _force: ["temperature"] } } },
 	]);
 
-	// Unmarking the last field drops the directive key entirely.
 	fireCheck(force(), false);
 	expect(chipFlagsOf(section(), "temperature")).toEqual([]);
 });
@@ -859,14 +817,11 @@ test("an open popover with a dirty draft survives a state push; without a draft 
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	// Dirty draft: the push must not clobber the draft or drop the popover.
 	fireClick(chipFor(section(), "temperature"));
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "0.9");
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	expect((popoverOf(section()).querySelector("input.value") as HTMLInputElement).value).toBe("0.9");
 
-	// Pristine popover over store rows: a push that removes the field closes
-	// the popover instead of leaving it editing a stale row.
 	fireClick(buttonByText(section(), "Discard"));
 	fireClick(chipFor(section(), "temperature"));
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { top_p: 0.9 } }) })));
@@ -881,7 +836,6 @@ test("the catalog chip's popover edits the ID through the catalog picker", () =>
 		)
 	);
 	const section = () => sectionByHeading(root, "Model capabilities");
-	// The catalog chip's visible key is the plain-language "catalog".
 	fireClick(chipFor(section(), "catalog"));
 	const picker = popoverOf(section()).querySelector(".catalog-picker input") as HTMLInputElement;
 	expect(picker.value).toBe("anthropic/claude-sonnet-4");
@@ -906,7 +860,6 @@ test("the add popover assembles key, value, and flags locally and commits them a
 	fireInput(popover().querySelector("input.value") as HTMLInputElement, "0.9");
 	fireCheck(popover().querySelector(`input[aria-label='Force "top_p"']`) as HTMLInputElement, true);
 
-	// Nothing lands until Add: the chip list still shows only temperature.
 	expect(chipKeys(section())).toEqual(["temperature"]);
 	fireClick(buttonByText(popover(), "Add field"));
 	expect(chipKeys(section())).toEqual(["temperature", "top_p"]);
@@ -933,18 +886,15 @@ test("the add popover refuses an invalid candidate: the error renders in place a
 	expect(add.disabled).toBe(true);
 	fireClick(add);
 	expect(chipKeys(section())).toEqual(["temperature"]);
-	// So is a bad value.
 	fireInput(popover().querySelector("input.key") as HTMLInputElement, "top_p");
 	fireInput(popover().querySelector("input.value") as HTMLInputElement, "not json");
 	expect((buttonByText(popover(), "Add field") as HTMLButtonElement).disabled).toBe(true);
-	// The draft never went dirty.
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 });
 
 test("the add popover commits a padded parameter key verbatim: the probe judges the row that lands", () => {
-	// One resolver reading for validation and commit: for a parameters record
-	// the typed " _fallback" is a live pass-through field, so it lands exactly
-	// as judged - never trimmed into an inert wrong-record-type directive.
+	// One resolver reading for validation and commit: for a parameters record the typed " _fallback" is a live
+	// pass-through field, so it lands exactly as judged - never trimmed into an inert wrong-record-type directive.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -955,7 +905,6 @@ test("the add popover commits a padded parameter key verbatim: the probe judges 
 	fireInput(popover().querySelector("input.value") as HTMLInputElement, '"x"');
 	fireClick(buttonByText(popover(), "Add field"));
 	expect(chipKeys(section())).toEqual(["temperature", " _fallback"]);
-	// A live field, not an ignored directive: no wrong-record-type badge.
 	expect(chipFlagsOf(section(), " _fallback")).toEqual([]);
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
@@ -972,7 +921,6 @@ test("the capability add popover seeds a support flag true and offers the fallba
 	fireClick(section().querySelector("button.chip-add") as HTMLButtonElement);
 	const popover = () => popoverOf(section());
 	fireInput(popover().querySelector("input.key") as HTMLInputElement, "supports_vision");
-	// The boolean value control appears seeded true (the row-switch rule).
 	expect((popover().querySelector(".capability-flag input") as HTMLInputElement).checked).toBe(true);
 	fireCheck(popover().querySelector(`input[aria-label='Fall back for "supports_vision"']`) as HTMLInputElement, true);
 	fireClick(buttonByText(popover(), "Add field"));
@@ -997,8 +945,8 @@ test("an open add popover follows its matcher key through a push that reorders t
 	fireClick(Array.from(section().querySelectorAll("button.chip-add")).at(-1) as HTMLButtonElement);
 	fireInput(popoverOf(section()).querySelector("input.key") as HTMLInputElement, "seed");
 
-	// No draft is pinned, so the push replaces the rows reordered. The popover is addressed by the MATCHER KEY:
-	// it must stay open on gpt-4 with its half-typed field intact, not retarget or remount.
+	// The popover is addressed by the MATCHER KEY: it must stay open on gpt-4 with its half-typed field intact, not
+	// retarget or remount.
 	pushToWebview(
 		statePush(makeState({ settings: settingsWithParams({ "*": { top_p: 0.9 }, "gpt-4": { temperature: 0.2 } }) }))
 	);
@@ -1039,15 +987,13 @@ test("the add popover under a literal true directive shows the implied mark and 
 	fireClick(section().querySelector("button.chip-add") as HTMLButtonElement);
 	const popover = () => popoverOf(section());
 	fireInput(popover().querySelector("input.key") as HTMLInputElement, "top_p");
-	// A literal true covers the new field the moment it lands: the boxes must
-	// say so instead of showing unchecked marks that then appear as badges.
+	// A literal true covers the new field the moment it lands: the boxes must say so instead of showing unchecked marks
+	// that then appear as badges.
 	expect((popover().querySelector(`input[aria-label='Force "top_p"']`) as HTMLInputElement).checked).toBe(true);
 	expect((popover().querySelector(`input[aria-label='Mark "top_p" inheritable']`) as HTMLInputElement).checked).toBe(
 		true
 	);
 
-	// Untouched boxes leave the literals verbatim - no exploding true into a
-	// list on commit.
 	fireInput(popover().querySelector("input.value") as HTMLInputElement, "0.9");
 	fireClick(buttonByText(popover(), "Add field"));
 	resetPosted();
@@ -1075,8 +1021,6 @@ test("unchecking an implied mark in the add popover rewrites the literal as the 
 	fireClick(buttonByText(popover(), "Add field"));
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	// The explicit choice rewrites the literal over the eligible remainder,
-	// exactly like unchecking a box in the full editor.
 	expect(postedRecordWrites()).toEqual([
 		{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, _force: ["temperature"], top_p: 0.9 } } },
 	]);
@@ -1087,8 +1031,7 @@ test("duplicate field keys: each chip answers its own popover, and Remove field 
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	// Mint a duplicate through the overlay (the parse blocks it, but it stays
-	// representable and editable).
+	// Mint a duplicate through the overlay (the parse blocks it, but it stays representable and editable).
 	openEditorFor(section(), "gpt-4");
 	const editor = () => overlayOf(section());
 	fireClick(buttonByText(editor(), "Add parameter"));
@@ -1100,7 +1043,6 @@ test("duplicate field keys: each chip answers its own popover, and Remove field 
 		(chip) => chip.querySelector(".chip-key")?.textContent === "temperature"
 	);
 	expect(chips).toHaveLength(2);
-	// The SECOND chip's popover edits the second row, not the first.
 	fireClick(chips[1] as HTMLButtonElement);
 	expect(chips[1]?.getAttribute("aria-expanded")).toBe("true");
 	expect(chips[0]?.getAttribute("aria-expanded")).toBe("false");
@@ -1117,13 +1059,10 @@ test("a pristine overlay follows its matcher key through a push that reorders th
 	const section = () => sectionByHeading(root, "Model parameters");
 
 	openEditorFor(section(), "gpt-4");
-	// No draft pinned: the push replaces AND reorders the rows, and the overlay is re-anchored by its matcher
-	// key, so it must stay on gpt-4 instead of retargeting whatever slid into its index.
 	pushToWebview(
 		statePush(makeState({ settings: settingsWithParams({ "*": { top_p: 0.9 }, "gpt-4": { temperature: 0.2 } }) }))
 	);
 	expect((overlayOf(section()).querySelector("input.key") as HTMLInputElement).value).toBe("gpt-4");
-	// Editing from here lands on the right record.
 	fireInput(overlayOf(section()).querySelector("input.value") as HTMLInputElement, "0.7");
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
@@ -1131,7 +1070,6 @@ test("a pristine overlay follows its matcher key through a push that reorders th
 		{ type: "setModelParameters", value: { "*": { top_p: 0.9 }, "gpt-4": { temperature: 0.7 } } },
 	]);
 
-	// A push that removes the edited record closes the overlay instead.
 	fireClick(buttonByText(overlayOf(section()), "Done"));
 	fireClick(buttonByText(section(), "Discard"));
 	openEditorFor(section(), "gpt-4");
@@ -1140,8 +1078,8 @@ test("a pristine overlay follows its matcher key through a push that reorders th
 });
 
 test("raw-key identity: a popover on a trim-collided matcher survives a reorder without retargeting", () => {
-	// "gpt-4" and "gpt-4 " are raw-distinct stored keys (the grammar trims nothing); trimmed identity would
-	// transfer between them on a reorder, raw identity must not.
+	// "gpt-4" and "gpt-4 " are raw-distinct stored keys (the grammar trims nothing); trimmed identity would transfer
+	// between them on a reorder, raw identity must not.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
@@ -1157,8 +1095,6 @@ test("raw-key identity: a popover on a trim-collided matcher survives a reorder 
 	fireClick(chips()[1] as HTMLButtonElement);
 	expect((popoverOf(section()).querySelector("input.value") as HTMLInputElement).value).toBe("0.9");
 
-	// A pristine push reverses the stored order; the popover must stay on the
-	// "gpt-4 " record it was opened on.
 	pushToWebview(
 		statePush(
 			makeState({ settings: settingsWithParams({ "gpt-4 ": { temperature: 0.9 }, "gpt-4": { temperature: 0.2 } }) })
@@ -1166,8 +1102,7 @@ test("raw-key identity: a popover on a trim-collided matcher survives a reorder 
 	);
 	expect((popoverOf(section()).querySelector("input.value") as HTMLInputElement).value).toBe("0.9");
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "1.1");
-	// The edit landed on the right record: display order is now storage order
-	// (both exact keys), "gpt-4 " first.
+	// The edit landed on the right record: display order is now storage order (both exact keys), "gpt-4 " first.
 	const values = Array.from(section().querySelectorAll(".chip-field .chip-value")).map((el) => el.textContent);
 	expect(values).toEqual(["1.1", "0.2"]);
 });
@@ -1191,8 +1126,6 @@ test("a failed write's notice never resurfaces on a draft minted after a value-e
 	});
 	expect(section().textContent).toContain("old refusal.");
 
-	// Typing exactly back to the store value drops the draft AND the failed
-	// write's correlation; a brand-new draft must not dredge the notice up.
 	fireInput(value(), "0.2");
 	expect(section().textContent).not.toContain("old refusal.");
 	fireInput(value(), "0.9");
@@ -1207,15 +1140,14 @@ test("opening another chip's popover keeps focus there; the closed popover's def
 	const first = chipFor(section(), "temperature");
 	first.focus();
 	fireClick(first);
-	// Switching chips: the outside-press listener closes the first popover,
-	// the click opens the second, whose input takes focus.
+	// Switching chips: the outside-press listener closes the first popover, the click opens the second, whose input
+	// takes focus.
 	const second = chipFor(section(), "top_p");
 	void act(() => {
 		second.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
 	});
 	fireClick(second);
 	await new Promise((resolve) => setTimeout(resolve, 5));
-	// The first popover's deferred restore must not steal focus back.
 	expect((document.activeElement as HTMLElement | null)?.classList.contains("value")).toBe(true);
 	expect((popoverOf(section()).querySelector("input.value") as HTMLInputElement).value).toBe("0.9");
 });
@@ -1231,8 +1163,7 @@ test("Remove field hands focus to the row's add chip once the opening chip is go
 	fireClick(buttonByText(popoverOf(section()), "Remove field"));
 	// The restore is deferred past the removing commit.
 	await new Promise((resolve) => setTimeout(resolve, 5));
-	// Node identity as a boolean: feeding happy-dom nodes to the matcher's
-	// printer stalls the runner for seconds.
+	// Node identity as a boolean: feeding happy-dom nodes to the matcher's printer stalls the runner for seconds.
 	expect(document.activeElement === section().querySelector("button.chip-add")).toBe(true);
 });
 
@@ -1246,8 +1177,6 @@ test("the pencil opens the full editor; Remove matcher inside it drops the group
 	const section = () => sectionByHeading(root, "Model parameters");
 
 	const editor = openEditorFor(section(), "gpt-4");
-	// The overlay carries the matcher input, the Inherits control, and the
-	// field rows with their flag checkboxes.
 	expect((editor.querySelector("input.key") as HTMLInputElement).value).toBe("gpt-4");
 	expect(editor.querySelector(".inherit-from select")).not.toBeNull();
 	expect(editor.querySelector(`.directive-flag input[aria-label='Force "temperature"']`)).not.toBeNull();
@@ -1261,8 +1190,8 @@ test("the pencil opens the full editor; Remove matcher inside it drops the group
 });
 
 test("a group whose rows are all absorbed renders no field column heads", () => {
-	// The Inherits select fully represents the lone `_inherit_from` row, so
-	// the FIELDS grid is empty: heads over nothing would label a void.
+	// The Inherits select fully represents the lone `_inherit_from` row, so the FIELDS grid is empty: heads over
+	// nothing would label a void.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { _inherit_from: false } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1273,9 +1202,9 @@ test("a group whose rows are all absorbed renders no field column heads", () => 
 });
 
 test("every field row carries its own stacked-tier cell labels, each with the column's help glyph", () => {
-	// The wide tier's column heads label TRACKS, and below the 700px pane tier the rows stack with no tracks
-	// left. Each cell therefore carries its own label (painted only at the stacked tier by dashboard.css
-	// .cell-label, which happy-dom cannot observe), keeping its column's help glyph reachable.
+	// The wide tier's column heads label TRACKS, and below the 700px pane tier the rows stack with no tracks left. Each
+	// cell therefore carries its own label (painted only at the stacked tier by dashboard.css .cell-label, which
+	// happy-dom cannot observe), keeping its column's help glyph reachable.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1289,15 +1218,12 @@ test("every field row carries its own stacked-tier cell labels, each with the co
 		for (const label of labels) {
 			expect(label.querySelector("button.help")).not.toBeNull();
 		}
-		// Each label directly precedes the cell it names.
 		expect(labels[0]?.nextElementSibling?.classList.contains("key")).toBe(true);
 		expect(labels[1]?.nextElementSibling?.classList.contains("value")).toBe(true);
 	}
-	// The wide tier's legend still renders alongside them.
 	expect(editor.querySelectorAll(".col-head").length).toBe(2);
 	cleanup();
 
-	// The capabilities editor speaks the same rule with its own words.
 	const capsRoot = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithCaps({ "gpt-4": { context_length: 128000 } }) })));
 	const capsEditor = openEditorFor(sectionByHeading(capsRoot, "Model capabilities"), "gpt-4");
@@ -1305,17 +1231,16 @@ test("every field row carries its own stacked-tier cell labels, each with the co
 	expect(capsLabels.map((label) => label.firstChild?.textContent)).toEqual(["Capability", "Value"]);
 	for (const label of capsLabels) {
 		expect(label.querySelector("button.help")).not.toBeNull();
-		// The word is aria-hidden (the input carries the same accessible name);
-		// only the help button speaks.
+		// The word is aria-hidden (the input carries the same accessible name); only the help button speaks.
 		expect(label.querySelector("span[aria-hidden='true']")).not.toBeNull();
 	}
 });
 
 test("the key track is stylesheet-owned: no inline style ever rides the field grid", () => {
-	// The track is a fixed range in dashboard.css (content-independent, so typing cannot re-solve it); the
-	// stylesheet suite pins the template and the record-overlay-key-typing geometry pair proves the no-reflow
-	// property in a real layout. What THIS runtime can prove: no code path writes an inline pin back onto the
-	// grid - focus, typing, focus moves, and structural changes all leave the element's style empty.
+	// The track is a fixed range in dashboard.css (content-independent, so typing cannot re-solve it); the stylesheet
+	// suite pins the template and the record-overlay-key-typing geometry pair proves the no-reflow property in a real
+	// layout. What THIS runtime can prove: no code path writes an inline pin back onto the grid - focus, typing, focus
+	// moves, and structural changes all leave the element's style empty.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1353,7 +1278,6 @@ test("the overlay's field rows carry reserved status lines: empty at rest, marke
 	expect(status()?.textContent).toContain("Not valid JSON");
 	cleanup();
 
-	// The capabilities editor speaks the same rule through the same slot.
 	const capsRoot = mount(<App />);
 	pushToWebview(
 		statePush(makeState({ settings: settingsWithCaps({ "gpt-4": { supported_openai_params: ["temperature"] } }) }))
@@ -1376,7 +1300,6 @@ test("Add model matcher opens the overlay on a fresh group; closing it pristine 
 	fireClick(buttonByText(section(), "Add model matcher"));
 	const editor = overlayOf(section());
 	expect((editor.querySelector("input.key") as HTMLInputElement).value).toBe("");
-	// Closing without typing anything leaves no stranded invalid row behind.
 	fireClick(buttonByText(editor, "Done"));
 	expect(section().querySelector(".matcher-editor")).toBeNull();
 	expect(matcherKeys(section())).toEqual(["*"]);
@@ -1390,12 +1313,11 @@ test("the pristine sweep resets the draft outright, so later store pushes keep r
 
 	fireClick(buttonByText(section(), "Add model matcher"));
 	fireClick(buttonByText(overlayOf(section()), "Done"));
-	// A pinned value-equal draft would swallow this push with Discard disabled
-	// (nothing looks dirty); the sweep must reset instead of pinning.
+	// A pinned value-equal draft would swallow this push with Discard disabled (nothing looks dirty); the sweep must
+	// reset instead of pinning.
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.9 } }) })));
 	expect(section().querySelector(".chip-field .chip-value")?.textContent).toBe("0.9");
 
-	// Remove matcher back to the store value resets the same way.
 	fireClick(buttonByText(section(), "Add model matcher"));
 	const editor = () => overlayOf(section());
 	fireInput(editor().querySelector("input.key") as HTMLInputElement, "claude-4");
@@ -1403,8 +1325,6 @@ test("the pristine sweep resets the draft outright, so later store pushes keep r
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.4 } }) })));
 	expect(section().querySelector(".chip-field .chip-value")?.textContent).toBe("0.4");
 
-	// And so does a field added via [+] then removed through its own chip
-	// popover: no path may strand a value-equal pinned draft.
 	fireClick(section().querySelector("button.chip-add") as HTMLButtonElement);
 	fireInput(popoverOf(section()).querySelector("input.key") as HTMLInputElement, "seed");
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "7");
@@ -1421,8 +1341,6 @@ test("a fresh matcher built in the overlay slots into sorted display position an
 	const section = () => sectionByHeading(root, "Model parameters");
 
 	draftOneParam(section, "*", "top_p", "0.9");
-	// The broader catch-all displays ABOVE the exact ID even though it was
-	// appended to storage last.
 	expect(matcherKeys(section())).toEqual(["*", "gpt-4"]);
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
@@ -1458,8 +1376,6 @@ test("the Inherits select in the overlay writes the barrier without a raw row an
 		select().dispatchEvent(new Event("change", { bubbles: true }));
 	});
 	expect(select().value).toBe("none");
-	// The select is the barrier's single representation: no _inherit_from row
-	// in the overlay, and the table's Inherits column reads it.
 	const rowKeys = Array.from(overlayOf(section()).querySelectorAll(".rows input.key")).map(
 		(input) => (input as HTMLInputElement).value
 	);
@@ -1541,8 +1457,8 @@ test("a directive row typed in the overlay absorbs only on blur, never mid-edit 
 	fireInput(keyInput(), "_force");
 	fireInput(valueInput(), '["temperature"]');
 
-	// Readable and control-representable, but the row must not unmount under
-	// the cursor (that would steal focus mid-edit).
+	// Readable and control-representable, but the row must not unmount under the cursor (that would steal focus
+	// mid-edit).
 	const rowKeys = () =>
 		Array.from(editor().querySelectorAll(".rows input.key")).map((input) => (input as HTMLInputElement).value);
 	expect(rowKeys()).toContain("_force");
@@ -1551,7 +1467,6 @@ test("a directive row typed in the overlay absorbs only on blur, never mid-edit 
 	fireBlur(valueInput(), keyInput());
 	expect(rowKeys()).toContain("_force");
 
-	// Leaving the row lets it absorb; the checkbox now carries the mark.
 	fireBlur(valueInput());
 	expect(rowKeys()).not.toContain("_force");
 	const box = editor().querySelector<HTMLInputElement>(`.directive-flag input[aria-label='Force "temperature"']`);
@@ -1559,8 +1474,8 @@ test("a directive row typed in the overlay absorbs only on blur, never mid-edit 
 });
 
 test("removing an overlay row voids the focus hold instead of pinning the row that shifts into its slot", () => {
-	// The hold names the removed row's stable id (a removed element fires no focusout), so after removing top_p
-	// the absorbed _force row that slides into its place carries a different id and is never pinned.
+	// The hold names the removed row's stable id (a removed element fires no focusout), so after removing top_p the
+	// absorbed _force row that slides into its place carries a different id and is never pinned.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
@@ -1586,8 +1501,8 @@ test("removing an overlay row voids the focus hold instead of pinning the row th
 	fireClick(removeButtons.at(-1) as HTMLButtonElement);
 	expect(rowKeys()).toEqual(["temperature"]);
 
-	// Nor does the void hold resurrect when a later change restores the same
-	// row counts: adding a row brings the count back, and _force stays absorbed.
+	// Nor does the void hold resurrect when a later change restores the same row counts: adding a row brings the count
+	// back, and _force stays absorbed.
 	fireClick(buttonByText(editor(), "Add parameter"));
 	expect(rowKeys()).toEqual(["temperature", ""]);
 });
@@ -1602,14 +1517,10 @@ test("absorbed directives round-trip: a popover value edit preserves their exact
 	pushToWebview(statePush(makeState({ settings: settingsWithParams(ABSORBED_DIRECTIVES_RECORD) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	// The table carries their state: one chip with both badges, the barrier
-	// in the Inherits column, no directive chips.
 	expect(chipKeys(section())).toEqual(["temperature"]);
 	expect(chipFlagsOf(section(), "temperature")).toEqual(["force", "inheritable"]);
 	expect(section().querySelector(".inherit-cell")?.textContent).toBe("inherits nothing");
 
-	// Edit only the value: _inheritable stays the literal true (never exploded
-	// into a field list), _force keeps its list shape, the barrier survives.
 	fireClick(chipFor(section(), "temperature"));
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "0.4");
 	resetPosted();
@@ -1689,22 +1600,18 @@ test("a dirty draft wins over pushed state, Apply posts parsed rows, the ack and
 
 	draftOneParam(section, "gpt-4", "temperature", "0.2");
 
-	// A background refresh must not clobber the half-edited draft.
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
 	expect(matcherKeys(section())).toEqual(["gpt-4"]);
 	expect(chipKeys(section())).toEqual(["temperature"]);
 
-	// Apply posts the whole parsed record; the JSON "0.2" parses as a number.
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
 
-	// In flight, then acked but not yet reflected: still rendering, not dirty.
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 	ackLastWrite();
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 
-	// The reflecting push drops the draft; the store value renders.
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	expect(matcherKeys(section())).toEqual(["gpt-4"]);
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
@@ -1727,9 +1634,9 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 		message: "gpt-4: refused by validation.\ntechnical detail the reserved line must not carry",
 		failureKind: "validation",
 	});
-	// The draft returns dirty and retryable; a failed write must not render as applied. The note is the frame's
-	// reserved one-line slot, so only the headline rides the LINE while the arbitrary-length detail survives
-	// without geometry - in the title and a visually-hidden span, this slot being the failure's only surface.
+	// The note is the frame's reserved one-line slot, so only the headline rides the LINE while the arbitrary-length
+	// detail survives without geometry - in the title and a visually-hidden span, this slot being the failure's only
+	// surface.
 	const note = section().querySelector(".failure-note");
 	expect(note?.classList.contains("error")).toBe(true);
 	expect(note?.firstChild?.textContent).toBe("Saving failed - your edits are kept: gpt-4: refused by validation.");
@@ -1744,8 +1651,8 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 });
 
 test("the refusal outranks the verdict in the slot they share", () => {
-	// One message slot, two voices: while the refusal speaks, the verdict
-	// stands down, so the slot never stacks two lines.
+	// One message slot, two voices: while the refusal speaks, the verdict stands down, so the slot never stacks two
+	// lines.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1759,7 +1666,6 @@ test("the refusal outranks the verdict in the slot they share", () => {
 		message: "gpt-4: refused by validation.",
 		failureKind: "validation",
 	});
-	// Now a chip goes invalid too: the verdict yields the covered line.
 	fireClick(chipFor(section(), "temperature"));
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
 	fireClick(chipFor(section(), "temperature"));
@@ -1768,8 +1674,8 @@ test("the refusal outranks the verdict in the slot they share", () => {
 });
 
 test("the footer's message slot is always mounted, its voices inside it, and the quiet footer holds no band", () => {
-	// The refusal lands async in the buttons' own row (the charter's transients-never-move-anything clause):
-	// the slot pre-exists as a flex item over the row's free space, so the envelope landing moves nothing.
+	// The refusal lands async in the buttons' own row (the charter's transients-never-move-anything clause): the slot
+	// pre-exists as a flex item over the row's free space, so the envelope landing moves nothing.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1780,8 +1686,6 @@ test("the footer's message slot is always mounted, its voices inside it, and the
 	expect(note).not.toBeNull();
 	expect(note?.classList.contains("error")).toBe(false);
 
-	// A verdict mounts INSIDE the same slot, between the mode actions and the
-	// commit trio, never as a band of its own.
 	fireClick(chipFor(section(), "temperature"));
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
 	fireClick(chipFor(section(), "temperature"));
@@ -1794,8 +1698,8 @@ test("the footer's message slot is always mounted, its voices inside it, and the
 });
 
 test("a draft edited back to the store value counts as unchanged: Apply and Discard disable, nothing posts", () => {
-	// The scalar rows' unchanged-posts-nothing rule, in draft form: writing a
-	// value the store already holds is not a change worth posting.
+	// The scalar rows' unchanged-posts-nothing rule, in draft form: writing a value the store already holds is not a
+	// change worth posting.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1813,8 +1717,8 @@ test("a draft edited back to the store value counts as unchanged: Apply and Disc
 });
 
 test("rows that assemble to the stored record cannot be applied, even under a different spelling or key order", () => {
-	// "1e1" is a different text for the stored 10; applying it would write a
-	// value the store already holds (unchanged-posts-nothing).
+	// "1e1" is a different text for the stored 10; applying it would write a value the store already holds
+	// (unchanged-posts-nothing).
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { max_tokens: 10 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1852,13 +1756,12 @@ test("a pristine JSON view follows store pushes; one with local edits is pinned"
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ a: { x: 1 }, b: { y: 2 } }) })));
 	expect(JSON.parse(textarea().value)).toEqual({ a: { x: 1 }, b: { y: 2 } });
 
-	// Edited, it pins like a dirty rows draft.
 	fireInput(textarea(), '{"mine": {"kept": 1}}');
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ a: { x: 9 } }) })));
 	expect(JSON.parse(textarea().value)).toEqual({ mine: { kept: 1 } });
 
-	// Applied text holds through the applying window and a failure: resyncing
-	// there would flash the pre-apply value back into the textarea.
+	// Applied text holds through the applying window and a failure: resyncing there would flash the pre-apply value
+	// back into the textarea.
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	expect(JSON.parse(textarea().value)).toEqual({ mine: { kept: 1 } });
@@ -1873,8 +1776,8 @@ test("a pristine JSON view follows store pushes; one with local edits is pinned"
 });
 
 test("Enter applies from an overlay row input once the draft is clean; a highlighted suggestion is accepted instead", () => {
-	// The key inputs carry their own suggestion listboxes: Enter with a highlighted suggestion accepts it and
-	// must NOT double as Apply (the half-typed row would post); Enter with nothing highlighted applies.
+	// The key inputs carry their own suggestion listboxes: Enter with a highlighted suggestion accepts it and must NOT
+	// double as Apply (the half-typed row would post); Enter with nothing highlighted applies.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ models: [makeModel({ id: "gpt-test" })] })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1886,7 +1789,6 @@ test("Enter applies from an overlay row input once the draft is clean; a highlig
 	fireInput(Array.from(editor().querySelectorAll("input.key")).at(-1) as HTMLInputElement, "temperature");
 	fireInput(editor().querySelector("input.value") as HTMLInputElement, "0.2");
 
-	// Highlight the prefix suggestion; Enter accepts it without applying.
 	const prefixInput = () => editor().querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement;
 	resetPosted();
 	fireKeyDown(prefixInput(), "ArrowDown");
@@ -1894,7 +1796,6 @@ test("Enter applies from an overlay row input once the draft is clean; a highlig
 	expect(prefixInput().value).toBe("gpt-test");
 	expect(postedMessages).toEqual([]);
 
-	// Nothing highlighted: Enter applies the clean draft from a key input too.
 	fireKeyDown(editor().querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement, "Enter");
 	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-test": { temperature: 0.2 } } }]);
 });
@@ -1904,8 +1805,8 @@ test("Discard drops a dirty draft back to the store value without posting, under
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	// The draft button is Discard, never Reset: on the scalar rows above,
-	// Reset deletes a persisted value, and one word must not mean both.
+	// The draft button is Discard, never Reset: on the scalar rows above, Reset deletes a persisted value, and one word
+	// must not mean both.
 	expect(Array.from(section().querySelectorAll("button")).map((b) => (b.textContent ?? "").trim())).not.toContain(
 		"Reset"
 	);
@@ -1936,8 +1837,8 @@ test("Apply feedback: Applying... until the ack resolves it to a transient Saved
 	fireClick(buttonByText(section(), "Apply"));
 	expect(status()).toBe("Applying...");
 
-	// The ack resolves the phase; the draft rows keep rendering until the
-	// reflecting push (no flash of the pre-apply value in between).
+	// The ack resolves the phase; the draft rows keep rendering until the reflecting push (no flash of the pre-apply
+	// value in between).
 	ackLastWrite();
 	expect(status()).toBe("Saved");
 	expect(matcherKeys(section())).toEqual(["gpt-4"]);
@@ -1982,8 +1883,6 @@ test("a foreign ack or foreign failure leaves an applying draft alone; only its 
 	fireClick(buttonByText(section(), "Apply"));
 	expect(status()).toBe("Applying...");
 
-	// Another surface's ack (a server save) and a failure with a foreign
-	// requestId must not resolve or reopen this draft.
 	pushToWebview({ kind: "ack", id: "someone-else", method: "saveServerSetting" });
 	expect(status()).toBe("Applying...");
 	pushToWebview({
@@ -2038,8 +1937,6 @@ test("a discarded draft's failure notice never resurfaces on the next edit", () 
 	});
 	expect(section().textContent).toContain("stale refusal.");
 
-	// Discard drops the draft; a brand-new edit must not dredge the old
-	// notice back up (its failure belongs to the discarded write).
 	fireClick(buttonByText(section(), "Discard"));
 	fireClick(buttonByText(section(), "Add model matcher"));
 	fireInput(overlayOf(section()).querySelector("input.key") as HTMLInputElement, "claude-4");
@@ -2057,8 +1954,7 @@ test("the JSON textarea holds its applied text through the acked window until th
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 
-	// Acked but not yet reflected: resyncing here would flash the pre-apply
-	// store value back into the textarea.
+	// Acked but not yet reflected: resyncing here would flash the pre-apply store value back into the textarea.
 	ackLastWrite();
 	expect(JSON.parse(textarea().value)).toEqual({ mine: { kept: 1 } });
 
@@ -2090,9 +1986,9 @@ test("an overlay row problem marks only the offending input: bad JSON flags the 
 });
 
 test("the global editor's matcher copy points server records at entries (the entry editor's must not)", () => {
-	// The overlay takes its prefix placeholder and help as props because the two surfaces differ: the global
-	// editor routes server-specific records to the entry's models.parameters, the per-entry editor says URL
-	// keys never match (servers.test.tsx pins that side).
+	// The overlay takes its prefix placeholder and help as props because the two surfaces differ: the global editor
+	// routes server-specific records to the entry's models.parameters, the per-entry editor says URL keys never match
+	// (servers.test.tsx pins that side).
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -2105,8 +2001,6 @@ test("the global editor's matcher copy points server records at entries (the ent
 		throw new Error("no prefix input rendered");
 	}
 	expect(prefixInput.placeholder).toBe("Model ID or matcher, e.g. gpt-4 or gpt-4*");
-	// The matcher help rides the MATCHER section label since the overlay
-	// redesign (labels above inputs), not the input's own cell.
 	const glyph = prefixInput.closest(".editor-section")?.querySelector("button.help");
 	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
 	expect(tip?.textContent).toBe(helpModelParameterPrefix());
@@ -2139,8 +2033,6 @@ test("model parameters: invalid JSON in the overlay blocks Apply; fixing it appl
 test("the editors' apply-together save model is stated by each editor's own help tip, never as a floating line", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	// No free-standing paragraph between the rows: each editor's "?" states its own apply-together behavior,
-	// and the contrast with the scalar settings above survives as each tip's "Unlike the settings above".
 	expect(root.querySelector(".record-editors-note")).toBeNull();
 	for (const heading of ["Model parameters", "Model capabilities"]) {
 		const tip = sectionByHeading(root, heading).querySelector(".section-head .tip-bubble");
@@ -2159,7 +2051,6 @@ test("Edit as JSON: the textarea seeds from the record, and a valid edit applies
 	fireClick(buttonByText(section(), "Edit as JSON"));
 	const textarea = () => section().querySelector("textarea") as HTMLTextAreaElement;
 	expect(JSON.parse(textarea().value)).toEqual({ "gpt-4": { temperature: 0.2 } });
-	// The table and its add action stand down while the textarea is up.
 	expect(section().querySelector(".record-table")).toBeNull();
 	expect(Array.from(section().querySelectorAll("button")).map((b) => (b.textContent ?? "").trim())).not.toContain(
 		"Add model matcher"
@@ -2210,7 +2101,6 @@ test("Edit as JSON: invalid input blocks Apply and the way back to rows, with th
 	expect(section().textContent).toContain("Expected an object of parameters");
 	expect(apply().disabled).toBe(true);
 
-	// The identical validation the rows get: reserved names stay rejected.
 	fireInput(textarea(), '{"__proto__": {"a": 1}}');
 	expect(section().textContent).toContain("reserved name");
 	expect(apply().disabled).toBe(true);
@@ -2229,8 +2119,8 @@ test("each editor heading carries a settings.json jump posting revealSetting wit
 	const jumpOf = (heading: string) => headOf(heading).querySelector("button.reveal-json");
 
 	for (const heading of ["Model parameters", "Model capabilities"]) {
-		// The head is the reveal's container; happy-dom runs no cascade, so the class names are all this suite
-		// can pin, and without them the jump paints only below 560px.
+		//   the class names       -> are all this suite can pin
+		//   without them the jump -> paints only below 560px
 		expect(headOf(heading).classList.contains("group/head")).toBe(true);
 		const wrapper = (jumpOf(heading) as HTMLElement).parentElement as HTMLElement;
 		expect(wrapper.classList.contains("opacity-0")).toBe(true);
@@ -2255,16 +2145,13 @@ test("the settings filter hides an editor with a dirty draft via hidden, and the
 	const root = mount(<SettingsSection settings={settingsWithParams({})} models={[]} />);
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	// A half-typed draft (built through the overlay)...
 	draftOneParam(section, "gpt-4", "temperature", "0.9");
 
-	// ...is hidden by a non-matching filter, never unmounted...
 	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 	fireInput(filter, "no such setting");
 	expect(section().hidden).toBe(true);
 	expect(matcherKeys(section())).toEqual(["gpt-4"]);
 
-	// ...and works untouched once the filter clears: Apply posts the draft.
 	fireInput(filter, "");
 	expect(section().hidden).toBe(false);
 	resetPosted();
@@ -2301,7 +2188,6 @@ test("the catalog picker debounces searchCatalog and picking a result writes the
 	);
 	const input = root.querySelector("input") as HTMLInputElement;
 	fireFocus(input);
-	// Under the debounce window nothing is posted yet.
 	expect(postedMessages).toEqual([]);
 	// The debounce timer's state update must land inside act.
 	await act(async () => {
@@ -2310,7 +2196,6 @@ test("the catalog picker debounces searchCatalog and picking a result writes the
 	const request = lastRequest("searchCatalog");
 	expect(request.payload.query).toBe("gpt");
 
-	// The correlated response renders the result list; picking writes the ID.
 	respondTo(request, { results: [{ id: "openai/gpt-4o", name: "GPT-4o" }] });
 	const option = root.querySelector(".catalog-results button") as HTMLButtonElement;
 	expect(option?.textContent).toContain("openai/gpt-4o");
@@ -2362,16 +2247,16 @@ test("the catalog picker is keyboard-operable: arrows move the highlight, Enter 
 		],
 	});
 	try {
-		// An open result list consumes Escape (inside a chip popover or a slide-over it must close only the
-		// results); a closed one lets it bubble to the surface above.
+		// An open result list consumes Escape (inside a chip popover or a slide-over it must close only the results); a
+		// closed one lets it bubble to the surface above.
 		fireKeyDown(input, "Escape");
 		expect(root.querySelector(".catalog-results")).toBeNull();
 		expect(escapes).toEqual([]);
 		fireKeyDown(input, "Escape");
 		expect(escapes).toEqual(["Escape"]);
 
-		// Reopen with a fresh correlated response for the keyboard pick path
-		// (closing orphaned the in-flight request, so the old response went stale).
+		// Reopen with a fresh correlated response for the keyboard pick path (closing orphaned the in-flight request,
+		// so the old response went stale).
 		fireFocus(input);
 		// The debounce timer's state update must land inside act.
 		await act(async () => {
@@ -2397,12 +2282,9 @@ test("the catalog picker is keyboard-operable: arrows move the highlight, Enter 
 test("capabilityKeySuggestions: consumed vocabulary first in curated order, server keys sorted after, directives last", () => {
 	const staticList = capabilityKeySuggestions();
 	const consumed = Object.keys(CONSUMED_CAPABILITY_FIELDS);
-	// The no-evidence list: exactly the consumed vocabulary plus the directives.
 	expect(staticList).toEqual([...consumed, "_fallback", "_openrouter_model"]);
-	// undefined and an empty set both mean no evidence.
 	expect(capabilityKeySuggestions([])).toEqual(staticList);
 
-	// Server-observed keys slot between the consumed block and the directives, deduped and code-unit sorted.
 	const merged = capabilityKeySuggestions(["mode", "litellm_provider", "mode", "context_length", "base_model"]);
 	expect(merged).toEqual([...consumed, "base_model", "litellm_provider", "mode", "_fallback", "_openrouter_model"]);
 });
@@ -2414,7 +2296,6 @@ test("capabilityKeySuggestions: underscore-led observed keys (a __proto__ report
 	expect(merged).toContain("custom_rank");
 	expect(merged).not.toContain("__proto__");
 	expect(merged).not.toContain("_secret");
-	// The directives at the tail are the extension's own, never observed ones.
 	expect(merged.filter((key) => key.startsWith("_"))).toEqual(["_fallback", "_openrouter_model"]);
 	// Prototype-named keys pass through as ordinary suggestions: the dedup is a real Set, where a plain-object
 	// membership check would misread these.

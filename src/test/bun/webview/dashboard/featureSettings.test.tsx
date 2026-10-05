@@ -1,9 +1,3 @@
-/**
- * The Features page: the per-feature sections (registry order, coming notes),
- * the shared model picker (declared-only options, writes, the dangling
- * warning's covering contract, the per-feature test probe), the language
- * filter's mode and list rows, and the commit prompt row.
- */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
 import { featureDisplayName } from "../../../../dashboard/featureNames";
@@ -47,8 +41,6 @@ const DECLARED = ["Prod", "Gateway"];
 /** The host registered the inline-completions probe; the model row's Test button derives from it. */
 const PROBES = ["inlineCompletions"] as const;
 
-// The full-record bases the per-test overrides spread onto: featureModels and
-// its scopes are total over FeatureModelId now.
 const NO_FEATURE_MODELS = makeSettings().featureModels;
 const NO_FEATURE_MODEL_SCOPES = makeSettings().featureModelScopes;
 
@@ -91,18 +83,16 @@ test("the model picker offers Not set plus the deduplicated (server, model) pair
 	const select = selectOf(root, "inlineCompletions.model");
 	const labels = [...select.options].map((option) => option.textContent);
 	expect(labels).toEqual(["Not set", "Prod: gpt-test", "Prod: codestral", "Gateway: gpt-test", "Custom model ID..."]);
-	// Unset renders the Not set choice selected and no warning.
 	expect(select.value).toBe("");
 	expect(rowOf(select).querySelector(".setting-hint .error")).toBeNull();
 });
 
 test("only declared entries' models are offered: an external group's label mints no option", () => {
-	// A ref addresses a servers-entry label, which external groups do not have,
-	// so their models must never be offered as picks.
+	// A ref addresses a servers-entry label, which external groups do not have, so their models must never be offered
+	// as picks.
 	const root = mount(<FeaturesSection settings={makeSettings()} models={MODELS} declaredServerLabels={["Prod"]} />);
 	const labels = [...selectOf(root, "inlineCompletions.model").options].map((option) => option.textContent);
 	expect(labels).toEqual(["Not set", "Prod: gpt-test", "Prod: codestral", "Custom model ID..."]);
-	// And with no declared labels at all (the prop's fail-closed default), only Not set remains.
 	cleanup();
 	const bare = mount(<FeaturesSection settings={makeSettings()} models={MODELS} />);
 	expect([...selectOf(bare, "commitGeneration.model").options].map((option) => option.textContent)).toEqual([
@@ -124,8 +114,8 @@ test("picking a model sends setFeatureModel with the feature and ref; Not set se
 		<FeaturesSection settings={settings} models={MODELS} declaredServerLabels={DECLARED} featureProbes={PROBES} />
 	);
 
-	// Option values are the (server, model) identity itself (a JSON tuple), so
-	// a pick is total by construction - never an index that could silently miss.
+	// Option values are the (server, model) identity itself (a JSON tuple), so a pick is total by construction - never
+	// an index that could silently miss.
 	fireSelect(selectOf(root, "inlineCompletions.model"), JSON.stringify(["Prod", "codestral"]));
 	fireSelect(selectOf(root, "commitGeneration.model"), "");
 
@@ -157,8 +147,8 @@ test("a configured ref stays selected and quiet while a declared server serves i
 });
 
 test("an unlisted model on a DECLARED server stays quiet: absence from the catalog proves nothing", () => {
-	// Completion-mode (FIM) models never register as chat models, so a custom
-	// pick is always absent from the options; only a vanished SERVER warns.
+	// Completion-mode (FIM) models never register as chat models, so a custom pick is always absent from the options;
+	// only a vanished SERVER warns.
 	const settings = makeSettings({
 		featureModels: {
 			...NO_FEATURE_MODELS,
@@ -194,26 +184,23 @@ test("a ref naming a vanished SERVER keeps its option, wears the covering warnin
 		<FeaturesSection settings={settings} models={MODELS} declaredServerLabels={DECLARED} featureProbes={PROBES} />
 	);
 	const select = selectOf(root, "inlineCompletions.model");
-	// The configured pair is synthesized into the options so the pick stays
-	// visible and keepable; its rendered text is the same vocabulary as every
-	// served option, so toggling served <-> dangling redraws nothing else.
+	// The configured pair is synthesized into the options so the pick stays visible and keepable; its rendered text is
+	// the same vocabulary as every served option, so toggling served <-> dangling redraws nothing else.
 	expect(select.selectedOptions[0]?.textContent).toBe("Removed: gpt-test");
 	expect(select.getAttribute("aria-invalid")).toBe("true");
-	// The dangling row's probe is disabled: the send could only fail on the
-	// missing entry, and the warning already says so.
+	// The dangling row's probe is disabled: the send could only fail on the missing entry, and the warning already says
+	// so.
 	const button = [...rowOf(select).querySelectorAll("button")].find(
 		(candidate) => candidate.textContent === "Test model"
 	);
 	expect(button?.hasAttribute("disabled")).toBe(true);
-	// The warning rides the covered-description slot (the height-keeping
-	// overlay), never a new block: check-geometry pins the no-move claim. The
-	// ROW says only which server went; the consequence-first sentence is behind
-	// Details, so the line stays scannable at every pane width.
+	// The warning rides the covered-description slot (the height-keeping overlay), never a new block: check-geometry
+	// pins the no-move claim. The ROW says only which server went; the consequence-first sentence is behind Details, so
+	// the line stays scannable at every pane width.
 	const hint = rowOf(select).querySelector(".setting-hint");
 	expect(hint?.classList.contains("setting-covered")).toBe(true);
 	expect(hint?.querySelector(".setting-cover .error")?.textContent).toBe('Server "Removed" is unavailable.');
-	// Details is offered because the tenant holds text the line never showed,
-	// not because the line was too long to fit.
+	// Details is offered because the tenant holds text the line never showed, not because the line was too long to fit.
 	const details = [...rowOf(select).querySelectorAll("button")].find(
 		(candidate) => candidate.textContent === "Details"
 	);
@@ -222,15 +209,13 @@ test("a ref naming a vanished SERVER keeps its option, wears the covering warnin
 	expect(rowOf(select).querySelector(".setting-detail")?.textContent).toContain(
 		'This model cannot be reached because server "Removed" is no longer configured'
 	);
-	// Keeping the dangling pick selected again is a no-op, never a write.
 	fireSelect(select, select.value);
 	expect(postedCalls()).toEqual([]);
 });
 
 test("a standing write failure outranks the dangling warning in the covered slot", () => {
-	// The dangling warning never clears on its own, so if it kept the slot a
-	// refused setFeatureModel write would stay invisible on exactly the row
-	// that posted it.
+	// The dangling warning never clears on its own, so if it kept the slot a refused setFeatureModel write would stay
+	// invisible on exactly the row that posted it.
 	const settings = makeSettings({
 		featureModels: {
 			...NO_FEATURE_MODELS,
@@ -283,15 +268,13 @@ test("switching the mode patches the mode alone: the stored languages are the ex
 	]);
 	fireSelect(mode, "allow");
 	expect(postedCalls()).toEqual([{ method: "setLanguageFilter", payload: { mode: "allow" } }]);
-	// The list row's texts follow the picked mode.
 	const list = inputOf(root, "inlineCompletions.languageFilter");
 	expect(rowOf(list).textContent ?? "").toContain("Blocked languages");
 });
 
 test("cross-row writes cannot revert each other: each row's patch names only its own field", () => {
-	// The merge onto the stored filter happens extension-side on the chained
-	// channel, so no interleaving of pushes and queued writes can make one
-	// row's write carry the other row's stale half.
+	// The merge onto the stored filter happens extension-side on the chained channel, so no interleaving of pushes and
+	// queued writes can make one row's write carry the other row's stale half.
 	const settings = makeSettings({
 		languageFilter: { mode: "block", languages: { values: ["markdown"], lossy: false, scope: "global" } },
 	});
@@ -342,16 +325,15 @@ test("a lossy stored language filter renders BOTH rows read-only instead of bein
 	expect(row).not.toBeNull();
 	expect(row?.textContent ?? "").toContain("typescript");
 	expect(row?.textContent ?? "").toContain("Custom list");
-	// ...and so is the mode select: a mode write would re-send the normalized
-	// list and destroy the raw form the fallback protects.
+	// ...and so is the mode select: a mode write would re-send the normalized list and destroy the raw form the
+	// fallback protects.
 	expect(root.querySelector("#setting-inlineCompletions\\.languageFilter-mode")).toBeNull();
 	expect(root.textContent ?? "").toContain("Allow only listed languages");
 });
 
 test("a comma-holding entry freezes both rows too: the shared custom rule, not just the lossy flag", () => {
-	// "a,b" survives normalization verbatim (lossy: false), but the comma box
-	// cannot round-trip it - and a mode write re-sends the list, so the mode
-	// select must freeze by the SAME predicate as the list row.
+	// "a,b" survives normalization verbatim (lossy: false), but the comma box cannot round-trip it - and a mode write
+	// re-sends the list, so the mode select must freeze by the SAME predicate as the list row.
 	const settings = makeSettings({
 		languageFilter: { mode: "block", languages: { values: ["a,b"], lossy: false, scope: "global" } },
 	});
@@ -378,7 +360,6 @@ test("the filter's write failure and actions render once, under the list row (th
 	);
 	expect(failures.length).toBe(1);
 	expect(failures[0]?.closest(".setting-row")).toBe(rowOf(inputOf(root, "inlineCompletions.languageFilter")));
-	// One reset gesture for the one setting: the companion mode row offers none.
 	const modeRow = rowOf(selectOf(root, "inlineCompletions.languageFilter-mode"));
 	expect(modeRow.querySelector('[aria-label^="Open"]')).toBeNull();
 	expect(rowOf(inputOf(root, "inlineCompletions.languageFilter")).querySelector('[aria-label^="Open"]')).not.toBeNull();
@@ -402,15 +383,14 @@ test("the commit prompt commits verbatim on blur and clears with the empty strin
 });
 
 test("a multiline prompt renders editable and round-trips its newlines through the wire", () => {
-	// The textarea replaced the old read-only fallback, which existed only
-	// because a single-line text input flattens line separators.
+	// The textarea replaced the old read-only fallback, which existed only because a single-line text input flattens
+	// line separators.
 	const prompt = "Subject line.\nThen a body.";
 	const settings = makeSettings({ commitPrompt: prompt, commitPromptScope: "global" });
 	const root = mount(<FeaturesSection settings={settings} models={[]} />);
 	const box = textareaOf(root, "commitGeneration.prompt");
 	expect(box.value).toBe(prompt);
 	expect(root.textContent ?? "").not.toContain("Multi-line prompt");
-	// The row's title is a real label pointed at the textarea in every state.
 	const label = box.closest(".setting-row")?.querySelector('label[for="setting-commitGeneration.prompt"]');
 	expect(label?.textContent).toBe("Commit message prompt");
 	fireInput(box, `${prompt}\nAnd a closing line.`);
@@ -419,8 +399,8 @@ test("a multiline prompt renders editable and round-trips its newlines through t
 });
 
 test("plain Enter never commits the prompt draft; Ctrl/Cmd+Enter keeps a keyboard commit", () => {
-	// Reinstating the old Enter-commits handler would flatten every newline the
-	// user types - the exact bug the textarea replaced - so its absence is pinned.
+	// Reinstating the old Enter-commits handler would flatten every newline the user types - the exact bug the textarea
+	// replaced - so its absence is pinned.
 	const root = mount(<FeaturesSection settings={makeSettings()} models={[]} />);
 	const box = textareaOf(root, "commitGeneration.prompt");
 	fireInput(box, "Subject.\nBody.");
@@ -439,8 +419,8 @@ test("plain Enter never commits the prompt draft; Ctrl/Cmd+Enter keeps a keyboar
 });
 
 test("a CR-separated stored prompt gets the same editable box: no separator disqualifies it", () => {
-	// The old fallback keyed on /[\r\n]/; both separators must now land in the
-	// textarea (the box may normalize CR to LF, so no byte-exact claim here).
+	// The old fallback keyed on /[\r\n]/; both separators must now land in the textarea (the box may normalize CR to
+	// LF, so no byte-exact claim here).
 	const settings = makeSettings({ commitPrompt: "Subject line.\rThen a body.", commitPromptScope: "global" });
 	const root = mount(<FeaturesSection settings={settings} models={[]} />);
 	const box = textareaOf(root, "commitGeneration.prompt");
@@ -465,19 +445,16 @@ test("every FeatureId renders its section in registry order, enable rows include
 	expect(root.querySelector("#setting-agentTools\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-agentTools\\.secretValues\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-agentTools\\.model")).toBeNull();
-	// Which sections wear the badge, BY NAME rather than by count: a shipped
-	// feature that kept it, or a section that lost it before its wiring landed,
-	// both name themselves here instead of moving a number. Every feature has
-	// now shipped, so the list is empty - the badge machinery stays for the next
-	// one, and this is what proves it is dormant rather than mislabelling a
-	// live feature.
+	// Which sections wear the badge, BY NAME rather than by count: a shipped feature that kept it, or a section that
+	// lost it before its wiring landed, both name themselves here instead of moving a number. Every feature has now
+	// shipped, so the list is empty - the badge machinery stays for the next one, and this is what proves it is dormant
+	// rather than mislabelling a live feature.
 	const marked = [...root.querySelectorAll(".settings-group-head")]
 		.filter((head) => head.querySelector('[data-slot="badge"]')?.textContent === "Coming soon")
 		.map((head) => head.querySelector(".settings-group-title")?.textContent);
 	expect(marked).toEqual([]);
-	// The page-level hint explains the badge, so with no badge it must be gone
-	// too: a standing sentence about sections that do not exist is the defect
-	// this pairing guards.
+	// The page-level hint explains the badge, so with no badge it must be gone too: a standing sentence about sections
+	// that do not exist is the defect this pairing guards.
 	const hints = [...root.querySelectorAll("p.hint")].filter((hint) => (hint.textContent ?? "").includes("Coming soon"));
 	expect(hints).toEqual([]);
 });
@@ -506,10 +483,8 @@ test("custom entry commits a declared label plus a free-typed model ID, and Canc
 			payload: { feature: "inlineCompletions", value: { server: "Gateway", model: "codestral-fim" } },
 		},
 	]);
-	// The commit leaves custom mode: the plain picker is back.
 	expect(rowOf(selectOf(root, "inlineCompletions.model")).querySelector('input[aria-label="Model ID"]')).toBeNull();
 
-	// Cancel never writes.
 	resetPosted();
 	fireSelect(selectOf(root, "inlineCompletions.model"), "custom");
 	const cancel = [...rowOf(selectOf(root, "inlineCompletions.model")).querySelectorAll("button")].find(
@@ -539,7 +514,6 @@ test("the test-completion probe posts the configured pair and renders the ack's 
 
 	const request = lastRequest("testFeatureModel");
 	expect(request.payload).toEqual({ feature: "inlineCompletions", model: { server: "Prod", model: "codestral" } });
-	// While in flight the button reads busy and refuses a second post.
 	expect(row.textContent).toContain("Testing...");
 
 	pushToWebview({
@@ -553,8 +527,8 @@ test("the test-completion probe posts the configured pair and renders the ack's 
 	// Success wears the app-wide ok tone, one vocabulary with Test connection.
 	expect(status?.classList.contains("state-ok")).toBe(true);
 
-	// A failed probe renders the classified message in the error tone; counts
-	// and classified text only, never completion text.
+	// A failed probe renders the classified message in the error tone; counts and classified text only, never
+	// completion text.
 	fireClick(
 		[...row.querySelectorAll("button")].find((candidate) => candidate.textContent === "Test model") as HTMLElement
 	);
@@ -570,9 +544,8 @@ test("the test-completion probe posts the configured pair and renders the ack's 
 });
 
 test("a custom draft never seeds or commits an undeclared server label", () => {
-	// The configured ref names a vanished server; the draft must seed from the
-	// first DECLARED label - a controlled select initialized to a nonexistent
-	// value would DISPLAY its first option while committing the stale label.
+	// The configured ref names a vanished server; the draft must seed from the first DECLARED label - a controlled
+	// select initialized to a nonexistent value would DISPLAY its first option while committing the stale label.
 	const settings = makeSettings({
 		featureModels: {
 			...NO_FEATURE_MODELS,
@@ -625,7 +598,6 @@ test("opening the custom editor clears a landed probe outcome: the annotation ne
 	// The editor exists to change what the probe tested; opening it stales the result.
 	fireSelect(selectOf(root, "inlineCompletions.model"), "custom");
 	expect(row.querySelector('[role="status"]')).toBeNull();
-	// Cancelling does not resurrect it either.
 	fireClick([...row.querySelectorAll("button")].find((candidate) => candidate.textContent === "Cancel") as HTMLElement);
 	expect(row.querySelector('[role="status"]')).toBeNull();
 });
@@ -656,8 +628,8 @@ test("a changed pick hides a landed probe outcome: a result never sits beside a 
 		message: "Completion received - 5 characters",
 	});
 	expect(row.querySelector('[role="status"]')?.textContent).toContain("Completion received");
-	// The next state push carries a different configured pair: the outcome is
-	// keyed to the tested pair and leaves with it.
+	// The next state push carries a different configured pair: the outcome is keyed to the tested pair and leaves with
+	// it.
 	render(
 		<FeaturesSection
 			settings={settingsFor("gpt-test")}

@@ -69,9 +69,8 @@ describe("extension/features/participant modelsMarkdown", () => {
 		expect(markdown).toContain("| `id\\|with\\|pipes` | line one line two |");
 
 		const armed = modelsMarkdown([{ label: "srv", models: [{ id: "a\\|b", capabilities: "one\rtwo" }] }]);
-		// A backslash next to a pipe cannot live in a code span (the cell scanner
-		// would pair them and split the row), so the ID falls back to plain text
-		// with full escaping: renders as a\|b, row intact.
+		// A backslash next to a pipe cannot live in a code span (the cell scanner would pair them and split the row),
+		// so the ID falls back to plain text with full escaping: renders as a\|b, row intact.
 		expect(armed).toContain("| a\\\\\\|b | one two |");
 		expect(armed).not.toContain("\r");
 		expect(armed).not.toContain("`a");

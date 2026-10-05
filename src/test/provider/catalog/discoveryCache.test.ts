@@ -128,9 +128,8 @@ suite("provider/catalog/discoveryCache", () => {
 	});
 
 	test("a fetch after clear() starts a fresh load instead of joining a pre-clear one", async () => {
-		// clear() is how explicit refreshes force a real round trip, so a post-clear
-		// fetch joining a pre-clear load would hand its caller stale results that
-		// nothing corrects - the store guard only keeps them out of the store.
+		// clear() is how explicit refreshes force a real round trip, so a post-clear fetch joining a pre-clear load
+		// would hand its caller stale results that nothing corrects - the store guard only keeps them out of the store.
 		const cache = new DiscoveryCache<string>(makeClock().now);
 		let releasePre: (() => void) | undefined;
 		const preGate = new Promise<void>((resolve) => {
@@ -151,8 +150,8 @@ suite("provider/catalog/discoveryCache", () => {
 			return "post-clear";
 		});
 
-		// The detached load finishes first, while the fresh one is still in
-		// flight: its cleanup must not orphan the fresh load's in-flight entry.
+		// The detached load finishes first, while the fresh one is still in flight: its cleanup must not orphan the
+		// fresh load's in-flight entry.
 		expectDefined(releasePre)();
 		assert.strictEqual(await preClear, "pre-clear", "the detached load still resolves for its original caller");
 		const joiner = cache.fetch("k", async () => "a third load would prove the fresh entry was orphaned");
@@ -380,8 +379,8 @@ suite("provider group discovery caching", () => {
 		await provider.provideLanguageModelChatInformation(groupOptions(GROUP), cancellation());
 		assert.strictEqual(counter.hits(), 1);
 
-		// This provider is not registered with the host, so the change event goes
-		// nowhere and refreshViaHost falls back to probing the observed group.
+		// This provider is not registered with the host, so the change event goes nowhere and refreshViaHost falls back
+		// to probing the observed group.
 		await provider.refreshViaHost(300, 50);
 		assert.strictEqual(counter.hits(), 2, "the explicit refresh must reach the network despite the cached entry");
 
@@ -405,7 +404,6 @@ suite("provider group discovery caching", () => {
 		const fetchGroup = (baseUrl: string) =>
 			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl }), cancellation());
 
-		// Two full sweeps within the TTL: the second is answered from the cache.
 		await groupless();
 		await fetchGroup(TEST_BASE_URL);
 		await fetchGroup("http://litellm.test:8080");
@@ -420,8 +418,8 @@ suite("provider group discovery caching", () => {
 	});
 
 	test("editing an entry's includeModes lands on a new cache key, so the next serve refetches", async () => {
-		// includeModes changes what a fetch yields, like apiVersion, so it keys
-		// the cache: an edit must not serve the old filtered result until the TTL.
+		// includeModes changes what a fetch yields, like apiVersion, so it keys the cache: an edit must not serve the
+		// old filtered result until the TTL.
 		const entry = { includeModes: undefined as readonly NonChatMode[] | undefined };
 		const provider = new LiteLLMChatModelProvider({
 			userAgent: "GitHubCopilotChat/test VSCode/test",
@@ -451,8 +449,8 @@ suite("provider group discovery caching", () => {
 		countingHandlers();
 		const oldGroup = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "old-key" };
 		const newGroup = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "new-key" };
-		// The peek reads through the SAME group+root key composition the serve
-		// and prune paths use, so this pin cannot drift from the real keys.
+		// The peek reads through the SAME group+root key composition the serve and prune paths use, so this pin cannot
+		// drift from the real keys.
 		const internals = provider as unknown as {
 			_discoveryCache: DiscoveryCache<unknown>;
 			_discovery: { cacheKeyFor(groupServer: { baseUrl: string; apiKey: string }): string };
@@ -465,8 +463,8 @@ suite("provider group discovery caching", () => {
 		await provider.provideLanguageModelChatInformation(groupOptions(oldGroup), cancellation());
 		assert.notStrictEqual(lookup(oldGroup), undefined);
 
-		// The rotated key stops the old identity from reporting; after its
-		// one-cycle grace the sweep's prune must take the cache entry with it.
+		// The rotated key stops the old identity from reporting; after its one-cycle grace the sweep's prune must take
+		// the cache entry with it.
 		await groupless();
 		await provider.provideLanguageModelChatInformation(groupOptions(newGroup), cancellation());
 		await groupless();

@@ -10,18 +10,12 @@ interface RecordedUpdate {
 	readonly target: vscode.ConfigurationTarget;
 }
 
-/** What the fake configuration observed: the writes, and how often the configuration itself was fetched. */
 interface RecordedConfig {
 	readonly updates: RecordedUpdate[];
 	fetches(): number;
 }
 
-/**
- * Run `fn` with vscode.workspace.getConfiguration faked for the extension's
- * section: `inspections` back inspect() and the merged get(), and updates are
- * recorded instead of written. Not testUtils' withConfig, because these tests
- * also need update() targets and a fetch counter.
- */
+/** Not testUtils' withConfig, because these tests also need update() targets and a fetch counter. */
 async function withRecordedConfig<T>(
 	inspections: Record<string, SettingsInspection>,
 	fn: (recorded: RecordedConfig) => T | Promise<T>
@@ -145,8 +139,8 @@ suite("extension/settingsAccess", () => {
 		});
 
 		test("every method fetches the live configuration at call time", async () => {
-			// WorkspaceConfiguration is a snapshot: one captured at access-creation
-			// time would serve stale values to reads following awaited writes.
+			// WorkspaceConfiguration is a snapshot: one captured at access-creation time would serve stale values to
+			// reads following awaited writes.
 			await withRecordedConfig({}, async ({ fetches }) => {
 				const access = createSettingsAccess();
 				assert.strictEqual(fetches(), 0, "creation itself fetches nothing");
@@ -158,8 +152,8 @@ suite("extension/settingsAccess", () => {
 		});
 
 		test("snapshotReader serves every read from the one configuration it captured", async () => {
-			// The deliberate exception: a dashboard build makes many reads and
-			// must not mix configuration versions mid-build.
+			// The deliberate exception: a dashboard build makes many reads and must not mix configuration versions
+			// mid-build.
 			await withRecordedConfig({ "chat.timeout": { globalValue: 1000 } }, ({ fetches }) => {
 				const reader: SettingsSnapshotReader = createSettingsAccess().snapshotReader();
 				assert.strictEqual(fetches(), 1, "the snapshot is captured at reader creation");

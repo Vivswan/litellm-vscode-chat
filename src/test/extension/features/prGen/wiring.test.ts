@@ -1,9 +1,7 @@
 /**
- * The PR generation wiring: fail-closed by construction. The registration
- * decision is its own unit (createGhprRegistrar), driven here directly rather
- * than through the host's extension-change event, which is getter-only and
- * cannot be stubbed - the wiring binds that event to exactly this `apply`, so
- * driving it is driving the deferred path.
+ * The registration decision is its own unit (createGhprRegistrar), driven here directly rather than through the host's
+ * extension-change event, which is getter-only and cannot be stubbed - the wiring binds that event to exactly this
+ * `apply`, so driving it is driving the deferred path.
  */
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
@@ -34,7 +32,6 @@ interface GhprRegistration {
 	disposed: boolean;
 }
 
-/** A fake GitHub Pull Requests API that records what it was handed. */
 function fakeGhpr(registrations: GhprRegistration[]): GitHubPullRequestsApi {
 	return {
 		registerTitleAndDescriptionProvider: (title, provider) => {
@@ -51,7 +48,6 @@ const NO_PROVIDER: TitleAndDescriptionProvider = {
 	provideTitleAndDescription: () => Promise.resolve(undefined),
 };
 
-/** The registrar under test, over mutable state the test drives between applies. */
 function harness(initial: { wanted?: boolean; api?: GitHubPullRequestsApi | undefined } = {}) {
 	const registrations: GhprRegistration[] = [];
 	const logs: string[] = [];
@@ -72,8 +68,8 @@ function harness(initial: { wanted?: boolean; api?: GitHubPullRequestsApi | unde
 		provider: () => NO_PROVIDER,
 		log: (message) => logs.push(message),
 	});
-	// Assign onto `state` rather than spreading it: the registrar's callbacks
-	// close over this exact object, so a test setting `.api` must be seen by them.
+	// Assign onto `state` rather than spreading it: the registrar's callbacks close over this exact object, so a test
+	// setting `.api` must be seen by them.
 	return Object.assign(state, { registrar });
 }
 
@@ -84,8 +80,8 @@ suite("extension/features/prGen GitHub registration", () => {
 		await h.registrar.apply();
 		assert.strictEqual(h.registrations.length, 1, "exactly one provider is registered");
 		assert.strictEqual(h.registrations[0]?.title, prGenerationProviderTitle());
-		// The hardcoded slot in that extension is selected by a case-insensitive
-		// "Copilot" substring; ours must never match it.
+		// The hardcoded slot in that extension is selected by a case-insensitive "Copilot" substring; ours must never
+		// match it.
 		assert.ok(!/copilot/i.test(h.registrations[0]?.title ?? ""), "the title must not claim the Copilot slot");
 	});
 
@@ -164,8 +160,8 @@ suite("extension/features/prGen GitHub registration", () => {
 	});
 
 	test("dispose is terminal: no later apply can register again, whatever fires afterwards", async () => {
-		// Terminal by construction rather than by subscription order: the two
-		// change events this is bound to outlive nothing in particular.
+		// Terminal by construction rather than by subscription order: the two change events this is bound to outlive
+		// nothing in particular.
 		const h = harness();
 		h.api = fakeGhpr(h.registrations);
 		await h.registrar.apply();
@@ -177,11 +173,9 @@ suite("extension/features/prGen GitHub registration", () => {
 	});
 
 	test("disposing while an apply is in flight leaves nothing registered behind it", async () => {
-		// The dangerous shape: apply() is awaiting the other extension's
-		// activation when the extension host tears us down. A provider registered
-		// after that is never disposed - and since that extension hands an
-		// unqualified request to the FIRST registered provider, a dead one would
-		// answer for the rest of the window.
+		// The dangerous shape: apply() is awaiting the other extension's activation when the extension host tears us
+		// down. A provider registered after that is never disposed - and since that extension hands an unqualified
+		// request to the FIRST registered provider, a dead one would answer for the rest of the window.
 		const registrations: GhprRegistration[] = [];
 		let release: (() => void) | undefined;
 		const slow = new Promise<void>((resolve) => {
@@ -226,8 +220,6 @@ suite("extension/features/prGen GitHub registration", () => {
 			log: () => {},
 		});
 		const stale = registrar.apply();
-		// The feature is turned off and re-decided while the first apply is still
-		// waiting on the other extension.
 		wanted = false;
 		await registrar.apply();
 		release?.();
@@ -272,7 +264,6 @@ suite("extension/features/prGen wiring", () => {
 	});
 });
 
-/** A git API answering with one repository whose branch lookup returns `branch`. */
 function fakeGit(branch: Branch | undefined): () => Promise<API | undefined> {
 	const repo = {
 		getBranch: (name: string) =>
@@ -295,12 +286,10 @@ suite("extension/features/prGen activation-failure logging", () => {
 	}
 
 	/**
-	 * The advisory contract: the registration decision reruns on every settings
-	 * change, so its failure line is channel-only (Logger.advisory) - visible in
-	 * the output channel on every re-decision, and NEVER in the issue-report
-	 * buffer, whose 50-entry ring a broken GitHub install must not evict real
-	 * history from. `run` executes while the failing-GHPR stubs are live, so a
-	 * fired configuration change re-consults the broken install.
+	 * The advisory contract: the registration decision reruns on every settings change, so its failure line is
+	 * channel-only (Logger.advisory) - visible in the output channel on every re-decision, and NEVER in the
+	 * issue-report buffer, whose 50-entry ring a broken GitHub install must not evict real history from. `run` executes
+	 * while the failing-GHPR stubs are live, so a fired configuration change re-consults the broken install.
 	 */
 	async function withFailingGhpr(
 		run: (harness: { lines: string[]; buffered: string[]; fireConfigChange: () => Promise<void> }) => Promise<void>
@@ -318,8 +307,8 @@ suite("extension/features/prGen activation-failure logging", () => {
 			listeners.push(listener);
 			return new vscode.Disposable(() => {});
 		};
-		// vscode.extensions.onDidChange is getter-only and cannot be stubbed; the
-		// real one never fires here, so the wiring's subscription is harmless.
+		// vscode.extensions.onDidChange is getter-only and cannot be stubbed; the real one never fires here, so the
+		// wiring's subscription is harmless.
 		(vscode.extensions as Record<string, unknown>).getExtension = (id: string) =>
 			id === "GitHub.vscode-pull-request-github"
 				? { isActive: false, exports: undefined, activate: () => Promise.reject(new Error("broken install")) }
@@ -374,7 +363,6 @@ suite("extension/features/prGen GitHub-context provider", () => {
 	const MODEL = { server: "alpha", model: "gpt-test" };
 	const ENABLED = { "prGeneration.enabled": true, "prGeneration.model": MODEL };
 
-	/** The prompt the provider assembled, captured through the injected send. */
 	async function promptFor(
 		context: Parameters<TitleAndDescriptionProvider["provideTitleAndDescription"]>[0],
 		resolveGit: () => Promise<API | undefined>
@@ -389,8 +377,7 @@ suite("extension/features/prGen GitHub-context provider", () => {
 			() => {},
 			resolveGit
 		);
-		// The provider re-reads the enable gate per call, so the suite must run
-		// with the feature actually on.
+		// The provider re-reads the enable gate per call, so the suite must run with the feature actually on.
 		await withConfig(ENABLED, () =>
 			provider.provideTitleAndDescription(context, new vscode.CancellationTokenSource().token)
 		);
@@ -417,8 +404,7 @@ suite("extension/features/prGen GitHub-context provider", () => {
 	});
 
 	test("a branch nothing can resolve leaves the list exactly as it arrived", async () => {
-		// Unknown is not "no upstream": reversing on a guess would be worse than
-		// passing the list through.
+		// Unknown is not "no upstream": reversing on a guess would be worse than passing the list through.
 		const prompt = await promptFor(
 			{ commitMessages: ["first", "second"], patches: ["@@ x"], compareBranch: "feature" },
 			() => Promise.resolve(undefined)
@@ -448,8 +434,8 @@ suite("extension/features/prGen GitHub-context provider", () => {
 	});
 
 	test("a call arriving after the feature was turned off sends nothing, model setting or not", async () => {
-		// Teardown is asynchronous, so a call can land between the setting change
-		// and the registration's disposal; no repository content may leave on it.
+		// Teardown is asynchronous, so a call can land between the setting change and the registration's disposal; no
+		// repository content may leave on it.
 		let sends = 0;
 		const provider = createGhprProvider(
 			() => {
@@ -471,9 +457,8 @@ suite("extension/features/prGen GitHub-context provider", () => {
 	});
 
 	test("a transport failure is caught at this boundary: a classification is logged, nothing escapes", async () => {
-		// The caller is ANOTHER extension, which logs whatever it catches; a
-		// RequestError's message carries server-derived text, so it must not
-		// travel. The upstream API's own "could not" value goes back instead.
+		// The caller is ANOTHER extension, which logs whatever it catches; a RequestError's message carries
+		// server-derived text, so it must not travel. The upstream API's own "could not" value goes back instead.
 		const logs: string[] = [];
 		const provider = createGhprProvider(
 			() => Promise.reject(new RequestError("LiteLLM 500: SERVER-BODY-DETAIL", "http", { englishMessage: "boom" })),
@@ -529,9 +514,8 @@ suite("extension/features/prGen GitHub-context provider", () => {
 	});
 
 	test("the repository standing on the compare branch decides the order, not merely the first one", async () => {
-		// A multi-root workspace with the same branch name in two repositories:
-		// only the tracking state of the one actually on that branch says
-		// anything about how the upstream extension collected its list.
+		// A multi-root workspace with the same branch name in two repositories: only the tracking state of the one
+		// actually on that branch says anything about how the upstream extension collected its list.
 		const wrong = {
 			state: { HEAD: { name: "other" } },
 			getBranch: () => Promise.resolve({ name: "feature" }),
@@ -556,8 +540,8 @@ suite("extension/features/prGen GitHub-context provider", () => {
 				new vscode.CancellationTokenSource().token
 			)
 		);
-		// The right repository has an undiverged upstream, so the list is
-		// oldest-first already and must NOT be reversed.
+		// The right repository has an undiverged upstream, so the list is oldest-first already and must NOT be
+		// reversed.
 		assert.ok(seen.includes("oldest\n\nnewest"), `the wrong repository decided the order:\n${seen}`);
 	});
 });
@@ -597,11 +581,9 @@ suite("extension/features/prGen dashboard probe", () => {
 });
 
 /**
- * The send itself: which error surface it claims, which timeout bounds it, and
- * what it throws for an unresolvable label. Nothing else pins these - the
- * surface literal typechecks as any member of the union, so a copy-edit to a
- * sibling's name would silently render that sibling's advice for every PR
- * failure.
+ * The send itself: which error surface it claims, which timeout bounds it, and what it throws for an unresolvable
+ * label. Nothing else pins these - the surface literal typechecks as any member of the union, so a copy-edit to a
+ * sibling's name would silently render that sibling's advice for every PR failure.
  */
 suite("extension/features/prGen send", () => {
 	useMsw();
@@ -612,7 +594,6 @@ suite("extension/features/prGen send", () => {
 		servers: [{ label: "alpha", baseUrl: TEST_BASE_URL, auth: { apiKey: "sk-test" } }],
 	};
 
-	/** Wire the feature with a real client and hand back only its send. */
 	function sendOf(): ReturnType<typeof wirePrGeneration>["prSend"] {
 		const originalRegisterCommand = vscode.commands.registerCommand;
 		const originalOnDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration;
@@ -630,8 +611,8 @@ suite("extension/features/prGen send", () => {
 	}
 
 	test("a label matching no entry throws the classified error, zero fetches", async () => {
-		// No msw handler is registered for the chat URL: any request would fail
-		// the suite through onUnhandledRequest: "error".
+		// No msw handler is registered for the chat URL: any request would fail the suite through onUnhandledRequest:
+		// "error".
 		await withConfig({ ...SEND_CONFIG, servers: [] }, async () => {
 			const send = sendOf();
 			await assert.rejects(
@@ -646,8 +627,8 @@ suite("extension/features/prGen send", () => {
 	});
 
 	test("a failure renders the PR generation surface's copy, not a sibling feature's", async () => {
-		// The one guard on the surface literal: 404 advice is per-surface, so a
-		// copy-edit to "commitGeneration" would show commit-message wording here.
+		// The one guard on the surface literal: 404 advice is per-surface, so a copy-edit to "commitGeneration" would
+		// show commit-message wording here.
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, () =>
 				HttpResponse.json({ error: { message: "model gone", type: "invalid_request_error" } }, { status: 404 })
@@ -681,8 +662,7 @@ suite("extension/features/prGen send", () => {
 		});
 		assert.deepStrictEqual(body?.messages, [{ role: "user", content: "the prompt" }]);
 		assert.strictEqual(body?.model, "gpt-test");
-		// The pass-through invariant: this path sets no max_tokens and injects
-		// no parameters of its own.
+		// The pass-through invariant: this path sets no max_tokens and injects no parameters of its own.
 		for (const key of ["temperature", "top_p", "max_tokens", "tools", "tool_choice"]) {
 			assert.ok(!(key in (body ?? {})), `unexpected ${key} in the body`);
 		}

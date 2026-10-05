@@ -1,7 +1,6 @@
 /**
- * Resolves package.json manifest strings for tests that compare them against
- * runtime titles: a "%key%" value goes through package.nls.json, anything else
- * passes through unchanged - as does everything when package.nls.json does not
+ * Resolves package.json manifest strings for tests that compare them against runtime titles: a "%key%" value goes
+ * through package.nls.json, anything else passes through unchanged - as does everything when package.nls.json does not
  * exist yet, so the helper works on both sides of the externalization.
  */
 import * as fs from "node:fs";
@@ -23,10 +22,9 @@ function readNlsTable(): Readonly<Record<string, string>> | null {
 	return cached.table;
 }
 
-/** Resolve one manifest value; throws on a %key% that package.nls.json exists but does not define. */
 export function resolveNls(value: string): string {
-	// Key-shaped references only, mirroring vsce's substitution: a literal value
-	// that merely contains percent signs ("100%") passes through.
+	// Key-shaped references only, mirroring vsce's substitution: a literal value that merely contains percent signs
+	// ("100%") passes through.
 	const match = /^%([\w\d.]+)%$/.exec(value);
 	if (match === null) {
 		return value;

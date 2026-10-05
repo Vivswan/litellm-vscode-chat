@@ -1,9 +1,8 @@
 /**
- * The review commands end to end against an msw-mocked server: the fail-closed
- * gate (off, or on without a model, means advice and zero traffic), a whole-file
- * review turning a model answer into anchored threads, and a reply appending
- * the user's words before the model's - by REASSIGNING the thread's readonly
- * comments array, which is the only way the host sees a new comment.
+ * The review commands end to end against an msw-mocked server: the fail-closed gate (off, or on without a model, means
+ * advice and zero traffic), a whole-file review turning a model answer into anchored threads, and a reply appending the
+ * user's words before the model's - by REASSIGNING the thread's readonly comments array, which is the only way the host
+ * sees a new comment.
  */
 import * as assert from "node:assert";
 import * as os from "node:os";
@@ -31,14 +30,12 @@ import { withConfig } from "../../../testUtils";
 import type { FakeController } from "./commentHarness";
 import { liveThreads, withCommentSpies } from "./commentHarness";
 
-/** The settings that make the feature live against the msw-mocked server. */
 const ENABLED_CONFIG = {
 	"reviewComments.enabled": true,
 	"reviewComments.model": { server: "alpha", model: "gpt-test" },
 	servers: [{ label: "alpha", baseUrl: TEST_BASE_URL, auth: { apiKey: "sk-test" } }],
 };
 
-/** One chat completion carrying `content` as the whole reply. */
 function chatReply(content: string) {
 	return HttpResponse.json({ choices: [{ message: { role: "assistant", content } }] });
 }
@@ -53,17 +50,11 @@ function fakeSecrets(): vscode.SecretStorage {
 	} as unknown as vscode.SecretStorage;
 }
 
-/** What a stand-in repository answers with; every field has a boring default. */
 interface FakeRepoParts {
-	/** The commit HEAD points at; undefined leaves HEAD absent, the state-not-loaded case. */
 	readonly head?: string;
-	/** Repository-relative paths reported as changed, each with a one-hunk diff. */
 	readonly files?: readonly string[];
-	/** Changed files named by URI instead, for documents the test already opened. */
 	readonly uris?: readonly vscode.Uri[];
-	/** Overrides the no-path `diffWith` call, for failure cases. */
 	readonly enumerate?: () => Promise<Change[]>;
-	/** The repository root the changed URIs sit under; defaults to /repo. */
 	readonly root?: vscode.Uri;
 }
 
@@ -98,14 +89,12 @@ function fakeRepo(parts: FakeRepoParts): Repository {
 			indexChanges: [],
 			workingTreeChanges: [],
 			untrackedChanges: [],
-			// No commit means no HEAD at all here: the repository state has not
-			// loaded yet. An unborn branch is the other commitless shape - HEAD
-			// present with a name - and unbornRepo builds it.
+			// No commit means no HEAD at all here: the repository state has not loaded yet. An unborn branch is the
+			// other commitless shape - HEAD present with a name - and unbornRepo builds it.
 			HEAD: parts.head === undefined ? undefined : { name: "main", commit: parts.head },
 		},
 		diff: () => Promise.resolve(""),
 		diffWith,
-		// Declared by the vendored API subset; the review flow never calls these.
 		getBranch: () => Promise.reject(new Error("not used by review comments")),
 		getBranchBase: () => Promise.resolve(undefined),
 		getMergeBase: () => Promise.resolve(undefined),
@@ -114,13 +103,11 @@ function fakeRepo(parts: FakeRepoParts): Repository {
 }
 
 /**
- * A repository that has no commits yet. Both halves mirror the real vscode.git:
- * `git diff HEAD` exits 128 there ("fatal: bad revision 'HEAD'") and the
- * extension's exec rejects on any nonzero exit, so diffWith throws rather than
- * reporting a clean tree; and HEAD is present but commitless, because upstream
- * builds it from `.git/HEAD` (giving the branch name) before resolving the ref,
- * and the resolve is what fails on an unborn branch. Distinct from a repository
- * whose state has not loaded, which has no HEAD at all.
+ * Both halves mirror the real vscode.git: `git diff HEAD` exits 128 there ("fatal: bad revision 'HEAD'") and the
+ * extension's exec rejects on any nonzero exit, so diffWith throws rather than reporting a clean tree; and HEAD is
+ * present but commitless, because upstream builds it from `.git/HEAD` (giving the branch name) before resolving the
+ * ref, and the resolve is what fails on an unborn branch. Distinct from a repository whose state has not loaded, which
+ * has no HEAD at all.
  */
 function unbornRepo(): Repository {
 	return {
@@ -136,7 +123,6 @@ function fakeGit(repo: Repository): API {
 suite("extension/features/reviewComments commands", () => {
 	useMsw();
 
-	/** One scratch directory per suite run; openActive puts its files here. */
 	const scratchRoot = vscode.Uri.file(path.join(os.tmpdir(), `lvt-review-cmd-${process.pid}-${Date.now()}`));
 	let scratchCount = 0;
 
@@ -186,7 +172,6 @@ suite("extension/features/reviewComments commands", () => {
 		(vscode.window as Record<string, unknown>).showErrorMessage = originals.error;
 	});
 
-	/** A live controller over the recording double, saving into `saved`. */
 	function liveController(): ReviewCommentController {
 		controller = new ReviewCommentController((threads) => {
 			saved.push(threads);
@@ -195,10 +180,8 @@ suite("extension/features/reviewComments commands", () => {
 	}
 
 	/**
-	 * Write a real file, open it, and make it the active editor - which is what
-	 * runReviewFile reviews. A real file rather than an untitled buffer because
-	 * the command refuses anything with no stable identity to store threads
-	 * under, and these tests are about what it does with a reviewable one.
+	 * A real file rather than an untitled buffer because the command refuses anything with no stable identity to store
+	 * threads under, and these tests are about what it does with a reviewable one.
 	 */
 	async function openActive(content: string): Promise<vscode.TextDocument> {
 		const uri = vscode.Uri.joinPath(scratchRoot, `file-${scratchCount++}.ts`);
@@ -209,8 +192,8 @@ suite("extension/features/reviewComments commands", () => {
 	}
 
 	test("disabled: the enable hint, zero traffic", async () => {
-		// No msw handler is registered for the chat URL, so any request would fail
-		// the suite through onUnhandledRequest: "error".
+		// No msw handler is registered for the chat URL, so any request would fail the suite through
+		// onUnhandledRequest: "error".
 		await withCommentSpies(async () => {
 			liveController();
 			await withConfig({ ...ENABLED_CONFIG, "reviewComments.enabled": false }, () => runReviewFile(deps));
@@ -426,8 +409,8 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("a git extension that fails to activate reports through the command's own failure boundary", async () => {
-		// The activation await sits outside withProgress; an escaped rejection
-		// would leave the command silently dead instead of saying anything.
+		// The activation await sits outside withProgress; an escaped rejection would leave the command silently dead
+		// instead of saying anything.
 		await withCommentSpies(async () => {
 			liveController();
 			await withConfig(ENABLED_CONFIG, () =>
@@ -438,8 +421,8 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("a thread the USER started from the gutter is adopted, not silently swallowed", async () => {
-		// The host creates that thread itself, so it reaches the reply command
-		// unindexed. Without adoption the user's question would vanish.
+		// The host creates that thread itself, so it reaches the reply command unindexed. Without adoption the user's
+		// question would vanish.
 		mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply("Because the index runs one past the end.")));
 		await withCommentSpies(async (spies) => {
 			liveController();
@@ -462,15 +445,13 @@ suite("extension/features/reviewComments commands", () => {
 				]
 			);
 			assert.strictEqual(hostThread.contextValue, "unresolved", "an adopted thread joins the resolve menus");
-			// And it persists like any other thread, so it survives a reload.
 			assert.deepStrictEqual(Object.keys(saved.at(-1) ?? {}), [document.uri.toString()]);
 		});
 	});
 
 	test("another thread's persist does not bank an adopted thread the user has not written in yet", async () => {
-		// adopt() indexes the thread before any comment lands; a persist from
-		// elsewhere in that window must omit it - and its URI entirely - or the
-		// store banks a comments:[] thread that rehydrates as an empty widget.
+		// adopt() indexes the thread before any comment lands; a persist from elsewhere in that window must omit it -
+		// and its URI entirely - or the store banks a comments:[] thread that rehydrates as an empty widget.
 		await withCommentSpies(async (spies) => {
 			const live = liveController();
 			const reviewedUri = vscode.Uri.parse("file:///workspace/a.ts");
@@ -497,8 +478,8 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("a review landing after the feature was disabled writes nothing at all", async () => {
-		// The dangerous shape: the callback still holds the controller, so an
-		// unguarded apply would save an emptied snapshot over the whole store.
+		// The dangerous shape: the callback still holds the controller, so an unguarded apply would save an emptied
+		// snapshot over the whole store.
 		let release: (() => void) | undefined;
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, async () => {
@@ -547,8 +528,8 @@ suite("extension/features/reviewComments commands", () => {
 			for (let attempt = 0; attempt < 100 && release === undefined; attempt += 1) {
 				await new Promise((resolve) => setTimeout(resolve, 5));
 			}
-			// The document moves under the request: the answer describes a revision
-			// that no longer exists, so anchoring it would land on the wrong lines.
+			// The document moves under the request: the answer describes a revision that no longer exists, so anchoring
+			// it would land on the wrong lines.
 			const edit = new vscode.WorkspaceEdit();
 			edit.insert(document.uri, new vscode.Position(0, 0), "inserted\n");
 			await vscode.workspace.applyEdit(edit);
@@ -587,12 +568,10 @@ suite("extension/features/reviewComments commands", () => {
 			await withConfig(ENABLED_CONFIG, () => runReviewFile(deps));
 			const modelThread = liveThreads(spies.controllers[0] as FakeController)[0];
 			assert.ok(modelThread !== undefined);
-			// The user answers that finding, which makes the thread theirs too.
 			mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply("Fair enough.")));
 			await withConfig(ENABLED_CONFIG, () =>
 				runReviewReply(deps, { thread: modelThread as unknown as vscode.CommentThread, text: "Are you sure?" })
 			);
-			// And starts a question of their own elsewhere in the file.
 			const ownThread = spies.controllers[0]?.createHostThread(document.uri, new vscode.Range(2, 0, 2, 0));
 			assert.ok(ownThread !== undefined);
 			mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply("Because of the cast.")));
@@ -616,16 +595,14 @@ suite("extension/features/reviewComments commands", () => {
 			const controllerThreads = liveThreads(spies.controllers[0] as FakeController);
 			const bodies = controllerThreads.flatMap((thread) => thread.comments.map((comment) => comment.body));
 			assert.ok(bodies.includes("second pass"), "and the fresh finding landed");
-			// The first pass's finding is still there because the user replied to
-			// it - that thread became theirs. What was replaced is the model-only
-			// set, so the second pass added exactly one thread rather than stacking.
+			// The first pass's finding is still there because the user replied to it - that thread became theirs. What
+			// was replaced is the model-only set, so the second pass added exactly one thread rather than stacking.
 			assert.strictEqual(controllerThreads.length, 2, "one kept user thread plus one fresh finding");
 		});
 	});
 
 	test("a repository with no commits yet names that reason rather than claiming a clean tree", async () => {
-		// Whatever is staged there is the first commit's content, which a
-		// comparison against HEAD cannot describe.
+		// Whatever is staged there is the first commit's content, which a comparison against HEAD cannot describe.
 		await withCommentSpies(async () => {
 			liveController();
 			await withConfig(ENABLED_CONFIG, () =>
@@ -656,8 +633,8 @@ suite("extension/features/reviewComments commands", () => {
 				return chatReply("NO FINDINGS");
 			})
 		);
-		// Real files: diffUnits opens each changed document, so a fake path would
-		// simply be skipped and the cap would never be reached.
+		// Real files: diffUnits opens each changed document, so a fake path would simply be skipped and the cap would
+		// never be reached.
 		const root = vscode.Uri.file(path.join(os.tmpdir(), `lvt-review-cap-${process.pid}-${Date.now()}`));
 		await vscode.workspace.fs.createDirectory(root);
 		const uris: vscode.Uri[] = [];
@@ -683,9 +660,8 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("a file with unsaved changes is not diff-reviewed, and the notice says to save it", async () => {
-		// The diff comes from disk while the comments would anchor into the
-		// buffer: the model would describe one revision and the comments land on
-		// another.
+		// The diff comes from disk while the comments would anchor into the buffer: the model would describe one
+		// revision and the comments land on another.
 		await withCommentSpies(async () => {
 			liveController();
 			const document = await openActive("alpha\nbeta");
@@ -702,8 +678,8 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("cancelling while the changes are still being enumerated announces nothing at all", async () => {
-		// The branch that would otherwise say "There are no uncommitted changes to
-		// review" for a run the user deliberately stopped.
+		// The branch that would otherwise say "There are no uncommitted changes to review" for a run the user
+		// deliberately stopped.
 		await withCommentSpies(async () => {
 			liveController();
 			const originalWithProgress = vscode.window.withProgress;
@@ -729,9 +705,8 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("a second reply typed while the first is in flight waits its turn, in order", async () => {
-		// Appending it immediately would put the user's second question ABOVE the
-		// answer to their first, and that out-of-order thread is what gets
-		// replayed to the model on the next turn.
+		// Appending it immediately would put the user's second question ABOVE the answer to their first, and that
+		// out-of-order thread is what gets replayed to the model on the next turn.
 		const release: (() => void)[] = [];
 		let requests = 0;
 		mswServer.use(
@@ -753,16 +728,14 @@ suite("extension/features/reviewComments commands", () => {
 			assert.ok(thread !== undefined);
 			const hostThread = thread as unknown as vscode.CommentThread;
 
-			// ONE withConfig around both: the second reply resolves its model after
-			// the first settles, so a per-call scope would restore the settings out
-			// from under the queued turn.
+			// ONE withConfig around both: the second reply resolves its model after the first settles, so a per-call
+			// scope would restore the settings out from under the queued turn.
 			await withConfig(ENABLED_CONFIG, async () => {
 				const first = runReviewReply(deps, { thread: hostThread, text: "first" });
 				for (let attempt = 0; attempt < 100 && release.length === 0; attempt += 1) {
 					await new Promise((resolve) => setTimeout(resolve, 5));
 				}
 				const second = runReviewReply(deps, { thread: hostThread, text: "second" });
-				// The queued reply has not touched the thread yet: its words wait with it.
 				assert.deepStrictEqual(
 					thread.comments.map((comment) => comment.body),
 					["a finding", "first"],
@@ -786,14 +759,12 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("an undismissed notification from one reply cannot block the next one in that thread", async () => {
-		// The queue's tail must cover the THREAD WORK only. A notification promise
-		// settles when the user dismisses it, so awaiting one inside the queued
-		// section would let an ignored toast wedge the thread forever - and the
-		// suite's other tests would not notice, because their stubs resolve at
-		// once. This one never settles.
+		// The queue's tail must cover the THREAD WORK only. This one never settles.
+		//
+		//   A notification promise settles when the user dismisses it  -> awaiting one inside the queued section would
+		//                                                                 let an ignored toast wedge the thread forever
 		(vscode.window as Record<string, unknown>).showWarningMessage = (message: string) => {
 			shown.push({ level: "warning", message });
-			// Never settles: the toast is on screen and nobody touches it.
 			return new Promise<undefined>(() => {});
 		};
 		// The first reply gets an empty answer, which is a warning notification.
@@ -829,8 +800,8 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("an undismissed no-model warning cannot block the next reply either", async () => {
-		// The other notification inside the queued section. Same rule, different
-		// path: the advice is handed back as a thunk, not awaited in the tail.
+		// The other notification inside the queued section. Same rule, different path: the advice is handed back as a
+		// thunk, not awaited in the tail.
 		(vscode.window as Record<string, unknown>).showWarningMessage = (message: string) => {
 			shown.push({ level: "warning", message });
 			return new Promise<undefined>(() => {});
@@ -845,9 +816,8 @@ suite("extension/features/reviewComments commands", () => {
 			const hostThread = thread as unknown as vscode.CommentThread;
 
 			await withConfig({ ...ENABLED_CONFIG, "reviewComments.model": null }, async () => {
-				// NEITHER is awaited: each ends by showing its own warning, and those
-				// never settle. What must still happen is the SECOND turn's append -
-				// it only runs once the first released the thread's queue.
+				// NEITHER is awaited: each ends by showing its own warning, and those never settle. What must still
+				// happen is the SECOND turn's append - it only runs once the first released the thread's queue.
 				void runReviewReply(deps, { thread: hostThread, text: "first" });
 				for (let attempt = 0; attempt < 100 && shown.length === 0; attempt += 1) {
 					await new Promise((resolve) => setTimeout(resolve, 5));
@@ -868,8 +838,8 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("a reply typed with no model configured keeps the user's words and only misses the answer", async () => {
-		// VS Code closes the reply editor on submit either way, so refusing before
-		// the append would silently throw away what they wrote.
+		// VS Code closes the reply editor on submit either way, so refusing before the append would silently throw away
+		// what they wrote.
 		await withCommentSpies(async (spies) => {
 			const live = liveController();
 			live.replaceFileThreads(vscode.Uri.parse("file:///workspace/a.ts"), [
@@ -891,9 +861,8 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("disabling the feature stops a multi-file run even when the answers are unusable", async () => {
-		// An unusable answer never reaches applyFindings, which is the other place
-		// disposal is noticed; without the loop's own check the run would keep
-		// sending files for a feature that is off.
+		// An unusable answer never reaches applyFindings, which is the other place disposal is noticed; without the
+		// loop's own check the run would keep sending files for a feature that is off.
 		let requests = 0;
 		let release: (() => void) | undefined;
 		mswServer.use(
@@ -940,8 +909,8 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("a git failure while the repository state is still loading is not mistaken for an unborn branch", async () => {
-		// HEAD absent means "not loaded yet", which proves nothing about why the
-		// diff failed; only HEAD-without-a-commit is an unborn branch.
+		// HEAD absent means "not loaded yet", which proves nothing about why the diff failed; only
+		// HEAD-without-a-commit is an unborn branch.
 		await withCommentSpies(async () => {
 			liveController();
 			const repo = fakeRepo({ enumerate: () => Promise.reject(new Error("git exploded")) });

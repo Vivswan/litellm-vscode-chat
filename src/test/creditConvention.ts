@@ -1,9 +1,7 @@
 /**
- * The crediting convention's shared grammar: a commit subject that resolves a
- * community report carries "(#N, thanks @login)", and every credited login must
- * have a row in ACKNOWLEDGMENTS.md. Shared by the history guard and the
- * commit-msg hook so the two enforcement layers cannot disagree about what
- * counts as a credit.
+ * The crediting convention's shared grammar: a commit subject that resolves a community report carries "(#N, thanks
+ * @login)", and every credited login must have a row in ACKNOWLEDGMENTS.md. Shared by the history guard and the
+ * commit-msg hook so the two enforcement layers cannot disagree about what counts as a credit.
  */
 
 /** The commit that introduced ACKNOWLEDGMENTS.md; subjects before it predate the convention and stay exempt. */
@@ -15,9 +13,8 @@ export const ACKNOWLEDGMENTS_FILE = "ACKNOWLEDGMENTS.md";
 const LOGIN_SOURCE = "[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*";
 
 /**
- * A parenthesized credit group: one or more issue/PR refs, then "thanks" and a
- * list of @logins. Only logins inside such a group count - a subject that
- * merely mentions an @login, or thanks someone in prose, is not a credit.
+ * A parenthesized credit group: one or more issue/PR refs, then "thanks" and a list of @logins. Only logins inside such
+ * a group count - a subject that merely mentions an @login, or thanks someone in prose, is not a credit.
  */
 const CREDIT_GROUP = new RegExp(
 	String.raw`\(#\d+(?:,\s*#\d+)*,\s*thanks\s+(@${LOGIN_SOURCE}(?:(?:,\s*(?:and\s+)?|\s+and\s+)@${LOGIN_SOURCE})*)\)`,
@@ -33,7 +30,6 @@ export interface SubjectCredit {
 	readonly issues: readonly number[];
 }
 
-/** Every credited login in a commit subject, with its credit group's issue numbers. */
 export function extractSubjectCredits(subject: string): SubjectCredit[] {
 	const credits: SubjectCredit[] = [];
 	for (const group of subject.matchAll(CREDIT_GROUP)) {
@@ -46,12 +42,10 @@ export function extractSubjectCredits(subject: string): SubjectCredit[] {
 }
 
 /**
- * Markdown with fenced code blocks dropped: a row shown inside a fence is an
- * example, not an acknowledgment. CommonMark's fence rules, conservatively: a
- * fence line takes at most three leading spaces (deeper indentation is
- * content), a closing fence takes only trailing whitespace (an info string
- * opens, never closes), and an unclosed fence drops to the end; every
- * misparse direction only shrinks the set - fail closed.
+ * Markdown with fenced code blocks dropped: a row shown inside a fence is an example, not an acknowledgment.
+ * CommonMark's fence rules, conservatively: a fence line takes at most three leading spaces (deeper indentation is
+ * content), a closing fence takes only trailing whitespace (an info string opens, never closes), and an unclosed fence
+ * drops to the end; every misparse direction only shrinks the set - fail closed.
  */
 function withoutCodeFences(markdown: string): string {
 	const kept: string[] = [];

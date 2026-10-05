@@ -1,11 +1,9 @@
 /**
- * Shared fuzz-seed contract for every seeded suite. The log line matters as much
- * as the seed: nightly-fuzz.yml rebuilds the reproduction command in the filed
- * issue from the LAST "[fuzz] seed=<n> ... mode=<m>" line in the docker log.
- * Two emitters exist, both built here - the docker suites log the full line via
- * logFuzzSeed, the unit property harness the seed-only prefix. fuzzSeed.test.ts
- * pins both shapes against the workflow's patterns, so a rewording fails in CI
- * instead of silently filing seedless issues.
+ * The log line matters as much as the seed: nightly-fuzz.yml rebuilds the reproduction command in the filed issue from
+ * the LAST "[fuzz] seed=<n> ... mode=<m>" line in the docker log.
+ *
+ *   fuzzSeed.test.ts pins both shapes against the workflow's patterns
+ *     -> a rewording fails in CI instead of silently filing seedless issues
  */
 
 /** Every mode the docker suites emit; the workflow's mode regex only admits lowercase and hyphens. */
@@ -18,9 +16,8 @@ export function freshFuzzSeed(nowMs: number, pid: number): number {
 }
 
 /**
- * Resolve a docker suite's seed. An explicit FUZZ_SEED reproduces exactly,
- * including 0; anything unset or invalid draws a fresh seed. The unit property
- * suites have their own resolver: a pinned default instead of a fresh draw.
+ * An explicit FUZZ_SEED reproduces exactly, including 0; anything unset or invalid draws a fresh seed. The unit
+ * property suites have their own resolver: a pinned default instead of a fresh draw.
  */
 export function resolveDockerFuzzSeed(): number {
 	const seedEnv = Number(process.env.FUZZ_SEED ?? "");

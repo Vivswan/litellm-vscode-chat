@@ -2,9 +2,8 @@ import * as assert from "node:assert";
 import { USAGE_SEED_KEY } from "./fakeStack/usage";
 
 /**
- * Usage/budget smoke suite: pins that the postgres-backed stack serves LiteLLM's spend endpoints with the
- * seeded fixture key's shape. Raw fetch, no extension host machinery: what is under test is the STACK.
- * Run via `bun run test:docker --only docker-usage`.
+ * Raw fetch, no extension host machinery: what is under test is the STACK. Run via
+ * `bun run test:docker --only docker-usage`.
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
@@ -34,8 +33,8 @@ suite("Docker usage/budget stack smoke", () => {
 	});
 
 	test("/user/daily/activity answers the seeded key", async () => {
-		// v1.93 requires an explicit date window (HTTP 400 without one); a
-		// +/- one day bracket around now is timezone-proof.
+		// v1.93 requires an explicit date window (HTTP 400 without one); a +/- one day bracket around now is
+		// timezone-proof.
 		const isoDay = (unixMs: number): string => new Date(unixMs).toISOString().slice(0, 10);
 		const dayMs = 24 * 60 * 60 * 1000;
 		const window = `start_date=${isoDay(Date.now() - dayMs)}&end_date=${isoDay(Date.now() + dayMs)}`;

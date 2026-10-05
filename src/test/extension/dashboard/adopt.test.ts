@@ -1,6 +1,3 @@
-/**
- * resolveAdoptableCredentials: which external group's credentials an adopt may copy.
- */
 import * as assert from "node:assert";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "../../../extension/dashboard/adopt";
 import type { DashboardStateInputs } from "../../../extension/dashboard/state";
@@ -59,9 +56,8 @@ suite("extension/dashboard/adopt", () => {
 		};
 
 		test("resolves by the row handle, immune to snapshot order churn on a shared base URL", () => {
-			// Two groups on one host: the status window's Map re-inserts entries on
-			// refresh, so the rows arrive in either order. The handle rides the
-			// serverId, where the old rendered-ordinal match could hand back the
+			// Two groups on one host: the status window's Map re-inserts entries on refresh, so the rows arrive in
+			// either order. The handle rides the serverId, where the old rendered-ordinal match could hand back the
 			// OTHER group's key.
 			const snapshots = [snapshotFor("group:aaa:http://ext.test"), snapshotFor("group:bbb:http://ext.test")];
 			const first = handleOf(snapshots, [], "ext.test (1)");
@@ -79,9 +75,8 @@ suite("extension/dashboard/adopt", () => {
 
 		test("refuses a source that is declared at intent time (a forged intent cannot clone a declared group's secret)", () => {
 			const snapshots = [snapshotFor("group:aaa:http://ext.test"), snapshotFor("group:bbb:http://ext.test")];
-			// The handles as pushed while both rows were external; the first
-			// group's entry is then declared (adopted or hand-written) before the
-			// intent lands.
+			// The handles as pushed while both rows were external; the first group's entry is then declared (adopted or
+			// hand-written) before the intent lands.
 			const first = handleOf(snapshots, [], "ext.test (1)");
 			const second = handleOf(snapshots, [], "ext.test (2)");
 			const declared = [
@@ -137,9 +132,8 @@ suite("extension/dashboard/adopt", () => {
 
 		test("resolveExternalGroupIdentity yields the raw status identity, under the same trust rules", () => {
 			const snapshots = [snapshotFor("group:aaa:http://ext.test"), snapshotFor("group:bbb:http://ext.test")];
-			// Both ordinal rows resolve to the same raw status identity: the
-			// tombstone is keyed by the snapshot's own label, never the display
-			// ordinal.
+			// Both ordinal rows resolve to the same raw status identity: the tombstone is keyed by the snapshot's own
+			// label, never the display ordinal.
 			const handle = handleOf(snapshots, [], "ext.test (1)");
 			assert.deepStrictEqual(resolveExternalGroupIdentity(snapshots, [], "http://ext.test", handle), {
 				label: "ext.test",
